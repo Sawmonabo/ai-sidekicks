@@ -1,6 +1,7 @@
-//! The mark a waiting message carries once a person's `Send now` handed it ahead of what its
-//! provider held: the request's key and the id its answer carries, written before the hand, so a
-//! `Send now` sent again under the same key answers what the first did and dispatches nothing.
+//! The mark a waiting message carries once a person's `Send now` put it ahead of what its provider
+//! holds: the request's key and the id its answer carries, written with its place first before the
+//! hand. A `Send now` sent again answers that id, handing the message again only when its provider
+//! no longer holds it, and a later order that puts the message after another clears the mark.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -37,6 +38,15 @@ static MARK_SENT_NOW_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// Clears the mark of a message still waiting.
+static CLEAR_SENT_NOW_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE queue_items SET send_now_key = NULL, send_now_id = NULL, updated_at = @now
+  WHERE id = @id AND state = '{}'",
+        <&'static str>::from(QueueItemState::Queued)
+    )
+});
+
 /// The statement that marks `item_id` sent now under `key`, its answer carrying
 /// `intervention_id`; refused once the message has left `queued` or was sent now before.
 pub(crate) fn mark_sent_now_statement(
@@ -51,6 +61,19 @@ pub(crate) fn mark_sent_now_statement(
             text_binding("@id", item_id.text().as_str()),
             text_binding("@key", key.as_str()),
             text_binding("@send_now_id", intervention_id.text().as_str()),
+            text_binding("@now", now.as_str()),
+        ]),
+        expected_row_count: Some(1),
+    }
+}
+
+/// The statement that clears the `Send now` mark of `item_id`, so it goes in its place; refused
+/// once the message has left `queued`.
+pub(crate) fn clear_sent_now_statement(item_id: &QueueItemId, now: &WireInstant) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(CLEAR_SENT_NOW_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@id", item_id.text().as_str()),
             text_binding("@now", now.as_str()),
         ]),
         expected_row_count: Some(1),

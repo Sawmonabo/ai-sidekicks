@@ -222,8 +222,8 @@ impl WaitingMessages {
 }
 
 impl ContinuedMessages for WaitingMessages {
-    fn session_lock(&self) -> &KeyedLock<SessionId> {
-        &self.session_lock
+    fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>> {
+        self.session_lock.acquire(session_id).boxed()
     }
 
     fn read(

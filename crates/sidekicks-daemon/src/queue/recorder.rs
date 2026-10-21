@@ -37,6 +37,7 @@ use crate::events::session::appender::{
 };
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::queue::changes::{QueueChangeSignals, QueueKey};
+use crate::queue::store::send_now::clear_sent_now_statement;
 use crate::queue::store::{
     NewQueueItem, QueueItemExit, QueueItemOutcome, QueueItemReader, QueueItemRecord,
     admit_undelivered_statement, current_interrupted_lead_run_statement,
@@ -446,16 +447,23 @@ impl QueueRecorder {
     }
 
     /// Puts the waiting items `ordered` in that order among the places they hold, in one write,
-    /// which no event records. Fails as [`QueueRecordError`] says, refused when one of them has
-    /// left `queued`; nothing is written then.
+    /// which no event records; an item a `Send now` marked loses the mark when the order puts it
+    /// after another, so it goes in its place. Fails as [`QueueRecordError`] says, refused when one
+    /// of them has left `queued`; nothing is written then.
     pub(crate) async fn record_order(
         &self,
         ordered: &[QueueItemRecord],
         now: &WireInstant,
     ) -> Result<(), QueueRecordError> {
-        self.writer
-            .write(placement_statements(ordered, now))
-            .await?;
+        let mut statements = placement_statements(ordered, now);
+        statements.extend(
+            ordered
+                .iter()
+                .skip(1)
+                .filter(|item| item.sent_now_id.is_some())
+                .map(|item| clear_sent_now_statement(&item.id, now)),
+        );
+        self.writer.write(statements).await?;
         self.raise_committed(ordered, true);
         Ok(())
     }

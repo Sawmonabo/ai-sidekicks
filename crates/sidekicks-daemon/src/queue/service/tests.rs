@@ -94,6 +94,8 @@ struct DriverCalls {
     resumes: Mutex<Vec<(RunId, Vec<QueueItemId>)>>,
     /// Holds a start before it answers.
     start_pause: PausePoint,
+    /// Holds a steer before it answers.
+    steer_pause: PausePoint,
     /// How many starts fail before one succeeds.
     start_failures_left: AtomicUsize,
     /// How many priority steers find their turn ended before one is taken.
@@ -179,7 +181,9 @@ fn recording_driver(calls: &Arc<DriverCalls>) -> MockProviderDriver {
         };
         lock(&steering.steers).push((client_idempotency_key, payload.is_priority));
         let is_dropped = payload.is_priority && take_one(&steering.dropped_priority_steers_left);
+        let steering = Arc::clone(&steering);
         async move {
+            steering.steer_pause.pass().await;
             if is_dropped {
                 return Err(DriverError::SteerTurnEnded(SteerTurnEndedError {
                     run_id: target_run_id,
@@ -218,7 +222,7 @@ struct Fixture {
     queue: Arc<RunQueue>,
     session_id: SessionId,
     // The engine's posture files.
-    _home: TempDir,
+    home: TempDir,
 }
 
 async fn fixture(driver: MockProviderDriver) -> Fixture {
@@ -228,11 +232,29 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     let session_id = test_session_id();
     insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
     insert_lead(&database, session_id);
+    let queue = queue_over(&database, &log, &home, driver);
+    Fixture {
+        database,
+        log,
+        queue,
+        session_id,
+        home,
+    }
+}
+
+/// A run queue over `database` and its `log`, built as the daemon's start builds it, its lead's
+/// provider answered by `driver`.
+fn queue_over(
+    database: &TestDatabase,
+    log: &TestLog,
+    home: &TempDir,
+    driver: MockProviderDriver,
+) -> Arc<RunQueue> {
     let pool = Arc::new(DatabaseReadPool::new(
         database.path(),
         READ_STATEMENT_CAPACITY,
     ));
-    let engine = test_engine(&database, Arc::clone(&log.service), home.path());
+    let engine = test_engine(database, Arc::clone(&log.service), home.path());
     let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
     record_first_provider_capabilities(&providers);
     let runtime_bindings = Arc::new(RuntimeBindingStore::new(
@@ -265,7 +287,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     ));
     let read_damaged_from_sequence: Arc<DamagedFromSequenceReader> =
         Arc::new(|_: &SessionId| None::<i64>);
-    let queue = RunQueue::new(RunQueueDeps {
+    RunQueue::new(RunQueueDeps {
         pool: Arc::clone(&pool),
         event_log: Arc::clone(&log.service),
         writer: Arc::clone(&log.writer),
@@ -278,14 +300,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         pauses: Arc::new(RunPauseControl::new(pool, engine, providers)),
         followers: Arc::clone(&log.followers),
         read_damaged_from_sequence,
-    });
-    Fixture {
-        database,
-        log,
-        queue,
-        session_id,
-        _home: home,
-    }
+    })
 }
 
 /// Writes the session's creation, its lead bound to the table's first provider.

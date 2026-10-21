@@ -38,9 +38,9 @@ fn new_run_id() -> RunId {
 }
 
 // Opening a session whose conversation an earlier daemon left resumes it, records the binding the
-// resume minted on its predecessor's run, and records the opening run's own binding on it, all under
-// the one hold the open took. Killed by the run's binding taking the session's lock again inside
-// the open (the test times out), or by the relaunch left unrecorded.
+// resume minted on its predecessor's run, and records the opening run's own binding on it, all
+// under the one hold the open took. Killed by the run's binding taking the session's lock again
+// inside the open (the test times out), or by the relaunch left unrecorded.
 #[tokio::test]
 async fn open_resumes_a_conversation_and_binds_the_run_under_its_own_hold() {
     let database = TestDatabase::new();

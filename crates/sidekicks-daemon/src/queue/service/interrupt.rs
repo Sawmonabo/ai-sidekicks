@@ -1,6 +1,7 @@
 //! The run queue as an interrupt uses it: the hold on a run's hands while a person's interrupt
 //! settles, the run's end with the interrupt's choice for its waiting messages in the same write,
-//! the release that applies that choice to a run that ended first, and `Send now`, which hands a
+//! the release that applies that choice to a run that ended first, recorded on the interrupt's row
+//! when it fails and settled again at the session's next hold, and `Send now`, which hands a
 //! waiting message ahead of what its provider holds instead of interrupting, or keeps it first
 //! and marked for a run that takes no message now.
 
@@ -10,7 +11,6 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
 
 use super::{EMPTIED_RUN_DETAIL, RunQueue};
@@ -19,6 +19,10 @@ use crate::interventions::interrupt_queue::{
     InterruptCause, InterruptChoice, InterruptEnd, InterruptQueue, InterruptQueueError, SendNow,
     SendNowOutcome,
 };
+use crate::interventions::store::{
+    UnreleasedInterrupt, clear_unreleased_statement, read_unreleased_interrupts,
+    record_unreleased_statement,
+};
 use crate::keyed_lock::KeyHold;
 use crate::provider::driver::run_control::InterruptPendingChoice;
 use crate::queue::delivery::{InterruptHoldRelease, QueueWithdrawal, reordered_of};
@@ -26,7 +30,8 @@ use crate::queue::error::QueueError;
 use crate::queue::refusals::{
     UnreturnedReason, left_queue_refusal, queue_item_not_found, unreturned_refusal,
 };
-use crate::queue::store::send_now::{SentNow, mark_sent_now_statement, read_sent_now};
+use crate::queue::session_lock::UnreleasedInterrupts;
+use crate::queue::store::send_now::mark_sent_now_statement;
 use crate::queue::store::{
     QueueItemOutcome, QueueItemRecord, RecordedQueueItemState, placement_statements,
 };
@@ -49,7 +54,7 @@ impl InterruptQueue for RunQueue {
     ) -> BoxFuture<'_, Result<(), InterruptQueueError>> {
         async move {
             let session_id = self.session_of_run(run_id).await?;
-            let hold = self.hold_session(session_id).await;
+            let hold = self.session_lock.hold_session(session_id).await;
             self.delivery
                 .hold_for_interrupt(&hold, run_id, intervention_id)
                 .await;
@@ -120,10 +125,44 @@ impl InterruptQueue for RunQueue {
                         "settling what an interrupt's released hold held back failed; the \
                          session's next hold settles it again"
                     );
-                    queue.note_failed_release(session_id, run_id, choice);
                 }
             });
             Ok(())
+        }
+        .boxed()
+    }
+}
+
+impl UnreleasedInterrupts for RunQueue {
+    fn settle_unreleased<'call>(
+        &'call self,
+        hold: &'call KeyHold<'_, SessionId>,
+    ) -> BoxFuture<'call, Result<(), QueueError>> {
+        async move {
+            let session_id = *hold.key();
+            let unreleased = self
+                .pool
+                .read(ReadLength::Short, move |reader| {
+                    Ok::<_, QueueError>(read_unreleased_interrupts(reader, &session_id)?)
+                })
+                .await?;
+            let mut first_failure = None;
+            for interrupt in unreleased {
+                let Err(error) = self.settle_unreleased_interrupt(hold, interrupt).await else {
+                    continue;
+                };
+                if first_failure.is_some() {
+                    tracing::error!(
+                        session_id = %session_id,
+                        run_id = %interrupt.run_id,
+                        error = &error as &(dyn std::error::Error + 'static),
+                        "settling again what an interrupt's release left unsettled failed"
+                    );
+                } else {
+                    first_failure = Some(error);
+                }
+            }
+            first_failure.map_or(Ok(()), Err)
         }
         .boxed()
     }
@@ -142,7 +181,7 @@ impl RunQueue {
             verdict,
         } = end;
         let session_id = self.session_of_run(run_id).await?;
-        let hold = self.hold_session(session_id).await;
+        let hold = self.session_lock.hold_session(session_id).await;
         let (pending, deliver_first, limit, cut_turn) = match cause {
             InterruptCause::Person(choice) => (choice.pending, choice.deliver_first, None, None),
             InterruptCause::Limit { limit, cut_turn } => (
@@ -204,9 +243,9 @@ impl RunQueue {
     // is taken back, and the message is marked with the request's key and put first in one write.
     // A run that takes a message now, a person's card open among them, is handed it first with
     // priority and the rest after; any other run keeps it first and marked for its next hand. A
-    // message marked under the same key and still with its provider answers as sent; one whose
-    // hand never reached the provider goes again. Every error after the take-back hands the rows
-    // again first.
+    // message a `Send now` marked before, under this key or another, keeps that mark and answers
+    // its id: as sent while its provider holds it, else after it goes first again. Every error
+    // after the take-back hands the rows again first.
     async fn send_now_under_hold(&self, send: SendNow) -> Result<SendNowOutcome, QueueError> {
         let SendNow {
             run_id,
@@ -216,7 +255,7 @@ impl RunQueue {
             intervention_id,
         } = send;
         let session_id = self.session_of_run(run_id).await?;
-        let hold = self.hold_session(session_id).await;
+        let hold = self.session_lock.hold_session(session_id).await;
         let Some(run) = read_run_through::<QueueError>(&self.pool, run_id).await? else {
             return Err(RunRefusal::NotFound { run_id }.into());
         };
@@ -234,10 +273,7 @@ impl RunQueue {
         if item.state != RecordedQueueItemState::Queued {
             return Ok(SendNowOutcome::Refused(left_queue_refusal(&item)));
         }
-        let marked = self.read_sent_now(session_id, key.clone()).await?;
-        let marked_id = marked
-            .filter(|sent| sent.item_id == item.id)
-            .map(|sent| sent.intervention_id);
+        let marked_id = item.sent_now_id;
         if let Some(marked_id) = marked_id
             && self.delivery.is_handed(&item.id)
         {
@@ -289,23 +325,19 @@ impl RunQueue {
             if error.refused_statement_index().is_none() {
                 return Err(error.into());
             }
-            // A retry under the same key marked it first, or the message left the queue.
-            let sent = self.read_sent_now(session_id, key).await?;
-            if let Some(sent) = sent.filter(|sent| sent.item_id == item.id) {
-                return Ok(SendNowOutcome::Sent {
-                    intervention_id: sent.intervention_id,
-                });
-            }
-            let left = self.read_item(item.id).await?;
-            return Ok(SendNowOutcome::Refused(match left {
-                Some(left) => left_queue_refusal(&left),
-                None => queue_item_not_found(item.id),
-            }));
+            // The key was spent on another message of the session, or the message left the queue.
+            return Ok(SendNowOutcome::Refused(
+                match self.read_item(item.id).await? {
+                    Some(left) => left_queue_refusal(&left),
+                    None => queue_item_not_found(item.id),
+                },
+            ));
         }
         self.recorder.raise_committed(&ordered, true);
+        let sent_now_id = marked_id.unwrap_or(intervention_id);
         let handed = if takes_now {
             let item = QueueItemRecord {
-                is_sent_now: true,
+                sent_now_id: Some(sent_now_id),
                 ..item
             };
             self.delivery.hand_first(&hold, run_id, item).await
@@ -317,12 +349,13 @@ impl RunQueue {
             return Err(error.into());
         }
         Ok(SendNowOutcome::Sent {
-            intervention_id: marked_id.unwrap_or(intervention_id),
+            intervention_id: sent_now_id,
         })
     }
 
     // Lets go the hold `intervention_id` took on `run_id` under the session's hold; the run's last
-    // hold going applies `choice` to a run that ended first and settles what the hold held back.
+    // hold going applies `choice` to a run that ended first and settles what the hold held back. A
+    // settle that fails is recorded on the interrupt's row, since no hold is left to retry it.
     async fn release_under_hold(
         &self,
         session_id: SessionId,
@@ -330,7 +363,7 @@ impl RunQueue {
         intervention_id: InterventionId,
         choice: InterruptChoice,
     ) -> Result<(), QueueError> {
-        let hold = self.hold_session(session_id).await;
+        let hold = self.session_lock.hold_session(session_id).await;
         match self
             .delivery
             .release_interrupt_hold(run_id, intervention_id)
@@ -338,12 +371,26 @@ impl RunQueue {
             InterruptHoldRelease::NotHeld | InterruptHoldRelease::StillHeld => return Ok(()),
             InterruptHoldRelease::Released => {}
         }
-        self.settle_release(&hold, run_id, choice).await
+        let settled = self.settle_release(&hold, run_id, choice).await;
+        if settled.is_err()
+            && let Err(error) = self
+                .writer
+                .write(vec![record_unreleased_statement(&intervention_id, choice)])
+                .await
+        {
+            tracing::error!(
+                session_id = %session_id,
+                run_id = %run_id,
+                error = &error as &(dyn std::error::Error + 'static),
+                "recording an interrupt's unsettled release failed; nothing settles it again"
+            );
+        }
+        settled
     }
 
     // What the last hold of `run_id` going settles: `choice` applied to a run that ended first,
     // and what the hold held back.
-    pub(super) async fn settle_release(
+    async fn settle_release(
         &self,
         hold: &KeyHold<'_, SessionId>,
         run_id: RunId,
@@ -448,16 +495,22 @@ impl RunQueue {
         Ok(())
     }
 
-    async fn read_sent_now(
+    // Settles one release recorded unsettled, under `hold`, and clears its record.
+    async fn settle_unreleased_interrupt(
         &self,
-        session_id: SessionId,
-        key: ClientUuid,
-    ) -> Result<Option<SentNow>, QueueError> {
-        self.pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, QueueError>(read_sent_now(reader, &session_id, &key)?)
-            })
-            .await
+        hold: &KeyHold<'_, SessionId>,
+        unreleased: UnreleasedInterrupt,
+    ) -> Result<(), QueueError> {
+        let UnreleasedInterrupt {
+            intervention_id,
+            run_id,
+            choice,
+        } = unreleased;
+        self.settle_release(hold, run_id, choice).await?;
+        self.writer
+            .write(vec![clear_unreleased_statement(&intervention_id)])
+            .await?;
+        Ok(())
     }
 
     async fn session_of_run(&self, run_id: RunId) -> Result<SessionId, QueueError> {

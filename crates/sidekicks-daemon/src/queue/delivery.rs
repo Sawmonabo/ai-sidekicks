@@ -40,7 +40,7 @@ use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool
 use crate::database::statement::WriteStatement;
 use crate::events::session::appender::SessionEventDraft;
 use crate::ipc::handlers::driver::resolution::{LiveRunDriverError, read_run_driver};
-use crate::keyed_lock::{KeyHold, KeyedLock};
+use crate::keyed_lock::KeyHold;
 use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::registry::ProviderRegistry;
@@ -51,6 +51,7 @@ use crate::queue::delivery::chain::{ChainJob, SessionChain};
 use crate::queue::delivery::state::{DeliveryState, HandRoute, is_kept_by_process};
 use crate::queue::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
 use crate::queue::refusals::UnreturnedReason;
+use crate::queue::session_lock::QueueSessionLock;
 use crate::queue::store::{
     QueueItemOutcome, QueueItemReader, QueueItemRecord, placement_statements,
 };
@@ -97,7 +98,7 @@ pub(crate) struct QueueDeliveryDeps {
     /// The drivers, found by the provider a run is bound to.
     pub(crate) providers: Arc<ProviderRegistry>,
     /// The queue's own per-session lock, never the session append lock: a withdraw waits under it.
-    pub(crate) session_lock: Arc<KeyedLock<SessionId>>,
+    pub(crate) session_lock: Arc<QueueSessionLock>,
     /// The identity of each session's provider process.
     pub(crate) processes: Arc<dyn ProviderProcessIds>,
     /// Which waiting messages open a run being started.
@@ -225,7 +226,6 @@ impl QueueDelivery {
         hold: &KeyHold<'_, SessionId>,
         run_id: RunId,
     ) -> Result<(), DeliveryError> {
-        let session_id = *hold.key();
         let Some(run) = self.read_run(run_id).await? else {
             return Ok(());
         };
@@ -236,34 +236,18 @@ impl QueueDelivery {
         )
         .await?;
         let handing = driver.message_handing();
-        match handing.hands_at {
-            HandMoment::AtOnce => {}
-            HandMoment::AtToolBoundary => return Ok(()),
-        }
-        let takes_now = self.lock_state().takes_messages_now(run.state, run_id);
-        if !takes_now || self.is_held_for_interrupt(run_id) {
-            return Ok(());
-        }
-        let lead_waiting = self.lead_waiting(self.read_waiting(run_id).await?, false);
+        let lead_waiting = self.waiting_to_hand(&run, run_id, handing).await?;
+        let session_id = *hold.key();
         let process = self.shared.deps.processes.process_identity(&session_id);
         let mut state = self.lock_state();
-        let (sent_now, rest): (Vec<_>, Vec<_>) = state
-            .unhanded_of(lead_waiting, false)
-            .into_iter()
-            .partition(|item| item.is_sent_now);
-        for (items, is_priority) in [(sent_now, true), (rest, false)] {
-            if items.is_empty() {
-                continue;
-            }
-            state.mark_handed(&items, run_id, HandRoute::Driver(handing), process);
-            let job = ChainJob::Hand {
-                run_id,
-                driver: Arc::clone(&driver),
-                items,
-                is_priority,
-            };
-            self.push_job(&mut state, session_id, job);
-        }
+        self.push_waiting_hands(
+            &mut state,
+            session_id,
+            run_id,
+            &driver,
+            lead_waiting,
+            process,
+        );
         Ok(())
     }
 
@@ -286,20 +270,32 @@ impl QueueDelivery {
         )
         .await?;
         let handing = driver.message_handing();
+        let lead_waiting = match self.read_run(run_id).await? {
+            Some(run) => self.waiting_to_hand(&run, run_id, handing).await?,
+            None => Vec::new(),
+        };
         let process = self.shared.deps.processes.process_identity(&session_id);
-        {
-            let mut state = self.lock_state();
-            let items = vec![item];
-            state.mark_handed(&items, run_id, HandRoute::Driver(handing), process);
-            let job = ChainJob::Hand {
-                run_id,
-                driver,
-                items,
-                is_priority: true,
-            };
-            self.push_job(&mut state, session_id, job);
-        }
-        self.hand_waiting(hold, run_id).await
+        // Both hands join the chain under one hold of the state, so the priority hand's end, a
+        // steer whose turn ended among them, cannot free the message for the rest's hand to send.
+        let mut state = self.lock_state();
+        let items = vec![item];
+        state.mark_handed(&items, run_id, HandRoute::Driver(handing), process);
+        let job = ChainJob::Hand {
+            run_id,
+            driver: Arc::clone(&driver),
+            items,
+            is_priority: true,
+        };
+        self.push_job(&mut state, session_id, job);
+        self.push_waiting_hands(
+            &mut state,
+            session_id,
+            run_id,
+            &driver,
+            lead_waiting,
+            process,
+        );
+        Ok(())
     }
 
     /// Hands the driver every lead message waiting for the run at a tool boundary of its turn, in
@@ -327,7 +323,12 @@ impl QueueDelivery {
         let delivery = self.clone();
         self.shared.tasks.spawn(
             async move {
-                let hold = delivery.shared.deps.session_lock.acquire(session_id).await;
+                let hold = delivery
+                    .shared
+                    .deps
+                    .session_lock
+                    .hold_session(session_id)
+                    .await;
                 let handed = delivery
                     .hand_at_boundary(&hold, run_id, driver, handing)
                     .await;
@@ -730,6 +731,57 @@ impl QueueDelivery {
                 Ok::<_, DeliveryError>(waiting)
             })
             .await
+    }
+
+    // The lead messages waiting for `run_id` that a hand sends now, in the queue's order: none
+    // when its provider takes them only at a tool boundary, the run takes none now, or an
+    // interrupt holds it.
+    async fn waiting_to_hand(
+        &self,
+        run: &RunRead,
+        run_id: RunId,
+        handing: MessageHanding,
+    ) -> Result<Vec<QueueItemRecord>, DeliveryError> {
+        match handing.hands_at {
+            HandMoment::AtOnce => {}
+            HandMoment::AtToolBoundary => return Ok(Vec::new()),
+        }
+        let takes_now = self.lock_state().takes_messages_now(run.state, run_id);
+        if !takes_now || self.is_held_for_interrupt(run_id) {
+            return Ok(Vec::new());
+        }
+        Ok(self.lead_waiting(self.read_waiting(run_id).await?, false))
+    }
+
+    // Joins the chain with the hands of `lead_waiting` not yet handed: a message sent now first,
+    // marked priority, then the rest.
+    fn push_waiting_hands(
+        &self,
+        state: &mut DeliveryState,
+        session_id: SessionId,
+        run_id: RunId,
+        driver: &Arc<dyn ProviderDriver>,
+        lead_waiting: Vec<QueueItemRecord>,
+        process: Option<ProviderProcessIdentity>,
+    ) {
+        let handing = driver.message_handing();
+        let (sent_now, rest): (Vec<_>, Vec<_>) = state
+            .unhanded_of(lead_waiting, false)
+            .into_iter()
+            .partition(|item| item.sent_now_id.is_some());
+        for (items, is_priority) in [(sent_now, true), (rest, false)] {
+            if items.is_empty() {
+                continue;
+            }
+            state.mark_handed(&items, run_id, HandRoute::Driver(handing), process);
+            let job = ChainJob::Hand {
+                run_id,
+                driver: Arc::clone(driver),
+                items,
+                is_priority,
+            };
+            self.push_job(state, session_id, job);
+        }
     }
 
     // The lead's messages among `waiting`, a child's steer box delivering the child's own, less

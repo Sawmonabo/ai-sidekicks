@@ -18,6 +18,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::{
     MessageContent, QueueItemId, QueueItemNotDeliveredReason, QueueItemState, QueueItemSummary,
 };
@@ -115,8 +116,9 @@ pub(crate) struct QueueItemRecord {
     pub(crate) created_at: WireInstant,
     /// When it last changed.
     pub(crate) updated_at: WireInstant,
-    /// Whether a person's `Send now` marked it to go ahead of what its provider holds.
-    pub(crate) is_sent_now: bool,
+    /// The id the answer of the person's `Send now` that marked it to go ahead of what its
+    /// provider holds carries; absent on an item no `Send now` marked.
+    pub(crate) sent_now_id: Option<InterventionId>,
 }
 
 /// A message to insert. It takes the place of `replaces_queue_item_id` when it is an edit, else
@@ -180,7 +182,7 @@ pub(crate) struct CurrentLeadRun {
 /// The columns every read of an item selects, in the order `record_of` reads them.
 pub(super) const COLUMNS: &str = "id, session_id, state, not_delivered_reason, payload, \
     target_run_id, child_handle, position, client_idempotency_key, created_at, updated_at, \
-    send_now_key IS NOT NULL";
+    send_now_id";
 
 /// The columns `COLUMNS` names; a read's own column follows them.
 pub(super) const COLUMN_COUNT: usize = 12;
@@ -599,11 +601,12 @@ pub(crate) fn summary_of(record: QueueItemRecord) -> QueueItemSummary {
         body,
         child_handle,
         position,
-        is_sent_now,
+        sent_now_id,
         created_at,
         updated_at,
         ..
     } = record;
+    let is_sent_now = sent_now_id.is_some();
     let content = body.content;
     let attachments = body.attachments;
     match state {
@@ -837,7 +840,7 @@ pub(super) fn record_of(row: &Row<'_>) -> rusqlite::Result<QueueItemRecord> {
         client_idempotency_key: optional_text_column(row, 8, ClientUuid::new)?,
         created_at: text_column(row, 9, WireInstant::try_from)?,
         updated_at: text_column(row, 10, WireInstant::try_from)?,
-        is_sent_now: row.get(11)?,
+        sent_now_id: optional_text_column(row, 11, |text| InterventionId::new(&text))?,
     })
 }
 

@@ -38,7 +38,7 @@ impl QueueAdmission {
             .await?;
         // Taken under the lock, so a removal either lands first or finds the opening taken.
         let opening = {
-            let _hold = self.deps.session_lock.acquire(session_id).await;
+            let _hold = self.deps.session_lock.hold_session(session_id).await;
             let is_interrupted = read_run_through::<QueueError>(&self.deps.pool, run_id)
                 .await?
                 .is_some_and(|run| run.state == RunState::Interrupted);
@@ -151,7 +151,7 @@ impl QueueAdmission {
             "continuing an interrupted run failed",
         );
         self.release(run_id);
-        let hold = self.deps.session_lock.acquire(session_id).await;
+        let hold = self.deps.session_lock.hold_session(session_id).await;
         let marked = self
             .mark_waiting_undelivered(&hold, run_id, QueueItemNotDeliveredReason::Failed)
             .await;
@@ -172,7 +172,7 @@ impl QueueAdmission {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), QueueError> {
-        let hold = self.deps.session_lock.acquire(session_id).await;
+        let hold = self.deps.session_lock.hold_session(session_id).await;
         let current_run_id = self
             .deps
             .pool
@@ -189,9 +189,10 @@ impl QueueAdmission {
         Ok(())
     }
 
-    // Takes the continued run's place at the gate: its parked place again, the run going on while it
-    // waits, or a new place it waits for as a start does. Answers `false` when that wait outlived
-    // the delivery timeout, its messages then not delivered, or the place was released meanwhile.
+    // Takes the continued run's place at the gate: its parked place again, the run going on while
+    // it waits, or a new place it waits for as a start does. Answers `false` when that wait
+    // outlived the delivery timeout, its messages then not delivered, or the place was released
+    // meanwhile.
     async fn admit_continue(
         &self,
         provider: &ProviderId,
@@ -210,7 +211,7 @@ impl QueueAdmission {
             Placed::Admitted => Ok(true),
             Placed::Released => Ok(false),
             Placed::TimedOut => {
-                let hold = self.deps.session_lock.acquire(session_id).await;
+                let hold = self.deps.session_lock.hold_session(session_id).await;
                 self.mark_waiting_undelivered(&hold, run_id, QueueItemNotDeliveredReason::TimedOut)
                     .await?;
                 Ok(false)

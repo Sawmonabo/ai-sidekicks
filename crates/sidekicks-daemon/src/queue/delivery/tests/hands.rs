@@ -73,7 +73,7 @@ async fn a_tool_boundary_answers_its_caller_while_the_session_lock_is_held() {
         run_id: fixture.run_id,
     };
 
-    let hold = fixture.session_lock.acquire(fixture.session_id).await;
+    let hold = fixture.session_lock.hold_session(fixture.session_id).await;
     let answered = timeout(WAIT, fixture.delivery.on_tool_boundary(boundary)).await;
     let steers_under_the_lock = steers.load(Ordering::SeqCst);
     drop(hold);
@@ -102,7 +102,7 @@ async fn a_hand_to_a_run_held_for_an_interrupt_makes_no_driver_call() {
     let (release, holder) = hold_chain(&fixture).await;
 
     {
-        let hold = fixture.session_lock.acquire(fixture.session_id).await;
+        let hold = fixture.session_lock.hold_session(fixture.session_id).await;
         fixture
             .delivery
             .hand_waiting(&hold, fixture.run_id)
@@ -139,7 +139,7 @@ async fn a_second_interrupt_failing_keeps_the_first_ones_hold() {
     insert_item(&fixture).await;
     let (first, second) = (intervention_id(), intervention_id());
     {
-        let hold = fixture.session_lock.acquire(fixture.session_id).await;
+        let hold = fixture.session_lock.hold_session(fixture.session_id).await;
         for intervention_id in [first, second] {
             timeout(
                 WAIT,
@@ -183,7 +183,7 @@ async fn a_tool_boundary_to_a_run_held_for_an_interrupt_leaves_the_message_for_t
     let (release, holder) = hold_chain(&fixture).await;
 
     {
-        let hold = fixture.session_lock.acquire(fixture.session_id).await;
+        let hold = fixture.session_lock.hold_session(fixture.session_id).await;
         fixture
             .delivery
             .hand_at_boundary(&hold, fixture.run_id, driver, HANDS_AT_TOOL_BOUNDARY)
@@ -237,7 +237,7 @@ async fn an_interrupt_hold_waits_out_a_hand_inside_its_driver_call(
         .await
         .expect("the hand steers");
 
-    let hold = fixture.session_lock.acquire(fixture.session_id).await;
+    let hold = fixture.session_lock.hold_session(fixture.session_id).await;
     let mut holding = pin!(fixture.delivery.hold_for_interrupt(
         &hold,
         fixture.run_id,

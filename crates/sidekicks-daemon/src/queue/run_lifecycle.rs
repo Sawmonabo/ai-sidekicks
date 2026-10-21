@@ -37,12 +37,13 @@ use tracing::Instrument as _;
 use crate::admission::memory_gate::MemoryGate;
 use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use crate::events::session::followers::CommittedEvent;
-use crate::keyed_lock::{KeyHold, KeyedLock};
+use crate::keyed_lock::KeyHold;
 use crate::queue::admission::QueueAdmission;
 use crate::queue::delivery::{InterruptedRunContinuation, QueueDelivery};
 use crate::queue::error::QueueError;
 use crate::queue::provider_session::ProviderSessions;
 use crate::queue::recorder::{QueueRecorder, RetargetRun, lead_run_queued};
+use crate::queue::session_lock::QueueSessionLock;
 use crate::queue::store::{CurrentLeadRun, QueueItemReader, QueueItemRecord};
 use crate::session::run::agent::read_lead_agent_through;
 use crate::session::run::pause::{ContinuedMessages, RunPauseControl, RunPauseError};
@@ -84,7 +85,7 @@ pub(crate) struct QueueRunLifecycleDeps {
     /// Settles the messages a resume kept, from the provider's record.
     pub(crate) pauses: Arc<RunPauseControl>,
     /// The queue's own per-session lock.
-    pub(crate) session_lock: Arc<KeyedLock<SessionId>>,
+    pub(crate) session_lock: Arc<QueueSessionLock>,
 }
 
 // The lead's messages an ended run's end moved on, and the session and run they went to.
@@ -214,8 +215,8 @@ impl QueueRunLifecycle {
 
     /// Reads the session's waiting messages again from the record, after its drain's earlier
     /// work: a run they wait for that ended is ended as at its end, a queued run no start holds is
-    /// started, and a live run is handed what waits for it. The receiver answers how the read went,
-    /// and a closed one that the lifecycle stopped first.
+    /// started, and a live run is handed what waits for it. The receiver answers how the read went;
+    /// it closes unanswered only when the drain panicked.
     pub(crate) fn reconcile(
         self: &Arc<Self>,
         session_id: SessionId,
@@ -362,7 +363,7 @@ impl QueueRunLifecycle {
             }
         }
         for run_id in work.continues {
-            let hold = self.deps.session_lock.acquire(session_id).await;
+            let hold = self.deps.session_lock.hold_session(session_id).await;
             if let Err(error) = self.continue_interrupted_run(&hold, run_id, false).await {
                 log_failure(session_id, &error, "continuing an interrupted run failed");
             }
@@ -433,7 +434,7 @@ impl QueueRunLifecycle {
                 // The start writes its opening's outcome first, so the opening is never handed
                 // again.
                 admission.settled(run_id).await;
-                let hold = self.deps.session_lock.acquire(session_id).await;
+                let hold = self.deps.session_lock.hold_session(session_id).await;
                 self.deps.delivery.hand_waiting(&hold, run_id).await?;
                 Ok(())
             }
@@ -452,7 +453,7 @@ impl QueueRunLifecycle {
         // go to the run it made live rather than to a next run beside it.
         self.settle_superseded_continue(session_id).await;
         {
-            let hold = self.deps.session_lock.acquire(session_id).await;
+            let hold = self.deps.session_lock.hold_session(session_id).await;
             if self.deps.delivery.is_held_for_interrupt(run_id) {
                 self.lock().ends_awaiting_interrupt.insert(run_id);
                 return Ok(());
@@ -538,7 +539,7 @@ impl QueueRunLifecycle {
                     );
                 }
             }
-            let hold = continued.session_lock().acquire(session_id).await;
+            let hold = continued.hold_session(session_id).await;
             if !continued.kept(&hold, run_id).is_empty() {
                 still_kept.insert(run_id);
             }
@@ -595,7 +596,7 @@ impl QueueRunLifecycle {
                 RunState::Running => {
                     admission.resume(run_id);
                     admission.settled(run_id).await;
-                    let hold = self.deps.session_lock.acquire(session_id).await;
+                    let hold = self.deps.session_lock.hold_session(session_id).await;
                     self.deps.delivery.hand_waiting(&hold, run_id).await?;
                 }
                 RunState::Starting | RunState::Pausing => {}

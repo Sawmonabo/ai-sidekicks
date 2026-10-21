@@ -91,9 +91,9 @@ pub(crate) trait InterruptQueue: Send + Sync {
     /// Hands `send.item_id` to its run ahead of what the provider holds, with every waiting row
     /// taken back first and handed again after it, the request's key recorded on the message; a
     /// run that takes no message now keeps it first in the queue, marked, for its next hand. No
-    /// interrupt is made. A message marked under the same key and still with its provider answers
-    /// as sent again. Fails as the queue's read, write or hand fails, every row taken back handed
-    /// again first.
+    /// interrupt is made. A message a `Send now` marked before, under any key, keeps that mark and
+    /// answers its id, handed again first only when its provider no longer holds it. Fails as the
+    /// queue's read, write or hand fails, every row taken back handed again first.
     fn send_now(&self, send: SendNow)
     -> BoxFuture<'_, Result<SendNowOutcome, InterruptQueueError>>;
 
@@ -121,7 +121,9 @@ pub(crate) trait InterruptQueue: Send + Sync {
     /// Lets go the hold the interrupt `intervention_id` took, and once no interrupt holds the run,
     /// applies `choice` to the messages of a run that ended first and hands the rest again. Takes
     /// the session's queue itself, so it is never called under it. A second release of one
-    /// interrupt changes nothing. Fails as the read, the choice's writes or the hand fail.
+    /// interrupt changes nothing. Fails as the read, the choice's writes or the hand fail, the
+    /// choice then recorded on the interrupt's row for the queue's next hold of the session, or
+    /// its next start, to settle again.
     fn release_interrupt(
         &self,
         run_id: RunId,
@@ -131,8 +133,8 @@ pub(crate) trait InterruptQueue: Send + Sync {
 
     /// [`InterruptQueue::release_interrupt`] for a run's end, which may be written under the
     /// session's queue: answers once the run is read, and the release runs once the queue is free.
-    /// A release that fails then marks the session, and the queue's next hold of it settles the
-    /// release again. Fails when the run cannot be read.
+    /// A release that fails then is recorded as [`InterruptQueue::release_interrupt`]'s is. Fails
+    /// when the run cannot be read.
     fn release_interrupt_at_run_end(
         &self,
         run_id: RunId,

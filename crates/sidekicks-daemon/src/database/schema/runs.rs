@@ -13,6 +13,7 @@ use crate::command_receipts::{CommandAcceptance, CommandOutcome};
 use crate::database::sql_list::{sql_list_of, sql_list_of_every};
 use crate::mcp::task_handle_recorder::MCP_TASK_ID_MAX_LENGTH;
 use crate::mcp::tool_calls::McpTaskGeneration;
+use crate::provider::driver::run_control::InterruptPendingChoice;
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 /// The runs' tables and indexes.
@@ -24,6 +25,7 @@ pub(super) fn runs_schema_sql() -> String {
     let intervention_types = sql_list_of_every::<InterventionType>();
     let intervention_states = sql_list_of_every::<InterventionState>();
     let requested = <&'static str>::from(InterventionState::Requested);
+    let pending_choices = sql_list_of_every::<InterruptPendingChoice>();
     let unresolved_intervention_states = sql_list_of(
         [InterventionState::Requested, InterventionState::Accepted].map(<&'static str>::from),
     );
@@ -99,14 +101,23 @@ CREATE TABLE interventions (
   -- What a failed dispatch threw, or why it never completed or was never sent, so a retry's saved
   -- reply carries the same reason.
   failure_reason          TEXT,
+  -- What a person's interrupt chose for the run's waiting messages when the release of its queue
+  -- hold failed to settle them, and the message it put first; NULL once settled, so the queue's
+  -- next hold of the session, or the daemon's next start, settles it again.
+  unreleased_choice       TEXT CHECK(unreleased_choice IN ({pending_choices})),
+  unreleased_deliver_first TEXT,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,
+  CHECK(unreleased_choice IS NOT NULL OR unreleased_deliver_first IS NULL),
   -- An identical retry returns the saved result; a reused key with a different payload is
   -- refused.
   UNIQUE (target_run_id, client_idempotency_key)
 ) STRICT;
 
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);
+-- The releases left unsettled, which every hold of a session's queue reads.
+CREATE INDEX idx_interventions_unreleased ON interventions(target_run_id)
+  WHERE unreleased_choice IS NOT NULL;
 CREATE INDEX idx_interventions_state ON interventions(state)
   WHERE state IN ({unresolved_intervention_states});
 

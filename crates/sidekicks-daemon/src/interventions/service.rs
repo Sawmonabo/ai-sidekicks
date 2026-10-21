@@ -127,10 +127,10 @@ pub(crate) struct InterventionService {
     pub(super) providers: Arc<ProviderRegistry>,
     /// The run queue.
     pub(super) queue: Arc<dyn InterruptQueue>,
-    /// Orders each run's interrupts, a person's and the daemon's own alike, apart from its
-    /// retries.
+    /// Orders each run's interrupts, a person's and the daemon's own alike, and each retry's read
+    /// of the run's `Send now` marks through the record of its row.
     pub(super) interrupt_lock: Arc<KeyedLock<RunId>>,
-    // Orders each run's retries.
+    // Orders each run's retries; a retry takes it before the interrupt lock.
     retry_lock: Arc<KeyedLock<RunId>>,
 }
 
@@ -290,9 +290,19 @@ impl InterventionService {
             }
         };
         let _hold = lock.acquire(run_id).await;
+        // A `Send now` marks its key under the interrupt lock, so a retry reads the mark and
+        // records its own row under that lock too, and two requests under one key never both run;
+        // the retry lets it go before its dispatch.
+        let sent_now_hold = match &request {
+            AgentRunInterveneRequest::Interrupt(_) => None,
+            AgentRunInterveneRequest::FasterModelRetry { .. } => {
+                Some(self.interrupt_lock.acquire(run_id).await)
+            }
+        };
         let run = self.require_run(run_id).await?;
-        // A reused key answers what it saved before any hold is taken, so its replay redoes none
-        // of the queue's work; read under the lock, it never sees a request of its type in flight.
+        // A reused key answers what it saved before any queue hold is taken: a saved row's replay
+        // redoes none of the queue's work, and a `Send now`'s replay goes to the queue only while
+        // its message waits. Read under the locks, it never sees a request in flight.
         let payload = stored_payload_of(&request);
         let (_, key) = request_guards(&request);
         if let Some(answer) = self.answer_sent_now(&request, run_id, &run, key).await? {
@@ -309,10 +319,9 @@ impl InterventionService {
             actor,
         };
         let AgentRunInterveneRequest::Interrupt(interrupt) = &request else {
-            return self
-                .record_and_apply(&target, &request, payload)
-                .await
-                .answer;
+            self.record(&target, &request, payload).await?;
+            drop(sent_now_hold);
+            return self.accept_and_apply(&target, &request).await.answer;
         };
         if let Some(answer) = self.send_now(interrupt, &target).await? {
             return Ok(answer);

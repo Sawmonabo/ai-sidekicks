@@ -12,6 +12,7 @@ use rusqlite::{Connection, params};
 use serde_json::json;
 use sidekicks_contracts::event::envelope::DAEMON_SCOPE_SENTINEL_SESSION_ID;
 use sidekicks_contracts::machine::id::MachineId;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
@@ -49,6 +50,7 @@ use crate::pty::shell::test_table::{TableFixture, table_fixture};
 use crate::session::directory::list_feed::SessionListFeed;
 use crate::session::directory::test_rows::insert_session_row;
 use crate::session::related::ranking::SessionRelatedRanking;
+use crate::session::run::engine::tests::insert_running_run;
 use crate::uuid_v7::mint_uuid_v7;
 use crate::workflow::test_rows::{
     TEST_SESSION_ID, TestStep, insert_run, insert_step, insert_workflow_version,
@@ -183,7 +185,11 @@ fn store_session(connection: &Connection, session_id: SessionId, state: SessionS
 async fn append_event(log: &TestLog, session_id: SessionId, tool: &str) {
     let event = serde_json::from_value(json!({
         "type": "agent.toolCall.invoked",
-        "payload": { "sessionId": session_id, "runId": mint_uuid_v7().to_string(), "toolName": tool },
+        "payload": {
+            "sessionId": session_id,
+            "runId": mint_uuid_v7().to_string(),
+            "toolName": tool,
+        },
     }))
     .expect("the test writes an agent.toolCall.invoked event");
     log.service
@@ -320,6 +326,20 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
             ],
         )
         .expect("the test stores a form draft");
+    let lead_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&fixture.database, session_id, lead_run_id);
+    reader
+        .execute(
+            "INSERT INTO interventions (id, target_run_id, type, state, payload,
+               expected_run_version, client_idempotency_key, unreleased_choice, created_at)
+             VALUES (?1, ?2, 'interrupt', 'applied', '{}', 1, ?1, 'returnToDraft', ?3)",
+            params![
+                mint_uuid_v7().to_string(),
+                lead_run_id.text().as_str(),
+                "2026-10-02T00:00:30.000Z"
+            ],
+        )
+        .expect("the test records an interrupt whose release was left unsettled");
 
     let report = fixture
         .purge
@@ -357,6 +377,14 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
             .expect("the test counts the run's rows");
         assert_eq!(left, 0, "{table} keeps none of the run's rows");
     }
+    let unreleased: i64 = reader
+        .query_row(
+            "SELECT COUNT(*) FROM interventions WHERE unreleased_choice IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the test counts the unsettled releases");
+    assert_eq!(unreleased, 0, "no unsettled release outlives its session");
     assert_eq!(event_count(&reader, survivor), 1);
     assert_eq!(
         receipts(&reader),

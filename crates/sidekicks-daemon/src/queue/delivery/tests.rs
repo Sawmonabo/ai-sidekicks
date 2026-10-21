@@ -33,7 +33,6 @@ use super::{
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::{TestLog, open_log};
-use crate::keyed_lock::KeyedLock;
 use crate::provider::driver::contract::MockProviderDriver;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::run_control::{
@@ -45,6 +44,7 @@ use crate::provider::driver::test_registry::{
 };
 use crate::queue::changes::QueueChangeSignals;
 use crate::queue::recorder::{QueueRecorder, QueueRecorderDeps};
+use crate::queue::session_lock::QueueSessionLock;
 use crate::queue::store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, insert_queue_item_statement,
 };
@@ -114,7 +114,7 @@ struct Fixture {
     database: TestDatabase,
     log: TestLog,
     delivery: QueueDelivery,
-    session_lock: Arc<KeyedLock<SessionId>>,
+    session_lock: Arc<QueueSessionLock>,
     process: Arc<ProcessStandIn>,
     openings: Arc<OpeningStandIn>,
     session_id: SessionId,
@@ -139,7 +139,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         pool: Arc::clone(&pool),
         signals: Arc::new(QueueChangeSignals::new()),
     }));
-    let session_lock = Arc::new(KeyedLock::new());
+    let session_lock = Arc::new(QueueSessionLock::new());
     let process = Arc::new(ProcessStandIn(Mutex::new(Some(FIRST_PROCESS))));
     let openings = Arc::new(OpeningStandIn(Mutex::new(HashSet::new())));
     let delivery = QueueDelivery::new(QueueDeliveryDeps {
@@ -252,7 +252,7 @@ fn stored_item(fixture: &Fixture, item_id: QueueItemId) -> QueueItemRecord {
 
 /// Hands the fixture's run its waiting messages under the session lock.
 async fn hand(fixture: &Fixture) {
-    let hold = fixture.session_lock.acquire(fixture.session_id).await;
+    let hold = fixture.session_lock.hold_session(fixture.session_id).await;
     fixture
         .delivery
         .hand_waiting(&hold, fixture.run_id)
@@ -262,7 +262,7 @@ async fn hand(fixture: &Fixture) {
 
 /// The ids of the messages a continue of the fixture's run reads, under the session lock.
 async fn continued_ids(fixture: &Fixture) -> Vec<QueueItemId> {
-    let hold = fixture.session_lock.acquire(fixture.session_id).await;
+    let hold = fixture.session_lock.hold_session(fixture.session_id).await;
     ContinuedMessages::read(&fixture.delivery, &hold, fixture.run_id, HANDS_AT_ONCE)
         .await
         .expect("the continue reads the waiting messages")

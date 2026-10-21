@@ -9,7 +9,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::keyed_lock::{KeyHold, KeyedLock};
+use crate::keyed_lock::KeyHold;
 use crate::provider::driver::message_handing::MessageHanding;
 use crate::provider::driver::run_control::WaitingMessage;
 use crate::queue::delivery::state::{HandRoute, is_kept_by_process};
@@ -112,8 +112,8 @@ impl QueueDelivery {
 }
 
 impl ContinuedMessages for QueueDelivery {
-    fn session_lock(&self) -> &KeyedLock<SessionId> {
-        &self.shared.deps.session_lock
+    fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>> {
+        Box::pin(self.shared.deps.session_lock.hold_session(session_id))
     }
 
     fn read(

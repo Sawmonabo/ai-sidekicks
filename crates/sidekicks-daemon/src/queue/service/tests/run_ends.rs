@@ -1,7 +1,7 @@
 //! What a run's end does with the lead's messages still waiting for it: rest with them and
 //! continue, move them to the run before it, to the live run or to a next run; rest until a send
 //! when a limit ended it; a start that failed; and the queue's stop waiting for a start a run's
-//! end made meanwhile.
+//! end made meanwhile and the hand that start's drain made after it.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -40,7 +40,7 @@ enum Expected {
 
 impl Fixture {
     /// Ends `run_id` as the lifecycle settles a run's end, then waits for what that end started.
-    async fn settle_end(&self, run_id: RunId) {
+    pub(super) async fn settle_end(&self, run_id: RunId) {
         self.queue
             .lifecycle
             .settle_ended_run(self.session_id, run_id);
@@ -176,17 +176,24 @@ async fn a_failed_start_leaves_its_opening_not_delivered_and_the_rest_to_a_next_
 }
 
 // The queue's stop waits for a start that a run's end, settled during the stop, made after the
-// starts were first waited for. Killed by waiting each kind of work once, in turn, so the stop
-// answers while the start is still with the driver.
+// starts were first waited for, and then for the hand that the drain of that start's `running`
+// change makes after the start ended. Killed by waiting each kind of work once, in turn, so the
+// stop answers while the start is with the driver, or before the drain's hand reaches it.
 #[tokio::test]
-async fn stop_waits_for_a_start_a_runs_end_makes_during_the_stop() {
+async fn stop_waits_for_the_work_a_runs_end_starts_during_the_stop() {
     let calls = Arc::new(DriverCalls::default());
     let start = calls.start_pause.arm();
+    let steer = calls.steer_pause.arm();
     let fixture = fixture(recording_driver(&calls)).await;
     let run_id = fixture.insert_run("completed");
-    let item_id = fixture.queue_message(run_id).await;
+    let opening = fixture.queue_message(run_id).await;
+    let rest = fixture.queue_message(run_id).await;
 
-    let hold = fixture.queue.session_lock.acquire(fixture.session_id).await;
+    let hold = fixture
+        .queue
+        .session_lock
+        .hold_session(fixture.session_id)
+        .await;
     fixture
         .queue
         .lifecycle
@@ -203,15 +210,27 @@ async fn stop_waits_for_a_start_a_runs_end_makes_during_the_stop() {
     sleep(HELD_WATCH).await;
     let is_stopped_during_start = stopping.is_finished();
     start.release.send(()).expect("the start waits");
+    timeout(WAIT, steer.reached)
+        .await
+        .expect("the next run's `running` change hands it the rest")
+        .expect("the hand reaches the driver");
+    sleep(HELD_WATCH).await;
+    let is_stopped_during_hand = stopping.is_finished();
+    steer.release.send(()).expect("the hand waits");
     timeout(WAIT, stopping)
         .await
-        .expect("the stop answers once the start does")
+        .expect("the stop answers once the hand does")
         .expect("the stop's task ends");
 
     assert!(!is_stopped_during_start, "the stop waits for the start");
+    assert!(
+        !is_stopped_during_hand,
+        "the stop waits for the drain's hand"
+    );
     let next_run_id = fixture
-        .stored_item(item_id)
+        .stored_item(opening)
         .target_run_id
-        .expect("the message went to a run");
-    assert_eq!(calls.starts(), [(next_run_id, item_id)]);
+        .expect("the opening went to a run");
+    assert_eq!(calls.starts(), [(next_run_id, opening)]);
+    assert_eq!(calls.steers(), [(rest, false)]);
 }

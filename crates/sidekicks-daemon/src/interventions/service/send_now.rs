@@ -1,8 +1,8 @@
 //! `Send now` on a provider that reads a priority message: an interrupt whose choice puts a
 //! waiting message first in the next turn hands that message ahead of what the provider holds
 //! instead, and records no intervention row. The message carries the request's key, so a request
-//! sent again under it answers what the first did once the provider took the message, runs again
-//! while it has not, and one that asks for something else under it is refused as a conflict.
+//! sent again under it answers what the first did once the message left the queue, runs again
+//! while it waits, and one that asks for something else under it is refused as a conflict.
 
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{
@@ -26,10 +26,11 @@ use crate::session::run::engine::RunEngineError;
 use crate::session::run::read::RunRead;
 
 impl InterventionService {
-    /// What a `Send now` saved under `key` on the session of `run` answers `request`: the message
-    /// it handed once the provider took it, when `request` puts that message first in the next
-    /// turn, a conflict when it asks for anything else, and `None` where no `Send now` spent the
-    /// key or its message has not been taken, so the request runs again. Fails as the read fails.
+    /// What a `Send now` saved under `key` on the session of `run` answers `request`: the first's
+    /// `applied` once its message left the queue, taken, removed, replaced or never delivered, when
+    /// `request` puts that message first in the next turn, a conflict when it asks for anything
+    /// else, and `None` where no `Send now` spent the key or its message still waits, so the
+    /// request runs again. Fails as the read fails.
     pub(super) async fn answer_sent_now(
         &self,
         request: &AgentRunInterveneRequest,
@@ -65,7 +66,7 @@ impl InterventionService {
         if !is_same_request {
             return Err(idempotency_conflict(run_id, sent.intervention_id));
         }
-        if state != Some(RecordedQueueItemState::Admitted) {
+        if state == Some(RecordedQueueItemState::Queued) {
             return Ok(None);
         }
         Ok(Some(response(

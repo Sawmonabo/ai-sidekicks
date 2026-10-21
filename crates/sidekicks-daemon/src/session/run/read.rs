@@ -344,13 +344,13 @@ pub(crate) fn safe_run_version(version: i64) -> SafeInt<0> {
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::{Connection, params};
+    use rusqlite::params;
     use sidekicks_contracts::run::id::RunId;
 
     use super::read_run_provider;
-    use crate::database::schema::DAEMON_SCHEMA_SQL;
-    use crate::database::writer::test_file::test_session_id;
-    use crate::provider::driver::registry::test_provider;
+    use crate::database::writer::test_file::{TestDatabase, test_session_id};
+    use crate::provider::driver::PROVIDERS;
+    use crate::provider::driver::test_registry::bind_run_to_first_provider;
     use crate::uuid_v7::mint_uuid_v7;
 
     // Killed by reading the run's own binding alone, which finds none for a subagent, by climbing
@@ -358,10 +358,8 @@ mod tests {
     // process of its own.
     #[test]
     fn a_provider_subagent_runs_on_the_provider_of_the_nearest_parent_with_a_binding() {
-        let connection = Connection::open_in_memory().expect("the test opens a database");
-        connection
-            .execute_batch(&DAEMON_SCHEMA_SQL)
-            .expect("the test makes the daemon's tables");
+        let database = TestDatabase::new();
+        let connection = database.opener()().expect("the test creates its database");
         let session_id = test_session_id();
         let new_run = |parent: Option<&RunId>, reached_by: Option<&str>| {
             let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
@@ -381,14 +379,7 @@ mod tests {
             run_id
         };
         let lead = new_run(None, None);
-        connection
-            .execute(
-                "INSERT INTO runtime_bindings (id, run_id, provider_name, contract_version,
-                   cli_version_raw, created_at, updated_at)
-                 VALUES ('binding', ?1, ?2, '1.0.0', '1.0.0', '', '')",
-                params![lead.text().as_str(), test_provider().as_str()],
-            )
-            .expect("the test binds the lead run");
+        bind_run_to_first_provider(&database, lead);
         let subagent = new_run(Some(&lead), Some("providerSubagent"));
         let nested_subagent = new_run(Some(&subagent), Some("providerSubagent"));
         let bridge_run = new_run(Some(&lead), Some("bridgeRun"));
@@ -396,8 +387,9 @@ mod tests {
         assert_eq!(
             read_run_provider(&connection, &nested_subagent)
                 .expect("the read runs")
-                .map(|bound| bound.provider),
-            Some(test_provider())
+                .map(|bound| bound.provider.as_str().to_owned())
+                .as_deref(),
+            Some(PROVIDERS[0].id)
         );
         assert_eq!(
             read_run_provider(&connection, &bridge_run).expect("the read runs"),

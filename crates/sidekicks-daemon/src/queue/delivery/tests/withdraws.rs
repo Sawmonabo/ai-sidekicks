@@ -48,7 +48,7 @@ async fn a_withdraw_past_its_deadline_reads_not_delivered_and_reaches_no_driver(
 
     let started = Instant::now();
     let withdrawals = {
-        let hold = fixture.session_lock.acquire(fixture.session_id).await;
+        let hold = fixture.session_lock.hold_session(fixture.session_id).await;
         fixture
             .delivery
             .take_back(&hold, std::slice::from_ref(&item))
@@ -86,7 +86,7 @@ async fn a_message_never_handed_is_returned_at_once_behind_a_busy_chain() {
 
     let started = Instant::now();
     let withdrawals = {
-        let hold = fixture.session_lock.acquire(fixture.session_id).await;
+        let hold = fixture.session_lock.hold_session(fixture.session_id).await;
         fixture
             .delivery
             .take_back(&hold, std::slice::from_ref(&item))
@@ -179,7 +179,7 @@ async fn a_take_back_and_a_resume_of_one_run_take_the_session_in_turn(
             answer_driver
                 .send(Ok(()))
                 .expect("the driver waits for its answer");
-            let hold = fixture.session_lock.acquire(fixture.session_id).await;
+            let hold = fixture.session_lock.hold_session(fixture.session_id).await;
             let withdrawals = fixture
                 .delivery
                 .take_back(&hold, std::slice::from_ref(&item))
@@ -204,7 +204,7 @@ async fn a_take_back_and_a_resume_of_one_run_take_the_session_in_turn(
             let taken_back = async {
                 driver_started.notified().await;
                 let take_back = async {
-                    let hold = fixture.session_lock.acquire(fixture.session_id).await;
+                    let hold = fixture.session_lock.hold_session(fixture.session_id).await;
                     fixture
                         .delivery
                         .take_back(&hold, std::slice::from_ref(&item))

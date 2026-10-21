@@ -43,13 +43,14 @@ use crate::error_description::describe_error;
 use crate::events::session::read::DamagedFromSequenceReader;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::handlers::driver::resolution::read_session_driver;
-use crate::keyed_lock::{KeyHold, KeyedLock};
+use crate::keyed_lock::KeyHold;
 use crate::provider::driver::contract::{ProviderDriver, bound_failure_detail};
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::queue::delivery::{ProviderProcessIds, QueueDelivery};
 use crate::queue::error::QueueError;
 use crate::queue::provider_session::ProviderSessions;
 use crate::queue::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
+use crate::queue::session_lock::QueueSessionLock;
 use crate::queue::store::{
     QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState, summary_of,
 };
@@ -96,7 +97,7 @@ pub(crate) struct QueueAdmissionDeps {
     /// The identity of each session's provider process.
     pub(crate) processes: Arc<dyn ProviderProcessIds>,
     /// The queue's own per-session lock.
-    pub(crate) session_lock: Arc<KeyedLock<SessionId>>,
+    pub(crate) session_lock: Arc<QueueSessionLock>,
     /// Where each damaged session's log stops being readable.
     pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     /// The openings of the runs whose drivers are being started.
@@ -408,7 +409,7 @@ impl QueueAdmission {
             Placed::Admitted => {}
             Placed::Released => return Ok(()),
             Placed::TimedOut => {
-                let hold = self.deps.session_lock.acquire(session_id).await;
+                let hold = self.deps.session_lock.hold_session(session_id).await;
                 return self
                     .end_undelivered(&hold, run_id, QueueItemNotDeliveredReason::TimedOut)
                     .await;
@@ -421,7 +422,7 @@ impl QueueAdmission {
             .await?;
         // Taken under the lock, so a removal either lands first or finds the opening taken.
         let opening = {
-            let _hold = self.deps.session_lock.acquire(session_id).await;
+            let _hold = self.deps.session_lock.hold_session(session_id).await;
             let is_placed = self.lock().places.contains_key(&run_id);
             let head = if is_placed {
                 self.read_waiting(run_id).await?.into_iter().next()
@@ -510,7 +511,7 @@ impl QueueAdmission {
         }
         self.release(run_id);
         let detail = bound_failure_detail(&describe_error(&error), START_FAILED_FALLBACK.clone());
-        let hold = self.deps.session_lock.acquire(session_id).await;
+        let hold = self.deps.session_lock.hold_session(session_id).await;
         let ended = self
             .end_waiting_undelivered(&hold, run_id, QueueItemNotDeliveredReason::Failed, detail)
             .await;

@@ -10,8 +10,7 @@ mod interrupt;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, LazyLock, Weak};
 
 use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
@@ -37,9 +36,9 @@ use crate::database::writer::DatabaseWriter;
 use crate::events::log_service::EventLogService;
 use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use crate::events::session::read::DamagedFromSequenceReader;
-use crate::interventions::interrupt_queue::InterruptChoice;
+use crate::interventions::store::read_sessions_with_unreleased_interrupts;
 use crate::ipc::handlers::driver::resolution::read_session_driver;
-use crate::keyed_lock::{KeyHold, KeyedLock};
+use crate::keyed_lock::KeyHold;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::queue::admission::{
     QUEUE_DELIVERY_TIMEOUT, QueueAdmission, QueueAdmissionDeps, RunOpenings,
@@ -57,6 +56,7 @@ use crate::queue::refusals::{
 };
 use crate::queue::run_lifecycle::{QueueRunLifecycle, QueueRunLifecycleDeps};
 use crate::queue::send::{QueueSendMessage, QueueSends, QueueSendsDeps};
+use crate::queue::session_lock::{QueueSessionLock, UnreleasedInterrupts};
 use crate::queue::store::{
     QueueItemBody, QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
     summary_of,
@@ -118,14 +118,11 @@ pub(crate) struct RunQueue {
     admission: Arc<QueueAdmission>,
     lifecycle: Arc<QueueRunLifecycle>,
     sends: QueueSends,
-    session_lock: Arc<KeyedLock<SessionId>>,
+    session_lock: Arc<QueueSessionLock>,
     // The queue itself, for the releases it settles on tasks of their own.
     this: Weak<RunQueue>,
     // The releases settling once the session's hold is free.
     releases: TaskTracker,
-    // Per session, each run whose last interrupt hold went while what it held back failed to
-    // settle, with the interrupt's choice; the queue's next hold of the session settles it again.
-    failed_releases: Mutex<HashMap<SessionId, Vec<(RunId, InterruptChoice)>>>,
     _following: FollowerAttachment,
 }
 
@@ -153,7 +150,7 @@ impl RunQueue {
             pool: Arc::clone(&pool),
             signals,
         }));
-        let session_lock = Arc::new(KeyedLock::new());
+        let session_lock = Arc::new(QueueSessionLock::new());
         let openings = Arc::new(RunOpenings::default());
         let mut parts = None;
         let lifecycle = Arc::new_cyclic(|lifecycle: &Weak<QueueRunLifecycle>| {
@@ -204,23 +201,26 @@ impl RunQueue {
             let lifecycle = Arc::clone(&lifecycle);
             followers.follow_all(move |event| lifecycle.observe(event))
         };
-        Arc::new_cyclic(|this| Self {
-            pool,
-            writer,
-            providers,
-            read_damaged_from_sequence,
-            pauses,
-            engine,
-            recorder,
-            delivery,
-            admission,
-            lifecycle,
-            sends,
-            session_lock,
-            this: this.clone(),
-            releases: TaskTracker::new(),
-            failed_releases: Mutex::new(HashMap::new()),
-            _following: following,
+        Arc::new_cyclic(|this: &Weak<Self>| {
+            let unreleased: Weak<dyn UnreleasedInterrupts> = this.clone();
+            session_lock.settle_with(unreleased);
+            Self {
+                pool,
+                writer,
+                providers,
+                read_damaged_from_sequence,
+                pauses,
+                engine,
+                recorder,
+                delivery,
+                admission,
+                lifecycle,
+                sends,
+                session_lock,
+                this: this.clone(),
+                releases: TaskTracker::new(),
+                _following: following,
+            }
         })
     }
 
@@ -268,7 +268,7 @@ impl RunQueue {
             )
             .await?;
         let written = {
-            let hold = self.hold_session(session_id).await;
+            let hold = self.session_lock.hold_session(session_id).await;
             if let Some(saved) = self.read_saved(session_id, &key).await? {
                 return Ok(created_response_of(saved));
             }
@@ -340,7 +340,7 @@ impl RunQueue {
             .filter(|found| found.child_handle == request.child_handle)
             .ok_or_else(|| queue_item_not_found(item_id))?;
         let session_id = found.session_id;
-        let hold = self.hold_session(session_id).await;
+        let hold = self.session_lock.hold_session(session_id).await;
         // A purge of the session while the removal waited took its rows.
         let item = self
             .read_item(item_id)
@@ -395,9 +395,10 @@ impl RunQueue {
         })
     }
 
-    /// Puts a queue's waiting messages in the order `queue_item_ids` names and answers them in it.
-    /// Refuses a list that is not exactly the waiting items; a message the agent takes meanwhile
-    /// keeps its place.
+    /// Puts a queue's waiting messages in the order `queue_item_ids` names and answers them in it;
+    /// a message a `Send now` marked that the order puts after another loses the mark and goes in
+    /// its place. Refuses a list that is not exactly the waiting items; a message the agent takes
+    /// meanwhile keeps its place.
     pub(crate) async fn reorder(
         &self,
         request: AgentQueueItemReorderRequest,
@@ -407,7 +408,7 @@ impl RunQueue {
             child_handle,
             queue_item_ids,
         } = request;
-        let hold = self.hold_session(session_id).await;
+        let hold = self.session_lock.hold_session(session_id).await;
         let waiting = self
             .read_queue(
                 session_id,
@@ -455,39 +456,53 @@ impl RunQueue {
     }
 
     /// Reads every session's waiting messages again from the record, once the daemon has started
-    /// and its recovery has settled the runs it found live: a run they wait for that ended before
-    /// the restart is ended as at its end, and a queued run is started. Answers each session whose
-    /// read failed, with why, every session tried; fails as the read of the sessions fails.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start, once its recovery settled the live runs"
+    /// and its recovery has settled the runs it found live: an interrupt's release left unsettled
+    /// before the restart is settled again, a run the messages wait for that ended before the
+    /// restart is ended as at its end, and a queued run is started. Answers each session whose
+    /// settle or read failed, with why, every session tried; fails as the read of the sessions
+    /// fails.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start, once its recovery settled the live runs"
+        )
     )]
     pub(crate) async fn recover(&self) -> Result<Vec<(SessionId, QueueError)>, QueueError> {
-        let sessions = self
+        let (unreleased, waiting) = self
             .pool
             .read(ReadLength::Short, move |reader| {
-                Ok::<_, QueueError>(
+                Ok::<_, QueueError>((
+                    read_sessions_with_unreleased_interrupts(reader)?,
                     QueueItemReader::new(reader).list_sessions_with_unstarted_waiting()?,
-                )
+                ))
             })
             .await?;
-        let reconciles: Vec<_> = sessions
+        let mut failures = Vec::new();
+        for session_id in unreleased {
+            let (_hold, settled) = self.session_lock.hold_settled(session_id).await;
+            if let Err(error) = settled {
+                failures.push((session_id, error));
+            }
+        }
+        let reconciles: Vec<_> = waiting
             .into_iter()
             .map(|session_id| (session_id, self.lifecycle.reconcile(session_id)))
             .collect();
-        let mut failures = Vec::new();
         for (session_id, reconciled) in reconciles {
             match reconciled.await {
                 Ok(Ok(())) => {}
                 Ok(Err(error)) => failures.push((session_id, error)),
-                Err(_dropped) => failures.push((session_id, QueueError::Stopped)),
+                Err(_dropped) => failures.push((session_id, QueueError::DrainEnded)),
             }
         }
         Ok(failures)
     }
 
-    /// Stops taking new work and waits for every start, drain, release and hand under way, a start
-    /// a drain makes meanwhile among them, so a hand in flight finishes or fails before it answers.
+    /// Waits until no start, drain, release or hand of the queue runs, so a hand in flight
+    /// finishes or fails before it answers. Work keeps being taken meanwhile: each kind of work is
+    /// waited for in turn, again until all four are idle at once, since a drain may start a run, a
+    /// run's end a release and either a hand.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's stop"))]
     pub(crate) async fn stop(&self) {
         self.lifecycle.close();
@@ -509,44 +524,6 @@ impl RunQueue {
                 return;
             }
         }
-    }
-
-    // Takes the queue's hold of `session_id`, settling again first what an interrupt's release
-    // left unsettled there; one that fails again stays marked for the next hold.
-    async fn hold_session(&self, session_id: SessionId) -> KeyHold<'_, SessionId> {
-        let hold = self.session_lock.acquire(session_id).await;
-        let failed = self.lock_failed_releases().remove(&session_id);
-        for (run_id, choice) in failed.unwrap_or_default() {
-            if let Err(error) = self.settle_release(&hold, run_id, choice).await {
-                tracing::error!(
-                    session_id = %session_id,
-                    run_id = %run_id,
-                    error = &error as &(dyn std::error::Error + 'static),
-                    "settling again what an interrupt's released hold held back failed; the \
-                     session's next hold settles it again"
-                );
-                self.note_failed_release(session_id, run_id, choice);
-            }
-        }
-        hold
-    }
-
-    // Marks the session so its next hold settles again what the last hold of `run_id` held back.
-    fn note_failed_release(&self, session_id: SessionId, run_id: RunId, choice: InterruptChoice) {
-        self.lock_failed_releases()
-            .entry(session_id)
-            .or_default()
-            .push((run_id, choice));
-    }
-
-    // The releases left unsettled. No holder awaits or panics while it changes them, so a poisoned
-    // lock still guards whole entries.
-    fn lock_failed_releases(
-        &self,
-    ) -> MutexGuard<'_, HashMap<SessionId, Vec<(RunId, InterruptChoice)>>> {
-        self.failed_releases
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
     }
 
     // Resumes the paused or pausing run a send went into, off the session's lock, so the message

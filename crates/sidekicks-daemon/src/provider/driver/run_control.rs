@@ -81,8 +81,12 @@ pub(crate) enum ApplyInterventionParams {
     },
 }
 
-/// What an interrupt does with the messages still waiting for the run.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// What an interrupt does with the messages still waiting for the run. Stored by its camelCase
+/// name.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr, strum::VariantArray, strum::EnumString,
+)]
+#[strum(serialize_all = "camelCase")]
 pub(crate) enum InterruptPendingChoice {
     /// They go as the next turn.
     NextTurn,
