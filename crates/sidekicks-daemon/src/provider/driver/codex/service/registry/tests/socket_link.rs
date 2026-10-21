@@ -5,25 +5,30 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use interprocess::local_socket::traits::tokio::Listener as _;
+use serde_json::json;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
-    ExistingSocket, RunningProgramPath, bind_socket_listener, read_running_program_path,
-    read_socket_link, replace_file_atomically, replace_socket_link,
+    ExistingSocket, RunningProgramPath, bind_socket_listener, pin_running_process,
+    read_running_program_path, read_socket_link, replace_file_atomically, replace_socket_link,
 };
 use tokio::sync::mpsc;
 
 use super::{OneHome, can_move_socket_links};
 use crate::provider::driver::codex::service::command_line::compose_daemon_hook_commands;
-use crate::provider::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
+use crate::provider::driver::codex::service::home::{
+    CodexHomeKind, CodexServiceHome, CodexServiceKind,
+};
+use crate::provider::driver::codex::service::record::LastingServiceRecordFile;
 use crate::provider::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
 use crate::provider::driver::codex::service::supervisor::events::{
     CodexServiceEvents, CodexServiceRecoveryCause,
 };
 use crate::provider::driver::codex::service::supervisor::test_service::{
-    TestCodexProgram, answer_as_codex_service, test_codex_service_dependencies,
+    TestCodexProgram, answer_as_codex_service, script_codex_service,
+    test_codex_service_dependencies,
 };
 use crate::provider::driver::codex::service::supervisor::{
-    CodexProgramResolver, CodexService, CodexServiceDependencies,
+    CodexProgramResolver, CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
 use crate::provider::driver::contract::{DaemonStopIntent, DriverError};
 use crate::provider::spawned_version::ResolvedProviderExecutable;
@@ -159,11 +164,38 @@ fn stand_in_services(
 
 // Whether the process `process_id` still runs.
 fn is_running(process_id: u32) -> bool {
-    std::process::Command::new("/bin/kill")
-        .args(["-0", &process_id.to_string()])
-        .status()
-        .expect("kill runs")
-        .success()
+    pin_running_process(process_id)
+        .expect("the process table reads")
+        .is_some()
+}
+
+// Answers once the process `process_id` ended and the record kept on `home`'s own socket is gone,
+// or `false` once `bound` passed first.
+async fn wait_for_end_and_record_removal(
+    process_id: u32,
+    services: &StandInServices,
+    bound: Duration,
+) -> bool {
+    let record_file = LastingServiceRecordFile::of_socket(
+        &services.dependencies.data_folder,
+        &services.home.codex_home,
+        &home_socket_path(&services.home.codex_home),
+    )
+    .expect("the record file is named");
+    let ended = async {
+        loop {
+            let is_record_kept = record_file
+                .lock()
+                .and_then(|locked| locked.read())
+                .expect("the record reads")
+                .is_some();
+            if !is_running(process_id) && !is_record_kept {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+    tokio::time::timeout(bound, ended).await.is_ok()
 }
 
 fn kill(process_id: u32) -> bool {
@@ -289,16 +321,9 @@ async fn a_second_service_that_fails_to_start_leaves_the_first_the_home_s() {
     assert_eq!(link, first.physical_socket());
 }
 
-// Fails when a daemon restarted in the middle of a planned restart retires both services, which
-// ends every terminal session inside them, or joins the one the home's link does not name.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_restart_cut_short_joins_the_service_the_link_names_and_leaves_the_other_running() {
-    if !can_move_socket_links() {
-        return;
-    }
-    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
-    let services = stand_in_services(folder.path(), |program| Arc::new(program));
-    let startup_timeout = services.dependencies.startup_timeout;
+// A former daemon's planned restart cut short by its own restart: both services left running,
+// answered with the first's and the second's processes and the first's socket.
+async fn cut_short_planned_restart(services: &StandInServices) -> (u32, u32, Option<PathBuf>) {
     let former_daemon = CodexServiceRegistry::new(
         Arc::new(OneHome(services.home.clone())),
         Arc::clone(&services.dependencies),
@@ -308,7 +333,7 @@ async fn a_restart_cut_short_joins_the_service_the_link_names_and_leaves_the_oth
         .await
         .expect("the home resolves");
     first
-        .ensure_started(startup_timeout)
+        .ensure_started(services.dependencies.startup_timeout)
         .await
         .expect("the first service starts");
     let second = former_daemon
@@ -318,6 +343,62 @@ async fn a_restart_cut_short_joins_the_service_the_link_names_and_leaves_the_oth
     let first_process = first.process_id().expect("the first runs a process");
     let second_process = second.process_id().expect("the second runs a process");
     former_daemon.shutdown(DaemonStopIntent::Restart).await;
+    (first_process, second_process, first.physical_socket())
+}
+
+// Fails when a daemon restarted in the middle of a planned restart retires both services, which
+// ends every terminal session inside them, joins the one the home's link does not name, or leaves
+// the other running unended rather than draining it to its end and removing its record.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_cut_short_joins_the_socket_link_holder_and_drains_the_other() {
+    if !can_move_socket_links() {
+        return;
+    }
+    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    let services = stand_in_services(folder.path(), |program| Arc::new(program));
+    let startup_timeout = services.dependencies.startup_timeout;
+    let (first_process, second_process, _first_socket) = cut_short_planned_restart(&services).await;
+
+    let daemon = CodexServiceRegistry::new(
+        Arc::new(OneHome(services.home.clone())),
+        Arc::clone(&services.dependencies),
+    );
+    let joined = daemon.service_for(None).await.expect("the home resolves");
+    let started = joined.ensure_started(startup_timeout).await;
+    let joined_process = joined.process_id();
+    let is_first_drained =
+        wait_for_end_and_record_removal(first_process, &services, startup_timeout).await;
+    let is_second_running = is_running(second_process);
+    daemon.shutdown(DaemonStopIntent::Stop).await;
+
+    assert!(started.is_ok(), "{started:?}");
+    assert_eq!(joined_process, Some(second_process));
+    assert!(
+        is_first_drained,
+        "the service the link left did not end by itself"
+    );
+    assert!(is_second_running);
+}
+
+// Fails when a daemon restarted after the home's link holder died joins the first through the home's
+// path, which no longer reaches it and so stops it, launches over it, or leaves the link off it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_cut_short_whose_socket_link_holder_died_points_the_link_back_and_joins() {
+    if !can_move_socket_links() {
+        return;
+    }
+    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    let services = stand_in_services(folder.path(), |program| Arc::new(program));
+    let startup_timeout = services.dependencies.startup_timeout;
+    let (first_process, second_process, first_socket) = cut_short_planned_restart(&services).await;
+    let is_second_killed = kill(second_process);
+    let is_second_gone = tokio::time::timeout(CRASH_WAIT, async {
+        while is_running(second_process) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .is_ok();
 
     let daemon = CodexServiceRegistry::new(
         Arc::new(OneHome(services.home.clone())),
@@ -327,11 +408,136 @@ async fn a_restart_cut_short_joins_the_service_the_link_names_and_leaves_the_oth
     let started = joined.ensure_started(startup_timeout).await;
     let joined_process = joined.process_id();
     let is_first_running = is_running(first_process);
+    let link =
+        read_socket_link(&home_socket_path(&services.home.codex_home)).expect("the link reads");
     daemon.shutdown(DaemonStopIntent::Stop).await;
-    let is_first_killed = kill(first_process);
 
+    assert!(is_second_killed && is_second_gone);
     assert!(started.is_ok(), "{started:?}");
-    assert_eq!(joined_process, Some(second_process));
-    assert!(is_first_running, "the service the link left was stopped");
-    assert!(is_first_killed);
+    assert_eq!(joined_process, Some(first_process));
+    assert!(is_first_running, "the service the start joined was stopped");
+    assert!(first_socket.is_some());
+    assert_eq!(link, first_socket);
+}
+
+// Fails when a daemon restarted while every service a former one left still drains joins one of
+// them, or points the home's link at one, rather than waiting for their ends and launching anew.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_finding_every_service_draining_waits_for_them_and_launches() {
+    if !can_move_socket_links() {
+        return;
+    }
+    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    let services = stand_in_services(folder.path(), |program| Arc::new(program));
+    let startup_timeout = services.dependencies.startup_timeout;
+    let (first_process, second_process, _first_socket) = cut_short_planned_restart(&services).await;
+    let home_record = LastingServiceRecordFile::of_socket(
+        &services.dependencies.data_folder,
+        &services.home.codex_home,
+        &home_socket_path(&services.home.codex_home),
+    )
+    .expect("the record file is named")
+    .lock()
+    .expect("the records lock");
+    let others = home_record.others().expect("the other records list");
+    for locked in std::iter::once(&home_record).chain(&others) {
+        let mut record = locked
+            .read()
+            .expect("the record reads")
+            .expect("the record is kept");
+        record.is_draining = true;
+        locked
+            .write(&record)
+            .expect("the record is marked draining");
+    }
+    let other_count = others.len();
+    // The folder's lock goes with its last hold.
+    drop(others);
+    drop(home_record);
+
+    let daemon = CodexServiceRegistry::new(
+        Arc::new(OneHome(services.home.clone())),
+        Arc::clone(&services.dependencies),
+    );
+    let launched = daemon.service_for(None).await.expect("the home resolves");
+    let started = launched.ensure_started(startup_timeout).await;
+    let launched_process = launched.process_id();
+    let are_former_ended = !is_running(first_process) && !is_running(second_process);
+    let link =
+        read_socket_link(&home_socket_path(&services.home.codex_home)).expect("the link reads");
+    let launched_socket = launched.physical_socket();
+    daemon.shutdown(DaemonStopIntent::Stop).await;
+
+    assert_eq!(other_count, 1);
+    assert!(started.is_ok(), "{started:?}");
+    assert!(
+        launched_process
+            .is_some_and(|process| process != first_process && process != second_process),
+        "the start joined a draining service"
+    );
+    assert!(are_former_ended, "a draining service was not waited for");
+    assert!(launched_socket.is_some());
+    assert_eq!(link, launched_socket);
+}
+
+// Fails when a planned restart's swap takes the folder from a service the switch-off is stopping,
+// which moves the home's link and hands new terminals a second service while reach goes off, or
+// when the switch-off lets go of the folder's service only after its wait.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_planned_restart_during_the_switch_off_leaves_the_socket_link_and_fails() {
+    if !can_move_socket_links() {
+        return;
+    }
+    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    let services = stand_in_services(folder.path(), |program| Arc::new(program));
+    let home_socket = home_socket_path(&services.home.codex_home);
+    std::fs::create_dir_all(home_socket.parent().expect("the link has a folder"))
+        .expect("the link's folder is made");
+    let first_socket = services.home.codex_home.join("first.sock");
+    replace_socket_link(&home_socket, &first_socket).expect("the link names the first");
+    let (first, mut script) = script_codex_service(
+        services.home.clone(),
+        CodexServiceSocket {
+            path: home_socket.clone(),
+            home_socket: home_socket.clone(),
+        },
+        CodexServiceKind::Terminal,
+        Arc::clone(&services.dependencies),
+    );
+    let registry = Arc::new(CodexServiceRegistry::new(
+        Arc::new(OneHome(services.home.clone())),
+        Arc::clone(&services.dependencies),
+    ));
+    registry
+        .lock()
+        .by_home
+        .insert(services.home.codex_home.clone(), Arc::clone(&first));
+    let inside = json!({"data": ["terminal-thread-1"]});
+
+    let stopping = {
+        let registry = Arc::clone(&registry);
+        tokio::spawn(async move { registry.stop_terminal_service().await })
+    };
+    for _read in 0..2 {
+        let loaded = script.next_sent().await;
+        assert_eq!(loaded["method"], "thread/loaded/list", "{loaded}");
+        script.answer(&loaded, &inside);
+    }
+    let registered_while_waiting = registry.services();
+    let replaced = registry.replace(&first).await;
+    let link = read_socket_link(&home_socket).expect("the link reads");
+    script.send(&json!({"jsonrpc": "2.0", "method": "thread/closed",
+        "params": {"threadId": "terminal-thread-1"}}));
+    let last = script.next_sent().await;
+    script.answer(&last, &json!({"data": []}));
+    let stopped = stopping.await.expect("the stop ends");
+    registry.shutdown(DaemonStopIntent::Stop).await;
+
+    assert!(
+        registered_while_waiting.is_empty(),
+        "the switch-off left the service the folder's while it waited"
+    );
+    assert!(replaced.is_err());
+    assert_eq!(link, Some(first_socket));
+    assert!(stopped.is_ok());
 }

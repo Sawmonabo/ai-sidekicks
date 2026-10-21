@@ -211,6 +211,14 @@ pub(crate) enum CodexTransportDiagnostic {
         /// The start's failure.
         error: DiagnosticCause,
     },
+    /// The home's link could not be pointed back at the restarted service that holds it, so a
+    /// plain `codex` does not reach it.
+    HomeLinkRestoreFailed {
+        /// The service's Codex home.
+        codex_home: PathBuf,
+        /// The move's failure.
+        error: DiagnosticCause,
+    },
     /// A teardown step failed where the teardown carries on without it.
     TeardownStepFailed {
         /// The step that failed.
@@ -490,6 +498,11 @@ impl CodexTransportDiagnostic {
                 codex_home = %codex_home.display(),
                 error = &**error as &(dyn Error + 'static),
                 "A Codex service could not be started or reached again"
+            ),
+            Self::HomeLinkRestoreFailed { codex_home, error } => tracing::warn!(
+                codex_home = %codex_home.display(),
+                error = &**error as &(dyn Error + 'static),
+                "The Codex folder's socket link could not be pointed back at its service"
             ),
             Self::TeardownStepFailed { step, error } => tracing::warn!(
                 step = <&str>::from(*step),

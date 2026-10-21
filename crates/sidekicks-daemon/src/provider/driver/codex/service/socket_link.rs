@@ -1,10 +1,11 @@
 //! The home's control socket link, which a terminal's plain `codex` connects through: cleared at
 //! a start when it blocks a plain `codex`, pointed at a second service's real socket in a planned
-//! restart and at that service's again when it comes back from a crash, and never left pointing at
-//! a stopped service. Codex binds each service's real socket
-//! elsewhere and makes the path it was given a link to it; it removes only its own link and only
-//! while that link names its own socket, so once the daemon moves the link, the link is the
-//! daemon's to keep right. On Windows the path is the socket itself and there is no link.
+//! restart, at that service's again when it comes back from a crash, and at a former daemon's
+//! running service when the service holding it is gone, and never left pointing at a stopped
+//! service. Codex binds each service's real socket elsewhere and makes the path it was given a link
+//! to it; it removes only its own link and only while that link names its own socket, so once the
+//! daemon moves the link, the link is the daemon's to keep right. On Windows the path is the
+//! socket itself and there is no link.
 
 use std::io;
 use std::path::Path;
@@ -41,19 +42,20 @@ pub(crate) async fn clear_blocking_socket_link(home_link: &Path) -> io::Result<b
     remove_socket_link(home_link)
 }
 
-/// Points `home_link` at the real socket of the service on `service_socket` when nothing listens
-/// through it, the link gone or naming an ended socket; a link a service answers on is left.
-/// Answers whether it was pointed; fails with the connect's other failures and the move's error.
-pub(crate) async fn restore_socket_link(
-    home_link: &Path,
-    service_socket: &Path,
-) -> io::Result<bool> {
+/// Points `home_link` at `real_socket`, where a service's socket really is, unless another service
+/// answers through it: a link naming nothing, an ended socket or `real_socket` itself ends up
+/// naming `real_socket`. Answers whether it names `real_socket` once done; fails with the link's
+/// read error, the connect's other failures and the move's error.
+pub(crate) async fn restore_socket_link(home_link: &Path, real_socket: &Path) -> io::Result<bool> {
+    if read_socket_link(home_link)?.as_deref() == Some(real_socket) {
+        return Ok(true);
+    }
     if is_listening(home_link).await? {
         return Ok(false);
     }
     let home_link = home_link.to_owned();
-    let service_socket = service_socket.to_owned();
-    tokio::task::spawn_blocking(move || point_socket_link_at_service(&home_link, &service_socket))
+    let real_socket = real_socket.to_owned();
+    tokio::task::spawn_blocking(move || replace_socket_link(&home_link, &real_socket))
         .await
         .map_err(io::Error::other)??;
     Ok(true)

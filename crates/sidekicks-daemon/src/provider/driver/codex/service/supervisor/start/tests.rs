@@ -24,7 +24,9 @@ use crate::provider::driver::codex::service::home::{
 use crate::provider::driver::codex::service::process::{
     CodexProcessLaunch, repin_lasting_codex_service, start_lasting_codex_service,
 };
-use crate::provider::driver::codex::service::record::LastingServiceRecordFile;
+use crate::provider::driver::codex::service::record::{
+    LastingServiceRecord, LastingServiceRecordFile,
+};
 use crate::provider::driver::codex::service::supervisor::test_service::{
     TestCodexProgram, UnheardEvents, answer_as_codex_service, test_codex_service_dependencies,
 };
@@ -144,7 +146,9 @@ async fn a_former_service_its_record_no_longer_pins_leaves_no_tree_running() {
     let record_file = LastingServiceRecordFile::of_socket(folder.path(), folder.path(), &socket)
         .expect("the record file is named");
     let locked = Arc::new(record_file.lock().expect("the record is locked"));
-    locked.write(&record).expect("the record is written");
+    locked
+        .write(&LastingServiceRecord::launched(record.clone()))
+        .expect("the record is written");
     let is_pinned = repin_lasting_codex_service(record.clone())
         .expect("the record re-pins")
         .is_some();

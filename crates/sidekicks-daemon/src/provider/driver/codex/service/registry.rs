@@ -7,6 +7,7 @@
 //! terminal joins it (an inference: off means no terminal joins anything of the daemon's).
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -18,7 +19,9 @@ use sidekicks_platforms::{read_socket_link, replace_socket_link};
 use crate::provider::driver::codex::service::home::{
     CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
-use crate::provider::driver::codex::service::socket_link::point_socket_link_at_service;
+use crate::provider::driver::codex::service::socket_link::{
+    is_listening, point_socket_link_at_service,
+};
 use crate::provider::driver::codex::service::supervisor::{
     CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
@@ -51,8 +54,8 @@ pub(crate) struct CodexServiceRegistry {
 #[derive(Default)]
 struct RegisteredServices {
     by_home: HashMap<PathBuf, Arc<CodexService>>,
-    // Services a planned restart took over from, kept until their conversations moved off and they
-    // stopped, so a shutdown meanwhile stops them too.
+    // Services that left their home and are ending, so a shutdown meanwhile stops them too: those a
+    // planned restart took over from until they are retired, and the one the switch-off stops.
     replaced: Vec<Arc<CodexService>>,
 }
 
@@ -125,30 +128,34 @@ impl CodexServiceRegistry {
             .await?)
     }
 
-    /// Stops the service on the person's own Codex folder as the switch turns terminal reach off,
-    /// once no terminal session is inside it and no command a session left on it runs, the
-    /// terminal service ended with it, and forgets it, so the folder's next session starts the
-    /// service the switch now names; a planned restart's second service that took the folder
-    /// meanwhile is waited on and stopped in its turn. Fails as the home's resolve does, and as the
-    /// wait's read of the conversations inside does, the service then left running.
+    /// Stops the service on the person's own Codex folder as the switch turns terminal reach off:
+    /// it leaves the folder at once, so the folder's next session starts the service the switch
+    /// now names and no planned restart takes its place, then stops once no terminal session is
+    /// inside it and no command a session left on it runs, the terminal service ended with it.
+    /// Fails as the home's resolve does, and as the wait's read of the conversations inside does,
+    /// the service then left running, back as the folder's service while none took its place.
     pub(crate) async fn stop_terminal_service(&self) -> Result<(), DriverError> {
         let home = self.homes.codex_home_for(None).await?;
-        let service = loop {
-            let Some(service) = self.lock().by_home.get(&home.codex_home).cloned() else {
+        let service = {
+            let mut services = self.lock();
+            let Some(service) = services.by_home.remove(&home.codex_home) else {
                 return Ok(());
             };
-            service.when_free_to_stop().await?;
-            let mut services = self.lock();
-            if services
-                .by_home
-                .get(&home.codex_home)
-                .is_some_and(|registered| Arc::ptr_eq(registered, &service))
-            {
-                services.by_home.remove(&home.codex_home);
-                break service;
-            }
+            services.replaced.push(Arc::clone(&service));
+            service
         };
-        service.stop().await;
+        if let Err(error) = service.when_free_to_stop().await {
+            let mut held = self.lock();
+            let services = &mut *held;
+            if let Entry::Vacant(slot) = services.by_home.entry(home.codex_home) {
+                services
+                    .replaced
+                    .retain(|replaced| !Arc::ptr_eq(replaced, &service));
+                slot.insert(service);
+            }
+            return Err(error.into());
+        }
+        self.retire(&service).await;
         Ok(())
     }
 
@@ -160,7 +167,8 @@ impl CodexServiceRegistry {
     /// Starts a second service on `service`'s home, which becomes the home's service once it is
     /// up; the first stays until its conversations have moved off it. Where the home's control
     /// socket is a link, the second listens on a socket of its own and the link is pointed at it
-    /// once it is up; where the system refuses to move it, the path being the socket itself, the
+    /// once it is up, unless a service answering in the first's place, Codex's managed daemon in
+    /// use, holds the link; where the system refuses to move it, the path being the socket itself, the
     /// first is stopped once no terminal session is inside it and no command left on it runs, and
     /// the second takes the home's own socket, terminals reconnecting by themselves. Fails as the
     /// start does, the first then kept as the home's service; when the home's service changed
@@ -228,7 +236,7 @@ impl CodexServiceRegistry {
                 cause: None,
             });
         }
-        if can_move_link {
+        if can_move_link && may_take_socket_link(&home_socket, service).await? {
             point_socket_link_at_service(&home_socket, &path).map_err(|error| {
                 CodexError::Transport {
                     detail: "The Codex folder's socket could not be pointed at the second \
@@ -242,7 +250,8 @@ impl CodexServiceRegistry {
         Ok(replacement)
     }
 
-    /// Stops a service a planned restart took over from, once no conversation is left on it.
+    /// Stops a service that left its home and forgets it: one a planned restart took over from,
+    /// once no conversation is left on it, ends by Codex's own drain, after its running replies.
     pub(crate) async fn retire(&self, service: &Arc<CodexService>) {
         service.stop().await;
         self.lock()
@@ -294,6 +303,27 @@ async fn probe_socket_link_move(
             cause: Some(Box::new(error)),
         }),
     }
+}
+
+/// Whether a planned restart may move the home's link off `first`: it names the first's socket,
+/// or nothing answers on it; a service answering in its place, Codex's managed daemon in use,
+/// keeps it. Fails with the link's read error and the connect's other failures.
+async fn may_take_socket_link(
+    home_socket: &Path,
+    first: &CodexService,
+) -> Result<bool, CodexError> {
+    let read = async {
+        let names_first = read_socket_link(home_socket)?.is_some_and(|target| {
+            first
+                .physical_socket()
+                .is_some_and(|first_socket| first_socket == target)
+        });
+        Ok::<_, io::Error>(names_first || !is_listening(home_socket).await?)
+    };
+    read.await.map_err(|error| CodexError::Transport {
+        detail: "The Codex folder's socket link could not be checked.".to_owned(),
+        cause: Some(Box::new(error)),
+    })
 }
 
 /// The home's own control socket.

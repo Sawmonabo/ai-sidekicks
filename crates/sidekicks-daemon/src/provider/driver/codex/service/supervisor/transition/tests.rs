@@ -79,6 +79,28 @@ fn drive(
     (state, actions)
 }
 
+// Five crashes inside the crash window from a stopped terminal service, then `last`.
+fn crash_loop_then(
+    last: fn(Instant) -> SupervisorEvent,
+) -> Vec<Box<dyn Fn(Instant) -> SupervisorEvent>> {
+    let mut steps = vec![at_once(|_| SupervisorEvent::Start)];
+    for crash in 0..5_u64 {
+        let launch = 1 + crash * 2;
+        steps.push(boxed(started(launch, CodexServiceKind::Terminal)));
+        steps.push(boxed(move |_| SupervisorEvent::ProcessExited {
+            launch,
+            at: wall(crash * 10),
+        }));
+        if crash < 4 {
+            steps.push(boxed(move |_| SupervisorEvent::WaitElapsed {
+                wait: launch + 1,
+            }));
+        }
+    }
+    steps.push(at_once(last));
+    steps
+}
+
 fn boxed(
     step: impl Fn(Instant) -> SupervisorEvent + 'static,
 ) -> Box<dyn Fn(Instant) -> SupervisorEvent> {
@@ -94,7 +116,9 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
 // changed: a drop while the process runs read as a crash, a stale start's outcome dropped with
 // no teardown (a leaked lasting service), a stop that forgets what follows it, a first redial
 // that waits past the first wait, a reconnect count that starts again after a short uptime, one
-// that keeps growing after a long one, or a replaced service started again onto its home.
+// that keeps growing after a long one, a replaced service started again onto its home, a replaced
+// service's crash restart left to come up, its stop or launch stopped rather than drained, a
+// daemon stop held on a drain, or a replaced service's record kept once it ended.
 #[rstest]
 #[case::a_start(
     CodexServiceKind::Account,
@@ -112,7 +136,7 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
     CodexServiceKind::Account,
     vec![at_once(|_| SupervisorEvent::Start), at_once(|_| start_failed(1))],
     "Stopped",
-    &["TearDown { ticket: 1, ends_lasting_service: true }",
+    &["TearDown { ticket: 1, end: Stop }",
         "Publish(StartFailed(Transport { detail: \"refused\", cause: None }))"],
 )]
 #[case::a_drop_after_a_short_uptime_keeps_the_grown_count(
@@ -196,8 +220,8 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         boxed(started(1, CodexServiceKind::Account)),
         at_once(|_| SupervisorEvent::Stop),
     ],
-    "Stopping { launch: 1, then: Stopped, ends_lasting_service: true }",
-    &["StopService { launch: 1, ends_lasting_service: true }", "Publish(Stopping)"],
+    "Stopping { launch: 1, then: Stopped, end: Stop }",
+    &["StopService { launch: 1, end: Stop }", "Publish(Stopping)"],
 )]
 #[case::a_daemon_restart_leaves_the_terminal_service(
     CodexServiceKind::Terminal,
@@ -206,8 +230,8 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         boxed(started(1, CodexServiceKind::Terminal)),
         at_once(|_| SupervisorEvent::Shutdown { intent: DaemonStopIntent::Restart }),
     ],
-    "Stopping { launch: 1, then: ShutDown, ends_lasting_service: false }",
-    &["StopService { launch: 1, ends_lasting_service: false }", "Publish(Stopping)"],
+    "Stopping { launch: 1, then: ShutDown, end: Keep }",
+    &["CancelDrains", "StopService { launch: 1, end: Keep }", "Publish(Stopping)"],
 )]
 #[case::a_start_during_a_stop_follows_it(
     CodexServiceKind::Account,
@@ -228,8 +252,8 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         boxed(started(1, CodexServiceKind::Account)),
         at_once(|_| SupervisorEvent::PlannedRestart),
     ],
-    "Stopping { launch: 1, then: Starting, ends_lasting_service: true }",
-    &["StopService { launch: 1, ends_lasting_service: true }", "Publish(Stopping)"],
+    "Stopping { launch: 1, then: Starting, end: Stop }",
+    &["StopService { launch: 1, end: Stop }", "Publish(Stopping)"],
 )]
 #[case::a_terminal_service_s_planned_restart_goes_to_the_recovery(
     CodexServiceKind::Terminal,
@@ -250,7 +274,7 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         boxed(started(1, CodexServiceKind::Account)),
     ],
     "Stopped",
-    &["TearDown { ticket: 1, ends_lasting_service: true }"],
+    &["TearDown { ticket: 1, end: Stop }"],
 )]
 #[case::a_stale_redial_is_torn_down(
     CodexServiceKind::Account,
@@ -262,7 +286,7 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         boxed(reconnected(2, 12)),
     ],
     "Restarting { wait: 3 }",
-    &["TearDown { ticket: 2, ends_lasting_service: true }"],
+    &["TearDown { ticket: 2, end: Stop }"],
 )]
 #[case::a_crash_wait_ends_in_a_start_that_resumes(
     CodexServiceKind::Account,
@@ -310,7 +334,97 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         at_once(|_| SupervisorEvent::StopDone { ticket: 1 }),
     ],
     "Stopped",
-    &["Publish(Stopped)"],
+    &["RetireRecord", "Publish(Stopped)"],
+)]
+#[case::a_replaced_service_s_stop_drains_it(
+    CodexServiceKind::Terminal,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Terminal)),
+        at_once(|_| SupervisorEvent::Replaced),
+        at_once(|_| SupervisorEvent::Stop),
+    ],
+    "Stopping { launch: 1, then: Stopped, end: Drain }",
+    &["StopService { launch: 1, end: Drain }", "Publish(Stopping)"],
+)]
+#[case::a_daemon_stop_never_waits_on_a_replaced_service_s_drain(
+    CodexServiceKind::Terminal,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Terminal)),
+        at_once(|_| SupervisorEvent::Replaced),
+        at_once(|_| SupervisorEvent::Stop),
+        at_once(|_| SupervisorEvent::Shutdown { intent: DaemonStopIntent::Stop }),
+    ],
+    "Stopping { launch: 1, then: ShutDown, end: Drain }",
+    &["CancelDrains"],
+)]
+#[case::a_replaced_service_asks_no_third_service(
+    CodexServiceKind::Terminal,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Terminal)),
+        at_once(|_| SupervisorEvent::Replaced),
+        at_once(|_| SupervisorEvent::PlannedRestart),
+    ],
+    "Up { launch: 1, dial: 1, attempt: 0, up for: 0ns, draining: None }",
+    &[],
+)]
+#[case::a_replaced_crash_restart_under_way_is_stood_down_to_drain(
+    CodexServiceKind::Terminal,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Terminal)),
+        at_once(|_| SupervisorEvent::ProcessExited { launch: 1, at: wall(10) }),
+        at_once(|_| SupervisorEvent::WaitElapsed { wait: 2 }),
+        at_once(|_| SupervisorEvent::Replaced),
+    ],
+    "Stopping { launch: 3, then: Stopped, end: Drain }",
+    &["CancelPending", "Publish(Stopping)"],
+)]
+#[case::a_replaced_crash_restart_s_launch_drains(
+    CodexServiceKind::Terminal,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Terminal)),
+        at_once(|_| SupervisorEvent::ProcessExited { launch: 1, at: wall(10) }),
+        at_once(|_| SupervisorEvent::WaitElapsed { wait: 2 }),
+        at_once(|_| SupervisorEvent::Replaced),
+        boxed(started(3, CodexServiceKind::Terminal)),
+    ],
+    "Stopping { launch: 3, then: Stopped, end: Drain }",
+    &["TearDown { ticket: 3, end: Drain }"],
+)]
+#[case::a_replaced_crash_restart_s_stop_retires_its_record(
+    CodexServiceKind::Terminal,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Terminal)),
+        at_once(|_| SupervisorEvent::ProcessExited { launch: 1, at: wall(10) }),
+        at_once(|_| SupervisorEvent::WaitElapsed { wait: 2 }),
+        at_once(|_| SupervisorEvent::Replaced),
+        at_once(|_| start_failed(3)),
+        at_once(|_| SupervisorEvent::StopDone { ticket: 3 }),
+    ],
+    "Stopped",
+    &["RetireRecord", "Publish(Stopped)"],
+)]
+#[case::a_replaced_crash_restart_still_waiting_is_called_off(
+    CodexServiceKind::Terminal,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Terminal)),
+        at_once(|_| SupervisorEvent::ProcessExited { launch: 1, at: wall(10) }),
+        at_once(|_| SupervisorEvent::Replaced),
+    ],
+    "Stopped",
+    &["CancelPending", "RetireRecord", "Publish(Stopped)"],
+)]
+#[case::a_replaced_service_down_after_a_crash_loop_retires_its_record(
+    CodexServiceKind::Terminal,
+    crash_loop_then(|_| SupervisorEvent::Replaced),
+    "Stopped",
+    &["RetireRecord", "Publish(Stopped)"],
 )]
 fn the_supervisor_table(
     #[case] kind: CodexServiceKind,

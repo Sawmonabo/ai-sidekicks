@@ -149,6 +149,34 @@ async fn the_switch_off_stop_waits_for_a_terminal_session_inside_to_end() {
     assert!(registry.services().is_empty());
 }
 
+// Fails when the switch-off stop reads a reconnecting service as free, which stops it while a
+// terminal session inside it waits for the connection to come back.
+#[tokio::test]
+async fn the_switch_off_stop_waits_for_a_reconnecting_service_to_come_back() {
+    let mut scripted = start_scripted_codex_service();
+    let registry = registry_holding(&scripted);
+    let connection = scripted.publish_reconnecting();
+
+    let stopping = {
+        let registry = Arc::clone(&registry);
+        tokio::spawn(async move { registry.stop_terminal_service().await })
+    };
+    let read_while_reconnecting =
+        tokio::time::timeout(QUIET_WAIT, scripted.script.next_sent()).await;
+    let is_stopped_while_reconnecting = stopping.is_finished();
+    scripted.publish_up(connection);
+    let loaded = next_request(&mut scripted, "thread/loaded/list").await;
+    scripted.script.answer(&loaded, &json!({"data": []}));
+    let stopped = stopping.await.expect("the stop ends");
+
+    assert!(
+        read_while_reconnecting.is_err(),
+        "the stop read the service while it reconnected"
+    );
+    assert!(!is_stopped_while_reconnecting);
+    assert!(stopped.is_ok());
+}
+
 // Whether this system moves a socket link, which only a system whose socket path is a link does.
 fn can_move_socket_links() -> bool {
     let scratch = tempfile::tempdir().expect("a scratch folder is made");

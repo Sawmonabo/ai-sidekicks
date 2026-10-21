@@ -14,7 +14,9 @@ use crate::crash_window::{CrashOutcome, CrashWindow};
 use crate::provider::driver::codex::service::home::CodexServiceKind;
 use crate::provider::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::provider::driver::codex::service::supervisor::reconnect::RECONNECT_STABLE_UPTIME;
-use crate::provider::driver::codex::service::supervisor::transition::action::SupervisorAction;
+use crate::provider::driver::codex::service::supervisor::transition::action::{
+    LastingServiceEnd, SupervisorAction,
+};
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::contract::DaemonStopIntent;
 
@@ -70,8 +72,8 @@ pub(crate) enum SupervisorState {
         launch: u64,
         /// What follows once it has stopped.
         then: StoppingThen,
-        /// Whether the stop ends a terminal service that outlives the daemon.
-        ends_lasting_service: bool,
+        /// What becomes of a terminal service's lasting process.
+        end: LastingServiceEnd,
     },
     /// Shut down with the daemon; nothing starts it again.
     ShutDown,
@@ -326,24 +328,25 @@ impl Supervision {
     fn stop(
         launch: u64,
         then: StoppingThen,
-        ends_lasting_service: bool,
+        end: LastingServiceEnd,
         mut actions: Vec<SupervisorAction>,
     ) -> (SupervisorState, Vec<SupervisorAction>) {
-        actions.push(SupervisorAction::StopService {
-            launch,
-            ends_lasting_service,
-        });
+        actions.push(SupervisorAction::StopService { launch, end });
         actions.push(SupervisorAction::Publish(
             CodexServiceAvailability::Stopping,
         ));
-        (
-            SupervisorState::Stopping {
-                launch,
-                then,
-                ends_lasting_service,
-            },
-            actions,
-        )
+        (SupervisorState::Stopping { launch, then, end }, actions)
+    }
+
+    // What a stop under `intent`, `None` for a stop of the person's or the switch's, does with a
+    // terminal service's lasting process: a daemon restart keeps it running, a service another
+    // took the home's link from drains, and any other is stopped.
+    fn lasting_end(&self, intent: Option<DaemonStopIntent>) -> LastingServiceEnd {
+        match intent {
+            Some(DaemonStopIntent::Restart) => LastingServiceEnd::Keep,
+            Some(DaemonStopIntent::Stop) | None if self.is_replaced => LastingServiceEnd::Drain,
+            Some(DaemonStopIntent::Stop) | None => LastingServiceEnd::Stop,
+        }
     }
 
     // A redial after `attempt` earlier ones, waiting the wait grown from that count.
@@ -390,26 +393,17 @@ impl Supervision {
                 | Event::StartFailed { launch: ticket, .. }
                 | Event::Reconnected { dial: ticket, .. },
             ) if !state_names_outcome(&state, ticket) => {
-                let ends_lasting_service = match &state {
-                    State::Stopping {
-                        ends_lasting_service,
-                        ..
-                    } => *ends_lasting_service,
+                let end = match &state {
+                    State::Stopping { end, .. } => *end,
                     State::Stopped
                     | State::Starting { .. }
                     | State::Up { .. }
                     | State::Reconnecting { .. }
                     | State::Restarting { .. }
                     | State::CrashLoop
-                    | State::ShutDown => true,
+                    | State::ShutDown => self.lasting_end(None),
                 };
-                (
-                    state,
-                    vec![Action::TearDown {
-                        ticket,
-                        ends_lasting_service,
-                    }],
-                )
+                (state, vec![Action::TearDown { ticket, end }])
             }
 
             // A crash restart still waiting is called off: the second takes its conversations.
@@ -419,6 +413,33 @@ impl Supervision {
                     State::Stopped,
                     vec![
                         Action::CancelPending,
+                        Action::RetireRecord,
+                        Action::Publish(CodexServiceAvailability::Stopped),
+                    ],
+                )
+            }
+            // A crash restart under way is called off and what it launched drains, so it never
+            // comes up on the home the second holds.
+            (State::Starting { launch, .. }, Event::Replaced) => {
+                self.is_replaced = true;
+                (
+                    State::Stopping {
+                        launch,
+                        then: StoppingThen::Stopped,
+                        end: LastingServiceEnd::Drain,
+                    },
+                    vec![
+                        Action::CancelPending,
+                        Action::Publish(CodexServiceAvailability::Stopping),
+                    ],
+                )
+            }
+            // A service down after a crash loop waits for no restart: its record goes.
+            (State::CrashLoop, Event::Replaced) => {
+                self.is_replaced = true;
+                (
+                    State::Stopped,
+                    vec![
                         Action::RetireRecord,
                         Action::Publish(CodexServiceAvailability::Stopped),
                     ],
@@ -455,6 +476,7 @@ impl Supervision {
                 State::ShutDown,
                 vec![
                     Action::CancelPending,
+                    Action::CancelDrains,
                     Action::Publish(CodexServiceAvailability::ShutDown),
                 ],
             ),
@@ -484,16 +506,18 @@ impl Supervision {
                     actions,
                 )
             }
-            (State::Starting { launch, recovery }, Event::StartFailed { at, failure, .. }) => self
-                .fail_start(
+            (State::Starting { launch, recovery }, Event::StartFailed { at, failure, .. }) => {
+                let end = self.lasting_end(None);
+                self.fail_start(
                     recovery,
                     at,
                     failure,
                     vec![Action::TearDown {
                         ticket: launch,
-                        ends_lasting_service: true,
+                        end,
                     }],
-                ),
+                )
+            }
             // The start's own connection or process ended before it was up: the start fails, and
             // its outcome, stale once it arrives, is torn down.
             (State::Starting { launch, recovery }, Event::Dropped { dial, wall_at, .. })
@@ -519,7 +543,7 @@ impl Supervision {
                 State::Stopping {
                     launch,
                     then: StoppingThen::Stopped,
-                    ends_lasting_service: true,
+                    end: self.lasting_end(None),
                 },
                 vec![
                     Action::CancelPending,
@@ -530,10 +554,11 @@ impl Supervision {
                 State::Stopping {
                     launch,
                     then: StoppingThen::ShutDown,
-                    ends_lasting_service: intent == DaemonStopIntent::Stop,
+                    end: self.lasting_end(Some(intent)),
                 },
                 vec![
                     Action::CancelPending,
+                    Action::CancelDrains,
                     Action::Publish(CodexServiceAvailability::Stopping),
                 ],
             ),
@@ -605,19 +630,29 @@ impl Supervision {
                 },
                 Vec::new(),
             ),
-            (State::Up { launch, .. }, Event::Stop) => {
-                Self::stop(launch, StoppingThen::Stopped, true, Vec::new())
-            }
+            (State::Up { launch, .. }, Event::Stop) => Self::stop(
+                launch,
+                StoppingThen::Stopped,
+                self.lasting_end(None),
+                Vec::new(),
+            ),
             (State::Up { launch, .. }, Event::Shutdown { intent }) => Self::stop(
                 launch,
                 StoppingThen::ShutDown,
-                intent == DaemonStopIntent::Stop,
-                Vec::new(),
+                self.lasting_end(Some(intent)),
+                vec![Action::CancelDrains],
             ),
+            // A replaced service serves only until it is retired: no third service follows it.
+            (state @ State::Up { .. }, Event::PlannedRestart) if self.is_replaced => {
+                (state, Vec::new())
+            }
             (state @ State::Up { launch, .. }, Event::PlannedRestart) => match self.kind {
-                CodexServiceKind::Account => {
-                    Self::stop(launch, StoppingThen::Starting, true, Vec::new())
-                }
+                CodexServiceKind::Account => Self::stop(
+                    launch,
+                    StoppingThen::Starting,
+                    LastingServiceEnd::Stop,
+                    Vec::new(),
+                ),
                 CodexServiceKind::Terminal => (state, vec![Action::BeginPlannedRestart]),
                 CodexServiceKind::Joined => self.redial(
                     launch,
@@ -716,14 +751,14 @@ impl Supervision {
             (State::Reconnecting { launch, .. }, Event::Stop) => Self::stop(
                 launch,
                 StoppingThen::Stopped,
-                true,
+                self.lasting_end(None),
                 vec![Action::CancelPending],
             ),
             (State::Reconnecting { launch, .. }, Event::Shutdown { intent }) => Self::stop(
                 launch,
                 StoppingThen::ShutDown,
-                intent == DaemonStopIntent::Stop,
-                vec![Action::CancelPending],
+                self.lasting_end(Some(intent)),
+                vec![Action::CancelPending, Action::CancelDrains],
             ),
 
             (State::Restarting { wait }, Event::WaitElapsed { wait: elapsed })
@@ -759,12 +794,16 @@ impl Supervision {
                 if ticket == launch =>
             {
                 match then {
-                    StoppingThen::Stopped => (
+                    // A replaced service's stop ends it, its home's socket the second's, and its
+                    // record goes with what its last start left.
+                    StoppingThen::Stopped | StoppingThen::Starting if self.is_replaced => (
                         State::Stopped,
-                        vec![Action::Publish(CodexServiceAvailability::Stopped)],
+                        vec![
+                            Action::RetireRecord,
+                            Action::Publish(CodexServiceAvailability::Stopped),
+                        ],
                     ),
-                    // A replaced service's stop ends it: its home's socket is the second's.
-                    StoppingThen::Starting if self.is_replaced => (
+                    StoppingThen::Stopped => (
                         State::Stopped,
                         vec![Action::Publish(CodexServiceAvailability::Stopped)],
                     ),
@@ -777,24 +816,11 @@ impl Supervision {
             }
             // The outcome of a start a stop stood down: torn down, which ends the stop.
             (
-                state @ State::Stopping {
-                    ends_lasting_service,
-                    ..
-                },
+                state @ State::Stopping { end, .. },
                 Event::Started { launch: ticket, .. } | Event::StartFailed { launch: ticket, .. },
-            ) => (
-                state,
-                vec![Action::TearDown {
-                    ticket,
-                    ends_lasting_service,
-                }],
-            ),
+            ) => (state, vec![Action::TearDown { ticket, end }]),
             (
-                State::Stopping {
-                    launch,
-                    then,
-                    ends_lasting_service,
-                },
+                State::Stopping { launch, then, end },
                 event @ (Event::Start | Event::Restart | Event::Stop | Event::Shutdown { .. }),
             ) => {
                 let then = match (then, &event) {
@@ -807,19 +833,15 @@ impl Supervision {
                 if matches!(event, Event::Restart) {
                     self.crash_window.clear();
                 }
-                let actions = if then == StoppingThen::ShutDown && matches!(event, Event::Start) {
+                // A daemon's stop never waits on a drain: its wait is called off.
+                let actions = if matches!(event, Event::Shutdown { .. }) {
+                    vec![Action::CancelDrains]
+                } else if matches!(event, Event::Start) && then == StoppingThen::ShutDown {
                     vec![Action::Publish(CodexServiceAvailability::Stopping)]
                 } else {
                     Vec::new()
                 };
-                (
-                    State::Stopping {
-                        launch,
-                        then,
-                        ends_lasting_service,
-                    },
-                    actions,
-                )
+                (State::Stopping { launch, then, end }, actions)
             }
 
             (State::ShutDown, Event::Start) => (

@@ -30,6 +30,7 @@ use crate::provider::driver::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
 use crate::provider::driver::codex::session::conversation_release::CodexConversationRelease;
+use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::provider::driver::codex::transport::connection::scripted_service::{
     ScriptedService, connect_scripted_service,
 };
@@ -51,6 +52,26 @@ pub(crate) struct ScriptedCodexService {
     /// What the service runs on, the conversations its sessions moved off among them.
     pub(crate) dependencies: Arc<CodexServiceDependencies>,
     _folder: TempDir,
+}
+
+impl ScriptedCodexService {
+    /// Publishes the service reconnecting, its connection set aside until [`Self::publish_up`]
+    /// hands it back.
+    pub(crate) fn publish_reconnecting(&self) -> Option<Arc<CodexAppServerConnection>> {
+        let connection = self.service.lock_live().connection.take();
+        self.service
+            .availability
+            .send_replace(CodexServiceAvailability::Reconnecting);
+        connection
+    }
+
+    /// Publishes the service up again on `connection`.
+    pub(crate) fn publish_up(&self, connection: Option<Arc<CodexAppServerConnection>>) {
+        self.service.lock_live().connection = connection;
+        self.service
+            .availability
+            .send_replace(CodexServiceAvailability::Up);
+    }
 }
 
 /// The dependencies a test's services share: their data and logs under `folder`, the build
@@ -112,7 +133,7 @@ pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
         Arc::new(UnheardEvents),
     );
     let socket: PathBuf = folder.path().join("codex.sock");
-    let service = CodexService::new(
+    let (service, script) = script_codex_service(
         CodexServiceHome {
             codex_home: folder.path().join("home"),
             provider_account_id: None,
@@ -125,6 +146,23 @@ pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
         CodexServiceKind::Account,
         Arc::clone(&dependencies),
     );
+    ScriptedCodexService {
+        service,
+        script,
+        dependencies,
+        _folder: folder,
+    }
+}
+
+/// A service of `kind` on `home` and `socket`, published as up on a connection the test scripts,
+/// with the script. Must be called within a runtime.
+pub(crate) fn script_codex_service(
+    home: CodexServiceHome,
+    socket: CodexServiceSocket,
+    kind: CodexServiceKind,
+    dependencies: Arc<CodexServiceDependencies>,
+) -> (Arc<CodexService>, ScriptedService) {
+    let service = CodexService::new(home, socket, kind, dependencies);
     let (connection, script) = connect_scripted_service(
         SCRIPTED_MESSAGE_LIMIT,
         service.connection_handlers(SCRIPTED_DIAL),
@@ -135,12 +173,7 @@ pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
     service
         .availability
         .send_replace(CodexServiceAvailability::Up);
-    ScriptedCodexService {
-        service,
-        script,
-        dependencies,
-        _folder: folder,
-    }
+    (service, script)
 }
 
 // A scripted service runs no program, so a start on its dependencies fails at the resolve.

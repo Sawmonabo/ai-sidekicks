@@ -7,6 +7,18 @@ use crate::provider::driver::codex::service::supervisor::events::CodexServiceRec
 use crate::provider::driver::codex::service::supervisor::transition::CodexServiceAvailability;
 use crate::provider::driver::codex::session::errors::CodexError;
 
+/// What a stop does with the lasting process of a terminal service, which outlives the daemon.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LastingServiceEnd {
+    /// It is only disconnected and keeps running in its record, as under a daemon restart.
+    Keep,
+    /// It is asked to drain, Codex's own graceful end, and ends by itself once its running
+    /// replies finish: a service another took the home's link from.
+    Drain,
+    /// It is asked to stop and killed once the grace runs out.
+    Stop,
+}
+
 /// What the runner carries out for a transition, in order.
 #[derive(Debug)]
 pub(crate) enum SupervisorAction {
@@ -30,8 +42,8 @@ pub(crate) enum SupervisorAction {
     TearDown {
         /// The outcome's ticket.
         ticket: u64,
-        /// Whether a terminal service it launched is ended rather than left in its record.
-        ends_lasting_service: bool,
+        /// What becomes of a terminal service it launched.
+        end: LastingServiceEnd,
     },
     /// Closes the service's connection; the process stays, or is let go of when it has ended.
     Disconnect {
@@ -55,12 +67,15 @@ pub(crate) enum SupervisorAction {
     },
     /// Ends the start, redial or wait under way.
     CancelPending,
+    /// Calls off the wait of every drain the service asked: each drain finishes by itself, and
+    /// its record stays for the next start.
+    CancelDrains,
     /// Stops the service's own process and connection by its kind, reporting `StopDone`.
     StopService {
         /// The start's ticket.
         launch: u64,
-        /// Whether a terminal service is ended rather than only disconnected.
-        ends_lasting_service: bool,
+        /// What becomes of a terminal service.
+        end: LastingServiceEnd,
     },
     /// Checks whether Codex's managed daemon this supervisor joined is free, and stops it when it
     /// is, reporting `JoinedServiceFreed`.

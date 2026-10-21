@@ -6,6 +6,7 @@
 //! crash window's waits; a connection that drops is redialed on a wait that grows and never gives
 //! up; a service draining toward its exit refuses new work while its turns run on.
 
+mod drain;
 pub(super) mod events;
 mod reconnect;
 pub(super) mod routing;
@@ -35,6 +36,7 @@ use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
 use crate::provider::driver::codex::server_requests::CodexServerRequestResponder;
 use crate::provider::driver::codex::service::asks::CodexServiceAsks;
 use crate::provider::driver::codex::service::home::{CodexServiceHome, CodexServiceKind};
+use crate::provider::driver::codex::service::record::LastingServiceRecordFile;
 use crate::provider::driver::codex::service::supervisor::events::CodexServiceEvents;
 use crate::provider::driver::codex::service::supervisor::routing::{
     CODEX_CONFIG_WARNING_METHOD, CodexServiceRouting,
@@ -166,6 +168,11 @@ pub(crate) struct CodexService {
     // Where the socket of the process the last start brought up really is, which the home's link
     // is cleared against once that process ends.
     physical_socket: Mutex<Option<PathBuf>>,
+    // The record file of the lasting process the last start brought up, which a former daemon's
+    // service joined keeps under its own socket's name.
+    process_record_file: Mutex<Option<LastingServiceRecordFile>>,
+    // Calls off the wait of every drain the service asked, as the daemon stops.
+    drains: CancellationToken,
     // Whether the home's link was moved onto this service's own socket and it still holds it.
     holds_home_link: AtomicBool,
     // The ticket of the connection whose frames are routed; an older one's are not.
@@ -194,6 +201,8 @@ impl CodexService {
             availability: watch::Sender::new(CodexServiceAvailability::Stopped),
             live: Mutex::default(),
             physical_socket: Mutex::default(),
+            process_record_file: Mutex::default(),
+            drains: CancellationToken::new(),
             holds_home_link: AtomicBool::new(false),
             routed_dial: AtomicU64::new(0),
             threads: Arc::new(Mutex::new(CodexServiceThreads::new(
@@ -233,6 +242,12 @@ impl CodexService {
     /// it was dialed through, or the path itself where that is no link; `None` before any start.
     pub(crate) fn physical_socket(&self) -> Option<PathBuf> {
         self.lock_physical_socket().clone()
+    }
+
+    /// The record file of the lasting process the last start brought up; `None` before any start
+    /// and for a service with no lasting process.
+    pub(crate) fn process_record_file(&self) -> Option<LastingServiceRecordFile> {
+        self.lock_process_record_file().clone()
     }
 
     /// Whether the home's link was moved onto this service's own socket and still belongs to it, so
@@ -698,6 +713,12 @@ impl CodexService {
 
     fn lock_physical_socket(&self) -> MutexGuard<'_, Option<PathBuf>> {
         self.physical_socket
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn lock_process_record_file(&self) -> MutexGuard<'_, Option<LastingServiceRecordFile>> {
+        self.process_record_file
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
     }
