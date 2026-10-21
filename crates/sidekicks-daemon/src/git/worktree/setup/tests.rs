@@ -293,7 +293,7 @@ async fn a_failed_command_stops_the_run_and_a_retry_runs_on_from_it_keeping_the_
 async fn a_command_past_its_time_limit_is_ended_with_every_process_it_started() {
     let fixture = SetupFixture::new(setup_of(
         &[],
-        &["(sleep 2; touch outlived) & sleep 0.8; echo last; wait"],
+        &["(sleep 2; touch outlived) & sleep 0.5; echo last; wait"],
         Some(1),
     ))
     .await;

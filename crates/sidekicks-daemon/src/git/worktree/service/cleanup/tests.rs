@@ -433,6 +433,8 @@ struct StartedFileWatch {
 
 impl Drop for StartedFileWatch {
     fn drop(&mut self) {
+        // Best-effort teardown: the test's body asserts its own stop, and a daemon already ended
+        // makes this stop fail.
         let _stop_outcome = std::process::Command::new(&self.git)
             .arg("-C")
             .arg(&self.folder)

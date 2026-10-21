@@ -3,7 +3,7 @@
 
 use std::error::Error;
 use std::ffi::OsString;
-use std::fs::{self, File};
+use std::fs::{self, File, Permissions};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -40,25 +40,29 @@ pub(crate) fn clone_or_copy(source: &Path, destination: &Path) -> io::Result<()>
     }
 }
 
-// Copies `source`'s bytes into a new temporary file beside `destination`, gives it `source`'s mode
-// and then `destination`'s name unless something has that name; a failure removes the temporary
+// Copies `source`'s bytes into a new temporary file beside `destination`, gives it `destination`'s
+// name unless something has that name, then `source`'s mode, which a read-only source would
+// otherwise carry onto the temporary name the publish removes; a failure removes the temporary
 // file, and only that file.
 fn copy_then_publish(source: &Path, destination: &Path) -> io::Result<()> {
     let temporary = temporary_path_beside(destination)?;
-    if let Err(error) = copy_into_new_file(source, &temporary) {
-        if let Err(removal) = fs::remove_file(&temporary)
-            && removal.kind() != io::ErrorKind::NotFound
-        {
-            tracing::warn!(
-                error = &removal as &(dyn Error + 'static),
-                path = %temporary.display(),
-                "A copy that failed partway could not be removed"
-            );
+    let permissions = match copy_into_new_file(source, &temporary) {
+        Ok(permissions) => permissions,
+        Err(error) => {
+            if let Err(removal) = fs::remove_file(&temporary)
+                && removal.kind() != io::ErrorKind::NotFound
+            {
+                tracing::warn!(
+                    error = &removal as &(dyn Error + 'static),
+                    path = %temporary.display(),
+                    "A copy that failed partway could not be removed"
+                );
+            }
+            return Err(error);
         }
-        return Err(error);
-    }
+    };
     match blocking_publish_without_replacing(&temporary, destination).map_err(io::Error::other)? {
-        PublishOutcome::Published => Ok(()),
+        PublishOutcome::Published => fs::set_permissions(destination, permissions),
         PublishOutcome::TargetExists => Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
             "an entry is already at the copy's path",
@@ -80,13 +84,13 @@ fn temporary_path_beside(destination: &Path) -> io::Result<PathBuf> {
     Ok(destination.with_file_name(temporary_name))
 }
 
-// Copies `source`'s bytes into a file made new at `path`, then gives it `source`'s mode.
-fn copy_into_new_file(source: &Path, path: &Path) -> io::Result<()> {
+// Copies `source`'s bytes into a file made new at `path`; answers `source`'s mode.
+fn copy_into_new_file(source: &Path, path: &Path) -> io::Result<Permissions> {
     let mut reader = File::open(source)?;
     let permissions = reader.metadata()?.permissions();
     let mut copy = create_new_file(path, FALLBACK_COPY_MODE)?;
     io::copy(&mut reader, &mut copy)?;
-    copy.set_permissions(permissions)
+    Ok(permissions)
 }
 
 #[cfg(test)]
