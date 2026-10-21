@@ -555,7 +555,7 @@ fn last_part(entry: &[u8], part_count: usize) -> Result<&[u8], GitError> {
 
 /// The branch `folder` has checked out, or `None` while its HEAD is detached or names no branch.
 /// Fails as [`GitRunner::run`] does.
-#[expect(dead_code, reason = "the worktree service's reads")]
+#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_current_branch(
     git: &GitRunner,
     place: Option<&Place>,
@@ -588,7 +588,7 @@ pub(crate) async fn read_current_branch(
 /// The folder that holds `folder`'s own HEAD and index: the checkout's git folder, or for a linked
 /// tree its record inside the repository's. Fails as [`GitRunner::run`] does, with `PathText` for
 /// a path this system cannot name and `Read` for an answer that names no folder.
-#[expect(dead_code, reason = "the worktree service's reads")]
+#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_tree_git_folder(
     git: &GitRunner,
     place: Option<&Place>,

@@ -53,6 +53,9 @@ const GIT_REFUSED_EXIT_CODE: i32 = 128;
 const GIT_FATAL_PREFIX: &str = "fatal: ";
 const GIT_PREPARE_PREFIX: &str = "prepare: ";
 
+// The start of the clause the files backend writes before a ref refusal's own words.
+const GIT_LOCK_CLAUSE_PREFIX: &str = "cannot lock ref '";
+
 /// An attached project as the clash check reads it: where its repository is, where it runs, and
 /// whether it keeps a pattern of its own.
 #[cfg_attr(
@@ -219,29 +222,43 @@ async fn find_branch_clash(
         stderr,
         ..
     } = &failure
-        && let Some(git_message) = strip_clash_message(stderr, &reference)
-            .and_then(|line| NonEmptyText::new(line.to_owned()))
+        && let Some(git_message) =
+            strip_clash_message(stderr).and_then(|line| NonEmptyText::new(line.to_owned()))
     {
         return Ok(Some(git_message));
     }
     Err(failure)
 }
 
-// Git's words for a refused preparation of `reference`: its last `fatal: ` line without that
-// prefix, then without `prepare: `, then without the `cannot lock ref '<reference>': ` clause the
-// files backend writes and reftable omits. `None` when no line is a refused preparation.
-fn strip_clash_message<'a>(stderr: &'a str, reference: &str) -> Option<&'a str> {
-    let line = stderr
+// Git's words for a refused preparation: its last `fatal: ` line without that prefix, then without
+// `prepare: `, then without any `cannot lock ref` clause. `None` when no line is a refused
+// preparation.
+fn strip_clash_message(stderr: &str) -> Option<&str> {
+    let words = last_fatal_line(stderr)?
+        .strip_prefix(GIT_FATAL_PREFIX)?
+        .strip_prefix(GIT_PREPARE_PREFIX)?;
+    Some(strip_lock_clause(words))
+}
+
+/// Git's last `fatal: ` line in `stderr`, whole and with its line end trimmed; `None` when git
+/// wrote none.
+pub(crate) fn last_fatal_line(stderr: &str) -> Option<&str> {
+    stderr
         .lines()
         .rev()
-        .find_map(|line| line.strip_prefix(GIT_FATAL_PREFIX))?
-        .strip_prefix(GIT_PREPARE_PREFIX)?;
-    let lock_clause = format!("cannot lock ref '{reference}': ");
-    Some(
-        line.strip_prefix(lock_clause.as_str())
-            .unwrap_or(line)
-            .trim_end(),
-    )
+        .find(|line| line.starts_with(GIT_FATAL_PREFIX))
+        .map(str::trim_end)
+}
+
+/// The words of git's refusal of a ref without the files backend's leading
+/// `cannot lock ref '<ref>': ` clause, which reftable leaves out, and which the files backend
+/// leaves out too when the clashing ref is packed; `words` as given when it has no such clause. A
+/// ref name holds no `:`, so the clause ends at the first `': `.
+pub(crate) fn strip_lock_clause(words: &str) -> &str {
+    words
+        .strip_prefix(GIT_LOCK_CLAUSE_PREFIX)
+        .and_then(|rest| rest.split_once("': "))
+        .map_or(words, |(_reference, after)| after)
 }
 
 #[cfg(test)]
@@ -260,46 +277,37 @@ mod tests {
     use crate::git::process::{GitCall, GitRunner, strip_line_end, test_git_runner};
     use crate::uuid_v7::mint_uuid_v7;
 
-    // Fails when either backend's clash line keeps git's prefixes or loses its own words.
+    // Fails when a clash line, with or without the files backend's lock clause, keeps git's
+    // prefixes or loses its own words.
     #[rstest]
     #[case::files_holder(
         "fatal: prepare: cannot lock ref 'refs/heads/a/b': 'refs/heads/a' exists; cannot create \
          'refs/heads/a/b'\n",
-        "refs/heads/a/b",
         "'refs/heads/a' exists; cannot create 'refs/heads/a/b'"
     )]
     #[case::files_same(
         "fatal: prepare: cannot lock ref 'refs/heads/a': reference already exists\n",
-        "refs/heads/a",
         "reference already exists"
     )]
     #[case::files_inside(
         "fatal: prepare: cannot lock ref 'refs/heads/c': 'refs/heads/c/d' exists; cannot create \
          'refs/heads/c'\n",
-        "refs/heads/c",
         "'refs/heads/c/d' exists; cannot create 'refs/heads/c'"
     )]
     #[case::reftable_holder(
         "fatal: prepare: 'refs/heads/a' exists; cannot create 'refs/heads/a/b'\n",
-        "refs/heads/a/b",
         "'refs/heads/a' exists; cannot create 'refs/heads/a/b'"
     )]
     #[case::reftable_same(
         "fatal: prepare: cannot lock ref 'refs/heads/a': reference already exists\n",
-        "refs/heads/a",
         "reference already exists"
     )]
     #[case::reftable_inside(
         "fatal: prepare: 'refs/heads/c/d' exists; cannot create 'refs/heads/c'\n",
-        "refs/heads/c",
         "'refs/heads/c/d' exists; cannot create 'refs/heads/c'"
     )]
-    fn a_clash_line_keeps_only_gits_own_words(
-        #[case] stderr: &str,
-        #[case] reference: &str,
-        #[case] expected: &str,
-    ) {
-        assert_eq!(strip_clash_message(stderr, reference), Some(expected));
+    fn a_clash_line_keeps_only_gits_own_words(#[case] stderr: &str, #[case] expected: &str) {
+        assert_eq!(strip_clash_message(stderr), Some(expected));
     }
 
     // A write in `repository` that no hook of the person's config can change.
