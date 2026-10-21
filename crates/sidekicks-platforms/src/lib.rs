@@ -265,6 +265,10 @@ pub use posix::socket::connection::{
     UnixDomainStream, connect_unix_domain_socket, connect_unix_domain_socket as connect_socket,
 };
 #[cfg(unix)]
+pub use posix::socket::link::{
+    CAN_MOVE_SOCKET_LINK, read_socket_link, remove_socket_link, replace_socket_link,
+};
+#[cfg(unix)]
 pub use posix::socket::listener::bind_socket_listener;
 #[cfg(unix)]
 pub use posix::socket::path::{check_socket_path, read_socket_path_entry};
@@ -415,6 +419,10 @@ pub use windows::shell_start::{
 pub use windows::shell_start_confirmation::{ShellLaunchWriter, ShellStartConfirmation};
 #[cfg(target_os = "windows")]
 pub use windows::socket::connection::connect_socket;
+#[cfg(target_os = "windows")]
+pub use windows::socket::link::{
+    CAN_MOVE_SOCKET_LINK, read_socket_link, remove_socket_link, replace_socket_link,
+};
 #[cfg(target_os = "windows")]
 pub use windows::socket::listener::bind_socket_listener;
 #[cfg(target_os = "windows")]
