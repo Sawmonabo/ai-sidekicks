@@ -294,10 +294,11 @@ impl QueueAdmission {
     }
 
     /// Writes the `admitted` outcome the opening of the ended run `run_id` still owes, its driver
-    /// having started with it, and forgets the opening. Called at the run's end under the session
-    /// lock; fails as the read or the write fails.
+    /// having started with it, and forgets the opening once written. Called at the run's end under
+    /// the session lock; fails as the read or the write fails, the opening then kept for a settle
+    /// tried again.
     pub(crate) async fn settle_opening(&self, run_id: RunId) -> Result<(), QueueError> {
-        let Some(opening) = self.deps.openings.remove(run_id) else {
+        let Some(opening) = self.deps.openings.get(run_id) else {
             return Ok(());
         };
         if self
@@ -315,6 +316,7 @@ impl QueueAdmission {
                 )
                 .await?;
         }
+        self.deps.openings.remove(run_id);
         Ok(())
     }
 

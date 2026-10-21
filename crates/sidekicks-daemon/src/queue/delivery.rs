@@ -236,10 +236,9 @@ impl QueueDelivery {
         )
         .await?;
         let handing = driver.message_handing();
-        let lead_waiting = self.waiting_to_hand(&run, run_id, handing).await?;
         let session_id = *hold.key();
         let process = self.shared.deps.processes.process_identity(&session_id);
-        let mut state = self.lock_state();
+        let (lead_waiting, mut state) = self.waiting_to_hand(Some(&run), run_id, handing).await?;
         self.push_waiting_hands(
             &mut state,
             session_id,
@@ -270,14 +269,11 @@ impl QueueDelivery {
         )
         .await?;
         let handing = driver.message_handing();
-        let lead_waiting = match self.read_run(run_id).await? {
-            Some(run) => self.waiting_to_hand(&run, run_id, handing).await?,
-            None => Vec::new(),
-        };
+        let run = self.read_run(run_id).await?;
         let process = self.shared.deps.processes.process_identity(&session_id);
         // Both hands join the chain under one hold of the state, so the priority hand's end, a
         // steer whose turn ended among them, cannot free the message for the rest's hand to send.
-        let mut state = self.lock_state();
+        let (lead_waiting, mut state) = self.waiting_to_hand(run.as_ref(), run_id, handing).await?;
         let items = vec![item];
         state.mark_handed(&items, run_id, HandRoute::Driver(handing), process);
         let job = ChainJob::Hand {
@@ -359,9 +355,8 @@ impl QueueDelivery {
         if self.is_held_for_interrupt(run_id) {
             return Ok(());
         }
-        let lead_waiting = self.lead_waiting(self.read_waiting(run_id).await?, false);
         let process = self.shared.deps.processes.process_identity(&session_id);
-        let mut state = self.lock_state();
+        let (lead_waiting, mut state) = self.lead_waiting_under_lock(run_id).await?;
         let items = state.unhanded_of(lead_waiting, false);
         if items.is_empty() {
             return Ok(());
@@ -391,7 +386,7 @@ impl QueueDelivery {
     fn give_back(&self, cancelled: &[QueueItemId]) {
         let mut state = self.lock_state();
         for item_id in cancelled {
-            state.handed.remove(item_id);
+            state.forget_hand(item_id);
         }
     }
 
@@ -424,7 +419,7 @@ impl QueueDelivery {
             let state = self.lock_state();
             lead_waiting
                 .into_iter()
-                .filter(|item| !state.handed.contains_key(&item.id))
+                .filter(|item| state.hand_of(&item.id).is_none())
                 .collect()
         };
         let now = WireInstant::now();
@@ -472,7 +467,7 @@ impl QueueDelivery {
     pub(crate) fn forget(&self, item_ids: &[QueueItemId]) {
         let mut state = self.lock_state();
         for item_id in item_ids {
-            state.handed.remove(item_id);
+            state.forget_hand(item_id);
             state.next_turn_runs.remove(item_id);
         }
     }
@@ -586,7 +581,7 @@ impl QueueDelivery {
         let live_process = self.shared.deps.processes.process_identity(&session_id);
         let mut state = self.lock_state();
         state.credits_choice_runs.remove(&run_id);
-        state.handed.retain(|_, handed| {
+        state.retain_hands(|handed| {
             handed.run_id != run_id
                 || is_kept_by_process(handed, live_process)
                 || matches!(handed.route, HandRoute::Continue { is_kept: true, .. })
@@ -606,8 +601,7 @@ impl QueueDelivery {
         let live_process = self.shared.deps.processes.process_identity(&session_id);
         let kept_by_gone: Vec<(QueueItemId, u64, RunId)> = self
             .lock_state()
-            .handed
-            .iter()
+            .hands()
             .filter(|(_, handed)| {
                 let is_kept = match handed.route {
                     HandRoute::Driver(handing) => handing.kept_by_process,
@@ -647,11 +641,10 @@ impl QueueDelivery {
         for (item_id, hand_number, run_id) in of_ended_runs {
             // A hand made since the snapshot is not the one read.
             let is_same_hand = state
-                .handed
-                .get(&item_id)
+                .hand_of(&item_id)
                 .is_some_and(|handed| handed.hand_number == hand_number);
             if is_same_hand {
-                state.handed.remove(&item_id);
+                state.forget_hand(&item_id);
                 if !ended_run_ids.contains(&run_id) {
                     ended_run_ids.push(run_id);
                 }
@@ -662,7 +655,7 @@ impl QueueDelivery {
 
     /// Whether the provider has been handed `item_id` and has not yet said what became of it.
     pub(crate) fn is_handed(&self, item_id: &QueueItemId) -> bool {
-        self.lock_state().handed.contains_key(item_id)
+        self.lock_state().hand_of(item_id).is_some()
     }
 
     /// Whether the session's live provider process keeps a message handed for `run_id`, which it
@@ -670,9 +663,8 @@ impl QueueDelivery {
     pub(crate) fn is_message_kept_for_run(&self, session_id: SessionId, run_id: RunId) -> bool {
         let live_process = self.shared.deps.processes.process_identity(&session_id);
         self.lock_state()
-            .handed
-            .values()
-            .any(|handed| handed.run_id == run_id && is_kept_by_process(handed, live_process))
+            .hands()
+            .any(|(_, handed)| handed.run_id == run_id && is_kept_by_process(handed, live_process))
     }
 
     /// Marks the delivery stopping, so [`QueueDelivery::wait`] answers once no task of its own
@@ -702,7 +694,7 @@ impl QueueDelivery {
     }
 
     fn forget_hand(&self, item_id: QueueItemId) {
-        self.lock_state().handed.remove(&item_id);
+        self.lock_state().forget_hand(&item_id);
     }
 
     async fn read_run(&self, run_id: RunId) -> Result<Option<RunRead>, DeliveryError> {
@@ -733,24 +725,44 @@ impl QueueDelivery {
             .await
     }
 
-    // The lead messages waiting for `run_id` that a hand sends now, in the queue's order: none
-    // when its provider takes them only at a tool boundary, the run takes none now, or an
-    // interrupt holds it.
+    // The lead messages waiting for `run_id` that a hand sends now, in the queue's order, beside
+    // the state locked to hand them: none when its provider takes them only at a tool boundary,
+    // the run is gone or takes none now, or an interrupt holds it.
     async fn waiting_to_hand(
         &self,
-        run: &RunRead,
+        run: Option<&RunRead>,
         run_id: RunId,
         handing: MessageHanding,
-    ) -> Result<Vec<QueueItemRecord>, DeliveryError> {
-        match handing.hands_at {
-            HandMoment::AtOnce => {}
-            HandMoment::AtToolBoundary => return Ok(Vec::new()),
+    ) -> Result<(Vec<QueueItemRecord>, MutexGuard<'_, DeliveryState>), DeliveryError> {
+        let takes_now = match handing.hands_at {
+            HandMoment::AtOnce => run.is_some_and(|run| {
+                let state = self.lock_state();
+                state.takes_messages_now(run.state, run_id)
+                    && !state.interrupt_holds.contains_key(&run_id)
+            }),
+            HandMoment::AtToolBoundary => false,
+        };
+        if !takes_now {
+            return Ok((Vec::new(), self.lock_state()));
         }
-        let takes_now = self.lock_state().takes_messages_now(run.state, run_id);
-        if !takes_now || self.is_held_for_interrupt(run_id) {
-            return Ok(Vec::new());
+        self.lead_waiting_under_lock(run_id).await
+    }
+
+    // The lead messages waiting for `run_id`, in the queue's order, beside the state locked to
+    // hand them. A hand forgotten between the read and the lock may have settled a message the
+    // read saw waiting, which a hand would then send again, so the read goes again.
+    async fn lead_waiting_under_lock(
+        &self,
+        run_id: RunId,
+    ) -> Result<(Vec<QueueItemRecord>, MutexGuard<'_, DeliveryState>), DeliveryError> {
+        loop {
+            let forgotten = self.lock_state().forgotten_hands();
+            let lead_waiting = self.lead_waiting(self.read_waiting(run_id).await?, false);
+            let state = self.lock_state();
+            if state.forgotten_hands() == forgotten {
+                return Ok((lead_waiting, state));
+            }
         }
-        Ok(self.lead_waiting(self.read_waiting(run_id).await?, false))
     }
 
     // Joins the chain with the hands of `lead_waiting` not yet handed: a message sent now first,

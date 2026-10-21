@@ -180,8 +180,9 @@ const UPPER_BOUND_GUARD_SQL: &str = "
 
 // The rows keyed by one of the session's runs, each up to the run id it is matched on; the run
 // ids are found through the session's runs and its log, so these go before both.
-const RUN_KEYED_DELETES: [&str; 3] = [
+const RUN_KEYED_DELETES: [&str; 4] = [
     "DELETE FROM interventions WHERE target_run_id",
+    "DELETE FROM send_now_requests WHERE target_run_id",
     "DELETE FROM runtime_bindings WHERE run_id",
     "DELETE FROM command_receipts WHERE run_id",
 ];

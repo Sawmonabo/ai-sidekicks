@@ -48,7 +48,7 @@ use crate::provider::driver::run_control::{
 use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
-use crate::queue::store::send_now::mark_sent_now_statement;
+use crate::queue::store::send_now::{SentNow, mark_sent_now_statement, record_sent_now_statement};
 use crate::queue::store::{NewQueueItem, QueueItemBody, insert_queue_item_statement};
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
@@ -100,13 +100,16 @@ impl InterruptQueue for EngineQueue {
             if let Some(intervention_id) = marked {
                 return Ok(SendNowOutcome::Sent { intervention_id });
             }
+            let now = WireInstant::now();
+            let sent = SentNow {
+                item_id: send.item_id,
+                intervention_id: send.intervention_id,
+            };
             writer
-                .write(vec![mark_sent_now_statement(
-                    &send.item_id,
-                    &send.key,
-                    &send.intervention_id,
-                    &WireInstant::now(),
-                )])
+                .write(vec![
+                    mark_sent_now_statement(&send.item_id, &send.intervention_id, &now),
+                    record_sent_now_statement(&send.run_id, &send.key, &sent, &now),
+                ])
                 .await
                 .expect("the test marks the message sent now");
             self.marked

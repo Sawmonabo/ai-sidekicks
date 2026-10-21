@@ -270,8 +270,9 @@ fn contains(bytes: &[u8], text: &str) -> bool {
 }
 
 // Kills: the workflow runs' rows left out of the write (the run's foreign keys refuse it or its
-// steps stay), `secure_delete` off or the truncation skipped (the marker stays in the file or its
-// log), and a receipt outside the delete's write or naming another range.
+// steps stay), an unsettled release or a spent `Send now` key of the lead run left behind,
+// `secure_delete` off or the truncation skipped (the marker stays in the file or its log), and a
+// receipt outside the delete's write or naming another range.
 #[tokio::test]
 async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log() {
     let fixture = purge_fixture().await;
@@ -340,6 +341,17 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
             ],
         )
         .expect("the test records an interrupt whose release was left unsettled");
+    reader
+        .execute(
+            "INSERT INTO send_now_requests (target_run_id, client_idempotency_key, queue_item_id,
+               intervention_id, created_at) VALUES (?1, ?2, ?2, ?2, ?3)",
+            params![
+                lead_run_id.text().as_str(),
+                mint_uuid_v7().to_string(),
+                "2026-10-02T00:00:30.000Z"
+            ],
+        )
+        .expect("the test records a key a `Send now` spent");
 
     let report = fixture
         .purge
@@ -385,6 +397,15 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
         )
         .expect("the test counts the unsettled releases");
     assert_eq!(unreleased, 0, "no unsettled release outlives its session");
+    let send_now_keys: i64 = reader
+        .query_row("SELECT COUNT(*) FROM send_now_requests", [], |row| {
+            row.get(0)
+        })
+        .expect("the test counts the spent `Send now` keys");
+    assert_eq!(
+        send_now_keys, 0,
+        "no spent `Send now` key outlives its session"
+    );
     assert_eq!(event_count(&reader, survivor), 1);
     assert_eq!(
         receipts(&reader),

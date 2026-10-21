@@ -203,7 +203,7 @@ impl QueueDelivery {
         {
             let mut state = self.lock_state();
             if state.interrupt_holds.contains_key(&run_id) {
-                state.handed.remove(&item.id);
+                state.forget_hand(&item.id);
                 return Ok(());
             }
             chain_of(&state, session_id).mark_in_flight(Some(run_id));
@@ -259,7 +259,7 @@ impl QueueDelivery {
             let mut state = self.lock_state();
             if state.interrupt_holds.contains_key(&run_id) {
                 for item in items {
-                    state.handed.remove(&item.id);
+                    state.forget_hand(&item.id);
                 }
                 return;
             }
@@ -331,7 +331,7 @@ impl QueueDelivery {
         run_id: RunId,
     ) -> Result<(), DeliveryError> {
         let item = self.read_item(item_id).await?;
-        let handed = self.lock_state().handed.get(&item_id).copied();
+        let handed = self.lock_state().hand_of(&item_id).copied();
         match handed {
             Some(handed) => match handed.route {
                 HandRoute::Driver(_) => {

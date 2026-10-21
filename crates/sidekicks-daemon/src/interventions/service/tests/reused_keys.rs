@@ -5,7 +5,6 @@ use std::sync::atomic::Ordering;
 
 use futures::FutureExt as _;
 use rstest::rstest;
-use rusqlite::params;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::intervention::AgentRunInterveneResponse;
 
@@ -74,20 +73,21 @@ async fn a_reused_key_answers_the_saved_result_or_refuses_another_request() {
 }
 
 // `Send now` on a provider that reads a priority message hands the message with no interrupt row.
-// The same request again goes to the queue while the message waits, and once the message has
-// left the queue, taken or never delivered, answers the first's `applied` without the queue; the
-// key reused for an interrupt without the message first, or for a retry, is refused as a
-// conflict. Killed by dropping the sent-now read before the saved row's, its comparison of the
-// message first, or its check of a retry, by answering from the mark while the message waits, or
-// by running again a `Send now` whose message is no longer taken but left the queue another way.
+// The same request again goes to the queue while the message waits with its mark, and once the
+// message has left the queue, taken or never delivered, or a reorder moved it off first place and
+// cleared its mark, answers the first's `applied` without the queue; the key reused for an
+// interrupt without the message first, or for a retry, is refused as a conflict. Killed by dropping
+// the sent-now read before the saved row's, its comparison of the message first, or its check of a
+// retry, by answering from the key while the mark is in force, or by running again a `Send now`
+// whose message left the queue another way or lost its mark.
 #[rstest]
-#[case::taken("admitted", None)]
-#[case::never_delivered("notDelivered", Some("failed"))]
+#[case::taken("UPDATE queue_items SET state = 'admitted' WHERE id = ?1")]
+#[case::never_delivered(
+    "UPDATE queue_items SET state = 'notDelivered', not_delivered_reason = 'failed' WHERE id = ?1"
+)]
+#[case::reordered("UPDATE queue_items SET send_now_id = NULL WHERE id = ?1")]
 #[tokio::test]
-async fn a_reused_send_now_key_answers_applied_or_refuses_another_request(
-    #[case] left_state: &str,
-    #[case] not_delivered_reason: Option<&str>,
-) {
+async fn a_reused_send_now_key_answers_applied_or_refuses_another_request(#[case] moved_on: &str) {
     let harness = harness_reading_priority(MockProviderDriver::new(), true).await;
     let item_id = harness.queue_message().await;
 
@@ -105,11 +105,8 @@ async fn a_reused_send_now_key_answers_applied_or_refuses_another_request(
     harness
         .database
         .reader()
-        .execute(
-            "UPDATE queue_items SET state = ?2, not_delivered_reason = ?3 WHERE id = ?1",
-            params![item_id.text().as_str(), left_state, not_delivered_reason],
-        )
-        .expect("the test moves the message out of the queue");
+        .execute(moved_on, [item_id.text().as_str()])
+        .expect("the test moves the message on");
     let after_leaving = harness
         .service
         .apply_intervention(send_now(harness.run_id, item_id), device())

@@ -47,8 +47,11 @@ pub(super) struct HandedMessage {
 /// Everything the delivery keeps, guarded by one `std::sync::Mutex` never held across an await.
 #[derive(Default)]
 pub(super) struct DeliveryState {
-    /// The handed messages, by item.
-    pub(super) handed: HashMap<QueueItemId, HandedMessage>,
+    // The handed messages, by item; a hand leaves only through `forget_hand` or `retain_hands`.
+    handed: HashMap<QueueItemId, HandedMessage>,
+    // Moves on with every hand forgotten, so a reader of the waiting messages that read them
+    // before taking this state's lock learns that one it read as waiting may have settled since.
+    forgotten_hands: u64,
     /// Messages sent while their run waited on input, which go as its next turn, by item.
     pub(super) next_turn_runs: HashMap<QueueItemId, RunId>,
     /// Runs whose provider holds a credits choice that a message settles.
@@ -62,6 +65,43 @@ pub(super) struct DeliveryState {
 }
 
 impl DeliveryState {
+    /// The hand of `item_id`, while the provider holds it.
+    pub(super) fn hand_of(&self, item_id: &QueueItemId) -> Option<&HandedMessage> {
+        self.handed.get(item_id)
+    }
+
+    /// Every hand the provider holds, by item.
+    pub(super) fn hands(&self) -> impl Iterator<Item = (&QueueItemId, &HandedMessage)> {
+        self.handed.iter()
+    }
+
+    /// Every hand the provider holds, to change its route.
+    pub(super) fn hands_mut(&mut self) -> impl Iterator<Item = &mut HandedMessage> {
+        self.handed.values_mut()
+    }
+
+    /// Forgets the hand of `item_id`, a message never handed left as it is.
+    pub(super) fn forget_hand(&mut self, item_id: &QueueItemId) {
+        if self.handed.remove(item_id).is_some() {
+            self.forgotten_hands += 1;
+        }
+    }
+
+    /// Forgets every hand `keep` refuses.
+    pub(super) fn retain_hands(&mut self, mut keep: impl FnMut(&HandedMessage) -> bool) {
+        let held = self.handed.len();
+        self.handed.retain(|_, handed| keep(handed));
+        if self.handed.len() < held {
+            self.forgotten_hands += 1;
+        }
+    }
+
+    /// How many times a hand was forgotten: a reader of the waiting messages compares it from
+    /// before its read to under the lock, and reads again when it moved.
+    pub(super) fn forgotten_hands(&self) -> u64 {
+        self.forgotten_hands
+    }
+
     /// Marks each of `items` handed for `run_id` by `route` to the process `process`, each under a
     /// fresh hand number.
     pub(super) fn mark_handed(

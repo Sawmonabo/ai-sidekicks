@@ -1,6 +1,7 @@
-//! The queue's one lock per session. Every hold of it settles first what an interrupt's release
-//! left unsettled on the session, so no send, change, hand, start, run's end or resume of the
-//! session goes past an interrupt's choice that a failed release left waiting.
+//! The queue's one lock per session. Every hold of it first tries again to settle what an
+//! interrupt's release left unsettled on the session, and each run's end an interrupt held back
+//! that no interrupt holds any more; one that fails again is written to the service log and stays
+//! for the next hold or the daemon's next start.
 
 use std::sync::{OnceLock, Weak};
 
@@ -13,8 +14,9 @@ use crate::queue::error::QueueError;
 /// Settles again the interrupt releases left unsettled on a session.
 pub(crate) trait UnreleasedInterrupts: Send + Sync {
     /// Settles, under `hold`, each interrupt release the held session has left unsettled, clearing
-    /// each record once settled; one that fails again stays recorded. Fails with the first failure,
-    /// every release tried and each later failure written to the service log.
+    /// each record once settled, then each run's end an interrupt held back that no interrupt holds
+    /// any more; one that fails again stays for the next hold. Fails with the first failure, every
+    /// one tried and each later failure written to the service log.
     fn settle_unreleased<'call>(
         &'call self,
         hold: &'call KeyHold<'_, SessionId>,
@@ -46,8 +48,8 @@ impl QueueSessionLock {
     }
 
     /// Waits for `session_id` behind every caller that asked first and answers the hold once the
-    /// session's unsettled releases are settled again; one that fails again is written to the
-    /// service log and stays recorded for the next hold.
+    /// session's unsettled releases and held-back run ends are settled again; one that fails again
+    /// is written to the service log and stays for the next hold.
     pub(crate) async fn hold_session(&self, session_id: SessionId) -> KeyHold<'_, SessionId> {
         let (hold, settled) = self.hold_settled(session_id).await;
         if let Err(error) = settled {

@@ -90,12 +90,32 @@ impl ProviderProcessIds for ProcessStandIn {
     }
 }
 
-/// The messages that open a run being started, as the test sets them.
-struct OpeningStandIn(Mutex<HashSet<QueueItemId>>);
+/// The messages that open a run being started, as the test sets them, and a step the test runs
+/// once, at the next read of a waiting message's opening, which a hand makes right after its read
+/// of the waiting messages.
+struct OpeningStandIn {
+    openings: Mutex<HashSet<QueueItemId>>,
+    after_read: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+impl OpeningStandIn {
+    /// Runs `step` at the next read of a waiting message's opening.
+    fn after_next_read(&self, step: impl FnOnce() + Send + 'static) {
+        *self.after_read.lock().expect("the test's step is writable") = Some(Box::new(step));
+    }
+}
 
 impl OpeningMessages for OpeningStandIn {
     fn is_opening(&self, item: &QueueItemRecord) -> bool {
-        self.0
+        let after_read = self
+            .after_read
+            .lock()
+            .expect("the test's step is readable")
+            .take();
+        if let Some(after_read) = after_read {
+            after_read();
+        }
+        self.openings
             .lock()
             .expect("the test's openings are readable")
             .contains(&item.id)
@@ -141,7 +161,10 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     }));
     let session_lock = Arc::new(QueueSessionLock::new());
     let process = Arc::new(ProcessStandIn(Mutex::new(Some(FIRST_PROCESS))));
-    let openings = Arc::new(OpeningStandIn(Mutex::new(HashSet::new())));
+    let openings = Arc::new(OpeningStandIn {
+        openings: Mutex::new(HashSet::new()),
+        after_read: Mutex::new(None),
+    });
     let delivery = QueueDelivery::new(QueueDeliveryDeps {
         pool,
         recorder,

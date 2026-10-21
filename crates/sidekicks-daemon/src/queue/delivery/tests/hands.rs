@@ -1,6 +1,6 @@
-//! Hands: each takes its place on the chain before its call returns, a tool boundary never makes
-//! the provider's reader wait, and an interrupt's hold stops every hand queued behind it and waits
-//! out one in flight.
+//! Hands: each takes its place on the chain before its call returns, none sends again a message
+//! settled after its read, a tool boundary never makes the provider's reader wait, and an
+//! interrupt's hold stops every hand queued behind it and waits out one in flight.
 
 use std::pin::pin;
 use std::sync::atomic::Ordering;
@@ -22,9 +22,9 @@ use super::{
 use crate::ipc::handlers::driver::resolution::read_run_driver;
 use crate::provider::driver::contract::MockProviderDriver;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
-use crate::provider::driver::run_control::RunToolBoundary;
+use crate::provider::driver::run_control::{ApplyInterventionParams, RunToolBoundary};
 use crate::queue::delivery::{DeliveryError, InterruptHoldRelease};
-use crate::queue::store::RecordedQueueItemState;
+use crate::queue::store::{QueueItemRecord, RecordedQueueItemState};
 
 // Killed by a hand that joins the chain from a task of its own: a gate joined as soon as the
 // hand's call returns then runs ahead of the hand.
@@ -281,6 +281,94 @@ async fn a_stop_waits_out_a_hand_inside_its_driver_call() {
         "the stop waits while the steer is in flight"
     );
     assert!(stopped.is_ok(), "the stop answers once the steer returns");
+}
+
+// A message the provider records as taken between a hand's read of the waiting messages and its
+// hand, its outcome written and its hand forgotten in that window, is not handed again: the hand
+// reads the messages again. Killed by handing from the read made before the hand was forgotten
+// (the message is steered twice).
+#[tokio::test]
+async fn a_message_settled_after_the_hands_read_is_not_handed_again() {
+    let mut driver = driver_handing(HANDS_AT_ONCE);
+    let steers = record_steers(&mut driver);
+    let fixture = fixture(driver).await;
+    let item_id = insert_item(&fixture).await.id;
+    hand(&fixture).await;
+    settle(&fixture).await;
+    let reader = fixture.database.reader();
+    let delivery = fixture.delivery.clone();
+    fixture.openings.after_next_read(move || {
+        reader
+            .execute(
+                "UPDATE queue_items SET state = 'admitted' WHERE id = ?1",
+                [item_id.text().as_str()],
+            )
+            .expect("the test records the message taken");
+        delivery.forget(&[item_id]);
+    });
+
+    hand(&fixture).await;
+    settle(&fixture).await;
+
+    assert_eq!(steers_of(&steers), [(item_id, false)]);
+}
+
+// A message sent now whose priority steer ends, its hand forgotten, between the read of the
+// messages waiting behind it and their hand is not handed again with them: the priority hand is
+// marked under the same hold of the state as the rest, after the read. Killed by marking the
+// priority hand before that read (the message is steered again after its priority steer).
+#[tokio::test]
+async fn a_message_sent_now_freed_after_the_read_is_not_handed_with_the_rest() {
+    let mut driver = driver_handing(HANDS_AT_ONCE);
+    let steers = record_steers(&mut driver);
+    let fixture = fixture(driver).await;
+    let item = QueueItemRecord {
+        sent_now_id: Some(intervention_id()),
+        ..insert_item(&fixture).await
+    };
+    let delivery = fixture.delivery.clone();
+    let item_id = item.id;
+    fixture
+        .openings
+        .after_next_read(move || delivery.forget(&[item_id]));
+
+    {
+        let hold = fixture.session_lock.hold_session(fixture.session_id).await;
+        fixture
+            .delivery
+            .hand_first(&hold, fixture.run_id, item)
+            .await
+            .expect("the message is handed first");
+    }
+    settle(&fixture).await;
+
+    assert_eq!(steers_of(&steers), [(item_id, true)]);
+}
+
+/// Answers every steer as sent and records each one's message and whether it went priority.
+fn record_steers(driver: &mut MockProviderDriver) -> Arc<Mutex<Vec<(QueueItemId, bool)>>> {
+    let steers = Arc::new(Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&steers);
+    driver.expect_apply_intervention().returning(move |params| {
+        let ApplyInterventionParams::Steer {
+            client_idempotency_key,
+            payload,
+            ..
+        } = params
+        else {
+            panic!("the delivery only steers");
+        };
+        recorded
+            .lock()
+            .expect("the steers are recorded")
+            .push((client_idempotency_key, payload.is_priority));
+        async { Ok(applied()) }.boxed()
+    });
+    steers
+}
+
+fn steers_of(steers: &Mutex<Vec<(QueueItemId, bool)>>) -> Vec<(QueueItemId, bool)> {
+    steers.lock().expect("the steers are readable").clone()
 }
 
 /// A driver handing as `handing` that reports each steer's message and holds the first steer

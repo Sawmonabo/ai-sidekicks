@@ -65,22 +65,32 @@ CREATE TABLE queue_items (
   position               INTEGER NOT NULL CHECK(position >= 0),
   -- The send's own key, so a retried send returns the saved item; NULL on the system's own.
   client_idempotency_key TEXT,
-  -- The key of the `Send now` that handed the item ahead of what its provider held, and the id its
-  -- answer carries, so a retried `Send now` answers what the first did; NULL on every other item.
-  send_now_key           TEXT,
+  -- The mark of the `Send now` in force that handed the item ahead of what its provider held: the
+  -- id its answer carries. NULL on every other item, and once a later order moves the item off
+  -- first place.
   send_now_id            TEXT,
   created_at             TEXT NOT NULL,
   updated_at             TEXT NOT NULL,
   CHECK((state = '{not_delivered}') = (not_delivered_reason IS NOT NULL)),
-  CHECK((send_now_key IS NULL) = (send_now_id IS NULL)),
   -- SQLite treats each NULL as distinct, so only sends dedupe.
-  UNIQUE (session_id, client_idempotency_key),
-  UNIQUE (session_id, send_now_key)
+  UNIQUE (session_id, client_idempotency_key)
 ) STRICT;
 
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);
 CREATE INDEX idx_queue_items_target_run ON queue_items(target_run_id)
   WHERE target_run_id IS NOT NULL;
+
+-- Each key a person's `Send now` spent on a run, with the message it handed and the id its first
+-- answer carried, kept for the run's life whatever later becomes of the message's mark, so a
+-- retried `Send now` answers what the first did.
+CREATE TABLE send_now_requests (
+  target_run_id           TEXT NOT NULL,
+  client_idempotency_key  TEXT NOT NULL,
+  queue_item_id           TEXT NOT NULL,
+  intervention_id         TEXT NOT NULL,
+  created_at              TEXT NOT NULL,
+  PRIMARY KEY (target_run_id, client_idempotency_key)
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE interventions (
   id                      TEXT PRIMARY KEY,

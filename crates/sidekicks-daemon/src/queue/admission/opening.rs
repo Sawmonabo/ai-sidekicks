@@ -38,6 +38,11 @@ impl RunOpenings {
         self.lock().insert(run_id, item);
     }
 
+    /// The opening of `run_id`, if one is recorded.
+    pub(super) fn get(&self, run_id: RunId) -> Option<QueueItemRecord> {
+        self.lock().get(&run_id).cloned()
+    }
+
     /// Forgets the opening of `run_id`, answering it.
     pub(super) fn remove(&self, run_id: RunId) -> Option<QueueItemRecord> {
         self.lock().remove(&run_id)

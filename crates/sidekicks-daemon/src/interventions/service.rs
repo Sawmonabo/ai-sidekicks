@@ -128,7 +128,7 @@ pub(crate) struct InterventionService {
     /// The run queue.
     pub(super) queue: Arc<dyn InterruptQueue>,
     /// Orders each run's interrupts, a person's and the daemon's own alike, and each retry's read
-    /// of the run's `Send now` marks through the record of its row.
+    /// of the run's spent `Send now` keys through the record of its row.
     pub(super) interrupt_lock: Arc<KeyedLock<RunId>>,
     // Orders each run's retries; a retry takes it before the interrupt lock.
     retry_lock: Arc<KeyedLock<RunId>>,
@@ -290,7 +290,7 @@ impl InterventionService {
             }
         };
         let _hold = lock.acquire(run_id).await;
-        // A `Send now` marks its key under the interrupt lock, so a retry reads the mark and
+        // A `Send now` records its key under the interrupt lock, so a retry reads the key and
         // records its own row under that lock too, and two requests under one key never both run;
         // the retry lets it go before its dispatch.
         let sent_now_hold = match &request {
@@ -369,9 +369,9 @@ impl InterventionService {
         }
     }
 
-    // Records the request with its stored `payload`. A key refused at the insert was spent since
-    // the caller's read by a request of the other type, under the other lock, so it answers a
-    // conflict.
+    // Records the request with its stored `payload`. Every request of the run reads its key and
+    // records under the run's interrupt lock, so a key the insert refuses is the table's own
+    // backstop, answered as a conflict from the saved row.
     async fn record(
         &self,
         target: &InterventionTarget,

@@ -99,7 +99,7 @@ interface QueueItemSummary {
   content: string;
   attachments?: ArtifactId[];
   childHandle?: ChildHandle; // the child whose queue holds it; absent on the lead's
-  isSentNow: boolean; // `Send now` marked it: the row reads as sent now while the daemon holds it
+  isSentNow: boolean; // `Send now` marked it and no later order moved it off first place
   notDeliveredReason?: QueueItemNotDeliveredReason; // present exactly on a notDelivered item
   createdAt: string;
   updatedAt: string;
@@ -167,7 +167,8 @@ type AgentRunInterveneRequest =
       // this one first marked sent now, and sends it with `priority: "now"`, the rest after it,
       // with no `Turn interrupted` row. While a permission ask or a question is open the driver
       // holds it until the card is answered; in any other state that takes no message it stays
-      // first, reading as sent now, until the run's next hand.
+      // first, reading as sent now, until the run's next hand. A reorder that moves it off first
+      // place clears the mark.
       deliverFirst?: QueueItemId;
     }
   | {

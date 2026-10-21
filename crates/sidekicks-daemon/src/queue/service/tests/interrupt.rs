@@ -25,6 +25,7 @@ use crate::provider::driver::run_control::InterruptPendingChoice;
 use crate::provider::driver::test_registry::bind_run_to_first_provider;
 use crate::queue::service::RunQueue;
 use crate::queue::store::QueueItemReader;
+use crate::queue::store::send_now::{SentNow, read_sent_now};
 use crate::uuid_v7::mint_uuid_v7;
 
 fn new_intervention_id() -> InterventionId {
@@ -68,16 +69,18 @@ impl Fixture {
             .expect("the run is handed what waits for it");
     }
 
-    /// The key the message's `Send now` mark records.
-    fn sent_now_key(&self, item_id: QueueItemId) -> Option<String> {
-        self.database
-            .reader()
-            .query_row(
-                "SELECT send_now_key FROM queue_items WHERE id = ?1",
-                [item_id.text().as_str()],
-                |row| row.get(0),
-            )
-            .expect("the test reads the message's mark")
+    /// The id the message's `Send now` mark carries.
+    fn sent_now_mark(&self, item_id: QueueItemId) -> Option<InterventionId> {
+        QueueItemReader::new(&self.database.reader())
+            .get(&item_id)
+            .expect("the test reads the message")
+            .expect("the test's message is stored")
+            .sent_now_id
+    }
+
+    /// The `Send now` recorded under `key` on `run_id`.
+    fn sent_now_record(&self, run_id: RunId, key: &ClientUuid) -> Option<SentNow> {
+        read_sent_now(&self.database.reader(), &run_id, key).expect("the test reads the key")
     }
 
     /// The lead messages waiting for `run_id`, in the queue's order.
@@ -93,9 +96,9 @@ impl Fixture {
 
 // `Send now` of B among A, B and C, all three handed, on a run that takes a message now takes
 // every row back, hands B first marked priority and the rest after it in their order, B, A, C, and
-// marks B with the request's key; a person's card open takes B alone, A and C waiting for the
-// card's answer. Killed by taking back only the rows ahead of B (the provider reads B, C, A), by
-// leaving a card open to an interrupt, or by not marking B.
+// marks B, recording its id under the request's key; a person's card open takes B alone, A and C
+// waiting for the card's answer. Killed by taking back only the rows ahead of B (the provider reads
+// B, C, A), by leaving a card open to an interrupt, or by not marking B or recording its key.
 #[rstest]
 #[case::running("running", true)]
 #[case::waiting_for_approval("waitingForApproval", true)]
@@ -136,9 +139,13 @@ async fn send_now_hands_the_message_first_and_the_rest_in_order(
         vec![(sent_now, true)]
     };
     assert_eq!(calls.steers(), expected);
+    assert_eq!(fixture.sent_now_mark(sent_now), Some(intervention_id));
     assert_eq!(
-        fixture.sent_now_key(sent_now).as_deref(),
-        Some(key.as_str())
+        fixture.sent_now_record(run_id, &key),
+        Some(SentNow {
+            item_id: sent_now,
+            intervention_id
+        })
     );
 }
 
@@ -154,11 +161,11 @@ enum NotTaking {
 }
 
 // `Send now` on a run that takes no message now neither steers nor interrupts: the message reads
-// sent now, marked with the key and first in the queue, a second `Send now` of it under another
-// key answers the first's id and keeps its mark, and its run's next hand gives it first marked
-// priority, then the rest. Killed by an interrupt or a steer made at once, by the mark dropped or
-// looked up by the request's key alone (the second is refused), or by a next hand in the plain
-// order.
+// sent now, marked and first in the queue, a second `Send now` of it under another key answers the
+// first's id, keeps its mark and records that id under its own key too, and its run's next hand
+// gives it first marked priority, then the rest. Killed by an interrupt or a steer made at once, by
+// the mark dropped or written again (the second is refused), by the second key left unrecorded, or
+// by a next hand in the plain order.
 #[rstest]
 #[case::starting(NotTaking::State("starting"))]
 #[case::pausing(NotTaking::State("pausing"))]
@@ -202,7 +209,7 @@ async fn send_now_keeps_the_message_first_for_a_run_that_takes_none_now(
             .hold_for_interrupt(&hold, run_id, interrupt_id)
             .await;
     }
-    let key = client_key();
+    let (key, other_key) = (client_key(), client_key());
     let first_id = new_intervention_id();
 
     fixture
@@ -212,7 +219,7 @@ async fn send_now_keeps_the_message_first_for_a_run_that_takes_none_now(
         .send_now(
             interrupted_run_id,
             sent_now,
-            &client_key(),
+            &other_key,
             new_intervention_id(),
         )
         .await;
@@ -220,10 +227,17 @@ async fn send_now_keeps_the_message_first_for_a_run_that_takes_none_now(
 
     assert_eq!(again_id, first_id);
     assert!(calls.steers().is_empty(), "{:?}", calls.steers());
-    assert_eq!(
-        fixture.sent_now_key(sent_now).as_deref(),
-        Some(key.as_str())
-    );
+    assert_eq!(fixture.sent_now_mark(sent_now), Some(first_id));
+    let first_sent = SentNow {
+        item_id: sent_now,
+        intervention_id: first_id,
+    };
+    for key in [&key, &other_key] {
+        assert_eq!(
+            fixture.sent_now_record(interrupted_run_id, key),
+            Some(first_sent)
+        );
+    }
     assert_eq!(fixture.waiting_order(run_id), [sent_now, ahead]);
 
     fixture.set_run_state(run_id, "running");
@@ -364,11 +378,12 @@ enum SettledAgain {
 }
 
 // An interrupt's release that cannot hand its run what waits, the run bound to no provider yet,
-// fails and records its choice on the interrupt's row; once the run is bound, a run's end taking
-// the session's hold, or the queue's recovery after a restart, hands the message and clears the
-// record. Killed by keeping the unsettled release in memory only (the restart never hands), by
-// settling it only at the holds the queue's own calls take (the run's end never hands), or by
-// never clearing the record.
+// fails and records on the interrupt's row that only what the hold held back is left, its choice
+// having applied; once the run is bound, a run's end taking the session's hold, or the queue's
+// recovery after a restart, hands the message and clears the record. Killed by keeping the
+// unsettled release in memory only (the restart never hands), by settling it only at the holds
+// the queue's own calls take (the run's end never hands), by recording the applied choice again,
+// or by never clearing the record.
 #[rstest]
 #[case::run_end(SettledAgain::RunEnd)]
 #[case::restart(SettledAgain::Restart)]
@@ -415,7 +430,7 @@ async fn a_release_left_unsettled_is_settled_at_a_later_hold(#[case] again: Sett
         }
     }
 
-    assert_eq!(recorded.as_deref(), Some("nextTurn"));
+    assert_eq!(recorded.as_deref(), Some("keepWaiting"));
     assert_eq!(calls.steers(), [(item_id, false)]);
     assert_eq!(fixture.unreleased_choice(intervention_id), None);
 }
@@ -432,8 +447,9 @@ enum MarkedPlace {
 // A reorder after `Send now` is the person's latest order: one that moves the marked message off
 // first place clears its mark in the same write, so it reads as no longer sent now and the run's
 // next hand gives the messages in the new order with no priority; one that keeps it first keeps
-// the mark and the priority hand. Killed by keeping the mark whatever the order (the provider
-// reads the marked message first against the screen's order), or by clearing it on every reorder.
+// the mark and the priority hand. Either way the key keeps its record. Killed by keeping the mark
+// whatever the order (the provider reads the marked message first against the screen's order),
+// by clearing it on every reorder, or by a clear that drops the key's record.
 #[rstest]
 #[case::kept_first(MarkedPlace::KeptFirst)]
 #[case::moved_off_first(MarkedPlace::MovedOffFirst)]
@@ -448,7 +464,7 @@ async fn a_reorder_after_send_now_keeps_the_mark_only_on_a_message_left_first(
     let other = fixture.queue_message(run_id).await;
     let sent_now = fixture.queue_message(run_id).await;
     let key = client_key();
-    fixture
+    let sent_now_id = fixture
         .send_now(run_id, sent_now, &key, new_intervention_id())
         .await;
     let order = match place {
@@ -465,15 +481,23 @@ async fn a_reorder_after_send_now_keeps_the_mark_only_on_a_message_left_first(
         })
         .await
         .expect("the queue takes the order");
-    let mark = fixture.sent_now_key(sent_now);
+    let mark = fixture.sent_now_mark(sent_now);
+    let record = fixture.sent_now_record(run_id, &key);
     fixture.set_run_state(run_id, "running");
     fixture.hand_waiting(run_id).await;
     fixture.queue.stop().await;
 
     assert_eq!(fixture.waiting_order(run_id), order);
+    assert_eq!(
+        record,
+        Some(SentNow {
+            item_id: sent_now,
+            intervention_id: sent_now_id
+        })
+    );
     match place {
         MarkedPlace::KeptFirst => {
-            assert_eq!(mark.as_deref(), Some(key.as_str()));
+            assert_eq!(mark, Some(sent_now_id));
             assert_eq!(calls.steers(), [(sent_now, true), (other, false)]);
         }
         MarkedPlace::MovedOffFirst => {

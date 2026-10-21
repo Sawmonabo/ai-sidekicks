@@ -181,7 +181,8 @@ impl PayloadStore {
             if let Err(error) = self.reclaim(reads, content_hash).await {
                 tracing::warn!(
                     error = &error as &(dyn Error + 'static),
-                    "a stored payload no reference names was not removed; the orphan sweep removes it"
+                    "a stored payload no reference names was not removed; the orphan sweep \
+                     removes it"
                 );
             }
         }
