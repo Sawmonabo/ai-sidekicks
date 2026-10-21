@@ -173,8 +173,9 @@ type DenialId = string & { readonly __brand: "DenialId" };
 // Claude Code's auto-mode classifier, captured by its `PermissionDenied` hook and the result's
 // `permission_denials`; Codex's automatic reviewer, captured from
 // `item/autoApprovalReview/completed`. The blocked call keeps its row in the flow, a failed row
-// whose reason line reads `Blocked · <reason>`, with one button, `Allow once`, wherever
-// `overridable` is true. The daemon keeps the provider's own denial with this record — Claude
+// on which each block is its own reason line, `Blocked · <reason>`, with its own button,
+// `Allow once`, wherever `overridable` is true; a block that names no call is a row of its own
+// with the same line and button. The daemon keeps the provider's own denial with this record — Claude
 // Code's action as the hook received it, Codex's review as Codex sent it — so an override still
 // works after a restart; it never rides the payload.
 interface ApprovalReviewerDeniedPayload {
