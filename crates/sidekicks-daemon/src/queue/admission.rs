@@ -49,7 +49,9 @@ use crate::queue::delivery::{ProviderProcessIds, QueueDelivery};
 use crate::queue::error::QueueError;
 use crate::queue::provider_session::ProviderSessions;
 use crate::queue::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
-use crate::queue::store::{QueueItemOutcome, QueueItemReader, QueueItemRecord, summary_of};
+use crate::queue::store::{
+    QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState, summary_of,
+};
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::read::read_run_through;
 use crate::session::run::refusals::RunRefusal;
@@ -60,7 +62,7 @@ pub(crate) use self::opening::RunOpenings;
 
 /// How long a queued run waits for the memory gate before its messages are not delivered: past
 /// five minutes a run is not getting memory soon, and the person is better told so.
-pub(crate) const QUEUE_DELIVERY_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+pub(crate) const QUEUE_DELIVERY_TIMEOUT: Duration = Duration::from_mins(5);
 
 // The detail of a run that waited past the delivery timeout.
 static TIMED_OUT_DETAIL: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
@@ -296,7 +298,12 @@ impl QueueAdmission {
         let Some(opening) = self.deps.openings.remove(run_id) else {
             return Ok(());
         };
-        if self.read_item(&opening).await?.is_some_and(is_waiting) {
+        if self
+            .read_item(&opening)
+            .await?
+            .as_ref()
+            .is_some_and(is_waiting)
+        {
             self.deps
                 .recorder
                 .record_outcome(
@@ -447,7 +454,11 @@ impl QueueAdmission {
             let is_unended = state == Some(RunState::Starting)
                 && matches!(start_error, RunEngineError::Several(_));
             if (state == Some(RunState::Failed) || is_unended)
-                && self.read_item(&opening).await?.is_some_and(is_waiting)
+                && self
+                    .read_item(&opening)
+                    .await?
+                    .as_ref()
+                    .is_some_and(is_waiting)
             {
                 self.record_not_delivered(&opening, QueueItemNotDeliveredReason::Failed)
                     .await?;
@@ -577,7 +588,7 @@ impl QueueAdmission {
             {
                 return Err(QueueError::ContinueTakenOver { run_id });
             }
-            if current.is_some_and(is_waiting) {
+            if current.as_ref().is_some_and(is_waiting) {
                 self.record_not_delivered(&opening, QueueItemNotDeliveredReason::Failed)
                     .await?;
             }
@@ -876,8 +887,8 @@ fn provider_work(
     })
 }
 
-fn is_waiting(item: QueueItemRecord) -> bool {
-    item.state == crate::queue::store::RecordedQueueItemState::Queued
+fn is_waiting(item: &QueueItemRecord) -> bool {
+    item.state == RecordedQueueItemState::Queued
 }
 
 // Whether the engine refused the move because the run had moved on: an interrupt claimed it, or a
@@ -893,12 +904,13 @@ fn is_invalid_transition(error: &QueueError) -> bool {
 
 // Whether a continue's driver start found its opening taken over by a newer lead run.
 fn is_taken_over(error: &QueueError) -> bool {
-    match error {
-        QueueError::Engine(RunEngineError::Driver { source, .. }) => source
-            .downcast_ref::<QueueError>()
-            .is_some_and(|source| matches!(source, QueueError::ContinueTakenOver { .. })),
-        _ => false,
-    }
+    matches!(
+        error,
+        QueueError::Engine(RunEngineError::Driver { source, .. })
+            if source
+                .downcast_ref::<QueueError>()
+                .is_some_and(|source| matches!(source, QueueError::ContinueTakenOver { .. }))
+    )
 }
 
 fn log_failure(session_id: SessionId, run_id: RunId, error: &QueueError, what: &'static str) {

@@ -408,7 +408,7 @@ impl SharedList {
                 }
             }
         }
-        state.tell(changed);
+        state.tell(&changed);
         if !had_renewed && !state.renewed.is_empty() {
             self.renewed_joined.notify_one();
         }
@@ -418,7 +418,7 @@ impl SharedList {
     fn renew(&self) {
         let mut state = self.lock();
         let renewed: Vec<SessionId> = state.renewed.iter().copied().collect();
-        state.tell(renewed);
+        state.tell(&renewed);
     }
 
     // Waits until a session to renew is held.
@@ -462,14 +462,14 @@ impl ListState {
         self.entries.remove(&session_id);
     }
 
-    fn tell(&mut self, session_ids: Vec<SessionId>) {
+    fn tell(&mut self, session_ids: &[SessionId]) {
         if session_ids.is_empty() {
             return;
         }
         self.subscribers
             .retain(|subscriber| match subscriber.upgrade() {
                 Some(changes) => {
-                    for session_id in &session_ids {
+                    for session_id in session_ids {
                         changes.add(*session_id);
                     }
                     true

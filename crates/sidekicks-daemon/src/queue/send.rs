@@ -138,7 +138,7 @@ impl QueueSends {
                     }
                     .into());
                 }
-                Err(SendFailure::Error(error)) => return Err(error),
+                Err(SendFailure::Error(error)) => return Err(*error),
             };
             let resumes = if live_run_id.is_some() {
                 self.deps
@@ -270,7 +270,7 @@ impl QueueSends {
                 &format!("Queue item {} has left the queue", replaces.id),
             )
             .into()),
-            Err(SendFailure::Error(error)) => Err(error),
+            Err(SendFailure::Error(error)) => Err(*error),
         }
     }
 
@@ -289,7 +289,7 @@ impl QueueSends {
                 Err(SendFailure::RetryChanged)
             }
             Err(RecordSendError::Refused(SendRefusal::SessionClosed)) => Err(SendFailure::Error(
-                self.refuse_closed_session(session_id).await,
+                Box::new(self.refuse_closed_session(session_id).await),
             )),
             Err(RecordSendError::Refused(SendRefusal::KeySpent)) => {
                 let saved = self
@@ -302,13 +302,15 @@ impl QueueSends {
                         )
                     })
                     .await
-                    .map_err(SendFailure::Error)?;
+                    .map_err(|error| SendFailure::Error(Box::new(error)))?;
                 // A row is never deleted while its session is kept, so the key's row reads back.
-                saved.ok_or_else(|| SendFailure::Error(persistence_unavailable(None).into()))
+                saved.ok_or_else(|| {
+                    SendFailure::Error(Box::new(persistence_unavailable(None).into()))
+                })
             }
-            Err(RecordSendError::Record(error)) => Err(SendFailure::Error(
+            Err(RecordSendError::Record(error)) => Err(SendFailure::Error(Box::new(
                 persistence_unavailable(Some(error)).into(),
-            )),
+            ))),
         }
     }
 
@@ -377,7 +379,7 @@ impl QueueSends {
 enum SendFailure {
     RouteChanged,
     RetryChanged,
-    Error(QueueError),
+    Error(Box<QueueError>),
 }
 
 fn new_item(

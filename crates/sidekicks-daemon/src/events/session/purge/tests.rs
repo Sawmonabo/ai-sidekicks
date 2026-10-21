@@ -476,7 +476,7 @@ async fn a_failed_file_step_keeps_every_row_and_purging_again_finishes() {
         Some(<&'static str>::from(SessionState::PurgeRequested))
     );
     assert_eq!(event_count(&reader, session_id), 1);
-    assert!(receipts(&reader).is_empty());
+    assert_eq!(receipts(&reader), []);
 
     reader
         .execute("DELETE FROM runtime_bindings WHERE run_id = ?1", [&run_id])
@@ -516,6 +516,10 @@ async fn an_append_queued_before_the_range_read_is_taken_into_the_receipt() {
                 .reached
                 .await
                 .expect("the purge reaches the append lock");
+            #[expect(
+                clippy::async_yields_async,
+                reason = "the raced append is awaited once the writer's hold lets go"
+            )]
             let raced = fixture
                 .log
                 .writer
@@ -588,7 +592,7 @@ async fn a_second_refusal_of_the_range_is_a_fault_that_keeps_every_row() {
         state_of(&reader, session_id).as_deref(),
         Some(<&'static str>::from(SessionState::PurgeRequested))
     );
-    assert!(receipts(&reader).is_empty());
+    assert_eq!(receipts(&reader), []);
 }
 
 // Kills: a busy truncation taken as done, and a truncation given up after its first busy answer.

@@ -392,6 +392,7 @@ mod tests {
 
     use sidekicks_contracts::session::directory::{SessionListChange, SessionListEntry};
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::integer::SafeInt;
     use tokio::sync::mpsc;
     use tokio::time::timeout;
 
@@ -522,7 +523,7 @@ mod tests {
         let [SessionListEntry::Chat(chat)] = opening.sessions.as_slice() else {
             panic!("the list holds the one chat");
         };
-        assert_eq!(chat.document_count.map(|count| count.get()), Some(0));
+        assert_eq!(chat.document_count.map(SafeInt::get), Some(0));
         let mut subscriber = opening.subscriber;
         let gate = CreditGate::with_credit(1);
 

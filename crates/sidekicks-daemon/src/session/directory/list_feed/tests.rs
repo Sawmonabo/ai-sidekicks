@@ -10,6 +10,7 @@ use sidekicks_contracts::session::directory::{
     SessionActivity, SessionListChange, SessionListEntry,
 };
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::timeout;
 
 use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
@@ -26,8 +27,8 @@ const WAIT: Duration = Duration::from_secs(30);
 
 fn name_of(entry: &SessionListEntry) -> Option<&str> {
     match entry {
-        SessionListEntry::Project(project) => project.name.as_ref().map(|name| name.as_str()),
-        SessionListEntry::Chat(chat) => chat.name.as_ref().map(|name| name.as_str()),
+        SessionListEntry::Project(project) => project.name.as_ref().map(FreeFormText::as_str),
+        SessionListEntry::Chat(chat) => chat.name.as_ref().map(FreeFormText::as_str),
     }
 }
 
@@ -188,7 +189,9 @@ async fn a_slow_subscriber_sends_the_newest_entry_once_and_a_purge_removes_it() 
             assert_eq!(session_id, purged);
             assert_eq!(chat_count.get(), 2);
         }
-        other => panic!("a purged session leaves the list, not {other:?}"),
+        other @ (SessionListChange::Page { .. } | SessionListChange::Upsert { .. }) => {
+            panic!("a purged session leaves the list, not {other:?}")
+        }
     }
 }
 

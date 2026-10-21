@@ -569,7 +569,7 @@ async fn a_reused_send_now_key_answers_applied_or_refuses_another_request() {
     assert_eq!(code, RefusalCode::AgentInterventionIdempotencyConflict);
     assert_eq!(harness.sent_now.load(Ordering::SeqCst), 1);
     assert_eq!(harness.holds_taken.load(Ordering::SeqCst), 0);
-    assert!(harness.stored_rows().is_empty());
+    assert_eq!(harness.stored_rows(), []);
 }
 
 // A dispatch that throws ends the request `failed` once, with a refusal's code or else the

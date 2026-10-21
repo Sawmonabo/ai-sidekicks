@@ -116,7 +116,7 @@ impl QueueAdmission {
         };
         RunTurnStart {
             run_id,
-            workspace_id: opening.body.workspace_id.clone(),
+            workspace_id: opening.body.workspace_id,
             execution_posture,
             start_driver: Box::new(start_driver),
             interrupt_driver: Box::new(interrupt_driver),

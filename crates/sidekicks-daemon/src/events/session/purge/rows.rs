@@ -59,7 +59,7 @@ pub(crate) enum PurgeCaller {
 }
 
 impl PurgeCaller {
-    fn from_states(self) -> &'static [SessionState] {
+    fn markable_states(self) -> &'static [SessionState] {
         match self {
             Self::Retention => &[
                 SessionState::Archived,
@@ -245,7 +245,7 @@ const WORKSPACES_DELETE_SQL: &str = "DELETE FROM workspaces WHERE session_id = @
 pub(super) fn mark_statement(session_id: SessionId, caller: PurgeCaller) -> WriteStatement {
     let from_states = sql_list_of(
         caller
-            .from_states()
+            .markable_states()
             .iter()
             .map(|state| <&'static str>::from(*state)),
     );
@@ -334,12 +334,16 @@ pub(crate) enum PurgeReadError {
     StoredValue(#[from] PurgeStoredValueError),
 }
 
+/// A session's event rows' first and last sequence, `None` when it has none, and the sessions it is
+/// linked to.
+pub(super) type RangeAndLinks = (Option<(i64, i64)>, Vec<SessionId>);
+
 /// The session's event rows' first and last sequence, `None` when it has none, and the sessions
 /// it is linked to, whose related lists the purge has scored again.
 pub(super) fn read_range_and_links(
     connection: &Connection,
     session_id: SessionId,
-) -> rusqlite::Result<(Option<(i64, i64)>, Vec<SessionId>)> {
+) -> rusqlite::Result<RangeAndLinks> {
     let session_text = session_id.to_string();
     let session = named_params! { "@sessionId": session_text };
     let range = connection
