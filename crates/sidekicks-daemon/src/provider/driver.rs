@@ -103,6 +103,10 @@ pub(crate) struct ProviderDescriptor {
     /// The forms of the provider's own command whose work would outlive the call, which no agent
     /// in a session may run, and the switch that turns them off; `None` where it has none.
     pub(crate) background_work: Option<BackgroundWork>,
+    /// The folders, as components under an account home, the provider writes for its own
+    /// diagnosis and never reads back for a session; `Keep diagnostic logs for` deletes their files
+    /// by age in each account home the app manages.
+    pub(crate) account_home_diagnostic_folders: &'static [&'static [&'static str]],
 }
 
 impl ProviderDescriptor {

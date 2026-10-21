@@ -152,4 +152,6 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // Codex's own limit on a skill's name.
     skill_name_max_length: Some(64),
     background_work: None,
+    // Codex's log folder; its service logs into a database in the home that bounds itself by size.
+    account_home_diagnostic_folders: &[&["log"]],
 };

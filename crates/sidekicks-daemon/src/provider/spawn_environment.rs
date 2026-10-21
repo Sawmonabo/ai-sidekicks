@@ -390,6 +390,7 @@ mod tests {
         mcp_config_members: &[],
         skill_name_max_length: None,
         background_work: None,
+        account_home_diagnostic_folders: &[],
     };
 
     /// A second registered provider, whose credential home no row may set either, and whose
