@@ -17,13 +17,12 @@ const CONTENT_DESCRIPTION_PAYLOAD_KEYS: [&str; 2] =
 
 /// The event types whose registered payload declares the content members, the only ones that may
 /// carry a machine-authored content partition.
-const BODY_BEARING_EVENT_TYPES: [SessionEventType; 6] = [
+const BODY_BEARING_EVENT_TYPES: [SessionEventType; 5] = [
     SessionEventType::AgentMessageSent,
     SessionEventType::AgentThinkingUpdated,
     SessionEventType::AgentToolCallInvoked,
     SessionEventType::AgentToolCallCompleted,
     SessionEventType::AgentToolCallFailed,
-    SessionEventType::ApprovalReviewerDenied,
 ];
 
 /// A producer pre-seeded a content description member; it names the key only.

@@ -22,6 +22,7 @@ pub mod highlight;
 pub mod interventions;
 pub mod ipc;
 pub mod keyed_lock;
+pub mod keyed_wait;
 pub mod mcp;
 pub mod missing_entry;
 pub mod observability;
