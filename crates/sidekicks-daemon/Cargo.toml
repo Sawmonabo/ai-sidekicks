@@ -65,8 +65,6 @@ ignored = [
   "opentelemetry-proto",
   # The passkey relying party's and the relay channel's tokens.
   "pasetors",
-  # The transcript's markdown cut, built next.
-  "satteri-pulldown-cmark",
   # The redaction set built from each secret of a run.
   "base64",
   "form_urlencoded",
@@ -150,7 +148,6 @@ pdfium-render.workspace = true
 percent-encoding.workspace = true
 process-wrap.workspace = true
 psl.workspace = true
-pulldown-cmark.workspace = true
 quick_cache.workspace = true
 reflink-copy.workspace = true
 regex.workspace = true

@@ -236,7 +236,6 @@ lz4_flex.default-features = false
 lz4_flex.features = ["safe-decode", "safe-encode"]
 memchr = "2.8.3"
 pdfium-render = "0.9.4"
-pulldown-cmark = { version = "0.13.4", default-features = false }
 quick_cache = "0.7.0"
 regex = "1.13.1"
 satteri-pulldown-cmark = { version = "0.6.3", default-features = false, features = ["std"] }

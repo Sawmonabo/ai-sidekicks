@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use pulldown_cmark::{Event, LinkType, Options, Parser, Tag, TagEnd};
+use satteri_pulldown_cmark::{Event, LinkType, Options, Parser, Tag, TagEnd};
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::plan::{PlanId, PlanProposedPayload};
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -123,7 +123,7 @@ impl PlanMarkdownReader {
         {
             self.title_heading = Some(String::new());
             self.is_reading_title = true;
-        } else if let Tag::List(first_number) = tag
+        } else if let Tag::List(first_number, _) = tag
             && self.depth == 0
         {
             self.lists.push((first_number.is_some(), 0));
@@ -259,8 +259,13 @@ mod tests {
         0,
         3
     )]
+    #[case::numbered_steps_count_past_a_nested_list(
+        "1. one\n   1. first part\n   2. second part\n2. two\n   - a note\n3. three\n",
+        3,
+        0
+    )]
     #[case::a_reference_link_is_not_counted(
-        "See [the notes][notes] and `src/a.rs`.\n\n[notes]: docs/notes.md\n",
+        "See [the notes][notes], [notes][], [notes] and `src/a.rs`.\n\n[notes]: docs/notes.md\n",
         0,
         1
     )]
