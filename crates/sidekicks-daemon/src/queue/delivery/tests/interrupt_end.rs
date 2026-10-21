@@ -16,7 +16,7 @@ use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::provider::driver::run_control::InterruptPendingChoice;
 use crate::queue::delivery::InterruptEndWrites;
 use crate::queue::store::{QueueItemReader, QueueItemRecord, RecordedQueueItemState};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// A run with three messages waiting: the first two handed to the provider, the third not.
 async fn interrupted_fixture() -> (Fixture, [QueueItemRecord; 3]) {
@@ -191,7 +191,7 @@ async fn an_interrupt_of_a_starting_run_takes_its_opening_with_the_rest() {
     let opening = insert_item(&fixture).await;
     fixture
         .openings
-        .0
+        .openings
         .lock()
         .expect("the test's openings are writable")
         .insert(opening.id);

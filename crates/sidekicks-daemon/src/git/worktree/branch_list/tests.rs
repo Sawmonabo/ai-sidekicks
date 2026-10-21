@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use rusqlite::{Connection, params};
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId, WorkspaceState};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
 
 use super::{BranchListError, BranchListReader};
@@ -10,7 +11,6 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::events::log_service::tests::open_log;
 use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
-use crate::uuid_v7::mint_uuid_v7;
 use crate::workspace::repo::errors::RepoRefusal;
 use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 

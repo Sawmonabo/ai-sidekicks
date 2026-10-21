@@ -514,7 +514,7 @@ mod tests {
     use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
     use crate::events::session::insert::{SessionEventRow, insert_session_event, monotonic_ns_now};
     use crate::events::session::read::SessionEventReads;
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     /// Appends `event` to `session_id`'s log through the row write, with `body` as its stored
     /// body.

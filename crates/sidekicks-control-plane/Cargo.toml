@@ -9,16 +9,11 @@ publish.workspace = true
 
 [package.metadata.cargo-shear]
 ignored = [
-  # The Compose relay's program: its push sign-in, its DNS server for machine certificates, its
-  # secrets made at first run and its server-name router.
+  # The Compose relay's program: its push sign-in, its DNS server for machine certificates and its
+  # server-name router.
   "gcp_auth",
-  "getrandom",
   "hickory-server",
   "rustls",
-  # The passkey sign-in's token issuer and its DPoP proof checks; `p256` also signs Web Push.
-  "jwt-simple",
-  "p256",
-  "pasetors",
 ]
 
 [lib]
@@ -27,22 +22,29 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 axum.workspace = true
+base16ct.workspace = true
+base64.workspace = true
+garde.workspace = true
+getrandom.workspace = true
 jiff.workspace = true
 jwt-simple.workspace = true
 p256.workspace = true
 pasetors.workspace = true
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serde_path_to_error.workspace = true
+serde_with.workspace = true
+sha2.workspace = true
 sidekicks-contracts.workspace = true
+strum.workspace = true
 thiserror.workspace = true
 time.workspace = true
+url.workspace = true
 
 # The Compose relay's native program.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 axum = { workspace = true, features = ["http1", "tokio"] }
 gcp_auth.workspace = true
-getrandom.workspace = true
 hickory-server.workspace = true
 rusqlite.workspace = true
 rustls.workspace = true
@@ -51,6 +53,7 @@ tracing.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 rstest.workspace = true
+sidekicks-control-plane = { path = ".", features = ["test-support"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 tower-service.workspace = true
@@ -58,11 +61,16 @@ tower-service.workspace = true
 # The Worker.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures-util.workspace = true
+getrandom = { workspace = true, features = ["wasm_js"] }
 js-sys.workspace = true
 time = { workspace = true, features = ["wasm-bindgen"] }
 tower-service.workspace = true
 wasm-bindgen.workspace = true
 worker.workspace = true
+
+[features]
+# Key generation for this crate's own integration tests.
+test-support = []
 
 [lints]
 workspace = true

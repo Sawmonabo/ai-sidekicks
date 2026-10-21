@@ -1,11 +1,11 @@
 use std::path::Path;
 
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 
 use super::{carry_uncommitted_work, drop_carried_stash};
 use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
 use crate::git::worktree::errors::{WorktreeCreateFailureReason, WorktreeRefusal};
-use crate::uuid_v7::mint_uuid_v7;
 
 async fn git_in(git: &GitRunner, folder: &Path, arguments: &[&str]) -> String {
     let output = git

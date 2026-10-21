@@ -293,7 +293,7 @@ mod tests {
         PROJECTION_REBUILD_STATEMENT_CAPACITY, ProjectionRebuildRequest, ProjectionRebuildService,
     };
     use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // The statements the live service writes with each event, from the event as it is stored.
     fn live_statements(event: &SessionEvent, occurred_at: &WireInstant) -> Vec<WriteStatement> {

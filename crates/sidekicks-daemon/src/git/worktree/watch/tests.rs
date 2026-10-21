@@ -11,6 +11,7 @@ use rusqlite::params;
 use sidekicks_contracts::repo::git_reads::{WorkingTreeChange, WorkingTreeChangeMode};
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::WallClockTimer;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
@@ -29,7 +30,6 @@ use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::session::directory::test_rows::insert_session_row;
-use crate::uuid_v7::mint_uuid_v7;
 use crate::workspace::folder::canonical_path::canonical_folder_path;
 use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 

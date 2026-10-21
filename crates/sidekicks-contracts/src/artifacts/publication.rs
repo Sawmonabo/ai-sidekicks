@@ -1,12 +1,12 @@
 //! Publishing an artifact from a payload the caller holds whole, and the event payload that
-//! announces an artifact was published or superseded.
+//! announces an artifact was published.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::artifacts::id::ArtifactId;
-use crate::artifacts::manifest::{ArtifactManifest, ArtifactState, ArtifactType, Extensible};
+use crate::artifacts::manifest::{ArtifactManifest, ArtifactType};
 use crate::jsonrpc::framing::MAX_ONE_ATTACHMENT_BYTES;
 use crate::method::KeyedRequest;
 use crate::run::id::RunId;
@@ -64,9 +64,10 @@ pub struct ArtifactPublishResponse {
     pub manifest: ArtifactManifest,
 }
 
-/// The payload of `artifact.published` and `artifact.superseded`: it names the artifact and its
-/// new state and carries no content. A member a newer daemon adds is kept in `rest`, so an older
-/// reader keeps it rather than refusing a known event.
+/// The payload of `artifact.published`: it names the artifact and carries no content; an artifact
+/// is never changed in place, so a new version is a new artifact with its own event. A member a
+/// newer daemon adds is kept in `rest`, so an older reader keeps it rather than refusing a known
+/// event.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(extend("propertyNames" = prototype_free_names()))]
@@ -97,8 +98,6 @@ pub struct ArtifactPublicationPayload {
     )]
     #[schemars(with = "ArtifactId")]
     pub diff_artifact_id: Option<ArtifactId>,
-    /// The artifact's new state.
-    pub state: Extensible<ArtifactState>,
     /// Every member a newer daemon added, kept as received; never `__proto__`.
     #[serde(flatten, deserialize_with = "prototype_free")]
     pub rest: Map<String, Value>,
@@ -108,7 +107,7 @@ pub struct ArtifactPublicationPayload {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "artifacts/publication",
     doc: "Publishing an artifact from a payload the caller holds whole, and the event payload \
-          that announces an artifact was published or superseded.",
+          that announces an artifact was published.",
     definitions: &[
         Definition::read::<ArtifactPublishRequest>().checked(),
         Definition::read::<ArtifactPublishResponse>().checked(),

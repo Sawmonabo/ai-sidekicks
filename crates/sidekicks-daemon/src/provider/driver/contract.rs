@@ -12,9 +12,10 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::place::Place;
@@ -37,7 +38,9 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::ProviderToolMetadata;
+use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::{MessageContent, QueueItemId, QueuedSkillPick};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText, is_ecmascript_whitespace};
@@ -55,7 +58,7 @@ use crate::provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
     FindTakenMessagesParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
-    ResumeRunParams, SteerTurnEndedError, TakenMessages, WithdrawQueuedMessageParams,
+    PickedSkill, ResumeRunParams, SteerTurnEndedError, TakenMessages, WithdrawQueuedMessageParams,
     WithdrawQueuedMessageResult,
 };
 use crate::provider::driver::session_control::{
@@ -64,6 +67,7 @@ use crate::provider::driver::session_control::{
     ResumeSessionParams, RevokeRuleParams, SessionCommandAnswer, StartReviewParams,
     SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
+use crate::provider::port::permission_ask::ProviderPermissionAnswer;
 use crate::provider::port::session_inbox_address::SessionInboxAddresser;
 use crate::text_cut::cut_to_code_points;
 
@@ -85,10 +89,6 @@ pub(crate) enum DriverError {
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// The request went out and no answer came, so the provider may still act on it.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the drivers' request deadlines and lost links")
-    )]
     #[error(transparent)]
     Unanswered(RequestUnanswered),
     /// The turn a steer was handed for ended before it was sent.
@@ -246,14 +246,6 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// process keeps nothing past it and at the process's end otherwise. Fails when the record is
     /// unreadable, or with [`DriverError::Unanswered`] when the read got no answer back, which the
     /// next settle retries.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which wires the resume, and the run lifecycle's settle \
-                      of kept messages"
-        )
-    )]
     fn find_taken_messages(
         &self,
         params: FindTakenMessagesParams,
@@ -269,6 +261,19 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// How the provider takes the messages the run queue hands a running turn: a fixed fact of
     /// the driver, which the queue reads instead of naming the provider.
     fn message_handing(&self) -> MessageHanding;
+
+    /// Whether a run started on `session_id` now brings a provider process up, which the memory
+    /// gate weighs before the start; `false` when one already serves the session.
+    fn starts_process(&self, session_id: SessionId) -> BoxFuture<'_, bool>;
+
+    /// The skills `picks` names as the provider loads them for `session_id`, in the order picked;
+    /// a provider that takes a pick as its text answers each by its name and folder. Fails with
+    /// `skill.pathRefused` for a pick the provider's own list does not name in that folder.
+    fn resolve_skill_picks(
+        &self,
+        session_id: SessionId,
+        picks: Vec<QueuedSkillPick>,
+    ) -> BoxFuture<'_, Result<Vec<PickedSkill>, DriverError>>;
 
     /// Answers a choice the provider holds the run on; a provider that never asks one answers
     /// `NotPending`.
@@ -491,14 +496,14 @@ pub(crate) struct ApplyRowValueParams {
     pub(crate) value: Option<ProviderValue>,
 }
 
-/// What the daemon hands a driver to start one run: its id, the agent's config and the run's own
-/// options.
+/// What the daemon hands a driver to start one run: its id, the message that opens it and the
+/// run's own options.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct StartRunParams {
     /// The run.
     pub(crate) run_id: RunId,
-    /// The agent's config.
-    pub(crate) agent_config: Map<String, Value>,
+    /// The queued message the run opens with, on the binding the daemon opened for it.
+    pub(crate) opening: RunOpening,
     /// The conversation so far, for a provider that takes it per run.
     pub(crate) conversation_history: Option<Vec<Value>>,
     /// The agent's accepted output-speed level, resolved as on [`CreateSessionParams`]. A provider
@@ -519,16 +524,50 @@ pub(crate) struct StartRunParams {
     pub(crate) output_schema: Option<Map<String, Value>>,
 }
 
-/// Answers one interactive request a driver raised on a run; `response` is in the provider's own
-/// shape, relayed unchanged.
+/// The message a run the queue admitted opens with, and where it runs: the session, the binding
+/// its deliveries are attributed on and the agent whose run it is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RunOpening {
+    /// The session.
+    pub(crate) session_id: SessionId,
+    /// The runtime binding the run's deliveries are attributed on, opened by the daemon.
+    pub(crate) binding_id: RuntimeBindingId,
+    /// The agent whose run it is.
+    pub(crate) agent_id: AgentId,
+    /// The message's words.
+    pub(crate) content: MessageContent,
+    /// The message's files, in staging order.
+    pub(crate) attachments: Vec<ArtifactId>,
+    /// The message's id, stamped on the provider's user message so a later cut can name it.
+    pub(crate) message_id: QueueItemId,
+    /// The skills picked for the message, in the order picked.
+    pub(crate) skills: Vec<PickedSkill>,
+}
+
+/// Answers one interactive request a driver raised on a run with the daemon's answer, which the
+/// driver composes into its provider's own answer shape.
 #[derive(Debug)]
 pub(crate) struct RespondToRequestParams {
     /// The run.
     pub(crate) run_id: RunId,
     /// The request.
     pub(crate) request_id: String,
-    /// The answer, in the provider's shape.
-    pub(crate) response: Box<RawValue>,
+    /// The daemon's answer.
+    pub(crate) response: ProviderRequestAnswer,
+}
+
+/// The daemon's answer to one request a driver raised: the person's answers to a question, one per
+/// question in the request's own order, or the approval pipeline's answer to a permission ask. A
+/// secret answer's value reaches only the driver.
+#[derive(Debug)]
+pub(crate) enum ProviderRequestAnswer {
+    /// The answers to a question.
+    Question {
+        /// One answer per question, in the request's order.
+        answers: Vec<QuestionAnswer>,
+    },
+    /// The answer to a permission ask.
+    Permission(ProviderPermissionAnswer),
 }
 
 /// The provider's own ids of an opened session, built by the driver; the handle is bounded where

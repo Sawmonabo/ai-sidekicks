@@ -24,6 +24,7 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::repo::mount::{LifecycleActor, RepoMountId, RepoMountState};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::worktree::lifecycle::{
@@ -51,7 +52,6 @@ use crate::git::worktree::rows::{
     UNRELEASED_RUNS_SQL, UnreleasedRunRow, WorktreeRow, WorktreeRowChange, WorktreeRowRefusal,
     insert_worktree_statement, transition_statement,
 };
-use crate::uuid_v7::mint_uuid_v7;
 use crate::workspace::folder::canonical_path::canonical_folder_path;
 use crate::workspace::repo::errors::RepoRefusal;
 use crate::workspace::trust_envelope::is_contained_within;

@@ -401,6 +401,8 @@ refusal_codes! {
     /// The server publishes no sign-in route: no protected-resource or authorization-server
     /// metadata, or metadata the daemon cannot read.
     McpServerSignInUnsupported = "mcp.server.signInUnsupported" (Unimplemented, 422);
+    /// `plan.resolve` named a plan the daemon does not hold.
+    PlanNotFound = "plan.notFound" (NotFound, 404);
     /// An address Preview will not open.
     PreviewAddressRefused = "preview.addressRefused" (InvalidArgument, 422);
     /// A device's paste, select all or cut for a menu that is no longer the page's current one.
@@ -512,6 +514,15 @@ refusal_codes! {
     ProviderUnavailable = "provider.unavailable" (Unavailable, 503);
     /// `question.resolve` was sent answers that do not cover every question of the record.
     QuestionAnswersIncomplete = "question.answersIncomplete" (InvalidArgument, 422);
+    /// `question.resolve` was sent an answer its question cannot take, naming the question's page
+    /// (`data.fields`: `page`) and why (`data.fields.reason`: `secretOnPlain`, `labelNotOffered`,
+    /// `severalOnSingle` or `textOnChoice`).
+    QuestionAnswerInvalid = "question.answerInvalid" (InvalidArgument, 422);
+    /// `question.resolve` named a question the daemon does not hold.
+    QuestionNotFound = "question.notFound" (NotFound, 404);
+    /// `question.resolve` named a question the agent does not wait for, whose answer is a message
+    /// sent through the queue.
+    QuestionNotWaiting = "question.notWaiting" (FailedPrecondition, 409);
     /// Relay authentication failed.
     RelayAuthenticationFailed = "relay.authenticationFailed" (Unauthenticated, 401);
     /// Relay connection to the upstream service failed.

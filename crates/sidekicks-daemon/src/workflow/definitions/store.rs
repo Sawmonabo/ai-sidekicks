@@ -45,13 +45,13 @@ use crate::database::stored_column::safe_int_column;
 use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::events::canonicalizer::CanonicalizationRefusal;
 use crate::ipc::registry::HandlerError;
-use crate::uuid_v7::mint_uuid_v7;
 use crate::workflow::definitions::content_hash::{WorkflowDocumentHash, hash_workflow_body};
 use crate::workflow::definitions::drafts::clear_workflow_draft_statement;
 use crate::workflow::definitions::errors::DefinitionRefusal;
 use crate::workflow::definitions::kept_values::clear_kept_values_statement;
 use crate::workflow::definitions::library::{WorkflowLibrary, name_holder_statement};
 use crate::workflow::not_found::{WorkflowNotFound, WorkflowVersionAddress};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The statements the store's reads run on a read connection beyond the library's: the latest
 /// version a refused save is told about.

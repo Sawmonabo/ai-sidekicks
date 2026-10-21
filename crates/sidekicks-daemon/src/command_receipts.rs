@@ -16,7 +16,7 @@ use crate::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// One receipt's id, minted when its command is accepted.
 #[cfg_attr(

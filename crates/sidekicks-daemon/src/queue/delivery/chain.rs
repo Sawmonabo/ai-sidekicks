@@ -52,6 +52,8 @@ pub(super) enum ChainJob {
         driver: Arc<dyn ProviderDriver>,
         /// The messages, marked handed.
         items: Vec<QueueItemRecord>,
+        /// Whether the provider reads them ahead of what it holds: a person's `Send now`.
+        is_priority: bool,
     },
     /// Steers every message at once, in order, at a tool boundary of the run's turn.
     ToolBoundary {
@@ -71,8 +73,9 @@ pub(super) enum ChainJob {
         /// The run whose turn took it.
         run_id: RunId,
     },
-    /// Settles a withdraw the provider answered past the deadline.
-    LateWithdraw(LateWithdraw),
+    /// Settles a withdraw the provider answered past the deadline; boxed, since the message it
+    /// carries outweighs every other job.
+    LateWithdraw(Box<LateWithdraw>),
     /// Gives a caller its turn between the jobs: `go` says it is its turn, and the drain waits
     /// until `done` closes.
     Gate {
@@ -138,9 +141,12 @@ impl QueueDelivery {
                 run_id,
                 driver,
                 items,
+                is_priority,
             } => {
                 for item in &items {
-                    let handed = self.hand(session_id, run_id, driver.as_ref(), item).await;
+                    let handed = self
+                        .hand(session_id, run_id, driver.as_ref(), item, is_priority)
+                        .await;
                     log_job_failure(session_id, item.id, handed);
                 }
             }
@@ -150,7 +156,7 @@ impl QueueDelivery {
                 items,
             } => {
                 self.steer_at_boundary(session_id, run_id, driver.as_ref(), &items)
-                    .await
+                    .await;
             }
             ChainJob::Withdraw(job) => self.withdraw_all(session_id, job).await,
             ChainJob::MessageTaken { item_id, run_id } => {
@@ -159,7 +165,7 @@ impl QueueDelivery {
             }
             ChainJob::LateWithdraw(late) => {
                 let item_id = late.item.id;
-                let settled = self.settle_late_withdraw(session_id, late).await;
+                let settled = self.settle_late_withdraw(session_id, *late).await;
                 log_job_failure(session_id, item_id, settled);
             }
             // A caller that left before its turn lets the chain go on at once.
@@ -180,6 +186,7 @@ impl QueueDelivery {
         run_id: RunId,
         driver: &dyn ProviderDriver,
         item: &QueueItemRecord,
+        is_priority: bool,
     ) -> Result<(), DeliveryError> {
         let run = match self.read_run(run_id).await {
             Ok(Some(run)) => run,
@@ -195,14 +202,14 @@ impl QueueDelivery {
         };
         {
             let mut state = self.lock_state();
-            if state.interrupt_holds.contains(&run_id) {
-                state.handed.remove(&item.id);
+            if state.interrupt_holds.contains_key(&run_id) {
+                state.forget_hand(&item.id);
                 return Ok(());
             }
             chain_of(&state, session_id).mark_in_flight(Some(run_id));
         }
         let steered = driver
-            .apply_intervention(steer_of(item, run_id, run.version))
+            .apply_intervention(steer_of(item, run_id, run.version, is_priority))
             .await;
         chain_of(&self.lock_state(), session_id).mark_in_flight(None);
         match steered {
@@ -250,9 +257,9 @@ impl QueueDelivery {
         };
         {
             let mut state = self.lock_state();
-            if state.interrupt_holds.contains(&run_id) {
+            if state.interrupt_holds.contains_key(&run_id) {
                 for item in items {
-                    state.handed.remove(&item.id);
+                    state.forget_hand(&item.id);
                 }
                 return;
             }
@@ -261,7 +268,7 @@ impl QueueDelivery {
         let answers = join_all(
             items
                 .iter()
-                .map(|item| driver.apply_intervention(steer_of(item, run_id, run.version))),
+                .map(|item| driver.apply_intervention(steer_of(item, run_id, run.version, false))),
         )
         .await;
         chain_of(&self.lock_state(), session_id).mark_in_flight(None);
@@ -324,7 +331,7 @@ impl QueueDelivery {
         run_id: RunId,
     ) -> Result<(), DeliveryError> {
         let item = self.read_item(item_id).await?;
-        let handed = self.lock_state().handed.get(&item_id).copied();
+        let handed = self.lock_state().hand_of(&item_id).copied();
         match handed {
             Some(handed) => match handed.route {
                 HandRoute::Driver(_) => {

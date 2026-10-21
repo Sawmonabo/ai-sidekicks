@@ -275,7 +275,7 @@ mod tests {
 
     use super::{BranchPatternProject, find_machine_branch_pattern_refusal, strip_clash_message};
     use crate::git::process::{GitCall, GitRunner, strip_line_end, test_git_runner};
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // Fails when a clash line, with or without the files backend's lock clause, keeps git's
     // prefixes or loses its own words.

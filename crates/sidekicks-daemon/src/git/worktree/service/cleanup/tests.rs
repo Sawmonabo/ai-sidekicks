@@ -6,6 +6,7 @@ use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::{Connection, params};
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
 use tokio_util::sync::CancellationToken;
 
@@ -21,7 +22,6 @@ use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
 use crate::settle_all::SettleFailures;
-use crate::uuid_v7::mint_uuid_v7;
 use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 const READ_STATEMENT_CAPACITY: usize = 16;

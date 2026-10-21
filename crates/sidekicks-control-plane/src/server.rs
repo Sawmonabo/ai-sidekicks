@@ -6,6 +6,7 @@ use std::error::Error;
 pub mod gate;
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod host;
+pub mod received_json;
 pub mod router;
 
 /// Logs a failure a caller reads only as a 500, with the request id that ties the line to the

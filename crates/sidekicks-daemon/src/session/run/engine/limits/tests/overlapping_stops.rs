@@ -17,7 +17,7 @@ use crate::session::run::engine::tests::{
 };
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::limit_interrupter::HandedCut;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // A limit stop of `run_id` the test runs beside others: once `goes_first` reports that the stop
 // before it reached its hand, the stop goes, and its end is reported on `ended`.

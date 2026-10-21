@@ -29,7 +29,7 @@ use crate::events::log_service::{
     EventAppendError, EventLogAppendOptions, EventLogAppendReceipt, EventLogService,
 };
 use crate::events::session::append_lock::SessionAppendHold;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// A payload that names the session it belongs to and who acted, so the envelope reads both from
 /// it and the two cannot disagree.

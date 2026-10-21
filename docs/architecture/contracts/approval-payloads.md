@@ -168,22 +168,26 @@ interface ApprovalReviewerFlaggedPayload {
 // restart and across the person's devices, so a press on any screen names the same block.
 type DenialId = string & { readonly __brand: "DenialId" };
 
-// approval.reviewer.denied payload — an `approvalFlow` event with its own shape (Spec-005 §Approval
-// Flow registry row). At the `reviewed` level the provider's own reviewer blocked one action —
+// approval.reviewer.denied payload — an `approvalFlow` event with its own shape (Spec-005
+// §Approval Flow registry row). At the `reviewed` level the provider's own reviewer blocked one
+// action —
 // Claude Code's auto-mode classifier, captured by its `PermissionDenied` hook and the result's
 // `permission_denials`; Codex's automatic reviewer, captured from
 // `item/autoApprovalReview/completed`. The blocked call keeps its row in the flow, a failed row
-// whose reason line reads `Blocked · <reason>`, with one button, `Allow once`, wherever
-// `overridable` is true. The daemon keeps the provider's own denial with this record — Claude
-// Code's action as the hook received it, Codex's review as Codex sent it — so an override still
-// works after a restart; it never rides the payload.
+// on which each block is its own reason line, `Blocked · <reason>`, with its own button,
+// `Allow once`, wherever `overridable` is true; a block that names no call is a row of its own
+// with the same line and button. The daemon keeps the provider's own denial with this record —
+// Claude Code's action as the hook received it, Codex's review as Codex sent it — so an override
+// still works after a restart; it never rides the payload.
 interface ApprovalReviewerDeniedPayload {
   sessionId: SessionId;
   runId: RunId;
   agentId: AgentId;
   denialId: DenialId;
-  // The event of the blocked call, whose row carries the reason line and the button.
-  eventId: string;
+  // The event of the blocked call, whose row carries the reason line and the button. Absent on a
+  // block that names no call — Codex's review of a network request — which is a row of its own,
+  // recorded as it arrives, its reason `network access to <target> · <Codex's rationale>`.
+  eventId?: string;
   // The reviewer's reason in the provider's own words: Claude Code's denial reason, such as
   // `[Data Exfiltration]`; Codex's review rationale. Absent where the reviewer gave none, and the
   // row then reads `Blocked` alone.
@@ -360,10 +364,13 @@ interface ApprovalDenialOverrideRequest {
 // The settled override. A press on a block already allowed, from this screen or another, returns
 // the same answer with the instant the first press landed and sends the provider nothing. A block
 // that is not overridable is refused with `approval.denial.notOverridable`, a `denialId` the daemon
-// holds no block for with `approval.denial.notFound`, and a press after the block's session has
-// ended with `session.alreadyClosed` (error-contracts.md §Approval, §Session).
+// holds no block for with `approval.denial.notFound`, a press after the block's session has ended
+// with `session.alreadyClosed`, and a block whose provider no driver answers with
+// `provider.notFound`; a press whose request got no answer back is refused with `provider.timeout`
+// or `provider.unavailable`, and a second press answers the same refusal and sends nothing until
+// the provider process the request went to has ended (error-contracts.md §Approval, §Session,
+// §Provider).
 interface ApprovalDenialOverrideResponse {
-  sessionId: SessionId;
   denialId: DenialId;
   overriddenAt: string;
 }

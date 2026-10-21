@@ -11,6 +11,7 @@ use notify::NullWatcher;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::project::ProjectSetup;
 use sidekicks_contracts::repo::mount::RepoMountId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::BoundedInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
@@ -34,7 +35,6 @@ use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
-use crate::uuid_v7::mint_uuid_v7;
 
 const READ_STATEMENT_CAPACITY: usize = 16;
 

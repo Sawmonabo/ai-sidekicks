@@ -6,6 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_platforms::PathRules;
 
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::spawn_environment::{
@@ -21,6 +22,13 @@ const ACCOUNT_SCRATCH_FOLDERS: &str = "accounts";
 
 /// The folders of an account the daemon manages, which Claude Code reads through
 /// `CLAUDE_CONFIG_DIR` and `CLAUDE_SECURESTORAGE_CONFIG_DIR`; each an absolute path.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's launch names an account's folders in it"
+    )
+)]
 pub(crate) struct ClaudeAccountFolders {
     /// The configuration home.
     pub(crate) config_folder: String,
@@ -29,6 +37,13 @@ pub(crate) struct ClaudeAccountFolders {
 }
 
 /// What one Claude Code process's environment is built from.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's launch builds each process's environment from it"
+    )
+)]
 pub(crate) struct ClaudeProcessEnvironmentRequest<'a> {
     /// The session's environment.
     pub(crate) session: SessionEnvironment<'a>,
@@ -46,6 +61,13 @@ pub(crate) struct ClaudeProcessEnvironmentRequest<'a> {
 /// The daemon's own scratch folder for the Claude Code home of `provider_account_id` (`None`, the
 /// person's own), under `data_folder`: every process of that home takes it as
 /// `CLAUDE_CODE_TMPDIR`, so a session's temporary files sit where its purge finds them.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's launch and purge find the scratch folder through it"
+    )
+)]
 pub(crate) fn compose_claude_scratch_folder(
     data_folder: &str,
     provider_account_id: Option<&ProviderAccountId>,
@@ -59,10 +81,34 @@ pub(crate) fn compose_claude_scratch_folder(
     }
 }
 
+/// The config folder a Claude Code process started in `spawn_environment`, in a place that spells
+/// paths by `rules`, reads: `CLAUDE_CONFIG_DIR` where set, else `.claude` in that environment's
+/// home, else in the daemon's own. `None` where no home is known at all.
+pub(crate) fn claude_config_folder(
+    spawn_environment: &[(String, String)],
+    rules: PathRules,
+) -> Option<PathBuf> {
+    if let Some(configured) = rules.environment_value(spawn_environment, "CLAUDE_CONFIG_DIR") {
+        return Some(PathBuf::from(configured));
+    }
+    let home = rules
+        .environment_value(spawn_environment, rules.home_environment_name())
+        .map(PathBuf::from)
+        .or_else(std::env::home_dir)?;
+    Some(home.join(".claude"))
+}
+
 /// The whole environment a session process, a relaunch or the sign-in check starts with, with
 /// `additional_mandated_pairs` (a pair a caller sets on this one process) over it. Fails as
 /// `build_provider_process_environment` does: a mandated name claimed twice, or an account or
 /// scratch folder that is relative or ends up empty.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's launch and sign-in check build their environment through it"
+    )
+)]
 pub(crate) fn compose_claude_process_environment(
     request: ClaudeProcessEnvironmentRequest<'_>,
     additional_mandated_pairs: &[(String, String)],

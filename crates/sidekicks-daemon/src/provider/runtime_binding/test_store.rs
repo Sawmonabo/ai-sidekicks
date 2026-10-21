@@ -18,7 +18,7 @@ use crate::provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RUNTIME_BINDING_STORE_STATEMENT_CAPACITY, RuntimeBindingSpawnConfig,
     RuntimeBindingStore,
 };
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The binding store on `database`, through a writer of its own that creates the daemon's schema.
 pub(crate) async fn open_store(database: &TestDatabase) -> RuntimeBindingStore {

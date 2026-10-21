@@ -2,8 +2,8 @@
 //! the node's kind. A reference names a record kept elsewhere, so a parameter never carries a
 //! nested node or a tool's policy, and a `secret://` reference stands only in a parameter the kind
 //! marks sensitive, never inside an expression. The check reads only its arguments: the builder
-//! runs it through the WebAssembly export, and the daemon's save calls it once the save reads the
-//! kinds catalog.
+//! runs it through the WebAssembly export, and the daemon's save calls it once the save's kind
+//! lookup gives each kind's parameter list.
 
 use garde::Validate;
 use serde::Deserialize;

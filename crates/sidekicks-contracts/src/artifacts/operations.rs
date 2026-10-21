@@ -12,12 +12,12 @@ use crate::artifacts::ingest::ARTIFACT_CHUNK_MAX_BYTES;
 use crate::artifacts::manifest::ArtifactManifest;
 use crate::jsonrpc::framing::MAX_ONE_ATTACHMENT_BYTES;
 use crate::jsonrpc::refusal::RefusalCode;
+use crate::plan::{PlanId, PlanState};
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::Never;
 use crate::wire::attachment::Bytes;
-use crate::wire::instant::WireInstant;
-use crate::wire::integer::{BoundedInt, SafeInt, SafeSignedInt};
+use crate::wire::integer::{BoundedInt, SafeInt};
 use crate::wire::text::{ComposedText, NonEmptyText};
 
 /// Asks for the artifacts of one session.
@@ -29,20 +29,41 @@ pub struct ArtifactListRequest {
     pub session_id: SessionId,
 }
 
-/// One artifact in a session's list: a plan the agent finished, or a file or folder a chat wrote.
-/// `title` is a plan's first heading, or a file's or folder's path; a plan's state word is its
-/// manifest's `state`.
+/// One artifact in a session's list: a plan the agent finished, with its first heading and the
+/// state word its plan record holds, or a file or folder a chat wrote, with its path in the chat's
+/// workspace and how many versions it has. Each carries its newest manifest; a folder's media type
+/// is `inode/directory`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 #[garde(allow_unvalidated)]
-pub struct ArtifactListEntry {
-    /// The artifact's newest manifest.
-    #[garde(dive)]
-    pub manifest: ArtifactManifest,
-    /// The artifact's title.
-    pub title: ComposedText,
-    /// How many versions the artifact has; at least one.
-    pub version_count: SafeInt<1>,
+pub enum ArtifactListEntry {
+    /// A plan the agent finished.
+    Plan {
+        /// The plan's manifest.
+        #[garde(dive)]
+        manifest: ArtifactManifest,
+        /// The plan.
+        plan_id: PlanId,
+        /// The plan's first heading.
+        title: String,
+        /// The state word its plan record holds.
+        state: PlanState,
+    },
+    /// A file or folder a chat wrote.
+    File {
+        /// The newest version's manifest.
+        #[garde(dive)]
+        manifest: ArtifactManifest,
+        /// Its path in the chat's workspace.
+        path: ComposedText,
+        /// How many versions it has; a folder's is 1.
+        version_count: SafeInt<1>,
+    },
 }
 
 /// The session's artifacts.
@@ -103,7 +124,8 @@ pub struct ArtifactReadRequest {
     pub payload_selection: ArtifactPayloadSelection,
 }
 
-/// A picture's width and height in pixels, as the store measured them at ingest.
+/// A picture's width and height in pixels, read from its header when its bytes were stored, its
+/// orientation applied, so it is the size the picture is drawn at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ArtifactPictureSize {
@@ -125,10 +147,8 @@ pub struct ArtifactPdfPreview {
 }
 
 /// Whether `version_number` lies within `version_count`.
-fn is_version_in_count(version_number: SafeInt<1>, version_count: SafeSignedInt) -> garde::Result {
-    let is_within =
-        i64::try_from(version_number.get()).is_ok_and(|number| number <= version_count.get());
-    if is_within {
+fn is_version_in_count(version_number: SafeInt<1>, version_count: SafeInt<1>) -> garde::Result {
+    if version_number.get() <= version_count.get() {
         Ok(())
     } else {
         Err(garde::Error::new(
@@ -147,7 +167,8 @@ macro_rules! artifact_read_arm {
         #[schemars(inline)]
         #[garde(allow_unvalidated)]
         pub struct $name {
-            /// The manifest of the version in view.
+            /// The manifest of the version in view; its `createdAt` is when that version was
+            /// written.
             #[garde(dive)]
             pub manifest: ArtifactManifest,
             /// The version in view, from 1, oldest first; never above `versionCount`.
@@ -156,11 +177,8 @@ macro_rules! artifact_read_arm {
             }))]
             #[schemars(extend("maximum" = { "$data": "1/versionCount" }))]
             pub version_number: SafeInt<1>,
-            /// How many versions exist.
-            pub version_count: SafeSignedInt,
-            /// When the version in view was written.
-            #[garde(dive)]
-            pub version_written_at: WireInstant,
+            /// How many versions exist; 1 for a plan and any artifact no chat wrote.
+            pub version_count: SafeInt<1>,
             /// A picture's size; present only on a picture.
             #[serde(
                 default,

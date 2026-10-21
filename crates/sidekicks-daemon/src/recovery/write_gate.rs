@@ -238,7 +238,7 @@ mod tests {
         MethodRegistryBuilder, Reply, Request,
     };
     use crate::recovery::status::RecoveryStatusTracker;
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // Where the recovery stands when the call arrives.
     #[derive(Clone, Copy, Debug)]

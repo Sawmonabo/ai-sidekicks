@@ -9,6 +9,7 @@ use serde_json::json;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::WallClockTimer;
 use tokio::time::timeout;
 
@@ -24,7 +25,6 @@ use crate::git::worktree::fetch::{BackgroundFetch, BackgroundFetchDeps};
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
 use crate::session::directory::test_rows::insert_session_row;
-use crate::uuid_v7::mint_uuid_v7;
 use crate::workspace::folder::canonical_path::canonical_folder_path;
 use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 

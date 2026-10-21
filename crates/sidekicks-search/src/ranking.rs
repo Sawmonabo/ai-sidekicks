@@ -432,7 +432,7 @@ mod tests {
         99.0,
         &[0, 5]
     )]
-    #[case::over_one_that_holds_the_letters_mid_word("class", "cs", 97.5, &[0, 3])]
+    #[case::letters_mid_word_score_below_word_starts("class", "cs", 97.5, &[0, 3])]
     #[case::one_unit_gap("axb", "ab", 101.0, &[0, 2])]
     #[case::two_unit_gap("axxb", "ab", 98.0, &[0, 3])]
     #[case::earliest_end_tie(&format!("XA{}a", "X".repeat(15)), "a", 7.0, &[1])]

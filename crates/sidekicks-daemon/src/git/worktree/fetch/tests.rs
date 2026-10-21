@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use rusqlite::params;
 use sidekicks_contracts::repo::mount::RepoMountId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::WallClockTimer;
 use tempfile::TempDir;
@@ -16,7 +17,6 @@ use crate::daemon::scheduler::Scheduler;
 use crate::database::writer::test_file::TestDatabase;
 use crate::events::log_service::tests::open_log;
 use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
-use crate::uuid_v7::mint_uuid_v7;
 use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 const WAIT: Duration = Duration::from_secs(30);

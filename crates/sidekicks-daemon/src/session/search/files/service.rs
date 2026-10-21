@@ -513,6 +513,7 @@ mod tests {
         SessionFileSearchEntry, SessionFileSearchEntryKind, SessionFileSearchRequest,
         SessionFileSearchResponse,
     };
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use super::{FILE_SEARCH_STATEMENT_CAPACITY, FileSearchError, FileSearchService};
     use crate::database::connection::read_pool::DatabaseReadPool;
@@ -520,7 +521,6 @@ mod tests {
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use crate::git::process::{GitRunner, test_git_runner, write_link};
     use crate::session::directory::test_rows::insert_session_row;
-    use crate::uuid_v7::mint_uuid_v7;
     use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
     /// Bounds a wait the test expects to end, so one that never does fails the test.

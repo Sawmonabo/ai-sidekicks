@@ -154,6 +154,19 @@ impl<'de, const MIN: usize, const MAX: usize> Deserialize<'de> for Base64UrlText
 }
 
 impl<const MIN: usize, const MAX: usize> Base64UrlText<MIN, MAX> {
+    /// `bytes` as base64url text, or `None` when the text falls outside `MIN..=MAX` characters.
+    pub fn encode(bytes: &[u8]) -> Option<Self> {
+        let text = URL_SAFE_BASE64.encode(bytes);
+        is_within_length(&text, MIN, MAX).then_some(Self(text))
+    }
+
+    /// The bytes the text holds.
+    pub fn decode(&self) -> Vec<u8> {
+        URL_SAFE_BASE64
+            .decode(&self.0)
+            .expect("the text was checked as base64url when it was made")
+    }
+
     /// The base64url text.
     pub fn as_str(&self) -> &str {
         &self.0

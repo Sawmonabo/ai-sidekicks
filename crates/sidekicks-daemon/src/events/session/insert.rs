@@ -17,7 +17,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use crate::database::schema::recovery::ProjectionCursorState;
 use crate::database::statement::DATABASE_NOW_SQL;
 use crate::events::session::appender::UnsequencedEventEnvelope;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The instant the daemon's clock counts from: the first read of [`monotonic_ns_now`], which the
 /// daemon's start makes, so zero is the start.

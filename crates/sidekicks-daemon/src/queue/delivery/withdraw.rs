@@ -69,10 +69,6 @@ impl QueueDelivery {
     /// [`WITHDRAW_DEADLINE`], and one the provider did not give back in time, or that the chain did
     /// not reach by then, reads not delivered. Called under `hold`; fails when a read or a write
     /// fails.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the run queue's edit, removal and reorder")
-    )]
     pub(crate) async fn take_back(
         &self,
         hold: &KeyHold<'_, SessionId>,
@@ -80,7 +76,7 @@ impl QueueDelivery {
     ) -> Result<HashMap<QueueItemId, QueueWithdrawal>, DeliveryError> {
         let openings = &self.shared.deps.openings;
         let candidates = items.iter().filter(|item| {
-            item.state == RecordedQueueItemState::Queued && !openings.is_opening(&item.id)
+            item.state == RecordedQueueItemState::Queued && !openings.is_opening(item)
         });
         // Under the session lock no hand of an unhanded message joins the chain, so one not
         // handed now stays with the queue and needs no withdraw.
@@ -89,7 +85,7 @@ impl QueueDelivery {
         {
             let state = self.lock_state();
             for item in candidates {
-                let withdrawal = match state.handed.get(&item.id).map(|handed| handed.route) {
+                let withdrawal = match state.hand_of(&item.id).map(|handed| handed.route) {
                     None => QueueWithdrawal::Returned,
                     Some(HandRoute::Continue { .. }) => {
                         QueueWithdrawal::Unreturned(UnreturnedReason::Taken)
@@ -240,7 +236,7 @@ impl QueueDelivery {
         item: &QueueItemRecord,
         deadline: &CancellationToken,
     ) -> Result<QueueWithdrawal, DeliveryError> {
-        let handed = self.lock_state().handed.get(&item.id).copied();
+        let handed = self.lock_state().hand_of(&item.id).copied();
         let Some(handed) = handed else {
             return Ok(QueueWithdrawal::Returned);
         };
@@ -295,7 +291,7 @@ impl QueueDelivery {
                             hand_number: handed.hand_number,
                             is_delivered,
                         };
-                        delivery.push(session_id, ChainJob::LateWithdraw(late));
+                        delivery.push(session_id, ChainJob::LateWithdraw(Box::new(late)));
                     }
                     .instrument(tracing::Span::current()),
                 );
@@ -337,13 +333,12 @@ impl QueueDelivery {
         {
             let mut state = self.lock_state();
             let is_same_hand = state
-                .handed
-                .get(&late.item.id)
+                .hand_of(&late.item.id)
                 .is_some_and(|handed| handed.hand_number == late.hand_number);
             if !is_same_hand {
                 return Ok(());
             }
-            state.handed.remove(&late.item.id);
+            state.forget_hand(&late.item.id);
         }
         if late.is_delivered {
             self.admit_undelivered(late.item.id, late.handed_run_id)

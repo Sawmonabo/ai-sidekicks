@@ -42,7 +42,7 @@ use crate::session::service::{
     EventsReadAfterSequenceRequest, EventsReadAfterSequenceResponse, SessionService,
     SessionServiceError,
 };
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The most events one page of a rebuild reads and writes: a page's envelopes and the statements
 /// built from them are what a rebuild holds at once, and each page is one write.

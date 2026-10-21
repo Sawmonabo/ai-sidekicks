@@ -1,6 +1,6 @@
 //! Publishes an artifact from a payload its producer holds whole: the payload is hashed, written to
 //! a spool beside the ingest spools, moved into the content store, and its manifest and payload
-//! reference are written in one transaction, the manifest first.
+//! reference are written with its `artifact.published` in one transaction, the manifest first.
 //!
 //! - A publish a client sends crosses into the daemon, so it passes the uploads' admission once its
 //!   frame is read, and its payload runs the ingest pipeline: the type recorded is read from the
@@ -8,13 +8,15 @@
 //!   normalized as an ingested file's is. A file is refused outright, since a file's bytes come in
 //!   only through the ingest calls. Its key makes a resend answer the first manifest.
 //! - A publish the daemon makes itself never crossed that boundary: the producing code names the
-//!   type, and the manifest names no device and no key.
+//!   type, and the manifest names no device and no key. A producer whose own event goes in the
+//!   same write, as a plan's does, writes the manifest's rows itself.
 //! - A spool the store did not take is deleted; one a crash left behind is reaped with the ingest
 //!   spools once unwritten for long enough.
 
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bytes::Bytes as ByteBuffer;
@@ -23,6 +25,7 @@ use sidekicks_contracts::artifacts::manifest::{ArtifactManifest, ArtifactType, E
 use sidekicks_contracts::artifacts::publication::{
     ArtifactPublishRequest, ArtifactPublishResponse,
 };
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
@@ -45,13 +48,13 @@ use crate::artifacts::validation::{
     SpooledPayload, normalize_metadata_file_name, validate_and_store,
 };
 use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
-use crate::database::writer::DatabaseWriter;
+use crate::events::session::appender::SessionEventAppender;
 use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::MissingEntry as _;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-// The mode of a spool file: its owner's alone.
-const SPOOL_FILE_MODE: u32 = 0o600;
+/// The mode of a spool file: its owner's alone.
+pub(crate) const SPOOL_FILE_MODE: u32 = 0o600;
 
 /// Where a publish came from: a client's request, made by the device the gateway stamped on it, or
 /// the daemon's own code, which crossed no boundary.
@@ -65,8 +68,24 @@ pub(crate) enum PublishOrigin {
     Daemon,
 }
 
+/// A payload the daemon produced, with the type and metadata its code names.
+pub(crate) struct DaemonPayload {
+    /// The session it belongs to.
+    pub(crate) session_id: SessionId,
+    /// The run that produced it, when one did.
+    pub(crate) run_id: Option<RunId>,
+    /// The artifact's kind.
+    pub(crate) artifact_type: ArtifactType,
+    /// The bytes.
+    pub(crate) payload: ByteBuffer,
+    /// The type the producing code names.
+    pub(crate) media_type: String,
+    /// The manifest's freeform provenance.
+    pub(crate) metadata: JsonRecord,
+}
+
 /// What a publish reads of its payload before anything of it is kept.
-struct PayloadReading {
+struct PayloadScan {
     content_hash: ContentHash,
     leading_bytes: Vec<u8>,
     is_utf8: bool,
@@ -74,7 +93,7 @@ struct PayloadReading {
 
 /// Publishes artifacts from whole payloads, a client's or the daemon's own.
 pub(crate) struct ArtifactPublishService {
-    writer: Arc<DatabaseWriter>,
+    appender: Arc<SessionEventAppender>,
     reads: Arc<DatabaseReadPool>,
     payloads: Arc<PayloadStore>,
     admission: Arc<UploadAdmission>,
@@ -84,17 +103,17 @@ pub(crate) struct ArtifactPublishService {
 }
 
 impl ArtifactPublishService {
-    /// A service writing through `writer`, reading through `reads`, storing into `payloads` and
-    /// spooling in `admission`'s folder, which must be on the store's volume.
+    /// A service appending through `appender`, reading through `reads`, storing into `payloads`
+    /// and spooling in `admission`'s folder, which must be on the store's volume.
     pub(crate) fn new(
-        writer: Arc<DatabaseWriter>,
+        appender: Arc<SessionEventAppender>,
         reads: Arc<DatabaseReadPool>,
         payloads: Arc<PayloadStore>,
         admission: Arc<UploadAdmission>,
         clock: Arc<dyn WallClock>,
     ) -> Self {
         Self {
-            writer,
+            appender,
             reads,
             payloads,
             admission,
@@ -154,9 +173,12 @@ impl ArtifactPublishService {
             content_hash: reading.content_hash.clone(),
             size_bytes,
             media_type: String::new(),
+            natural_size: None,
             metadata: request
                 .metadata
                 .map_or_else(empty_metadata, normalize_metadata_file_name),
+            workspace_path: None,
+            plan_id: None,
             created_at: manifest_created_at(self.clock.as_ref()),
         };
         let stored = validate_and_store(
@@ -168,11 +190,12 @@ impl ArtifactPublishService {
                 is_utf8: reading.is_utf8,
                 declared_media_type: Some(request.media_type.as_str().to_owned()),
             },
-            |media_type| {
+            |reading| {
                 write_published_manifest(
-                    &self.writer,
+                    &self.appender,
                     PublishedManifest {
-                        media_type,
+                        media_type: reading.media_type,
+                        natural_size: reading.natural_size,
                         ..manifest
                     },
                 )
@@ -192,33 +215,61 @@ impl ArtifactPublishService {
         &self,
         request: ArtifactPublishRequest,
     ) -> Result<ArtifactPublishResponse, ArtifactError> {
-        check_artifact_owner(&self.reads, request.session_id, request.run_id).await?;
-        let payload = request.payload.into_bytes();
-        let content_hash = read_payload(payload.clone()).await?.content_hash;
-        let size_bytes = payload_size(&payload);
-        let spool_path = self.spool(payload).await?;
-        let recording = write_published_manifest(
-            &self.writer,
-            PublishedManifest {
-                artifact_id: mint_artifact_id(),
-                session_id: request.session_id,
-                run_id: request.run_id,
-                created_by: None,
-                client_idempotency_key: None,
-                artifact_type: request.artifact_type,
-                content_hash: content_hash.clone(),
-                size_bytes,
-                media_type: request.media_type.as_str().to_owned(),
-                metadata: request.metadata.unwrap_or_else(empty_metadata),
-                created_at: manifest_created_at(self.clock.as_ref()),
-            },
-        );
+        let manifest = self
+            .store_daemon_payload(
+                DaemonPayload {
+                    session_id: request.session_id,
+                    run_id: request.run_id,
+                    artifact_type: request.artifact_type,
+                    payload: request.payload.into_bytes(),
+                    media_type: request.media_type.as_str().to_owned(),
+                    metadata: request.metadata.unwrap_or_else(empty_metadata),
+                },
+                |manifest| write_published_manifest(&self.appender, manifest),
+            )
+            .await?;
+        Ok(ArtifactPublishResponse { manifest })
+    }
+
+    /// Spools and stores a payload the daemon produced, then awaits `record` with its manifest,
+    /// under a fresh id, inside the store's exclusion for the payload's key, for a producer that
+    /// writes the manifest's rows itself. Fails with `session.notFound` or `agent.run.notFound`
+    /// before anything is spooled, as the spool or the store fails, or as `record` does; the spool
+    /// of a payload the store did not take is deleted.
+    pub(crate) async fn store_daemon_payload<Recorded, Recording>(
+        &self,
+        payload: DaemonPayload,
+        record: impl FnOnce(PublishedManifest) -> Recording,
+    ) -> Result<Recorded, ArtifactError>
+    where
+        Recording: Future<Output = Result<Recorded, ArtifactError>>,
+    {
+        check_artifact_owner(&self.reads, payload.session_id, payload.run_id).await?;
+        let content_hash = read_payload(payload.payload.clone()).await?.content_hash;
+        let size_bytes = payload_size(&payload.payload);
+        let spool_path = self.spool(payload.payload).await?;
+        let recording = record(PublishedManifest {
+            artifact_id: mint_artifact_id(),
+            session_id: payload.session_id,
+            run_id: payload.run_id,
+            created_by: None,
+            client_idempotency_key: None,
+            artifact_type: payload.artifact_type,
+            content_hash: content_hash.clone(),
+            size_bytes,
+            media_type: payload.media_type,
+            natural_size: None,
+            metadata: payload.metadata,
+            workspace_path: None,
+            plan_id: None,
+            created_at: manifest_created_at(self.clock.as_ref()),
+        });
         match self
             .payloads
             .admit(spool_path.clone(), &content_hash, recording)
             .await
         {
-            Ok(manifest) => Ok(ArtifactPublishResponse { manifest }),
+            Ok(recorded) => Ok(recorded),
             Err(failure) => Err(remove_spool(spool_path, failure).await),
         }
     }
@@ -244,10 +295,7 @@ impl ArtifactPublishService {
     // Writes `payload` to a new private spool file on the blocking pool and answers its path; a
     // write that fails deletes what it began.
     async fn spool(&self, payload: ByteBuffer) -> Result<PathBuf, ArtifactError> {
-        let spool_path = self
-            .admission
-            .spool_folder()
-            .join(mint_uuid_v7().to_string());
+        let spool_path = new_spool_path(self.admission.spool_folder());
         let written_path = spool_path.clone();
         let written = tokio::task::spawn_blocking(move || {
             sidekicks_platforms::create_private_folder(
@@ -269,8 +317,8 @@ impl ArtifactPublishService {
 
 // Reads what the publish keeps of `payload` in one pass on the blocking pool: its hash, its
 // leading bytes and whether it is UTF-8.
-async fn read_payload(payload: ByteBuffer) -> Result<PayloadReading, ArtifactError> {
-    Ok(tokio::task::spawn_blocking(move || PayloadReading {
+async fn read_payload(payload: ByteBuffer) -> Result<PayloadScan, ArtifactError> {
+    Ok(tokio::task::spawn_blocking(move || PayloadScan {
         content_hash: ContentHash::of_sha256(&Sha256::digest(&payload)),
         leading_bytes: payload
             .get(..DETECTION_PREFIX_BYTES)
@@ -294,9 +342,14 @@ fn empty_metadata() -> JsonRecord {
     JsonRecord::new(BTreeMap::new()).expect("an empty record holds no __proto__")
 }
 
-// Deletes a spool the store did not take, whole or part-written, and answers `failure` with any
-// failure of that deletion beside it.
-async fn remove_spool(spool_path: PathBuf, failure: ArtifactError) -> ArtifactError {
+/// A new spool file's path in `spool_folder`, under a fresh name.
+pub(crate) fn new_spool_path(spool_folder: &Path) -> PathBuf {
+    spool_folder.join(mint_uuid_v7().to_string())
+}
+
+/// Deletes a spool the store did not take, whole or part-written, and answers `failure` with any
+/// failure of that deletion beside it.
+pub(crate) async fn remove_spool(spool_path: PathBuf, failure: ArtifactError) -> ArtifactError {
     let removal =
         tokio::task::spawn_blocking(move || std::fs::remove_file(&spool_path).none_if_missing())
             .await;
@@ -322,23 +375,12 @@ mod tests {
     use sidekicks_contracts::wire::id::ClientUuid;
     use sidekicks_contracts::wire::record::JsonRecord;
     use sidekicks_contracts::wire::text::NonEmptyText;
-    use sidekicks_platforms::WallClockTimer;
 
-    use super::{ArtifactPublishService, PublishOrigin};
+    use super::PublishOrigin;
     use crate::artifacts::attachment_resolver::ArtifactAttachmentResolver;
     use crate::artifacts::test_store::{ArtifactTestStore, refusal_code_of};
     use crate::provider::driver::attachments::{AttachmentResolver as _, ProviderAttachment};
-    use crate::uuid_v7::mint_uuid_v7;
-
-    fn service(store: &ArtifactTestStore) -> ArtifactPublishService {
-        ArtifactPublishService::new(
-            Arc::clone(&store.writer),
-            Arc::clone(&store.reads),
-            Arc::clone(&store.payloads),
-            Arc::clone(&store.admission),
-            Arc::new(WallClockTimer::new().expect("the test arms a wall clock")),
-        )
-    }
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn request(
         store: &ArtifactTestStore,
@@ -363,12 +405,13 @@ mod tests {
         }
     }
 
-    /// A resend under the same key answers the first manifest and writes nothing; the same key
-    /// with another payload is refused, and leaves no spool behind.
+    /// A resend under the same key answers the first manifest and writes nothing, so the one
+    /// publish appended one `artifact.published`; the same key with another payload is refused, and
+    /// leaves no spool behind.
     #[tokio::test]
     async fn a_resent_publish_answers_the_first_manifest_and_a_changed_one_is_refused() {
         let store = ArtifactTestStore::open().await;
-        let publisher = service(&store);
+        let publisher = store.publisher();
         let key = ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a key");
 
         let first = publisher
@@ -386,6 +429,7 @@ mod tests {
 
         assert_eq!(resent.manifest, first.manifest);
         assert_eq!(store.count_rows("artifact_manifests"), 1);
+        assert_eq!(store.count_events("artifact.published"), 1);
         assert_eq!(
             refusal_code_of(&changed),
             Some(RefusalCode::ArtifactIdempotencyConflict)
@@ -410,7 +454,8 @@ mod tests {
             .into(),
         );
 
-        let published = service(&store)
+        let published = store
+            .publisher()
             .publish(sent, device())
             .await
             .expect("the publish writes");

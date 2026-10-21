@@ -64,9 +64,9 @@ pub struct SessionEventCompactedRemovedSession {
     pub to_seq: SafeInt<0>,
 }
 
-/// The `session.event.compacted` payload: the receipt of one session deletion, naming every session
-/// it removed and the range of rows it deleted in each. It is written only when a deletion deleted
-/// rows, so it names at least one session. The daemon writes it under its own sentinel session.
+/// The `session.event.compacted` payload: one receipt per removed session, committed in the
+/// transaction that deletes its rows, naming that session and the range of rows deleted. It is
+/// written only when the session had rows. The daemon writes it under its own sentinel session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

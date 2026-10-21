@@ -23,8 +23,9 @@ use crate::{
     events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope},
     events::session::insert::{SessionEventRow, monotonic_ns_now},
     events::session::version::SESSION_EVENT_VERSION,
-    uuid_v7::mint_uuid_v7,
 };
+#[cfg(test)]
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// A database file in a folder of its own, removed when this drops.
 pub struct TestDatabase {

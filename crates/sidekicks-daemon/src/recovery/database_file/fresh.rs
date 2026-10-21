@@ -34,7 +34,7 @@ use crate::recovery::database_file::sqlite_shell::{
     SqliteShell, SqliteShellRunError, SqliteShellScript, quote_sql_identifier, quote_sql_text,
 };
 use crate::recovery::database_file::store_folder;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The fresh file a repair readies, the backup copy it may take sessions from, and the shell its
 /// steps run in.

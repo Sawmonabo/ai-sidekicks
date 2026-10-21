@@ -1,7 +1,7 @@
-//! What every id on the wire checks. A UUID id accepts any RFC 9562 text form in either case, the
-//! Nil and Max UUIDs among them, since the daemon mints version 7 and the control plane's rows take
-//! version 4; it is held as its 16 bytes and written lowercase, so two spellings of one UUID are
-//! one id.
+//! What every id on the wire checks, and the one minter of the ids the daemon and the control plane
+//! store. Both mint version 7, yet a UUID id accepts any RFC 9562 text form in either case, the Nil
+//! and Max UUIDs among them, since a client mints its own; it is held as its 16 bytes and written
+//! lowercase, so two spellings of one UUID are one id.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -21,6 +21,17 @@ pub const UUID_TEXT_FORM_PATTERN: &str = "^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8
                                           [89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\
                                           |00000000-0000-0000-0000-000000000000\
                                           |[fF]{8}-[fF]{4}-[fF]{4}-[fF]{4}-[fF]{12})$";
+
+/// A new version 7 UUID from the process-wide context, so ids minted in one process strictly
+/// increase, within one millisecond too: every stored row id and event id the daemon and the
+/// control plane mint. On the Worker it reads `Date.now()` through `uuid`'s `js` feature.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "this is the one place stored row and event ids are minted"
+)]
+pub fn mint_uuid_v7() -> Uuid {
+    Uuid::now_v7()
+}
 
 /// Why an id was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -100,6 +111,11 @@ impl UuidTextForm {
     pub fn new(text: &str) -> Result<Self, IdError> {
         parse_uuid_text(text).map(Self)
     }
+
+    /// The UUID in its lowercase text form, as the wire and the store write it.
+    pub fn text(&self) -> UuidText {
+        UuidText::new(self.0)
+    }
 }
 
 impl From<Uuid> for UuidTextForm {
@@ -110,7 +126,7 @@ impl From<Uuid> for UuidTextForm {
 
 impl Serialize for UuidTextForm {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(UuidText::new(self.0).as_str())
+        serializer.serialize_str(self.text().as_str())
     }
 }
 
@@ -193,7 +209,13 @@ mod tests {
     use regex::Regex;
     use rstest::rstest;
 
-    use super::{UUID_TEXT_FORM_PATTERN, parse_uuid_text};
+    use super::{UUID_TEXT_FORM_PATTERN, mint_uuid_v7, parse_uuid_text};
+
+    #[test]
+    fn a_burst_of_ids_strictly_increases() {
+        let ids: Vec<_> = (0..10_000).map(|_| mint_uuid_v7()).collect();
+        assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
+    }
 
     /// The parser a UUID id reads with and the pattern its schema gives TypeScript accept the
     /// same text.

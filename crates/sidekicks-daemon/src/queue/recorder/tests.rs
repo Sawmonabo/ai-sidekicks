@@ -33,7 +33,7 @@ use crate::queue::changes::{
 use crate::queue::store::{NewQueueItem, QueueItemBody, QueueItemOutcome, QueueItemRecord};
 use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::engine::tests::insert_running_run;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The statements the recorder's read pool prepares: the read back of a send's item.
 const READ_STATEMENT_CAPACITY: usize = 1;

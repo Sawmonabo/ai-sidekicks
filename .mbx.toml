@@ -1,0 +1,10 @@
+# mbx policy for this workspace: the shared compiler cache and the machine-wide compile scheduler.
+# Builds run as `mbx <cargo command>`; the scheduler paces compiler and test processes across every
+# checkout so parallel worktrees share the machine instead of multiplying its load.
+
+[scheduler]
+# Leave one core and a third of the memory for the editor, the desktop and the Linux container.
+reserve_cpus = 1
+memory = "10GiB"
+# nextest tests take permits one at a time, so several suites at once cannot start a thread storm.
+tests = true
