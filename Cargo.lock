@@ -8440,6 +8440,7 @@ dependencies = [
  "alacritty_terminal",
  "apple-native-keyring-store",
  "async-io",
+ "block2",
  "command-fds",
  "dispatch2",
  "futures-util",
