@@ -11,13 +11,6 @@ use super::ShellLineReader;
 
 /// The one daemon-wide bound on the line bytes the shell-line reader parses at once, with the
 /// reader's byte limit. Every ask reads its shell lines through `read`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the approval and command-ask checks will read every shell line through it"
-    )
-)]
 pub(crate) struct ShellLineReadingBound {
     // One permit per line byte, `limit` in all.
     permits: Arc<Semaphore>,

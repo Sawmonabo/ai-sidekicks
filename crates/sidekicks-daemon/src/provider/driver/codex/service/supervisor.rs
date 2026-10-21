@@ -9,7 +9,7 @@
 mod drain;
 pub(super) mod events;
 mod reconnect;
-pub(super) mod routing;
+pub(crate) mod routing;
 mod runner;
 mod start;
 #[cfg(test)]

@@ -151,6 +151,15 @@ pub(crate) enum CodexError {
         /// The state the slot is held in.
         holder_state: CodexSessionSlotState,
     },
+    /// A port the daemon wired, which the driver reads or hands work to, failed.
+    #[error("the {port} port failed")]
+    PortFailed {
+        /// The port, as its registration names it.
+        port: &'static str,
+        /// Its failure.
+        #[source]
+        cause: Box<dyn Error + Send + Sync>,
+    },
     /// The driver's configuration lacks the shape the driver needs: a wiring defect.
     #[error("the Codex driver's {field} configuration is unusable: {detail}")]
     DriverConfig {
@@ -315,6 +324,7 @@ impl From<CodexError> for DriverError {
             }
             CodexError::ProviderRequest { .. }
             | CodexError::SessionAlreadyLive { .. }
+            | CodexError::PortFailed { .. }
             | CodexError::DriverConfig { .. } => Self::Internal(Box::new(error)),
         }
     }
