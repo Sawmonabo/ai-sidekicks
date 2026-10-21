@@ -22,7 +22,7 @@ use super::ignored_paths::{
 };
 use super::slow_tick::{StatusEntry, read_status_digest};
 use super::{FolderKey, FolderSignals, FolderStartError, StartOutcome, WatchTarget, WatcherShared};
-use crate::daemon::scheduler::ScheduledJobHandle;
+use crate::daemon::scheduler::{JobCondition, ScheduledJobHandle};
 use crate::file_watch::{FileWatch, FileWatchError, FileWatchNotice, WatchedRoot};
 use crate::git::process::{GitError, read_git_common_folder};
 use crate::git::worktree::reads::read_tree_git_folder;
@@ -502,6 +502,7 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
         // The job only wakes the task, so a slow `git status` holds no other job.
         let job = self.shared.deps.scheduler.schedule_repeating(
             "working folder slow tick",
+            JobCondition::Always,
             interval,
             interval,
             move |_stop| {
