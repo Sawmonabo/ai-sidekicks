@@ -278,6 +278,9 @@ rquickjs = { version = "=0.14.0", features = ["futures", "rust-alloc"] }
 
 # Crash reports.
 crash-handler = "0.8.1"
+minidump = "0.27.0"
+minidump-processor = { version = "0.27.0", default-features = false }
+minidump-unwind = "0.27.0"
 minidumper = "0.11.0"
 
 # The desktop's Node-API addon.

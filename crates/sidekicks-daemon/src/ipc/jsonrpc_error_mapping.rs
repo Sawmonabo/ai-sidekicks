@@ -76,20 +76,20 @@ const MESSAGE_TOO_LARGE: &str = "the message is over its size limit";
 
 /// A Unix path at a token boundary, with an optional `:line:col`; the leading group stands for
 /// the boundary (`regex` has no look-behind) and is written back, so `feature/login` stays.
-static UNIX_PATH: LazyLock<Regex> = LazyLock::new(|| {
+pub(crate) static UNIX_PATH: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(^|[^A-Za-z0-9_.-])(?:/[A-Za-z0-9_.-]+)+(?::[0-9]+(?::[0-9]+)?)?")
         .expect("the pattern is a valid regex")
 });
 
 /// A UNC path, in its plain or verbatim `\\?\UNC\` form: the host has no spaces and may hold `$`
 /// (`\\wsl$\`), the share and path segments may hold spaces.
-static UNC_PATH: LazyLock<Regex> = LazyLock::new(|| {
+pub(crate) static UNC_PATH: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\\\\(?:\?\\UNC\\)?[A-Za-z0-9_.$-]+(?:\\[A-Za-z0-9_. -]+)+(?::[0-9]+(?::[0-9]+)?)?")
         .expect("the pattern is a valid regex")
 });
 
 /// A Windows drive path, plain or with its verbatim `\\?\` prefix, whose segments may hold spaces.
-static DRIVE_PATH: LazyLock<Regex> = LazyLock::new(|| {
+pub(crate) static DRIVE_PATH: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?:\\\\\?\\)?[A-Za-z]:\\(?:[A-Za-z0-9_. -]+\\?)+(?::[0-9]+(?::[0-9]+)?)?")
         .expect("the pattern is a valid regex")
 });

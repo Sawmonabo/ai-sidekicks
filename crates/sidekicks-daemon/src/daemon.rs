@@ -8,6 +8,7 @@ pub(crate) mod artifact_methods;
 pub(crate) mod backup;
 pub(crate) mod config_methods;
 pub(crate) mod configuration;
+pub mod crash;
 pub(crate) mod data_folder_lock;
 pub(crate) mod lifecycle_methods;
 pub(crate) mod login_shell_environment;

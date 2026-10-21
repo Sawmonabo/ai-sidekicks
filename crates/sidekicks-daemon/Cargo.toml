@@ -19,9 +19,6 @@ ignored = [
   # The browser tools and Preview's pages over DevTools.
   "chromiumoxide_cdp",
   "psl",
-  # Crash reports of the daemon and its modes.
-  "crash-handler",
-  "minidumper",
   # A workflow schedule's next run in its time zone.
   "croner",
   # The workflow step that parses CSV.
@@ -141,6 +138,9 @@ llrt_buffer.workspace = true
 llrt_crypto.workspace = true
 lru.workspace = true
 memchr.workspace = true
+minidump.workspace = true
+minidump-processor.workspace = true
+minidump-unwind.workspace = true
 minidumper.workspace = true
 notify.workspace = true
 opentelemetry-proto.workspace = true

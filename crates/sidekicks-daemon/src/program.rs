@@ -1,16 +1,17 @@
 //! The `sidekicks-daemon` program's dispatch: what one run of the program is, read from the name it
 //! was started by and then from its arguments. A link named for the clone's askpass runs that;
 //! otherwise the first words choose a helper mode, `shell <daemon pid>`, `console <pid>`, `console
-//! input <pid>`, `environment <marker>`, `index`, `database copy`, `database restore <backup
-//! folder>` or `database shell`; with no words it is the service. The `hook`, `wsl`, `banners` and
-//! `minidump` modes and the `sidekicks-command-wrapper` and `sidekicks-command-askpass` links are
-//! their own features' to add here.
+//! input <pid>`, `environment <marker>`, `index`, `minidump <socket>`, `database copy`, `database
+//! restore <backup folder>` or `database shell`; with no words it is the service. The `hook`,
+//! `wsl` and `banners` modes and the `sidekicks-command-wrapper` and `sidekicks-command-askpass`
+//! links are their own features' to add here.
 
 use std::ffi::{CString, OsString, c_int};
 use std::io::{self, Write as _};
 use std::path::Path;
 use std::process::ExitCode;
 
+use crate::daemon::crash::monitor::{CRASH_MONITOR_MODE, run_crash_monitor};
 use crate::daemon::login_shell_environment::printing::{ENVIRONMENT_MODE, run_environment_mode};
 use crate::daemon::start::run_service;
 use crate::pty::console::{CONSOLE_MODE, run_console_mode};
@@ -49,6 +50,7 @@ pub fn run_daemon_program(run_sqlite_shell: SqliteShell) -> ExitCode {
         [CONSOLE_MODE, rest @ ..] => run_console_mode(rest),
         [ENVIRONMENT_MODE, marker] => run_environment_mode(marker),
         [SEARCH_INDEX_BUILD_MODE, ..] => run_search_index_build(),
+        [CRASH_MONITOR_MODE, ..] => run_crash_monitor(&arguments[1..]),
         [first, second, ..] if [*first, *second] == DATABASE_COPY_MODE => run_database_copy(),
         [first, second, ..] if [*first, *second] == DATABASE_RESTORE_MODE => {
             run_database_restore(&arguments[2..])
