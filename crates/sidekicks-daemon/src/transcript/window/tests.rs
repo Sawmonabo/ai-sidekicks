@@ -13,7 +13,7 @@ use crate::transcript::body::read_row_body;
 use crate::transcript::test_log::{
     AT, STALLING_TEXT, TranscriptTestLog, stalling_parse, wire_block_starts, wire_message,
 };
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 fn anchored_read(session_id: &SessionId, sequence: i64) -> TranscriptReadRequest {
     serde_json::from_value(json!({

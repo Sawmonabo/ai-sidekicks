@@ -476,7 +476,7 @@ mod tests {
         let database = TestDatabase::new();
         let log = open_log(&database, None).await.service;
         let session_id = test_session_id();
-        let run_id = crate::uuid_v7::mint_uuid_v7().to_string();
+        let run_id = sidekicks_contracts::wire::id::mint_uuid_v7().to_string();
         let body = "x".repeat(30_000);
         let piece_count = 40;
         let row_id = reply_piece(&log, session_id, &run_id, ("m1", 0), &body).await;
@@ -523,7 +523,7 @@ mod tests {
         let database = TestDatabase::new();
         let log = open_log(&database, None).await.service;
         let session_id = test_session_id();
-        let run_id = crate::uuid_v7::mint_uuid_v7().to_string();
+        let run_id = sidekicks_contracts::wire::id::mint_uuid_v7().to_string();
         let files = [
             json!({
                 "path": "/repo/a.rs",
@@ -602,7 +602,7 @@ mod tests {
         let database = TestDatabase::new();
         let log = open_log(&database, None).await.service;
         let session_id = test_session_id();
-        let run_id = crate::uuid_v7::mint_uuid_v7().to_string();
+        let run_id = sidekicks_contracts::wire::id::mint_uuid_v7().to_string();
         let text = "First.\n\nSecond.\n\nThird.\n\nFourth.\n";
         let row_id = reply_piece(&log, session_id, &run_id, ("m1", 0), text).await;
         let stalling = format!("Before.\n\n{STALLING_TEXT}\n");
@@ -692,7 +692,7 @@ mod tests {
         let database = TestDatabase::new();
         let log = open_log(&database, None).await.service;
         let session_id = test_session_id();
-        let run_id = crate::uuid_v7::mint_uuid_v7().to_string();
+        let run_id = sidekicks_contracts::wire::id::mint_uuid_v7().to_string();
         let message_row = reply_piece(
             &log,
             session_id,

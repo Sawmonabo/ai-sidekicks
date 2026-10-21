@@ -383,7 +383,7 @@ mod tests {
     use crate::transcript::block_cut::MARKDOWN_PARSE;
     use crate::transcript::test_log::{AT, TranscriptTestLog, wire_message};
     use crate::transcript::window::{TranscriptReadError, read_transcript_window};
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // `run_id`'s expansion after `after_cursor`.
     fn expand(

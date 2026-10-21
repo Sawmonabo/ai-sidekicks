@@ -24,7 +24,7 @@ use crate::pty::shell::table::end::{close_terminal, let_shell_go};
 use crate::pty::shell::table::output::drain_output;
 use crate::pty::shell::table::{ShellTable, TableShared, log_failure};
 use crate::session::not_found::session_not_found;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 #[cfg_attr(
     not(test),

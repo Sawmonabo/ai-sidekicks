@@ -10,7 +10,7 @@ use sidekicks_contracts::wire::attachment::write;
 
 use crate::database::writer::test_file::{TestDatabase, insert_test_event, test_session_id};
 use crate::transcript::block_cut::{ChildStartsParse, MARKDOWN_PARSE};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The instant every test row occurs at unless a test names another.
 pub(crate) const AT: &str = "2026-10-14T09:00:00.000Z";

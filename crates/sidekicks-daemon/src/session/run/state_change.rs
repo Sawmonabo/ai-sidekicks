@@ -582,7 +582,7 @@ mod tests {
     use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
     use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // Killed by spelling the guard's category other than the stored word, which lets a second
     // terminal through, or by dropping its run version condition, which refuses every version.

@@ -47,7 +47,7 @@ use crate::session::run::start_request::{
     DaemonTurnStartRequest, RunContinueRequest, RunStartRequest, RunTurnStart,
 };
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // The states a resume continues: a run still finishing its step, or one already held.
 const RESUMABLE_STATES: [RunState; 2] = [RunState::Pausing, RunState::Paused];
@@ -75,13 +75,6 @@ impl RunEngine {
     /// `running` write that fails once the driver has the run, after the driver's turn is
     /// interrupted. An interrupt that arrives after the gates is routed once the start settles (see
     /// [`RunEngine::route_interrupt`]).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the queue's drain, which starts the run of each message it admits"
-        )
-    )]
     pub(crate) async fn start_run(
         &self,
         request: RunStartRequest,
@@ -314,7 +307,7 @@ impl RunEngine {
                     run_id,
                     run_version: SafeInt::ZERO,
                     new_state: AgentRunQueuedNewState::Value,
-                    agent_id: agent_id.clone(),
+                    agent_id,
                     resolved_agent: None,
                     parent_run_id: Some(parent_run_id),
                     reached_by: Some(ChildRunProvenance::ProviderSubagent),
@@ -368,13 +361,6 @@ impl RunEngine {
     /// and is returned; a `running` write that fails once the driver started the turn does so
     /// after the turn is interrupted. Fails with [`RunRefusal::InvalidTransition`] for a run that
     /// does not read interrupted or is already being continued.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the queue's drain, which continues an interrupted run on its next message"
-        )
-    )]
     pub(crate) async fn continue_run(
         &self,
         request: RunContinueRequest,
@@ -749,7 +735,7 @@ mod tests {
     };
     use crate::session::run::start_request::RunStartRequest;
     use crate::session::run::state_change::{RunStateChange, RunStateEntry};
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // Killed by dropping the report's wait on the starting run's settlement: the report then reads
     // the run `starting`, which may not move to `waitingForApproval`, and is refused before the
@@ -799,7 +785,7 @@ mod tests {
             tokio::join!(report, release).0
         };
         let (started, reported) = tokio::time::timeout(SETTLE_WAIT, async {
-            tokio::join!(engine.start_run(request), report_during_start)
+            tokio::join!(Box::pin(engine.start_run(request)), report_during_start)
         })
         .await
         .expect("the report and the start settle without waiting on each other");

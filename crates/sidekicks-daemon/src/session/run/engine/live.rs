@@ -412,7 +412,7 @@ mod tests {
 
     use super::{EndingGuard, EndingWrite, LiveRuns, lock};
     use crate::session::run::engine::tests::turn;
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // How long the live lock is held after the guard begins to drop, long enough for a guard that
     // lands its write before taking the lock to have landed it.

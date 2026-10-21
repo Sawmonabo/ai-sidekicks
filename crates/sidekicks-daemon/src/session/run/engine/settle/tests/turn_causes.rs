@@ -20,7 +20,7 @@ use crate::session::run::engine::tests::{
 };
 use crate::session::run::read::{RunRead, RunStateReader};
 use crate::session::run::state_change::RunStateChangeCompanions;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // A run's log the parity test writes through a live engine before the live path or a restart ends
 // it.

@@ -587,7 +587,7 @@ mod tests {
 
     use super::{MalformedStoredEventFault, SessionEventReads, SessionLogReadError};
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     const WELL_FORMED_INSTANT: &str = "2026-10-14T09:00:00.000Z";
 

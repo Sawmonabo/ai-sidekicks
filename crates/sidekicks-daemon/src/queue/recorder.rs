@@ -8,6 +8,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
@@ -17,10 +18,13 @@ use sidekicks_contracts::run::queue::{
     AgentQueueItemNotDeliveredState, AgentQueueItemSupersededPayload,
     AgentQueueItemSupersededState, QueueItemId, QueueItemQueuedState, UserMessageSentPayload,
 };
-use sidekicks_contracts::run::queued::AgentRunQueuedPayload;
+use sidekicks_contracts::run::queued::{
+    AgentRunQueuedNewState, AgentRunQueuedPayload, RunQueuedSessionAgentPayload,
+};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::{DEVICE_ID_MAX_LEN, DeviceId};
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
@@ -33,6 +37,7 @@ use crate::events::session::appender::{
 };
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::queue::changes::{QueueChangeSignals, QueueKey};
+use crate::queue::store::send_now::clear_sent_now_statement;
 use crate::queue::store::{
     NewQueueItem, QueueItemExit, QueueItemOutcome, QueueItemReader, QueueItemRecord,
     admit_undelivered_statement, current_interrupted_lead_run_statement,
@@ -64,7 +69,10 @@ const _: () = assert!(DEVICE_ID_MAX_LEN <= EVENT_FIELD_MAX_LEN);
 
 /// Where one person's send goes: a run it starts, the live run it goes into, the interrupted run it
 /// continues, or the place of the waiting item it edits, which goes into that item's run.
-#[expect(dead_code, reason = "the run queue's send path")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's start, which builds the run queue")
+)]
 pub(crate) enum SendRoute {
     /// A run the send starts, queued in the same write.
     NewRun {
@@ -84,7 +92,10 @@ pub(crate) enum SendRoute {
 
 /// One person's send as it is recorded: the new row, its device, where it goes and, for a retry,
 /// the not-delivered message it sends again, which then reads superseded.
-#[cfg_attr(not(test), expect(dead_code, reason = "the run queue's send path"))]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's start, which builds the run queue")
+)]
 pub(crate) struct RecordedSend {
     /// The row to insert.
     pub(crate) item: NewQueueItem,
@@ -154,13 +165,6 @@ pub(crate) enum QueueRecordError {
 impl QueueRecordError {
     /// Whether a guard of the write refused it: an item had left `queued`, or the run no longer
     /// reads as the write expected. Nothing was written.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the provider's event delivery and the run queue's edit, removal and reorder"
-        )
-    )]
     pub(crate) fn is_refused(&self) -> bool {
         match self {
             Self::Append(error) => refused_statement_index(error).is_some(),
@@ -171,7 +175,10 @@ impl QueueRecordError {
 }
 
 /// What the recorder writes, reads and signals through.
-#[cfg_attr(not(test), expect(dead_code, reason = "the run queue's start"))]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's start, which builds the run queue")
+)]
 pub(crate) struct QueueRecorderDeps {
     /// The event log every queue event is appended to.
     pub(crate) event_log: Arc<EventLogService>,
@@ -195,7 +202,6 @@ pub(crate) struct QueueRecorder {
 /// Whether a retarget points the items at a live run or at the session's current lead run
 /// resting interrupted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[expect(dead_code, reason = "the run queue's run starts and continues")]
 pub(crate) enum RetargetRun {
     /// A run that has not ended.
     Live(RunId),
@@ -205,7 +211,10 @@ pub(crate) enum RetargetRun {
 
 impl QueueRecorder {
     /// A recorder over `deps`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the run queue's start"))]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the daemon's start, which builds the run queue")
+    )]
     pub(crate) fn new(deps: QueueRecorderDeps) -> Self {
         let QueueRecorderDeps {
             event_log,
@@ -224,7 +233,10 @@ impl QueueRecorder {
     /// Records `send` in one write and returns its row as read back. Fails with
     /// [`RecordSendError::Refused`] naming the guard that refused it, writing nothing, and
     /// otherwise as [`QueueRecordError`] says; only a failed read back follows the commit.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the run queue's send path"))]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the daemon's start, which builds the run queue")
+    )]
     pub(crate) async fn record_send(
         &self,
         send: RecordedSend,
@@ -383,10 +395,6 @@ impl QueueRecorder {
     /// Queues the run `queued` for the session's waiting `items`, pointing each at it, in one
     /// write. Fails as [`QueueRecordError`] says, refused when a lead run is live or one of the
     /// items has left `queued`; nothing is written then.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the run queue's run starts and continues")
-    )]
     pub(crate) async fn record_next_run(
         &self,
         queued: AgentRunQueuedPayload,
@@ -414,10 +422,6 @@ impl QueueRecorder {
     /// Points each of the waiting `items` at `run` in one write, which no event records. Fails as
     /// [`QueueRecordError`] says, refused when the run no longer reads so or one of the items has
     /// left `queued`; nothing is written then.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the run queue's run starts and continues")
-    )]
     pub(crate) async fn record_retarget(
         &self,
         run: RetargetRun,
@@ -443,20 +447,23 @@ impl QueueRecorder {
     }
 
     /// Puts the waiting items `ordered` in that order among the places they hold, in one write,
-    /// which no event records. Fails as [`QueueRecordError`] says, refused when one of them has
-    /// left `queued`; nothing is written then.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the run queue's edit, removal and reorder")
-    )]
+    /// which no event records; an item a `Send now` marked loses the mark when the order puts it
+    /// after another, so it goes in its place. Fails as [`QueueRecordError`] says, refused when one
+    /// of them has left `queued`; nothing is written then.
     pub(crate) async fn record_order(
         &self,
         ordered: &[QueueItemRecord],
         now: &WireInstant,
     ) -> Result<(), QueueRecordError> {
-        self.writer
-            .write(placement_statements(ordered, now))
-            .await?;
+        let mut statements = placement_statements(ordered, now);
+        statements.extend(
+            ordered
+                .iter()
+                .skip(1)
+                .filter(|item| item.sent_now_id.is_some())
+                .map(|item| clear_sent_now_statement(&item.id, now)),
+        );
+        self.writer.write(statements).await?;
         self.raise_committed(ordered, true);
         Ok(())
     }
@@ -543,6 +550,29 @@ fn admitted_event(item: &QueueItemRecord, run_id: RunId) -> SessionEvent {
         queue_item_id: item.id,
         state: AgentQueueItemAdmittedState::Value,
         run_id,
+    })
+}
+
+/// The `agent.run.queued` record of the session's next lead run `run_id`, run by `agent_id`,
+/// which a send or an ended run's leftovers queue.
+pub(crate) fn lead_run_queued(
+    session_id: SessionId,
+    run_id: RunId,
+    agent_id: AgentId,
+) -> AgentRunQueuedPayload {
+    AgentRunQueuedPayload::SessionAgent(RunQueuedSessionAgentPayload {
+        session_id,
+        run_id,
+        run_version: SafeInt::ZERO,
+        new_state: AgentRunQueuedNewState::Value,
+        agent_id,
+        resolved_agent: None,
+        parent_run_id: None,
+        reached_by: None,
+        is_apart: None,
+        effective_run_config: None,
+        admitted_model_family: None,
+        admitted_provider_account_id: None,
     })
 }
 

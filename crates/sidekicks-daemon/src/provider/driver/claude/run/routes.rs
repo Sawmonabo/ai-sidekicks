@@ -534,7 +534,7 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
 
     use super::{ClaudeRunRoutes, TurnHeld};
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn binding() -> RuntimeBindingId {
         RuntimeBindingId::new("binding".to_owned()).expect("a binding id")

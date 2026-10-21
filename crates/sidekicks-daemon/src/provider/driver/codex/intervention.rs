@@ -197,6 +197,7 @@ mod tests {
                 attachments: Vec::new(),
                 skills: Vec::new(),
                 expected_turn_id: None,
+                is_priority: false,
             },
         };
 

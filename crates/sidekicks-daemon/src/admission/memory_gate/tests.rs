@@ -102,6 +102,18 @@ async fn the_head_alone_is_weighed_against_memory_and_no_room_still_admits_one()
     );
 }
 
+// Killed by a spacing kept after the start that set it ended.
+#[tokio::test(start_paused = true)]
+async fn an_ended_estimated_start_spaces_no_later_one() {
+    let (gate, available) = open_gate(0);
+    available.store(64 * GIBIBYTE, Ordering::SeqCst);
+    let first = gate.enqueue(provider("workflow-node-1"));
+    assert!(is_admitted_within(first.admitted(), Duration::from_millis(1)).await);
+    drop(first);
+    let second = gate.enqueue(provider("workflow-node-2"));
+    assert!(is_admitted_within(second.admitted(), Duration::from_millis(1)).await);
+}
+
 #[tokio::test(start_paused = true)]
 async fn estimated_starts_are_spaced_and_a_node_reserves_the_peak_it_reached() {
     let (gate, available) = open_gate(5 * GIBIBYTE);

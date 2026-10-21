@@ -334,7 +334,7 @@ mod tests {
     use crate::provider::driver::claude::session::transport::channel::MockClaudeProcessChannel;
     use crate::provider::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
     use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn live_session() -> Arc<LiveClaudeSession> {
         let session_id =

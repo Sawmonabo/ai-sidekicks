@@ -68,7 +68,7 @@ use crate::missing_entry::MissingEntry as _;
 #[cfg(test)]
 use crate::pause_point::PausePoint;
 use crate::settle_all::{SettleFailures, settle_all};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // The mode of a spool file: its owner's alone.
 const SPOOL_FILE_MODE: u32 = 0o600;

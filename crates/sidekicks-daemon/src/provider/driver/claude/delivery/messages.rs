@@ -23,7 +23,7 @@ use crate::provider::lenient_json::{Lenient, LenientList, lenient_object, read_l
 use crate::session::run::epochs::DeliveryOperation;
 use crate::session::run::inbound::rows::LateAppendableRow;
 use crate::transcript::whole_patch::WholePatchFile;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// A field of a transcript row, as the event's cap holds it.
 type EventText = FreeFormText<EVENT_FIELD_MAX_LEN>;

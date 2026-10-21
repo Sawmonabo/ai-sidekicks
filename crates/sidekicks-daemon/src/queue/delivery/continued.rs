@@ -9,11 +9,11 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::keyed_lock::{KeyHold, KeyedLock};
+use crate::keyed_lock::KeyHold;
 use crate::provider::driver::message_handing::MessageHanding;
 use crate::provider::driver::run_control::WaitingMessage;
 use crate::queue::delivery::state::{HandRoute, is_kept_by_process};
-use crate::queue::delivery::{DeliveryError, QueueDelivery, attachments_of};
+use crate::queue::delivery::{DeliveryError, QueueDelivery};
 use crate::queue::store::RecordedQueueItemState;
 use crate::session::run::pause::{ContinuedMessages, ContinuedMessagesError};
 
@@ -43,7 +43,7 @@ impl QueueDelivery {
             .into_iter()
             .map(|item| WaitingMessage {
                 id: item.id,
-                attachments: attachments_of(&item.body),
+                attachments: item.body.attachment_ids(),
                 skills: item.body.skills.unwrap_or_default(),
                 content: item.body.content,
             })
@@ -112,8 +112,8 @@ impl QueueDelivery {
 }
 
 impl ContinuedMessages for QueueDelivery {
-    fn session_lock(&self) -> &KeyedLock<SessionId> {
-        &self.shared.deps.session_lock
+    fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>> {
+        Box::pin(self.shared.deps.session_lock.hold_session(session_id))
     }
 
     fn read(
@@ -140,7 +140,7 @@ impl ContinuedMessages for QueueDelivery {
         run_id: RunId,
     ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>> {
         // A message an earlier resume keeps stays kept until its own settle.
-        self.lock_state().handed.retain(|_, handed| {
+        self.lock_state().retain_hands(|handed| {
             handed.run_id != run_id
                 || !matches!(handed.route, HandRoute::Continue { is_kept: false, .. })
         });
@@ -148,7 +148,7 @@ impl ContinuedMessages for QueueDelivery {
     }
 
     fn keep(&self, _hold: &KeyHold<'_, SessionId>, run_id: RunId) {
-        for handed in self.lock_state().handed.values_mut() {
+        for handed in self.lock_state().hands_mut() {
             if let HandRoute::Continue {
                 is_kept: false,
                 handing,
@@ -175,8 +175,7 @@ impl ContinuedMessages for QueueDelivery {
             .into_iter()
             .filter(|item_id| {
                 state
-                    .handed
-                    .get(item_id)
+                    .hand_of(item_id)
                     .is_some_and(|handed| !is_kept_by_process(handed, live_process))
             })
             .collect()

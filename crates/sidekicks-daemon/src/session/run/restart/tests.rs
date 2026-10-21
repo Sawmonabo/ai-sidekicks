@@ -16,7 +16,7 @@ use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
 use crate::interventions::store::UnresolvedInterventionState;
 use crate::session::run::read::{LiveRun, RunRead};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 fn ends(settlement: RestartSettlement, turn_end: RestartTurnEnd) -> Option<RestartDecision> {
     Some(RestartDecision {

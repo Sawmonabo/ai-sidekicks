@@ -23,7 +23,7 @@ use crate::session::run::engine::tests::{
 };
 use crate::session::run::read::{LiveRun, RunRead};
 use crate::session::run::state_change::RunStateChangeCompanions;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // The test's interrupt rows: the daemon's own at the token limit and at the step limit, and a
 // person's.

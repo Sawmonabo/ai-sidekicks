@@ -27,7 +27,7 @@ use crate::database::schema::recovery::ProjectionCursorState;
 use crate::database::statement::DATABASE_NOW_SQL;
 use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::transcript::rejoin::ROW_ENDING_EVENT_TYPES_SQL;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The instant the daemon's clock counts from: the first read of [`monotonic_ns_now`], which the
 /// daemon's start makes, so zero is the start.
@@ -286,7 +286,8 @@ mod tests {
         #[case] mut ending_payload: Value,
     ) {
         let log = TranscriptTestLog::new();
-        let other_run = RunId::try_from(crate::uuid_v7::mint_uuid_v7()).expect("a run id");
+        let other_run =
+            RunId::try_from(sidekicks_contracts::wire::id::mint_uuid_v7()).expect("a run id");
         let (anchor, _) = log.reply("m1", Some(0), "Before ");
         let (joined, _) = log.reply("m1", Some(0), "the end.");
         let (other, _) = log.piece(

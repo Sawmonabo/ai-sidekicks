@@ -50,7 +50,7 @@ use crate::session::run::engine::tests::{insert_running_run, stored_run_state, t
 use crate::session::run::read::{LiveRun, RunRead};
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
 use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The secret the tests answer with, which no stored row may hold.
 const SECRET: &str = "the-secret-value-41";

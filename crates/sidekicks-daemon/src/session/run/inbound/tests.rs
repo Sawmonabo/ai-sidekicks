@@ -33,7 +33,7 @@ use crate::session::run::epochs::{
 };
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
 use crate::transcript::reasoning::read_reasoning;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // A publisher no run state stream reads.
 struct UnreadPublisher;

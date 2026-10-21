@@ -106,8 +106,8 @@ Payload: {
   sub: UserId,          // user UUID
   iss: "ai-sidekicks-cp",     // issuer: control plane
   aud: "ai-sidekicks-api",    // audience: API endpoints
-  exp: <issued_at + 900>,     // 15-minute TTL
-  iat: <unix_timestamp>,
+  exp: <iat + 900 s>,         // 15-minute TTL, an RFC 3339 instant
+  iat: <RFC 3339 instant>,    // PASETO writes its times as RFC 3339 strings
   jti: <unique_token_id>,     // for revocation tracking
   cnf: {                      // DPoP confirmation claim
     jkt: <JWK_thumbprint>     // SHA-256 thumbprint of client's public key
@@ -124,7 +124,7 @@ Header: v4.local
 Payload: {
   sub: UserId,
   iss: "ai-sidekicks-cp",
-  iat: <unix_timestamp>,
+  iat: <RFC 3339 instant>,
   jti: <unique_token_id>,
   cnf: { jkt: <JWK_thumbprint> }, // the machine's DPoP key
   family: <rotation_family_id> // tracks rotation chain for reuse detection

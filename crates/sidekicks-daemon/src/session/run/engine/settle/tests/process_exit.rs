@@ -13,7 +13,7 @@ use crate::session::run::engine::tests::{
     append, events, hand_limit_interrupter, insert_running_run, step_stop, stored_events,
     stored_run_state, test_engine, turn_started_at,
 };
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // The provider process's exit the tests report.
 fn process_exit() -> ProcessExit {

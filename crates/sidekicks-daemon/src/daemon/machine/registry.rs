@@ -149,7 +149,7 @@ mod tests {
     use crate::database::connection::read_pool::DatabaseReadPool;
     use crate::database::writer::test_file::TestDatabase;
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn user_id() -> UserId {
         UserId::try_from(mint_uuid_v7()).expect("a minted UUID is a user id")

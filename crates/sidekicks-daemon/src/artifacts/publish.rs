@@ -51,7 +51,7 @@ use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use crate::events::session::appender::SessionEventAppender;
 use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::MissingEntry as _;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The mode of a spool file: its owner's alone.
 pub(crate) const SPOOL_FILE_MODE: u32 = 0o600;
@@ -380,7 +380,7 @@ mod tests {
     use crate::artifacts::attachment_resolver::ArtifactAttachmentResolver;
     use crate::artifacts::test_store::{ArtifactTestStore, refusal_code_of};
     use crate::provider::driver::attachments::{AttachmentResolver as _, ProviderAttachment};
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn request(
         store: &ArtifactTestStore,

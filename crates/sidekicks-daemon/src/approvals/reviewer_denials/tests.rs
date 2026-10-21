@@ -44,13 +44,10 @@ use crate::provider::port::reviewer_denial::ProviderReviewerDenial;
 use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::pause::tests::unanswered;
 use crate::session::run::projection::insert_queued_run_statement;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// Bounds a call the test expects to answer, so one that hangs fails the test.
 const ANSWER_WAIT: Duration = Duration::from_secs(5);
-
-/// The binding `bind_run_to_first_provider` writes.
-const FIRST_BINDING: &str = "binding";
 
 /// The provider's own record of every test block.
 const PROVIDER_RECORD: &str = r#"{"id":"review-1","status":"denied","action":{"command":"curl"}}"#;
@@ -64,6 +61,8 @@ struct Fixture {
     attachment: Option<FollowerAttachment>,
     session_id: SessionId,
     run_id: RunId,
+    // The binding of the run to the first provider.
+    binding_id: RuntimeBindingId,
 }
 
 impl Fixture {
@@ -98,9 +97,10 @@ impl Fixture {
             attachment,
             session_id,
             run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+            binding_id: RuntimeBindingId::new("unbound".to_owned()).expect("a binding id"),
         };
         fixture.run_id = fixture.queue_run().await;
-        bind_run_to_first_provider(&fixture.database, fixture.run_id);
+        fixture.binding_id = bind_run_to_first_provider(&fixture.database, fixture.run_id);
         fixture
     }
 
@@ -289,11 +289,6 @@ impl Fixture {
             .collect::<Result<_, _>>()
             .expect("each override reads")
     }
-}
-
-/// The binding `bind_run_to_first_provider` writes, as its id.
-fn first_binding() -> RuntimeBindingId {
-    RuntimeBindingId::new(FIRST_BINDING.to_owned()).expect("a binding id")
 }
 
 /// A driver whose override answers each call with the next of `answers`, counting its calls.
@@ -634,7 +629,7 @@ enum FirstAnswer {
 #[tokio::test]
 async fn a_press_the_driver_did_not_take_records_nothing(#[case] first: FirstAnswer) {
     let calls = Arc::new(AtomicUsize::new(0));
-    let service: Arc<OnceLock<Weak<ReviewerDenials>>> = Arc::default();
+    let service: Arc<OnceLock<(Weak<ReviewerDenials>, RuntimeBindingId)>> = Arc::default();
     let ended_process = Arc::clone(&service);
     let fixture = Fixture::new(
         driver_answering(&calls, move |call| match (call, first) {
@@ -645,11 +640,11 @@ async fn a_press_the_driver_did_not_take_records_nothing(#[case] first: FirstAns
             (0, FirstAnswer::Unanswered) => Err(unanswered()),
             (0, FirstAnswer::UnansweredAfterItsProcessEnded) => {
                 // The process's exit is reported before its pending request fails.
-                ended_process
-                    .get()
-                    .and_then(Weak::upgrade)
+                let (denials, binding_id) = ended_process.get().expect("the service is set");
+                denials
+                    .upgrade()
                     .expect("the service is running")
-                    .release_held_presses(&first_binding());
+                    .release_held_presses(binding_id);
                 Err(unanswered())
             }
             _ => Ok(()),
@@ -658,7 +653,7 @@ async fn a_press_the_driver_did_not_take_records_nothing(#[case] first: FirstAns
     )
     .await;
     service
-        .set(Arc::downgrade(&fixture.denials))
+        .set((Arc::downgrade(&fixture.denials), fixture.binding_id.clone()))
         .expect("the service is set once");
     let denial_id = fixture.recorded_block().await;
 
@@ -678,7 +673,7 @@ async fn a_press_the_driver_did_not_take_records_nothing(#[case] first: FirstAns
                 .expect_err("the press is held");
             assert_eq!(refusal_code(held), Some(RefusalCode::ProviderTimeout));
             assert_eq!(calls.load(Ordering::SeqCst), 1);
-            fixture.denials.release_held_presses(&first_binding());
+            fixture.denials.release_held_presses(&fixture.binding_id);
         }
         FirstAnswer::UnansweredAfterItsProcessEnded => {
             assert_eq!(refusal_code(refused), Some(RefusalCode::ProviderTimeout));
@@ -729,7 +724,7 @@ async fn a_taken_press_whose_record_failed_is_recorded_by_the_next() {
         .execute("DROP TRIGGER refuse_override", [])
         .expect("the test lets overrides through");
     tokio::time::sleep(Duration::from_millis(5)).await;
-    fixture.denials.release_held_presses(&first_binding());
+    fixture.denials.release_held_presses(&fixture.binding_id);
 
     let allowed = fixture
         .press(denial_id)

@@ -3,7 +3,7 @@
 
 use sidekicks_contracts::artifacts::id::ArtifactId;
 
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// Mints the id of a new artifact manifest from the daemon-wide minter.
 pub(crate) fn mint_artifact_id() -> ArtifactId {
