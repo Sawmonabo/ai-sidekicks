@@ -1,8 +1,9 @@
 //! A credential store for tests whose every call blocks until the test releases it, as a locked
-//! store's call waits on its unlock prompt, counting the calls it received.
+//! store's call waits on its unlock prompt, counting the calls it received and keeping each entry's
+//! last written value.
 
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 use keyring_core::api::{CredentialApi, CredentialStoreApi};
@@ -10,21 +11,22 @@ use keyring_core::{Credential, Entry};
 use tokio::sync::watch;
 
 /// A credential store whose calls each wait until [`BlockingCredentialStore::release`], then answer
-/// as a store holding nothing: a write succeeds, a read and a removal find no value. Every call
-/// waiting must be released before the test's runtime drops, since the drop waits on it.
+/// as a store keeping each entry's last written value. Every call waiting must be released before
+/// the test's runtime drops, since the drop waits on it.
 #[derive(Debug)]
 pub struct BlockingCredentialStore {
     calls: Arc<HeldCalls>,
 }
 
 impl BlockingCredentialStore {
-    /// A store holding every call until it is released.
+    /// A store holding nothing and every call until it is released.
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             calls: Arc::new(HeldCalls {
                 is_released: Mutex::new(false),
                 released: Condvar::new(),
                 received: watch::Sender::new(0),
+                kept: Mutex::new(KeptValues::default()),
             }),
         })
     }
@@ -37,6 +39,15 @@ impl BlockingCredentialStore {
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = true;
         self.calls.released.notify_all();
+    }
+
+    /// From now on keeps every value written under `service` with its last character dropped, as a
+    /// store that accepts a write but keeps something else.
+    pub fn keep_changed_values_for(&self, service: &str) {
+        self.calls
+            .kept()
+            .changed_services
+            .insert(service.to_owned());
     }
 
     /// The calls the store has received, those still waiting included.
@@ -78,12 +89,22 @@ impl CredentialStoreApi for BlockingCredentialStore {
     }
 }
 
-// The calls the store and its entries share: whether they are released, and how many arrived.
+// The calls the store and its entries share: whether they are released, how many arrived, and the
+// values kept.
 #[derive(Debug)]
 struct HeldCalls {
     is_released: Mutex<bool>,
     released: Condvar,
     received: watch::Sender<usize>,
+    kept: Mutex<KeptValues>,
+}
+
+// Each entry's last written value, by service and account, and the services whose values are kept
+// changed.
+#[derive(Debug, Default)]
+struct KeptValues {
+    values: HashMap<(String, String), Vec<u8>>,
+    changed_services: HashSet<String>,
 }
 
 impl HeldCalls {
@@ -99,6 +120,10 @@ impl HeldCalls {
                 .unwrap_or_else(PoisonError::into_inner),
         );
     }
+
+    fn kept(&self) -> std::sync::MutexGuard<'_, KeptValues> {
+        self.kept.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 // One entry of the blocking store.
@@ -109,19 +134,35 @@ struct BlockingCredential {
 }
 
 impl CredentialApi for BlockingCredential {
-    fn set_secret(&self, _secret: &[u8]) -> keyring_core::Result<()> {
+    fn set_secret(&self, secret: &[u8]) -> keyring_core::Result<()> {
         self.calls.answer_when_released();
+        let mut kept = self.calls.kept();
+        let mut value = secret.to_vec();
+        if kept.changed_services.contains(&self.specifiers.0) {
+            value.pop();
+        }
+        kept.values.insert(self.specifiers.clone(), value);
         Ok(())
     }
 
     fn get_secret(&self) -> keyring_core::Result<Vec<u8>> {
         self.calls.answer_when_released();
-        Err(keyring_core::Error::NoEntry)
+        self.calls
+            .kept()
+            .values
+            .get(&self.specifiers)
+            .cloned()
+            .ok_or(keyring_core::Error::NoEntry)
     }
 
     fn delete_credential(&self) -> keyring_core::Result<()> {
         self.calls.answer_when_released();
-        Err(keyring_core::Error::NoEntry)
+        self.calls
+            .kept()
+            .values
+            .remove(&self.specifiers)
+            .map(drop)
+            .ok_or(keyring_core::Error::NoEntry)
     }
 
     fn get_credential(&self) -> keyring_core::Result<Option<Arc<Credential>>> {

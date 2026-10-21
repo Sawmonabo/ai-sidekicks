@@ -103,7 +103,11 @@ apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 keyring-core = "1.0.1"
 secret-service = "5.2.0"
 security-framework = "3.7.0"
-windows-native-keyring-store = { version = "1.1.0", default-features = false }
+windows-native-keyring-store = {
+  version = "1.1.0",
+  default-features = false,
+  features = ["search"]
+}
 zbus-secret-service-keyring-store = { version = "1.0.1", features = ["rt-tokio-crypto-rust"] }
 
 # Files, folders and git.
