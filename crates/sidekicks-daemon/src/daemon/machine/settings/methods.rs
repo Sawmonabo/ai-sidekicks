@@ -232,6 +232,6 @@ mod tests {
             .await
             .expect("the file reads");
         assert!(!on_disk.settings.updates_automatic);
-        assert!(on_disk.settings.environment_rows.is_empty());
+        assert_eq!(on_disk.settings.environment_rows, Vec::new());
     }
 }
