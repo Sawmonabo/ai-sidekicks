@@ -710,15 +710,22 @@ impl QueueRunLifecycle {
         }
     }
 
-    // A closed session's provider session, resting run and moved-on messages are forgotten.
+    // A closed session's provider session, resting run, held-back run ends and moved-on messages
+    // are forgotten, and each run it rested or held back an end of gives back its place.
     fn forget_session(&self, session_id: SessionId) {
         self.deps.provider_sessions.forget(session_id);
         self.let_go_resting_run(session_id);
-        let mut state = self.lock();
-        state.superseded_continue_by_session.remove(&session_id);
-        state
-            .moved_leftovers_by_run
-            .retain(|_, moved| moved.session_id != session_id);
+        let ends_awaiting = {
+            let mut state = self.lock();
+            state.superseded_continue_by_session.remove(&session_id);
+            state
+                .moved_leftovers_by_run
+                .retain(|_, moved| moved.session_id != session_id);
+            state.ends_awaiting_interrupt.remove(&session_id)
+        };
+        for run_id in ends_awaiting.into_iter().flatten() {
+            self.deps.admission.release(run_id);
+        }
     }
 
     // Whether `run_id` was interrupted at a limit, so it rests with its messages waiting until a

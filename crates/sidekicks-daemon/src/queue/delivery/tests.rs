@@ -203,16 +203,17 @@ fn applied() -> ApplyInterventionResponse {
     }
 }
 
-/// The queue item a steer hands over.
-fn steered_item(params: &ApplyInterventionParams) -> QueueItemId {
+/// The queue item a steer hands over, and whether it goes marked priority.
+fn steered_item(params: &ApplyInterventionParams) -> (QueueItemId, bool) {
     let ApplyInterventionParams::Steer {
         client_idempotency_key,
+        payload,
         ..
     } = params
     else {
         panic!("the delivery only steers");
     };
-    *client_idempotency_key
+    (*client_idempotency_key, payload.is_priority)
 }
 
 /// Answers every steer as sent and counts them.

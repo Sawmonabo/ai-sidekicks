@@ -22,7 +22,7 @@ use super::{
 use crate::ipc::handlers::driver::resolution::read_run_driver;
 use crate::provider::driver::contract::MockProviderDriver;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
-use crate::provider::driver::run_control::{ApplyInterventionParams, RunToolBoundary};
+use crate::provider::driver::run_control::RunToolBoundary;
 use crate::queue::delivery::{DeliveryError, InterruptHoldRelease};
 use crate::queue::store::{QueueItemRecord, RecordedQueueItemState};
 
@@ -30,16 +30,8 @@ use crate::queue::store::{QueueItemRecord, RecordedQueueItemState};
 // hand's call returns then runs ahead of the hand.
 #[tokio::test]
 async fn a_hand_takes_its_place_on_the_chain_before_its_call_returns() {
-    let steered = Arc::new(Mutex::new(Vec::new()));
-    let recorded = Arc::clone(&steered);
     let mut driver = driver_handing(HANDS_AT_ONCE);
-    driver.expect_apply_intervention().returning(move |params| {
-        recorded
-            .lock()
-            .expect("the steers are recorded")
-            .push(steered_item(&params));
-        async { Ok(applied()) }.boxed()
-    });
+    let steered = record_steers(&mut driver);
     let fixture = fixture(driver).await;
     let item = insert_item(&fixture).await;
     let (release, holder) = hold_chain(&fixture).await;
@@ -49,15 +41,13 @@ async fn a_hand_takes_its_place_on_the_chain_before_its_call_returns() {
     let mut gate = pin!(
         fixture
             .delivery
-            .run_between_hands(fixture.session_id, async move {
-                seen.lock().expect("the steers are readable").clone()
-            })
+            .run_between_hands(fixture.session_id, async move { steers_of(&seen) })
     );
     assert!(futures::poll!(&mut gate).is_pending());
     release_chain(release, holder).await;
     let steered_before_the_gate = timeout(WAIT, gate).await.expect("the gate gets its turn");
 
-    assert_eq!(steered_before_the_gate, vec![item.id]);
+    assert_eq!(steered_before_the_gate, [(item.id, false)]);
 }
 
 // A provider's event reader asking for a tool boundary's hand is answered while the session lock
@@ -350,18 +340,10 @@ fn record_steers(driver: &mut MockProviderDriver) -> Arc<Mutex<Vec<(QueueItemId,
     let steers = Arc::new(Mutex::new(Vec::new()));
     let recorded = Arc::clone(&steers);
     driver.expect_apply_intervention().returning(move |params| {
-        let ApplyInterventionParams::Steer {
-            client_idempotency_key,
-            payload,
-            ..
-        } = params
-        else {
-            panic!("the delivery only steers");
-        };
         recorded
             .lock()
             .expect("the steers are recorded")
-            .push((client_idempotency_key, payload.is_priority));
+            .push(steered_item(&params));
         async { Ok(applied()) }.boxed()
     });
     steers
@@ -386,7 +368,7 @@ fn driver_holding_first_steer(
     let mut driver = driver_handing(handing);
     driver.expect_apply_intervention().returning(move |params| {
         called
-            .send(steered_item(&params))
+            .send(steered_item(&params).0)
             .expect("the test reads each steer");
         let released = steer_released
             .lock()

@@ -1,15 +1,19 @@
 //! The run queue as an interrupt uses it: `Send now` on a provider that reads a priority message,
 //! in each run state, sent again under its key or another, and a reorder after it; an interrupt's
-//! release from inside the session's hold, and one left unsettled, settled at a later hold.
+//! release from inside the session's hold, one left unsettled and a run's end it held back,
+//! settled at a later hold, and a closed session's held-back run ends given back.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use rstest::rstest;
 use rusqlite::params;
+use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::{AgentQueueItemReorderRequest, QueueItemId};
+use sidekicks_contracts::session::events::SessionLifecycleChangePayload;
+use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -17,15 +21,18 @@ use sidekicks_contracts::wire::list::UniqueList;
 use tokio::time::timeout;
 
 use super::{DriverCalls, Fixture, WAIT, client_key, fixture, queue_over, recording_driver};
+use crate::database::writer::test_file::test_envelope;
+use crate::events::session::followers::CommittedEvent;
 use crate::interventions::interrupt_queue::{
     InterruptChoice, InterruptQueue, SendNow, SendNowOutcome,
 };
+use crate::keyed_lock::KeyedLock;
 use crate::provider::driver::contract::MockProviderDriver;
 use crate::provider::driver::run_control::InterruptPendingChoice;
 use crate::provider::driver::test_registry::bind_run_to_first_provider;
 use crate::queue::service::RunQueue;
-use crate::queue::store::QueueItemReader;
 use crate::queue::store::send_now::{SentNow, read_sent_now};
+use crate::queue::store::{QueueItemReader, RecordedQueueItemState};
 use crate::uuid_v7::mint_uuid_v7;
 
 fn new_intervention_id() -> InterventionId {
@@ -379,11 +386,11 @@ enum SettledAgain {
 
 // An interrupt's release that cannot hand its run what waits, the run bound to no provider yet,
 // fails and records on the interrupt's row that only what the hold held back is left, its choice
-// having applied; once the run is bound, a run's end taking the session's hold, or the queue's
-// recovery after a restart, hands the message and clears the record. Killed by keeping the
-// unsettled release in memory only (the restart never hands), by settling it only at the holds
-// the queue's own calls take (the run's end never hands), by recording the applied choice again,
-// or by never clearing the record.
+// settled: applied, or not due; once the run is bound, a run's end taking the session's hold, or
+// the queue's recovery after a restart, hands the message and clears the record. Killed by keeping
+// the unsettled release in memory only (the restart never hands), by settling it only at the holds
+// the queue's own calls take (the run's end never hands), by recording the choice again, or by
+// never clearing the record.
 #[rstest]
 #[case::run_end(SettledAgain::RunEnd)]
 #[case::restart(SettledAgain::Restart)]
@@ -394,19 +401,15 @@ async fn a_release_left_unsettled_is_settled_at_a_later_hold(#[case] again: Sett
     let run_id = fixture.insert_run("running");
     let item_id = fixture.queue_message(run_id).await;
     let intervention_id = fixture.insert_interrupt(run_id);
-    let choice = InterruptChoice {
-        pending: InterruptPendingChoice::NextTurn,
-        deliver_first: None,
-    };
     fixture
         .queue
-        .hold_for_interrupt(run_id, intervention_id, choice)
+        .hold_for_interrupt(run_id, intervention_id, NEXT_TURN)
         .await
         .expect("the queue holds the run");
 
     fixture
         .queue
-        .release_interrupt(run_id, intervention_id, choice)
+        .release_interrupt(run_id, intervention_id, NEXT_TURN)
         .await
         .expect_err("the release finds no driver to hand the run's message");
     let recorded = fixture.unreleased_choice(intervention_id);
@@ -433,6 +436,175 @@ async fn a_release_left_unsettled_is_settled_at_a_later_hold(#[case] again: Sett
     assert_eq!(recorded.as_deref(), Some("keepWaiting"));
     assert_eq!(calls.steers(), [(item_id, false)]);
     assert_eq!(fixture.unreleased_choice(intervention_id), None);
+}
+
+// Refuses every write that admits a message, standing in for a disk that fails it, until dropped.
+const REFUSE_ADMISSION_SQL: &str = "CREATE TRIGGER refuse_admission
+   BEFORE UPDATE OF state ON queue_items WHEN NEW.state = 'admitted'
+   BEGIN SELECT RAISE(ABORT, 'the test refuses the admission'); END";
+
+/// The choice a person's interrupt makes for the run's waiting messages.
+const NEXT_TURN: InterruptChoice = InterruptChoice {
+    pending: InterruptPendingChoice::NextTurn,
+    deliver_first: None,
+};
+
+impl Fixture {
+    /// Starts a queued lead run through the queue's admission, opening with a message queued for
+    /// it, and answers the run's and the opening's ids.
+    async fn start_lead_run(&self) -> (RunId, QueueItemId) {
+        let run_id = self.insert_run("queued");
+        let opening = self.queue_message(run_id).await;
+        timeout(WAIT, self.queue.lifecycle.reconcile(self.session_id))
+            .await
+            .expect("the reconcile answers")
+            .expect("the reconcile is heard")
+            .expect("the reconcile starts the queued run");
+        timeout(WAIT, self.queue.stop())
+            .await
+            .expect("the start settles");
+        (run_id, opening)
+    }
+
+    /// Holds `run_id` for the interrupt `intervention_id`, queues a message for it and ends it
+    /// `completed` while held, so its end waits for the interrupt; answers the message's id.
+    async fn end_run_held_for_interrupt(
+        &self,
+        run_id: RunId,
+        intervention_id: InterventionId,
+    ) -> QueueItemId {
+        self.queue
+            .hold_for_interrupt(run_id, intervention_id, NEXT_TURN)
+            .await
+            .expect("the queue holds the run");
+        let waiting = self.queue_message(run_id).await;
+        self.set_run_state(run_id, "completed");
+        self.settle_end(run_id).await;
+        waiting
+    }
+
+    /// The session's run ends an interrupt held back that no interrupt holds any more, read under
+    /// a hold of a lock of the test's own, so no settle of the queue's hold runs first.
+    async fn ends_left_unheld(&self) -> Vec<RunId> {
+        let lock = KeyedLock::new();
+        let hold = lock.acquire(self.session_id).await;
+        self.queue.lifecycle.ends_no_longer_held(&hold)
+    }
+
+    /// Writes or drops the refusal of every write that admits a message.
+    fn refuse_admissions(&self, is_refused: bool) {
+        let sql = if is_refused {
+            REFUSE_ADMISSION_SQL
+        } else {
+            "DROP TRIGGER refuse_admission"
+        };
+        self.database
+            .reader()
+            .execute(sql, [])
+            .expect("the test changes the admission's refusal");
+    }
+}
+
+/// Whether the interrupt whose release fails has a row to record that failure on.
+#[derive(Clone, Copy, Debug)]
+enum InterruptRow {
+    /// The interrupt's row was written, so the release records what it left unsettled.
+    Recorded,
+    /// No row was written, so the record of the unsettled release is refused.
+    Unrecorded,
+}
+
+// A run's end held back for an interrupt whose release fails to settle it, its opening's admission
+// refused, stays held back: once the cause is gone, a later hold of the session settles it, the
+// opening reads admitted into the run, the message left waiting opens a next run alone, the run
+// holds no place at the gate, and no end is left held back. Killed by forgetting the held-back end
+// before its settle (no next run), by no settle pass over the held-back ends at a hold (no next
+// run when the interrupt has no row), or by forgetting the opening before its admission is written
+// (the opening opens the next run too).
+#[rstest]
+#[case::recorded(InterruptRow::Recorded)]
+#[case::unrecorded(InterruptRow::Unrecorded)]
+#[tokio::test]
+async fn a_run_end_held_for_an_interrupt_settles_at_a_later_hold(#[case] row: InterruptRow) {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    fixture.refuse_admissions(true);
+    let (run_id, opening) = fixture.start_lead_run().await;
+    let intervention_id = match row {
+        InterruptRow::Recorded => fixture.insert_interrupt(run_id),
+        InterruptRow::Unrecorded => new_intervention_id(),
+    };
+    let waiting = fixture
+        .end_run_held_for_interrupt(run_id, intervention_id)
+        .await;
+
+    fixture
+        .queue
+        .release_interrupt(run_id, intervention_id, NEXT_TURN)
+        .await
+        .expect_err("the release's settle finds the opening's admission refused");
+    fixture.refuse_admissions(false);
+    drop(
+        fixture
+            .queue
+            .session_lock
+            .hold_session(fixture.session_id)
+            .await,
+    );
+    timeout(WAIT, fixture.queue.stop())
+        .await
+        .expect("the next run's start settles");
+
+    let next_run_id = fixture
+        .stored_item(waiting)
+        .target_run_id
+        .expect("the message waits for a run");
+    assert_ne!(next_run_id, run_id);
+    assert_eq!(calls.starts(), [(run_id, opening), (next_run_id, waiting)]);
+    let opened = fixture.stored_item(opening);
+    assert_eq!(opened.state, RecordedQueueItemState::Admitted);
+    assert_eq!(opened.target_run_id, Some(run_id));
+    assert!(!fixture.queue.admission.is_admitting(run_id));
+    assert_eq!(fixture.ends_left_unheld().await, []);
+}
+
+// A session closed while an interrupt holds back its run's end gives back the run's place at the
+// gate and keeps no end held back, before any release settles it; a settle failed after the end's
+// own release is no case of this, since a run's end lets its place go before any step that can
+// fail. Killed by a close that keeps the held-back end, or that releases no place for it.
+#[tokio::test]
+async fn a_closed_session_gives_back_its_held_back_run_ends() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let (run_id, _) = fixture.start_lead_run().await;
+    let intervention_id = new_intervention_id();
+    fixture
+        .end_run_held_for_interrupt(run_id, intervention_id)
+        .await;
+    let is_placed_before_close = fixture.queue.admission.is_admitting(run_id);
+    let closed = SessionEvent::SessionClosed(SessionLifecycleChangePayload {
+        session_id: fixture.session_id,
+        previous_state: Some(SessionState::Active),
+        new_state: SessionState::Closed,
+        actor: None,
+    });
+
+    fixture
+        .queue
+        .lifecycle
+        .observe(&CommittedEvent {
+            envelope: Arc::new(test_envelope(fixture.session_id, &closed)),
+            sequence: SafeInt::new(1).expect("a sequence"),
+        })
+        .expect("the close reads as its type");
+    fixture
+        .queue
+        .delivery
+        .release_interrupt_hold(run_id, intervention_id);
+
+    assert!(is_placed_before_close, "the run holds its place until then");
+    assert!(!fixture.queue.admission.is_admitting(run_id));
+    assert_eq!(fixture.ends_left_unheld().await, []);
 }
 
 /// Where a reorder puts a message `Send now` marked.

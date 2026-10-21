@@ -45,10 +45,10 @@ const CHOICE_APPLIED: InterruptChoice = InterruptChoice {
     deliver_first: None,
 };
 
-// How the settle of a released hold went: whether the interrupt's choice applied, and the whole
-// settle's outcome.
+// How the settle of a released hold went: whether the interrupt's choice is settled (applied, or
+// not due), and the whole settle's outcome.
 struct ReleaseSettle {
-    is_choice_applied: bool,
+    is_choice_settled: bool,
     settled: Result<(), QueueError>,
 }
 
@@ -393,7 +393,7 @@ impl RunQueue {
     // Lets go the hold `intervention_id` took on `run_id` under the session's hold; the run's last
     // hold going applies `choice` to a run that ended first and settles what the hold held back. A
     // settle that fails is recorded on the interrupt's row, since no hold is left to retry it: the
-    // choice, or `keepWaiting` once the choice applied, so a retry applies it no second time.
+    // choice, or `keepWaiting` once the choice is settled, so a retry applies it no second time.
     async fn release_under_hold(
         &self,
         session_id: SessionId,
@@ -410,10 +410,10 @@ impl RunQueue {
             InterruptHoldRelease::Released => {}
         }
         let ReleaseSettle {
-            is_choice_applied,
+            is_choice_settled,
             settled,
         } = self.settle_release(&hold, run_id, choice).await;
-        let left = if is_choice_applied {
+        let left = if is_choice_settled {
             CHOICE_APPLIED
         } else {
             choice
@@ -429,7 +429,7 @@ impl RunQueue {
                 run_id = %run_id,
                 error = &error as &(dyn std::error::Error + 'static),
                 "recording an interrupt's unsettled release failed; the session's next hold \
-                 settles a run's end it held back, but applies no choice again"
+                 settles a run's end it held back, and applies no choice"
             );
         }
         settled
@@ -446,7 +446,7 @@ impl RunQueue {
         let applied = self.apply_choice_if_ended(hold, run_id, choice).await;
         let released = self.settle_released(hold, run_id).await;
         ReleaseSettle {
-            is_choice_applied: applied.is_ok(),
+            is_choice_settled: applied.is_ok(),
             settled: applied.and(released),
         }
     }
@@ -545,7 +545,7 @@ impl RunQueue {
     }
 
     // Settles one release recorded unsettled, under `hold`, and clears its record; one that fails
-    // again once its choice applied is recorded as `keepWaiting`, so the next applies it no second
+    // again after its choice settled is recorded as `keepWaiting`, so the next applies it no second
     // time.
     async fn settle_unreleased_interrupt(
         &self,
@@ -558,11 +558,11 @@ impl RunQueue {
             choice,
         } = unreleased;
         let ReleaseSettle {
-            is_choice_applied,
+            is_choice_settled,
             settled,
         } = self.settle_release(hold, run_id, choice).await;
         if let Err(error) = settled {
-            if is_choice_applied
+            if is_choice_settled
                 && choice != CHOICE_APPLIED
                 && let Err(rewrite_error) = self
                     .writer

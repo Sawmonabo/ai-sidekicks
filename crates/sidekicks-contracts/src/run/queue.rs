@@ -434,8 +434,7 @@ queue_item_by_state! {
         )]
         #[schemars(with = "ChildHandle")]
         child_handle: Option<ChildHandle>,
-        /// Whether `Send now` marked it, so the row reads as sent now while the daemon holds it
-        /// for the next hand moment.
+        /// Whether `Send now` marked it and no later order moved it off first place.
         is_sent_now: bool,
         /// When it was queued.
         #[garde(dive)]

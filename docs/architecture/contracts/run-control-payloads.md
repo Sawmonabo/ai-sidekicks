@@ -144,7 +144,9 @@ interface AgentQueueItemReorderRequest {
 // application: the daemon persists it on the interventions row (UNIQUE(target_run_id,
 // client_idempotency_key)); an identical retry returns the saved result without re-dispatching, and
 // key reuse with a differing payload is rejected as `agent.intervention.idempotencyConflict`
-// (Spec-004 §Required Behavior). The two guards are orthogonal: `expectedRunVersion` is the
+// (Spec-004 §Required Behavior). A `Send now` on a provider that reads a priority message writes no
+// interventions row: its key is recorded per run with its first answer, runs again while the mark
+// it set is in force, and otherwise answers that result. The two guards are orthogonal: `expectedRunVersion` is the
 // stale-request guard, refusing OUTDATED intent; `clientIdempotencyKey` is the duplicate-request
 // guard, refusing a second application of the SAME intent.
 type AgentRunInterveneRequest =
@@ -168,7 +170,7 @@ type AgentRunInterveneRequest =
       // with no `Turn interrupted` row. While a permission ask or a question is open the driver
       // holds it until the card is answered; in any other state that takes no message it stays
       // first, reading as sent now, until the run's next hand. A reorder that moves it off first
-      // place clears the mark.
+      // place clears the mark, and the request's key keeps its first answer.
       deliverFirst?: QueueItemId;
     }
   | {
