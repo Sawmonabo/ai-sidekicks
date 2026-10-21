@@ -78,7 +78,7 @@ use crate::session::run::state_change::{RunStateChangeCompanions, refused_statem
 use crate::session::run::transitions::states_that_may_enter;
 use crate::settle_all::{SettleFailures, settle_all};
 use crate::text_cut::cut_to_code_points;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The statements the service's reads prepare on its pooled connection: the run's row, its
 /// provider, and an intervention's row by its id and under a reused key.

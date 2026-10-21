@@ -464,7 +464,7 @@ mod tests {
 
     use super::{TranscriptReadError, read_transcript_window};
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     const AT: &str = "2026-10-14T09:00:00.000Z";
 

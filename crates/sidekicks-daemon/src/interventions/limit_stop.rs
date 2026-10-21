@@ -39,7 +39,7 @@ use crate::session::run::engine::{InterruptRoute, RunEngineError};
 use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::read::safe_run_version;
 use crate::session::run::state_change::refused_statement_index;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// How long the engine's stop waits on a limit's hand before it answers with the row pending.
 const LIMIT_HAND_BOUND: Duration = Duration::from_secs(5);

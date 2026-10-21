@@ -42,7 +42,7 @@ use crate::questions::store::{
 use crate::questions::waits::QuestionWaits;
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 #[cfg(test)]
 mod tests;

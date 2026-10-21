@@ -44,7 +44,7 @@ use crate::provider::port::reviewer_denial::ProviderReviewerDenial;
 use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::pause::tests::unanswered;
 use crate::session::run::projection::insert_queued_run_statement;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// Bounds a call the test expects to answer, so one that hangs fails the test.
 const ANSWER_WAIT: Duration = Duration::from_secs(5);

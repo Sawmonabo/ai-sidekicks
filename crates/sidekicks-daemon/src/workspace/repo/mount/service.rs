@@ -34,7 +34,6 @@ use crate::events::session::appender::SessionEventEmitError;
 #[cfg(test)]
 use crate::pause_point::PausePoint;
 use crate::settle_all::SettleFailures;
-use crate::uuid_v7::mint_uuid_v7;
 use crate::workspace::event_emitter::WorkspaceEventEmitter;
 use crate::workspace::projector::{HealthProjectionError, RepoMountHealthRow};
 use crate::workspace::repo::errors::RepoRefusal;
@@ -42,6 +41,7 @@ use crate::workspace::repo::mount::health::{MountHealthProbeError, probe_repo_mo
 use crate::workspace::repo::root_resolver::RepoRootResolver;
 use crate::workspace::row_guards::COMMON_DIR_METADATA_PATH;
 use crate::workspace::schema::MountOrigin;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The statements the service's reads keep prepared on each read connection.
 #[cfg_attr(

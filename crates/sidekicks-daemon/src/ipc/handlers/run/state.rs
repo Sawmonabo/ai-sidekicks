@@ -408,7 +408,7 @@ mod tests {
     use crate::ipc::registry::{Dispatch as _, DispatchError, EncodedFeed, MethodRegistry, Reply};
     use crate::ipc::stream::feed::CreditGate;
     use crate::provider::port::run_state_publisher::RunStatePublisher as _;
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     /// Long enough for a frame that is coming to come, many windows over.
     const QUIET: Duration = Duration::from_millis(250);

@@ -47,7 +47,7 @@ use crate::session::run::start_request::{
     DaemonTurnStartRequest, RunContinueRequest, RunStartRequest, RunTurnStart,
 };
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // The states a resume continues: a run still finishing its step, or one already held.
 const RESUMABLE_STATES: [RunState; 2] = [RunState::Pausing, RunState::Paused];
@@ -749,7 +749,7 @@ mod tests {
     };
     use crate::session::run::start_request::RunStartRequest;
     use crate::session::run::state_change::{RunStateChange, RunStateEntry};
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // Killed by dropping the report's wait on the starting run's settlement: the report then reads
     // the run `starting`, which may not move to `waitingForApproval`, and is refused before the

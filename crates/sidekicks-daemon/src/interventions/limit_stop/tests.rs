@@ -52,7 +52,7 @@ use crate::session::run::provider_choice::{
     PROVIDER_CHOICE_STATEMENT_CAPACITY, ProviderChoiceAnswerOrigin, ProviderChoiceResolver,
 };
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // Records an `accepted` interrupt of the harness's run at `limit`, accepted at version 1, as
 // its write would, and answers its id.

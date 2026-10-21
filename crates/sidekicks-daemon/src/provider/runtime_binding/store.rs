@@ -41,7 +41,7 @@ use crate::provider::left_conversations::{LeftConversation, compose_left_convers
 use crate::provider::output_validation::{
     ProviderOutputValidationError, check_contract_version, check_resume_handle,
 };
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The statements the binding reads prepare on a read connection: one binding, a run's, many
 /// runs', and every resumable one.

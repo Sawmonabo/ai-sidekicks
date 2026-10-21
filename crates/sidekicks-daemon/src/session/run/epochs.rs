@@ -498,7 +498,7 @@ mod tests {
         ConfirmedCut, DeliveryAttribution, DeliveryOperation, EpochBinding, ExecutionEpochs,
     };
     use crate::provider::driver::registry::test_provider;
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     /// One delivery or fence the binding sees, in its delivery order.
     #[derive(Clone, Copy, Debug)]

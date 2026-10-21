@@ -321,7 +321,7 @@ mod tests {
     use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
     use crate::session::run::engine::tests::insert_running_run;
     use crate::session::run::epochs::ExecutionEpochs;
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     struct Harness {
         database: TestDatabase,

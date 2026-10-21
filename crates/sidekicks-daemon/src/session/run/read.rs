@@ -351,7 +351,7 @@ mod tests {
     use crate::database::schema::DAEMON_SCHEMA_SQL;
     use crate::database::writer::test_file::test_session_id;
     use crate::provider::driver::registry::test_provider;
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // Killed by reading the run's own binding alone, which finds none for a subagent, by climbing
     // only one level, or by climbing from a child reached any other way, which runs on a provider

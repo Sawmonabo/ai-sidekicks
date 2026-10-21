@@ -566,7 +566,7 @@ mod tests {
     use crate::database::statement::DATABASE_NOW_SQL;
     use crate::interventions::service::tests::harness;
     use crate::provider::driver::contract::MockProviderDriver;
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // Each pending retry moves in one write with its event: a `requested` one to `expired`, an
     // `accepted` one to `failed` with the restart as its reason. Killed by swapping the two moves

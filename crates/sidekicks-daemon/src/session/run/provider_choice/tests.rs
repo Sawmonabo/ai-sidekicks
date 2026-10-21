@@ -44,7 +44,7 @@ use crate::session::run::engine::tests::{insert_running_run, stored_run_state, t
 use crate::session::run::pause::tests::unanswered;
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// A run waiting on its switch-or-credits choice, the engine that moves it and the resolver.
 struct Fixture {

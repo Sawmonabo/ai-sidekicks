@@ -41,7 +41,7 @@ use crate::session::run::engine::tests::{SETTLE_WAIT, insert_running_run, test_e
 use crate::session::run::engine::{InterruptRoute, RunEngine};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// How long a call held behind a resume is watched to show it waits.
 const HELD_WATCH: Duration = Duration::from_millis(200);

@@ -20,7 +20,7 @@ use crate::git::turn_snapshot::diagnostics::TurnSnapshotRetentionSkipReason;
 use crate::git::turn_snapshot::refs::build_run_snapshot_ref_prefix;
 use crate::git::turn_snapshot::retention::RunContextKey;
 use crate::git::worktree::test_rows::{RunContextRow, insert_worktree_rows};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 const ENDED_AT: &str = "2026-10-19T10:00:00.000Z";
 

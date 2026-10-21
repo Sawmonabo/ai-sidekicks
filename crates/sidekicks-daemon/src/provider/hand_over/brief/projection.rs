@@ -370,7 +370,7 @@ mod tests {
         CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptProjection,
         CanonicalTranscriptRole, CanonicalTranscriptSegment, CanonicalTranscriptTurn,
     };
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn words(position: u64, role: CanonicalTranscriptRole, text: &str) -> CanonicalTranscriptTurn {
         CanonicalTranscriptTurn {

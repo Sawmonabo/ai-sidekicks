@@ -45,7 +45,7 @@ use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
 use crate::session::run::pause::tests::unanswered;
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// A run queue that holds nothing but counts each hold it takes, records each release's choice,
 /// and hands each end straight to the run engine.

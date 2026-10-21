@@ -25,7 +25,7 @@ use crate::session::run::engine::tests::{
 use crate::session::run::read::{LiveRun, RunRead};
 use crate::session::run::restart::{RestartFacts, read_restart_facts};
 use crate::session::run::state_change::{RunStateChangeCompanions, RunStateChangeError};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // Killed by the owed read joining the interventions, where the failed token interrupt and its
 // requested event read as discharging the limit; by the person's pending interrupt or the

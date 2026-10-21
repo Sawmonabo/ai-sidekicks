@@ -34,7 +34,7 @@ use crate::session::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges
 use crate::session::directory::row::{DirectoryEvent, directory_statements_for};
 use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::engine::tests::insert_running_run;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// Bounds every wait a test expects to end, so one that never does fails the test.
 const WAIT: Duration = Duration::from_secs(10);

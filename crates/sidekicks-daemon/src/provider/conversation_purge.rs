@@ -187,7 +187,7 @@ mod tests {
     use crate::provider::driver::contract::MockProviderDriver;
     use crate::provider::driver::registry::{ProviderRegistry, test_provider};
     use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // A binding row of `run_id` on `provider` naming `resume_handle`.
     fn insert_binding(

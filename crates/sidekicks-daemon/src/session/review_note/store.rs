@@ -741,7 +741,7 @@ mod tests {
     use crate::ipc::registry::HandlerError;
     use crate::session::directory::test_rows::insert_session_row;
     use crate::session::review_note::diff_line::NotedLineReader;
-    use crate::uuid_v7::mint_uuid_v7;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     /// A session that works in no repository's folder.
     struct NoWorkingFolder;

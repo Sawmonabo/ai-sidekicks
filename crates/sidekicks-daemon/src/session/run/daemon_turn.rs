@@ -21,7 +21,7 @@ use crate::session::run::projection::insert_queued_run_statement;
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::start_request::DaemonTurnStartRequest;
 use crate::session::run::state_change::refused_statement_index;
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// Why a daemon turn's run was not queued; nothing was written.
 #[derive(Debug, thiserror::Error)]

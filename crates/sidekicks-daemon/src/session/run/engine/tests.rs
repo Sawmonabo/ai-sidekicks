@@ -42,7 +42,7 @@ use crate::session::run::engine::turns::{ProviderTurnEnd, StepCount, TurnOutcome
 use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
 use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::start_request::{RunContinueRequest, RunTurnStart};
-use crate::uuid_v7::mint_uuid_v7;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// Bounds a start or a continue, the call made while its driver is held and a hand on a task of
 /// its own, so a call that waits on nothing, or a hand that never comes, fails the test.
