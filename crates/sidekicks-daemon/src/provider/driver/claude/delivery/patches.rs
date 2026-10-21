@@ -260,11 +260,19 @@ mod tests {
     )]
     #[case::empty_hunks_are_absent(
         json!({"type": "update", "filePath": "/work/notes.md", "structuredPatch": []}),
-        WholePatchFile::Absent { path: path("/work/notes.md"), old_path: None, unavailable: TranscriptPatchAbsentReason::Value }
+        WholePatchFile::Absent {
+            path: path("/work/notes.md"),
+            old_path: None,
+            unavailable: TranscriptPatchAbsentReason::Value,
+        }
     )]
     #[case::no_hunks_are_absent(
         json!({"filePath": "/work/notes.md", "gitDiff": {"filename": "notes.md"}}),
-        WholePatchFile::Absent { path: path("/work/notes.md"), old_path: None, unavailable: TranscriptPatchAbsentReason::Value }
+        WholePatchFile::Absent {
+            path: path("/work/notes.md"),
+            old_path: None,
+            unavailable: TranscriptPatchAbsentReason::Value,
+        }
     )]
     #[case::malformed_hunks_keep_their_text(
         json!({"filePath": "/work/notes.md", "structuredPatch": [{"oldStart": "x"}]}),

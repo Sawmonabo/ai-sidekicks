@@ -59,16 +59,25 @@ CREATE TABLE {SESSION_EVENTS_TABLE} (
   -- The turn's number within its run, from 1, written beside run_id for the turn start and the
   -- three turn ends; NULL otherwise.
   turn_number       INTEGER,
-  -- The provider message and block a run's reply or reasoning piece belongs to; NULL otherwise.
+  -- The provider message and block a run's reply or reasoning piece belongs to; on a tool
+  -- completion that names patched files and on each stored part of them, the completion's id;
+  -- NULL otherwise.
   join_key          TEXT,
-  -- On a piece that continues an earlier piece's row, the sequence of the row's first piece;
-  -- NULL on the first piece and on every other event.
+  -- On a piece or stored part that continues an earlier row, the sequence of the row's first
+  -- piece; NULL on the first piece and on every other event.
   joins_sequence    INTEGER,
   -- The run an event is filed under without being that run's own event, an intervention's
   -- target among them; NULL on an event of a run and on a session-level one.
   target_run_id     TEXT,
-  -- The tool call a run's tool completion completes; NULL on every other event.
+  -- The tool call a run's tool completion completes; NULL on its stored parts and on every other
+  -- event.
   tool_call_id      TEXT,
+  -- On a stored part of a tool completion's patched files, which is no event of its own, the
+  -- file's place in the completion's list; NULL on every event.
+  patch_file_index  INTEGER,
+  -- On a stored part of a file's text, the UTF-8 offset in the text of its first byte; NULL on
+  -- every other row.
+  patch_text_offset INTEGER,
   UNIQUE (session_id, sequence)
 ) STRICT;
 
@@ -100,6 +109,13 @@ CREATE INDEX idx_session_events_join_key
 CREATE INDEX idx_session_events_joins
   ON {SESSION_EVENTS_TABLE}(session_id, joins_sequence, sequence)
   WHERE joins_sequence IS NOT NULL;
+-- A completion's stored parts by file and text offset, so a patch read finds the parts of one
+-- range of one file without reading the rest.
+CREATE INDEX idx_session_events_patch_parts
+  ON {SESSION_EVENTS_TABLE}(
+    session_id, joins_sequence, patch_file_index, patch_text_offset, sequence
+  )
+  WHERE patch_file_index IS NOT NULL;
 -- One run's events that name an actor, in log order, for the read that finds who acts for a run.
 CREATE INDEX idx_session_events_run_actor ON {SESSION_EVENTS_TABLE}(session_id, run_id, sequence)
   WHERE run_id IS NOT NULL AND actor IS NOT NULL;

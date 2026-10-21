@@ -16,6 +16,7 @@ use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 use sidekicks_contracts::wire::integer::SafeInt;
 use tempfile::TempDir;
 
+use super::rows::LateAppendableRow;
 use super::{
     DeliveryBinding, InboundDelivery, InboundOutcome, LateEventAbsorbReason, RunInboundDispatch,
 };
@@ -180,6 +181,28 @@ impl Harness {
             .expect("the delivery is dispatched")
     }
 
+    fn session_id(&self) -> SessionId {
+        self.database
+            .reader()
+            .query_row(
+                "SELECT session_id FROM runs WHERE run_id = ?1",
+                [self.run_id.text().as_str()],
+                |row| row.get::<_, String>(0),
+            )
+            .map(|text| SessionId::new(&text).expect("the run's session is a session id"))
+            .expect("the test reads the run's session")
+    }
+
+    // A piece of the run's reply or reasoning `message_id`, without the stamp.
+    fn piece_payload(&self, message_id: &str) -> RunAgentOutputPayload {
+        serde_json::from_value(json!({
+            "sessionId": self.session_id(),
+            "runId": self.run_id,
+            "providerMessageId": message_id,
+        }))
+        .expect("the test writes a piece's payload")
+    }
+
     fn stored_event_count(&self) -> i64 {
         self.database
             .reader()
@@ -275,6 +298,50 @@ fn inbound_absorbs_a_late_terminal_on_an_ended_run(
     );
 }
 
+// Killed by a piece of a reply or of reasoning appended to a run that has ended, by its refusal
+// surfaced as a failure, and by its diagnostic left out.
+#[rstest]
+#[case::a_reply_piece(false)]
+#[case::a_reasoning_piece(true)]
+fn inbound_absorbs_a_piece_of_a_run_that_has_ended(#[case] is_reasoning: bool) {
+    let recorded = RecordedEvents::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("the test's runtime starts");
+    recorded.record_during(|| {
+        runtime.block_on(async {
+            let harness = Harness::new(RunState::Completed).await;
+            let payload = harness.piece_payload("m1");
+            let delivery = if is_reasoning {
+                InboundDelivery::ThinkingUpdate {
+                    binding: harness.on_binding(None),
+                    payload,
+                    content: "Thinking late.".to_owned(),
+                }
+            } else {
+                InboundDelivery::SessionRow {
+                    binding: harness.on_binding(None),
+                    row: LateAppendableRow::AgentMessageSent(payload),
+                    content: Some("Said late.".to_owned()),
+                }
+            };
+
+            assert_eq!(
+                harness.dispatched(delivery).await,
+                InboundOutcome::Absorbed {
+                    reason: LateEventAbsorbReason::RunEnded,
+                }
+            );
+            assert_eq!(harness.stored_event_count(), 0);
+        });
+    });
+    assert_eq!(
+        recorded.field_on("run.lateEvent.absorbed", "counter").len(),
+        1
+    );
+}
+
 // Killed by a late `paused` or `running` report on a run a resume already set running surfaced as
 // a failure on the event path, or by any row written for it.
 #[rstest]
@@ -314,16 +381,6 @@ async fn inbound_absorbs_a_late_report_on_a_resumed_run(#[case] entry: RunStateE
 #[tokio::test]
 async fn inbound_stores_long_reasoning_as_pieces_the_reasoning_read_joins_back() {
     let harness = Harness::new(RunState::Running).await;
-    let session_id: SessionId = harness
-        .database
-        .reader()
-        .query_row(
-            "SELECT session_id FROM runs WHERE run_id = ?1",
-            [harness.run_id.text().as_str()],
-            |row| row.get::<_, String>(0),
-        )
-        .map(|text| SessionId::new(&text).expect("the run's session is a session id"))
-        .expect("the test reads the run's session");
     // An astral character sits across the first cut, so a cut by bytes would split it.
     let letters: String = (0..2 * REASONING_ENTRY_CONTENT_MAX_LEN)
         .map(|index| {
@@ -335,12 +392,7 @@ async fn inbound_stores_long_reasoning_as_pieces_the_reasoning_read_joins_back()
         "{}\u{1f600}{letters}",
         "a".repeat(REASONING_ENTRY_CONTENT_MAX_LEN - 1)
     );
-    let payload: RunAgentOutputPayload = serde_json::from_value(json!({
-        "sessionId": session_id,
-        "runId": harness.run_id,
-        "providerMessageId": "reasoning-1",
-    }))
-    .expect("the test writes a reasoning payload");
+    let payload = harness.piece_payload("reasoning-1");
 
     harness
         .dispatched(InboundDelivery::ThinkingUpdate {

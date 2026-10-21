@@ -4,11 +4,12 @@
 //! an event moves is written in that event's own write. The run an event belongs to, which its
 //! typed event names, is written to its own columns, so no write or read parses the payload for
 //! it. A piece of a run's reply or reasoning is stamped with the row it joins: the newest earlier
-//! piece of the same run, type, provider message and block within the run's current turn, unless
-//! the run rolled back since, decided here once so every read sees the same rows; a patched file
-//! of a tool completion joins its completion's row the same way, by the call. A tool completion's
-//! row is stamped with the call it completes, so the call's patch read finds it by an index. It
-//! also owns the clock a row's `monotonic_ns` reads.
+//! piece of the same run, type, provider message and block, unless its run's turn, run or
+//! rollback ended that row since, decided here once so every read sees the same rows; a stored
+//! part of a tool completion's patched files joins its completion's row the same way, keyed by the
+//! completion's own id, and carries its place in the file list. A tool completion's row is
+//! stamped with the call it completes, so the call's patch read finds it by an index. It also owns
+//! the clock a row's `monotonic_ns` reads.
 
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
@@ -25,6 +26,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use crate::database::schema::recovery::ProjectionCursorState;
 use crate::database::statement::DATABASE_NOW_SQL;
 use crate::events::session::appender::UnsequencedEventEnvelope;
+use crate::transcript::rejoin::ROW_ENDING_EVENT_TYPES_SQL;
 use crate::uuid_v7::mint_uuid_v7;
 
 /// The instant the daemon's clock counts from: the first read of [`monotonic_ns_now`], which the
@@ -76,13 +78,14 @@ const INSERT_SESSION_EVENT_SQL: &str = "INSERT INTO session_events (
        id, session_id, sequence, occurred_at, monotonic_ns,
        category, type, actor, payload,
        correlation_id, causation_id, version, content_payload,
-       run_id, run_version, turn_number, join_key, joins_sequence, target_run_id, tool_call_id
+       run_id, run_version, turn_number, join_key, joins_sequence, target_run_id, tool_call_id,
+       patch_file_index, patch_text_offset
      ) VALUES (
        @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
        @category, @type, @actor, @payload,
        @correlation_id, @causation_id, @version, @content_payload,
        @run_id, @run_version, @turn_number, @join_key, @joins_sequence, @target_run_id,
-       @tool_call_id
+       @tool_call_id, @patch_file_index, @patch_text_offset
      )";
 
 const HEAD_SEQUENCE_SQL: &str = "SELECT sequence
@@ -97,30 +100,23 @@ const PROVIDER_MESSAGE_ID_PAYLOAD_KEY: &str = "providerMessageId";
 const PROVIDER_BLOCK_PAYLOAD_KEY: &str = "providerBlock";
 const TOOL_CALL_ID_PAYLOAD_KEY: &str = "toolCallId";
 
-// The row a new piece joins: the run's newest piece of its type under its key, newer than the
-// start of the run's current turn, since a provider message never spans turns, and than the run's
-// last rollback, as its row's first piece's sequence. Each part is one search of a covering index:
-// the key's, and the run-and-type one twice.
+// The row a new piece joins, as its first piece's sequence: the run's newest piece of its type
+// under its key, unless an event ending the run's rows came after it, so a row takes pieces until
+// exactly the events that end it. The newest piece is one search of the key's covering index, and
+// the end check one search of the run-and-type index per ending type, with no sort.
 static JOINED_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT coalesce(piece.joins_sequence, piece.sequence)
-       FROM session_events AS piece
-      WHERE piece.session_id = @session_id AND piece.run_id = @run_id AND piece.type = @type
-        AND piece.join_key = @join_key
-        AND piece.sequence > coalesce(
-          (SELECT max(rollback.sequence) FROM session_events AS rollback
-            WHERE rollback.session_id = @session_id AND rollback.type = '{rolled_back}'
-              AND rollback.run_id = @run_id),
-          -1)
-        AND piece.sequence > coalesce(
-          (SELECT max(turn.sequence) FROM session_events AS turn
-            WHERE turn.session_id = @session_id AND turn.type = '{turn_started}'
-              AND turn.run_id = @run_id),
-          -1)
-      ORDER BY piece.sequence DESC
-      LIMIT 1",
-        rolled_back = SessionEventType::AgentRunRolledBack.as_str(),
-        turn_started = SessionEventType::AgentTurnStarted.as_str(),
+        "SELECT coalesce(newest.joins_sequence, newest.sequence)
+       FROM (SELECT piece.sequence, piece.joins_sequence FROM session_events AS piece
+              WHERE piece.session_id = @session_id AND piece.run_id = @run_id
+                AND piece.type = @type AND piece.join_key = @join_key
+              ORDER BY piece.sequence DESC
+              LIMIT 1) AS newest
+      WHERE NOT EXISTS (
+        SELECT 1 FROM session_events AS ended
+         WHERE ended.session_id = @session_id AND ended.type IN ({row_ends})
+           AND ended.run_id = @run_id AND ended.sequence > newest.sequence)",
+        row_ends = *ROW_ENDING_EVENT_TYPES_SQL,
     )
 });
 
@@ -167,6 +163,7 @@ pub(crate) fn insert_session_event(
     let stored_sequence = i64::from(sequence);
     // A piece with no run, a voice call's spoken answer, lands whole and always starts its row.
     let join_key = run_id.as_ref().and_then(|_| join_key_of(event));
+    let patch_place = event.patch_part().map(|part| part.place);
     let joins_sequence: Option<i64> = match (&run_id, &join_key) {
         (Some(run_id), Some(join_key)) => connection
             .prepare_cached(&JOINED_ROW_SQL)?
@@ -217,6 +214,10 @@ pub(crate) fn insert_session_event(
             "@joins_sequence": joins_sequence,
             "@target_run_id": target_run_id,
             "@tool_call_id": tool_call_id,
+            "@patch_file_index": patch_place.map(|place| stored_index(place.file_index)),
+            "@patch_text_offset": patch_place
+                .and_then(|place| place.text_offset)
+                .map(stored_index),
         })?;
     // Runs for the service's own sentinel session too, whose cursor is written and never read.
     connection
@@ -230,9 +231,12 @@ pub(crate) fn insert_session_event(
 }
 
 /// The key a piece of a run's reply or reasoning joins its row by: its provider message's id and
-/// content block, as one JSON text; for a row of a tool completion that names patched files, the
-/// call's id; `None` for every other event.
+/// content block, as one JSON text; for a tool completion that names patched files, its own id,
+/// and for each stored part of its files, that completion's id; `None` for every other event.
 fn join_key_of(event: &UnsequencedEventEnvelope) -> Option<String> {
+    if let Some(part) = event.patch_part() {
+        return Some(part.completion_id.as_str().to_owned());
+    }
     let payload = event.payload();
     if matches!(
         event.event_type(),
@@ -248,52 +252,64 @@ fn join_key_of(event: &UnsequencedEventEnvelope) -> Option<String> {
     }
     event
         .is_patch_bearing()
-        .then(|| payload.get(TOOL_CALL_ID_PAYLOAD_KEY))
-        .flatten()
-        .map(Value::to_string)
+        .then(|| event.id.as_str().to_owned())
+}
+
+// A file's place or a text offset as its column stores it.
+fn stored_index(index: usize) -> i64 {
+    i64::try_from(index).expect("a file's place or a text offset lies far below 2^63")
 }
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use rstest::rstest;
+    use serde_json::{Value, json};
     use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::session::id::SessionId;
 
-    use crate::transcript::test_log::TranscriptTestLog;
+    use crate::events::session::read::SessionEventReads;
+    use crate::transcript::rejoin::RowReads;
+    use crate::transcript::test_log::{AT, TranscriptTestLog};
 
-    // Killed by a piece after a rollback of its run joining the row the rollback rewound, and by a
-    // piece of another run joining under the same key.
-    #[test]
-    fn a_rollback_or_another_run_ends_the_rejoin_of_a_key() {
+    // Killed by a piece after its run's turn end, end or rollback joining the row that event
+    // closed, by that row still listed as taking pieces, and by a piece of another run joining
+    // under the same key.
+    #[rstest]
+    #[case::a_rollback("agent.run.rolledBack", json!({ "runVersion": 2, "targetPosition": 0 }))]
+    #[case::a_turn_end("agent.turn.completed", json!({ "runVersion": 1, "turnNumber": 1 }))]
+    #[case::a_run_end(
+        "agent.run.completed",
+        json!({ "runVersion": 2, "previousState": "running", "newState": "completed" })
+    )]
+    fn an_event_ending_a_row_ends_the_rejoin_of_its_key(
+        #[case] ending_type: &str,
+        #[case] mut ending_payload: Value,
+    ) {
         let log = TranscriptTestLog::new();
         let other_run = RunId::try_from(crate::uuid_v7::mint_uuid_v7()).expect("a run id");
         let (anchor, _) = log.reply("m1", Some(0), "Before ");
-        let (joined, _) = log.reply("m1", Some(0), "the undo.");
+        let (joined, _) = log.reply("m1", Some(0), "the end.");
         let (other, _) = log.piece(
             "agent.message.sent",
             other_run,
             "m1",
             Some(0),
             "Elsewhere.",
-            crate::transcript::test_log::AT,
+            AT,
         );
-        log.write(
-            json!({
-                "type": "agent.run.rolledBack",
-                "payload": {
-                    "sessionId": log.session_id,
-                    "runId": log.run_id,
-                    "runVersion": 2,
-                    "targetPosition": 0,
-                },
-            }),
+        ending_payload["sessionId"] = json!(log.session_id);
+        ending_payload["runId"] = json!(log.run_id);
+        let (ending, _) = log.write(
+            json!({ "type": ending_type, "payload": ending_payload }),
             None,
         );
-        let (after, _) = log.reply("m1", Some(0), "After the undo.");
+        let (after, _) = log.reply("m1", Some(0), "After the end.");
 
+        let reader = log.reader();
         let joins: Vec<Option<i64>> = [anchor, joined, other, after]
             .iter()
             .map(|sequence| {
-                log.reader()
+                reader
                     .query_row(
                         "SELECT joins_sequence FROM session_events WHERE sequence = ?1",
                         [sequence],
@@ -303,5 +319,10 @@ mod tests {
             })
             .collect();
         assert_eq!(joins, [None, Some(anchor), None, None]);
+        let reads = SessionEventReads::new(&reader, &|_: &SessionId| None);
+        let unended = RowReads::new(&reads, &reader, &log.session_id)
+            .unended_rows(&[(anchor, joined)], ending)
+            .expect("the rows read");
+        assert!(unended.is_empty(), "{unended:?}");
     }
 }

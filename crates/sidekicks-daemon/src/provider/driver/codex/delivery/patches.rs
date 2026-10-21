@@ -207,11 +207,19 @@ mod tests {
     )]
     #[case::no_diff_is_absent(
         json!({"path": "/w/a.md", "kind": {"type": "update", "move_path": null}}),
-        WholePatchFile::Absent { path: path("/w/a.md"), old_path: None, unavailable: TranscriptPatchAbsentReason::Value }
+        WholePatchFile::Absent {
+            path: path("/w/a.md"),
+            old_path: None,
+            unavailable: TranscriptPatchAbsentReason::Value,
+        }
     )]
     #[case::a_move_with_no_diff_is_absent_under_its_new_path(
         json!({"path": "/w/old.rs", "kind": {"type": "update", "move_path": "/w/new.rs"}}),
-        WholePatchFile::Absent { path: path("/w/new.rs"), old_path: Some(path("/w/old.rs")), unavailable: TranscriptPatchAbsentReason::Value }
+        WholePatchFile::Absent {
+            path: path("/w/new.rs"),
+            old_path: Some(path("/w/old.rs")),
+            unavailable: TranscriptPatchAbsentReason::Value,
+        }
     )]
     #[case::a_diff_not_text_is_unreadable(
         json!({"path": "/w/a.md", "kind": {"type": "update", "move_path": null}, "diff": 5}),

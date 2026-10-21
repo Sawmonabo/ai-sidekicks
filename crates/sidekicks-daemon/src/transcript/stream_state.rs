@@ -2,8 +2,9 @@
 //! for every row still taking pieces, its id, where its next piece starts and, for a reply drawn as
 //! markdown, its block cut past its last frozen start, and for every child run the stream met, its
 //! running event count. A stream that first meets a row or a child partway seeds it with one
-//! indexed read; a row is let go, with the starts its cut left unsent, at its run's turn end or end,
-//! and a child at its end. A large piece's text is loaded only for a row whose cut reads it.
+//! indexed read; a row is let go, with the starts its cut left unsent, at its run's turn end, end
+//! or rollback, and a child at its end. A large piece's text is loaded only for a row whose cut
+//! reads it. Only a reply's or reasoning's pieces are placed: a tool completion goes out whole.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -11,6 +12,7 @@ use std::sync::LazyLock;
 use rusqlite::{Connection, OptionalExtension, named_params};
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::envelope::EventEnvelope;
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
@@ -23,7 +25,6 @@ use sidekicks_contracts::transcript::content::{
     BlockCutFailure, BlockStarts, StoredRowBody, TranscriptRowContent, transcript_row_content_of,
 };
 use sidekicks_contracts::transcript::run_attribution::transcript_own_run_id_of;
-use sidekicks_contracts::transcript::turn_attribution::TURN_END_EVENT_TYPES;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
@@ -37,14 +38,23 @@ use crate::session::run::transitions::is_run_terminal_event_type;
 use crate::transcript::block_cut::{BlockCutError, BlockParse, StreamingBlockCut, prose_body_of};
 use crate::transcript::child_run::read_child_counts;
 use crate::transcript::projector::TRANSCRIPT_ROW_BODY_INLINE_MAX_UTF8_BYTES;
+use crate::transcript::rejoin::is_row_ending_event_type;
 
-// Each page event's place in the rows: the row it continues, whether it is a piece of a reply or
-// of reasoning, and its body's size, with its text when it can travel inline.
-const PAGE_PIECES_SQL: &str = "SELECT sequence, joins_sequence, join_key IS NOT NULL,
-       octet_length(content_payload),
-       CASE WHEN octet_length(content_payload) <= @inline_max THEN content_payload END
-  FROM session_events
- WHERE session_id = @session_id AND sequence IN (SELECT value FROM json_each(@sequences))";
+// Each page event's place in the rows: the row it continues, whether it is a piece of a run's
+// reply or reasoning, which only those types are, and its body's size, with its text when it can
+// travel inline.
+static PAGE_PIECES_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT sequence, joins_sequence,
+            join_key IS NOT NULL AND type IN ('{reply}', '{reasoning}'),
+            octet_length(content_payload),
+            CASE WHEN octet_length(content_payload) <= @inline_max THEN content_payload END
+       FROM session_events
+      WHERE session_id = @session_id AND sequence IN (SELECT value FROM json_each(@sequences))",
+        reply = SessionEventType::AgentMessageSent.as_str(),
+        reasoning = SessionEventType::AgentThinkingUpdated.as_str(),
+    )
+});
 
 // The text of the pieces at the given sequences, which their rows' block cuts read.
 const PIECE_TEXTS_SQL: &str = "SELECT sequence, content_payload FROM session_events
@@ -94,7 +104,7 @@ const RUN_STATE_SQL: &str = "SELECT state FROM runs WHERE run_id = ?";
 pub(crate) struct StreamedPiece {
     /// The sequence of the row's first piece, on a piece that continues a row.
     joins_sequence: Option<i64>,
-    /// Whether the event is a piece of a run's reply or reasoning.
+    /// Whether the event is a piece of a run's reply or reasoning, the only events placed in a row.
     is_piece: bool,
     /// Its body's UTF-8 size and its text when it can travel inline; `None` with no body.
     body: Option<(u64, Option<String>)>,
@@ -144,7 +154,7 @@ pub(crate) fn read_streamed_pieces(
     session_id: &SessionId,
     sequences: &[i64],
 ) -> rusqlite::Result<HashMap<i64, StreamedPiece>> {
-    let mut statement = reader.prepare_cached(PAGE_PIECES_SQL)?;
+    let mut statement = reader.prepare_cached(&PAGE_PIECES_SQL)?;
     let mut rows = statement.query(named_params! {
         "@session_id": session_id.text().as_str(),
         "@sequences": serde_json::to_string(sequences).expect("a list of integers serializes"),
@@ -398,9 +408,9 @@ impl TranscriptStreamState {
         }))
     }
 
-    /// Lets go of what `event`, filed under `run_id`, ends: the run's open rows at a turn's end or
-    /// its own end, and the run itself at its end. Answers each ended row cut into blocks with the
-    /// starts its whole text left unsent, or why its last cut failed.
+    /// Lets go of what `event`, filed under `run_id`, ends: the run's open rows at a turn's end,
+    /// its own end or its rollback, and the run itself at its end. Answers each ended row cut into
+    /// blocks with the starts its whole text left unsent, or why its last cut failed.
     pub(crate) fn forget_ended(
         &mut self,
         event: &EventEnvelope,
@@ -409,7 +419,7 @@ impl TranscriptStreamState {
         let event_type = event.event_type.0.as_str();
         let is_run_end = is_run_terminal_event_type(event_type);
         let mut ended_rows = Vec::new();
-        if is_run_end || TURN_END_EVENT_TYPES.contains(&event_type) {
+        if is_row_ending_event_type(event_type) {
             let ended: Vec<i64> = self
                 .open_rows
                 .iter()

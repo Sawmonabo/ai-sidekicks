@@ -488,6 +488,9 @@ literal! {
 
     /// The `unavailable` word of a file whose patch came in a form this version cannot read.
     pub enum TranscriptPatchUnreadableReason = "unreadable";
+
+    /// The `unavailable` word of a file whose stored patch lies in a damaged range of the log.
+    pub enum TranscriptPatchDamagedReason = "damaged";
 }
 
 /// Declares one arm of [`TranscriptPatchFile`]: the file's path and, for a file the call moved,
@@ -625,8 +628,51 @@ transcript_patch_file_arm! {
     }
 }
 
-/// One file's patch, or why there is none: no patch came, or one came that this version cannot
-/// read.
+transcript_patch_file_arm! {
+    /// One file whose stored patch lies in a damaged range of the log, so it cannot be read back.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[schemars(inline)]
+    pub struct TranscriptPatchFileDamaged {
+        /// Always `damaged`.
+        pub unavailable: TranscriptPatchDamagedReason,
+        /// Never present: the patch cannot be read back.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub patch: Option<Never>,
+        /// Never present: the patch cannot be read back.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub additions: Option<Never>,
+        /// Never present: the patch cannot be read back.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub deletions: Option<Never>,
+        /// Never present: the patch cannot be read back.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub raw_patch: Option<Never>,
+    }
+}
+
+/// One file's patch, or why there is none: no patch came, one came that this version cannot read,
+/// or its stored patch lies in a damaged range of the log.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 pub enum TranscriptPatchFile {
@@ -636,6 +682,8 @@ pub enum TranscriptPatchFile {
     Absent(#[garde(skip)] TranscriptPatchFileAbsent),
     /// The patch as sent, which this version cannot read.
     Unreadable(#[garde(dive)] TranscriptPatchFileUnreadable),
+    /// The stored patch cannot be read back.
+    Damaged(#[garde(skip)] TranscriptPatchFileDamaged),
 }
 
 /// The patches the call left out from the request's `cursor` on, as many as fit one page, so a
@@ -809,6 +857,14 @@ mod tests {
         json!({"path": "/w/a.rs", "oldPath": null, "unavailable": "absent"}),
         None
     )]
+    #[case::damaged(
+        json!({"path": "/w/a.rs", "oldPath": "/w/b.rs", "unavailable": "damaged"}),
+        Some("damaged")
+    )]
+    #[case::damaged_with_raw_text(
+        json!({"path": "/w/a.rs", "unavailable": "damaged", "rawPatch": "5"}),
+        None
+    )]
     fn a_patch_file_reads_as_its_own_arm(#[case] file: Value, #[case] arm: Option<&str>) {
         let read = serde_json::from_value::<TranscriptPatchFile>(file.clone());
 
@@ -821,6 +877,7 @@ mod tests {
             TranscriptPatchFile::Read(_) => "read",
             TranscriptPatchFile::Absent(_) => "absent",
             TranscriptPatchFile::Unreadable(_) => "unreadable",
+            TranscriptPatchFile::Damaged(_) => "damaged",
         };
         assert_eq!(read_arm, arm);
         assert_eq!(serde_json::to_value(&read).expect("the file writes"), file);

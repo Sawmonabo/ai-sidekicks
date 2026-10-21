@@ -2,9 +2,10 @@
 //! before anything is written. A lifecycle event, child run, marker, live state, unstamped row or
 //! permission ask from the execution before an undo's cut is absorbed there; one for a run already
 //! ended is absorbed by the refusal of its own write, with a diagnostic unless it is the provider's
-//! end of a turn the daemon interrupted; any other row is appended, stamped with its source pair
-//! when it is late, a reasoning update among them with its body, never dropped. A session notice
-//! or session row belongs to no execution and is appended as it is.
+//! end of a turn the daemon interrupted, and so is a piece of a reply or of reasoning, since
+//! nothing of an ended run takes pieces; any other row is appended, stamped with its source pair
+//! when it is late, a reasoning update among them with its body. A session notice or session row
+//! belongs to no execution and is appended as it is.
 
 pub(crate) mod rows;
 #[cfg(test)]
@@ -38,6 +39,7 @@ use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use crate::provider::port::run_state_publisher::RunStatePublisher;
+use crate::queue::store::run_live_statement;
 use crate::session::run::engine::turns::ProviderTurnEnd;
 use crate::session::run::engine::{RunEngine, RunEngineError, RunMarker};
 use crate::session::run::epochs::{
@@ -48,7 +50,7 @@ use crate::session::run::inbound::rows::{
 };
 use crate::session::run::read::RunRead;
 use crate::session::run::refusals::RunRefusal;
-use crate::session::run::state_change::RunStateChange;
+use crate::session::run::state_change::{RunStateChange, refused_statement_index};
 use crate::transcript::reasoning::split_reasoning_text;
 
 /// The runtime binding a delivery arrived on, and the provider operation it belongs to, where it
@@ -336,7 +338,20 @@ struct PendingAppend {
     // Events written just before it in the same write, each with its body: the earlier parts of a
     // reasoning text too long for one entry.
     preceding_pieces: Vec<(SessionEvent, String)>,
+    // On a piece of a reply or of reasoning, its run and where it arrived: its write is refused
+    // once the run has ended, and the piece absorbed.
+    piece_of: Option<PieceDelivery>,
 }
+
+// Where a piece of a run's reply or reasoning arrived, to absorb it once its run has ended.
+struct PieceDelivery {
+    binding: EpochBinding,
+    attribution: DeliveryAttribution,
+    absorbed: AbsorbedDelivery,
+}
+
+// The prelude statement that refuses a piece's write once its run has ended.
+const PIECE_RUN_LIVE_GUARD_INDEX: usize = 0;
 
 // A delivery on a binding that is absorbed when it comes from before a cut.
 enum Absorbable {
@@ -456,7 +471,14 @@ impl RunInboundDispatch {
                         mut linkage,
                         source,
                         preceding_pieces,
+                        piece_of,
                     } = *append;
+                    if let Some(piece) = &piece_of {
+                        let run_id = piece.absorbed.run_id.unwrap_or(piece.binding.run_id);
+                        linkage
+                            .transactional_prelude
+                            .insert(PIECE_RUN_LIVE_GUARD_INDEX, run_live_statement(&run_id));
+                    }
                     for (piece, body) in preceding_pieces {
                         linkage.preceding_events.push(
                             SessionEventDraft::of_session(session_id, &piece)?
@@ -464,7 +486,24 @@ impl RunInboundDispatch {
                         );
                     }
                     let draft = SessionEventDraft::of_session(session_id, &event)?;
-                    let event_id = self.appender.append(draft, linkage).await?.id;
+                    let event_id = match self.appender.append(draft, linkage).await {
+                        Ok(receipt) => receipt.id,
+                        Err(error)
+                            if refused_statement_index(&error)
+                                == Some(PIECE_RUN_LIVE_GUARD_INDEX) =>
+                        {
+                            let Some(piece) = piece_of else {
+                                return Err(error.into());
+                            };
+                            return Ok(absorb(
+                                &piece.binding,
+                                &piece.absorbed,
+                                LateEventAbsorbReason::RunEnded,
+                                piece.attribution,
+                            ));
+                        }
+                        Err(error) => return Err(error.into()),
+                    };
                     Ok(match source {
                         None => InboundOutcome::Appended { event_id },
                         Some(source) => InboundOutcome::AppendedStamped { event_id, source },
@@ -508,20 +547,50 @@ impl RunInboundDispatch {
                 row,
                 content,
             } => {
-                let (session_id, event, source) = row.into_event(self.possible_source(&binding)?);
-                return Ok(appended(session_id, event, body_linkage(content), source));
+                let (attribution, epoch_binding) = self.attribute_row(&binding)?;
+                let piece_of = if let LateAppendableRow::AgentMessageSent(payload) = &row {
+                    Some(PieceDelivery {
+                        binding: epoch_binding,
+                        attribution,
+                        absorbed: AbsorbedDelivery {
+                            kind: "sessionRow",
+                            run_id: Some(payload.run_id),
+                            new_state: None,
+                        },
+                    })
+                } else {
+                    None
+                };
+                let (session_id, event, source) = row.into_event(possible_source(attribution));
+                return Ok(Attributed::Append(Box::new(PendingAppend {
+                    session_id,
+                    event,
+                    linkage: body_linkage(content),
+                    source,
+                    preceding_pieces: Vec::new(),
+                    piece_of,
+                })));
             }
             InboundDelivery::ThinkingUpdate {
                 binding,
                 mut payload,
                 content,
             } => {
-                let possible_source = self.possible_source(&binding)?;
+                let (attribution, epoch_binding) = self.attribute_row(&binding)?;
                 let source = stamp(
                     &mut payload.source_epoch,
                     &mut payload.source_position,
-                    possible_source,
+                    possible_source(attribution),
                 );
+                let piece_of = PieceDelivery {
+                    binding: epoch_binding,
+                    attribution,
+                    absorbed: AbsorbedDelivery {
+                        kind: "thinkingUpdate",
+                        run_id: Some(payload.run_id),
+                        new_state: None,
+                    },
+                };
                 let session_id = payload.session_id;
                 // A text longer than one reasoning entry is stored as consecutive pieces of its
                 // row, written together.
@@ -546,6 +615,7 @@ impl RunInboundDispatch {
                     linkage: body_linkage(Some(last)),
                     source,
                     preceding_pieces,
+                    piece_of: Some(piece_of),
                 })));
             }
             InboundDelivery::PermissionAsk { binding } => (binding, Absorbable::PermissionAsk),
@@ -582,11 +652,7 @@ impl RunInboundDispatch {
                 (binding, Absorbable::Run(RunWork::Marker { marker }))
             }
         };
-        let (attribution, epoch_binding) = {
-            let mut epochs = self.lock_epochs();
-            let attribution = epochs.attribute(&binding.binding_id, binding.operation)?;
-            (attribution, epochs.binding(&binding.binding_id)?.clone())
-        };
+        let (attribution, epoch_binding) = self.attribute_row(&binding)?;
         // An unknown execution reads as current here: absorbing a live terminal or ask would leave
         // the provider waiting on it for good.
         if let DeliveryAttribution::BeforeCut { .. } = attribution {
@@ -615,22 +681,14 @@ impl RunInboundDispatch {
         })
     }
 
-    // The pair a row on `binding` is stamped with once attributed: none for the current
-    // execution; a row that may be from before the cut is stamped too, since a stamp only
-    // supersedes it.
-    fn possible_source(
+    // Attributes a delivery on `binding` to its execution, with the binding it arrived on.
+    fn attribute_row(
         &self,
         binding: &DeliveryBinding<'_>,
-    ) -> Result<Option<EpochPosition>, EpochCursorError> {
-        let attribution = self
-            .lock_epochs()
-            .attribute(&binding.binding_id, binding.operation)?;
-        Ok(match attribution {
-            DeliveryAttribution::Current => None,
-            DeliveryAttribution::BeforeCut { source } | DeliveryAttribution::Unknown { source } => {
-                Some(source)
-            }
-        })
+    ) -> Result<(DeliveryAttribution, EpochBinding), EpochCursorError> {
+        let mut epochs = self.lock_epochs();
+        let attribution = epochs.attribute(&binding.binding_id, binding.operation)?;
+        Ok((attribution, epochs.binding(&binding.binding_id)?.clone()))
     }
 
     // Counts a turn boundary; one from before a cut is absorbed.
@@ -774,6 +832,17 @@ fn absorb(
     InboundOutcome::Absorbed { reason }
 }
 
+// The pair a row of `attribution` is stamped with: none for the current execution; a row that may
+// be from before the cut is stamped too, since a stamp only supersedes it.
+fn possible_source(attribution: DeliveryAttribution) -> Option<EpochPosition> {
+    match attribution {
+        DeliveryAttribution::Current => None,
+        DeliveryAttribution::BeforeCut { source } | DeliveryAttribution::Unknown { source } => {
+            Some(source)
+        }
+    }
+}
+
 // A row to append as it was attributed.
 fn appended(
     session_id: SessionId,
@@ -787,6 +856,7 @@ fn appended(
         linkage,
         source,
         preceding_pieces: Vec::new(),
+        piece_of: None,
     }))
 }
 

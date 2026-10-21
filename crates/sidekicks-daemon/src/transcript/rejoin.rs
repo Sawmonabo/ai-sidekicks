@@ -1,8 +1,10 @@
-//! A reply or reasoning the provider sent in pieces, read back as one row. The insert stamps each
-//! piece that continues a row with the sequence of the row's first piece, so a read takes only the
-//! events that stand as rows and joins each row's later pieces into its body through the head it
-//! read. A row whose first piece lies in a range the session skipped stands at its first readable
-//! piece. A body's size is the sum of its pieces' own lengths, so a large one is never loaded.
+//! A reply or reasoning the provider sent in pieces, and a tool completion stored in parts of its
+//! patched files, read back as one row. The insert stamps each piece or part that continues a row
+//! with the sequence of the row's first piece, so a read takes only the events that stand as rows
+//! and joins each row's later pieces into its body through the head it read. A row whose first
+//! piece lies in a range the session skipped stands at its first readable piece. A body's size is
+//! the sum of its pieces' own lengths, so a large one is never loaded. A row stops taking pieces at
+//! its run's turn end, end or rollback, one set of events for the join and the end alike.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -28,14 +30,40 @@ use crate::events::session::read::{
     SELECTED_COLUMNS, SessionEventReads, SessionLogReadError, readable_event_sql,
 };
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
-use crate::session::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
+use crate::session::run::transitions::{RUN_TERMINAL_EVENT_TYPES_SQL, is_run_terminal_event_type};
 
-/// Whether the event aliased `event_alias` stands as a row: it starts one, or it continues a row
-/// whose first piece is unreadable and no readable piece of that row comes before it.
+/// The event types after which no later piece joins a run's row, so its row has ended: a turn's
+/// end, the run's end and its rollback, as a SQL list of quoted words.
+pub(crate) static ROW_ENDING_EVENT_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "{}, {}, '{}'",
+        sql_list_of(TURN_END_EVENT_TYPES),
+        *RUN_TERMINAL_EVENT_TYPES_SQL,
+        SessionEventType::AgentRunRolledBack.as_str(),
+    )
+});
+
+/// Whether an event of `event_type` ends its run's rows, as [`ROW_ENDING_EVENT_TYPES_SQL`] lists.
+pub(crate) fn is_row_ending_event_type(event_type: &str) -> bool {
+    TURN_END_EVENT_TYPES.contains(&event_type)
+        || is_run_terminal_event_type(event_type)
+        || event_type == SessionEventType::AgentRunRolledBack.as_str()
+}
+
+/// Whether the event aliased `event_alias` is a stored part of a patch-bearing completion, which
+/// joins the completion's row and is no event of its own.
+pub(crate) fn stored_patch_part_sql(event_alias: &str) -> String {
+    format!("{event_alias}.patch_file_index IS NOT NULL")
+}
+
+/// Whether the event aliased `event_alias` stands as a row: it starts one, or it is a piece that
+/// continues a row whose first piece is unreadable and no readable piece of that row comes before
+/// it; a stored part of a completion never stands as a row of its own.
 pub(crate) fn row_condition_sql(event_alias: &str) -> String {
     format!(
         "({event_alias}.joins_sequence IS NULL OR (
-      NOT EXISTS (SELECT 1 FROM session_events AS anchor
+      {event_alias}.patch_file_index IS NULL
+      AND NOT EXISTS (SELECT 1 FROM session_events AS anchor
                    WHERE anchor.session_id = {event_alias}.session_id
                      AND anchor.sequence = {event_alias}.joins_sequence
                      AND {})
@@ -156,9 +184,9 @@ static ROW_MEMBERS_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // The rows of a run, each given as its sequence and its last piece's, that nothing has ended
-// through the head: no turn end or end of its run after its last piece, the only events that close
-// the join a later piece takes. Each probe is one search of an index, so a long row costs no more
-// than a short one.
+// through the head: no event ending its run's rows after its last piece, the same events that
+// close the join a later piece takes. Each probe is one search of an index, so a long row costs no
+// more than a short one.
 static UNENDED_ROWS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT row.sequence
@@ -168,12 +196,11 @@ static UNENDED_ROWS_SQL: LazyLock<String> = LazyLock::new(|| {
       WHERE row.run_id IS NOT NULL
         AND NOT EXISTS (
           SELECT 1 FROM session_events AS ended
-           WHERE ended.session_id = @session_id AND ended.type IN ({turn_ends}, {run_ends})
+           WHERE ended.session_id = @session_id AND ended.type IN ({row_ends})
              AND ended.run_id = row.run_id
              AND ended.sequence > json_extract(given.value, '$[1]') AND ended.sequence <= @head
              AND {readable_ended})",
-        turn_ends = sql_list_of(TURN_END_EVENT_TYPES),
-        run_ends = *RUN_TERMINAL_EVENT_TYPES_SQL,
+        row_ends = *ROW_ENDING_EVENT_TYPES_SQL,
         readable_ended = readable_event_sql("ended"),
     )
 });
@@ -352,7 +379,7 @@ where
     }
 
     /// Which of `rows`, each a row's sequence and its last piece's through `head`, still take
-    /// pieces: a row of a run that no turn end or end of its run has followed.
+    /// pieces: a row of a run that no turn end, end or rollback of its run has followed.
     pub(crate) fn unended_rows(
         &self,
         rows: &[(i64, i64)],

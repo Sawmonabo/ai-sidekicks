@@ -98,7 +98,8 @@ impl From<DatabaseReadError> for SessionEventStreamError {
 
 /// One session's log as its event stream reads it, stamping each event of a run as its transcript
 /// row is stamped, placing each piece of a reply or of reasoning in its row, and summarizing each
-/// child run's events.
+/// child run's events. A tool completion goes out once, whole: the parts its patched files are
+/// stored in are no events, so the log's reads never hand them to the stream.
 struct SessionEventRecord {
     log: Arc<EventLogService>,
     session_id: SessionId,
@@ -513,6 +514,64 @@ mod tests {
             .await
             .expect("the frame reads");
         assert_eq!(pieces_of(&inside), [placed(3)]);
+    }
+
+    // Killed by a completion's joined parts streamed as pieces of its row, and by its stored parts
+    // sent as events of their own.
+    #[tokio::test]
+    async fn event_subscribe_sends_a_patch_bearing_completion_once_whole_and_no_part_of_it() {
+        let database = TestDatabase::new();
+        let log = open_log(&database, None).await.service;
+        let session_id = test_session_id();
+        let run_id = crate::uuid_v7::mint_uuid_v7().to_string();
+        let files = [
+            json!({
+                "path": "/repo/a.rs",
+                "patch": "@@ -1 +1 @@\n-a\n+b\n",
+                "additions": 1,
+                "deletions": 1,
+            }),
+            json!({ "path": "/repo/b.rs", "unavailable": "absent" }),
+        ];
+        let completion = serde_json::from_value(json!({
+            "type": "agent.toolCall.completed",
+            "payload": {
+                "sessionId": session_id,
+                "runId": run_id,
+                "toolName": "edit",
+                "toolCallId": "call-1",
+                "omittedPatches": [
+                    { "path": "/repo/a.rs", "size": 20 },
+                    { "path": "/repo/b.rs", "size": 0 },
+                ],
+            },
+        }))
+        .expect("the test writes a tool completion");
+        log.append(
+            test_envelope(session_id, &completion),
+            EventLogAppendOptions {
+                content_body: Some(json!({ "files": files }).to_string()),
+                ..EventLogAppendOptions::default()
+            },
+        )
+        .await
+        .expect("the append commits");
+        let start = log
+            .read_follow_start(session_id, FollowStart::StartOfLog)
+            .await
+            .expect("the session's start reads");
+
+        let record = SessionEventRecord::new(Arc::clone(&log), session_id, MARKDOWN_PARSE);
+        let page = record
+            .read_after(&start, 64)
+            .await
+            .expect("the frame reads");
+        let [change] = page.changes.as_slice() else {
+            panic!("the completion goes out as one change: {:?}", page.changes);
+        };
+        assert_eq!(change.event.sequence.get(), 0);
+        assert!(change.run_stamp.is_some());
+        assert!(change.piece.is_none());
     }
 
     /// Appends the end of `run_id`'s first turn.

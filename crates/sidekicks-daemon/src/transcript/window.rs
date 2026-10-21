@@ -1,12 +1,12 @@
 //! One `transcript.read` window: a bounded stretch of one session's rows, projected and cut to one
-//! page. A row stands at its first event; a later piece of a reply or of reasoning is never a row
-//! of its own, and joins its row's body through the read's head, which every page names as
-//! `joinedThrough`. A cursor is a log position: `afterCursor` reads the rows after it forward,
-//! `beforeCursor` the rows at or below it backward, nearest the cursor first chosen, and both
-//! together the rows between them, read forward. Rows run oldest to newest either way. An
-//! unbounded forward read that reaches the end names the head as its next cursor, so a stream
-//! opened there sends no piece the read already joined; one bounded by `beforeCursor` names its
-//! bound.
+//! page. A row stands at its first event; a later piece of a reply or of reasoning, or a stored
+//! part of a tool completion's patched files, is never a row of its own, and joins its row's body
+//! through the read's head, which every page names as `joinedThrough`. A cursor is a log position:
+//! `afterCursor` reads the rows after it forward, `beforeCursor` the rows at or below it backward,
+//! nearest the cursor first chosen, and both together the rows between them, read forward. Rows
+//! run oldest to newest either way. An unbounded forward read that reaches the end names the head
+//! as its next cursor, so a stream opened there sends no piece the read already joined; one
+//! bounded by `beforeCursor` names its bound.
 //!
 //! `aroundCursor` anchors the window at one row: the row standing at that cursor, or the row a
 //! piece there joins, up to half the limit of the rows before it and the rest after it, read from

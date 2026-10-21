@@ -38,25 +38,28 @@ use crate::ipc::domain_error::DomainError;
 use crate::session::run::refusals::RunRefusal;
 use crate::transcript::block_cut::BlockParse;
 use crate::transcript::projector::project_window;
-use crate::transcript::rejoin::{RowReads, RowScope};
+use crate::transcript::rejoin::{RowReads, RowScope, stored_patch_part_sql};
 use crate::transcript::window::{TranscriptReadError, read_transcript_head};
 
 /// The payload member of an `agent.run.queued` that names the run it is a child of.
 const PARENT_RUN_ID_PAYLOAD_KEY: &str = "parentRunId";
 
-// Each child's state and its events through the head: all of them, and those the log can read.
+// Each child's state and its events through the head: all of them, and those the log can read; a
+// completion's stored parts are no events, so neither count takes them.
 static CHILD_COUNTS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT runs.run_id, runs.state,
             (SELECT count(*) FROM session_events AS held
               WHERE held.session_id = @session_id AND held.run_id = runs.run_id
-                AND held.sequence <= @head),
+                AND held.sequence <= @head AND NOT {held_part}),
             (SELECT count(*) FROM session_events AS event
               WHERE event.session_id = @session_id AND event.run_id = runs.run_id
-                AND event.sequence <= @head AND {})
+                AND event.sequence <= @head AND {readable} AND NOT {event_part})
        FROM runs
       WHERE runs.run_id IN (SELECT value FROM json_each(@run_ids))",
-        readable_event_sql("event")
+        held_part = stored_patch_part_sql("held"),
+        readable = readable_event_sql("event"),
+        event_part = stored_patch_part_sql("event"),
     )
 });
 
@@ -242,8 +245,9 @@ struct ExpandedRun {
 
 /// Reads one page of `request`'s child run's rows on `reader`, oldest first, each child-creation
 /// row among them summarized as of `observed_at` and each reply cut into blocks by `parse`;
-/// `read_damaged_from_sequence` answers where a damaged session's reads stop. Fails with [`TranscriptReadError::Refused`] for a run this daemon
-/// does not hold (`agent.run.notFound`) or one with no parent (`agent.run.notChild`), and with
+/// `read_damaged_from_sequence` answers where a damaged session's reads stop. Fails with
+/// [`TranscriptReadError::Refused`] for a run this daemon does not hold (`agent.run.notFound`)
+/// or one with no parent (`agent.run.notChild`), and with
 /// [`TranscriptReadError::CursorUnresolvable`] for a cursor that names no position.
 pub(crate) fn expand_child_run<DamagedFrom>(
     reader: &Connection,
@@ -422,24 +426,35 @@ mod tests {
             .clone()
     }
 
-    // Killed by a summary counting rows rather than events, by a child with skipped events read
-    // as complete, and by its row dropped.
+    // Killed by a summary counting rows rather than events, by one counting a completion's stored
+    // patch parts as events, by a child with skipped events read as complete, and by its row
+    // dropped.
     #[test]
     fn a_child_run_summary_counts_its_readable_events_and_marks_skipped_ones() {
         let log = TranscriptTestLog::new();
         let child = log.child_run(log.run_id, "completed");
         log.piece("agent.message.sent", child, "m1", Some(0), "One ", AT);
         let (skipped, _) = log.piece("agent.message.sent", child, "m1", Some(0), "row.", AT);
+        let patch = "@@ -1 +1 @@\n-old\n+new\n";
+        let body = json!({
+            "files": [{ "path": "/w/a.rs", "patch": patch, "additions": 1, "deletions": 1 }],
+        });
+        log.tool_completion(
+            child,
+            "call-1",
+            Some(json!([{ "path": "/w/a.rs", "size": patch.len() }])),
+            Some(&body.to_string()),
+        );
 
         let complete = summary_of(&log, child);
         assert_eq!(complete["parentRunId"], json!(log.run_id));
         assert_eq!(complete["state"], "completed");
-        assert_eq!(complete["eventCount"], 3);
+        assert_eq!(complete["eventCount"], 4);
         assert_eq!(complete["completeness"]["state"], "complete");
 
         log.skip(skipped, skipped);
         let incomplete = summary_of(&log, child);
-        assert_eq!(incomplete["eventCount"], 2);
+        assert_eq!(incomplete["eventCount"], 3);
         assert_eq!(incomplete["completeness"]["state"], "incomplete");
         assert_eq!(incomplete["completeness"]["cause"], "detailFetchFailed");
     }
@@ -482,9 +497,14 @@ mod tests {
                 .expect("the test sets its authorizer");
             read_transcript_window(&reader, &|_: &SessionId| None, &request, MARKDOWN_PARSE)
         };
+        let refused = read_refusing(true);
         assert!(
-            read_refusing(true).is_err(),
-            "a page whose child states cannot be read fails"
+            matches!(
+                &refused,
+                Err(TranscriptReadError::Database(rusqlite::Error::SqliteFailure(failure, _)))
+                    if failure.code == rusqlite::ErrorCode::AuthorizationForStatementDenied
+            ),
+            "a page whose child states cannot be read fails with SQLite's refusal: {refused:?}"
         );
         let page = read_refusing(false).expect("the window reads with the count refused");
         let page = wire_message(&page).0;

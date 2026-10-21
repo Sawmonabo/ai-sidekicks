@@ -78,6 +78,39 @@ fn tool_invoked(session_id: &SessionId, run_id: &str) -> UnsequencedEventEnvelop
     test_envelope(*session_id, &event)
 }
 
+/// A completed `agent.toolCall.completed` call of `session_id` in the run `run_id` naming two
+/// patched files, with its file list as its body.
+fn patch_bearing_completion(
+    session_id: &SessionId,
+    run_id: &str,
+) -> (UnsequencedEventEnvelope, EventLogAppendOptions) {
+    let event = serde_json::from_value(json!({
+        "type": "agent.toolCall.completed",
+        "payload": {
+            "sessionId": session_id,
+            "runId": run_id,
+            "toolName": "edit",
+            "toolCallId": "call-1",
+            "omittedPatches": [
+                { "path": "/repo/a.rs", "size": 2 },
+                { "path": "/repo/b.rs", "size": 0 },
+            ],
+        },
+    }))
+    .expect("the test writes a tool completion");
+    let body = json!({ "files": [
+        { "path": "/repo/a.rs", "patch": "@@", "additions": 0, "deletions": 0 },
+        { "path": "/repo/b.rs", "unavailable": "absent" },
+    ] });
+    let options = EventLogAppendOptions {
+        content_body: Some(body.to_string()),
+        ..EventLogAppendOptions::default()
+    };
+    (test_envelope(*session_id, &event), options)
+}
+
+// Killed by an event published out of commit order or dropped with its caller, and by a
+// completion's stored parts published as events of their own.
 #[tokio::test]
 async fn every_committed_event_is_published_in_commit_order_though_its_caller_left() {
     let database = TestDatabase::new();
@@ -100,11 +133,17 @@ async fn every_committed_event_is_published_in_commit_order_though_its_caller_le
     });
     let session_id = test_session_id();
     let run_id = mint_uuid_v7().to_string();
-    let mut appends = [(); 3].map(|()| {
-        Box::pin(service.append(
-            tool_invoked(&session_id, &run_id),
-            EventLogAppendOptions::default(),
-        ))
+    // The last is a completion stored with its parts, which follow it at the next sequences.
+    let mut appends = [false, false, true].map(|is_completion| {
+        let (envelope, options) = if is_completion {
+            patch_bearing_completion(&session_id, &run_id)
+        } else {
+            (
+                tool_invoked(&session_id, &run_id),
+                EventLogAppendOptions::default(),
+            )
+        };
+        Box::pin(service.append(envelope, options))
     });
     // Polled once each, every write is queued behind the hold.
     for append in &mut appends {
@@ -131,6 +170,11 @@ async fn every_committed_event_is_published_in_commit_order_though_its_caller_le
         *heard.lock().expect("the test's list is not poisoned"),
         [0, 1, 2]
     );
+    let stored: i64 = database
+        .reader()
+        .query_row("SELECT count(*) FROM session_events", [], |row| row.get(0))
+        .expect("the test counts the stored rows");
+    assert!(stored > 3);
     assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
 }
 

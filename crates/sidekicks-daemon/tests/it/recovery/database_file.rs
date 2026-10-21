@@ -286,30 +286,43 @@ fn schema_file(path: &Path) -> Connection {
 
 // Writes `count` events of `session_id` from sequence 0, each in run `run-1` at its own run version
 // and turn, each a piece of the row the first one starts, under one join key, filed under `run-2`
-// too and naming a tool call, so a copy shows every column the append stamps.
+// too, naming a tool call and placed as a stored patch part, so a copy shows every column the
+// append stamps.
 fn write_events(connection: &Connection, session_id: &str, count: i64) {
     for sequence in 0..count {
         connection
             .execute(
                 "INSERT INTO session_events (id, session_id, sequence, occurred_at, monotonic_ns,
                    category, type, payload, run_id, run_version, turn_number, join_key,
-                   joins_sequence, target_run_id, tool_call_id)
+                   joins_sequence, target_run_id, tool_call_id, patch_file_index,
+                   patch_text_offset)
                  VALUES (?1, ?2, ?3, '2026-10-19T09:00:00.000Z', ?3, 'session', 'session.pinned',
-                   '{}', 'run-1', ?3, ?3, 'key-1', NULLIF(0, ?3), 'run-2', 'call-1')",
+                   '{}', 'run-1', ?3, ?3, 'key-1', NULLIF(0, ?3), 'run-2', 'call-1', ?3, ?3)",
                 (format!("{session_id}-{sequence}"), session_id, sequence),
             )
             .expect("the event is written");
     }
 }
 
-// Each event's sequence, run columns, three join columns and tool call.
-type StoredStamps = (i64, String, i64, i64, String, Option<i64>, String, String);
+// Each event's sequence, run columns, three join columns, tool call and patch part place.
+type StoredStamps = (
+    i64,
+    String,
+    i64,
+    i64,
+    String,
+    Option<i64>,
+    String,
+    String,
+    i64,
+    i64,
+);
 
 fn session_events(connection: &Connection, session_id: &str) -> Vec<StoredStamps> {
     let mut statement = connection
         .prepare(
             "SELECT sequence, run_id, run_version, turn_number, join_key, joins_sequence,
-                    target_run_id, tool_call_id
+                    target_run_id, tool_call_id, patch_file_index, patch_text_offset
                FROM session_events WHERE session_id = ? ORDER BY sequence",
         )
         .expect("the read prepares");
@@ -324,6 +337,8 @@ fn session_events(connection: &Connection, session_id: &str) -> Vec<StoredStamps
                 row.get(5)?,
                 row.get(6)?,
                 row.get(7)?,
+                row.get(8)?,
+                row.get(9)?,
             ))
         })
         .expect("the events read")
@@ -407,6 +422,8 @@ async fn sessions_the_newest_backup_holds_more_of_come_from_it(
                 (sequence > 0).then_some(0),
                 "run-2".to_owned(),
                 "call-1".to_owned(),
+                sequence,
+                sequence,
             ))
             .collect::<Vec<_>>()
     );

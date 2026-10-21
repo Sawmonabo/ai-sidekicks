@@ -4,7 +4,8 @@
 //! sequences, each in sequence order, one row by its event id with its stored body, and the check
 //! of a cursor against the head. A row crosses in from the database file, so each one is checked
 //! against the envelope contract on the way out. A range the session skipped past as damaged is
-//! never read, and while its history is damaged no read goes past its last good point.
+//! never read, and while its history is damaged no read goes past its last good point. A stored
+//! part of a tool completion's patched files is no event, so no read of events takes it.
 
 use std::sync::LazyLock;
 
@@ -26,7 +27,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::events::content::read::{StoredEventContentRow, hydrate_stored_event};
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
-use crate::transcript::rejoin::row_condition_sql;
+use crate::transcript::rejoin::{row_condition_sql, stored_patch_part_sql};
 
 /// A stored event row that is not a well-formed event envelope, which only a write outside the
 /// append path can leave; it names the row by its stored event id, session id and sequence.
@@ -106,10 +107,11 @@ static AFTER_SQL: LazyLock<String> = LazyLock::new(|| {
         "SELECT {SELECTED_COLUMNS}
        FROM session_events AS event
       WHERE session_id = ? AND sequence > ? AND sequence < ?
-        AND {}
+        AND {} AND NOT {}
       ORDER BY sequence ASC
       LIMIT ?",
-        outside_skipped_ranges_sql("event")
+        outside_skipped_ranges_sql("event"),
+        stored_patch_part_sql("event"),
     )
 });
 
@@ -119,10 +121,11 @@ static AFTER_OF_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
        FROM session_events AS event
       WHERE session_id = ? AND sequence > ? AND sequence < ?
         AND type IN (SELECT value FROM json_each(?))
-        AND {}
+        AND {} AND NOT {}
       ORDER BY sequence ASC
       LIMIT ?",
-        outside_skipped_ranges_sql("event")
+        outside_skipped_ranges_sql("event"),
+        stored_patch_part_sql("event"),
     )
 });
 
@@ -131,9 +134,10 @@ static WINDOW_SQL: LazyLock<String> = LazyLock::new(|| {
         "SELECT {SELECTED_COLUMNS}
        FROM session_events AS event
       WHERE session_id = ? AND sequence BETWEEN ? AND ? AND sequence < ?
-        AND {}
+        AND {} AND NOT {}
       ORDER BY sequence ASC",
-        outside_skipped_ranges_sql("event")
+        outside_skipped_ranges_sql("event"),
+        stored_patch_part_sql("event"),
     )
 });
 
@@ -142,14 +146,13 @@ static AT_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
         "SELECT {SELECTED_COLUMNS}
        FROM session_events AS event
       WHERE session_id = ? AND sequence IN (SELECT value FROM json_each(?)) AND sequence < ?
-        AND {}
+        AND {} AND NOT {}
       ORDER BY sequence ASC",
-        outside_skipped_ranges_sql("event")
+        outside_skipped_ranges_sql("event"),
+        stored_patch_part_sql("event"),
     )
 });
 
-// One run's readable rows of the given types after a position, through the event log's
-// run-and-type index, each with its stored body, in sequence order.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the provider switch's hand-over brief")
@@ -182,8 +185,9 @@ static EVENT_BY_ID_SQL: LazyLock<String> = LazyLock::new(|| {
         "SELECT {SELECTED_COLUMNS}
        FROM session_events AS event
       WHERE session_id = ? AND id = ? AND sequence < ?
-        AND {}",
-        outside_skipped_ranges_sql("event")
+        AND {} AND NOT {}",
+        outside_skipped_ranges_sql("event"),
+        stored_patch_part_sql("event"),
     )
 });
 

@@ -2,7 +2,8 @@
 //! position, its execution epoch and, when an undo rolled its turn back, the superseded marker; a
 //! `agent.run.rolledBack` becomes the typed boundary row; an event naming no run is a general row.
 //! A reply or reasoning the provider sent in pieces is one row, standing at its first piece, its
-//! body the pieces joined through the read's head. Every row carries its body, read for the whole
+//! body the pieces joined through the read's head; a tool completion stored in parts of its
+//! patched files is one row the same way. Every row carries its body, read for the whole
 //! window in one statement; a large body is read as its size alone, so a page of large outputs
 //! costs no more than their lengths. A reply drawn as markdown carries its block starts, only
 //! those no later text can move while it is still arriving, or why its cut failed.

@@ -584,7 +584,7 @@ impl EventLogService {
                 monotonic_ns,
             )?);
         }
-        // The event's receipt names its own row, which any rows of its files follow.
+        // The event's receipt names its own row, which any stored parts of its files follow.
         let row_index = rows.len();
         let event_rows = compose_rows(envelope, content_body.as_deref(), monotonic_ns)?;
         let id = event_rows[0].envelope.id.clone();
@@ -592,7 +592,10 @@ impl EventLogService {
 
         let mut statements = transactional_prelude;
         if let Some(projection_statements) = &self.projection_statements {
-            for row in &rows {
+            for row in rows
+                .iter()
+                .filter(|row| row.envelope.patch_part().is_none())
+            {
                 statements.extend(projection_statements(&row.envelope));
             }
         }
@@ -640,8 +643,8 @@ async fn committed(queued: QueuedAppend) -> Result<EventLogAppendReceipt, EventA
 }
 
 /// The commit hook that pairs `stored_envelopes`, the ones the write's rows bound, with the
-/// sequences their write committed at and publishes them to `followers` once, on the writer's
-/// queue task.
+/// sequences their write committed at and publishes the events among them to `followers` once, on
+/// the writer's queue task; a stored part of a completion is no event, so it is not published.
 fn publish_on_commit(
     stored_envelopes: Vec<Arc<UnsequencedEventEnvelope>>,
     followers: Arc<SessionEventFollowers>,
@@ -650,6 +653,7 @@ fn publish_on_commit(
         let committed: Vec<CommittedEvent> = stored_envelopes
             .into_iter()
             .zip(sequences.iter().copied())
+            .filter(|(envelope, _)| envelope.patch_part().is_none())
             .map(|(envelope, sequence)| CommittedEvent { envelope, sequence })
             .collect();
         followers.publish(&committed);
@@ -658,8 +662,9 @@ fn publish_on_commit(
 
 /// Composes the rows of one event exactly as they will be stored: the envelope in its stored form,
 /// shared by the row and the commit hook, its payload text and its body, then, for a tool
-/// completion naming the files its body's patches cover, one row per file, which joins the event's
-/// row. Everything bound comes from the composed envelope, never the caller's input.
+/// completion naming the files its body's patches cover, one row per stored part of each file,
+/// which joins the event's row. Everything bound comes from the composed envelope, never the
+/// caller's input.
 pub(crate) fn compose_rows(
     mut envelope: UnsequencedEventEnvelope,
     content_body: Option<&str>,
@@ -669,11 +674,11 @@ pub(crate) fn compose_rows(
     // otherwise be stored as given.
     assert_no_seeded_content_description(envelope.payload(), APPEND_REFUSER)?;
     envelope.occurred_at = normalize_occurred_at(envelope.occurred_at.as_str())?;
-    let (content_payload, files) = match content_body {
+    let (content_payload, parts) = match content_body {
         None => (None, Vec::new()),
         Some(body) if envelope.is_patch_bearing() => {
-            let (opening, files) = envelope.describe_patch_files(body)?;
-            (Some(opening), files)
+            let (opening, parts) = envelope.describe_patch_files(body)?;
+            (Some(opening), parts)
         }
         Some(body) => (Some(envelope.describe_content(body)?), Vec::new()),
     };
@@ -683,12 +688,12 @@ pub(crate) fn compose_rows(
         monotonic_ns,
         content_payload,
     };
-    let mut rows = Vec::with_capacity(1 + files.len());
+    let mut rows = Vec::with_capacity(1 + parts.len());
     rows.push(row(envelope, content_payload));
     rows.extend(
-        files
+        parts
             .into_iter()
-            .map(|(file, content_payload)| row(file, Some(content_payload))),
+            .map(|(part, content_payload)| row(part, Some(content_payload))),
     );
     Ok(rows)
 }

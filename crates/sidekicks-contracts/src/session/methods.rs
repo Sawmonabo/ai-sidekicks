@@ -340,7 +340,8 @@ pub struct SessionStreamChange {
     #[schemars(with = "TranscriptRunStamp")]
     #[garde(dive)]
     pub run_stamp: Option<TranscriptRunStamp>,
-    /// On a piece of a reply or of reasoning: its text and where it sits in its row.
+    /// On a piece of a reply or of reasoning: its text and where it sits in its row. A tool
+    /// completion is never one: it goes out once, whole, and the parts storing its patches never.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

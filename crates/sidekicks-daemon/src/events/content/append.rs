@@ -2,8 +2,8 @@
 //! `session_events.content_payload` beside the event, with the description members it adds to
 //! `payload`, and the check that refuses a payload seeding those members. A tool completion whose
 //! body holds file patches is stored across rows: its own keeps the opening of the file list, and
-//! each file a row of its own that joins it, so one file is read without the rest. The log
-//! service writes the rows; this module touches no database.
+//! each part of each file is a row that joins it, so a range of one file is read without the rest.
+//! The log service writes the rows; this module touches no database.
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -15,7 +15,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 
 use crate::text_cut::cut_to_code_points;
 use crate::transcript::whole_patch::{
-    OMITTED_PATCHES_PAYLOAD_KEY, PATCH_FILES_OPENING, patch_file_piece,
+    OMITTED_PATCHES_PAYLOAD_KEY, PATCH_FILES_OPENING, WholePatchFile, patch_file_parts,
 };
 
 /// The `payload` members only this module may set; `contentType` is the producer's.
@@ -113,11 +113,14 @@ pub(crate) fn compose_content_payload(
     Ok(stored_body.as_bytes().to_vec())
 }
 
-/// Whether an event of `event_type` with `payload` is a tool completion naming the files its
-/// body's patches cover, whose body is stored across rows, each file whole.
+/// Whether an event of `event_type` with `payload` is a tool completion naming one or more files
+/// its body's patches cover, whose body is stored in parts of each file; an empty list names none.
 pub(crate) fn is_patch_bearing(event_type: SessionEventType, payload: &Map<String, Value>) -> bool {
     event_type == SessionEventType::AgentToolCallCompleted
-        && payload.contains_key(OMITTED_PATCHES_PAYLOAD_KEY)
+        && payload
+            .get(OMITTED_PATCHES_PAYLOAD_KEY)
+            .and_then(Value::as_array)
+            .is_some_and(|named| !named.is_empty())
 }
 
 /// A patch-bearing completion whose body is not a list of the files its payload names, which only
@@ -135,15 +138,42 @@ pub(crate) enum PatchFilesRefusedError {
         /// How many the body holds.
         held: usize,
     },
+    /// A file of the body reads as no file's shape.
+    #[error("file {file_index} of a tool completion's file list is not a file's patch")]
+    File {
+        /// The file's place in the list.
+        file_index: usize,
+        /// Why it does not read.
+        #[source]
+        cause: serde_json::Error,
+    },
+}
+
+/// Where one stored part of a patch-bearing completion sits in its file list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PatchPartPlace {
+    /// The file it stores part of, by its place in the list.
+    pub(crate) file_index: usize,
+    /// On a part of the file's text, the UTF-8 offset in the text of its first byte.
+    pub(crate) text_offset: Option<usize>,
+}
+
+/// One stored part of a patch-bearing completion: its payload, its place and its body.
+pub(crate) struct PatchPartRow {
+    /// The completion's payload without the files it names, describing this part's body alone.
+    pub(crate) payload: Map<String, Value>,
+    /// Where it sits.
+    pub(crate) place: PatchPartPlace,
+    /// Its stored body.
+    pub(crate) body: Vec<u8>,
 }
 
 /// A patch-bearing completion's body as its rows store it.
 pub(crate) struct PatchFileRows {
     /// The completion's own stored body: the opening of the file list.
     pub(crate) opening: Vec<u8>,
-    /// Each file's row in the body's order: its payload, the completion's naming that file alone,
-    /// and its stored body.
-    pub(crate) files: Vec<(Map<String, Value>, Vec<u8>)>,
+    /// Every part of every file, in the body's order.
+    pub(crate) parts: Vec<PatchPartRow>,
 }
 
 /// The body of a patch-bearing completion as read for its cut.
@@ -155,9 +185,10 @@ struct PatchFilesBody<'body> {
 }
 
 /// Cuts `body`, the `{"files": [...]}` body of a tool completion whose `payload` names each of its
-/// files in `omittedPatches`, into the rows that store it, describing the completion's own body in
-/// `payload`: the rows' bodies joined read as the file list again, each file whole. Fails when the
-/// body is not a file list or holds another count of files than the payload names.
+/// files in `omittedPatches`, into the parts that store it, describing the completion's own body in
+/// `payload`: the parts' bodies joined read as the file list again, every file whole, and each
+/// part holds at most [`CONTENT_PAYLOAD_PLAINTEXT_MAX`] code points. Fails when the body is not a
+/// file list, holds another count of files than the payload names, or holds a file of no shape.
 pub(crate) fn compose_patch_file_rows(
     payload: &mut Map<String, Value>,
     body: &str,
@@ -165,41 +196,81 @@ pub(crate) fn compose_patch_file_rows(
     let files = serde_json::from_str::<PatchFilesBody<'_>>(body)
         .map_err(PatchFilesRefusedError::Body)?
         .files;
-    let named: Vec<Value> = payload
+    let named = payload
         .get(OMITTED_PATCHES_PAYLOAD_KEY)
         .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if named.len() != files.len() {
+        .map_or(0, Vec::len);
+    if named != files.len() {
         return Err(PatchFilesRefusedError::FileCount {
-            named: named.len(),
+            named,
             held: files.len(),
         });
     }
-    let file_rows = files
-        .iter()
-        .zip(named)
-        .enumerate()
-        .map(|(index, (file, named_file))| {
-            let mut file_payload = payload.clone();
-            file_payload.insert(
-                OMITTED_PATCHES_PAYLOAD_KEY.to_owned(),
-                Value::Array(vec![named_file]),
-            );
-            let piece = patch_file_piece(file.get(), index, files.len());
-            file_payload.insert(
+    let mut part_payload = payload.clone();
+    part_payload.remove(OMITTED_PATCHES_PAYLOAD_KEY);
+    let mut parts = Vec::new();
+    for (file_index, file) in files.iter().enumerate() {
+        let file = serde_json::from_str::<WholePatchFile>(file.get())
+            .map_err(|cause| PatchFilesRefusedError::File { file_index, cause })?;
+        for part in patch_file_parts(&file, file_index, files.len()) {
+            let mut payload = part_payload.clone();
+            payload.insert(
                 CONTENT_LENGTH_PAYLOAD_KEY.to_owned(),
-                Value::from(piece.len()),
+                Value::from(part.body.len()),
             );
-            (file_payload, piece.into_bytes())
-        })
-        .collect();
+            parts.push(PatchPartRow {
+                payload,
+                place: PatchPartPlace {
+                    file_index,
+                    text_offset: part.text_offset,
+                },
+                body: part.body.into_bytes(),
+            });
+        }
+    }
     payload.insert(
         CONTENT_LENGTH_PAYLOAD_KEY.to_owned(),
         Value::from(PATCH_FILES_OPENING.len()),
     );
     Ok(PatchFileRows {
         opening: PATCH_FILES_OPENING.as_bytes().to_vec(),
-        files: file_rows,
+        parts,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::{Value, json};
+
+    use super::{PatchFilesRefusedError, compose_patch_file_rows};
+
+    // Killed by a file no arm reads stored as given, which a later patch read would answer as
+    // another arm or fail on.
+    #[rstest]
+    #[case::a_patch_of_the_wrong_type(json!({ "path": "/repo/a.rs", "patch": 5 }))]
+    #[case::an_unreadable_file_with_no_raw_text(
+        json!({ "path": "/repo/a.rs", "unavailable": "unreadable" })
+    )]
+    #[case::an_absent_file_with_a_member_no_arm_takes(
+        json!({ "path": "/repo/a.rs", "unavailable": "absent", "patch": "@@" })
+    )]
+    #[case::a_file_with_no_reason(json!({ "path": "/repo/a.rs" }))]
+    fn a_completion_holding_a_file_no_arm_reads_is_refused(#[case] file: Value) {
+        let mut payload = json!({ "omittedPatches": [{ "path": "/repo/a.rs", "size": 0 }] })
+            .as_object()
+            .cloned()
+            .expect("the test's payload is an object");
+        let body = json!({ "files": [file] }).to_string();
+
+        let refused = compose_patch_file_rows(&mut payload, &body);
+        assert!(
+            matches!(
+                refused,
+                Err(PatchFilesRefusedError::File { file_index: 0, .. })
+            ),
+            "{:?}",
+            refused.err()
+        );
+    }
 }

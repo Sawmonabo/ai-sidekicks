@@ -150,6 +150,8 @@ fn row_bodies(page: &Value) -> Vec<String> {
                 "tool".to_owned()
             } else if row["type"] == "agent.turn.started" {
                 "turn".to_owned()
+            } else if row["type"] == "agent.turn.completed" {
+                "turn end".to_owned()
             } else {
                 row["content"]["body"]
                     .as_str()
@@ -195,7 +197,7 @@ enum Step {
     Reply(&'static str, Option<u64>, &'static str),
     // A completed tool call.
     Tool,
-    // The start of the run's next turn.
+    // The end of the run's turn and the start of its next.
     Turn,
 }
 
@@ -232,7 +234,7 @@ enum Step {
 )]
 #[case::the_same_message_and_block_in_two_turns(
     &[Step::Reply("m1", Some(0), "Turn one."), Step::Turn, Step::Reply("m1", Some(0), "Turn two.")],
-    &["Turn one.", "turn", "Turn two."]
+    &["Turn one.", "turn end", "turn", "Turn two."]
 )]
 fn a_reply_rejoins_only_the_pieces_of_its_message_and_block(
     #[case] steps: &[Step],
@@ -249,6 +251,7 @@ fn a_reply_rejoins_only_the_pieces_of_its_message_and_block(
                 log.tool_completion(log.run_id, "call-1", None, Some("ok"));
             }
             Step::Turn => {
+                log.turn_end(log.run_id, turn_number);
                 turn_number += 1;
                 log.turn_start(log.run_id, turn_number);
             }
@@ -377,8 +380,8 @@ fn row_with_body<'page>(page: &'page Value, body: &str) -> &'page Value {
 }
 
 // Killed by the window's cut call removed, by an open row cut as ended, whose last starts could
-// still move, by a later row of the run ending it, by its turn's end not ending it, by a stalled cut
-// not refused, and by one row's failed cut failing the page or another row.
+// still move, by a later row of the run ending it, by its turn's end not ending it, by a stalled
+// cut not refused, and by one row's failed cut failing the page or another row.
 #[test]
 fn a_window_cuts_reply_rows_into_blocks_and_a_failed_cut_fails_its_row_alone() {
     let log = TranscriptTestLog::new();

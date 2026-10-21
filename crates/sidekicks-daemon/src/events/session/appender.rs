@@ -25,7 +25,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use crate::database::statement::WriteStatement;
 use crate::events::canonicalizer::{OccurredAtNormalizationRefusal, normalize_occurred_at};
 use crate::events::content::append::{
-    ContentPartitionRefusedError, PatchFilesRefusedError, compose_content_payload,
+    ContentPartitionRefusedError, PatchFilesRefusedError, PatchPartPlace, compose_content_payload,
     compose_patch_file_rows, is_patch_bearing,
 };
 use crate::events::log_service::{
@@ -108,6 +108,16 @@ impl SessionEventDraft {
 /// An event's envelope beside the bytes its row stores as its body.
 pub(crate) type EnvelopeWithBody = (UnsequencedEventEnvelope, Vec<u8>);
 
+/// What makes a row a stored part of a patch-bearing completion rather than an event of its own:
+/// it joins the completion's row and is never published, streamed or counted as an event.
+#[derive(Clone, Debug)]
+pub(crate) struct StoredPatchPart {
+    /// The completion's event id, the key its parts join its row by.
+    pub(crate) completion_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// Where it sits in the completion's file list.
+    pub(crate) place: PatchPartPlace,
+}
+
 /// Why a typed event could not be drafted.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum SessionEventDraftError {
@@ -140,6 +150,7 @@ pub(crate) struct UnsequencedEventEnvelope {
     event_type: SessionEventType,
     payload: Map<String, Value>,
     run: Option<EventRun>,
+    patch_part: Option<StoredPatchPart>,
 }
 
 impl UnsequencedEventEnvelope {
@@ -171,6 +182,7 @@ impl UnsequencedEventEnvelope {
             event_type,
             payload,
             run,
+            patch_part: None,
         }
     }
 
@@ -214,20 +226,26 @@ impl UnsequencedEventEnvelope {
         is_patch_bearing(self.event_type, &self.payload)
     }
 
+    /// Where this row sits when it is a stored part of a patch-bearing completion, which is no
+    /// event of its own; `None` on every event.
+    pub(crate) fn patch_part(&self) -> Option<&StoredPatchPart> {
+        self.patch_part.as_ref()
+    }
+
     /// Cuts `body`, this patch-bearing completion's file list, into its rows: adds to the payload
-    /// the description of, and returns, the bytes its own row holds, then each file's envelope,
-    /// beside this one under a freshly minted id, with its stored body. Fails when the body is not
-    /// the file list the payload names.
+    /// the description of, and returns, the bytes its own row holds, then each stored part's
+    /// envelope, beside this one under a freshly minted id, with its stored body. Fails when the
+    /// body is not the file list the payload names.
     pub(crate) fn describe_patch_files(
         &mut self,
         body: &str,
     ) -> Result<(Vec<u8>, Vec<EnvelopeWithBody>), PatchFilesRefusedError> {
         let rows = compose_patch_file_rows(&mut self.payload, body)?;
-        let files = rows
-            .files
+        let parts = rows
+            .parts
             .into_iter()
-            .map(|(payload, content_payload)| {
-                let file = Self {
+            .map(|part| {
+                let envelope = Self {
                     id: FreeFormText::new(mint_uuid_v7().to_string())
                         .expect("a minted UUID is an id"),
                     occurred_at: self.occurred_at.clone(),
@@ -237,13 +255,17 @@ impl UnsequencedEventEnvelope {
                     version: self.version.clone(),
                     session_id: self.session_id,
                     event_type: self.event_type,
-                    payload,
+                    payload: part.payload,
                     run: self.run,
+                    patch_part: Some(StoredPatchPart {
+                        completion_id: self.id.clone(),
+                        place: part.place,
+                    }),
                 };
-                (file, content_payload)
+                (envelope, part.body)
             })
             .collect();
-        Ok((rows.opening, files))
+        Ok((rows.opening, parts))
     }
 }
 
