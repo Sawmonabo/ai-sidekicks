@@ -10,8 +10,9 @@
 //!
 //! A read in flight is shared: sessions created together wait on one process, which runs to its
 //! end even when every waiter is gone, and a failed read is dropped so the next session reads
-//! again. The store holds one entry per folder and config home and one per endpoint and model:
-//! tens of entries of a few hundred bytes over the daemon's life, never evicted.
+//! again, whether a waiter saw it fail or none was left to. The store holds one entry per folder
+//! and config home and one per endpoint and model: tens of entries of a few hundred bytes over the
+//! daemon's life, never evicted.
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -104,6 +105,10 @@ struct EndpointContextReads {
 /// The figures held for one installed Claude Code build.
 pub(crate) struct ClaudeModelFigures {
     /// The build version these figures describe; `None` before the daemon reads one.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver checks the installed build against it"
+    )]
     pub(crate) build_version: Option<String>,
     rules: PathRules,
     command_choices: HeldReads<ClaudeChoicesKey, ClaudeCommandChoices>,
@@ -236,8 +241,9 @@ impl ClaudeModelFigures {
 }
 
 // The held read of `key`, else `read` started in its own task, so it runs to its end with no
-// waiter left. A failed read is forgotten by the waiter that sees it, and only while it is still
-// the one held, so a later read in its place stays.
+// waiter left. A held read that already failed counts as none, so a new read replaces it even when
+// no waiter saw the failure; a failed read is also forgotten by the waiter that sees it, and only
+// while it is still the one held, so a later read in its place stays.
 async fn read_once<K, T, Read>(
     held: &HeldReads<K, T>,
     key: K,
@@ -250,7 +256,15 @@ where
 {
     let shared = {
         let mut reads = lock(held);
-        if let Some(shared) = reads.get(&key) {
+        let live_read = reads.get(&key).filter(|held_read| {
+            // Polled once without waiting: a finished read answers at once, and `unconstrained`
+            // keeps tokio's task budget from making it look unfinished.
+            !matches!(
+                tokio::task::unconstrained((*held_read).clone()).now_or_never(),
+                Some(Err(_))
+            )
+        });
+        if let Some(shared) = live_read {
             shared.clone()
         } else {
             let task = tokio::spawn(read());
@@ -372,6 +386,34 @@ mod tests {
         let next = figures
             .reply_reserve(&place, || async { panic!("the held read answers") })
             .await;
+        assert_eq!(next.ok(), Some(reserve()));
+    }
+
+    // Killed by answering a held read that failed with no waiter left to forget it: the next
+    // caller would get the old failure and make no read.
+    #[tokio::test]
+    async fn a_read_that_failed_with_no_caller_left_is_read_again() {
+        let figures = ClaudeModelFigures::new(None, PathRules::Posix);
+        let (release, released) = oneshot::channel::<()>();
+        let (finish, finished) = oneshot::channel::<()>();
+        let place = place();
+        let mut first = Box::pin(figures.reply_reserve(&place, move || async move {
+            released.await.expect("the test releases the read");
+            finish.send(()).expect("the test waits for the read");
+            Err(ClaudeSessionError::Unanswered {
+                subtype: ClaudeControlSubtype::GetContextUsage,
+                cause: ClaudeUnansweredCause::Deadline,
+            })
+        }));
+        assert!(futures::poll!(&mut first).is_pending());
+        drop(first);
+        release.send(()).expect("the read is waiting");
+        finished.await.expect("the read sends as it fails");
+
+        let next = figures
+            .reply_reserve(&place, || async { Ok(reserve()) })
+            .await;
+
         assert_eq!(next.ok(), Some(reserve()));
     }
 }

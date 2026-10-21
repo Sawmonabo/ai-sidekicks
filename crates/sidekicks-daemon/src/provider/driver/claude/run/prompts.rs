@@ -108,9 +108,12 @@ impl ClaudeSentPrompts {
 
     /// Takes back a message Claude Code had not taken, the newest no more, settled with no report;
     /// answers the run it was a steer into, if any.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's steer withdrawal takes a written steer back through it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's steer withdrawal takes a written steer back through it"
+        )
     )]
     pub(crate) fn withdraw(&mut self, session_id: SessionId, message_uuid: &str) -> Option<RunId> {
         if self
@@ -144,22 +147,22 @@ impl ClaudeSentPrompts {
     }
 
     /// The newest message sent to the session's process, if one is known.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's conversation cut and context overflow read it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's conversation cut and context overflow read it"
+        )
     )]
     pub(crate) fn newest_for(&self, session_id: SessionId) -> Option<&str> {
         self.newest_by_session.get(&session_id).map(String::as_str)
     }
 
-    /// Forgets the session's messages, its process gone or its conversation cut; the session's
-    /// conversation file decides which of them were taken.
+    /// Forgets the session's messages, its process gone; the session's conversation file decides
+    /// which of them were taken.
     #[cfg_attr(
         not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's process end and conversation cut clear a session"
-        )
+        expect(dead_code, reason = "the Claude driver's process end clears a session")
     )]
     pub(crate) fn forget_session(&mut self, session_id: SessionId) {
         self.newest_by_session.remove(&session_id);
@@ -206,8 +209,8 @@ mod tests {
         );
     }
 
-    // Kills: a dropped message still reported later, a never-recorded message not falling back
-    // to the lead run, and a process end leaving its messages behind.
+    // Kills: a dropped message still reported later, and a never-recorded message not falling
+    // back to the lead run.
     #[test]
     fn a_dropped_message_reports_nothing_and_an_unrecorded_one_takes_the_lead_run() {
         let session_id = session();
@@ -226,13 +229,55 @@ mod tests {
             prompts.record_taken(session_id, "kept", Some(lead_run)),
             Some(lead_run)
         );
+    }
 
-        prompts.record_written(session_id, run_id, "pending", true);
-        prompts.forget_session(session_id);
-        assert!(!prompts.has_untaken_steer(run_id));
+    // Kills: a withdrawn steer still reported or counted untaken, a withdrawn plain message
+    // answered as a steer, withdrawing the newest leaving it named newest, and withdrawing an
+    // older one clearing the newest.
+    #[test]
+    fn a_withdrawn_message_is_settled_and_only_a_steer_names_its_run() {
+        let session_id = session();
+        let (steered_run, lead_run) = (run(), run());
+        let mut prompts = ClaudeSentPrompts::default();
+        prompts.record_written(session_id, steered_run, "steer", true);
+        prompts.record_written(session_id, lead_run, "plain", false);
+
+        assert_eq!(prompts.withdraw(session_id, "steer"), Some(steered_run));
+        assert!(!prompts.has_untaken_steer(steered_run));
+        assert_eq!(prompts.newest_for(session_id), Some("plain"));
         assert_eq!(
-            prompts.record_taken(session_id, "pending", Some(lead_run)),
+            prompts.record_taken(session_id, "steer", Some(lead_run)),
+            None
+        );
+
+        assert_eq!(prompts.withdraw(session_id, "plain"), None);
+        assert_eq!(prompts.newest_for(session_id), None);
+    }
+
+    // Kills: a process end clearing every session's messages, and keeping the ended session's
+    // settled uuids, so a message the next process takes under the same uuid reports nothing.
+    #[test]
+    fn a_process_end_forgets_only_its_own_session() {
+        let (ended, live) = (session(), session());
+        let (ended_run, live_run, lead_run) = (run(), run(), run());
+        let mut prompts = ClaudeSentPrompts::default();
+        prompts.record_written(ended, ended_run, "taken", true);
+        assert_eq!(
+            prompts.record_taken(ended, "taken", Some(lead_run)),
+            Some(ended_run)
+        );
+        prompts.record_written(ended, ended_run, "pending", true);
+        prompts.record_written(live, live_run, "queued", true);
+
+        prompts.forget_session(ended);
+
+        assert!(!prompts.has_untaken_steer(ended_run));
+        assert_eq!(prompts.newest_for(ended), None);
+        assert_eq!(
+            prompts.record_taken(ended, "taken", Some(lead_run)),
             Some(lead_run)
         );
+        assert!(prompts.has_untaken_steer(live_run));
+        assert_eq!(prompts.newest_for(live), Some("queued"));
     }
 }

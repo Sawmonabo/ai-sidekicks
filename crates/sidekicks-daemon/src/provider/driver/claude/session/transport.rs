@@ -15,4 +15,11 @@ pub(crate) mod user_message;
 
 /// How long a request to the Claude Code process, a control request or an input write, waits for
 /// its answer before it is withdrawn.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude Code process waits on each control request at most this long"
+    )
+)]
 pub(crate) const CLAUDE_REQUEST_DEADLINE: Duration = Duration::from_secs(60);

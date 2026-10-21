@@ -10,7 +10,6 @@ use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
 use crate::provider::driver::claude::event_normalizer::CLAUDE_QUESTION_TOOL_NAME;
 use crate::provider::driver::claude::session::transport::control::{
     ClaudeAgentDefinition, ClaudeControlRequest, ClaudeHookMatcher, ClaudeHooks,
-    ClaudeSdkServerConfig,
 };
 use crate::provider::driver::contract::{SubagentDefinition, SubagentPolicy};
 use crate::provider::tool_server_name::DAEMON_TOOL_SERVER_NAME;
@@ -109,7 +108,7 @@ impl ClaudeDialogKind {
 )]
 pub(crate) fn compose_claude_initialize_request(
     subagent_policy: Option<&SubagentPolicy>,
-    in_process_servers: BTreeMap<String, ClaudeSdkServerConfig>,
+    in_process_servers: Vec<String>,
 ) -> ClaudeControlRequest {
     let held = |matcher: Option<String>, hook: ClaudeHookCallback| ClaudeHookMatcher {
         matcher,
@@ -166,9 +165,7 @@ pub(crate) fn compose_claude_initialize_request(
                 .collect(),
         ),
         per_task_stop_affordance: Some(true),
-        sdk_mcp_servers: (!in_process_servers.is_empty())
-            .then(|| in_process_servers.keys().cloned().collect()),
-        sdk_mcp_server_configs: (!in_process_servers.is_empty()).then_some(in_process_servers),
+        sdk_mcp_servers: (!in_process_servers.is_empty()).then_some(in_process_servers),
     }
 }
 

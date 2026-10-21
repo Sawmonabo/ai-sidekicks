@@ -4,7 +4,7 @@
 //! person's answer goes back as the dialog's answer, and a choice the driver or Claude Code settles
 //! without the person is recorded as its settlement row and the run's move.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::{Mutex, MutexGuard};
 
@@ -157,6 +157,9 @@ lenient_object!(DialogPayload);
 pub(crate) struct ClaudeProviderDialogs<P: ClaudeDialogPorts> {
     ports: P,
     held_by_run: Mutex<HashMap<RunId, HeldDialog>>,
+    // Every dialog id each session's process has asked, held or settled, so one Claude Code sends
+    // again, live or replayed, is shown once.
+    seen_by_session: Mutex<HashMap<SessionId, HashSet<String>>>,
 }
 
 impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
@@ -169,14 +172,16 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
         Self {
             ports,
             held_by_run: Mutex::new(HashMap::new()),
+            seen_by_session: Mutex::new(HashMap::new()),
         }
     }
 
     /// Takes one `request_user_dialog` of `run`, the session's lead run. A declared kind holds the
     /// run, replacing any choice it held, and is shown as its requested row with the run waiting
     /// for input; a refusal with no fallback model is answered `cancelled` and ends the run
-    /// refused. A kind the daemon never declared, a request id already held (a re-delivery) and a
-    /// dialog naming no model are left unanswered, as Claude Code requires of an undeclared kind.
+    /// refused, and a dialog naming no model is answered `cancelled`. A request id the session's
+    /// process already asked (a re-delivery or a replay) is taken once, and a kind the daemon never
+    /// declared is left unanswered, as Claude Code requires.
     #[cfg_attr(
         not(test),
         expect(
@@ -197,10 +202,11 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
         else {
             return;
         };
-        if self
-            .lock()
-            .values()
-            .any(|held| held.session_id == session.session_id && held.request_id == request_id)
+        if !self
+            .seen()
+            .entry(session.session_id)
+            .or_default()
+            .insert(request_id.clone())
         {
             return;
         }
@@ -213,6 +219,15 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
             .and_then(read_wire_handle)
             .or_else(|| read_wire_handle(session.running_model))
         else {
+            // A choice about no model it can name cannot be shown, and Claude Code waits on it.
+            answer_claude_request(
+                session.channel,
+                &session.session_id,
+                session.provider_account_id,
+                request_id,
+                &json!({"behavior": "cancelled"}),
+            )
+            .await;
             return;
         };
         let held = HeldDialog {
@@ -242,7 +257,6 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
                     // No other model to retry on leaves nothing to choose: the turn ends refused,
                     // and any choice the run held goes with it.
                     self.lock().remove(&held.run.run_id);
-                    self.ports.mark_daemon_ended(held.run.run_id, false);
                     answer_claude_request(
                         session.channel,
                         &session.session_id,
@@ -517,9 +531,12 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
     /// A frame of `run_id`'s turn arrived: answers whether the run held an answer no write or check
     /// settled, which the frame shows Claude Code took, so the caller reports the run `running`
     /// first and the run engine settles that answer.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's stream reader reports a settled answer"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's stream reader reports a settled answer"
+        )
     )]
     pub(crate) fn observe_turn_frame(&self, run_id: RunId) -> bool {
         let mut held_by_run = self.lock();
@@ -541,12 +558,19 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
     pub(crate) fn forget_session(&self, session_id: SessionId) {
         self.lock()
             .retain(|_run_id, held| held.session_id != session_id);
+        self.seen().remove(&session_id);
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<RunId, HeldDialog>> {
         self.held_by_run
             .lock()
             .expect("the dialog table's lock is never held across a panic")
+    }
+
+    fn seen(&self) -> MutexGuard<'_, HashMap<SessionId, HashSet<String>>> {
+        self.seen_by_session
+            .lock()
+            .expect("the seen-dialog table's lock is never held across a panic")
     }
 
     fn hold(&self, held: HeldDialog) {
@@ -745,7 +769,6 @@ async fn read_pending_dialogs(
             supported_dialog_kinds: None,
             per_task_stop_affordance: None,
             sdk_mcp_servers: None,
-            sdk_mcp_server_configs: None,
         })
         .await;
     match reply {

@@ -68,6 +68,10 @@ pub(crate) enum ClaudeUserContentBlock {
         text: String,
     },
     /// A picture.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's message writes send pictures with it"
+    )]
     Image {
         /// Its bytes.
         source: ClaudePictureSource,
@@ -79,6 +83,10 @@ pub(crate) enum ClaudeUserContentBlock {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum ClaudePictureSource {
     /// Inline.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's message writes send pictures with it"
+    )]
     Base64 {
         /// Its format.
         media_type: ClaudePictureMediaType,
@@ -92,15 +100,31 @@ pub(crate) enum ClaudePictureSource {
 pub(crate) enum ClaudePictureMediaType {
     /// JPEG.
     #[serde(rename = "image/jpeg")]
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's message writes send pictures with it"
+    )]
     Jpeg,
     /// PNG.
     #[serde(rename = "image/png")]
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's message writes send pictures with it"
+    )]
     Png,
     /// GIF.
     #[serde(rename = "image/gif")]
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's message writes send pictures with it"
+    )]
     Gif,
     /// WebP.
     #[serde(rename = "image/webp")]
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's message writes send pictures with it"
+    )]
     Webp,
 }
 
@@ -109,10 +133,22 @@ pub(crate) enum ClaudePictureMediaType {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ClaudeMessagePriority {
     /// At once, stopping what the turn is doing.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's message writes queue each message with it"
+    )]
     Now,
     /// At the turn's next step.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's message writes queue each message with it"
+    )]
     Next,
     /// Once the turn ends.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's message writes queue each message with it"
+    )]
     Later,
 }
 
@@ -159,8 +195,22 @@ pub(crate) fn compose_claude_user_frame(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeWriteDelivery {
     /// No byte reached the process.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code process reports each failed write with it"
+        )
+    )]
     Unsent,
     /// Some bytes may have reached it, so it may act on them.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code process reports each failed write with it"
+        )
+    )]
     Indeterminate,
 }
 
@@ -169,8 +219,22 @@ pub(crate) enum ClaudeWriteDelivery {
 #[derive(Debug)]
 pub(crate) enum ClaudeWriteAttempt {
     /// The whole line was written.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code process reports each write with it"
+        )
+    )]
     Written,
     /// The write failed.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code process reports each write with it"
+        )
+    )]
     Failed {
         /// How far it got.
         delivery: ClaudeWriteDelivery,

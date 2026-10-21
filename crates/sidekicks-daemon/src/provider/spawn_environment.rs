@@ -30,6 +30,13 @@ use crate::provider::driver::ProviderDescriptor;
 /// so no provider's agent starts another's background work. Built once at the daemon's start.
 pub(crate) struct ReservedEnvironmentNames {
     names: Vec<&'static str>,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start builds each provider process's environment from it"
+        )
+    )]
     background_work_off_switches: Vec<(&'static str, &'static str)>,
 }
 

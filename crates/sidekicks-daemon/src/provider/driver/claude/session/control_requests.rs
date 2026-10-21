@@ -177,6 +177,13 @@ impl PendingControlRequest {
     /// answer. Fails with `InputUnwritable` when no byte was written; with `Unanswered` when some
     /// were and no answer came: the write was cut short, the deadline passed (the request is then
     /// withdrawn) or the process exited; and with `ControlRequestRefused` when Claude Code refused.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code process settles each control request it writes through it"
+        )
+    )]
     pub(crate) async fn answer_within(
         mut self,
         written: ClaudeWriteAttempt,
@@ -199,22 +206,36 @@ impl PendingControlRequest {
                 return Err(self.unanswered(ClaudeUnansweredCause::WriteCut));
             }
         }
-        match tokio::time::timeout(deadline, &mut self.receiver).await {
-            Ok(Ok(ClaudeControlOutcome::Success(answer))) => Ok(answer),
-            Ok(Ok(ClaudeControlOutcome::Refused { error })) => {
+        let received = match tokio::time::timeout(deadline, &mut self.receiver).await {
+            Ok(received) => received,
+            Err(_elapsed) => match self.receive_after_deadline().await {
+                Some(received) => received,
+                None => return Err(self.unanswered(ClaudeUnansweredCause::Deadline)),
+            },
+        };
+        match received {
+            Ok(ClaudeControlOutcome::Success(answer)) => Ok(answer),
+            Ok(ClaudeControlOutcome::Refused { error }) => {
                 Err(ClaudeSessionError::ControlRequestRefused {
                     subtype: self.subtype,
                     provider_error: error,
                 })
             }
-            Ok(Err(_closed)) => Err(self.unanswered(ClaudeUnansweredCause::ProcessExited)),
-            Err(_elapsed) => {
-                if self.requests.retire(self.id) {
-                    (self.requests.withdraw)(&self.request_id());
-                }
-                Err(self.unanswered(ClaudeUnansweredCause::Deadline))
-            }
+            Err(_closed) => Err(self.unanswered(ClaudeUnansweredCause::ProcessExited)),
         }
+    }
+
+    // Past the deadline: `None` once the still-pending request is withdrawn; otherwise the answer
+    // that settled it as the deadline fired, whose sender is out of the table and sends or drops
+    // without waiting, so that answer is read, never lost.
+    async fn receive_after_deadline(
+        &mut self,
+    ) -> Option<Result<ClaudeControlOutcome, oneshot::error::RecvError>> {
+        if self.requests.retire(self.id) {
+            (self.requests.withdraw)(&self.request_id());
+            return None;
+        }
+        Some((&mut self.receiver).await)
     }
 
     fn unanswered(&self, cause: ClaudeUnansweredCause) -> ClaudeSessionError {
@@ -364,6 +385,31 @@ mod tests {
         );
         // A dropped caller took its slot back and withdrew its request.
         assert_eq!(*withdrawn.lock().expect("the test's lock"), [retired_id]);
+    }
+
+    // Killed by answering the deadline once the slot is already settled, which drops the answer
+    // Claude Code sent, or by withdrawing a request that was answered.
+    #[tokio::test]
+    async fn an_answer_settled_as_the_deadline_fires_is_delivered() {
+        let (requests, withdrawn) = table();
+        let mut pending = requests
+            .open(ClaudeControlSubtype::GetSettings)
+            .expect("the table is open");
+        assert_eq!(
+            requests.settle(
+                &pending.request_id(),
+                ClaudeControlOutcome::Success(ClaudeControlAnswer::default())
+            ),
+            ClaudeControlSettlement::Settled
+        );
+
+        let received = pending.receive_after_deadline().await;
+
+        assert!(matches!(
+            received,
+            Some(Ok(ClaudeControlOutcome::Success(_)))
+        ));
+        assert!(withdrawn.lock().expect("the test's lock").is_empty());
     }
 
     // Killed by treating a write cut after some bytes as one that wrote nothing, or the reverse.

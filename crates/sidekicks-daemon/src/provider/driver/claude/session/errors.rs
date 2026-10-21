@@ -30,36 +30,72 @@ pub(crate) const CLAUDE_AUTH_PROBE_REACHED_DETAIL: &str =
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeSessionUnavailableReason {
     /// The spawned process announced a session id other than the one pinned.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's session lifecycle refuses with it"
+    )]
     SessionIdPinDiverged,
     /// No live session is bound to the session.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's session and run controls refuse with it"
+    )]
     NoLiveSession,
     /// No live session is bound to the run.
+    #[expect(dead_code, reason = "the Claude driver's run controls refuse with it")]
     NoLiveRun,
     /// The run's turn is already dispatched and has not settled.
+    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     RunAlreadyDispatched,
     /// Another run's turn is still in flight on the session.
+    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     SessionTurnInFlight,
     /// The daemon resolved no dispatch for the run.
+    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     RunDispatchUnresolved,
     /// The run's execution posture differs from the one the session was spawned with.
+    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     ExecutionPostureMismatch,
     /// The run requires schema-constrained output and the session was spawned without a schema.
+    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     OutputSchemaUnbound,
     /// The run's output schema differs from the one the session was spawned with.
+    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     OutputSchemaMismatch,
     /// The request named a provider account that is present but empty.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's session lifecycle refuses with it"
+    )]
     ProviderAccountUnusable,
     /// Two resolvers name different provider accounts for the session.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's session lifecycle refuses with it"
+    )]
     ProviderAccountAmbiguous,
     /// The process exited before it answered.
     ProcessExited,
     /// The session holds no execution posture, so a turn the daemon starts has no level to run at.
+    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     ExecutionPostureAbsent,
     /// Claude Code cannot run the session at that permission level.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's session controls refuse with it"
+    )]
     PermissionLevelUnavailable,
     /// The installed Claude Code lists no code-review skill for the session.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's review command refuses with it"
+    )]
     ReviewSkillAbsent,
     /// Claude Code's model id names its window, so a session takes no larger-window figure.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's session controls refuse with it"
+    )]
     LargerWindowFigureUnsupported,
 }
 
@@ -122,10 +158,22 @@ impl ClaudeSessionUnavailableReason {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeSessionSlotState {
     /// A create or resume is in flight.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's session lifecycle names the slot a create meets with it"
+    )]
     Establishing,
     /// A live session holds the slot.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's session lifecycle names the slot a create meets with it"
+    )]
     Live,
     /// The session is still being torn down.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's session lifecycle names the slot a create meets with it"
+    )]
     Closing,
 }
 
@@ -161,6 +209,13 @@ pub(crate) enum ClaudeSessionError {
     InputUnwritable(#[source] io::Error),
     /// The account's sign-in is gone or refused.
     #[error("{detail}")]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's sign-in probe and stream reader report a refused sign-in"
+        )
+    )]
     AuthenticationRequired {
         /// What the provider reported, never a credential.
         detail: String,
@@ -183,6 +238,10 @@ pub(crate) enum ClaudeSessionError {
     },
     /// A process already holds the session's slot.
     #[error("a Claude session already holds this session's slot ({holder_state:?})")]
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's session lifecycle refuses a second process with it"
+    )]
     SessionAlreadyLive {
         /// The state the slot is in.
         holder_state: ClaudeSessionSlotState,

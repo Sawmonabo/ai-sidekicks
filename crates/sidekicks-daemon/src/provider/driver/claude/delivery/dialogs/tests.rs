@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
+use rstest::rstest;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
@@ -136,15 +137,19 @@ fn taken(sink: &Delivered) -> Vec<String> {
     sink.lock().expect("the sink is never poisoned").clone()
 }
 
-// Kills: a re-delivered dialog showing a second row, and an answer sent in the contract's
-// spelling instead of Claude Code's own (`retry_fallback`).
-#[tokio::test]
-async fn a_redelivered_dialog_adds_no_row_and_the_answer_goes_in_claude_codes_words() {
-    let (delivered, ends) = (Delivered::default(), Delivered::default());
-    let dialogs = dialogs(&delivered, &ends);
-    let written = Arc::new(Mutex::new(Vec::new()));
+const REFUSAL: (&str, &str) = (
+    "refusal_fallback_prompt",
+    r#"{"originalModel":"claude-fable-5","fallbackModel":"claude-opus-5"}"#,
+);
+const USAGE_CREDITS: (&str, &str) = (
+    "fable_overage_consent_prompt",
+    r#"{"overagesEnabled":true}"#,
+);
+
+// A channel whose every answer is written, each one recorded with its request id.
+fn writing_channel(written: &Arc<Mutex<Vec<(String, String)>>>) -> MockClaudeProcessChannel {
     let mut channel = MockClaudeProcessChannel::new();
-    let sink = Arc::clone(&written);
+    let sink = Arc::clone(written);
     channel
         .expect_answer_inbound_request()
         .returning(move |request_id, answer| {
@@ -153,47 +158,102 @@ async fn a_redelivered_dialog_adds_no_row_and_the_answer_goes_in_claude_codes_wo
                 .push((request_id, answer.get().to_owned()));
             async { ClaudeWriteAttempt::Written }.boxed()
         });
+    channel
+}
+
+// Kills: a dialog sent again, before or after its answer, showing a second row and a second move
+// (the seen ids removed), and an answer sent in the contract's spelling instead of Claude Code's.
+#[rstest]
+#[case::retry_fallback(
+    REFUSAL,
+    ProviderChoiceAnswer::Refusal { choice: RunRefusalChoice::RetryFallback },
+    "retry_fallback",
+    "refusalRequested"
+)]
+#[case::edit_prompt(
+    REFUSAL,
+    ProviderChoiceAnswer::Refusal { choice: RunRefusalChoice::EditPrompt },
+    "edit_prompt",
+    "refusalRequested"
+)]
+#[case::switch_default(
+    USAGE_CREDITS,
+    ProviderChoiceAnswer::UsageCredits { choice: RunUsageCreditsChoice::SwitchDefault },
+    "switch_default",
+    "creditsRequested"
+)]
+#[case::consent(
+    USAGE_CREDITS,
+    ProviderChoiceAnswer::UsageCredits { choice: RunUsageCreditsChoice::Consent },
+    "consent",
+    "creditsRequested"
+)]
+#[tokio::test]
+async fn a_dialog_sent_again_shows_once_and_its_answer_goes_in_claude_codes_words(
+    #[case] (kind, payload): (&str, &str),
+    #[case] answer: ProviderChoiceAnswer,
+    #[case] word: &str,
+    #[case] requested: &str,
+) {
+    let (delivered, ends) = (Delivered::default(), Delivered::default());
+    let dialogs = dialogs(&delivered, &ends);
+    let written = Arc::new(Mutex::new(Vec::new()));
+    let channel = writing_channel(&written);
     let session = session(&channel);
     let run = bound_run();
-    let refusal = dialog(
-        "refusal_fallback_prompt",
-        r#"{"originalModel":"claude-fable-5","fallbackModel":"claude-opus-5"}"#,
-    );
+    let asked = dialog(kind, payload);
 
     for _ in 0..2 {
         dialogs
-            .take_dialog(&session, "dialog-1".to_owned(), &refusal, run.clone())
+            .take_dialog(&session, "dialog-1".to_owned(), &asked, run.clone())
             .await;
     }
     let answered = dialogs
-        .answer(
-            &session,
-            &answer_params(
-                &session,
-                &run,
-                ProviderChoiceAnswer::Refusal {
-                    choice: RunRefusalChoice::RetryFallback,
-                },
-            ),
-        )
+        .answer(&session, &answer_params(&session, &run, answer))
         .await
         .expect("the answer is written");
+    // Replayed after the answer let the choice go, as a re-sent `initialize` replays it.
+    dialogs
+        .take_dialog(&session, "dialog-1".to_owned(), &asked, run.clone())
+        .await;
 
-    assert_eq!(taken(&delivered), ["refusalRequested", "WaitingForInput"]);
+    assert_eq!(taken(&delivered), [requested, "WaitingForInput"]);
     assert_eq!(answered, AnswerProviderChoiceResult::Answered {});
     assert_eq!(
         *written.lock().expect("the sink is never poisoned"),
         [(
             "dialog-1".to_owned(),
-            r#"{"behavior":"completed","result":"retry_fallback"}"#.to_owned()
+            format!(r#"{{"behavior":"completed","result":"{word}"}}"#)
         )]
     );
 }
 
-// Kills: a refusal with no fallback shown as a choice, left unanswered, given a settlement
-// row it never showed, or ended without the daemon's end marked and confirmed.
+// Kills: a dialog with nothing to choose left unanswered while Claude Code waits on it, shown as
+// a choice, given a settlement row it never showed, or ended without the daemon's end marked once
+// and confirmed.
+#[rstest]
+#[case::a_refusal_with_no_fallback(
+    "refusal_fallback_prompt",
+    r#"{"originalModel":"claude-fable-5"}"#,
+    "claude-opus-5",
+    &["Failed"],
+    &["mark:false", "confirm"]
+)]
+#[case::no_model_to_name(
+    "fable_overage_consent_prompt",
+    r#"{"overagesEnabled":true}"#,
+    " ",
+    &[],
+    &[]
+)]
 #[tokio::test]
-async fn a_refusal_with_no_fallback_is_canceled_and_ends_the_run_refused() {
+async fn a_dialog_with_nothing_to_choose_is_canceled(
+    #[case] kind: &str,
+    #[case] payload: &str,
+    #[case] running_model: &str,
+    #[case] delivered_labels: &[&str],
+    #[case] end_labels: &[&str],
+) {
     let (delivered, ends) = (Delivered::default(), Delivered::default());
     let dialogs = dialogs(&delivered, &ends);
     let mut channel = MockClaudeProcessChannel::new();
@@ -204,17 +264,17 @@ async fn a_refusal_with_no_fallback_is_canceled_and_ends_the_run_refused() {
         })
         .times(1)
         .returning(|_, _| async { ClaudeWriteAttempt::Written }.boxed());
-    let session = session(&channel);
+    let session = ClaudeDialogSession {
+        running_model,
+        ..session(&channel)
+    };
     let run = bound_run();
 
     dialogs
         .take_dialog(
             &session,
             "dialog-1".to_owned(),
-            &dialog(
-                "refusal_fallback_prompt",
-                r#"{"originalModel":"claude-fable-5"}"#,
-            ),
+            &dialog(kind, payload),
             run.clone(),
         )
         .await;
@@ -232,9 +292,142 @@ async fn a_refusal_with_no_fallback_is_canceled_and_ends_the_run_refused() {
         .await
         .expect("nothing is held");
 
-    assert_eq!(taken(&delivered), ["Failed"]);
-    assert_eq!(taken(&ends), ["mark:false", "mark:false", "confirm"]);
+    assert_eq!(taken(&delivered), delivered_labels);
+    assert_eq!(taken(&ends), end_labels);
     assert_eq!(answered, AnswerProviderChoiceResult::NotPending {});
+}
+
+// Kills: an answer cut mid-write written again once the check shows Claude Code took it, or not
+// written again while the check still lists its id.
+#[rstest]
+#[case::taken(&[], 1)]
+#[case::still_pending(&["dialog-1"], 2)]
+#[tokio::test]
+async fn an_answer_cut_mid_write_is_written_again_only_while_its_id_is_pending(
+    #[case] pending: &'static [&'static str],
+    #[case] writes: usize,
+) {
+    let (delivered, ends) = (Delivered::default(), Delivered::default());
+    let dialogs = dialogs(&delivered, &ends);
+    let mut channel = MockClaudeProcessChannel::new();
+    let mut attempts = 0;
+    channel
+        .expect_answer_inbound_request()
+        .times(writes)
+        .returning(move |_, _| {
+            attempts += 1;
+            let first = attempts == 1;
+            async move {
+                if first {
+                    ClaudeWriteAttempt::Failed {
+                        delivery: ClaudeWriteDelivery::Indeterminate,
+                        cause: std::io::Error::other("the pipe broke mid-line"),
+                    }
+                } else {
+                    ClaudeWriteAttempt::Written
+                }
+            }
+            .boxed()
+        });
+    channel
+        .expect_send_control_request()
+        .times(1)
+        .returning(move |_| {
+            async move {
+                Ok(ClaudeControlAnswer {
+                    response: None,
+                    pending_user_dialog_requests: Some(
+                        pending.iter().map(|&id| id.to_owned()).collect(),
+                    ),
+                })
+            }
+            .boxed()
+        });
+    let session = session(&channel);
+    let run = bound_run();
+    let (kind, payload) = USAGE_CREDITS;
+    dialogs
+        .take_dialog(
+            &session,
+            "dialog-1".to_owned(),
+            &dialog(kind, payload),
+            run.clone(),
+        )
+        .await;
+
+    let answered = dialogs
+        .answer(
+            &session,
+            &answer_params(
+                &session,
+                &run,
+                ProviderChoiceAnswer::UsageCredits {
+                    choice: RunUsageCreditsChoice::Consent,
+                },
+            ),
+        )
+        .await;
+
+    assert_eq!(
+        answered.expect("the check settled the answer"),
+        AnswerProviderChoiceResult::Answered {}
+    );
+}
+
+// Kills: a turn frame reporting a settled hold as a taken answer, or one taken answer twice.
+#[tokio::test]
+async fn a_turn_frame_reports_only_an_unsettled_answer_and_once() {
+    let (delivered, ends) = (Delivered::default(), Delivered::default());
+    let dialogs = dialogs(&delivered, &ends);
+    let mut channel = MockClaudeProcessChannel::new();
+    channel.expect_answer_inbound_request().returning(|_, _| {
+        async {
+            ClaudeWriteAttempt::Failed {
+                delivery: ClaudeWriteDelivery::Indeterminate,
+                cause: std::io::Error::other("the pipe broke mid-line"),
+            }
+        }
+        .boxed()
+    });
+    channel.expect_send_control_request().returning(|_| {
+        async {
+            Err(ClaudeSessionError::Unanswered {
+                subtype: ClaudeControlSubtype::Initialize,
+                cause: ClaudeUnansweredCause::Deadline,
+            })
+        }
+        .boxed()
+    });
+    let session = session(&channel);
+    let (cut_run, held_run) = (bound_run(), bound_run());
+    let (kind, payload) = USAGE_CREDITS;
+    for (request_id, run) in [("dialog-1", &cut_run), ("dialog-2", &held_run)] {
+        dialogs
+            .take_dialog(
+                &session,
+                request_id.to_owned(),
+                &dialog(kind, payload),
+                run.clone(),
+            )
+            .await;
+    }
+    let cut = dialogs
+        .answer(
+            &session,
+            &answer_params(
+                &session,
+                &cut_run,
+                ProviderChoiceAnswer::UsageCredits {
+                    choice: RunUsageCreditsChoice::Consent,
+                },
+            ),
+        )
+        .await;
+    assert!(matches!(cut, Err(DriverError::Unanswered(_))));
+
+    assert!(!dialogs.observe_turn_frame(held_run.run_id));
+    assert!(dialogs.observe_turn_frame(cut_run.run_id));
+    assert!(!dialogs.observe_turn_frame(cut_run.run_id));
 }
 
 // Kills: an unsettled answer that a check finds gone answering `Answered` (the provider took

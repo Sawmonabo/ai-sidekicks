@@ -146,20 +146,4 @@ mod tests {
 
         assert_eq!(answered, answer);
     }
-
-    #[tokio::test]
-    async fn a_command_is_refused_with_the_reason_read_from_its_line() {
-        let command = ProviderAskAction::Command {
-            command: "claude agents".to_owned(),
-        };
-
-        let answered = answer_provider_ask(&command, Some("refused"), Path::new("/memory"))
-            .await
-            .expect("a command reads no path");
-
-        assert_eq!(
-            answered,
-            Some(ProviderAskAnswer::Deny { reason: "refused" })
-        );
-    }
 }

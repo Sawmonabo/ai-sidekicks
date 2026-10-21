@@ -229,6 +229,13 @@ pub(crate) struct BackgroundWork {
     pub(crate) refusal: &'static str,
     /// The variable and value that turn the provider's background work off, set on every
     /// provider's process and on the commands its conversation runs, so a nested run inherits it.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start builds each provider process's environment from it"
+        )
+    )]
     pub(crate) off_switch: (&'static str, &'static str),
 }
 

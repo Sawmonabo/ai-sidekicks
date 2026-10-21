@@ -18,10 +18,10 @@ use crate::provider::driver::claude::session::transport::user_message::{
 pub(crate) trait ClaudeProcessChannel: Send + Sync {
     /// Sends one control request and settles on its answer. A request that passes its deadline,
     /// or whose caller stops waiting, is also withdrawn with `control_cancel_request`, queued on
-    /// the input writer without waiting. Fails with `Unavailable` when nothing was written (the
-    /// process had exited, or the write failed before its first byte), `Unanswered` once anything
-    /// was written and no answer came (its deadline, the process's exit, a write cut short), and
-    /// `ControlRequestRefused` when Claude Code refused it.
+    /// the input writer without waiting. Fails with `Unavailable` when the process had already
+    /// exited, `InputUnwritable` when the write failed before its first byte, `Unanswered` once
+    /// anything was written and no answer came (its deadline, the process's exit, a write cut
+    /// short), and `ControlRequestRefused` when Claude Code refused it.
     fn send_control_request(
         &self,
         request: ClaudeControlRequest,
@@ -36,6 +36,10 @@ pub(crate) trait ClaudeProcessChannel: Send + Sync {
     ) -> BoxFuture<'_, ClaudeWriteAttempt>;
 
     /// Writes one user message line, reporting how far the write got.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's run start, steer and resume write each message through it"
+    )]
     fn write_user_frame(&self, frame: ClaudeUserFrame) -> BoxFuture<'_, ClaudeWriteAttempt>;
 
     /// Stops the process as the system stops a child, ending a running turn without answering

@@ -7,6 +7,8 @@
 //! session arms one timer on the earliest deadline it reports, asks for the pieces due when it
 //! fires, and writes each piece it is given in order.
 
+use std::borrow::Borrow;
+use std::hash::Hash;
 use std::time::Duration;
 
 use tokio::time::Instant;
@@ -18,9 +20,9 @@ pub(crate) const STREAMED_TEXT_PIECE_INTERVAL: Duration = Duration::from_millis(
 
 /// One piece of a message, to be stored as one row of the message `key`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct StreamedTextPiece {
+pub(crate) struct StreamedTextPiece<K = String> {
     /// The provider's key for the message.
-    pub(crate) key: String,
+    pub(crate) key: K,
     /// The text the piece carries.
     pub(crate) text: String,
 }
@@ -42,8 +44,8 @@ pub(crate) enum StreamedTextCompletion {
 }
 
 // One message the provider is streaming.
-struct StreamedMessage {
-    key: String,
+struct StreamedMessage<K> {
+    key: K,
     // The turn the message belongs to, whose end sends what is still waiting.
     turn_id: String,
     // Everything already handed out as pieces.
@@ -54,7 +56,7 @@ struct StreamedMessage {
     due_at: Option<Instant>,
 }
 
-impl StreamedMessage {
+impl<K> StreamedMessage<K> {
     // Hands out what is waiting as one piece; `None` when nothing waits.
     fn take_piece(&mut self) -> Option<String> {
         self.due_at = None;
@@ -67,23 +69,35 @@ impl StreamedMessage {
     }
 }
 
-/// The messages a provider is streaming on one session, in the order they opened.
-#[derive(Default)]
-pub(crate) struct StreamedText {
+/// The messages a provider is streaming on one session, in the order they opened, each under the
+/// provider's key for it.
+pub(crate) struct StreamedText<K = String> {
     /// The open messages, oldest first; a session streams only a few at once.
-    messages: Vec<StreamedMessage>,
+    messages: Vec<StreamedMessage<K>>,
 }
 
-impl StreamedText {
+impl<K> Default for StreamedText<K> {
+    fn default() -> Self {
+        Self {
+            messages: Vec::new(),
+        }
+    }
+}
+
+impl<K: Hash + Eq + Clone + Send + Sync + 'static> StreamedText<K> {
     /// Adds `delta` to the message `key` of `turn_id`, opening it, at `now`. Returns the deadline
     /// the delta goes out by when this delta armed it, `None` when one was already armed.
-    pub(crate) fn append(
+    pub(crate) fn append<Q>(
         &mut self,
-        key: &str,
+        key: &Q,
         turn_id: &str,
         delta: &str,
         now: Instant,
-    ) -> Option<Instant> {
+    ) -> Option<Instant>
+    where
+        K: Borrow<Q>,
+        Q: Eq + ToOwned<Owned = K> + ?Sized,
+    {
         if delta.is_empty() {
             return None;
         }
@@ -118,7 +132,7 @@ impl StreamedText {
     }
 
     /// The pieces whose interval has passed by `now`, in the order their messages opened.
-    pub(crate) fn due(&mut self, now: Instant) -> Vec<StreamedTextPiece> {
+    pub(crate) fn due(&mut self, now: Instant) -> Vec<StreamedTextPiece<K>> {
         self.messages
             .iter_mut()
             .filter(|message| message.due_at.is_some_and(|due_at| due_at <= now))
@@ -134,7 +148,11 @@ impl StreamedText {
     /// Ends the message `key` with the provider's `final_text`: what streamed and the rest of the
     /// final text go out as the last piece, or the whole text as the only one when nothing
     /// streamed.
-    pub(crate) fn complete(&mut self, key: &str, final_text: &str) -> StreamedTextCompletion {
+    pub(crate) fn complete<Q>(&mut self, key: &Q, final_text: &str) -> StreamedTextCompletion
+    where
+        K: Borrow<Q>,
+        Q: Eq + ?Sized,
+    {
         let Some(index) = self.position(key) else {
             return StreamedTextCompletion::Completed {
                 last_piece: (!final_text.is_empty()).then(|| final_text.to_owned()),
@@ -157,14 +175,18 @@ impl StreamedText {
 
     /// Drops the message `key` and what still waits on it, which the provider says it will never
     /// finish. Returns whether pieces of it were already handed out, which stay.
-    pub(crate) fn discard(&mut self, key: &str) -> bool {
+    pub(crate) fn discard<Q>(&mut self, key: &Q) -> bool
+    where
+        K: Borrow<Q>,
+        Q: Eq + ?Sized,
+    {
         self.position(key)
             .is_some_and(|index| !self.messages.remove(index).sent.is_empty())
     }
 
     /// Ends every message of `turn_id`, which ended without finishing them, and returns what still
     /// waited on each.
-    pub(crate) fn end_turn(&mut self, turn_id: &str) -> Vec<StreamedTextPiece> {
+    pub(crate) fn end_turn(&mut self, turn_id: &str) -> Vec<StreamedTextPiece<K>> {
         let (ended, open) = std::mem::take(&mut self.messages)
             .into_iter()
             .partition(|message| message.turn_id == turn_id);
@@ -173,16 +195,22 @@ impl StreamedText {
     }
 
     /// Ends every message, once the session's stream ends, and returns what still waited on each.
-    pub(crate) fn end_all(&mut self) -> Vec<StreamedTextPiece> {
+    pub(crate) fn end_all(&mut self) -> Vec<StreamedTextPiece<K>> {
         last_pieces(std::mem::take(&mut self.messages))
     }
 
-    fn position(&self, key: &str) -> Option<usize> {
-        self.messages.iter().position(|message| message.key == key)
+    fn position<Q>(&self, key: &Q) -> Option<usize>
+    where
+        K: Borrow<Q>,
+        Q: Eq + ?Sized,
+    {
+        self.messages
+            .iter()
+            .position(|message| message.key.borrow() == key)
     }
 }
 
-fn last_pieces(messages: Vec<StreamedMessage>) -> Vec<StreamedTextPiece> {
+fn last_pieces<K>(messages: Vec<StreamedMessage<K>>) -> Vec<StreamedTextPiece<K>> {
     messages
         .into_iter()
         .filter_map(|mut message| {
@@ -211,7 +239,7 @@ mod tests {
     ) {
         let final_text = "Good day to you";
         let start = Instant::now();
-        let mut streamed = StreamedText::default();
+        let mut streamed: StreamedText = StreamedText::default();
         let mut pieces = Vec::new();
 
         for delta in before_interval {

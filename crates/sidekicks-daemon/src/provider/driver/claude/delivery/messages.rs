@@ -94,8 +94,16 @@ pub(crate) struct ClaudeOpenToolCall {
 /// One row read off a message frame, with how it pairs in the reorder buffer.
 pub(crate) struct ClaudeMessageRow {
     /// The tool call the row belongs to, `None` on a thinking or text row.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's stream reader writes each row with it"
+    )]
     pub(crate) tool_call_id: Option<String>,
     /// Where the row stands in its call's pair.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's stream reader writes each row with it"
+    )]
     pub(crate) pairing_role: ReorderPairingRole,
     /// The row and its stored body.
     pub(crate) row: ClaudeMessageRowKind,
@@ -103,6 +111,10 @@ pub(crate) struct ClaudeMessageRow {
 
 impl ClaudeMessageRow {
     /// The provider operation the row belongs to: its tool call, opened by its invocation.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's stream reader binds each row's operation through it"
+    )]
     pub(crate) fn operation(&self) -> Option<DeliveryOperation<'_>> {
         self.tool_call_id
             .as_deref()
@@ -137,7 +149,13 @@ pub(crate) enum ClaudeMessageBody {
     /// The message's text, the call's input as JSON, or the result's words.
     Text(String),
     /// The change the call made.
-    Patch(WholePatchFile),
+    Patch(
+        #[expect(
+            dead_code,
+            reason = "the Claude driver's stream reader writes the change from it"
+        )]
+        WholePatchFile,
+    ),
 }
 
 /// The rows of one `user` frame of the lead and the tool calls it answered with an error. A

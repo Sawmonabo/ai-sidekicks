@@ -40,40 +40,43 @@ pub(crate) enum ClaudeControlRequest {
         /// a re-send.
         #[serde(rename = "sdkMcpServers", skip_serializing_if = "Option::is_none")]
         sdk_mcp_servers: Option<Vec<String>>,
-        /// Each in-process server's settings, by its name.
-        #[serde(
-            rename = "sdkMcpServerConfigs",
-            skip_serializing_if = "Option::is_none"
-        )]
-        sdk_mcp_server_configs: Option<BTreeMap<String, ClaudeSdkServerConfig>>,
     },
     /// Stops the running turn; with `cancel_queued` it also drops what is queued behind it.
+    #[expect(dead_code, reason = "the Claude driver's interrupt sends it")]
     Interrupt {
         /// Whether the messages queued behind the turn are dropped too.
         #[serde(skip_serializing_if = "is_false")]
         cancel_queued: bool,
     },
     /// Changes the flag settings layer of a live process.
+    #[expect(dead_code, reason = "the Claude driver's session controls send it")]
     ApplyFlagSettings {
         /// The keys changed, each merged whole.
         settings: ClaudeFlagSettings,
     },
     /// Moves a live process to another permission mode.
+    #[expect(dead_code, reason = "the Claude driver's session controls send it")]
     SetPermissionMode {
         /// The mode.
         mode: ClaudePermissionMode,
     },
     /// Asks for summarized thinking blocks.
+    #[expect(dead_code, reason = "the Claude driver's launch sends it")]
     SetMaxThinkingTokens {
         /// Always `summarized`.
         thinking_display: ClaudeThinkingDisplay,
     },
     /// Installs the session's tool-server routes, replacing the set.
+    #[expect(dead_code, reason = "the Claude driver's tool-server routes send it")]
     McpSetServers {
         /// Each route by its server name.
         servers: BTreeMap<String, ClaudeToolServerEntry>,
     },
     /// Delivers one MCP JSON-RPC message from a tool server the daemon hosts in-process.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's in-process tool servers send it"
+    )]
     McpMessage {
         /// The server, as `initialize` or `mcp_set_servers` named it.
         server_name: String,
@@ -82,12 +85,17 @@ pub(crate) enum ClaudeControlRequest {
     },
     /// Moves running foreground work (a command, a helper) to the background, answered by a
     /// [`ClaudeBackgroundTasksReply`].
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's background-work control sends it"
+    )]
     BackgroundTasks {
         /// The one tool call whose work moves; absent, all of it.
         #[serde(skip_serializing_if = "Option::is_none")]
         tool_use_id: Option<String>,
     },
     /// Asks Claude Code for a session title, answered by a [`ClaudeSessionTitleReply`].
+    #[expect(dead_code, reason = "the Claude driver's session title sends it")]
     GenerateSessionTitle {
         /// What the session is about.
         description: String,
@@ -95,6 +103,7 @@ pub(crate) enum ClaudeControlRequest {
         persist: bool,
     },
     /// Sets the session's title as the person chose it in the app.
+    #[expect(dead_code, reason = "the Claude driver's session rename sends it")]
     RenameSession {
         /// The title.
         title: String,
@@ -104,6 +113,7 @@ pub(crate) enum ClaudeControlRequest {
         session_id: String,
     },
     /// Asks a side question beside the conversation, which the conversation never shows.
+    #[expect(dead_code, reason = "the Claude driver's side question sends it")]
     SideQuestion {
         /// The question.
         question: String,
@@ -112,8 +122,10 @@ pub(crate) enum ClaudeControlRequest {
         history: Option<Vec<Box<RawValue>>>,
     },
     /// Reads the settings that took effect.
+    #[expect(dead_code, reason = "the Claude driver's settings read sends it")]
     GetSettings {},
     /// Cuts the conversation back to before one message.
+    #[expect(dead_code, reason = "the Claude driver's rewind sends it")]
     RewindConversation {
         /// The message the cut removes, with all after it.
         target_message_uuid: String,
@@ -124,23 +136,31 @@ pub(crate) enum ClaudeControlRequest {
         interrupt_if_running: bool,
     },
     /// Takes back a message the running turn has not read yet.
+    #[expect(dead_code, reason = "the Claude driver's steer withdrawal sends it")]
     CancelAsyncMessage {
         /// The message's uuid.
         message_uuid: String,
     },
     /// Reads the context usage of the running model.
+    #[expect(dead_code, reason = "the Claude driver's context read sends it")]
     GetContextUsage {},
     /// Moves a live process to another model.
+    #[expect(dead_code, reason = "the Claude driver's model change sends it")]
     SetModel {
         /// The model, as Claude Code takes `--model`.
         model: String,
     },
     /// Reads the build's version.
+    #[expect(dead_code, reason = "the Claude driver's build read sends it")]
     GetBinaryVersion {},
 }
 
 impl ClaudeControlRequest {
     /// The request's subtype.
+    #[expect(
+        dead_code,
+        reason = "the Claude Code process names each request it writes through it"
+    )]
     pub(crate) fn subtype(&self) -> ClaudeControlSubtype {
         match self {
             Self::Initialize { .. } => ClaudeControlSubtype::Initialize,
@@ -233,6 +253,7 @@ impl ClaudeControlSubtype {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ClaudeThinkingDisplay {
     /// A summary of each thinking block.
+    #[expect(dead_code, reason = "the Claude driver's launch asks for it")]
     Summarized,
 }
 
@@ -294,24 +315,17 @@ pub(crate) struct ClaudeAgentDefinition {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum ClaudeToolServerEntry {
     /// Reached over HTTP at `url`.
+    #[expect(dead_code, reason = "the Claude driver's tool-server routes name it")]
     Http {
         /// The route's address.
         url: String,
     },
     /// Hosted in-process, its messages carried by `mcp_message`.
+    #[expect(dead_code, reason = "the Claude driver's tool-server routes name it")]
     Sdk {
         /// The server's name.
         name: String,
     },
-}
-
-/// An in-process tool server's settings, as `initialize` declares them.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ClaudeSdkServerConfig {
-    /// Whether Claude Code keeps a long call in the foreground instead of moving it to the
-    /// background on its own.
-    pub(crate) disable_auto_background: bool,
 }
 
 /// Who chose a session's title.
@@ -319,6 +333,7 @@ pub(crate) struct ClaudeSdkServerConfig {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ClaudeTitleSource {
     /// The person, in the app.
+    #[expect(dead_code, reason = "the Claude driver's session rename sends it")]
     Host,
 }
 
@@ -328,9 +343,11 @@ pub(crate) enum ClaudeTitleSource {
 pub(crate) struct ClaudeInterruptReceipt {
     /// The messages that survive the interrupt, by uuid.
     #[serde(default, deserialize_with = "read_lenient")]
+    #[expect(dead_code, reason = "the Claude driver's interrupt reads it")]
     pub(crate) still_queued: Option<LenientList<String>>,
     /// The messages the interrupt dropped, by uuid; sent only for `cancel_queued`.
     #[serde(default, deserialize_with = "read_lenient")]
+    #[expect(dead_code, reason = "the Claude driver's interrupt reads it")]
     pub(crate) cancelled: Option<LenientList<String>>,
 }
 
@@ -339,6 +356,10 @@ pub(crate) struct ClaudeInterruptReceipt {
 pub(crate) struct ClaudeBackgroundTasksReply {
     /// Whether work moved; absent from a build that does not say.
     #[serde(default, deserialize_with = "read_lenient")]
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's background-work control reads it"
+    )]
     pub(crate) backgrounded: Option<bool>,
 }
 
@@ -347,6 +368,7 @@ pub(crate) struct ClaudeBackgroundTasksReply {
 pub(crate) struct ClaudeSessionTitleReply {
     /// The title Claude Code wrote.
     #[serde(default, deserialize_with = "read_lenient")]
+    #[expect(dead_code, reason = "the Claude driver's session title reads it")]
     pub(crate) title: Option<String>,
 }
 
@@ -361,16 +383,40 @@ lenient_object!(
 #[serde(rename_all = "camelCase")]
 pub(crate) enum ClaudePermissionMode {
     /// Asks before each change.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's launch and session controls send it"
+    )]
     Default,
     /// Takes file changes unasked.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's launch and session controls send it"
+    )]
     AcceptEdits,
     /// Claude Code's own reviewer decides.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's launch and session controls send it"
+    )]
     Auto,
     /// Refuses whatever would ask.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's launch and session controls send it"
+    )]
     DontAsk,
     /// Asks nothing.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's launch and session controls send it"
+    )]
     BypassPermissions,
     /// Plans without changing anything.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's launch and session controls send it"
+    )]
     Plan,
 }
 

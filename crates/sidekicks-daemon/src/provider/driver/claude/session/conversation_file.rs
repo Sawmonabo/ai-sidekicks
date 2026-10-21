@@ -124,7 +124,8 @@ pub(crate) async fn read_claude_conversation_outline(
 /// Which of `message_uuids` the conversation file holds on a `user` entry, in their given order:
 /// the messages Claude Code took. Read only once the process that held them has ended, since a
 /// live process keeps a message past its turn's end and takes it later; the caller retries a read
-/// that fails. Stops once every uuid is found, and fails with the file's open or read failure.
+/// that fails. Opens nothing for an empty list, stops once every uuid is found, and fails with
+/// the file's open or read failure.
 #[cfg_attr(
     not(test),
     expect(
@@ -136,6 +137,9 @@ pub(crate) async fn find_claude_taken_messages(
     file: &Path,
     message_uuids: &[String],
 ) -> io::Result<Vec<String>> {
+    if message_uuids.is_empty() {
+        return Ok(Vec::new());
+    }
     let mut unfound: HashSet<&str> = message_uuids.iter().map(String::as_str).collect();
     let mut found = HashSet::new();
     read_entries(file, |entry| {

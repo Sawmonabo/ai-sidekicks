@@ -32,6 +32,10 @@ use crate::session::run::inbound::rows::LateAppendableRow;
 
 /// The run a streamed block's rows belong to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[expect(
+    dead_code,
+    reason = "the Claude driver's stream reader names each streamed block's run with it"
+)]
 pub(crate) struct ClaudeStreamedRun {
     /// The session.
     pub(crate) session_id: SessionId,
@@ -39,12 +43,29 @@ pub(crate) struct ClaudeStreamedRun {
     pub(crate) run_id: RunId,
 }
 
-/// One stored piece of a streamed block, as the row it is written as, under the block's key,
-/// which names the events its pieces are written as.
+/// A streamed block's key, which names the events its pieces are written as: its response's API
+/// message id and its index in that response.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct ClaudeStreamedBlockKey {
+    /// The response's API message id.
+    pub(crate) message_id: String,
+    /// The block's index in the response.
+    pub(crate) block_index: u64,
+}
+
+/// One stored piece of a streamed block, as the row it is written as, under the block's key.
 pub(crate) struct ClaudeStreamedPiece {
     /// The block's key.
-    pub(crate) block_key: String,
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's stream reader writes each piece under it"
+    )]
+    pub(crate) block_key: ClaudeStreamedBlockKey,
     /// The row, its body the piece.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's stream reader writes each piece as it"
+    )]
     pub(crate) row: ClaudeMessageRow,
 }
 
@@ -170,15 +191,15 @@ lenient_object!(StreamEventFrame, StreamEvent, StreamDelta, AbandonedBlocks);
 /// The blocks one session's process is streaming, from their first piece to their turn's end.
 pub(crate) struct ClaudeStreamedBlocks {
     provider_account_id: Option<ProviderAccountId>,
-    text: StreamedText,
+    text: StreamedText<ClaudeStreamedBlockKey>,
     // The row each streamed block's pieces are written as, by its key.
-    prose_rows: HashMap<String, ProseRow>,
+    prose_rows: HashMap<ClaudeStreamedBlockKey, ProseRow>,
     // The block each response is streaming now, by its API message id.
     streaming_block_by_message: HashMap<String, u64>,
     // The streamed blocks of each response no assistant frame has finished yet.
     unfinished_blocks_by_message: HashMap<String, BTreeSet<u64>>,
     // The key of the block each assistant frame of the open turn finished, by the frame's uuid.
-    block_key_by_message_uuid: HashMap<String, String>,
+    block_key_by_message_uuid: HashMap<String, ClaudeStreamedBlockKey>,
 }
 
 impl ClaudeStreamedBlocks {
@@ -200,6 +221,10 @@ impl ClaudeStreamedBlocks {
 
     /// Takes one `stream_event` frame's text of the run's turn at `now`; answers the deadline a
     /// piece it began waiting goes out by, for the session's one timer.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's stream reader takes each stream event through it"
+    )]
     pub(crate) fn observe(
         &mut self,
         frame: &str,
@@ -227,7 +252,10 @@ impl ClaudeStreamedBlocks {
             } => {
                 let provider_message_id =
                     FreeFormText::<EVENT_FIELD_MAX_LEN>::new(message_id.clone()).ok()?;
-                let key = compose_block_key(&message_id, block_index);
+                let key = ClaudeStreamedBlockKey {
+                    message_id: message_id.clone(),
+                    block_index,
+                };
                 self.unfinished_blocks_by_message
                     .entry(message_id)
                     .or_default()
@@ -283,6 +311,10 @@ impl ClaudeStreamedBlocks {
     /// answers the pieces that carry what the streamed ones did not, and the frame's rows that
     /// streamed as no block. A final text that does not begin with what streamed is recorded, the
     /// streamed pieces standing.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's stream reader finishes each streamed block through it"
+    )]
     pub(crate) fn finish(
         &mut self,
         frame: &ClaudeMessageFrame,
@@ -296,7 +328,10 @@ impl ClaudeStreamedBlocks {
         let Some((message_id, block_index)) = streamed else {
             return (Vec::new(), rows);
         };
-        let key = compose_block_key(&message_id, block_index);
+        let key = ClaudeStreamedBlockKey {
+            message_id: message_id.clone(),
+            block_index,
+        };
         let mut pieces = Vec::new();
         let mut unstreamed = Vec::new();
         for row in rows {
@@ -343,10 +378,8 @@ impl ClaudeStreamedBlocks {
         dead_code,
         reason = "the Claude Code stream reader keys a finished block's rows by it"
     )]
-    pub(crate) fn block_key_for(&self, message_uuid: &str) -> Option<&str> {
-        self.block_key_by_message_uuid
-            .get(message_uuid)
-            .map(String::as_str)
+    pub(crate) fn block_key_for(&self, message_uuid: &str) -> Option<&ClaudeStreamedBlockKey> {
+        self.block_key_by_message_uuid.get(message_uuid)
     }
 
     /// Forgets the open turn's assistant frames, as the next turn opens.
@@ -386,7 +419,10 @@ impl ClaudeStreamedBlocks {
     }
 
     // The rows of streamed pieces.
-    fn rows_of(&self, pieces: Vec<StreamedTextPiece>) -> Vec<ClaudeStreamedPiece> {
+    fn rows_of(
+        &self,
+        pieces: Vec<StreamedTextPiece<ClaudeStreamedBlockKey>>,
+    ) -> Vec<ClaudeStreamedPiece> {
         pieces
             .into_iter()
             .filter_map(|piece| {
@@ -412,7 +448,10 @@ impl ClaudeStreamedBlocks {
         let stored_block_count = abandoned
             .into_iter()
             .filter(|block_index| {
-                let key = compose_block_key(message_id, *block_index);
+                let key = ClaudeStreamedBlockKey {
+                    message_id: message_id.to_owned(),
+                    block_index: *block_index,
+                };
                 self.prose_rows.remove(&key);
                 self.text.discard(&key)
             })
@@ -492,9 +531,4 @@ fn read_stream_event(frame: &str) -> Option<ClaudeStreamEvent> {
 // A whole, non-negative block index; a fraction or a negative number is none.
 fn read_block_index(value: &Value) -> Option<u64> {
     value.as_u64()
-}
-
-// A streamed block's key: its response's API message id and its index in that response.
-fn compose_block_key(message_id: &str, block_index: u64) -> String {
-    format!("{message_id}#{block_index}")
 }
