@@ -7,6 +7,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
+use rusqlite::Connection;
+
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::git::worktree::reads::common_folder_of_record;
 use crate::git::worktree::rows::live_worktree_state_predicate;
@@ -98,9 +100,10 @@ impl KeptCopyClaims {
     }
 
     /// Whether, in the repository whose git common folder is `common_folder`, a live worktree row
-    /// is on `branch` or a put-back other than the one making `record_folder` is making it, read
-    /// when asked. A live tree whose mount records no common folder may be in this repository, so
-    /// it claims. Fails with the pool's or SQLite's failure.
+    /// is on `branch` or a put-back other than the one making `record_folder` is making it, both
+    /// read when asked in one read transaction, so a put-back that finishes meanwhile is seen as
+    /// one or the other. A live tree whose mount records no common folder may be in this
+    /// repository, so it claims. Fails with the pool's or SQLite's failure.
     #[cfg_attr(
         not(test),
         expect(
@@ -117,16 +120,23 @@ impl KeptCopyClaims {
         let is_this_repository = |claim_common_folder: Option<&Path>| {
             claim_common_folder.is_none_or(|claim| components_equal(claim, common_folder))
         };
-        let is_live_tree_on = self
-            .read_live_trees()
-            .await?
+        let (live_trees, restoring) = self
+            .reads
+            .read(ReadLength::Short, |connection| {
+                // One snapshot for both reads: a put-back's finish links its tree and clears its
+                // mark in one write.
+                let snapshot = connection.unchecked_transaction()?;
+                let claims = (query_live_trees(&snapshot)?, query_restoring(&snapshot)?);
+                snapshot.commit()?;
+                Ok::<_, KeptCopyClaimsReadError>(claims)
+            })
+            .await?;
+        let is_live_tree_on = live_trees
             .iter()
             .filter(|tree| tree.branch == branch)
             .any(|tree| is_this_repository(tree.common_folder.as_deref()));
         Ok(is_live_tree_on
-            || self
-                .read_restoring()
-                .await?
+            || restoring
                 .iter()
                 .filter(|claim| {
                     claim.branch.as_deref() == Some(branch)
@@ -139,16 +149,7 @@ impl KeptCopyClaims {
     async fn read_live_trees(&self) -> Result<Vec<LiveTreeClaim>, KeptCopyClaimsReadError> {
         self.reads
             .read(ReadLength::Short, |connection| {
-                Ok(connection
-                    .prepare_cached(SELECT_LIVE_TREES_SQL.as_str())?
-                    .query_map([], |row| {
-                        Ok(LiveTreeClaim {
-                            folder: PathBuf::from(row.get::<_, String>(0)?),
-                            branch: row.get(1)?,
-                            common_folder: row.get::<_, Option<String>>(2)?.map(PathBuf::from),
-                        })
-                    })?
-                    .collect::<rusqlite::Result<_>>()?)
+                Ok(query_live_trees(connection)?)
             })
             .await
     }
@@ -157,18 +158,37 @@ impl KeptCopyClaims {
     async fn read_restoring(&self) -> Result<Vec<RestoringClaim>, KeptCopyClaimsReadError> {
         self.reads
             .read(ReadLength::Short, |connection| {
-                Ok(connection
-                    .prepare_cached(SELECT_RESTORING_RECORDS_SQL)?
-                    .query_map([], |row| {
-                        Ok(RestoringClaim {
-                            record: PathBuf::from(row.get::<_, String>(0)?),
-                            branch: row.get(1)?,
-                        })
-                    })?
-                    .collect::<rusqlite::Result<_>>()?)
+                Ok(query_restoring(connection)?)
             })
             .await
     }
+}
+
+// The live trees, with the common folder each one's mount records.
+fn query_live_trees(connection: &Connection) -> rusqlite::Result<Vec<LiveTreeClaim>> {
+    connection
+        .prepare_cached(SELECT_LIVE_TREES_SQL.as_str())?
+        .query_map([], |row| {
+            Ok(LiveTreeClaim {
+                folder: PathBuf::from(row.get::<_, String>(0)?),
+                branch: row.get(1)?,
+                common_folder: row.get::<_, Option<String>>(2)?.map(PathBuf::from),
+            })
+        })?
+        .collect()
+}
+
+// The put-backs under way.
+fn query_restoring(connection: &Connection) -> rusqlite::Result<Vec<RestoringClaim>> {
+    connection
+        .prepare_cached(SELECT_RESTORING_RECORDS_SQL)?
+        .query_map([], |row| {
+            Ok(RestoringClaim {
+                record: PathBuf::from(row.get::<_, String>(0)?),
+                branch: row.get(1)?,
+            })
+        })?
+        .collect()
 }
 
 #[cfg(test)]
