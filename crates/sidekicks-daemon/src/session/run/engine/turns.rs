@@ -717,24 +717,34 @@ fn cut_outcome(
     }
 }
 
+/// Holds when the turn start the enclosing query reads as `started` has no end, spelled in the
+/// order the turn ends' unique index is declared so the probe reads that index.
+pub(crate) fn turn_holds_no_end_sql() -> String {
+    format!(
+        "NOT EXISTS (
+      SELECT 1 FROM session_events AS ended
+       WHERE ended.category = '{}'
+         AND ended.type IN ({})
+         AND ended.run_id = started.run_id
+         AND ended.turn_number = started.turn_number)",
+        EventCategory::RunLifecycle.as_str(),
+        *TURN_END_TYPES_SQL
+    )
+}
+
 /// The started turns that hold no end of the run the SQL expression `run_id` names (a parameter
 /// or a column of an outer query), ordered and bounded by `tail`.
 pub(crate) fn open_turns_sql(run_id: &str, tail: &str) -> String {
-    let category = EventCategory::RunLifecycle.as_str();
     format!(
         "SELECT started.turn_number FROM session_events AS started
-  WHERE started.category = '{category}'
+  WHERE started.category = '{}'
     AND started.type = '{}'
     AND started.run_id = {run_id}
-    AND NOT EXISTS (
-      SELECT 1 FROM session_events AS ended
-       WHERE ended.category = '{category}'
-         AND ended.type IN ({})
-         AND ended.run_id = started.run_id
-         AND ended.turn_number = started.turn_number)
+    AND {}
   {tail}",
+        EventCategory::RunLifecycle.as_str(),
         SessionEventType::AgentTurnStarted.as_str(),
-        *TURN_END_TYPES_SQL
+        turn_holds_no_end_sql()
     )
 }
 

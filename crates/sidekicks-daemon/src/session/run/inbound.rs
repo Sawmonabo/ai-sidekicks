@@ -414,9 +414,9 @@ impl RunInboundDispatch {
     /// Dispatches one delivery. It is attributed, and a live state published, when the call is
     /// made, before the returned future is first polled, so calls for a binding are made in its
     /// delivery order. A piece of a run being continued waits for the continue's write, so the
-    /// caller never awaits this future on the task that reads its provider's frames: a continue's
-    /// start may wait on a frame behind the piece. Fails with
-    /// [`InboundDispatchError::Cursor`] for a binding with no cursor open, with
+    /// caller must never await this future on the task that reads its provider's frames: a
+    /// continue's start may wait on a frame behind the piece.
+    /// Fails with [`InboundDispatchError::Cursor`] for a binding with no cursor open, with
     /// [`RunRefusal::NotFound`] for a piece of a run with no row, and with the engine's or the
     /// log's failure; a refusal for an ended run is an absorb, and a resend the engine owed after
     /// a move is logged, never failed.

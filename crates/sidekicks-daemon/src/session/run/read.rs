@@ -26,7 +26,7 @@ use crate::database::stored_column::{
 };
 use crate::events::session::read::readable_event_sql;
 use crate::provider::runtime_binding::store::StoredBindingIdInvalid;
-use crate::session::run::engine::turns::{TURN_END_TYPES_SQL, open_turns_sql};
+use crate::session::run::engine::turns::{open_turns_sql, turn_holds_no_end_sql};
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 /// A run as it stands now. `version` counts every progression of the run, state changes and
@@ -153,15 +153,10 @@ static SELECT_ENDED_RUNS_WITH_OPEN_TURNS_SQL: LazyLock<String> = LazyLock::new(|
   WHERE runs.state IN ({terminal_states})
     AND started.category = '{category}'
     AND started.type = '{started}'
-    AND NOT EXISTS (
-      SELECT 1 FROM session_events AS ended
-       WHERE ended.category = '{category}'
-         AND ended.type IN ({turn_ends})
-         AND ended.run_id = started.run_id
-         AND ended.turn_number = started.turn_number)",
+    AND {no_end}",
         terminal_states = *RUN_TERMINAL_STATES_SQL,
         started = SessionEventType::AgentTurnStarted.as_str(),
-        turn_ends = *TURN_END_TYPES_SQL,
+        no_end = turn_holds_no_end_sql(),
     )
 });
 
