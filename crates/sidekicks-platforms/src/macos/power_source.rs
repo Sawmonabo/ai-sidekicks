@@ -34,9 +34,10 @@ unsafe extern "C" {
     fn notify_cancel(token: c_int) -> u32;
 }
 
-// What the notification handler and the start share: the published reading, and whether the
-// failure now running has been logged.
+// What the notification handler and the start share: the reader of the power source, the
+// published reading, and whether the failure now running has been logged.
 struct PowerSourceState {
+    read_is_on_ac: fn() -> io::Result<bool>,
     on_ac: watch::Sender<bool>,
     is_failure_logged: AtomicBool,
 }
@@ -45,7 +46,7 @@ impl PowerSourceState {
     // Reads the providing source and publishes whether it is AC, only when that changed; a failed
     // read publishes not on AC and logs once until a read succeeds again.
     fn publish_reading(&self) {
-        let on_ac = match read_is_on_ac() {
+        let on_ac = match (self.read_is_on_ac)() {
             Ok(on_ac) => {
                 self.is_failure_logged.store(false, Ordering::Relaxed);
                 on_ac
@@ -85,7 +86,13 @@ impl PowerSourceWatch {
     /// Starts hearing the power source and reads it once before returning. Never fails: a
     /// registration the system refuses is logged and the watch reads not on AC from then on.
     pub fn start() -> Self {
+        Self::start_with(read_is_on_ac)
+    }
+
+    // Starts the watch over `read_is_on_ac`, which each notification and the start call.
+    fn start_with(read_is_on_ac: fn() -> io::Result<bool>) -> Self {
         let state = Arc::new(PowerSourceState {
+            read_is_on_ac,
             on_ac: watch::Sender::new(false),
             is_failure_logged: AtomicBool::new(false),
         });
@@ -167,5 +174,13 @@ mod tests {
 
         let watch = PowerSourceWatch::start();
         assert_eq!(*watch.receiver().borrow(), is_on_ac);
+    }
+
+    // The start reads the source before it returns, so a reading of AC is published on any power
+    // the machine runs on. Killed by the start's read deleted.
+    #[test]
+    fn a_new_watch_publishes_the_reading_its_start_takes() {
+        let watch = PowerSourceWatch::start_with(|| Ok(true));
+        assert!(*watch.receiver().borrow());
     }
 }

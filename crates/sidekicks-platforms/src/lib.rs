@@ -25,7 +25,8 @@
               removal from the environment and the disclaiming exec), the socket pair a shell's \
               start is confirmed over, macOS's `proc_pid_rusage`, which a process's peak \
               memory and the measurement tests' footprint share, Windows' `OpenProcess` and \
-              `K32GetProcessMemoryInfo`, the available-memory reads (macOS's `mach_host_self` and \
+              `K32GetProcessMemoryInfo`, the calling thread's processor time (`GetThreadTimes`), \
+              the available-memory reads (macOS's `mach_host_self` and \
               `host_statistics64`, Windows' `GlobalMemoryStatusEx`), macOS's process list \
               (`proc_listpids`) and environment read (`sysctl` of `KERN_ARGMAX` and \
               `KERN_PROCARGS2`), a released terminal's wait for its program (`waitid`, and its \
@@ -98,6 +99,8 @@ mod system_locale;
 mod terminal;
 #[cfg(any(test, feature = "test-support"))]
 mod test_program;
+#[cfg(test)]
+mod thread_cpu_time;
 mod tool_memory_cap;
 #[cfg(not(target_os = "linux"))]
 mod user_namespace;
@@ -254,7 +257,7 @@ pub use posix::null_device::NULL_DEVICE_PATH;
 #[cfg(unix)]
 pub use posix::os_text::os_text_bytes;
 #[cfg(unix)]
-pub use posix::private_folder::create_private_folder;
+pub use posix::private_folder::{create_missing_private_folders, create_private_folder};
 #[cfg(unix)]
 pub use posix::real_path::real_path;
 #[cfg(unix)]
@@ -299,6 +302,8 @@ pub use posix::terminal::{
     abnormal_exit, device_attribute_asker, echo_program, echoing_line_reader, input_recorder,
     interruptible_sleeper, key_stopped_printer, launch_printer, waiting_printer,
 };
+#[cfg(unix)]
+pub use posix::thread_cpu_time::thread_cpu_time;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::uptime::uptime_line;
 #[cfg(unix)]
@@ -406,7 +411,7 @@ pub use windows::pinned_process::this_process;
 #[cfg(target_os = "windows")]
 pub use windows::pinned_process::{PinnedProcess, pin_child_process, pin_running_process};
 #[cfg(target_os = "windows")]
-pub use windows::private_folder::create_private_folder;
+pub use windows::private_folder::{create_missing_private_folders, create_private_folder};
 #[cfg(target_os = "windows")]
 pub use windows::processes::{list_user_process_ids, read_process_environment};
 #[cfg(target_os = "windows")]
@@ -456,6 +461,8 @@ pub use windows::terminal::{
     abnormal_exit, device_attribute_asker, echo_program, echoing_line_reader, input_recorder,
     interruptible_sleeper, key_stopped_printer, launch_printer, waiting_printer,
 };
+#[cfg(target_os = "windows")]
+pub use windows::thread_cpu_time::thread_cpu_time;
 #[cfg(target_os = "windows")]
 pub use windows::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
 #[cfg(target_os = "windows")]

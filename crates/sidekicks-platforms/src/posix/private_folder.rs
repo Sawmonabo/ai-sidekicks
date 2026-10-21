@@ -1,5 +1,5 @@
 //! A folder only its owner can read, write or enter, made with any missing parents on macOS and
-//! Linux.
+//! Linux; a folder that already exists is either made private again or left as it is.
 
 use std::fs::{self, DirBuilder, Permissions};
 use std::io;
@@ -13,11 +13,17 @@ const PRIVATE_FOLDER_MODE: u32 = 0o700;
 /// on `folder` again, since a folder that already existed keeps its own. Fails with the system's
 /// error from the make or the mode change.
 pub fn create_private_folder(folder: &Path) -> io::Result<()> {
+    create_missing_private_folders(folder)?;
+    fs::set_permissions(folder, Permissions::from_mode(PRIVATE_FOLDER_MODE))
+}
+
+/// Makes `folder` and every missing folder above it readable by its owner alone, leaving the mode
+/// of each one that already exists as it is. Fails with the system's error from the make.
+pub fn create_missing_private_folders(folder: &Path) -> io::Result<()> {
     DirBuilder::new()
         .recursive(true)
         .mode(PRIVATE_FOLDER_MODE)
-        .create(folder)?;
-    fs::set_permissions(folder, Permissions::from_mode(PRIVATE_FOLDER_MODE))
+        .create(folder)
 }
 
 #[cfg(test)]
@@ -26,7 +32,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
 
-    use super::create_private_folder;
+    use super::{create_missing_private_folders, create_private_folder};
 
     fn mode_of(folder: &Path) -> u32 {
         fs::symlink_metadata(folder)
@@ -51,5 +57,22 @@ mod tests {
         assert_eq!(mode_of(&existing), 0o700);
         assert_eq!(mode_of(&fresh), 0o700);
         assert_eq!(mode_of(&nested), 0o700);
+    }
+
+    // A folder the person chose keeps its own mode, and only what is made under it is private.
+    // Killed by the mode set again on an existing folder and by the private mode dropped.
+    #[test]
+    fn an_existing_folder_keeps_its_mode_and_a_missing_child_is_made_private() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let existing = scratch.path().join("existing");
+        fs::create_dir(&existing).expect("the existing folder is made");
+        fs::set_permissions(&existing, Permissions::from_mode(0o755)).expect("the mode is set");
+        let child = existing.join("child");
+
+        create_missing_private_folders(&existing).expect("the existing folder is left");
+        create_missing_private_folders(&child).expect("the child is made");
+
+        assert_eq!(mode_of(&existing), 0o755);
+        assert_eq!(mode_of(&child), 0o700);
     }
 }
