@@ -6,12 +6,8 @@ use std::io;
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
-use sidekicks_contracts::app_identity::APP_BUNDLE_IDENTIFIER;
+use sidekicks_contracts::app_identity::{APP_BUNDLE_IDENTIFIER, APP_DISPLAY_NAME};
 use tokio::sync::oneshot;
-
-/// The name the system shows for the hold: macOS names its power assertion by it in
-/// `pmset -g assertions`, and Linux names its inhibitor by it.
-pub const KEEP_AWAKE_REASON: &str = "AI Sidekicks";
 
 /// What the machine is kept awake for, which sets how much of it stays awake.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -159,8 +155,8 @@ fn take_keepawake_guard(purpose: KeepAwakePurpose) -> keepawake::Result<keepawak
     keepawake::Builder::default()
         .display(purpose.keeps_display_awake())
         .idle(true)
-        .reason(KEEP_AWAKE_REASON)
-        .app_name(KEEP_AWAKE_REASON)
+        .reason(APP_DISPLAY_NAME)
+        .app_name(APP_DISPLAY_NAME)
         .app_reverse_domain(APP_BUNDLE_IDENTIFIER)
         .create()
 }

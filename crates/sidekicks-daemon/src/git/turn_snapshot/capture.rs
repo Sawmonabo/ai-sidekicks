@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::time::Duration;
 
 use jiff::Timestamp;
+use sidekicks_contracts::app_identity::APP_DISPLAY_NAME;
 
 /// Outside the worktree, so scratch indexes never show up in `ls-files -o` or `git status`.
 pub(crate) const SNAPSHOT_INDEX_SEGMENT: &str = ".snapshot-indexes";
@@ -28,7 +29,7 @@ pub(crate) const SPARSE_BOUNDARY_PATHS_TRAILER: &str = "Sparse-Boundary-Paths:";
 
 /// An explicit identity: without one `commit-tree` fails in a container with no passwd entry, and
 /// elsewhere stamps the system user.
-pub(crate) const SNAPSHOT_IDENTITY_NAME: &str = "AI Sidekicks";
+pub(crate) const SNAPSHOT_IDENTITY_NAME: &str = APP_DISPLAY_NAME;
 
 /// The committer email that goes with the snapshot identity name.
 pub(crate) const SNAPSHOT_IDENTITY_EMAIL: &str = "snapshots@ai-sidekicks.invalid";

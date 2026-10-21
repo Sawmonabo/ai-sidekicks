@@ -135,7 +135,7 @@ pub use file_watch::{WATCHES_TREES, inotify_watch_ceiling};
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
 pub use hidden_entry::is_hidden_entry;
-pub use keep_awake::{KEEP_AWAKE_REASON, KeepAwakeHold, KeepAwakePurpose, KeepAwakeRefused};
+pub use keep_awake::{KeepAwakeHold, KeepAwakePurpose, KeepAwakeRefused};
 pub use lasting_child::{LastingChild, LastingCommand};
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::SHELL_FOLDER_PROBES;

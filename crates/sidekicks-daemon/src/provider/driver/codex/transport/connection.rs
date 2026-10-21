@@ -15,6 +15,7 @@ use serde::de::{DeserializeOwned, IgnoredAny};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::value::RawValue;
+use sidekicks_contracts::app_identity::APP_DISPLAY_NAME;
 use sidekicks_contracts::jsonrpc::message::JsonRpcId;
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
 use tokio::task::JoinHandle;
@@ -146,7 +147,7 @@ pub(crate) async fn open_codex_connection(
     // `permissions` member and `thread/turns/list` answer only then. One service has one opt-out
     // list, so it is every notification no conversation on it reads.
     let initialize = json!({
-        "clientInfo": { "name": client_name, "title": "AI Sidekicks", "version": "1" },
+        "clientInfo": { "name": client_name, "title": APP_DISPLAY_NAME, "version": "1" },
         "capabilities": {
             "experimentalApi": true,
             "requestAttestation": false,
