@@ -127,10 +127,10 @@ pub enum ChannelPublicKey {
     },
 }
 
-/// A COSE algorithm a passkey signs with: EdDSA, ES256 or RS256, on the wire as its COSE number.
+/// A COSE algorithm a passkey signs with: `EdDSA`, ES256 or RS256, on the wire as its COSE number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, VariantArray)]
 pub enum CoseAlgorithm {
-    /// EdDSA over Ed25519, COSE -8.
+    /// `EdDSA` over Ed25519, COSE -8.
     EdDsa,
     /// ECDSA over P-256 with SHA-256, COSE -7.
     Es256,

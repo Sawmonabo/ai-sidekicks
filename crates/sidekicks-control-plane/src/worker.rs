@@ -1,28 +1,30 @@
 //! The deployed Worker: its fetch entry, and the account object, the Durable Object that keeps the
-//! account's data in its SQLite storage and counts the sign-in routes' requests there. A panic
-//! answers 500 and resets the WebAssembly instance, so no path here panics.
+//! account's data in its SQLite storage and serves the account's routes over it, counting the
+//! sign-in routes' requests there. A panic answers 500 and resets the WebAssembly instance, so no
+//! path here panics.
 
-use std::cell::Cell;
+use std::cell::OnceCell;
 
 use ::worker::{
-    Context, DurableObject, Env, HttpRequest, Method, Request, Response, Result, ScheduledTime,
-    SqlStorage, State, durable_object, event,
+    Context, DurableObject, Env, HttpRequest, Request, Response, Result, State, durable_object,
+    event,
 };
+use axum::Router;
 use axum::body::Body;
 use axum::http::Response as HttpResponse;
-use jiff::Timestamp;
-use serde_json::Map;
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use wasm_bindgen::JsValue;
+use axum::response::IntoResponse;
+use tower_service::Service;
 
-use crate::account_store::{AccountStoreError, apply_schema};
-use crate::rate_limit::enforcement_pipeline::{RATE_LIMIT_CHECK_PATH, REQUEST_ID_HEADER};
-use crate::rate_limit::limiter::{
-    RateLimitCheckRequest, RateLimiterError, check, find_next_cleanup_at, prune, read_wall_clock,
-};
-use crate::server::host;
+use crate::account::settings::AccountSettings;
+use crate::account::webauthn::authenticator_list::WorkerAuthenticatorList;
+use crate::account::webauthn::verifier::WorkerPasskeyVerifier;
+use crate::account::{AccountRoutes, build_account_router};
+use crate::account_store::{AccountObjectStore, AccountStoreError, apply_schema};
+use crate::rate_limit::enforcement_pipeline::{AccountObjectAdmission, CleanupError, clean_up};
+use crate::rate_limit::limiter::read_wall_clock;
+use crate::server::host::{self, CLIENT_ADDRESS_HEADER, REQUEST_ID_HEADER, read_setting};
 use crate::server::log_internal_failure;
-use crate::server::router::{INTERNAL_ERROR_MESSAGE, build_refusal_body, read_refusal_status};
+use crate::server::router::{ControlPlaneRefusal, RequestId, SourceAddress, add_refusal_fallbacks};
 
 #[event(fetch)]
 async fn fetch(request: HttpRequest, env: Env, _context: Context) -> Result<HttpResponse<Body>> {
@@ -33,43 +35,44 @@ async fn fetch(request: HttpRequest, env: Env, _context: Context) -> Result<Http
 #[durable_object]
 pub struct AccountObject {
     state: State,
-    // Whether this instance has seen the schema built, so later calls skip the check.
-    is_schema_built: Cell<bool>,
-}
-
-/// A request or an alarm the account object could not finish; the cause is kept.
-#[derive(Debug, thiserror::Error)]
-enum AccountObjectError {
-    /// The runtime failed a call: a body read, a storage call or a response.
-    #[error("the account object's runtime failed a call")]
-    Runtime(#[from] ::worker::Error),
-    /// The account store refused a statement.
-    #[error("the account object's store failed")]
-    Store(#[from] AccountStoreError),
-    /// The rate limiter failed.
-    #[error("the account object's rate limiter failed")]
-    Limiter(#[from] RateLimiterError),
-    /// The clock read outside what a timestamp holds.
-    #[error("the account object's clock is out of range")]
-    Clock(#[from] jiff::Error),
+    env: Env,
+    // The account router, built over this instance's store on its first request with the schema
+    // built; a failed build is logged and tried again on the next request.
+    router: OnceCell<Router>,
 }
 
 impl DurableObject for AccountObject {
-    fn new(state: State, _env: Env) -> Self {
+    fn new(state: State, env: Env) -> Self {
         Self {
             state,
-            is_schema_built: Cell::new(false),
+            env,
+            router: OnceCell::new(),
         }
     }
 
-    async fn fetch(&self, mut request: Request) -> Result<Response> {
-        let request_id = request.headers().get(REQUEST_ID_HEADER)?;
-        match self.serve(&mut request, request_id.as_deref()).await {
-            Ok(response) => Ok(response),
+    async fn fetch(&self, request: Request) -> Result<Response> {
+        let mut request = HttpRequest::try_from(request)?.map(Body::new);
+        let request_id = host::read_header_text(&request, REQUEST_ID_HEADER).map(RequestId);
+        let source_address = host::read_header_text(&request, CLIENT_ADDRESS_HEADER);
+        let mut router = match self.open_router() {
+            Ok(router) => router,
             Err(error) => {
-                log_internal_failure(request_id.as_deref(), &error);
-                build_refusal(RefusalCode::SystemInternalError, INTERNAL_ERROR_MESSAGE)
+                let refusal =
+                    ControlPlaneRefusal::refuse_internal_failure(request_id.as_ref(), &error);
+                return Response::try_from(refusal.into_response());
             }
+        };
+        if let Some(source_address) = source_address {
+            request
+                .extensions_mut()
+                .insert(SourceAddress(source_address));
+        }
+        if let Some(request_id) = request_id {
+            request.extensions_mut().insert(request_id);
+        }
+        match router.call(request).await {
+            Ok(response) => Response::try_from(response),
+            Err(infallible) => match infallible {},
         }
     }
 
@@ -86,78 +89,47 @@ impl DurableObject for AccountObject {
     }
 }
 
+/// An alarm the account object could not finish; the cause is kept.
+#[derive(Debug, thiserror::Error)]
+enum AlarmError {
+    /// The store could not be opened.
+    #[error("the account object's store could not be opened")]
+    Store(#[from] AccountStoreError),
+    /// The rate limit's cleanup failed.
+    #[error("the rate limit's cleanup failed")]
+    Cleanup(#[from] CleanupError),
+}
+
 impl AccountObject {
-    async fn serve(
-        &self,
-        request: &mut Request,
-        request_id: Option<&str>,
-    ) -> Result<Response, AccountObjectError> {
-        let sql = self.open_sql()?;
-        if request.method() != Method::Post || request.path() != RATE_LIMIT_CHECK_PATH {
-            return Ok(build_refusal(
-                RefusalCode::RequestMethodNotFound,
-                "No route of the account object serves this request.",
-            )?);
-        }
-        let count: RateLimitCheckRequest = request.json().await?;
-        // Nothing is awaited between the count's read and its write.
-        let response = check(&sql, &count, read_wall_clock()?)?;
-        // The request is counted whatever the alarm does: a failed alarm leaves its rows to the
-        // next check's delete, so it is logged and the count still answered.
-        if response.allowed
-            && let Err(error) = self.arm_cleanup(&sql).await
-        {
-            log_internal_failure(request_id, &error);
-        }
-        Ok(Response::from_json(&response)?)
-    }
-
-    // Each alarm set is a billed write, so one is set only when none is pending.
-    async fn arm_cleanup(&self, sql: &SqlStorage) -> Result<(), AccountObjectError> {
-        let storage = self.state.storage();
-        if storage.get_alarm().await?.is_none()
-            && let Some(at) = find_next_cleanup_at(sql)?
-        {
-            storage.set_alarm(build_scheduled_time(at)).await?;
-        }
+    async fn clean_up(&self) -> std::result::Result<(), AlarmError> {
+        let store = self.open_store()?;
+        clean_up(&self.state.storage(), &store).await?;
         Ok(())
     }
 
-    async fn clean_up(&self) -> Result<(), AccountObjectError> {
-        let sql = self.open_sql()?;
-        if let Some(at) = prune(&sql, read_wall_clock()?)? {
-            self.state
-                .storage()
-                .set_alarm(build_scheduled_time(at))
-                .await?;
-        }
-        Ok(())
+    // The object's store with the account's schema built, which an object holding none gets on
+    // its first request or alarm.
+    fn open_store(&self) -> std::result::Result<AccountObjectStore, AccountStoreError> {
+        let store = AccountObjectStore::new(&self.state.storage());
+        apply_schema(&store)?;
+        Ok(store)
     }
 
-    // The object's storage with the account's schema built, which an object holding none gets on
-    // its first request or alarm; once built, this instance does not check again.
-    fn open_sql(&self) -> Result<SqlStorage, AccountStoreError> {
-        let sql = self.state.storage().sql();
-        if !self.is_schema_built.get() {
-            apply_schema(&sql)?;
-            self.is_schema_built.set(true);
+    fn open_router(&self) -> std::result::Result<Router, AccountStoreError> {
+        if let Some(router) = self.router.get() {
+            return Ok(router.clone());
         }
-        Ok(sql)
+        let store = self.open_store()?;
+        let settings = AccountSettings::read(|name| read_setting(&self.env, name));
+        let routes = AccountRoutes::new(
+            store.clone(),
+            WorkerPasskeyVerifier,
+            WorkerAuthenticatorList,
+            settings,
+            read_wall_clock,
+        );
+        let admission = AccountObjectAdmission::new(store, self.state.storage());
+        let router = add_refusal_fallbacks(build_account_router(routes, admission));
+        Ok(self.router.get_or_init(|| router).clone())
     }
-}
-
-// A refusal in the body every other refusal takes, at its code's status.
-fn build_refusal(code: RefusalCode, message: &str) -> Result<Response> {
-    let body = build_refusal_body(code, message, Map::new());
-    Ok(Response::from_json(&body)?.with_status(read_refusal_status(code).as_u16()))
-}
-
-// An alarm takes an absolute instant as a `Date`; a bare number would read as an offset from now.
-fn build_scheduled_time(at: Timestamp) -> ScheduledTime {
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "a millisecond instant is far below 2^53, which an f64 holds exactly"
-    )]
-    let millisecond = at.as_millisecond() as f64;
-    ScheduledTime::new(js_sys::Date::new(&JsValue::from_f64(millisecond)))
 }

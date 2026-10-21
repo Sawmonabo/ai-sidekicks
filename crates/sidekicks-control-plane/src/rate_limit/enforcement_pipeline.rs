@@ -1,6 +1,7 @@
 //! The one admission stage every rate-limited route calls: the endpoint group's sliding-window
 //! counter decides, and nothing else does. On the Compose relay the counter runs over the relay's
-//! SQLite file in its own process; the Worker reaches it in the account object (`worker.rs`).
+//! SQLite file in its own process; on the Workers relay over the account object's store, inside
+//! the object that serves the account's routes.
 
 use std::future::Future;
 
@@ -28,27 +29,12 @@ pub enum AdmissionError {
     #[cfg(not(target_arch = "wasm32"))]
     #[error("the rate limiter's task ended before it answered")]
     Task(#[from] tokio::task::JoinError),
-    /// The Worker could not reach the account object or read its answer.
-    #[cfg(target_arch = "wasm32")]
-    #[error("the account object could not be reached")]
-    AccountObject(#[from] worker::Error),
-    /// The account object answered the count with a failure status.
-    #[cfg(target_arch = "wasm32")]
-    #[error("the account object answered the count with status {status}")]
-    AccountObjectStatus {
-        /// The status it answered.
-        status: u16,
-    },
-    /// The account object did not answer within the Worker's wait.
-    #[cfg(target_arch = "wasm32")]
-    #[error("the account object did not answer within {0:?}")]
-    AccountObjectTimedOut(std::time::Duration),
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use file::AccountFileAdmission;
 #[cfg(target_arch = "wasm32")]
-pub(crate) use object::{AccountObjectAdmission, RATE_LIMIT_CHECK_PATH, REQUEST_ID_HEADER};
+pub(crate) use object::{AccountObjectAdmission, CleanupError, clean_up};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file {
@@ -66,6 +52,7 @@ mod file {
     use tokio::task::JoinHandle;
 
     use super::{AdmissionCheck, AdmissionError};
+    use crate::account_store::AccountStore;
     use crate::rate_limit::limiter::{
         Clock, RateLimitCheckRequest, RateLimitCheckResponse, RateLimiterError, check,
         find_next_cleanup_at, prune,
@@ -128,17 +115,20 @@ mod file {
                 // so a caller that goes away mid-step never leaves the flag set with no task.
                 let response = tokio::task::spawn_blocking(move || {
                     let connection = Arc::clone(&counter.connection);
-                    let mut connection = connection.lock().unwrap_or_else(PoisonError::into_inner);
-                    let transaction = connection.transaction().map_err(wrap_store_error)?;
-                    let response = check(&*transaction, &request, (counter.clock)()?)?;
-                    // Only a counted request leaves a row, and only a missing task needs one.
-                    let cleanup_at =
-                        if response.allowed && !counter.is_cleanup_running.load(Ordering::SeqCst) {
-                            find_next_cleanup_at(&*transaction)?
+                    let connection = connection.lock().unwrap_or_else(PoisonError::into_inner);
+                    let now = (counter.clock)()?;
+                    let (response, cleanup_at) = connection.write_step(|store| {
+                        let response = check(store, &request, now)?;
+                        // Only a counted request leaves a row, and only a missing task needs one.
+                        let cleanup_at = if response.allowed
+                            && !counter.is_cleanup_running.load(Ordering::SeqCst)
+                        {
+                            find_next_cleanup_at(store)?
                         } else {
                             None
                         };
-                    transaction.commit().map_err(wrap_store_error)?;
+                        Ok::<_, RateLimiterError>((response, cleanup_at))
+                    })?;
                     if let Some(at) = cleanup_at {
                         counter.start_cleanup(at);
                     }
@@ -183,7 +173,7 @@ mod file {
                 let connection = pruning.lock().unwrap_or_else(PoisonError::into_inner);
                 let next = clock()
                     .map_err(RateLimiterError::from)
-                    .and_then(|now| prune(&*connection, now));
+                    .and_then(|now| connection.write_step(|store| prune(store, now)));
                 if !matches!(next, Ok(Some(_))) {
                     running.store(false, Ordering::SeqCst);
                 }
@@ -220,56 +210,57 @@ mod file {
     fn log_cleanup_failure(error: &(dyn Error + 'static)) {
         tracing::error!(error, "the rate limit's cleanup stopped");
     }
-
-    fn wrap_store_error(error: rusqlite::Error) -> RateLimiterError {
-        RateLimiterError::Store(error.into())
-    }
 }
 
 #[cfg(target_arch = "wasm32")]
 mod object {
-    //! The Worker's admission: the counter runs in the account object, reached through its stub
-    //! with a JSON request the Worker waits on for a bounded time.
+    //! The Workers relay's admission: the counter runs in the account object over the object's
+    //! own store, one step per count, and a counted request arms the object's cleanup alarm when
+    //! none is set.
 
     use std::future::Future;
-    use std::pin::pin;
-    use std::time::Duration;
+    use std::sync::Arc;
 
-    use futures_util::future::{Either, select};
-    use worker::send::SendFuture;
-    use worker::{Delay, Env, Headers, Method, Request, RequestInit};
+    use jiff::Timestamp;
+    use wasm_bindgen::JsValue;
+    use worker::send::{SendFuture, SendWrapper};
+    use worker::{ScheduledTime, Storage};
 
     use super::{AdmissionCheck, AdmissionError};
-    use crate::rate_limit::limiter::{RateLimitCheckRequest, RateLimitCheckResponse};
+    use crate::account_store::{AccountObjectStore, AccountStore};
+    use crate::rate_limit::limiter::{
+        RateLimitCheckRequest, RateLimitCheckResponse, RateLimiterError, check,
+        find_next_cleanup_at, prune, read_wall_clock,
+    };
+    use crate::server::log_internal_failure;
     use crate::server::router::RequestId;
 
-    /// The Worker's binding to the account object's namespace.
-    const ACCOUNT_BINDING: &str = "ACCOUNT";
-
-    /// The name of the one account object, which `id_from_name` maps to the same object worldwide.
-    const ACCOUNT_OBJECT_NAME: &str = "account";
-
-    /// The account object's route that counts one request.
-    pub(crate) const RATE_LIMIT_CHECK_PATH: &str = "/rate-limit/check";
-
-    /// The header that carries the Worker's request id to the account object's log.
-    pub(crate) const REQUEST_ID_HEADER: &str = "X-Request-Id";
-
-    /// How long the Worker waits for the account object's whole answer, well inside a caller's
-    /// own wait.
-    const ACCOUNT_OBJECT_WAIT: Duration = Duration::from_secs(5);
-
-    /// The Worker's admission check: one count in the account object per request, its binding
-    /// read when a count needs it.
+    /// The account object's admission check: its store, and its storage, whose alarm drops the
+    /// counted requests past their window.
     #[derive(Clone)]
     pub(crate) struct AccountObjectAdmission {
-        env: Env,
+        store: AccountObjectStore,
+        storage: Arc<SendWrapper<Storage>>,
+    }
+
+    /// Why the cleanup alarm could not be armed or run.
+    #[derive(Debug, thiserror::Error)]
+    pub(crate) enum CleanupError {
+        /// The object's storage failed the alarm's read or write.
+        #[error("the account object's alarm failed")]
+        Alarm(#[from] worker::Error),
+        /// The rate limiter failed.
+        #[error("the rate limiter's cleanup failed")]
+        Limiter(#[from] RateLimiterError),
     }
 
     impl AccountObjectAdmission {
-        /// Counts through the account object `env` binds.
-        pub(crate) fn new(env: Env) -> Self {
-            Self { env }
+        /// Counts over `store`, arming the alarm of `storage`, both the account object's.
+        pub(crate) fn new(store: AccountObjectStore, storage: Storage) -> Self {
+            Self {
+                store,
+                storage: Arc::new(SendWrapper::new(storage)),
+            }
         }
     }
 
@@ -279,44 +270,58 @@ mod object {
             request: RateLimitCheckRequest,
             request_id: Option<RequestId>,
         ) -> impl Future<Output = Result<RateLimitCheckResponse, AdmissionError>> + Send {
-            let env = self.env.clone();
+            let admission = self.clone();
             SendFuture::new(async move {
-                let stub = env
-                    .durable_object(ACCOUNT_BINDING)?
-                    .id_from_name(ACCOUNT_OBJECT_NAME)?
-                    .get_stub()?;
-                let headers = Headers::new();
-                headers.set("Content-Type", "application/json")?;
-                if let Some(request_id) = &request_id {
-                    headers.set(REQUEST_ID_HEADER, &request_id.0)?;
+                let now = read_wall_clock().map_err(RateLimiterError::from)?;
+                let response = admission
+                    .store
+                    .write_step(|store| check(store, &request, now))?;
+                // The request is counted whatever the alarm does: a failed alarm leaves its rows
+                // to the next count's delete, so it is logged and the count still answered.
+                if response.allowed
+                    && let Err(error) = arm_cleanup(&admission.storage, &admission.store).await
+                {
+                    log_internal_failure(request_id.as_ref().map(|id| id.0.as_str()), &error);
                 }
-                let body = serde_json::to_string(&request).map_err(worker::Error::from)?;
-                let mut init = RequestInit::new();
-                init.with_method(Method::Post)
-                    .with_headers(headers)
-                    .with_body(Some(body.into()));
-                let count = Request::new_with_init(
-                    &format!("https://{ACCOUNT_OBJECT_NAME}{RATE_LIMIT_CHECK_PATH}"),
-                    &init,
-                )?;
-                // The wait covers the answer's body too, so an object that stalls mid-answer
-                // fails the request instead of holding it open.
-                let answer = pin!(async move {
-                    let mut response = stub.fetch_with_request(count).await?;
-                    let status = response.status_code();
-                    if status != 200 {
-                        return Err(AdmissionError::AccountObjectStatus { status });
-                    }
-                    Ok(response.json::<RateLimitCheckResponse>().await?)
-                });
-                let wait = pin!(Delay::from(ACCOUNT_OBJECT_WAIT));
-                match select(answer, wait).await {
-                    Either::Left((answer, _)) => answer,
-                    Either::Right(((), _)) => {
-                        Err(AdmissionError::AccountObjectTimedOut(ACCOUNT_OBJECT_WAIT))
-                    }
-                }
+                Ok(response)
             })
         }
+    }
+
+    // Each alarm set is a billed write, so one is set only when none is pending.
+    async fn arm_cleanup(
+        storage: &Storage,
+        store: &AccountObjectStore,
+    ) -> Result<(), CleanupError> {
+        if storage.get_alarm().await?.is_none()
+            && let Some(at) = find_next_cleanup_at(store)?
+        {
+            storage.set_alarm(build_scheduled_time(at)).await?;
+        }
+        Ok(())
+    }
+
+    /// The alarm's work: drops the counted requests whose window has passed and re-arms for the
+    /// next address whose window empties.
+    pub(crate) async fn clean_up(
+        storage: &Storage,
+        store: &AccountObjectStore,
+    ) -> Result<(), CleanupError> {
+        let now = read_wall_clock().map_err(RateLimiterError::from)?;
+        if let Some(at) = store.write_step(|step| prune(step, now))? {
+            storage.set_alarm(build_scheduled_time(at)).await?;
+        }
+        Ok(())
+    }
+
+    // An alarm takes an absolute instant as a `Date`; a bare number would read as an offset from
+    // now.
+    fn build_scheduled_time(at: Timestamp) -> ScheduledTime {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a millisecond instant is far below 2^53, which an f64 holds exactly"
+        )]
+        let millisecond = at.as_millisecond() as f64;
+        ScheduledTime::new(js_sys::Date::new(&JsValue::from_f64(millisecond)))
     }
 }

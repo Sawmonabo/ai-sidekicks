@@ -1,7 +1,7 @@
 //! The passkey ceremonies the control plane runs as relying party: issuing registration and
 //! sign-in options, and verifying what the authenticator answered. Each issue leg records a
 //! single-use challenge and hands back the transaction id its verify leg quotes; a sign-in's verify
-//! reply carries a freshly issued token pair bound to the caller's DPoP key.
+//! reply carries a freshly issued token pair bound to the caller's `DPoP` key.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -181,7 +181,7 @@ pub struct RegistrationOptions {
     pub user: UserEntity,
     /// The challenge.
     pub challenge: WebAuthnChallenge,
-    /// The algorithms taken: EdDSA, ES256 and RS256.
+    /// The algorithms taken: `EdDSA`, ES256 and RS256.
     pub pub_key_cred_params: Vec<CredentialParameter>,
     /// How long the ceremony may take, in milliseconds.
     pub timeout: u32,
@@ -419,7 +419,7 @@ pub struct AuthenticationResponse {
     pub credential_type: PublicKeyCredentialType,
 }
 
-/// A sign-in verify: the transaction and the assertion, sent with a DPoP proof (RFC 9449 §5)
+/// A sign-in verify: the transaction and the assertion, sent with a `DPoP` proof (RFC 9449 §5)
 /// under the key the token pair is bound to.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

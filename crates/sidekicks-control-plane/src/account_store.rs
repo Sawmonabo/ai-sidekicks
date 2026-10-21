@@ -164,13 +164,18 @@ CREATE INDEX idx_counted_requests_window
 CREATE INDEX idx_counted_requests_expires ON counted_requests(expires_at_ms);
 ";
 
-/// A value bound to a statement's numbered `?` parameter.
+/// A value bound to a statement's numbered `?` parameter. There is no boolean: the account
+/// object's storage binds none, so a flag is an `INTEGER`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SqlValue {
+    /// `NULL`.
+    Null,
     /// An `INTEGER`.
     Integer(i64),
     /// A `TEXT`.
     Text(String),
+    /// A `BLOB`, which a row's reader takes through `serde_with::Bytes`.
+    Blob(Vec<u8>),
 }
 
 /// A statement the account store refused or a row it could not read; the store's own error is
@@ -191,10 +196,13 @@ pub enum AccountStoreError {
 }
 
 /// The account's SQLite database, reached through its one writer, which runs one request's
-/// statements at a time, so a read and the write that depends on it see no other request between.
+/// statements at a time. A read and the write that depends on it run inside one [`write_step`]
+/// with nothing awaited between them, so no other request sees or changes the rows between.
+///
+/// [`write_step`]: AccountStore::write_step
 pub trait AccountStore {
-    /// Runs `script`, statements with no parameters, as one transaction: it commits whole or not
-    /// at all.
+    /// Runs `script`, statements with no parameters, each at once; inside a step it commits or
+    /// rolls back with the step.
     fn run_script(&self, script: &str) -> Result<(), AccountStoreError>;
 
     /// Runs one statement that returns no rows, with its parameters.
@@ -206,27 +214,50 @@ pub trait AccountStore {
         statement: &str,
         parameters: &[SqlValue],
     ) -> Result<Vec<T>, AccountStoreError>;
+
+    /// Runs `step` as one transaction: every write it made commits when it returns `Ok`, and none
+    /// does when it returns `Err` or the store fails, whose error is returned. A step never
+    /// awaits, and never opens a step inside itself.
+    fn write_step<R, E: From<AccountStoreError>>(
+        &self,
+        step: impl FnOnce(&Self) -> Result<R, E>,
+    ) -> Result<R, E>;
 }
 
-/// Builds the whole schema in one transaction when the database holds none; a database that
-/// holds it is left as it is.
+/// The account store a router's handlers share. A step runs on it as on the store itself, one at
+/// a time; on the Compose relay it waits for the file, which one lock guards.
+pub trait SharedAccountStore: Clone + Send + Sync + 'static {
+    /// The store a step runs on.
+    type Store: AccountStore;
+
+    /// Runs `step` as [`AccountStore::write_step`] does.
+    fn run_step<R, E: From<AccountStoreError>>(
+        &self,
+        step: impl FnOnce(&Self::Store) -> Result<R, E>,
+    ) -> Result<R, E>;
+}
+
+/// Builds the whole schema in one step when the database holds none; a database that holds it is
+/// left as it is.
 pub(crate) fn apply_schema<S: AccountStore>(store: &S) -> Result<(), AccountStoreError> {
     #[derive(serde::Deserialize)]
     struct Probe {
         present: i64,
     }
 
-    // The script runs in one transaction, so any object it creates tells a built database from an
-    // empty one.
-    let probe: Vec<Probe> = store.query(
-        "SELECT COUNT(*) AS present FROM sqlite_schema \
-         WHERE type = 'index' AND name = 'idx_counted_requests_expires'",
-        &[],
-    )?;
-    if probe.iter().any(|row| row.present > 0) {
-        return Ok(());
-    }
-    store.run_script(SCHEMA)
+    store.write_step(|store| {
+        // The script runs in this one step, which commits whole or not at all, so the last object
+        // it creates tells a built database from an empty one.
+        let probe: Vec<Probe> = store.query(
+            "SELECT COUNT(*) AS present FROM sqlite_schema \
+             WHERE type = 'index' AND name = 'idx_counted_requests_expires'",
+            &[],
+        )?;
+        if probe.iter().any(|row| row.present > 0) {
+            return Ok(());
+        }
+        store.run_script(SCHEMA)
+    })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -234,12 +265,13 @@ mod file {
     //! The Compose relay's account store: one SQLite file its process alone opens.
 
     use std::path::Path;
+    use std::sync::{Arc, Mutex, PoisonError};
 
     use rusqlite::types::{ToSqlOutput, Value, ValueRef};
     use rusqlite::{Connection, ToSql, params_from_iter};
     use serde::de::DeserializeOwned;
 
-    use super::{AccountStore, AccountStoreError, SqlValue, apply_schema};
+    use super::{AccountStore, AccountStoreError, SharedAccountStore, SqlValue, apply_schema};
 
     /// SQLite's page cache for the account file, in KiB.
     const CACHE_KIB: i64 = 2048;
@@ -257,17 +289,17 @@ mod file {
     impl ToSql for SqlValue {
         fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
             Ok(match self {
+                Self::Null => ToSqlOutput::Borrowed(ValueRef::Null),
                 Self::Integer(value) => ToSqlOutput::Borrowed(ValueRef::Integer(*value)),
                 Self::Text(value) => ToSqlOutput::Borrowed(ValueRef::Text(value.as_bytes())),
+                Self::Blob(value) => ToSqlOutput::Borrowed(ValueRef::Blob(value)),
             })
         }
     }
 
     impl AccountStore for Connection {
         fn run_script(&self, script: &str) -> Result<(), AccountStoreError> {
-            let transaction = self.unchecked_transaction()?;
-            transaction.execute_batch(script)?;
-            transaction.commit()?;
+            self.execute_batch(script)?;
             Ok(())
         }
 
@@ -303,6 +335,32 @@ mod file {
             }
             Ok(read)
         }
+
+        fn write_step<R, E: From<AccountStoreError>>(
+            &self,
+            step: impl FnOnce(&Self) -> Result<R, E>,
+        ) -> Result<R, E> {
+            let transaction = self
+                .unchecked_transaction()
+                .map_err(AccountStoreError::from)?;
+            // Dropping the transaction on `Err` rolls it back.
+            let outcome = step(&transaction)?;
+            transaction.commit().map_err(AccountStoreError::from)?;
+            Ok(outcome)
+        }
+    }
+
+    impl SharedAccountStore for Arc<Mutex<Connection>> {
+        type Store = Connection;
+
+        fn run_step<R, E: From<AccountStoreError>>(
+            &self,
+            step: impl FnOnce(&Connection) -> Result<R, E>,
+        ) -> Result<R, E> {
+            // A step that panicked rolled its transaction back as it unwound, so the file is whole.
+            let connection = self.lock().unwrap_or_else(PoisonError::into_inner);
+            connection.write_step(step)
+        }
     }
 
     // A column's value as the JSON a row's reader takes; a blob reads as its bytes.
@@ -321,29 +379,84 @@ mod file {
 pub use file::open_account_file;
 
 #[cfg(target_arch = "wasm32")]
+pub(crate) use object::AccountObjectStore;
+
+#[cfg(target_arch = "wasm32")]
 mod object {
-    //! The Workers relay's account store: the account object's SQLite storage.
+    //! The Workers relay's account store: the account object's SQLite storage. A step runs in the
+    //! storage's `transactionSync`, a savepoint rolled back when the step throws; writes left to
+    //! the object's own coalescing would commit on the next turn whatever the step answered.
 
     use serde::de::DeserializeOwned;
-    use worker::{SqlStorage, SqlStorageValue};
+    use worker::send::SendWrapper;
+    use worker::wasm_bindgen::JsCast;
+    use worker::wasm_bindgen::prelude::*;
+    use worker::{SqlStorage, SqlStorageValue, Storage};
 
-    use super::{AccountStore, AccountStoreError, SqlValue};
+    use super::{AccountStore, AccountStoreError, SharedAccountStore, SqlValue};
+
+    #[wasm_bindgen]
+    extern "C" {
+        /// The object's `DurableObjectStorage`, read for the one call `worker` does not bind.
+        #[derive(Clone)]
+        type TransactionalStorage;
+
+        /// Runs `step` in a savepoint: released when it returns, rolled back when it throws.
+        #[wasm_bindgen(method, catch, js_name = transactionSync)]
+        fn transaction_sync(
+            this: &TransactionalStorage,
+            step: &mut dyn FnMut() -> Result<JsValue, JsValue>,
+        ) -> Result<JsValue, JsValue>;
+    }
+
+    /// The account object's store: its SQL storage, and the storage handle its steps run in.
+    #[derive(Clone)]
+    pub(crate) struct AccountObjectStore {
+        sql: SqlStorage,
+        storage: SendWrapper<TransactionalStorage>,
+    }
+
+    impl AccountObjectStore {
+        /// The store over `storage`, the account object's own.
+        pub(crate) fn new(storage: &Storage) -> Self {
+            Self {
+                sql: storage.sql(),
+                storage: SendWrapper::new(
+                    storage
+                        .as_raw()
+                        .unchecked_ref::<TransactionalStorage>()
+                        .clone(),
+                ),
+            }
+        }
+    }
+
+    impl SharedAccountStore for AccountObjectStore {
+        type Store = Self;
+
+        fn run_step<R, E: From<AccountStoreError>>(
+            &self,
+            step: impl FnOnce(&Self) -> Result<R, E>,
+        ) -> Result<R, E> {
+            self.write_step(step)
+        }
+    }
 
     fn convert_to_storage_values(parameters: &[SqlValue]) -> Vec<SqlStorageValue> {
         parameters
             .iter()
             .map(|parameter| match parameter {
+                SqlValue::Null => SqlStorageValue::Null,
                 SqlValue::Integer(value) => SqlStorageValue::Integer(*value),
                 SqlValue::Text(value) => SqlStorageValue::String(value.clone()),
+                SqlValue::Blob(value) => SqlStorageValue::Blob(value.clone()),
             })
             .collect()
     }
 
-    impl AccountStore for SqlStorage {
-        // Cloudflare runs one `exec` call as one transaction, so the script commits whole or not
-        // at all.
+    impl AccountStore for AccountObjectStore {
         fn run_script(&self, script: &str) -> Result<(), AccountStoreError> {
-            self.exec(script, None)?;
+            self.sql.exec(script, None)?;
             Ok(())
         }
 
@@ -352,7 +465,8 @@ mod object {
             statement: &str,
             parameters: &[SqlValue],
         ) -> Result<(), AccountStoreError> {
-            self.exec(statement, convert_to_storage_values(parameters))?;
+            self.sql
+                .exec(statement, convert_to_storage_values(parameters))?;
             Ok(())
         }
 
@@ -362,15 +476,49 @@ mod object {
             parameters: &[SqlValue],
         ) -> Result<Vec<T>, AccountStoreError> {
             Ok(self
+                .sql
                 .exec(statement, convert_to_storage_values(parameters))?
                 .to_array()?)
+        }
+
+        fn write_step<R, E: From<AccountStoreError>>(
+            &self,
+            step: impl FnOnce(&Self) -> Result<R, E>,
+        ) -> Result<R, E> {
+            let mut step = Some(step);
+            let mut outcome = None;
+            let ran = self.storage.transaction_sync(&mut || {
+                let Some(step) = step.take() else {
+                    return Err(JsValue::from_str("the step was already run"));
+                };
+                let result = step(self);
+                let is_failed = result.is_err();
+                outcome = Some(result);
+                // A throw rolls the savepoint back; the step's own error is kept in `outcome`.
+                if is_failed {
+                    Err(JsValue::from_str("the step failed"))
+                } else {
+                    Ok(JsValue::UNDEFINED)
+                }
+            });
+            match (outcome, ran) {
+                (Some(Err(error)), _) => Err(error),
+                (Some(Ok(value)), Ok(_)) => Ok(value),
+                (Some(Ok(_)) | None, Err(thrown)) => {
+                    Err(AccountStoreError::Object(worker::Error::from(thrown)).into())
+                }
+                (None, Ok(_)) => Err(AccountStoreError::Object(worker::Error::RustError(
+                    "the storage returned without running the step".to_owned(),
+                ))
+                .into()),
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AccountStore, SqlValue, open_account_file};
+    use super::{AccountStore, AccountStoreError, SqlValue, open_account_file};
 
     #[test]
     fn the_schema_is_built_once_and_its_references_hold() {
@@ -401,5 +549,28 @@ mod tests {
             &[],
         );
         assert!(orphan.is_err(), "a machine of no user is refused");
+    }
+
+    #[test]
+    fn a_step_that_fails_leaves_none_of_its_writes() {
+        let folder = tempfile::tempdir().unwrap();
+        let connection = open_account_file(&folder.path().join("account.sqlite")).unwrap();
+        let failed: Result<(), AccountStoreError> = connection.write_step(|store| {
+            for jti in ["first", "second"] {
+                AccountStore::execute(
+                    store,
+                    "INSERT INTO dpop_proof_jtis (jti, expires_at) VALUES (?1, 1)",
+                    &[SqlValue::Text(jti.to_owned())],
+                )?;
+            }
+            Err(AccountStoreError::Row(serde::de::Error::custom(
+                "the step refuses",
+            )))
+        });
+        assert!(failed.is_err());
+        let rows: Vec<serde_json::Value> = connection
+            .query("SELECT jti FROM dpop_proof_jtis", &[])
+            .unwrap();
+        assert!(rows.is_empty(), "neither row was kept: {rows:?}");
     }
 }
