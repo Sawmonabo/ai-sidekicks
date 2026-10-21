@@ -18,7 +18,7 @@ use sidekicks_contracts::session::id::SessionId;
 use crate::database::statement::WriteStatement;
 
 /// What a driver's start or interrupt settles to: done, or why it failed.
-type DriverStep = BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>>;
+pub(crate) type DriverStep = BoxFuture<'static, Result<(), Box<dyn Error + Send + Sync>>>;
 
 /// What a run's start and its continue both take: the run, the workspace its send bound, the
 /// posture requested, and the driver's start and interrupt of the run's turn.

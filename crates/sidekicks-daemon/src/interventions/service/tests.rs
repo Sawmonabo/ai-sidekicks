@@ -123,6 +123,14 @@ impl InterruptQueue for EngineQueue {
         .boxed()
     }
 
+    fn reorders_waiting(
+        &self,
+        _run_id: RunId,
+        _deliver_first: Option<QueueItemId>,
+    ) -> BoxFuture<'_, Result<bool, InterruptQueueError>> {
+        async { Ok(false) }.boxed()
+    }
+
     fn hold_for_interrupt(
         &self,
         _run_id: RunId,

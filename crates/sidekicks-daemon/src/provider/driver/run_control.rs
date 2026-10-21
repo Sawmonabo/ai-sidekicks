@@ -101,6 +101,9 @@ pub(crate) enum InterruptPendingChoice {
 pub(crate) struct InterruptPayload {
     /// What becomes of the waiting messages.
     pub(crate) pending: InterruptPendingChoice,
+    /// Whether the choice moves a waiting message ahead of the ones before it, so a provider that
+    /// holds its waiting messages must hand them back for the daemon to resend in that order.
+    pub(crate) reorders_waiting: bool,
     /// The person's reason.
     pub(crate) reason: Option<FreeFormText<PROVIDER_WIRE_REASON_MAX_LEN>>,
 }

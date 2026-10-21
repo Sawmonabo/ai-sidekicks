@@ -1,4 +1,4 @@
-//! What every system shares about a pinned process: the record a later process re-pins it from,
+//! What every system shares about a pinned process: the record a later process re-pins it from
 //! and the bound on a stop's wait once the process is killed.
 
 use std::io;
@@ -50,6 +50,12 @@ impl ProcessRecord {
         self.id
     }
 
+    /// The system's fixed mark of the process: its unique id on macOS, its start in clock ticks
+    /// since boot on Linux, its creation time on Windows.
+    pub fn start(&self) -> u64 {
+        self.start
+    }
+
     /// The process this record names, pinned; `None` when the machine has started again since,
     /// the process has ended, or its id now names another process, and then what it started may
     /// still run, which [`Self::end_survivors`] ends. Fails with the system's error, on macOS with
@@ -91,8 +97,8 @@ mod tests {
     // Fails when a record naming the id 0, which no process has, reads as a process to re-pin.
     #[test]
     fn pinned_process_record_refuses_the_id_0() {
-        let zero = serde_json::from_str::<ProcessRecord>(r#"{"id":0,"start":1}"#);
-        let one = serde_json::from_str::<ProcessRecord>(r#"{"id":1,"start":1}"#);
+        let zero = serde_json::from_str::<ProcessRecord>(r#"{"id":0,"start":1,"boot":"b"}"#);
+        let one = serde_json::from_str::<ProcessRecord>(r#"{"id":1,"start":1,"boot":"b"}"#);
 
         assert!(
             zero.is_err_and(|error| error.to_string().contains("names no process")),
@@ -252,6 +258,109 @@ mod tests {
 
         assert!(!is_group_ended);
         assert_eq!(rest, Some(Vec::new()));
+    }
+
+    // Fails when the group stop asks only the process it pins to stop, so a member of its group,
+    // here a child that writes its line only on `SIGTERM`, is killed after the grace instead.
+    #[cfg(unix)]
+    #[test]
+    fn a_group_stop_asks_every_member_of_the_group_to_stop() {
+        use std::io::Read as _;
+        use std::os::unix::process::CommandExt as _;
+        use std::process::{Command, Stdio};
+        use std::time::Duration;
+
+        // The leader waits for its child once asked to stop, and the child writes its line only
+        // when it is asked too.
+        let script = "trap 'wait $child; exit 0' TERM; \
+                      (trap 'echo asked; exit 0' TERM; echo ready; \
+                       while :; do sleep 0.05; done) & child=$!; wait $child";
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", script])
+            .stdout(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .expect("the group's leader starts");
+        let mut output = child.stdout.take().expect("the leader's output is piped");
+        let mut ready = [0; 6];
+        output
+            .read_exact(&mut ready)
+            .expect("the child's first line reads");
+        let pinned = pin_child_process(child.id()).expect("the leader pins");
+
+        let end = pinned
+            .stop_group(Duration::from_secs(5))
+            .expect("the group stops");
+        let mut rest = String::new();
+        output
+            .read_to_string(&mut rest)
+            .expect("the group's output reads to its end");
+        child.wait().expect("the leader is reaped");
+
+        assert_eq!(&ready, b"ready\n");
+        assert_eq!(rest, "asked\n");
+        assert_eq!(end, crate::ChildEnd::Stop);
+    }
+
+    // A shell running `script` with its output piped, answered once it wrote its first line.
+    #[cfg(unix)]
+    fn start_ready_shell(script: &str) -> (std::process::Child, std::process::ChildStdout) {
+        use std::io::Read as _;
+        use std::process::{Command, Stdio};
+
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", script])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("the shell starts");
+        let mut output = child.stdout.take().expect("the shell's output is piped");
+        let mut ready = [0; 6];
+        output
+            .read_exact(&mut ready)
+            .expect("the shell's first line reads");
+        assert_eq!(&ready, b"ready\n");
+        (child, output)
+    }
+
+    // Fails when the hang-up sends any signal but `SIGHUP`, here one the shell answers only on a
+    // hang-up, or when the wait for the end answers before the process ended, here a shell that
+    // ends half a second after the hang-up, or never answers its end.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_pinned_process_hang_up_ends_it_and_its_wait_answers_that_end() {
+        use std::io::Read as _;
+        use std::time::{Duration, Instant};
+
+        let (mut child, mut output) = start_ready_shell(
+            "trap 'sleep 0.5; echo hup; exit 0' HUP; echo ready; while :; do sleep 0.05; done",
+        );
+        let pinned = pin_child_process(child.id()).expect("the shell pins");
+
+        let is_delivered = pinned.hang_up().expect("the hang-up is sent");
+        let waited = tokio::time::timeout(Duration::from_secs(10), pinned.wait_for_end()).await;
+        // The system may post the end a moment before the exit reads as one.
+        let answered_at = Instant::now();
+        let mut status = child.try_wait().expect("the shell's exit reads");
+        while status.is_none() && answered_at.elapsed() < Duration::from_millis(100) {
+            std::thread::sleep(Duration::from_millis(5));
+            status = child.try_wait().expect("the shell's exit reads");
+        }
+        let mut rest = String::new();
+        output
+            .read_to_string(&mut rest)
+            .expect("the shell's output reads to its end");
+
+        assert!(is_delivered);
+        assert!(
+            matches!(waited, Ok(Ok(()))),
+            "the wait did not answer the end: {waited:?}"
+        );
+        assert!(
+            status.is_some_and(|status| status.success()),
+            "the wait answered before the shell ended"
+        );
+        assert_eq!(rest, "hup\n");
     }
 
     // A shell that leads a group of its own, in a session of its own when `is_own_session`, and

@@ -6,12 +6,13 @@ use futures::poll;
 use rstest::rstest;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
-use tokio::sync::{Notify, mpsc};
-use tokio_tungstenite::tungstenite::Bytes;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use tokio::sync::Notify;
 
+use super::scripted_service::{ScriptedService, connect_scripted_service};
 use super::{
     CODEX_REQUEST_TIMEOUT, CodexAppServerConnection, CodexConnectionEvents,
-    CodexConnectionHandlers, CodexForgottenRequest, ServiceMessageReader, ServiceMessageWriter,
+    CodexConnectionHandlers, CodexForgottenRequest,
 };
 use crate::provider::driver::codex::server_requests::{
     CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON, CodexAskKind, CodexInboundServerRequest,
@@ -19,86 +20,8 @@ use crate::provider::driver::codex::server_requests::{
     CodexServerRequestResponder, compose_unrouted_request_error,
 };
 use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::transport::socket::CodexSocketEvent;
 use crate::provider::driver::contract::DriverError;
-
-// The connection's socket as the test drives it: what the connection sent arrives on `sent`, and
-// what the service sends goes in through `inbound`.
-struct ScriptedService {
-    sent: mpsc::UnboundedReceiver<String>,
-    inbound: mpsc::UnboundedSender<CodexSocketEvent>,
-}
-
-impl ScriptedService {
-    async fn next_sent(&mut self) -> Value {
-        let text = self
-            .sent
-            .recv()
-            .await
-            .expect("the connection sent a message");
-        serde_json::from_str(&text).expect("the connection sends JSON")
-    }
-
-    fn send(&self, message: &Value) {
-        self.inbound
-            .send(CodexSocketEvent::Message(Bytes::from(message.to_string())))
-            .expect("the connection reads");
-    }
-
-    fn close(&self, reason: &str) {
-        self.inbound
-            .send(CodexSocketEvent::Closed {
-                reason: reason.to_owned(),
-            })
-            .expect("the connection reads");
-    }
-}
-
-struct ScriptedWriter {
-    sent: mpsc::UnboundedSender<String>,
-    limit: usize,
-}
-
-impl ServiceMessageWriter for ScriptedWriter {
-    fn sent_message_byte_limit(&self) -> usize {
-        self.limit
-    }
-
-    fn send_text<'call>(
-        &'call mut self,
-        _method: &'call str,
-        text: String,
-    ) -> BoxFuture<'call, Result<(), CodexError>> {
-        Box::pin(async move {
-            self.sent.send(text).map_err(|error| CodexError::Transport {
-                detail: "the test's service stopped reading".to_owned(),
-                cause: Some(Box::new(error)),
-            })
-        })
-    }
-
-    fn close(self: Box<Self>) -> BoxFuture<'static, Result<(), CodexError>> {
-        Box::pin(async { Ok(()) })
-    }
-}
-
-struct ScriptedReader {
-    inbound: mpsc::UnboundedReceiver<CodexSocketEvent>,
-}
-
-impl ServiceMessageReader for ScriptedReader {
-    fn receive(&mut self) -> BoxFuture<'_, Result<CodexSocketEvent, CodexError>> {
-        Box::pin(async move {
-            Ok(self
-                .inbound
-                .recv()
-                .await
-                .unwrap_or_else(|| CodexSocketEvent::Closed {
-                    reason: "the test ended".to_owned(),
-                }))
-        })
-    }
-}
+use crate::provider::driver::error_causes::RequestUnanswered;
 
 #[derive(Default)]
 struct RecordedEvents {
@@ -122,6 +45,8 @@ impl CodexConnectionEvents for RecordedEvents {
             .expect("no test thread panicked")
             .extend(dropped);
     }
+
+    fn service_draining(&self, _message: &str) {}
 }
 
 enum TestResponder {
@@ -137,7 +62,7 @@ impl CodexServerRequestResponder for TestResponder {
     fn answer(
         &self,
         _request: CodexInboundServerRequest,
-    ) -> BoxFuture<'_, Result<CodexServerRequestDecision, DriverError>> {
+    ) -> BoxFuture<'static, Result<CodexServerRequestDecision, DriverError>> {
         let decision = match self {
             Self::Hold(held) => {
                 let held = Arc::clone(held);
@@ -171,65 +96,148 @@ fn connect(
     ScriptedService,
     Arc<RecordedEvents>,
 ) {
-    let (sent_sender, sent) = mpsc::unbounded_channel();
-    let (inbound, inbound_receiver) = mpsc::unbounded_channel();
     let events = Arc::new(RecordedEvents::default());
-    let connection = CodexAppServerConnection::start(
-        Box::new(ScriptedWriter {
-            sent: sent_sender,
-            limit,
-        }),
-        Box::new(ScriptedReader {
-            inbound: inbound_receiver,
-        }),
+    let (connection, service) = connect_scripted_service(
+        limit,
         CodexConnectionHandlers {
             events: Arc::clone(&events) as Arc<dyn CodexConnectionEvents>,
             responder,
         },
     );
-    (connection, ScriptedService { sent, inbound }, events)
+    (connection, service, events)
 }
 
+// Kills: a request past its deadline mapped back to `Transport`, which a caller would send again
+// blind, or ended before the deadline.
 #[tokio::test(start_paused = true)]
-async fn a_request_fails_at_its_deadline_and_an_answer_before_it_settles_it() {
+async fn a_request_past_its_deadline_is_unanswered() {
+    let (connection, _service, _events) = connect(usize::MAX, None);
+    let params = json!({});
+    let request = connection.request("thread/read", &params);
+    tokio::pin!(request);
+
+    tokio::time::advance(CODEX_REQUEST_TIMEOUT.saturating_sub(Duration::from_millis(1))).await;
+    let is_pending_before = poll!(request.as_mut()).is_pending();
+    tokio::time::advance(Duration::from_millis(1)).await;
+    let error = request.await.expect_err("no answer came");
+
+    assert!(is_pending_before);
+    assert_unanswered(error, RefusalCode::ProviderTimeout);
+}
+
+// Kills: a close after the write mapped back to `Transport`, which a caller would send again
+// blind.
+#[tokio::test]
+async fn a_request_whose_link_closes_after_the_write_is_unanswered() {
     let (connection, mut service, _events) = connect(usize::MAX, None);
     let params = json!({});
+    let request = connection.request("thread/read", &params);
+    tokio::pin!(request);
 
-    let unanswered = connection.request("thread/read", &params);
-    tokio::pin!(unanswered);
-    assert!(poll!(unanswered.as_mut()).is_pending());
-    tokio::time::advance(CODEX_REQUEST_TIMEOUT.saturating_sub(Duration::from_millis(1))).await;
-    assert!(poll!(unanswered.as_mut()).is_pending());
-    tokio::time::advance(Duration::from_millis(1)).await;
-    assert!(matches!(
-        unanswered.await,
-        Err(CodexError::RequestTimeout { timeout, .. }) if timeout == CODEX_REQUEST_TIMEOUT
-    ));
-    // The unanswered request's message.
+    let is_pending = poll!(request.as_mut()).is_pending();
     service.next_sent().await;
+    service.close("the service ended");
+    let error = request.await.expect_err("no answer came");
+
+    assert!(is_pending);
+    assert_unanswered(error, RefusalCode::ProviderUnavailable);
+}
+
+// Kills: a failure before the write read as `Unanswered`, which would keep a request nothing
+// received.
+#[tokio::test]
+async fn a_request_on_a_closed_link_fails_unsent() {
+    let (connection, _service, _events) = connect(usize::MAX, None);
+    connection.close().await.expect("the close is sent");
+
+    let error = connection
+        .request("thread/read", &json!({}))
+        .await
+        .expect_err("no answer came");
+
+    assert!(matches!(error, CodexError::Transport { .. }), "{error:?}");
+    let DriverError::Refused(refusal) = DriverError::from(error) else {
+        panic!("the driver error is no refusal");
+    };
+    assert_eq!(refusal.code, RefusalCode::ProviderUnavailable);
+}
+
+// `error` is the unanswered `thread/read`, refused to the caller with `code`.
+fn assert_unanswered(error: CodexError, code: RefusalCode) {
+    let CodexError::Unanswered { method, .. } = &error else {
+        panic!("the request ended as {error:?}");
+    };
+    assert_eq!(method, "thread/read");
+    let DriverError::Unanswered(RequestUnanswered { refusal }) = DriverError::from(error) else {
+        panic!("the driver error is not unanswered");
+    };
+    assert_eq!(refusal.code, code);
+}
+
+// Kills: the overloaded or draining answer left on the `Internal` arm, or the connection closed on
+// either, which would cut the session's running turns.
+#[rstest]
+#[case::overloaded(
+    json!({ "code": -32001, "message": "Server overloaded; retry later." }),
+    Some("Server overloaded; retry later.")
+)]
+#[case::draining(
+    json!({
+        "code": -32600,
+        "message": "Server is draining; retry after reconnecting",
+        "data": { "reason": "serverShuttingDown" },
+    }),
+    Some("Server is draining; retry after reconnecting")
+)]
+#[case::refused(json!({ "code": -32600, "message": "missing field `threadId`" }), None)]
+#[tokio::test]
+async fn overloaded_and_draining_answers_refuse_the_request_and_keep_the_connection(
+    #[case] answer: Value,
+    #[case] unavailable_words: Option<&str>,
+) {
+    let (connection, mut service, events) = connect(usize::MAX, None);
+    let params = json!({});
+
+    let refused = connection.request("turn/start", &params);
+    tokio::pin!(refused);
+    assert!(poll!(refused.as_mut()).is_pending());
+    let request = service.next_sent().await;
+    service.send(&json!({ "jsonrpc": "2.0", "id": request["id"], "error": answer }));
+    let error = refused.await.expect_err("the service refused the request");
+    let is_draining = error.is_service_draining();
+    let driver_error = DriverError::from(error);
 
     let answered = connection.request("thread/read", &params);
     tokio::pin!(answered);
     assert!(poll!(answered.as_mut()).is_pending());
     let request = service.next_sent().await;
-    service.send(&json!({ "jsonrpc": "2.0", "id": request["id"], "result": { "thread": "t" } }));
-    let reply = answered.await.expect("the answer settles the request");
-    assert_eq!(reply.get(), r#"{"thread":"t"}"#);
+    service.answer(&request, &json!({ "thread": "t" }));
+    let reply = answered.await.expect("the same connection still answers");
 
-    let refused = connection.request("thread/fork", &params);
-    tokio::pin!(refused);
-    assert!(poll!(refused.as_mut()).is_pending());
-    let request = service.next_sent().await;
-    service.send(&json!({
-        "jsonrpc": "2.0",
-        "id": request["id"],
-        "error": { "code": -32600, "message": "missing field `threadId`" },
-    }));
-    assert!(matches!(
-        refused.await,
-        Err(CodexError::ProviderRequest { method, code: -32600, message })
-            if method == "thread/fork" && message == "missing field `threadId`"
-    ));
+    assert_eq!(reply.get(), r#"{"thread":"t"}"#);
+    assert!(
+        events
+            .dropped
+            .lock()
+            .expect("no test thread panicked")
+            .is_empty()
+    );
+    assert_eq!(
+        is_draining,
+        answer["data"]["reason"] == "serverShuttingDown"
+    );
+    match (unavailable_words, driver_error) {
+        (Some(words), DriverError::Refused(refusal)) => {
+            assert_eq!(refusal.code, RefusalCode::ProviderUnavailable);
+            let detail = refusal.detail.expect("the refusal carries its detail");
+            let carried = detail["providerFailureDetail"]
+                .as_str()
+                .expect("the detail is text");
+            assert!(carried.contains(words), "{carried}");
+        }
+        (None, DriverError::Internal(_)) => {}
+        (_, other) => panic!("the driver error is {other:?}"),
+    }
 }
 
 // On a paused clock a request the close did not fail would end at its deadline instead.
@@ -258,7 +266,7 @@ async fn a_dropped_socket_fails_every_pending_request_and_withdraws_the_held_ask
 
     for outcome in [first.await, second.await] {
         assert!(
-            matches!(outcome, Err(CodexError::Transport { .. })),
+            matches!(outcome, Err(CodexError::Unanswered { .. })),
             "{outcome:?}"
         );
     }

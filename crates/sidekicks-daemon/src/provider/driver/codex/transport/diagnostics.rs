@@ -77,6 +77,10 @@ pub(crate) enum CodexDeliveryPort {
     ServerPrompts,
     /// A run's output speed.
     OutputSpeed,
+    /// The run engine opening a turn Codex started.
+    TurnStart,
+    /// The run engine counting a step a tool call ended.
+    StepCount,
 }
 
 /// Why the frames held while a turn Codex started opens its run went on before the run opened.
@@ -149,6 +153,26 @@ pub(crate) enum CodexTransportDiagnostic {
         /// The conversation it named, or `None` when it named none.
         thread_id: Option<String>,
     },
+    /// A frame named a conversation no session on the service holds and no start or fork in
+    /// flight claimed, so it reached no session.
+    UnroutedThreadFrame {
+        /// The frame's method.
+        method: String,
+        /// The conversation it named.
+        thread_id: String,
+    },
+    /// A frame held for a start or fork in flight was pushed out by the hold's bound.
+    PendingThreadFrameDropped {
+        /// The frame's method.
+        method: String,
+        /// The conversation it named.
+        thread_id: String,
+    },
+    /// A notification arrived on a connection no session reads, such as the capability probe's.
+    UnconsumedServerNotification {
+        /// The notification's method.
+        method: String,
+    },
     /// An answer to an ask was larger, encoded, than the service takes in one message, so the
     /// service gets a refusal instead, and nothing when the refusal does not fit either.
     ServerRequestAnswerOversized {
@@ -185,6 +209,14 @@ pub(crate) enum CodexTransportDiagnostic {
         /// The service's Codex home.
         codex_home: PathBuf,
         /// The start's failure.
+        error: DiagnosticCause,
+    },
+    /// The home's link could not be pointed back at the restarted service that holds it, so a
+    /// plain `codex` does not reach it.
+    HomeLinkRestoreFailed {
+        /// The service's Codex home.
+        codex_home: PathBuf,
+        /// The move's failure.
         error: DiagnosticCause,
     },
     /// A teardown step failed where the teardown carries on without it.
@@ -418,6 +450,20 @@ impl CodexTransportDiagnostic {
                 is_turn_id_cut,
                 "A Codex ask named a turn with no live run and was refused"
             ),
+            Self::UnroutedThreadFrame { method, thread_id } => tracing::warn!(
+                method = method.as_str(),
+                thread_id = thread_id.as_str(),
+                "A Codex frame named a conversation no session holds and reached none"
+            ),
+            Self::PendingThreadFrameDropped { method, thread_id } => tracing::warn!(
+                method = method.as_str(),
+                thread_id = thread_id.as_str(),
+                "A Codex frame held for a conversation's claim was pushed out by the hold's bound"
+            ),
+            Self::UnconsumedServerNotification { method } => tracing::debug!(
+                method = method.as_str(),
+                "A Codex notification arrived on a connection no session reads"
+            ),
             Self::RoutedAskThreadUnresolved { method, thread_id } => tracing::warn!(
                 method = method.as_str(),
                 thread_id = thread_id.as_deref(),
@@ -452,6 +498,11 @@ impl CodexTransportDiagnostic {
                 codex_home = %codex_home.display(),
                 error = &**error as &(dyn Error + 'static),
                 "A Codex service could not be started or reached again"
+            ),
+            Self::HomeLinkRestoreFailed { codex_home, error } => tracing::warn!(
+                codex_home = %codex_home.display(),
+                error = &**error as &(dyn Error + 'static),
+                "The Codex folder's socket link could not be pointed back at its service"
             ),
             Self::TeardownStepFailed { step, error } => tracing::warn!(
                 step = <&str>::from(*step),

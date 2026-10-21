@@ -19,7 +19,7 @@ use crate::run::id::RunId;
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
 use crate::transcript::child_run_summary::ChildRunSummary;
-use crate::transcript::content::TranscriptRowContent;
+use crate::transcript::content::{BlockCutFailure, TranscriptRowContent};
 use crate::transcript::run_attribution::{
     TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS, transcript_run_id_of,
 };
@@ -481,6 +481,15 @@ impl TranscriptReadRow {
             Self::General(row) => row.sequence,
         }
     }
+
+    /// The child-run summary the row carries, on a summarized child-run row.
+    pub fn child_run_summary(&self) -> Option<&ChildRunSummary> {
+        match self {
+            Self::RollbackBoundary(row) => row.child_run_summary.as_ref(),
+            Self::Run(row) => row.child_run_summary.as_ref(),
+            Self::General(row) => row.child_run_summary.as_ref(),
+        }
+    }
 }
 
 /// The run attribution the daemon stamps on one event of a run: its turn position, its execution
@@ -518,6 +527,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<SupersededMarker>().checked(),
         Definition::read::<TranscriptOmittedPatch>(),
+        Definition::read::<BlockCutFailure>(),
         Definition::read::<TranscriptRowContent>().checked(),
         Definition::read::<TranscriptReadRow>().checked(),
         Definition::read::<TranscriptRunStamp>().checked(),

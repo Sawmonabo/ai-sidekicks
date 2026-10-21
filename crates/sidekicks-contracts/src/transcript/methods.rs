@@ -28,14 +28,14 @@ methods! {
             mutating: false,
             params: TranscriptReasoningReadRequest,
             result: TranscriptReasoningReadResponse,
-            refusals: [SessionEventCursorUnresolvable],
+            refusals: [AgentRunNotFound, SessionEventCursorUnresolvable],
         },
         /// Expands one summarized child-run row into its own rows.
         TranscriptChildRunExpand = query "transcript.childRun.expand" {
             mutating: false,
             params: TranscriptChildRunExpandRequest,
             result: TranscriptChildRunExpandResponse,
-            refusals: [SessionEventCursorUnresolvable],
+            refusals: [AgentRunNotFound, AgentRunNotChild, SessionEventCursorUnresolvable],
         },
         /// Reads a row's large body or full output.
         TranscriptBodyRead = query "transcript.body.read" {
@@ -49,7 +49,7 @@ methods! {
             mutating: false,
             params: TranscriptPatchListRequest,
             result: TranscriptPatchListResponse,
-            refusals: [SessionNotFound],
+            refusals: [SessionNotFound, TranscriptRowNotFound, TranscriptBodyOffsetInvalid],
         },
         /// Searches every row one session holds.
         TranscriptSearch = query "transcript.search" {

@@ -49,6 +49,7 @@ use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::provider::capability::probe::CapabilityProbeError;
 use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
+use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::provider::driver::error_causes::{
     ExecutableUnresolvable, ModelCatalogUnreadable, ProviderAxisInvalid, RequestUnanswered,
 };
@@ -451,9 +452,10 @@ pub(crate) trait ProviderDriver: Send + Sync {
         listener: ProviderCommandsListener,
     ) -> ProviderCommandsSubscription;
 
-    /// Stops every provider process and service this driver started, as a deliberate stop; the
-    /// daemon calls it once while it stops. A service the person runs themselves is never stopped.
-    fn shutdown(&self) -> BoxFuture<'_, Result<(), DriverError>>;
+    /// Stops every provider process this driver started; under `Restart` a service that outlives
+    /// the daemon is only disconnected. The daemon calls it once while it stops; a service the
+    /// person runs themselves is never stopped.
+    fn shutdown(&self, intent: DaemonStopIntent) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// The inbox addresses the daemon holds for every session, where this provider's sessions
     /// must answer them; `None` for a provider whose sessions answer no inbox.

@@ -101,6 +101,27 @@ impl Fixture {
     }
 }
 
+// The reorder read answers true only for a waiting message that is not already first among the
+// ones the provider does not hold: nothing named, the first named, or every row handed reads
+// false. Killed by reading the handed rows, or by answering true for the first row.
+#[tokio::test]
+async fn a_reorder_is_read_only_for_a_movable_message_behind_another() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let run_id = fixture.insert_run("running");
+    bind_run_to_first_provider(&fixture.database, run_id);
+    let first = fixture.queue_message(run_id).await;
+    let second = fixture.queue_message(run_id).await;
+
+    let reads = |deliver_first| fixture.queue.reorders_waiting(run_id, deliver_first);
+    assert!(!reads(None).await.expect("the queue reads"));
+    assert!(!reads(Some(first)).await.expect("the queue reads"));
+    assert!(reads(Some(second)).await.expect("the queue reads"));
+    fixture.hand_waiting(run_id).await;
+    assert!(!reads(Some(second)).await.expect("the queue reads"));
+    fixture.queue.stop().await;
+}
+
 // `Send now` of B among A, B and C, all three handed, on a run that takes a message now takes
 // every row back, hands B first marked priority and the rest after it in their order, B, A, C, and
 // marks B, recording its id under the request's key; a person's card open takes B alone, A and C

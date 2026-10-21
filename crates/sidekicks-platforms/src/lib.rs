@@ -205,8 +205,8 @@ pub use posix::allocator::{
 pub use posix::askpass::askpass_listener;
 #[cfg(unix)]
 pub use posix::child_command::{
-    CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end, prepare_child_command,
-    spawn_lasting_child, wrap_child_command, wrap_session_child_command,
+    CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
+    prepare_child_command, spawn_lasting_child, wrap_child_command, wrap_session_child_command,
 };
 #[cfg(unix)]
 pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
@@ -265,6 +265,8 @@ pub use posix::socket::connection::{
     UnixDomainStream, connect_unix_domain_socket, connect_unix_domain_socket as connect_socket,
 };
 #[cfg(unix)]
+pub use posix::socket::link::{read_socket_link, remove_socket_link, replace_socket_link};
+#[cfg(unix)]
 pub use posix::socket::listener::bind_socket_listener;
 #[cfg(unix)]
 pub use posix::socket::path::{check_socket_path, read_socket_path_entry};
@@ -301,7 +303,6 @@ pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_folder_start::ShellFolderProbe;
 pub use shell_folder_start::ShellFolderStart;
-#[cfg(any(test, feature = "test-support"))]
 pub use shell_start::SHELL_START_CONFIRMATION;
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
 pub use socket::listener::ExistingSocket;
@@ -337,8 +338,8 @@ pub use windows::caller_process::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::child_command::{
-    CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end, prepare_child_command,
-    wrap_child_command, wrap_session_child_command,
+    CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
+    prepare_child_command, wrap_child_command, wrap_session_child_command,
 };
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
@@ -415,6 +416,8 @@ pub use windows::shell_start::{
 pub use windows::shell_start_confirmation::{ShellLaunchWriter, ShellStartConfirmation};
 #[cfg(target_os = "windows")]
 pub use windows::socket::connection::connect_socket;
+#[cfg(target_os = "windows")]
+pub use windows::socket::link::{read_socket_link, remove_socket_link, replace_socket_link};
 #[cfg(target_os = "windows")]
 pub use windows::socket::listener::bind_socket_listener;
 #[cfg(target_os = "windows")]

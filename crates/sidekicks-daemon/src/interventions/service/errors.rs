@@ -34,6 +34,9 @@ pub(crate) enum DispatchError {
     /// The run engine's route or read failed.
     #[error(transparent)]
     Engine(RunEngineError),
+    /// The queue's read of the run's waiting messages failed.
+    #[error("the queue could not read the run's waiting messages")]
+    Queue(#[source] InterruptQueueError),
     /// The retry's refusal gave a reason that is no machine-readable cause.
     #[error("the retry's refusal gave a reason that cannot be recorded")]
     RejectionReason(#[source] TextError),
@@ -218,6 +221,7 @@ pub(super) fn failure_text_of(error: &DispatchError) -> String {
         DispatchError::NoDriver(LiveRunDriverError::Unbound { .. })
         | DispatchError::Driver(_)
         | DispatchError::Engine(_)
+        | DispatchError::Queue(_)
         | DispatchError::RejectionReason(_)
         | DispatchError::RunContinued => describe_error(error),
     }

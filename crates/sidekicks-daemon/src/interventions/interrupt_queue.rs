@@ -97,6 +97,15 @@ pub(crate) trait InterruptQueue: Send + Sync {
     fn send_now(&self, send: SendNow)
     -> BoxFuture<'_, Result<SendNowOutcome, InterruptQueueError>>;
 
+    /// Whether `deliver_first` names a message waiting for `run_id` that is not already first
+    /// among the ones the provider does not hold, so applying the choice changes their order.
+    /// Fails as the queue's read fails.
+    fn reorders_waiting(
+        &self,
+        run_id: RunId,
+        deliver_first: Option<QueueItemId>,
+    ) -> BoxFuture<'_, Result<bool, InterruptQueueError>>;
+
     /// Holds the queue's hands to `run_id` for the interrupt `intervention_id`, and the settling
     /// of an end of it seen meanwhile, until that interrupt's
     /// [`InterruptQueue::release_interrupt`]; the run stays held while any interrupt holds it. A

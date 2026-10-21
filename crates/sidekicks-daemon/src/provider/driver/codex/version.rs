@@ -1,16 +1,32 @@
 //! Reads Codex's version out of its `initialize` reply's `userAgent`, which also carries the
 //! caller's own name and version.
 
-use serde_json::Value;
+use serde::Deserialize;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 
 use crate::provider::driver::ReportedVersionReading;
 
-/// The version in the reply's `userAgent`: only the word right after `<client_name>/` counts, and
-/// only in its canonical form, since the agent text names other versions too. `client_name` is the
-/// name the daemon sent at the handshake, holding no `/` and no whitespace.
-pub(super) fn read_reported_version(reply: &Value, client_name: &str) -> ReportedVersionReading {
-    let Some(user_agent) = reply.get("userAgent").and_then(Value::as_str) else {
+/// The client name the daemon sends at every Codex handshake, which Codex echoes at the start of
+/// its `userAgent`; it holds no `/` and no whitespace.
+pub(crate) const CODEX_CLIENT_NAME: &str = "ai-sidekicks-daemon";
+
+/// The member of an `initialize` reply the version is read from.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodexInitializeReply {
+    /// Codex's agent text, `None` when the reply carried none as text.
+    #[serde(default)]
+    pub(crate) user_agent: Option<String>,
+}
+
+/// The version in `user_agent`: only the word right after `<client_name>/` counts, and only in its
+/// canonical form, since the agent text names other versions too. `client_name` is the name the
+/// daemon sent at the handshake, holding no `/` and no whitespace.
+pub(super) fn read_reported_version(
+    user_agent: Option<&str>,
+    client_name: &str,
+) -> ReportedVersionReading {
+    let Some(user_agent) = user_agent else {
         return ReportedVersionReading::UnreadableReply(String::new());
     };
     match user_agent.split_once('/') {
@@ -27,7 +43,6 @@ pub(super) fn read_reported_version(reply: &Value, client_name: &str) -> Reporte
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use serde_json::json;
 
     use super::read_reported_version;
     use crate::provider::driver::ReportedVersionReading;
@@ -49,7 +64,7 @@ mod tests {
             |version| ReportedVersionReading::Version(version.to_owned()),
         );
         assert_eq!(
-            read_reported_version(&json!({ "userAgent": user_agent }), "sidekicks"),
+            read_reported_version(Some(user_agent), "sidekicks"),
             expected
         );
     }
