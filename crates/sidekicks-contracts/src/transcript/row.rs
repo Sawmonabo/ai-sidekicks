@@ -479,6 +479,15 @@ impl TranscriptReadRow {
             Self::General(row) => row.sequence,
         }
     }
+
+    /// The child-run summary the row carries, on a summarized child-run row.
+    pub fn child_run_summary(&self) -> Option<&ChildRunSummary> {
+        match self {
+            Self::RollbackBoundary(row) => row.child_run_summary.as_ref(),
+            Self::Run(row) => row.child_run_summary.as_ref(),
+            Self::General(row) => row.child_run_summary.as_ref(),
+        }
+    }
 }
 
 /// The run attribution the daemon stamps on one event of a run: its turn position, its execution

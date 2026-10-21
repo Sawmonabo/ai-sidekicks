@@ -16,6 +16,7 @@ use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::machine::id::MachineId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
+use crate::transcript::row::TranscriptOmittedPatch;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::voice::MessageOrigin;
 use crate::wire::Never;
@@ -31,7 +32,8 @@ ts_constants! {
     /// so a complete row's canonical bytes are what they would be without the bound.
     pub const CONTENT_TRUNCATED_PAYLOAD_KEY: &str = "contentTruncated";
     /// The largest body one stored row keeps, in code points. A longer body is cut at a code point
-    /// boundary, never refused, so the turn is never lost.
+    /// boundary, never refused, so the turn is never lost. A tool completion whose body holds its
+    /// file patches is the one exception: it is stored whole, so every patch reads back whole.
     pub const CONTENT_PAYLOAD_PLAINTEXT_MAX: usize = 262_144;
 }
 
@@ -138,6 +140,18 @@ macro_rules! agent_output_arm {
     };
 }
 
+/// Which content block of a provider's message a piece belongs to: a reply sends its text, its
+/// reasoning and its tool calls as blocks of one message, and a retried response may reuse the
+/// message's id. Pieces join one row only when their message and block are the same.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderBlock {
+    /// The block's index within its message, as the provider numbers it.
+    pub index: SafeInt<0>,
+    /// Which response under the message's id the block belongs to, from 1.
+    pub attempt: SafeInt<1>,
+}
+
 agent_output_arm! {
     /// An agent row of a run: every agent row but a voice call's spoken answer. It takes
     /// the epoch stamp.
@@ -149,6 +163,14 @@ agent_output_arm! {
     RunAgentOutputPayload {
         /// The run the row belongs to.
         pub run_id: RunId,
+        /// The content block the piece belongs to, where the provider's message holds several.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ProviderBlock")]
+        pub provider_block: Option<ProviderBlock>,
         /// Never present: only a voice call's answer carries an origin.
         #[serde(
             default,
@@ -197,6 +219,14 @@ agent_output_arm! {
         )]
         #[schemars(with = "Never")]
         pub run_id: Option<Never>,
+        /// Never present: a spoken answer lands whole.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub provider_block: Option<Never>,
         /// Never present: the stamp is run-local.
         #[serde(
             default,
@@ -259,6 +289,16 @@ with_machine_content_descriptor! {
         )]
         #[schemars(with = "SafeInt<0>")]
         pub duration_ms: Option<SafeInt<0>>,
+        /// On a completion whose body holds its file patches, every file in the body's order with
+        /// its patch's UTF-8 size, so a row whose body is too large to travel still names them; set
+        /// by the producer. Such a body is stored whole.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "BoundedVec<TranscriptOmittedPatch, 1, { usize::MAX }>")]
+        pub omitted_patches: Option<BoundedVec<TranscriptOmittedPatch, 1, { usize::MAX }>>,
         /// The execution epoch a late row is attributed to; comes with `sourcePosition`.
         #[serde(
             default,
@@ -289,6 +329,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<SessionEventCompactedRemovedSession>(),
         Definition::read::<SessionEventCompactedPayload>().checked(),
+        Definition::read::<ProviderBlock>(),
         Definition::read::<RunAgentOutputPayload>(),
         Definition::read::<VoiceAgentOutputPayload>(),
         Definition::read::<AgentOutputPayload>().checked(),

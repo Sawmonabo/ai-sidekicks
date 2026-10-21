@@ -87,8 +87,8 @@ pub(crate) struct EventLogAppendOptions {
     /// the one it expects refuses the write, and nothing of it is kept.
     pub(crate) transactional_prelude: Vec<WriteStatement>,
     /// Events of the same session committed in the same write, in order, just before this one,
-    /// each at its own sequence; each is checked as this one is and carries no content.
-    pub(crate) preceding_events: Vec<UnsequencedEventEnvelope>,
+    /// each at its own sequence with its body, if any; each is checked as this one is.
+    pub(crate) preceding_events: Vec<(UnsequencedEventEnvelope, Option<String>)>,
 }
 
 /// An appended event once it committed: its id and the sequence the writer gave it.
@@ -565,7 +565,7 @@ impl EventLogService {
         // One clock reading for every event of the write.
         let monotonic_ns = monotonic_ns_now();
         let mut rows = Vec::with_capacity(preceding_events.len() + 1);
-        for preceding in preceding_events {
+        for (preceding, preceding_body) in preceding_events {
             if preceding.session_id() != envelope.session_id() {
                 return Err(EventAppendError::PrecedingEventOfAnotherSession {
                     preceding_type: preceding.event_type().as_str().to_owned(),
@@ -573,7 +573,11 @@ impl EventLogService {
                     session_id: envelope.session_id(),
                 });
             }
-            rows.push(compose_row(preceding, None, monotonic_ns)?);
+            rows.push(compose_row(
+                preceding,
+                preceding_body.as_deref(),
+                monotonic_ns,
+            )?);
         }
         let row = compose_row(envelope, content_body.as_deref(), monotonic_ns)?;
         let id = row.envelope.id.clone();

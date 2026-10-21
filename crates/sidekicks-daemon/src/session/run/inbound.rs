@@ -49,6 +49,7 @@ use crate::session::run::inbound::rows::{
 use crate::session::run::read::RunRead;
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::RunStateChange;
+use crate::transcript::reasoning::split_reasoning_text;
 
 /// The runtime binding a delivery arrived on, and the provider operation it belongs to, where it
 /// has one.
@@ -308,6 +309,9 @@ struct PendingAppend {
     event: SessionEvent,
     linkage: SessionEventLinkage,
     source: Option<EpochPosition>,
+    // Events written just before it in the same write, each with its body: the earlier parts of a
+    // reasoning text too long for one entry.
+    preceding_pieces: Vec<(SessionEvent, String)>,
 }
 
 // A delivery on a binding that is absorbed when it comes from before a cut.
@@ -422,9 +426,22 @@ impl RunInboundDispatch {
             match attributed? {
                 Attributed::Settled(outcome) => Ok(outcome),
                 Attributed::Append(append) => {
-                    let draft = SessionEventDraft::of_session(append.session_id, &append.event)?;
-                    let event_id = self.appender.append(draft, append.linkage).await?.id;
-                    Ok(match append.source {
+                    let PendingAppend {
+                        session_id,
+                        event,
+                        mut linkage,
+                        source,
+                        preceding_pieces,
+                    } = *append;
+                    for (piece, body) in preceding_pieces {
+                        linkage.preceding_events.push(
+                            SessionEventDraft::of_session(session_id, &piece)?
+                                .with_content_body(body),
+                        );
+                    }
+                    let draft = SessionEventDraft::of_session(session_id, &event)?;
+                    let event_id = self.appender.append(draft, linkage).await?.id;
+                    Ok(match source {
                         None => InboundOutcome::Appended { event_id },
                         Some(source) => InboundOutcome::AppendedStamped { event_id, source },
                     })
@@ -482,13 +499,30 @@ impl RunInboundDispatch {
                     possible_source,
                 );
                 let session_id = payload.session_id;
+                // A text longer than one reasoning entry is stored as consecutive pieces of its
+                // row, written together.
+                let mut parts = split_reasoning_text(&content);
+                let last = parts
+                    .pop()
+                    .expect("a text splits into at least one part")
+                    .to_owned();
+                let preceding_pieces = parts
+                    .into_iter()
+                    .map(|part| {
+                        let piece = SessionEvent::AgentThinkingUpdated(AgentOutputPayload::Run(
+                            payload.clone(),
+                        ));
+                        (piece, part.to_owned())
+                    })
+                    .collect();
                 let event = SessionEvent::AgentThinkingUpdated(AgentOutputPayload::Run(payload));
-                return Ok(appended(
+                return Ok(Attributed::Append(Box::new(PendingAppend {
                     session_id,
                     event,
-                    body_linkage(Some(content)),
+                    linkage: body_linkage(Some(last)),
                     source,
-                ));
+                    preceding_pieces,
+                })));
             }
             InboundDelivery::PermissionAsk { binding } => (binding, Absorbable::PermissionAsk),
             InboundDelivery::LiveRunState { binding, state } => {
@@ -728,6 +762,7 @@ fn appended(
         event,
         linkage,
         source,
+        preceding_pieces: Vec::new(),
     }))
 }
 

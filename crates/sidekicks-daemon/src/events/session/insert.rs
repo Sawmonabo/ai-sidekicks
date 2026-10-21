@@ -3,13 +3,18 @@
 //! sequence. The same step advances the session's projection cursor, because every projection row
 //! an event moves is written in that event's own write. The run an event belongs to, which its
 //! typed event names, is written to its own columns, so no write or read parses the payload for
-//! it. It also owns the clock a row's `monotonic_ns` reads.
+//! it. A piece of a run's reply or reasoning is stamped with the row it joins: the newest earlier
+//! piece of the same run, type, provider message and block, unless the run rolled back since,
+//! decided here once so every read sees the same rows. It also owns the clock a row's
+//! `monotonic_ns` reads.
 
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
 use rusqlite::{Connection, OptionalExtension, named_params};
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::transcript::run_attribution::transcript_run_id_of;
 use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -68,12 +73,12 @@ const INSERT_SESSION_EVENT_SQL: &str = "INSERT INTO session_events (
        id, session_id, sequence, occurred_at, monotonic_ns,
        category, type, actor, payload,
        correlation_id, causation_id, version, content_payload,
-       run_id, run_version, turn_number
+       run_id, run_version, turn_number, join_key, joins_sequence, target_run_id
      ) VALUES (
        @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
        @category, @type, @actor, @payload,
        @correlation_id, @causation_id, @version, @content_payload,
-       @run_id, @run_version, @turn_number
+       @run_id, @run_version, @turn_number, @join_key, @joins_sequence, @target_run_id
      )";
 
 const HEAD_SEQUENCE_SQL: &str = "SELECT sequence
@@ -81,6 +86,30 @@ const HEAD_SEQUENCE_SQL: &str = "SELECT sequence
       WHERE session_id = ?
       ORDER BY sequence DESC
       LIMIT 1";
+
+// The row a new piece joins: the run's newest piece of its type under its key, newer than the
+// run's last rollback, as its row's first piece's sequence. Each half is one search of a covering
+// index: the key's, and the run-and-type one.
+// The payload members that name the provider message and block a piece belongs to.
+const PROVIDER_MESSAGE_ID_PAYLOAD_KEY: &str = "providerMessageId";
+const PROVIDER_BLOCK_PAYLOAD_KEY: &str = "providerBlock";
+
+static JOINED_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT coalesce(piece.joins_sequence, piece.sequence)
+       FROM session_events AS piece
+      WHERE piece.session_id = @session_id AND piece.run_id = @run_id AND piece.type = @type
+        AND piece.join_key = @join_key
+        AND piece.sequence > coalesce(
+          (SELECT max(rollback.sequence) FROM session_events AS rollback
+            WHERE rollback.session_id = @session_id AND rollback.type = '{}'
+              AND rollback.run_id = @run_id),
+          -1)
+      ORDER BY piece.sequence DESC
+      LIMIT 1",
+        SessionEventType::AgentRunRolledBack.as_str()
+    )
+});
 
 // A new session's cursor starts current; an existing one keeps its state, so a session marked for
 // rebuilding stays marked until its rebuild lands.
@@ -123,6 +152,29 @@ pub(crate) fn insert_session_event(
             })?,
     };
     let stored_sequence = i64::from(sequence);
+    // A piece with no run, a voice call's spoken answer, lands whole and always starts its row.
+    let join_key = run_id.as_ref().and_then(|_| join_key_of(event));
+    let joins_sequence: Option<i64> = match (&run_id, &join_key) {
+        (Some(run_id), Some(join_key)) => connection
+            .prepare_cached(&JOINED_ROW_SQL)?
+            .query_row(
+                named_params! {
+                    "@session_id": session_id.as_str(),
+                    "@run_id": run_id.as_str(),
+                    "@type": event.event_type().as_str(),
+                    "@join_key": join_key,
+                },
+                |joined| joined.get(0),
+            )
+            .optional()?,
+        _ => None,
+    };
+    // An event that is no run's own but names one, an intervention naming its target, is filed
+    // under that run.
+    let target_run_id = run
+        .is_none()
+        .then(|| transcript_run_id_of(Some(event.payload())))
+        .flatten();
     connection
         .prepare_cached(INSERT_SESSION_EVENT_SQL)?
         .execute(named_params! {
@@ -142,6 +194,9 @@ pub(crate) fn insert_session_event(
             "@run_id": run_id.as_ref().map(UuidText::as_str),
             "@run_version": run.and_then(|run| run.run_version).map(i64::from),
             "@turn_number": run.and_then(|run| run.turn_number).map(i64::from),
+            "@join_key": join_key,
+            "@joins_sequence": joins_sequence,
+            "@target_run_id": target_run_id,
         })?;
     // Runs for the service's own sentinel session too, whose cursor is written and never read.
     connection
@@ -152,4 +207,23 @@ pub(crate) fn insert_session_event(
             "@last_sequence": stored_sequence,
         })?;
     Ok(sequence)
+}
+
+/// The key a piece of a run's reply or reasoning joins its row by: its provider message's id and
+/// content block, as one JSON text; `None` for every other event.
+fn join_key_of(event: &UnsequencedEventEnvelope) -> Option<String> {
+    if !matches!(
+        event.event_type(),
+        SessionEventType::AgentMessageSent | SessionEventType::AgentThinkingUpdated
+    ) {
+        return None;
+    }
+    let payload = event.payload();
+    Some(
+        serde_json::to_string(&(
+            payload.get(PROVIDER_MESSAGE_ID_PAYLOAD_KEY),
+            payload.get(PROVIDER_BLOCK_PAYLOAD_KEY),
+        ))
+        .expect("two JSON values serialize"),
+    )
 }

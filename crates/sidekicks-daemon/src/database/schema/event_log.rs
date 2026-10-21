@@ -59,6 +59,14 @@ CREATE TABLE {SESSION_EVENTS_TABLE} (
   -- The turn's number within its run, from 1, written beside run_id for the turn start and the
   -- three turn ends; NULL otherwise.
   turn_number       INTEGER,
+  -- The provider message and block a run's reply or reasoning piece belongs to; NULL otherwise.
+  join_key          TEXT,
+  -- On a piece that continues an earlier piece's row, the sequence of the row's first piece;
+  -- NULL on the first piece and on every other event.
+  joins_sequence    INTEGER,
+  -- The run an event is filed under without being that run's own event, an intervention's
+  -- target among them; NULL on an event of a run and on a session-level one.
+  target_run_id     TEXT,
   UNIQUE (session_id, sequence)
 ) STRICT;
 
@@ -71,6 +79,20 @@ CREATE INDEX idx_session_events_skipped ON {SESSION_EVENTS_TABLE}(session_id)
 -- a live run's agent and newest touch.
 CREATE INDEX idx_session_events_run ON {SESSION_EVENTS_TABLE}(session_id, type, run_id, sequence)
   WHERE run_id IS NOT NULL;
+-- One run's events in log order, read beside the events filed under it.
+CREATE INDEX idx_session_events_run_sequence ON {SESSION_EVENTS_TABLE}(session_id, run_id, sequence)
+  WHERE run_id IS NOT NULL;
+-- The events filed under a run that are not its own, in log order.
+CREATE INDEX idx_session_events_target_run
+  ON {SESSION_EVENTS_TABLE}(session_id, target_run_id, sequence)
+  WHERE target_run_id IS NOT NULL;
+-- A run's newest piece of one type under one message and block, which a later piece joins.
+CREATE INDEX idx_session_events_join_key
+  ON {SESSION_EVENTS_TABLE}(session_id, run_id, type, join_key, sequence, joins_sequence)
+  WHERE join_key IS NOT NULL;
+-- Every piece continuing a row, by the row's first piece, in log order.
+CREATE INDEX idx_session_events_joins ON {SESSION_EVENTS_TABLE}(session_id, joins_sequence, sequence)
+  WHERE joins_sequence IS NOT NULL;
 -- One run's events that name an actor, in log order, for the read that finds who acts for a run.
 CREATE INDEX idx_session_events_run_actor ON {SESSION_EVENTS_TABLE}(session_id, run_id, sequence)
   WHERE run_id IS NOT NULL AND actor IS NOT NULL;

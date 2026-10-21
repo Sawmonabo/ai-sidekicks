@@ -50,6 +50,7 @@ pub(crate) struct SessionEventDraft {
     event_type: SessionEventType,
     payload: Map<String, Value>,
     run: Option<EventRun>,
+    content_body: Option<String>,
 }
 
 impl SessionEventDraft {
@@ -87,7 +88,17 @@ impl SessionEventDraft {
             event_type: event.event_type(),
             payload: payload_members(event)?,
             run: event.run(),
+            content_body: None,
         })
+    }
+
+    /// The draft with `body`, its machine-authored prose, kept beside its payload when it is
+    /// appended; a body its append's linkage carries is kept in its place.
+    pub(crate) fn with_content_body(self, body: String) -> Self {
+        Self {
+            content_body: Some(body),
+            ..self
+        }
     }
 }
 
@@ -141,6 +152,7 @@ impl UnsequencedEventEnvelope {
             event_type,
             payload,
             run,
+            content_body: _,
         } = draft;
         Self {
             id: FreeFormText::new(mint_uuid_v7().to_string()).expect("a minted UUID is an id"),
@@ -271,7 +283,7 @@ impl SessionEventAppender {
 
     fn envelope_of(
         &self,
-        draft: SessionEventDraft,
+        mut draft: SessionEventDraft,
         linkage: SessionEventLinkage,
     ) -> Result<(UnsequencedEventEnvelope, EventLogAppendOptions), SessionEventAppendError> {
         let SessionEventLinkage {
@@ -285,20 +297,23 @@ impl SessionEventAppender {
         // Built in write order, so the ids minted for them rise with their sequences.
         let preceding_events = preceding_events
             .into_iter()
-            .map(|preceding| {
-                UnsequencedEventEnvelope::new(
+            .map(|mut preceding| {
+                let content_body = preceding.content_body.take();
+                let envelope = UnsequencedEventEnvelope::new(
                     preceding,
                     EventOccurredAt::now(),
                     None,
                     None,
                     self.version.clone(),
-                )
+                );
+                (envelope, content_body)
             })
             .collect();
         let occurred_at = match occurred_at {
             Some(occurred_at) => normalize_occurred_at(occurred_at.as_str())?,
             None => EventOccurredAt::now(),
         };
+        let draft_body = draft.content_body.take();
         let envelope = UnsequencedEventEnvelope::new(
             draft,
             occurred_at,
@@ -307,7 +322,7 @@ impl SessionEventAppender {
             self.version.clone(),
         );
         let options = EventLogAppendOptions {
-            content_body,
+            content_body: content_body.or(draft_body),
             transactional_prelude,
             preceding_events,
         };

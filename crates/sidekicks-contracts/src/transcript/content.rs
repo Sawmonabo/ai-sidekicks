@@ -17,6 +17,7 @@ use crate::jsonrpc::byte_length::{fits_budget, json_utf8_byte_length};
 use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
 use crate::session::id::SessionId;
 use crate::transcript::limits::TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES;
+use crate::wire::attachment::Bytes;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::{BoundedText, FreeFormText};
 use crate::wire::{BoolLiteral, Never, True, literal};
@@ -24,6 +25,11 @@ use crate::wire::{BoolLiteral, Never, True, literal};
 /// A stored body: at most [`CONTENT_PAYLOAD_PLAINTEXT_MAX`] code points, the cap its event's
 /// payload holds it to.
 pub type StoredBodyText = BoundedText<0, CONTENT_PAYLOAD_PLAINTEXT_MAX>;
+
+/// A prose body's block starts: where each of its markdown blocks begins, as UTF-16 code unit
+/// offsets into the whole body, ascending, each a little-endian `u32`. They travel as an
+/// attachment and are charged against the page budget with the JSON.
+pub type BlockStarts = Bytes<4, PAGE_MAX_BYTES>;
 
 /// What a row read from history carries of its body: the body itself, why there is none, or the
 /// size alone of a large one. An `available` body serializes to at most 32,768 JSON bytes.
@@ -61,6 +67,14 @@ pub enum TranscriptRowContent {
         )]
         #[schemars(with = "True")]
         content_truncated: Option<True>,
+        /// The body's block starts, on a prose body.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "BlockStarts")]
+        block_starts: Option<BlockStarts>,
     },
     /// No body can be read.
     Unavailable {
@@ -130,64 +144,99 @@ pub struct BodyReadOffsetRefused {
     pub body_length: usize,
 }
 
-/// An event's stored body as `transcript.body.read` reports it, the part that starts at `offset`:
-/// `absent` when none is stored, never an empty `available` body, which would claim the agent said
-/// nothing. A part holds as much of the body as fits one page and names where the next part
-/// starts, so a client reading from each `nextOffset` until it is `null` joins the whole body. The
-/// length and truncation mark are the payload's own.
+/// A stretch of a row's body that a part is cut from: the stretch's text, where it starts in the
+/// whole body and the whole body's UTF-8 length, so a reader of a long body loads only the stored
+/// pieces one part needs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BodyWindow<'text> {
+    /// The stretch's text.
+    pub text: &'text str,
+    /// Where the stretch starts in the whole body, as a UTF-8 byte offset.
+    pub start: usize,
+    /// The whole body's UTF-8 length.
+    pub body_length: usize,
+}
+
+impl<'text> BodyWindow<'text> {
+    /// The window that holds the whole of `body`.
+    pub fn whole(body: &'text str) -> Self {
+        Self {
+            text: body,
+            start: 0,
+            body_length: body.len(),
+        }
+    }
+}
+
+/// A row's body as `transcript.body.read` reports it, the part that starts at `offset`: `absent`
+/// when none is stored, never an empty `available` body, which would claim the agent said nothing.
+/// The body is the row's whole body, its pieces joined when the provider sent it in several, read
+/// through `window`, which must start at or before `offset`. A part holds as much of the window as
+/// fits one page, and no more than one stored body's cap, and names where the next part starts, so
+/// a client reading from each `nextOffset` until it is `null` joins the whole body. The length and
+/// truncation mark are the payload's own. Refuses an offset outside the window or inside a
+/// character.
 pub fn stored_body_content_of(
     payload: Option<&Map<String, Value>>,
-    stored_body: Option<&StoredBodyText>,
+    window: Option<BodyWindow<'_>>,
     offset: u64,
 ) -> Result<TranscriptBodyReadResponse, BodyReadOffsetRefused> {
-    let Some(stored_body) = stored_body else {
+    let Some(window) = window else {
         return Ok(TranscriptBodyReadResponse::Unavailable {
             reason: HydratedContentUnavailableReason::Absent,
         });
     };
-    let body = stored_body.as_str();
+    let text = window.text;
     let Some(start) = usize::try_from(offset)
         .ok()
-        .filter(|start| body.is_char_boundary(*start))
+        .and_then(|offset| offset.checked_sub(window.start))
+        .filter(|start| text.is_char_boundary(*start))
     else {
         return Err(BodyReadOffsetRefused {
             offset,
-            body_length: body.len(),
+            body_length: window.body_length,
         });
     };
-    let end = page_end(body, start);
+    let end = page_end(text, start);
     let (content_length, content_truncated) = echoed_body_facts_of(payload);
+    let next = window.start + end;
     Ok(TranscriptBodyReadResponse::Available {
-        body: StoredBodyText::new(body[start..end].to_owned())
-            .expect("a part of a stored body is within the stored body's cap"),
-        offset: byte_offset(start),
-        next_offset: (end < body.len()).then(|| byte_offset(end)),
+        body: StoredBodyText::new(text[start..end].to_owned())
+            .expect("a part ends within one stored body's cap"),
+        offset: byte_offset(window.start + start),
+        next_offset: (next < window.body_length).then(|| byte_offset(next)),
         content_length,
         content_truncated,
+        block_starts: None,
     })
 }
 
-/// A byte offset into a stored body, which its cap keeps far below 2^53.
+/// A byte offset into a body, which the memory holding it keeps far below 2^53.
 fn byte_offset(offset: usize) -> SafeInt<0> {
     u64::try_from(offset)
         .ok()
         .and_then(SafeInt::new)
-        .expect("a stored body's byte offsets lie far below 2^53")
+        .expect("a body's byte offsets lie far below 2^53")
 }
 
-/// Where the part of `body` that starts at `offset` ends: the furthest character boundary whose
-/// stretch's JSON fits [`PAGE_MAX_BYTES`], measured as the reply's check measures it. One
-/// character's JSON is at most eight bytes, so a part short of the end holds at least one.
+/// Where the part of `body` that starts at `offset` ends: the furthest character boundary at most
+/// [`CONTENT_PAYLOAD_PLAINTEXT_MAX`] code points on whose stretch's JSON fits [`PAGE_MAX_BYTES`],
+/// measured as the reply's check measures it. One character's JSON is at most eight bytes, so a
+/// part short of the end holds at least one.
 fn page_end(body: &str, offset: usize) -> usize {
+    let cap_end = body[offset..]
+        .char_indices()
+        .nth(CONTENT_PAYLOAD_PLAINTEXT_MAX)
+        .map_or(body.len(), |(index, _)| offset + index);
     let fits = |end: usize| {
         json_utf8_byte_length(&&body[offset..end]).is_ok_and(|length| length <= PAGE_MAX_BYTES)
     };
-    if fits(body.len()) {
-        return body.len();
+    if fits(cap_end) {
+        return cap_end;
     }
     // The fitting ends form a prefix of the boundaries, so the last one is found by halving the
     // byte range between a boundary that fits and one that does not.
-    let (mut fitting, mut over) = (offset, body.len());
+    let (mut fitting, mut over) = (offset, cap_end);
     loop {
         let middle = body.floor_char_boundary(fitting + (over - fitting) / 2);
         if middle == fitting {
@@ -236,6 +285,7 @@ pub fn transcript_row_content_of(
             body,
             content_length,
             content_truncated,
+            block_starts: None,
         };
     }
     TranscriptRowContent::Large {
@@ -306,6 +356,14 @@ pub enum TranscriptBodyReadResponse {
         )]
         #[schemars(with = "True")]
         content_truncated: Option<True>,
+        /// The block starts of the whole body, on the first part of a prose body.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "BlockStarts")]
+        block_starts: Option<BlockStarts>,
     },
     /// No body can be read.
     Unavailable {
@@ -526,7 +584,7 @@ mod tests {
     use rstest::rstest;
 
     use super::{
-        BodyReadOffsetRefused, StoredBodyText, StoredRowBody, TranscriptBodyReadResponse,
+        BodyReadOffsetRefused, BodyWindow, StoredRowBody, TranscriptBodyReadResponse,
         TranscriptPatchFile, TranscriptRowContent, stored_body_content_of,
         transcript_row_content_of,
     };
@@ -562,10 +620,9 @@ mod tests {
             let body = case
                 .stored
                 .as_ref()
-                .and_then(|stored| stored.body.clone())
-                .map(|body| StoredBodyText::new(body).expect("a stored body within its cap"));
+                .and_then(|stored| stored.body.as_deref());
             assert_eq!(
-                stored_body_content_of(payload, body.as_ref(), 0)
+                stored_body_content_of(payload, body.map(BodyWindow::whole), 0)
                     .expect("the body's start is an offset"),
                 case.body_read,
                 "{}",
@@ -587,14 +644,13 @@ mod tests {
     /// Reads `body` part by part from `offset` until a part names no next one, answering the parts
     /// joined and how many there were.
     fn read_from(body: &str, offset: u64) -> Result<(String, usize), BodyReadOffsetRefused> {
-        let stored = StoredBodyText::new(body.to_owned()).expect("a body within its cap");
         let mut joined = String::new();
         let mut part_count = 0;
         let mut next = Some(offset);
         while let Some(offset) = next {
             let TranscriptBodyReadResponse::Available {
                 body, next_offset, ..
-            } = stored_body_content_of(None, Some(&stored), offset)?
+            } = stored_body_content_of(None, Some(BodyWindow::whole(body)), offset)?
             else {
                 panic!("a stored body is available");
             };
@@ -608,6 +664,8 @@ mod tests {
     #[rstest]
     // Each control character takes six JSON bytes, so 200,000 of them span two pages.
     #[case::over_one_page("\u{1}".repeat(200_000), 0, Some(2))]
+    // A joined body past one stored body's cap, which one page's bytes would otherwise hold.
+    #[case::over_one_stored_body("a".repeat(300_000), 0, Some(2))]
     #[case::from_a_later_offset("a\u{e9}b".to_owned(), 3, Some(1))]
     #[case::at_the_end("ab".to_owned(), 2, Some(1))]
     #[case::inside_a_character("a\u{e9}b".to_owned(), 2, None)]

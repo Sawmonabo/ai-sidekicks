@@ -89,8 +89,11 @@ pub(crate) struct SessionEventFilter<'types> {
     pub(crate) before_sequence: Option<i64>,
 }
 
-const SELECTED_COLUMNS: &str = "id, session_id, sequence, occurred_at, category, type, actor, \
-                                payload, correlation_id, causation_id, version";
+/// The envelope's columns, in the order [`SessionEventReads::read_envelopes`] reads them; a
+/// statement naming them reads its rows' table as `event`.
+pub(crate) const SELECTED_COLUMNS: &str = "event.id, event.session_id, event.sequence, \
+     event.occurred_at, event.category, event.type, event.actor, event.payload, \
+     event.correlation_id, event.causation_id, event.version";
 
 // The bound of a read that has none: no session's log reaches this sequence.
 const NO_SEQUENCE_BOUND: i64 = MAX_SAFE_SIGNED_INTEGER;
@@ -117,19 +120,6 @@ static AFTER_OF_TYPES_SQL: LazyLock<String> = LazyLock::new(|| {
         AND type IN (SELECT value FROM json_each(?))
         AND {}
       ORDER BY sequence ASC
-      LIMIT ?",
-        outside_skipped_ranges_sql("event")
-    )
-});
-
-// Newest first so the limit keeps the rows nearest the position; the read reverses them.
-static BEFORE_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT {SELECTED_COLUMNS}
-       FROM session_events AS event
-      WHERE session_id = ? AND sequence <= ? AND sequence < ?
-        AND {}
-      ORDER BY sequence DESC
       LIMIT ?",
         outside_skipped_ranges_sql("event")
     )
@@ -261,11 +251,11 @@ where
     ) -> Result<Vec<EventEnvelope>, SessionLogReadError> {
         let before = self.read_bound(session_id, filter.before_sequence);
         match filter.event_types {
-            None => self.read_rows(
+            None => self.read_envelopes(
                 &AFTER_SQL,
                 params![session_id.text().as_str(), after_position, before, limit],
             ),
-            Some(event_types) => self.read_rows(
+            Some(event_types) => self.read_envelopes(
                 &AFTER_OF_TYPES_SQL,
                 params![
                     session_id.text().as_str(),
@@ -307,26 +297,6 @@ where
         )
     }
 
-    /// The newest `limit` events with a sequence at or below `before_position`.
-    pub(crate) fn read_before(
-        &self,
-        session_id: &SessionId,
-        before_position: i64,
-        limit: i64,
-    ) -> Result<Vec<EventEnvelope>, SessionLogReadError> {
-        let mut rows = self.read_rows(
-            &BEFORE_SQL,
-            params![
-                session_id.text().as_str(),
-                before_position,
-                self.read_bound(session_id, None),
-                limit
-            ],
-        )?;
-        rows.reverse();
-        Ok(rows)
-    }
-
     /// The events with a sequence from `from_sequence` to `to_sequence`, both included.
     pub(crate) fn read_window(
         &self,
@@ -334,7 +304,7 @@ where
         from_sequence: i64,
         to_sequence: i64,
     ) -> Result<Vec<EventEnvelope>, SessionLogReadError> {
-        self.read_rows(
+        self.read_envelopes(
             &WINDOW_SQL,
             params![
                 session_id.text().as_str(),
@@ -351,7 +321,7 @@ where
         session_id: &SessionId,
         sequences: &[i64],
     ) -> Result<Vec<EventEnvelope>, SessionLogReadError> {
-        self.read_rows(
+        self.read_envelopes(
             &AT_SEQUENCES_SQL,
             params![
                 session_id.text().as_str(),
@@ -384,7 +354,8 @@ where
             .transpose()?)
     }
 
-    fn read_bound(&self, session_id: &SessionId, before_sequence: Option<i64>) -> i64 {
+    /// The sequence a read of `session_id` stops before, as [`session_read_bound`] answers it.
+    pub(crate) fn read_bound(&self, session_id: &SessionId, before_sequence: Option<i64>) -> i64 {
         session_read_bound(
             &self.read_damaged_from_sequence,
             session_id,
@@ -415,8 +386,9 @@ where
         Ok(events)
     }
 
-    /// Runs one of the row-list statements and checks each row as an envelope, in the order read.
-    fn read_rows(
+    /// Runs a statement selecting [`SELECTED_COLUMNS`] and checks each row as an envelope, in the
+    /// order read.
+    pub(crate) fn read_envelopes(
         &self,
         sql: &str,
         bindings: impl rusqlite::Params,

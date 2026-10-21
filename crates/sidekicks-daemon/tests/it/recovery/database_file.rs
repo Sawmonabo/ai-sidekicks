@@ -285,31 +285,45 @@ fn schema_file(path: &Path) -> Connection {
 }
 
 // Writes `count` events of `session_id` from sequence 0, each in run `run-1` at its own run version
-// and turn, as the append stores them.
+// and turn, each a piece of the row the first one starts, under one join key and filed under
+// `run-2` too, so a copy shows every column the append stamps.
 fn write_events(connection: &Connection, session_id: &str, count: i64) {
     for sequence in 0..count {
         connection
             .execute(
                 "INSERT INTO session_events (id, session_id, sequence, occurred_at, monotonic_ns,
-                   category, type, payload, run_id, run_version, turn_number)
+                   category, type, payload, run_id, run_version, turn_number, join_key,
+                   joins_sequence, target_run_id)
                  VALUES (?1, ?2, ?3, '2026-10-19T09:00:00.000Z', ?3, 'session', 'session.pinned',
-                   '{}', 'run-1', ?3, ?3)",
+                   '{}', 'run-1', ?3, ?3, 'key-1', NULLIF(0, ?3), 'run-2')",
                 (format!("{session_id}-{sequence}"), session_id, sequence),
             )
             .expect("the event is written");
     }
 }
 
-fn session_events(connection: &Connection, session_id: &str) -> Vec<(i64, String, i64, i64)> {
+// Each event's sequence, run columns and the three join columns.
+type StoredStamps = (i64, String, i64, i64, String, Option<i64>, String);
+
+fn session_events(connection: &Connection, session_id: &str) -> Vec<StoredStamps> {
     let mut statement = connection
         .prepare(
-            "SELECT sequence, run_id, run_version, turn_number FROM session_events
-              WHERE session_id = ? ORDER BY sequence",
+            "SELECT sequence, run_id, run_version, turn_number, join_key, joins_sequence,
+                    target_run_id
+               FROM session_events WHERE session_id = ? ORDER BY sequence",
         )
         .expect("the read prepares");
     statement
         .query_map([session_id], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+            ))
         })
         .expect("the events read")
         .collect::<rusqlite::Result<Vec<_>>>()
@@ -324,8 +338,8 @@ enum BackupCopy {
     Unreadable,
 }
 
-// A session the backup holds more readable events of takes its events with their run columns, its
-// snapshots and its recovery checkpoints from it, and one the fresh file holds more of keeps its
+// A session the backup holds more readable events of takes its events with their run and join
+// columns, its snapshots and its recovery checkpoints from it, and one the fresh file holds more of keeps its
 // own; a backup another build made, or one that does not read, is passed over and heals nothing.
 #[rstest]
 #[case::of_this_build(BackupCopy::ThisBuild, 1)]
@@ -382,7 +396,15 @@ async fn sessions_the_newest_backup_holds_more_of_come_from_it(
     assert_eq!(
         session_events(&fresh, "richer-in-backup"),
         (0..backup_events)
-            .map(|sequence| (sequence, "run-1".to_owned(), sequence, sequence))
+            .map(|sequence| (
+                sequence,
+                "run-1".to_owned(),
+                sequence,
+                sequence,
+                "key-1".to_owned(),
+                (sequence > 0).then_some(0),
+                "run-2".to_owned(),
+            ))
             .collect::<Vec<_>>()
     );
     assert_eq!(session_events(&fresh, "richer-in-fresh").len(), 2);

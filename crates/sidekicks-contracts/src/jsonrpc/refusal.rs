@@ -237,6 +237,8 @@ refusal_codes! {
     AgentQueueItemRunChanged = "agent.queueItem.runChanged" (Aborted, 409);
     /// Requested state transition is not allowed from the current run state.
     AgentRunInvalidTransition = "agent.run.invalidTransition" (FailedPrecondition, 409);
+    /// A read of a child run's rows named a run that has no parent.
+    AgentRunNotChild = "agent.run.notChild" (FailedPrecondition, 409);
     /// Run does not exist.
     AgentRunNotFound = "agent.run.notFound" (NotFound, 404);
     /// Run recovery failed due to an internal error.

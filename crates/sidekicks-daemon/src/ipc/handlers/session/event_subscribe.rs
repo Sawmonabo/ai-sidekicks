@@ -11,6 +11,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use sidekicks_contracts::event::envelope::EventEnvelope;
+use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
+use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
 use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
 use sidekicks_contracts::session::directory::SessionEventSubscribe;
 use sidekicks_contracts::session::event_cursor::{
@@ -20,13 +23,17 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{
     SessionEventSubscribeRequest, SessionStreamChange, SessionStreamFrame,
 };
+use sidekicks_contracts::transcript::content::TranscriptRowContent;
+use sidekicks_contracts::wire::instant::WireInstant;
 use tokio::sync::watch;
 
 use crate::database::connection::read_pool::DatabaseReadError;
 use crate::events::log_service::{EventLogReadError, EventLogService, FollowStart};
+use crate::events::session::read::session_read_bound;
 use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
-use crate::ipc::stream::feed::{ChangeRecord, Feed};
+use crate::ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
 use crate::ipc::stream::frame_batcher::ChangeFeed;
+use crate::transcript::stream_state::{TranscriptStreamState, read_streamed_pieces};
 use crate::transcript::turn_attribution::{
     RunTurnReads, SessionTurnAttribution, TurnAttributionError,
 };
@@ -70,6 +77,9 @@ enum SessionEventStreamError {
     /// An event of a run could not be attributed to its turn.
     #[error(transparent)]
     Attribution(#[from] TurnAttributionError),
+    /// A read of where a piece sits in its row, or of a child run's count, failed.
+    #[error("a read of a streamed row's place or a child run's count failed")]
+    Rows(#[from] rusqlite::Error),
 }
 
 impl From<DatabaseReadError> for SessionEventStreamError {
@@ -79,13 +89,16 @@ impl From<DatabaseReadError> for SessionEventStreamError {
 }
 
 /// One session's log as its event stream reads it, stamping each event of a run as its transcript
-/// row is stamped.
+/// row is stamped, placing each piece of a reply or of reasoning in its row, and summarizing each
+/// child run's events.
 struct SessionEventRecord {
     log: Arc<EventLogService>,
     session_id: SessionId,
     /// The stream's attribution, fed every page in order; it holds one fold per run until the
     /// run's terminal event.
     attribution: Arc<Mutex<SessionTurnAttribution>>,
+    /// The rows still taking pieces and the child runs the stream follows.
+    rows: Arc<Mutex<TranscriptStreamState>>,
 }
 
 impl SessionEventRecord {
@@ -94,6 +107,7 @@ impl SessionEventRecord {
             log,
             session_id,
             attribution: Arc::new(Mutex::new(SessionTurnAttribution::new(session_id))),
+            rows: Arc::new(Mutex::new(TranscriptStreamState::default())),
         }
     }
 }
@@ -107,9 +121,10 @@ impl ChangeRecord for SessionEventRecord {
         &self,
         cursor: &EventCursor,
         max: usize,
-    ) -> BoxFuture<'_, Result<Vec<SessionStreamChange>, SessionEventStreamError>> {
+    ) -> BoxFuture<'_, Result<RecordPage<SessionStreamChange>, SessionEventStreamError>> {
         let cursor = cursor.clone();
         let attribution = Arc::clone(&self.attribution);
+        let rows = Arc::clone(&self.rows);
         async move {
             let after_position = decode_event_cursor(&cursor).map_err(EventLogReadError::from)?;
             self.log
@@ -119,25 +134,86 @@ impl ChangeRecord for SessionEventRecord {
                     max,
                     None,
                     move |connection, read_damaged_from_sequence, page| {
+                        let session_id = match page.events.first() {
+                            Some(event) => event.session_id,
+                            None => {
+                                return Ok(RecordPage {
+                                    changes: Vec::new(),
+                                    is_cut_by_size: false,
+                                });
+                            }
+                        };
+                        let read_bound =
+                            session_read_bound(read_damaged_from_sequence, &session_id, None);
+                        let sequences: Vec<i64> = page
+                            .events
+                            .iter()
+                            .map(|event| i64::from(event.sequence))
+                            .collect();
+                        let stored = read_streamed_pieces(connection, &session_id, &sequences)?;
+                        let contents: Vec<Option<TranscriptRowContent>> = page
+                            .events
+                            .iter()
+                            .map(|event| {
+                                stored
+                                    .get(&i64::from(event.sequence))
+                                    .and_then(|piece| piece.content_of(&event.payload))
+                            })
+                            .collect();
+                        // Cut before any fold moves, so an event left for the next read is
+                        // folded once.
+                        let kept = count_changes_fitting_one_frame(&page.events, &contents);
+                        let is_cut_by_size = kept < page.events.len();
                         let reads = RunTurnReads::new(connection, read_damaged_from_sequence);
-                        // Only this stream's reads take it, one at a time.
+                        let observed_at = WireInstant::now();
+                        // Only this stream's reads take them, one at a time.
                         let mut attribution =
                             attribution.lock().unwrap_or_else(PoisonError::into_inner);
-                        page.events
-                            .into_iter()
-                            .map(|event| {
-                                let run_stamp = attribution
-                                    .attribute(&reads, &event)?
-                                    .map(|attributed| attributed.stamp);
-                                let cursor = encode_event_cursor(i64::from(event.sequence))
-                                    .map_err(EventLogReadError::from)?;
-                                Ok(SessionStreamChange {
+                        let mut rows = rows.lock().unwrap_or_else(PoisonError::into_inner);
+                        let mut changes = Vec::with_capacity(kept);
+                        for (event, content) in page.events.into_iter().zip(contents).take(kept) {
+                            let attributed = attribution.attribute(&reads, &event)?;
+                            let cursor = encode_event_cursor(i64::from(event.sequence))
+                                .map_err(EventLogReadError::from)?;
+                            let Some(attributed) = attributed else {
+                                changes.push(SessionStreamChange {
                                     cursor,
                                     event,
-                                    run_stamp,
-                                })
-                            })
-                            .collect()
+                                    run_stamp: None,
+                                    piece: None,
+                                    child_run_summary: None,
+                                    ended_rows: None,
+                                });
+                                continue;
+                            };
+                            let run_id = attributed.run_id;
+                            let piece = match (content, stored.get(&i64::from(event.sequence))) {
+                                (Some(content), Some(stored)) => Some(rows.place_piece(
+                                    connection, read_bound, &event, run_id, stored, content,
+                                )?),
+                                _ => None,
+                            };
+                            let child_run_summary = rows.child_run_summary(
+                                connection,
+                                read_bound,
+                                &event,
+                                run_id,
+                                &observed_at,
+                            )?;
+                            rows.forget_ended(&event, run_id);
+                            changes.push(SessionStreamChange {
+                                cursor,
+                                event,
+                                run_stamp: Some(attributed.stamp),
+                                piece,
+                                child_run_summary,
+                                ended_rows: None,
+                            });
+                        }
+                        Ok(RecordPage {
+                            changes,
+                            is_cut_by_size,
+                        })
                     },
                 )
                 .await
@@ -156,9 +232,33 @@ impl ChangeRecord for SessionEventRecord {
     fn is_store_closed(error: &SessionEventStreamError) -> bool {
         match error {
             SessionEventStreamError::Log(error) => error.is_pool_closed(),
-            SessionEventStreamError::Attribution(_) => false,
+            SessionEventStreamError::Attribution(_) | SessionEventStreamError::Rows(_) => false,
         }
     }
+}
+
+/// The most bytes a change takes beside its event and its piece's body: its cursor, its run stamp,
+/// its piece's place and a child's summary, each a few ids and integers.
+const CHANGE_BESIDE_BODIES_MAX_BYTES: usize = 1024;
+
+// How many leading events go out in one frame: as many as fit the page budget with their pieces'
+// bodies, never fewer than one.
+fn count_changes_fitting_one_frame(
+    events: &[EventEnvelope],
+    contents: &[Option<TranscriptRowContent>],
+) -> usize {
+    let mut used_bytes = 2;
+    for (index, (event, content)) in events.iter().zip(contents).enumerate() {
+        let change_bytes = json_utf8_byte_length(event).expect("an event serializes")
+            + json_utf8_byte_length(content).expect("a body serializes")
+            + CHANGE_BESIDE_BODIES_MAX_BYTES
+            + usize::from(index > 0);
+        if used_bytes + change_bytes > PAGE_MAX_BYTES {
+            return index.max(1);
+        }
+        used_bytes += change_bytes;
+    }
+    events.len()
 }
 
 #[cfg(test)]
