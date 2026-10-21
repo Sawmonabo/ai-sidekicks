@@ -82,7 +82,7 @@ impl SecretServiceWatch {
     /// Whether a Secret Service owns its name, as last heard; a bus that closed is connected again
     /// first. Fails with [`CredentialStoreUnreachable`] naming the condition that failed.
     pub(crate) async fn check_reachable(&self) -> Reachability {
-        self.connection().await?;
+        self.connection().await.map(drop)?;
         self.reachability.borrow().clone()
     }
 
