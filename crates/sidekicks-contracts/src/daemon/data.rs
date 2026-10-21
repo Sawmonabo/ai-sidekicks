@@ -8,6 +8,7 @@ use crate::error::ERROR_MESSAGE_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
+use crate::keychain::KeychainRefusalCause;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -103,6 +104,15 @@ impl DataExportProgress {
     }
 }
 
+/// The details of `daemon.data.keychainUnavailable`: why the keychain the erase must empty could
+/// not be used. The erase is refused before anything is erased, so it can be sent again.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DaemonDataKeychainUnavailableDetails {
+    /// Why.
+    pub cause: KeychainRefusalCause,
+}
+
 methods! {
     /// The data methods. The export stream's acknowledgment is the subscription, and each
     /// emission is the job's progress as it changes.
@@ -127,7 +137,7 @@ methods! {
             mutating: true,
             params: EmptyPayload,
             result: EmptyPayload,
-            refusals: [],
+            refusals: [DaemonDataKeychainUnavailable],
         },
     ];
 }
@@ -143,6 +153,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DaemonDataExportStartResponse>().checked(),
         Definition::read::<DaemonDataExportSubscribeRequest>().checked(),
         Definition::read::<DataExportProgress>().checked(),
+        Definition::read::<DaemonDataKeychainUnavailableDetails>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&DAEMON_DATA_METHOD_DESCRIPTORS],

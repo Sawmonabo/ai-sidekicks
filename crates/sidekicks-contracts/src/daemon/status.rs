@@ -213,11 +213,11 @@ pub struct DaemonStatusReadResponse {
     #[schemars(with = "UniqueList<DaemonWslDistribution, 1, { usize::MAX }>")]
     #[garde(dive)]
     pub wsl: Option<UniqueList<DaemonWslDistribution, 1, { usize::MAX }>>,
-    /// The file the service keeps its secrets in, readable by this account alone: present only on
-    /// Linux where no Secret Service answers, and on a Mac while the secrets are in
-    /// `secrets.json`, from the approved logged-out service's takeover until uninstall moves them
-    /// back, including after it is turned off in Login Items & Extensions; absent while it waits
-    /// for approval.
+    /// The file the service keeps its secrets in, readable by this account alone: present while it
+    /// holds them, from the first item written into it until the last leaves it. That is on Linux
+    /// where the place record keeps them in the file, since no Secret Service ran when the place
+    /// was picked, and on a Mac from the logged-out service's takeover until uninstall moves them
+    /// back, including after it is turned off in Login Items & Extensions.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
