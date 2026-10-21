@@ -1,8 +1,9 @@
 //! The params of the driver operations that act on a whole session rather than one run, and the
 //! refusal of a level a provider cannot run: the session's opening, resume, close and naming, the
-//! live permission-level and mode moves, a revoked rule's removal, the commands the daemon answers
-//! itself, the side question and the review, the live command list, the move onto a new provider
-//! build, and the purge of the provider's own copy of its conversations.
+//! level and mode a new session starts at, the live permission-level and mode moves, a revoked
+//! rule's removal, the session's goal, the commands the daemon answers itself, the side question
+//! and the review, the live command list, the move onto a new provider build, and the purge of the
+//! provider's own copy of its conversations.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,12 +17,16 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::ProviderOptionSetting;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
+use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FALLBACK_ACTION_MAX_LEN;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{
     PermissionLevel, SessionMode, SessionReviewTarget, SideQuestionId,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 use tokio_util::sync::CancellationToken;
 
 use crate::ipc::domain_error::DomainError;
@@ -177,6 +182,69 @@ pub(crate) struct RevokeRuleParams {
     pub(crate) rule: ProviderAskRule,
     /// The working folder whose project rule file holds it, for a project rule.
     pub(crate) project_folder: Option<PathBuf>,
+}
+
+/// What a new session's starting level is read for: the folder it starts in, and the model and
+/// account it runs on, which may not run every level.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct StartingLevelParams {
+    /// The folder the session starts in, its worktree's root or the project's checkout, absolute.
+    pub(crate) working_folder: PathBuf,
+    /// The session's model.
+    pub(crate) model: ProviderToken,
+    /// The account the session runs on; `None` on the person's own sign-in.
+    pub(crate) provider_account_id: Option<ProviderAccountId>,
+}
+
+/// The level and mode a new session starts at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct StartingLevel {
+    /// The level.
+    pub(crate) level: PermissionLevel,
+    /// Plan where the provider itself would start planning, else Build.
+    pub(crate) session_mode: SessionMode,
+}
+
+/// What a goal operation did: the provider took it, or the driver took a fallback instead.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum DriverGoalResult {
+    /// The provider took it.
+    Applied {},
+    /// The provider did not take it.
+    Degraded {
+        /// The fallback the driver took.
+        fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
+    },
+}
+
+/// Params of `set_session_goal` (gated on `sessionGoals`): the condition the person typed after
+/// `/goal`, for the target agent's live binding. The goal events are the durable truth, so neither
+/// goal operation returns the goal, and a resume never sets it again. `run_id` is context only.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SetSessionGoalParams {
+    /// The session.
+    pub(crate) session_id: SessionId,
+    /// The target agent's live binding.
+    pub(crate) binding_id: RuntimeBindingId,
+    /// The run, for context.
+    pub(crate) run_id: RunId,
+    /// The condition as typed.
+    pub(crate) goal_text: String,
+}
+
+/// Params of `clear_session_goal` (gated on `sessionGoals`); addresses one live binding.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "each member is an id, named for what it identifies"
+)]
+pub(crate) struct ClearSessionGoalParams {
+    /// The session.
+    pub(crate) session_id: SessionId,
+    /// The live binding.
+    pub(crate) binding_id: RuntimeBindingId,
+    /// The run, for context.
+    pub(crate) run_id: RunId,
 }
 
 /// `session.permissionLevel.notOffered`: the session's provider, its account or its model cannot

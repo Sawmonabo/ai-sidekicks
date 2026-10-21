@@ -16,7 +16,8 @@ use crate::provider::driver::claude::handshake_register::ClaudeHandshakeRegister
 use crate::provider::driver::claude::run::start::{ClaudeDaemonTurnOpening, ClaudeRunStart};
 use crate::provider::driver::claude::session::state::LiveClaudeSession;
 use crate::provider::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
-use crate::provider::driver::contract::{DriverError, DriverGoalResult};
+use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::session_control::DriverGoalResult;
 use crate::provider::lenient_json::{lenient_object, read_lenient};
 use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
 

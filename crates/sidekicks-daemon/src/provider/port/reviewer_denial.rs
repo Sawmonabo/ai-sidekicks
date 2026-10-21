@@ -5,6 +5,7 @@ use std::error::Error;
 
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
@@ -38,4 +39,8 @@ pub(crate) trait ReviewerDenialPort: Send + Sync {
         &self,
         denial: ProviderReviewerDenial,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+
+    /// The provider process behind `binding_id` has ended, so an `Allow once` pressed on one of its
+    /// blocks and held, or still waiting on its answer, may be pressed again.
+    fn release_held_presses(&self, binding_id: &RuntimeBindingId);
 }

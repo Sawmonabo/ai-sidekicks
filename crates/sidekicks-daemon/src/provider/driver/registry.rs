@@ -199,24 +199,19 @@ pub(crate) fn test_provider() -> ProviderId {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
     use std::sync::Arc;
 
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-    use sidekicks_platforms::Spawner;
-    use tokio::runtime::Handle;
 
     use super::{ProviderRegistry, test_provider};
     use crate::provider::driver::capabilities::DriverCapabilityFlag;
     use crate::provider::driver::contract::MockProviderDriver;
-    use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+    use crate::provider::driver::test_registry::test_driver_services;
+    use crate::provider::driver::{PROVIDERS, ProviderRegistration};
 
     #[tokio::test]
     async fn the_registry_keeps_the_table_order_and_refuses_an_unknown_id() {
-        let services = DriverServices {
-            spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-            data_folder: PathBuf::from("data"),
-        };
+        let services = test_driver_services();
         let table: Vec<ProviderRegistration> = PROVIDERS
             .iter()
             .map(|descriptor| ProviderRegistration {

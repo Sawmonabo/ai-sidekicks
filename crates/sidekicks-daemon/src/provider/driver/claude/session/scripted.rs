@@ -78,6 +78,7 @@ use crate::provider::driver::claude::session::transport::inbound::{
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::provider::port::permission_ask::PermissionAskPort;
 use crate::provider::port::registration::PortRegistration;
+use crate::provider::port::repository_reader::RepositoryReader;
 use crate::provider::port::reviewer_denial::ReviewerDenialPort;
 use crate::provider::port::session_rules::SessionRulePort;
 use crate::provider::thread_frame_router::ThreadFrameRouter;
@@ -236,7 +237,14 @@ impl ScriptedSession {
                     session_rules: Arc::new(PortRegistration::<Arc<dyn SessionRulePort>>::new(
                         "session rules",
                     )),
-                    repositories: Arc::new(NoRepositories),
+                    repositories: {
+                        let repositories: Arc<PortRegistration<Arc<dyn RepositoryReader>>> =
+                            Arc::new(PortRegistration::new("repositories"));
+                        repositories
+                            .register(Arc::new(NoRepositories))
+                            .expect("the repositories port registers once");
+                        repositories
+                    },
                     home_folder: PathBuf::from("/home"),
                     path_rules: PathRules::NATIVE,
                 },

@@ -12,6 +12,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::artifacts::id::ArtifactId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -20,15 +21,13 @@ use super::binding_id;
 use crate::provider::driver::attachments::{
     AttachmentResolver, ProviderAttachment, UnresolvedAttachmentCause, UnresolvedAttachmentMarker,
 };
-use crate::provider::driver::claude::delivery::requests::answers::{
-    ClaudeRepositoryReader, ClaudeRepositoryReading,
-};
 use crate::provider::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
 };
 use crate::provider::port::permission_ask::{
     PermissionAskPort, ProviderPermissionAsk, ProviderPermissionAskWithdrawal,
 };
+use crate::provider::port::repository_reader::{RepositoryReader, RepositoryReading};
 use crate::provider::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 
 /// What reached the approval ports, in order.
@@ -40,6 +39,8 @@ pub(crate) enum PortCall {
     AskWithdrawn(String),
     /// A reviewer's block, by the run it was made in.
     Denial(RunId),
+    /// The held presses of an ended process's binding, released.
+    PressesReleased(RuntimeBindingId),
 }
 
 /// Approval ports that record what reaches them.
@@ -82,6 +83,10 @@ impl ReviewerDenialPort for RecordingPorts {
         denial: ProviderReviewerDenial,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         self.record(PortCall::Denial(denial.run_id))
+    }
+
+    fn release_held_presses(&self, binding_id: &RuntimeBindingId) {
+        lock(&self.calls).push(PortCall::PressesReleased(binding_id.clone()));
     }
 }
 
@@ -151,12 +156,16 @@ impl DaemonTurnBindingResolver for ScriptedBindings {
 /// A machine with no repositories.
 pub(super) struct NoRepositories;
 
-impl ClaudeRepositoryReader for NoRepositories {
+impl RepositoryReader for NoRepositories {
     fn read_repository<'a>(
         &'a self,
         _working_folder: &'a Path,
-    ) -> BoxFuture<'a, Option<ClaudeRepositoryReading>> {
+    ) -> BoxFuture<'a, Option<RepositoryReading>> {
         async { None }.boxed()
+    }
+
+    fn is_owned_by_user<'a>(&'a self, _path: &'a Path) -> BoxFuture<'a, bool> {
+        async { false }.boxed()
     }
 }
 

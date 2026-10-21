@@ -370,13 +370,6 @@ impl ReviewerDenials {
     /// it: a press held on one, or still waiting on its answer, sends again. A driver that has
     /// released a binding never answers a later request to it as unanswered: such a request fails
     /// as refused, so no press is held on a binding that will not be released again.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the drivers report here when a provider process ends"
-        )
-    )]
     pub(crate) fn release_held_presses(&self, binding_id: &RuntimeBindingId) {
         lock_held(&self.held_presses).retain(|_, held| match held {
             HeldPress::Pending {
@@ -653,6 +646,10 @@ impl ReviewerDenialPort for ReviewerDenials {
         denial: ProviderReviewerDenial,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         Box::pin(async move { Ok(self.take(denial).await?) })
+    }
+
+    fn release_held_presses(&self, binding_id: &RuntimeBindingId) {
+        ReviewerDenials::release_held_presses(self, binding_id);
     }
 }
 

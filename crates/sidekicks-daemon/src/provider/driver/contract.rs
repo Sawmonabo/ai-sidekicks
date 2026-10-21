@@ -17,6 +17,7 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -63,10 +64,12 @@ use crate::provider::driver::run_control::{
     WithdrawQueuedMessageResult,
 };
 use crate::provider::driver::session_control::{
-    AnswerSessionCommandParams, AskSideQuestionParams, CloseSessionParams, CreateSessionParams,
-    NameSessionParams, ProviderBuildChange, ProviderCommandsListener, PurgeSessionParams,
-    ResumeSessionParams, RevokeRuleParams, SessionCommandAnswer, StartReviewParams,
-    SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
+    AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
+    CreateSessionParams, DriverGoalResult, NameSessionParams, ProviderBuildChange,
+    ProviderCommandsListener, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
+    SessionCommandAnswer, SetSessionGoalParams, StartReviewParams, StartingLevel,
+    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
+    UpdateSessionModeParams,
 };
 use crate::provider::port::permission_ask::ProviderPermissionAnswer;
 use crate::provider::port::session_inbox_address::SessionInboxAddresser;
@@ -290,6 +293,14 @@ pub(crate) trait ProviderDriver: Send + Sync {
         params: FasterModelRetryParams,
     ) -> BoxFuture<'_, Result<FasterModelRetryOutcome, DriverError>>;
 
+    /// The level and mode a new session starts at, as its provider's own settings for the folder
+    /// set them, moved to the nearest more careful level it runs; fails when a settings file that
+    /// may set them cannot be read.
+    fn read_starting_level(
+        &self,
+        params: StartingLevelParams,
+    ) -> BoxFuture<'_, Result<StartingLevel, DriverError>>;
+
     /// Moves the live session to another permission level from its next request, never by
     /// relaunch.
     fn update_permission_level(
@@ -401,8 +412,12 @@ pub(crate) trait ProviderDriver: Send + Sync {
     -> Option<ProviderOutputSpeedState>;
 
     /// The rows the driver declares on its provider's settings, each with its live value in every
-    /// place, as `provider.list` serves them; read again after each change.
-    fn read_rows(&self) -> BoxFuture<'_, Result<Vec<ProviderRow>, DriverError>>;
+    /// place, as `provider.list` serves them, `app_values` being the values the app stored for
+    /// them; read again after each change.
+    fn read_rows(
+        &self,
+        app_values: ProviderRowValues,
+    ) -> BoxFuture<'_, Result<Vec<ProviderRow>, DriverError>>;
 
     /// Applies a value the daemon checked against the row's declaration and stored: a setting
     /// reaches sessions started later, and a per-place switch that runs something starts or stops
@@ -703,48 +718,6 @@ pub(crate) enum MoveSessionToForkResult {
         /// The fallback it took.
         fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
     },
-}
-
-/// What a goal operation did: the provider took it, or the driver took a fallback instead.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum DriverGoalResult {
-    /// The provider took it.
-    Applied {},
-    /// The provider did not take it.
-    Degraded {
-        /// The fallback the driver took.
-        fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
-    },
-}
-
-/// Params of `set_session_goal` (gated on `sessionGoals`): the condition the person typed after
-/// `/goal`, for the target agent's live binding. The goal events are the durable truth, so neither
-/// goal operation returns the goal, and a resume never sets it again. `run_id` is context only.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SetSessionGoalParams {
-    /// The session.
-    pub(crate) session_id: SessionId,
-    /// The target agent's live binding.
-    pub(crate) binding_id: RuntimeBindingId,
-    /// The run, for context.
-    pub(crate) run_id: RunId,
-    /// The condition as typed.
-    pub(crate) goal_text: String,
-}
-
-/// Params of `clear_session_goal` (gated on `sessionGoals`); addresses one live binding.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(
-    clippy::struct_field_names,
-    reason = "each member is an id, named for what it identifies"
-)]
-pub(crate) struct ClearSessionGoalParams {
-    /// The session.
-    pub(crate) session_id: SessionId,
-    /// The live binding.
-    pub(crate) binding_id: RuntimeBindingId,
-    /// The run, for context.
-    pub(crate) run_id: RunId,
 }
 
 /// What an authentication probe found. An indeterminate probe counts as not signed in for

@@ -299,13 +299,10 @@ fn report_refresh_failure(provider: &ProviderId, failure: Option<&CapabilityRefr
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
     use std::sync::Arc;
     use std::time::Duration;
 
     use futures::FutureExt as _;
-    use sidekicks_platforms::Spawner;
-    use tokio::runtime::Handle;
     use tokio::sync::Semaphore;
 
     use super::CapabilityRefresher;
@@ -313,6 +310,7 @@ mod tests {
     use crate::provider::driver::capabilities::writer::test_capabilities_writer;
     use crate::provider::driver::contract::{DriverError, MockProviderDriver, ProviderDriver};
     use crate::provider::driver::registry::ProviderRegistry;
+    use crate::provider::driver::test_registry::test_driver_services;
     use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
 
     // A permit for each capability read the driver starts.
@@ -356,10 +354,7 @@ mod tests {
     // the driver's gates are statics a second test would share.
     #[tokio::test]
     async fn a_dropped_caller_loses_no_trigger_a_queued_caller_waits_and_the_stop_ends_the_pass() {
-        let services = DriverServices {
-            spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-            data_folder: PathBuf::from("data"),
-        };
+        let services = test_driver_services();
         let table = [ProviderRegistration {
             descriptor: PROVIDERS[0],
             build: gated_driver,

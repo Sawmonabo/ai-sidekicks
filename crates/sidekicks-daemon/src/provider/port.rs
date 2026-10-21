@@ -8,6 +8,7 @@ pub(crate) mod permission_ask;
 pub(crate) mod plan;
 pub(crate) mod question;
 pub(crate) mod registration;
+pub(crate) mod repository_reader;
 pub(crate) mod reviewer_denial;
 pub(crate) mod run_state_publisher;
 pub(crate) mod session_inbox_address;

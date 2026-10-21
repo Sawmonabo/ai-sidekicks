@@ -1,22 +1,118 @@
-//! The driver registry other areas' tests build on: the table's first providers answered by
-//! stand-in drivers, and a run bound to the first one.
+//! The driver registry other areas' tests build on: the shared services every driver's build
+//! takes, the table's first providers answered by stand-in drivers, and a run bound to the first
+//! one.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use futures::FutureExt;
+use futures::future::BoxFuture;
 use rusqlite::params;
+use sidekicks_contracts::artifacts::id::ArtifactId;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::Spawner;
 use tokio::runtime::Handle;
 
+use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
+use crate::git::process::{GitLimits, GitRunner};
+use crate::git::worktree::staged_changes::StagedChangesWorktrees;
+use crate::policy::execution_posture_service::ExecutionPostureService;
+use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
+use crate::provider::command_search::ProviderCommandSearch;
+use crate::provider::compaction_wait::PendingCompactionRegistry;
+use crate::provider::driver::attachments::{AttachmentResolver, ProviderAttachment};
 use crate::provider::driver::contract::ProviderDriver;
+use crate::provider::driver::ports::DriverPorts;
 use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use crate::provider::driver::{
+    DriverServices, PROVIDERS, ProviderRegistration, SessionSpawnContext,
+    SessionSpawnContextResolver,
+};
+use crate::provider::process_registry::ProviderProcessRegistry;
+use crate::provider::spawn_environment::ReservedEnvironmentNames;
+
+/// The statements a test's read pool caches.
+const TEST_POOL_STATEMENT_CAPACITY: usize = 16;
+
+/// The most line bytes the test bound lets the shell-line reader parse at once.
+const TEST_SHELL_LINE_LIMIT: usize = 1 << 20;
+
+/// What a test that resolves no spawn context or attachment answers: the daemon's part that serves
+/// it is not built in that test.
+#[derive(Debug, thiserror::Error)]
+#[error("the test serves no {0}")]
+struct NotServedInTest(&'static str);
+
+/// A spawn-context resolver and attachment resolver that serve nothing.
+struct NothingServed;
+
+impl SessionSpawnContextResolver for NothingServed {
+    fn resolve_spawn_context(
+        &self,
+        _session_id: SessionId,
+        _provider_account_id: Option<ProviderAccountId>,
+    ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn Error + Send + Sync>>> {
+        async { Err(NotServedInTest("spawn context").into()) }.boxed()
+    }
+}
+
+impl AttachmentResolver for NothingServed {
+    fn resolve_attachments(
+        &self,
+        _session_id: SessionId,
+        _artifact_ids: Vec<ArtifactId>,
+    ) -> BoxFuture<'_, Result<Vec<ProviderAttachment>, Box<dyn Error + Send + Sync>>> {
+        async { Err(NotServedInTest("attachment").into()) }.boxed()
+    }
+}
+
+/// The shared services every driver's build takes, with every port unregistered, no spawn context
+/// or attachment served, the read pool on a database no test opens, and every folder under a
+/// relative one that no test makes. Called on a tokio runtime, which the spawner thread starts on.
+pub(crate) fn test_driver_services() -> DriverServices {
+    let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
+    let folder = PathBuf::from("driver-services");
+    let base_environment: Arc<[(String, String)]> = Arc::from([]);
+    DriverServices {
+        spawner: spawner.clone(),
+        data_folder: folder.join("data"),
+        home_folder: folder.join("home"),
+        pool: Arc::new(DatabaseReadPool::new(
+            folder.join("database.sqlite"),
+            TEST_POOL_STATEMENT_CAPACITY,
+        )),
+        attachments: Arc::new(NothingServed),
+        staged_changes: StagedChangesWorktrees::new(
+            &folder.join("worktrees"),
+            GitRunner::new(
+                spawner.clone(),
+                None,
+                Arc::clone(&base_environment),
+                GitLimits::DAEMON,
+            ),
+        ),
+        execution_postures: Arc::new(ExecutionPostureService::new(
+            &folder.join("home"),
+            folder.join("session-token"),
+        )),
+        base_environment,
+        reserved_names: Arc::new(ReservedEnvironmentNames::of_providers(PROVIDERS)),
+        command_search: Arc::new(ProviderCommandSearch::new(spawner)),
+        pending_compactions: PendingCompactionRegistry::default(),
+        processes: Arc::new(ProviderProcessRegistry::default()),
+        spawn_contexts: Arc::new(NothingServed),
+        shell_lines: Arc::new(ShellLineReadingBound::new(TEST_SHELL_LINE_LIMIT)),
+        ports: Arc::new(DriverPorts::new()),
+    }
+}
 
 thread_local! {
     // The drivers the next registry this thread builds registers, in the table's order.
@@ -49,11 +145,8 @@ pub(crate) fn registry_of_first_providers(
             build: take_next_driver,
         })
         .collect();
+    let services = test_driver_services();
     NEXT_DRIVERS.with_borrow_mut(|next| *next = drivers.into());
-    let services = DriverServices {
-        spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-        data_folder: PathBuf::from("data"),
-    };
     ProviderRegistry::register_from(&table, &services)
 }
 

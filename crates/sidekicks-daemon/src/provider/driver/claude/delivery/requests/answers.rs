@@ -8,7 +8,7 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use futures::future::{BoxFuture, join_all};
+use futures::future::join_all;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::approval::RememberedScopeKind;
 use sidekicks_contracts::question::{QuestionAnswer, QuestionPrompt};
@@ -26,7 +26,8 @@ use crate::provider::driver::question_answers::read_question_answer_texts;
 use crate::provider::port::permission_ask::{
     ProviderAnswerRule, ProviderAskAction, ProviderPermissionAnswer,
 };
-use crate::provider::port::registration::PortRegistration;
+use crate::provider::port::registration::{PortRegistration, PortRegistrationError};
+use crate::provider::port::repository_reader::{RepositoryReader, RepositoryReading};
 use crate::provider::port::session_rules::SessionRulePort;
 
 // The input members a file tool names its file or folder by, in the order they are read.
@@ -191,34 +192,13 @@ fn with_edited_action(
     Ok(input)
 }
 
-/// What Claude Code reads of a working folder's repository, as the daemon's git reads found it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ClaudeRepositoryReading {
-    /// The repository's root, the main checkout's for a worktree.
-    pub(crate) root: PathBuf,
-    /// The repository's common git folder.
-    pub(crate) common_git_folder: PathBuf,
-    /// Whether the person owns the root and its `.git` and `.claude` entries.
-    pub(crate) is_owned_by_user: bool,
-}
-
-/// Reads the repository a working folder belongs to, `None` outside git; a project rule is written
-/// where Claude Code itself reads it, which depends on it.
-pub(crate) trait ClaudeRepositoryReader: Send + Sync {
-    /// The repository of `working_folder`, `None` outside git.
-    fn read_repository<'a>(
-        &'a self,
-        working_folder: &'a Path,
-    ) -> BoxFuture<'a, Option<ClaudeRepositoryReading>>;
-}
-
 /// What a made rule is kept with: the session's rules in force, the working folders' repositories,
 /// the home folder of the place the sessions run in and how it spells paths.
 pub(crate) struct ClaudeAnswerRules {
     /// The approval pipeline's read of the rules in force.
     pub(crate) session_rules: Arc<PortRegistration<Arc<dyn SessionRulePort>>>,
-    /// The working folders' repositories.
-    pub(crate) repositories: Arc<dyn ClaudeRepositoryReader>,
+    /// The daemon's reads of the working folders' repositories.
+    pub(crate) repositories: Arc<PortRegistration<Arc<dyn RepositoryReader>>>,
     /// The home folder of the place the sessions run in.
     pub(crate) home_folder: PathBuf,
     /// How that place spells and compares paths.
@@ -234,6 +214,9 @@ pub(crate) enum ClaudeAnswerRuleError {
     /// The rule could not be handed to Claude Code or written.
     #[error(transparent)]
     Permissions(#[from] ClaudePermissionsError),
+    /// The daemon's repository reads are not registered, so no project rule's file is known.
+    #[error(transparent)]
+    RepositoriesUnregistered(#[from] PortRegistrationError),
 }
 
 impl ClaudeAnswerRules {
@@ -252,12 +235,13 @@ impl ClaudeAnswerRules {
             keep_claude_session_rule(live, &made.rule, &standing, self.path_rules).await?;
             return Ok(());
         }
+        let repositories = self.repositories.require_port()?;
         let own_path = &live.spawn_bound_legs.working_directory;
         let readings = join_all(
             made.project_folders
                 .iter()
                 .chain(std::iter::once(own_path))
-                .map(|folder| self.repositories.read_repository(folder)),
+                .map(|folder| read_claude_repository(&**repositories, folder)),
         )
         .await;
         let mut folders: Vec<ClaudeProjectFolder<'_>> = made
@@ -267,11 +251,13 @@ impl ClaudeAnswerRules {
             .zip(&readings)
             .map(|(working_folder, reading)| ClaudeProjectFolder {
                 working_folder,
-                repository: reading.as_ref().map(|reading| ClaudeRepository {
-                    root: &reading.root,
-                    common_git_folder: &reading.common_git_folder,
-                    is_owned_by_user: reading.is_owned_by_user,
-                }),
+                repository: reading
+                    .as_ref()
+                    .map(|(reading, is_owned_by_user)| ClaudeRepository {
+                        root: &reading.root,
+                        common_git_folder: &reading.common_git_folder,
+                        is_owned_by_user: *is_owned_by_user,
+                    }),
             })
             .collect();
         let own_folder = folders.pop().expect("the own folder was read last");
@@ -287,4 +273,24 @@ impl ClaudeAnswerRules {
         .await?;
         Ok(())
     }
+}
+
+// The repository of `working_folder`, with whether the person owns its root and the `.git` and
+// `.claude` entries Claude Code reads its project settings beside.
+async fn read_claude_repository(
+    repositories: &dyn RepositoryReader,
+    working_folder: &Path,
+) -> Option<(RepositoryReading, bool)> {
+    let reading = repositories.read_repository(working_folder).await?;
+    let owned = join_all(
+        [
+            reading.root.clone(),
+            reading.root.join(".git"),
+            reading.root.join(".claude"),
+        ]
+        .map(|entry| async move { repositories.is_owned_by_user(&entry).await }),
+    )
+    .await;
+    let is_owned_by_user = owned.into_iter().all(|is_owned| is_owned);
+    Some((reading, is_owned_by_user))
 }

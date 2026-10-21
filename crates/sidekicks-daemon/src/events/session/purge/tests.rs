@@ -16,9 +16,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
-use sidekicks_platforms::Spawner;
 use tempfile::TempDir;
-use tokio::runtime::Handle;
 use tokio::sync::{mpsc, watch};
 use tokio::time::timeout;
 
@@ -45,7 +43,8 @@ use crate::provider::conversation_purge::{
 };
 use crate::provider::driver::contract::MockProviderDriver;
 use crate::provider::driver::registry::{ProviderRegistry, test_provider};
-use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+use crate::provider::driver::test_registry::test_driver_services;
+use crate::provider::driver::{PROVIDERS, ProviderRegistration};
 use crate::pty::shell::test_table::{TableFixture, table_fixture};
 use crate::session::directory::list_feed::SessionListFeed;
 use crate::session::directory::test_rows::insert_session_row;
@@ -102,10 +101,7 @@ async fn purge_fixture() -> PurgeFixture {
             build: |_| Arc::new(MockProviderDriver::new()),
         })
         .collect();
-    let services = DriverServices {
-        spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-        data_folder: database.path(),
-    };
+    let services = test_driver_services();
     let conversations = Arc::new(ConversationPurge::new(
         Arc::clone(&reads),
         Arc::new(ProviderRegistry::register_from(&table, &services)),

@@ -102,7 +102,6 @@ async fn restart(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
     use std::sync::Arc;
 
     use futures::FutureExt as _;
@@ -115,8 +114,6 @@ mod tests {
     use sidekicks_contracts::session::controls::methods::SessionMode;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::FreeFormText;
-    use sidekicks_platforms::Spawner;
-    use tokio::runtime::Handle;
 
     use super::{RestartTargetReader, SessionRestartTarget, restart};
     use crate::ipc::registry::HandlerError;
@@ -128,6 +125,7 @@ mod tests {
     };
     use crate::provider::driver::registry::ProviderRegistry;
     use crate::provider::driver::session_control::ResumeSessionParams;
+    use crate::provider::driver::test_registry::test_driver_services;
     use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
 
     const SESSION: &str = "0b7f3c1e-9a52-4d6b-8e21-5f4c7d9a1b30";
@@ -167,10 +165,7 @@ mod tests {
     /// The registry of the table's first provider, built by `build`, with `resume` declared as
     /// `has_resume` says; or no provider at all when `build` is `None`.
     fn providers(build: Option<BuildDriver>, has_resume: bool) -> ProviderRegistry {
-        let services = DriverServices {
-            spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-            data_folder: PathBuf::from("data"),
-        };
+        let services = test_driver_services();
         let table: Vec<ProviderRegistration> = build
             .map(|build| ProviderRegistration {
                 descriptor: PROVIDERS[0],
