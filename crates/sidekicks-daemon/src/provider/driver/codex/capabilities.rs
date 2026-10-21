@@ -93,10 +93,6 @@ const fn is_codex_flag_declared(flag: DriverCapabilityFlag) -> bool {
 /// Reads the capabilities of the build `version` describes: probes that same build through
 /// `exchange`, reports each flag the probe withdrew, and composes the driver's flags, tools and
 /// the version it printed. Fails with [`DriverError::CapabilityProbe`] when the probe read fails.
-#[expect(
-    dead_code,
-    reason = "the Codex driver's capability read answers through it on attach and each refresh"
-)]
 pub(crate) async fn read_codex_capabilities(
     version: &SpawnedProviderVersionReading,
     exchange: &mut impl CapabilityProbeExchange,

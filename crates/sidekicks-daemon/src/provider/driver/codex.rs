@@ -14,15 +14,20 @@ use crate::provider::driver::{
 
 mod app_server_protocol;
 mod ask_option_sets;
+mod attachments;
+mod auth_status;
 mod capabilities;
 mod capability_probe;
 mod commands;
+mod compaction;
 mod delivery;
 mod event_normalizer;
 mod hooks;
 mod input_limit;
 mod intervention;
+mod model_windows;
 mod native_program;
+mod output_speed;
 mod permission_level;
 mod rules;
 mod run;

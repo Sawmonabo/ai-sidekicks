@@ -81,10 +81,6 @@ pub(crate) struct CodexTurnInput {
 
 /// A run whose turn is accepted and whose settled output speed is not yet reported.
 #[derive(Clone, Copy, Debug)]
-#[expect(
-    dead_code,
-    reason = "the Codex output speed reports the speed each accepted turn settled on"
-)]
 pub(crate) struct CodexUnsettledOutputSpeedRun {
     /// The run.
     pub(crate) run_id: RunId,

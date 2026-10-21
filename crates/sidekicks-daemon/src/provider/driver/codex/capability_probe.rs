@@ -1,16 +1,26 @@
-//! Codex's capability probe rules. Its one zero-turn channel is the client-request methods, which
-//! the app-server's deserializer enumerates when it refuses a method it does not know.
+//! Codex's capability probe: its rules and its exchange. Its one zero-turn channel is the
+//! client-request methods, which the app-server's deserializer enumerates when it refuses a method
+//! it does not know, asked on a connection of the probe's own that starts no conversation.
 
-use serde_json::Value;
+use std::error::Error;
+
+use futures::future::BoxFuture;
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 
 use crate::provider::capability::probe::ProbeAdmissibilityConjunct::{
     DecisiveAtConsumptionGranularity, NonMutating, ZeroTurn,
 };
 use crate::provider::capability::probe::{
-    CapabilityDetection, CapabilityProbeRules, ProbeAnswer, assert_admissible_detection,
+    CapabilityDetection, CapabilityProbeExchange, CapabilityProbeRules, ProbeAnswer,
+    assert_admissible_detection,
 };
 use crate::provider::driver::capabilities::DriverCapabilityFlag;
+use crate::provider::driver::codex::capabilities::read_codex_capabilities;
+use crate::provider::driver::codex::service::supervisor::CodexService;
+use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
+use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult};
 
 /// What starts the deserializer's refusal of an unknown method, before its quoted name.
 const UNKNOWN_VARIANT_OPENING: &str = "unknown variant `";
@@ -69,6 +79,55 @@ const fn detection_of(flag: DriverCapabilityFlag) -> CapabilityDetection {
 }
 
 assert_admissible_detection!(detection_of, CAPABILITY_PROBE_RULES.prohibited_names);
+
+/// Starts `service` if it has not started and reads its build's capabilities, probed on a
+/// connection of the probe's own, which is closed as it is let go. Fails with the start's or the
+/// dial's error, when the service reported no build, and as the capability read does.
+#[expect(
+    dead_code,
+    reason = "the Codex driver's capability read answers through it on attach and each refresh"
+)]
+pub(crate) async fn probe_codex_service_capabilities(
+    service: &CodexService,
+) -> Result<GetCapabilitiesResult, DriverError> {
+    let connection = service.open_detached_connection().await?;
+    let version = service
+        .version_reading()
+        .ok_or_else(|| CodexError::Transport {
+            detail: "The Codex service reported no build at its start.".to_owned(),
+            cause: None,
+        })?;
+    read_codex_capabilities(
+        &version,
+        &mut CodexCapabilityProbeExchange {
+            connection: &connection,
+        },
+    )
+    .await
+}
+
+/// One probe sent on a connection that started no conversation, its reply in the shape the probe's
+/// classifier reads: `{ result }`, or `{ error: { code, message } }` for the service's refusal.
+struct CodexCapabilityProbeExchange<'connection> {
+    connection: &'connection CodexAppServerConnection,
+}
+
+impl CapabilityProbeExchange for CodexCapabilityProbeExchange<'_> {
+    fn exchange(
+        &mut self,
+        probe_name: &'static str,
+    ) -> BoxFuture<'_, Result<Value, Box<dyn Error + Send + Sync>>> {
+        Box::pin(async move {
+            match self.connection.request(probe_name, &Map::new()).await {
+                Ok(result) => Ok(json!({ "result": serde_json::from_str::<Value>(result.get())? })),
+                Err(CodexError::ProviderRequest { code, message, .. }) => {
+                    Ok(json!({ "error": { "code": code, "message": message } }))
+                }
+                Err(error) => Err(error.into()),
+            }
+        })
+    }
+}
 
 // Invalid-request refuses the probe's name only when the deserializer's message names it as the
 // refused method and leaves it out of the accepted list; every unclear reply reads as accepted,
@@ -137,8 +196,9 @@ mod tests {
     use rstest::rstest;
     use serde_json::json;
 
-    use super::classify_reply;
-    use crate::provider::capability::probe::ProbeAnswer;
+    use super::{CodexCapabilityProbeExchange, classify_reply};
+    use crate::provider::capability::probe::{CapabilityProbeExchange, ProbeAnswer};
+    use crate::provider::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
 
     #[rstest]
     #[case::method_not_found(-32_601, "Method not found", ProbeAnswer::UnknownName)]
@@ -166,5 +226,39 @@ mod tests {
     ) {
         let reply = json!({ "error": { "code": code, "message": message } });
         assert_eq!(classify_reply(&reply, "thread/goal/set"), answer);
+    }
+
+    // The service's refusal of a probed name is a reply the classifier reads, never a failed
+    // exchange, which would fail the whole capability read. Killed by raising the refusal.
+    #[tokio::test(start_paused = true)]
+    async fn a_refusal_reaches_the_classifier_as_the_codex_reply() {
+        let mut scripted = start_scripted_codex_service();
+        let connection = scripted.service.connection().expect("the service is up");
+        let mut exchange = CodexCapabilityProbeExchange {
+            connection: &connection,
+        };
+        let reply = {
+            let exchange = exchange.exchange("thread/goal/set");
+            tokio::pin!(exchange);
+            let sent = tokio::select! {
+                sent = scripted.script.next_sent() => sent,
+                _ = &mut exchange => panic!("the probe answered before the service did"),
+            };
+            assert_eq!(sent["method"], "thread/goal/set");
+            scripted.script.send(&json!({
+                "jsonrpc": "2.0",
+                "id": sent["id"],
+                "error": {
+                    "code": -32_600,
+                    "message": "Invalid request: unknown variant `thread/goal/set`, expected one \
+                                of `turn/start`",
+                },
+            }));
+            exchange.await.expect("a refusal is a reply")
+        };
+        assert_eq!(
+            classify_reply(&reply, "thread/goal/set"),
+            ProbeAnswer::UnknownName
+        );
     }
 }

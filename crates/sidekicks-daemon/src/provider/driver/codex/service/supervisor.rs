@@ -293,10 +293,6 @@ impl CodexService {
 
     /// The version the running service reported at its last connect, with the build resolved at
     /// its start.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's start and recovery record the build each run ran on"
-    )]
     pub(crate) fn version_reading(&self) -> Option<SpawnedProviderVersionReading> {
         self.lock_live().version.clone()
     }
@@ -426,10 +422,6 @@ impl CodexService {
     /// Opens a second connection on the running service that starts no conversation, for a read
     /// that must not touch one, such as the capability probe; nothing on it belongs to a session.
     /// Fails as a start or a dial fails.
-    #[expect(
-        dead_code,
-        reason = "the Codex capability read probes the service on a connection of its own"
-    )]
     pub(crate) async fn open_detached_connection(
         &self,
     ) -> Result<CodexAppServerConnection, CodexError> {
