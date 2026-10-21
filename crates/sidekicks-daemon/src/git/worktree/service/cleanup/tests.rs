@@ -18,7 +18,7 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::git::process::{
-    GitCall, GitRunner, find_git_executable, in_folder, test_git_runner,
+    GitCall, GitError, GitRunner, find_git_executable, in_folder, test_git_runner,
     test_git_runner_with_environment,
 };
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
@@ -473,7 +473,18 @@ async fn the_cleanup_stops_a_running_file_watch_daemon_whatever_the_repository_s
         git: find_git_executable(&environment).expect("the tests run where git is"),
         folder: folder.clone(),
     };
-    git_in(&fixture.git, &folder, &["fsmonitor--daemon", "start"]).await;
+    // A git with no daemon on this platform (Linux before git 2.55) has no stop to prove.
+    if let Err(GitError::Exited { stderr, .. }) = fixture
+        .git
+        .run(
+            None,
+            GitCall::read(in_folder(&folder, &["fsmonitor--daemon", "start"])),
+        )
+        .await
+        && stderr.contains("not supported on this platform")
+    {
+        return;
+    }
     let status = || {
         fixture.git.run(
             None,
