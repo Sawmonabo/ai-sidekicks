@@ -46,6 +46,20 @@ pub(super) fn drive_of(path: &str) -> Option<char> {
     }
 }
 
+/// `path` with each `\` written `/` and a leading drive (`C:`) written `/c`, its letter
+/// lower-cased.
+pub(super) fn posix_form(path: &str) -> String {
+    match drive_of(path) {
+        // A disk prefix is an ASCII letter and a colon, two bytes.
+        Some(letter) => format!(
+            "/{}{}",
+            letter.to_ascii_lowercase(),
+            path[2..].replace(SEPARATOR, "/")
+        ),
+        None => path.replace(SEPARATOR, "/"),
+    }
+}
+
 /// Whether `path` is a drive alone (`C:`, two bytes) naming the drive `base` starts with.
 pub(super) fn is_drive_of(path: &str, base: &str) -> bool {
     path.len() == 2 && drive_of(path).is_some_and(|letter| drive_of(base) == Some(letter))

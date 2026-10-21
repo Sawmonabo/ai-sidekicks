@@ -12,11 +12,12 @@ use sidekicks_contracts::artifacts::operations::{
     ArtifactTooLargeReason, IngestStreamInvalidReason,
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::task::JoinError;
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::read_pool::DatabaseReadError;
-use crate::database::writer::WriteError;
+use crate::events::session::appender::SessionEventAppendError;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::settle_all::DescribeEach;
@@ -37,9 +38,9 @@ pub(crate) enum ArtifactError {
     /// An earlier write on the ingest stream was dropped mid-chunk, so the stream was ended.
     #[error("an earlier write on the ingest stream was dropped before it finished")]
     StreamWriteDropped,
-    /// The write of a manifest was not kept.
+    /// The write of a manifest and its event was not kept.
     #[error(transparent)]
-    Write(#[from] WriteError),
+    Append(#[from] SessionEventAppendError),
     /// A read of the artifact rows did not reach a connection.
     #[error(transparent)]
     Read(#[from] DatabaseReadError),
@@ -117,7 +118,7 @@ fn into_refusal(error: ArtifactError) -> Result<DomainError, ArtifactError> {
         fault @ (ArtifactError::Disk(_)
         | ArtifactError::Interrupted(_)
         | ArtifactError::StreamWriteDropped
-        | ArtifactError::Write(_)
+        | ArtifactError::Append(_)
         | ArtifactError::Read(_)
         | ArtifactError::Database(_)) => Err(fault),
     }
@@ -200,6 +201,19 @@ pub(crate) fn artifact_too_large_past_declared(
         "fileName": file_name,
         "declaredSizeBytes": declared_size_bytes,
     }))
+}
+
+/// `artifact.notFound` for an id the daemon holds no manifest under, or a version past its group's
+/// count.
+pub(crate) fn artifact_not_found(
+    artifact_id: ArtifactId,
+    version: Option<SafeInt<1>>,
+) -> DomainError {
+    DomainError::new(
+        "This daemon holds no such artifact or version",
+        RefusalCode::ArtifactNotFound,
+    )
+    .with_detail(json!({ "artifactId": artifact_id, "version": version }))
 }
 
 /// `artifact.filePublishRefused`: a client published a file. A file reaches the store only through

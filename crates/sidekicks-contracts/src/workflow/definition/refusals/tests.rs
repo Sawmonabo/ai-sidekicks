@@ -52,7 +52,10 @@ fn handles_of(node: &WorkflowNode) -> Option<WorkflowNodeHandles> {
         ),
         "output.notify" => (
             WorkflowNodeKindCategory::Output,
-            json!([limited_in]),
+            json!([
+                limited_in,
+                { "type": "main", "id": "inputs/main/1", "label": "Also", "maxConnections": 1 }
+            ]),
             json!([]),
         ),
         _ => return None,
@@ -132,7 +135,8 @@ fn the_graph_check_finds_what_the_save_refuses(
 // closes, the input limit it passes, never a finding the document already holds, and no cycle for
 // the edge that closes a loop body. An edge joining a cycle or an input limit the document already
 // breaks, or repeating a bad edge it already holds, is still refused; a non-`main` edge closes no
-// cycle, and an edge refused for its own fault passes no input limit.
+// cycle, an edge refused for its own fault closes no cycle and passes no input limit, a refused
+// edge the document holds counts toward no limit, and only the target handle's limit is checked.
 #[rstest]
 #[case::a_connection_closing_a_cycle(
     json!([node("a", "agent.run"), node("b", "agent.run")]),
@@ -187,6 +191,30 @@ fn the_graph_check_finds_what_the_save_refuses(
     json!([main_edge("t", "a"), main_edge("t", "n"), main_edge("a", "n")]),
     edge("m", "outputs/tool/0", "n", "inputs/main/0"),
     json!([{ "rule": "handleTypeMismatch", "nodeIds": ["m", "n"] }]),
+)]
+#[case::a_refused_connection_between_nodes_of_a_cycle_the_document_holds(
+    json!([node("a", "agent.run"), node("b", "agent.run")]),
+    json!([main_edge("t", "a"), main_edge("a", "b"), main_edge("b", "a")]),
+    edge("b", "outputs/main/7", "a", "inputs/main/0"),
+    json!([{ "rule": "handleTypeUnknown", "nodeIds": ["b", "a"] }]),
+)]
+#[case::an_accepted_connection_beside_an_input_already_past_its_limit(
+    json!([node("a", "agent.run"), node("b", "agent.run"), node("n", "output.notify")]),
+    json!([main_edge("t", "a"), main_edge("t", "n"), main_edge("a", "n")]),
+    main_edge("a", "b"),
+    json!([]),
+)]
+#[case::a_refused_edge_the_document_holds_counts_toward_no_limit(
+    json!([node("a", "agent.run"), node("n", "output.notify"), node("m", "developer.mcpTool")]),
+    json!([main_edge("t", "a"), edge("m", "outputs/tool/0", "n", "inputs/main/0")]),
+    main_edge("a", "n"),
+    json!([]),
+)]
+#[case::a_connection_past_the_limit_of_a_second_input(
+    json!([node("a", "agent.run"), node("b", "agent.run"), node("n", "output.notify")]),
+    json!([main_edge("t", "a"), main_edge("t", "b"), edge("a", "outputs/main/0", "n", "inputs/main/1")]),
+    edge("b", "outputs/main/0", "n", "inputs/main/1"),
+    json!([{ "rule": "inputConnectionsExceeded", "nodeIds": ["n", "b"] }]),
 )]
 fn the_connection_check_refuses_what_the_edge_adds(
     #[case] nodes: Value,

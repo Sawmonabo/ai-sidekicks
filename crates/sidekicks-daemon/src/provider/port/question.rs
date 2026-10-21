@@ -9,7 +9,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
 /// The questions one provider request asks, in its order, with the provider's own request id the
-/// answer goes back under.
+/// answer goes back under, and whether the agent waits for the answer.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ProviderQuestion {
     /// The session.
@@ -20,6 +20,9 @@ pub(crate) struct ProviderQuestion {
     pub(crate) request_id: String,
     /// The questions, in the request's order.
     pub(crate) questions: Vec<QuestionPrompt>,
+    /// False only on a question the agent does not wait for: its run keeps running and the
+    /// person's queued message answers it.
+    pub(crate) is_agent_waiting: bool,
 }
 
 /// A question the provider withdrew before anyone answered it, by the request id it came under.

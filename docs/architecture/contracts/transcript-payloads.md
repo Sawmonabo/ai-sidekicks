@@ -505,6 +505,8 @@ interface QuestionAskedPayload {
     // one.
     text: string;
     heading?: string;
+    // The question's own helper line, drawn faint under its text, where it sent one.
+    description?: string;
     options: Array<{
       label: string;
       description?: string;
@@ -533,6 +535,12 @@ interface QuestionAskedPayload {
     // A number field's smallest and largest value; the smallest is never above the largest.
     minimum?: number;
     maximum?: number;
+    // How far the arrow keys move a number field, and a short unit drawn as a suffix inside it,
+    // where the question sets them.
+    step?: number;
+    unit?: string;
+    // A text field's faint hint while it is empty, where the question sets one.
+    placeholder?: string;
   }>;
 }
 

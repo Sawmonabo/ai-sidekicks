@@ -111,6 +111,11 @@ impl UuidTextForm {
     pub fn new(text: &str) -> Result<Self, IdError> {
         parse_uuid_text(text).map(Self)
     }
+
+    /// The UUID in its lowercase text form, as the wire and the store write it.
+    pub fn text(&self) -> UuidText {
+        UuidText::new(self.0)
+    }
 }
 
 impl From<Uuid> for UuidTextForm {
@@ -121,7 +126,7 @@ impl From<Uuid> for UuidTextForm {
 
 impl Serialize for UuidTextForm {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(UuidText::new(self.0).as_str())
+        serializer.serialize_str(self.text().as_str())
     }
 }
 

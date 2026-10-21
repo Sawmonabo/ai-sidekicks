@@ -12,6 +12,7 @@ pub(crate) mod event_disposition;
 pub(crate) mod hand_over;
 pub(crate) mod inbound_json;
 pub(crate) mod left_conversations;
+pub(crate) mod lenient_json;
 pub(crate) mod outbound_text;
 pub(crate) mod output_validation;
 pub(crate) mod port;

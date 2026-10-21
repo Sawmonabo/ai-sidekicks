@@ -12,8 +12,8 @@ use crate::agent::provider_binding::{
 };
 use crate::approval::events::{
     ApprovalCanceledPayload, ApprovalDenialOverriddenPayload, ApprovalRequestedPayload,
-    ApprovalResolvedPayload, ApprovalRuleRememberedPayload, ApprovalRuleRevokedPayload,
-    approval_reviewer_denied_payload,
+    ApprovalResolvedPayload, ApprovalReviewerDeniedPayload, ApprovalRuleRememberedPayload,
+    ApprovalRuleRevokedPayload,
 };
 use crate::artifacts::publication::ArtifactPublicationPayload;
 use crate::cloud::CloudTaskUpdatedPayload;
@@ -37,8 +37,11 @@ use crate::event::usage::{
 use crate::git::local::GitSettledPayload;
 use crate::mcp::governance::McpServerSignInCompletedPayload;
 use crate::orchestration::AgentRunRejectedPayload;
-use crate::plan::{PlanAcceptedPayload, PlanHandedOffPayload, PlanProposedPayload};
-use crate::question::QuestionAskedPayload;
+use crate::plan::{
+    PlanAcceptedPayload, PlanHandedOffPayload, PlanHoldEndedPayload, PlanKeptPayload,
+    PlanProposedPayload,
+};
+use crate::question::{QuestionAskedPayload, QuestionCanceledPayload};
 use crate::relay::RelayPinRefusedPayload;
 use crate::repo::mount::{RepoMountHealthChangedPayload, WorkspaceLifecyclePayload};
 use crate::run::control::{
@@ -104,15 +107,6 @@ use crate::worktree::events::{
     WorktreeRetiredPayload,
 };
 use crate::worktree::lifecycle::WorktreeLifecyclePayload;
-
-approval_reviewer_denied_payload! {
-    described
-    /// The `approval.reviewer.denied` payload as the session event carries it: the reviewer's
-    /// block, with the stored denial body's length and cut mark, which the append path owns.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-    #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    pub struct ApprovalReviewerDeniedEventPayload
-}
 
 /// The run an event belongs to: its payload's `runId`, with its `runVersion` and `turnNumber`
 /// where it carries them.
@@ -312,9 +306,15 @@ session_events! {
     PlanAccepted(PlanAcceptedPayload) = "plan.accepted",
     /// Emitted when a plan seeds a fresh session.
     PlanHandedOff(PlanHandedOffPayload) = "plan.handedOff",
+    /// Emitted when the person keeps planning and the plan stays a record.
+    PlanKept(PlanKeptPayload) = "plan.kept",
+    /// Emitted when the provider request a plan held ends with no verdict.
+    PlanHoldEnded(PlanHoldEndedPayload) = "plan.hold.ended",
     /// Emitted when an agent, tool server or workflow step asks the person a question.
     QuestionAsked(#[garde(dive)] QuestionAskedPayload) = "question.asked"
         => read(question_asked_run),
+    /// Emitted when an open question ends unanswered.
+    QuestionCanceled(QuestionCanceledPayload) = "question.canceled",
     /// Emitted when the daemon accepts a message the person sent, or a voice call hears one.
     UserMessageSent(UserMessageSentPayload) = "user.message.sent" => optional,
     /// Emitted when a message the person sent is queued.
@@ -401,9 +401,8 @@ session_events! {
     ApprovalRequested(ApprovalRequestedPayload) = "approval.requested" => required,
     /// Emitted when an approval request is granted, and by whom.
     ApprovalApproved(ApprovalResolvedPayload) = "approval.approved" => required,
-    /// Emitted when the provider's own reviewer blocks an action; its denial is the row's body,
-    /// kept apart from the payload.
-    ApprovalReviewerDenied(ApprovalReviewerDeniedEventPayload) = "approval.reviewer.denied"
+    /// Emitted when the provider's own reviewer blocks an action.
+    ApprovalReviewerDenied(ApprovalReviewerDeniedPayload) = "approval.reviewer.denied"
         => required,
     /// Emitted when the person allows a blocked action once.
     ApprovalDenialOverridden(ApprovalDenialOverriddenPayload) = "approval.denial.overridden",
@@ -435,11 +434,9 @@ session_events! {
         "repoMount.health.changed",
     /// Emitted when admission refuses an `agent.run.create`; no run or queue item is left.
     AgentRunRejected(AgentRunRejectedPayload) = "agent.run.rejected",
-    /// Emitted when an artifact is published from a run; its payload keeps members it does not
+    /// Emitted in the write of every artifact's manifest; its payload keeps members it does not
     /// know.
     ArtifactPublished(ArtifactPublicationPayload) = "artifact.published" => optional,
-    /// Emitted when a newer version replaces an artifact; its payload keeps unknown members.
-    ArtifactSuperseded(ArtifactPublicationPayload) = "artifact.superseded" => optional,
     /// Emitted when the provider refuses a turn, names a fallback model and asks to retry or edit.
     AgentRunRefusalChoiceRequested(AgentRunRefusalChoiceRequestedPayload) =
         "agent.run.refusalChoice.requested" => required,
@@ -711,10 +708,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "event/session",
     doc: "The strict session event: an envelope's `type` and `payload`, the payload parsed by the \
           schema its type registers. The envelope is read tolerant and the event strict.",
-    definitions: &[
-        Definition::read::<ApprovalReviewerDeniedEventPayload>(),
-        Definition::read::<SessionEvent>().checked(),
-    ],
+    definitions: &[Definition::read::<SessionEvent>().checked()],
     constants: TS_CONSTANTS,
     method_tables: &[],
 };

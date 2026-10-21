@@ -141,10 +141,7 @@ mod tests {
     };
 
     /// The canonical-bytes table: the RFC's published vectors and the pinned envelopes.
-    const CASES: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/canonicalizer.json"
-    ));
+    const CASES: &str = include_str!("../../tests/fixtures/canonicalizer.json");
 
     /// The bytes a case must produce: canonical text, or hex in the RFC's grouping.
     #[derive(Deserialize)]

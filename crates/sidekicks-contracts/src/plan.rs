@@ -1,13 +1,16 @@
 //! The plan record and the one call that answers it. A plan turn ends with a held request on one
 //! provider and a plan item on the other; the daemon turns either into one plan record the screen
 //! renders (`plan.proposed`) and one call answers (`plan.resolve`), and records the outcome as
-//! `plan.accepted` or `plan.handedOff` so the system messages survive a reload. The first answer
-//! settles the plan everywhere; a later answer reads back the state it settled to rather than
-//! applying again.
+//! `plan.accepted`, `plan.handedOff` or `plan.kept` so the system messages survive a reload. A held
+//! request that ends with no answer settles the plan `open` with `plan.hold.ended`. The first
+//! answer settles the plan everywhere; a later answer reads back the state it settled to rather
+//! than applying again.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::{IntoStaticStr, VariantArray};
 
+use crate::artifacts::id::ArtifactId;
 use crate::free_form_string::FilesystemPath;
 use crate::internal::branded::branded_uuid_id;
 use crate::method::methods;
@@ -15,6 +18,7 @@ use crate::provider::id::ProviderId;
 use crate::run::id::RunId;
 use crate::session::controls::methods::PermissionLevel;
 use crate::session::id::SessionId;
+use crate::trust_statement::DeviceId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
 
@@ -26,8 +30,21 @@ branded_uuid_id! {
 /// Where a plan stands: `waiting` while its card is up, `accepted` after it is built here,
 /// `handedOff` after it is built in a fresh session, and `open` after the person keeps planning,
 /// which answers the held request and leaves the plan as a record the next plan replaces.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum PlanState {
     /// Its card is up.
     Waiting,
@@ -40,8 +57,9 @@ pub enum PlanState {
 }
 
 /// `plan.proposed`: the plan as the agent wrote it, never read off the disk, with the daemon's
-/// count of its top-level steps and the files it names. `planFilePath` is present only where the
-/// provider wrote the plan as a file.
+/// count of its top-level steps and the files it names, and the artifact that keeps it, written
+/// before this event. `planFilePath` is present only where the provider wrote the plan as a file;
+/// `holdsRequest` says a held provider request waits on the verdict.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlanProposedPayload {
@@ -67,6 +85,10 @@ pub struct PlanProposedPayload {
     )]
     #[schemars(with = "FilesystemPath")]
     pub plan_file_path: Option<FilesystemPath>,
+    /// The artifact that keeps the plan.
+    pub artifact_id: ArtifactId,
+    /// Whether a held provider request waits on the verdict.
+    pub holds_request: bool,
 }
 
 /// `plan.accepted`: the plan is being built in its own session.
@@ -77,6 +99,47 @@ pub struct PlanAcceptedPayload {
     pub plan_id: PlanId,
     /// The session.
     pub session_id: SessionId,
+    /// The device whose verdict it was.
+    pub device_id: DeviceId,
+}
+
+/// `plan.kept`: the person kept planning; the provider went back to planning and the plan stays a
+/// record.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlanKeptPayload {
+    /// The plan.
+    pub plan_id: PlanId,
+    /// The session.
+    pub session_id: SessionId,
+    /// The device whose verdict it was.
+    pub device_id: DeviceId,
+}
+
+/// Why a held plan request ended with no verdict: its turn was interrupted, the provider withdrew
+/// it, or its run ended, a restart of the background service among the ways a run ends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum PlanHoldEndedReason {
+    /// Its turn was interrupted.
+    Interrupted,
+    /// The provider withdrew the request.
+    Withdrawn,
+    /// Its run ended.
+    RunEnded,
+}
+
+/// `plan.hold.ended`: the provider request a plan held ended with no verdict, so the plan settles
+/// `open`; its card closes on every device and the plan stays readable.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlanHoldEndedPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The plan.
+    pub plan_id: PlanId,
+    /// Why the hold ended.
+    pub reason: PlanHoldEndedReason,
 }
 
 /// `plan.handedOff`: the plan seeded a fresh session, which the system message opens.
@@ -89,6 +152,8 @@ pub struct PlanHandedOffPayload {
     pub session_id: SessionId,
     /// The session it seeded.
     pub fresh_session_id: SessionId,
+    /// The device whose verdict it was.
+    pub device_id: DeviceId,
 }
 
 /// The session a `fresh` verdict mints: the provider it runs and the level it starts at, the
@@ -173,7 +238,7 @@ methods! {
             mutating: true,
             params: PlanResolveRequest,
             result: PlanResolveResponse,
-            refusals: [SessionPermissionLevelNotOffered],
+            refusals: [PlanNotFound, SessionPermissionLevelNotOffered],
         },
     ];
 }
@@ -187,6 +252,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<PlanState>(),
         Definition::read::<PlanProposedPayload>().checked(),
         Definition::read::<PlanAcceptedPayload>().checked(),
+        Definition::read::<PlanKeptPayload>().checked(),
+        Definition::read::<PlanHoldEndedReason>(),
+        Definition::read::<PlanHoldEndedPayload>().checked(),
         Definition::read::<PlanHandedOffPayload>().checked(),
         Definition::read::<PlanFreshSession>(),
         Definition::read::<PlanResolveRequest>().checked(),
