@@ -72,13 +72,6 @@ pub(crate) trait ClaudeRunEngine: Send + Sync {
 }
 
 /// The daemon's run engine and its inbound dispatch.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's composition builds it over the daemon's run engine"
-    )
-)]
 pub(crate) struct RunEngineDelivery {
     engine: Arc<RunEngine>,
     dispatch: Arc<RunInboundDispatch>,
@@ -86,13 +79,6 @@ pub(crate) struct RunEngineDelivery {
 
 impl RunEngineDelivery {
     /// The engine and the dispatch every delivery takes.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's composition builds it over the daemon's run engine"
-        )
-    )]
     pub(crate) fn new(engine: Arc<RunEngine>, dispatch: Arc<RunInboundDispatch>) -> Self {
         Self { engine, dispatch }
     }

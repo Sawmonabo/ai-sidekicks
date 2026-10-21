@@ -28,6 +28,7 @@ use crate::provider::driver::claude::session::transport::control::{
 use crate::provider::driver::claude::spawn::settings::{
     ClaudePermissionsRequest, compose_claude_permissions,
 };
+use crate::provider::driver::contract::DriverError;
 use crate::provider::port::permission_ask::ProviderAskRule;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::session_rules::SessionRulePort;
@@ -48,6 +49,18 @@ pub(crate) enum ClaudePermissionsError {
     /// A revoked project rule could not be taken out of the folder's local settings.
     #[error(transparent)]
     ProjectRuleRemoval(ClaudeRulesError),
+}
+
+impl From<ClaudePermissionsError> for DriverError {
+    /// Claude Code's refusal or silence keeps its own answer; every other failure is internal.
+    fn from(error: ClaudePermissionsError) -> Self {
+        match error {
+            ClaudePermissionsError::Session(error) => error.into(),
+            error @ (ClaudePermissionsError::Compose(_)
+            | ClaudePermissionsError::ProjectRuleWrite(_)
+            | ClaudePermissionsError::ProjectRuleRemoval(_)) => Self::Internal(Box::new(error)),
+        }
+    }
 }
 
 /// Where a project rule an answer made is written: every working folder of the project, each with
@@ -76,13 +89,6 @@ pub(crate) struct ClaudeProjectRuleRemoval<'a> {
 
 /// The session's own standing rules, oldest first; none while the approval pipeline has not
 /// registered its port. Fails as the port's read fails.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's launch, level move and rule answers read the session's rules"
-    )
-)]
 pub(crate) async fn read_claude_session_rules(
     registration: &PortRegistration<Arc<dyn SessionRulePort>>,
     session_id: SessionId,
@@ -119,13 +125,6 @@ pub(crate) fn compose_live_claude_permissions(
 /// Resends the live session's whole permissions document at the level it runs at, with the rules
 /// in force, `session_rules`, from the process's next call; a rule the person revoked is left out
 /// of them. Fails when the document cannot be composed or Claude Code refuses it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's rule revoke takes a session rule out of force through it"
-    )
-)]
 pub(crate) async fn resend_claude_permissions(
     live: &LiveClaudeSession,
     session_rules: &[ProviderAskRule],
@@ -162,13 +161,6 @@ pub(crate) async fn resend_claude_permissions(
 /// Hands Claude Code the session rule an answer made, once the answer went: the permissions
 /// document is resent with the rules in force, `session_rules`, the made rule in place of any with
 /// its kind, action and subject. Fails as [`resend_claude_permissions`] does.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's approval answers keep a session rule through it"
-    )
-)]
 pub(crate) async fn keep_claude_session_rule(
     live: &LiveClaudeSession,
     rule: &ProviderAskRule,
@@ -190,13 +182,6 @@ pub(crate) async fn keep_claude_session_rule(
 /// working folders, except the session's own file for an allow, which rode the answer for Claude
 /// Code to write; a failed write takes the rule back out of the files already written. Fails with
 /// the write's failure and any of taking it back.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's approval answers keep a project rule through it"
-    )
-)]
 pub(crate) async fn keep_claude_project_rule(
     rule: &ProviderAskRule,
     folders: &ClaudeProjectRuleFolders<'_>,

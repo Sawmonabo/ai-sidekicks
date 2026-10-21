@@ -17,57 +17,33 @@ use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 #[derive(Clone)]
 pub(crate) struct ClaudeSpawnBoundLegs {
     /// The session.
-    #[expect(dead_code, reason = "the Claude driver's launch reads it")]
     pub(crate) session_id: SessionId,
     /// The session's model, passed as `--model`.
-    #[expect(dead_code, reason = "the Claude driver's launch reads it")]
     pub(crate) model: String,
     /// How the session may touch the machine; left out, a process would start unsandboxed.
-    #[expect(dead_code, reason = "the Claude driver's launch reads it")]
     pub(crate) execution_posture: Option<ExecutionPosture>,
     /// The folder the process runs in; a resume from any other folder starts a new conversation.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's launch reads it")
-    )]
     pub(crate) working_directory: PathBuf,
     /// The daemon's callback tools.
-    #[expect(dead_code, reason = "the Claude driver's launch reads it")]
     pub(crate) callback_tools: Option<Vec<SessionCallbackTool>>,
     /// The session's helper policy.
-    #[expect(dead_code, reason = "the Claude driver's launch reads it")]
     pub(crate) subagent_policy: Option<SubagentPolicy>,
     /// Every tool server the session can reach, each installed by `mcp_set_servers` when on.
-    #[expect(dead_code, reason = "the Claude driver's launch reads it")]
     pub(crate) tool_servers: Vec<SessionToolServer>,
     /// The JSON Schema the final output must meet.
-    #[expect(dead_code, reason = "the Claude driver's launch reads it")]
     pub(crate) output_schema: Option<Map<String, Value>>,
     /// Answers each callback-tool call.
-    #[expect(dead_code, reason = "the Claude driver's launch reads it")]
     pub(crate) on_callback_tool_call: Option<CallbackToolDispatcher>,
     /// Receives each tool server's status.
-    #[expect(dead_code, reason = "the Claude driver's launch reads it")]
     pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
     /// The curated credential paths, canonical and absolute, denied to every file tool.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's launch reads it")
-    )]
     pub(crate) credential_deny_paths: Vec<CredentialDenyPath>,
     /// Each spelling of the agent-memory folder, which an agent reads and edits at Sandboxed.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's launch reads it")
-    )]
     pub(crate) memory_folders: Vec<PathBuf>,
     /// The process's whole environment.
-    #[expect(dead_code, reason = "the Claude driver's launch reads it")]
     pub(crate) spawn_environment: Vec<(String, String)>,
     /// The session's advisor model, `None` when off.
-    #[expect(dead_code, reason = "the Claude driver's launch reads it")]
     pub(crate) advisor_model: Option<String>,
     /// The session's own output style, `None` where Claude Code's own setting holds.
-    #[expect(dead_code, reason = "the Claude driver's launch reads it")]
     pub(crate) output_style: Option<String>,
 }

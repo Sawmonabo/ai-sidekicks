@@ -152,6 +152,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 settings_readback: ClaudeSettingsReadback {
                     cleanup_period_days: None,
                     attached_advisor: ClaudeAttachedAdvisor::Unreported,
+                    ultracode: None,
                 },
                 spawned_version: spawned_build(SCRIPTED_BUILD_VERSION, "/scripted/claude"),
             })

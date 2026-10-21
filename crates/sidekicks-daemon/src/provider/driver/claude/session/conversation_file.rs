@@ -41,13 +41,6 @@ pub(crate) struct ClaudeConversationOutline {
 }
 
 /// Where Claude Code and the daemon keep the conversations' files of one Claude Code home.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's conversation purge names its folders in it"
-    )
-)]
 pub(crate) struct ClaudeConversationFolders<'a> {
     /// The configuration folder of the Claude Code home the conversations ran on.
     pub(crate) config_folder: &'a Path,
@@ -62,13 +55,6 @@ pub(crate) struct ClaudeConversationFolders<'a> {
 }
 
 /// One conversation a purge deletes.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's conversation purge names each conversation in it"
-    )
-)]
 pub(crate) struct ClaudeConversation<'a> {
     /// Claude Code's id for it, which names its files.
     pub(crate) provider_session_id: &'a str,
@@ -147,13 +133,6 @@ pub(crate) async fn read_claude_conversation_outline(
 /// live process keeps a message past its turn's end and takes it later; the caller retries a read
 /// that fails. Opens nothing for an empty list, stops once every uuid is found, and fails with
 /// the file's open or read failure.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's taken-message lookup after a process ends reads through it"
-    )
-)]
 pub(crate) async fn find_claude_taken_messages(
     file: &Path,
     message_uuids: &[String],
@@ -195,13 +174,6 @@ pub(crate) async fn find_claude_taken_messages(
 /// since they name the plan files a purge that fails must find again. Fails with `InvalidInput`,
 /// before anything is listed or removed, for an id that is not one plain path component, else with
 /// the first read or removal failure.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's conversation purge deletes through it"
-    )
-)]
 pub(crate) async fn delete_claude_conversations(
     folders: &ClaudeConversationFolders<'_>,
     conversations: &[ClaudeConversation<'_>],

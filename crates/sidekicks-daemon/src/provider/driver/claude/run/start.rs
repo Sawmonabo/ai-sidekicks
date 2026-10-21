@@ -98,13 +98,6 @@ impl ClaudeRunStart {
     /// last turn an interrupt is ending first waits, within the request deadline, for that turn's
     /// end. Fails with no live session, a run the session's process cannot carry, files that
     /// cannot be read (before anything is held), and the failed write; nothing is resent.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's run start writes each opening through it"
-        )
-    )]
     pub(crate) async fn start_run(&self, params: &StartRunParams) -> Result<(), DriverError> {
         let opening = &params.opening;
         let session_id = opening.session_id;

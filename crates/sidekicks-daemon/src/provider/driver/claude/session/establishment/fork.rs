@@ -1,7 +1,7 @@
 //! A fork of a session's conversation at a recorded turn, adopted in place of the process it
 //! forks: the conversation is cut at the turn's end and the next turn's prompt dropped, the fork
 //! brought up on the predecessor's legs, the session's binding pointed at it, and the predecessor
-//! closed. A fork that cannot be brought up or adopted leaves the predecessor the session's.
+//! stopped. A fork that cannot be brought up or adopted leaves the predecessor the session's.
 
 use std::sync::Arc;
 
@@ -31,7 +31,7 @@ use crate::provider::runtime_binding::store::RuntimeBindingRebind;
 impl ClaudeSessionEstablishment {
     /// Forks `predecessor`'s conversation at the turn `params` names and moves the session onto
     /// the fork, pointing its binding there; the predecessor runs on until the fork is adopted,
-    /// then is closed. A fork Claude Code refuses, or one that cannot be adopted, answers
+    /// then is stopped. A fork Claude Code refuses, or one that cannot be adopted, answers
     /// `Degraded` with the predecessor still the session's; fails `NoLiveSession` when the
     /// predecessor is no longer the session's live process.
     pub(crate) async fn fork(
@@ -85,6 +85,7 @@ impl ClaudeSessionEstablishment {
             command_choices: predecessor.command_choices.clone(),
             spawn_binding: predecessor.spawn_binding.clone(),
             model_check: ClaudeModelCheck::Unchecked,
+            ultracode: settings.ultracode_requested,
         };
         let rebind = |resume_handle: &str, left: Vec<LeftConversation>| RuntimeBindingRebind {
             binding_id: params.binding_id.clone(),
@@ -112,29 +113,57 @@ impl ClaudeSessionEstablishment {
                     session_position: params.position,
                 })
             }
+            // A close took the slot after the binding moved: it goes back to the conversation the
+            // session keeps, so a later resume opens that one.
+            Err(ClaudeEstablishmentError::Closed) => {
+                let back = self
+                    .rebind(rebind(
+                        &predecessor.provider_session_id,
+                        vec![LeftConversation {
+                            session_id,
+                            provider_account_id: predecessor.admitted_provider_account_id.clone(),
+                            conversation_id: forked_provider_session_id.clone(),
+                        }],
+                    ))
+                    .await;
+                let reason = match back {
+                    Ok(()) => ClaudeEstablishmentError::Closed.to_string(),
+                    Err(error) => format!("{}; {error}", ClaudeEstablishmentError::Closed),
+                };
+                Ok(degraded("rewind-adoption-failed", &reason))
+            }
             Err(error) => Ok(degraded("rewind-adoption-failed", &error.to_string())),
         }
     }
 
-    // The predecessor a fork replaced: its turn and messages go with it, then it is closed.
+    // The predecessor a fork replaced: the run whose turn it held ends failed, its routes, waits
+    // and messages go with it, and it is stopped at once, so neither its running turn nor what it
+    // queued writes into the conversation it leaves.
     async fn release_superseded(&self, predecessor: &LiveClaudeSession) {
         let session_id = predecessor.session_id;
+        if let Some(lead) = self.routes.lead_run_on(session_id) {
+            self.task_services
+                .cuts
+                .fail_superseded_run(predecessor, lead.run_id, lead.binding_id);
+            self.routes.forget_run(lead.run_id);
+        }
+        self.routes.retire_run_routes(session_id);
+        self.routes.retire_child_routes(session_id);
+        self.task_services
+            .settlement
+            .pending_compactions
+            .release_binding(&session_id.to_string());
         lock(&self.prompts).forget_session(session_id);
-        predecessor.channel.close().await;
+        predecessor.channel.terminate().await;
     }
 
     // Points the session's binding at the conversation it moved onto.
     async fn rebind(&self, rebind: RuntimeBindingRebind) -> Result<(), ClaudeEstablishmentError> {
-        let store = self
-            .sources
-            .ports
-            .runtime_bindings
-            .require_port()
-            .map_err(|error| ClaudeEstablishmentError::SessionRules(Box::new(error)))?;
+        let store = self.sources.ports.runtime_bindings.require_port()?;
         store
             .rebind(rebind)
             .await
-            .map_err(|error| ClaudeEstablishmentError::SessionRules(Box::new(error)))
+            .map_err(ClaudeEstablishmentError::Rebind)
     }
 
     // The entry a fork at `position` keeps the conversation up to, and the prompt of the turn it

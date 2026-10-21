@@ -169,6 +169,8 @@ pub(crate) fn scripted_live_session(
             running_model: "opus".to_owned(),
             attached_advisor: ClaudeAttachedAdvisor::Unreported,
             applied_output_speed: None,
+            ultracode_requested: None,
+            ultracode: None,
         }),
         process_identity: ProviderProcessIdentity {
             process_id: 1,

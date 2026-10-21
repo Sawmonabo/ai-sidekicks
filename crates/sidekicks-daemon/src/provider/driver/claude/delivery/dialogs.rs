@@ -157,10 +157,6 @@ pub(crate) struct ClaudeProviderDialogs<P: ClaudeDialogPorts> {
 
 impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
     /// Dialogs that deliver through `ports`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver builds its dialogs once")
-    )]
     pub(crate) fn new(ports: P) -> Self {
         Self {
             ports,
@@ -320,10 +316,6 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
     /// `initialize` carrying no hooks: an id it no longer lists was taken, one it lists gets the
     /// answer once more. Fails with `provider.unavailable` when nothing was written, the choice
     /// still held, and with `Unanswered` when neither the write nor the check settled it.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's choice answer sends it")
-    )]
     pub(crate) async fn answer(
         &self,
         session: &ClaudeDialogSession<'_>,
@@ -410,13 +402,6 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
     /// the interrupt's place: a refusal is answered `cancelled` and ends refused, so no interrupt
     /// is sent; a usage-credits choice is recorded `interrupted` and the turn's own interrupt still
     /// goes. Fails as the cancel's write fails, the choice held again.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's interrupt and undo settle a held choice"
-        )
-    )]
     pub(crate) async fn settle_for_interrupt(
         &self,
         session: &ClaudeDialogSession<'_>,
@@ -447,13 +432,6 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
     /// a usage-credits choice is left for Claude Code, whose own settlement is recorded
     /// `unanswered`. Answers `true` when a refusal was canceled, so the message starts the
     /// session's next turn; fails as the cancel's write fails, the choice held again.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's message send settles a held refusal"
-        )
-    )]
     pub(crate) async fn settle_for_queued_message(
         &self,
         session: &ClaudeDialogSession<'_>,

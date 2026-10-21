@@ -114,13 +114,6 @@ pub(crate) struct ClaudeSessionRuleLists {
 }
 
 /// A working folder of the project, with what Claude Code reads to place its local settings.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's remembered rules name each working folder in it"
-    )
-)]
 pub(crate) struct ClaudeProjectFolder<'a> {
     /// The folder a session starts in, a worktree's root or the project's checkout.
     pub(crate) working_folder: &'a Path,
@@ -129,13 +122,6 @@ pub(crate) struct ClaudeProjectFolder<'a> {
 }
 
 /// What Claude Code reads of a working folder's repository.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's remembered rules name each repository in it"
-    )
-)]
 pub(crate) struct ClaudeRepository<'a> {
     /// The repository's root, the main checkout's for a worktree.
     pub(crate) root: &'a Path,
@@ -207,13 +193,6 @@ pub(crate) fn compose_claude_session_rule_lists(
 
 /// The update an approval's answer carries so Claude Code writes the project allow `rule`, or
 /// `None` for an allow never handed over. Refuses a kind Claude Code keeps no rule on.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's approval answers compose a project allow through it"
-    )
-)]
 pub(crate) fn compose_claude_project_allow_update(
     rule: &ProviderAskRule,
     path_rules: PathRules,
@@ -232,13 +211,6 @@ pub(crate) fn compose_claude_project_allow_update(
 /// (the repository root's in the normal case), is skipped, and taken back with the rest when a
 /// later file fails. A file the daemon creates in a repository is first listed in its exclude list,
 /// each repository's list read once per call. One edit at a time on each file.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's remembered rules are written through it"
-    )
-)]
 pub(crate) async fn write_claude_project_rule(
     folders: &[ClaudeProjectFolder<'_>],
     home_folder: &Path,

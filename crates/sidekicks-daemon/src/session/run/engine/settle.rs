@@ -162,13 +162,6 @@ impl RunEngine {
     /// turn with no end, each in its own write: a live run settles by its stops, else fails with
     /// the exit, and every open turn ends interrupted with the limit that cut it, else failed with
     /// the exit. Every run is ended before the failures return, together.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the provider's event delivery, when a provider process exits"
-        )
-    )]
     pub(crate) async fn end_turn_on_process_exit(
         &self,
         run_id: RunId,

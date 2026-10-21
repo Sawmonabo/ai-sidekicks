@@ -29,13 +29,6 @@ pub(crate) struct CallbackToolSpawnBinding {
 impl CallbackToolSpawnBinding {
     /// Undoes the spawn's registry after the spawn failed, restoring the one it replaced, which a
     /// driver may still be using; with none replaced it is the same as dropping the binding.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the callback tools' approval route builds the host"
-        )
-    )]
     pub(crate) fn rollback(mut self) {
         self.host
             .end_installation(self.session_id, &self.token, true);
@@ -54,13 +47,6 @@ impl Drop for CallbackToolSpawnBinding {
 
 /// Installs the registry `request` asks for and binds its dispatcher to that installation, so a
 /// later spawn's registry never answers this spawn's calls.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the callback tools' approval route builds the host"
-    )
-)]
 pub(crate) fn bind_callback_tools_for_spawn(
     host: &Arc<CallbackToolHost>,
     request: CallbackToolSpawnRequest,

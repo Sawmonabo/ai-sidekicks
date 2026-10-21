@@ -52,13 +52,6 @@ pub(crate) enum ClaudeConversationStart {
 }
 
 /// What one spawn's command line is composed from.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's launch composes each command line through it"
-    )
-)]
 pub(crate) struct ClaudeArgumentsRequest<'a> {
     /// The session's model.
     pub(crate) model: &'a str,
@@ -81,13 +74,6 @@ pub(crate) struct ClaudeArgumentsRequest<'a> {
 
 /// The arguments after the executable. No budget cap, background run, auto-mode opt-in, prompt
 /// opt-out or tool-server file is ever passed.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's launch composes each command line through it"
-    )
-)]
 pub(crate) fn compose_claude_arguments(request: &ClaudeArgumentsRequest<'_>) -> Vec<String> {
     let mut arguments: Vec<String> = [
         "-p",

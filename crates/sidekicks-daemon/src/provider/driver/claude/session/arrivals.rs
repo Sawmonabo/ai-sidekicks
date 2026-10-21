@@ -5,7 +5,7 @@
 //! turn's hold itself and never waits on the task, so the queue is unbounded, as Codex's own
 //! client keeps its event queue; its depth is logged once it passes a mark and at each doubling.
 
-pub(super) mod task;
+pub(crate) mod task;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -162,13 +162,6 @@ struct QueueDepth {
 }
 
 /// A new queue for `session_id`'s process.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's session bring-up makes each process's queue"
-    )
-)]
 pub(crate) fn claude_session_arrivals(
     session_id: SessionId,
 ) -> (ClaudeArrivalSender, ClaudeArrivalReceiver) {
@@ -258,13 +251,6 @@ pub(crate) trait ClaudeSessionArrivalHandler: Send {
 /// Drains `receiver` into `handler` until its `Exit` is handled or every sender is gone, each
 /// arrival and each deadline awaited whole before the next, as the session's own place for a
 /// process running on `provider_account_id`'s home.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's session bring-up spawns each process's task over it"
-    )
-)]
 pub(crate) async fn drain_claude_session_arrivals(
     mut receiver: ClaudeArrivalReceiver,
     handler: &mut impl ClaudeSessionArrivalHandler,
@@ -325,13 +311,6 @@ pub(crate) struct ClaudeSessionListener {
 impl ClaudeSessionListener {
     /// A listener for the process running under `provider_session_id`, routing through `band`
     /// and queuing onto `arrivals`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session bring-up hands each process its listener"
-        )
-    )]
     pub(crate) fn new(
         provider_session_id: String,
         band: Arc<Mutex<ClaudeSessionRoutingBand>>,

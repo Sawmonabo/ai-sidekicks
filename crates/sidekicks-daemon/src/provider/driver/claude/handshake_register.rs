@@ -28,7 +28,6 @@ use crate::provider::driver::claude::session::state::{ClaudeHeldHandshake, LiveC
 use crate::provider::driver::claude::session::transport::declarations::{
     ClaudeFastModeDeclaration, ClaudeHandshakeDeclaration,
 };
-use crate::provider::driver::contract::ListProviderCommandsParams;
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -216,33 +215,33 @@ impl ClaudeHandshakeRegister {
         });
     }
 
-    /// The command and skill entries one live session declared, all of them, stamped with the
-    /// binding the params name and the account the session was admitted against; before the
-    /// handshake, which rides a turn the person may not have made, it answers no entries. Fails
-    /// with `Unavailable` (`ProviderAccountAmbiguous`) when the account registry names another
-    /// account than the admitted one.
+    /// The command and skill entries one live session declared, all of them, stamped with
+    /// `binding`'s provider and the account the session was admitted against, in one group with
+    /// `run_id`; before the handshake, which rides a turn the person may not have made, it answers
+    /// no entries. Fails with `Unavailable` (`ProviderAccountAmbiguous`) when `binding` names
+    /// another account than the admitted one.
     pub(crate) fn enumerate_provider_commands(
         &self,
-        params: ListProviderCommandsParams,
+        session_id: SessionId,
+        binding: ProviderCommandBinding,
+        run_id: Option<RunId>,
         live: &LiveClaudeSession,
     ) -> Result<ProviderCommandBindingGroup, ClaudeSessionError> {
         let provider_account_id = resolve_stamped_account(
-            params.session_id,
+            session_id,
             live.admitted_provider_account_id.as_ref(),
-            params.binding.provider_account_id,
+            binding.provider_account_id,
         )?;
         let binding = ProviderCommandBinding {
-            provider_name: params.binding.provider_name,
+            provider_name: binding.provider_name,
             provider_account_id,
         };
         let entries = self
-            .held_handshake_for(params.session_id, &live.provider_session_id)
-            .map(|held| {
-                compose_provider_command_entries(params.session_id, &held.declaration, &binding)
-            })
+            .held_handshake_for(session_id, &live.provider_session_id)
+            .map(|held| compose_provider_command_entries(session_id, &held.declaration, &binding))
             .unwrap_or_default();
         Ok(ProviderCommandBindingGroup {
-            run_id: params.run_id,
+            run_id,
             binding,
             entries,
         })

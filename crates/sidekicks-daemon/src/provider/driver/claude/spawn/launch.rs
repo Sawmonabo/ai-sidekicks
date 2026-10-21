@@ -6,7 +6,7 @@
 pub(crate) mod bring_up;
 pub(crate) mod control_only;
 pub(crate) mod figures;
-mod initialize_reply;
+pub(crate) mod initialize_reply;
 pub(crate) mod installed_build;
 pub(crate) mod one_turn;
 
@@ -98,13 +98,6 @@ impl From<ClaudeLaunchError> for DriverError {
 }
 
 /// Starts every Claude Code process and keeps the live ones, so the daemon's stop ends them all.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver starts every process through it"
-    )
-)]
 pub(crate) struct ClaudeProcessLauncher {
     spawner: Spawner,
     processes: Arc<ProviderProcessRegistry>,

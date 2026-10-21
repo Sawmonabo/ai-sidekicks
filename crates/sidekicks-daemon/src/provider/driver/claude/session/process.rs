@@ -133,13 +133,6 @@ impl ClaudeChildEnds {
 
 /// One live Claude Code process.
 pub(crate) struct ClaudeCodeProcess {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver releases a process's held presses by its identity at exit"
-        )
-    )]
     identity: ProviderProcessIdentity,
     input: ClaudeInputWriter,
     requests: ClaudeControlRequests,
@@ -296,13 +289,6 @@ impl ClaudeCodeProcess {
     }
 
     /// The operating system's id for the process and its place in the daemon's spawn count.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver releases a process's held presses by its identity at exit"
-        )
-    )]
     pub(crate) fn identity(&self) -> ProviderProcessIdentity {
         self.identity
     }

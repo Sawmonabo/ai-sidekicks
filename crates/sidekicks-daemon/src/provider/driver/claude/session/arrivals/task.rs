@@ -106,13 +106,6 @@ pub(crate) struct ClaudeSessionTask {
 
 impl ClaudeSessionTask {
     /// The task of `live`'s process, whose frames `stream` reads.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session bring-up spawns each process's task over it"
-        )
-    )]
     pub(crate) fn new(
         services: Arc<ClaudeSessionTaskServices>,
         live: Arc<LiveClaudeSession>,

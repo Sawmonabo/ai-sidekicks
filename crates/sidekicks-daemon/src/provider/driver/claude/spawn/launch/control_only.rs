@@ -230,13 +230,6 @@ pub(crate) async fn probe_claude_sign_in(
 
 /// Reads the model catalog from a process that keeps nothing: its `initialize` reply and the
 /// context usage of the model it runs. Fails as the start or a request does.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's model list reads the catalog through it"
-    )
-)]
 pub(crate) async fn read_claude_model_catalog(
     launcher: &ClaudeProcessLauncher,
     executable: &ResolvedProviderExecutable,

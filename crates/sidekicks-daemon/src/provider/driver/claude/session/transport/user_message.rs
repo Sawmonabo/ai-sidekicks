@@ -68,13 +68,6 @@ pub(crate) enum ClaudeUserContentBlock {
         text: String,
     },
     /// A picture.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's message writes send pictures with it"
-        )
-    )]
     Image {
         /// Its bytes.
         source: ClaudePictureSource,
@@ -86,13 +79,6 @@ pub(crate) enum ClaudeUserContentBlock {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum ClaudePictureSource {
     /// Inline.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's message writes send pictures with it"
-        )
-    )]
     Base64 {
         /// Its format.
         media_type: ClaudePictureMediaType,
@@ -106,43 +92,15 @@ pub(crate) enum ClaudePictureSource {
 pub(crate) enum ClaudePictureMediaType {
     /// JPEG.
     #[serde(rename = "image/jpeg")]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's message writes send pictures with it"
-        )
-    )]
     Jpeg,
     /// PNG.
     #[serde(rename = "image/png")]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's message writes send pictures with it"
-        )
-    )]
     Png,
     /// GIF.
     #[serde(rename = "image/gif")]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's message writes send pictures with it"
-        )
-    )]
     Gif,
     /// WebP.
     #[serde(rename = "image/webp")]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's message writes send pictures with it"
-        )
-    )]
     Webp,
 }
 
@@ -151,13 +109,6 @@ pub(crate) enum ClaudePictureMediaType {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ClaudeMessagePriority {
     /// At once, stopping what the turn is doing.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's message writes queue each message with it"
-        )
-    )]
     Now,
     /// At the turn's next step.
     #[expect(
@@ -222,13 +173,6 @@ pub(crate) enum ClaudeWriteDelivery {
 #[derive(Debug)]
 pub(crate) enum ClaudeWriteAttempt {
     /// The whole line was written.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process reports each write with it"
-        )
-    )]
     Written,
     /// The write failed.
     Failed {

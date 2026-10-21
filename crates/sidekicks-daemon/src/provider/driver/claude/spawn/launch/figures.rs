@@ -42,13 +42,6 @@ use crate::provider::spawned_version::ResolvedProviderExecutable;
 /// Reads a session's creation figures from one process that keeps nothing, in `place`'s folder on
 /// its model, skipping the context reads of `read_models`. Fails as the start or a request does,
 /// or when a command runs a model turn or goes unanswered.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's session creation reads its figures through it"
-    )
-)]
 pub(crate) async fn read_claude_creation_figures(
     launcher: &ClaudeProcessLauncher,
     executable: &ResolvedProviderExecutable,

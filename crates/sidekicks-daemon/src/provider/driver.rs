@@ -138,10 +138,6 @@ impl ProviderDescriptor {
 
     /// The folder on the running system the provider reads its administrator-managed settings
     /// from, `None` where it names none there; the WSL server, a Linux build, answers Linux's.
-    #[expect(
-        dead_code,
-        reason = "the managed-settings checks read the provider's administrator settings there"
-    )]
     pub(crate) fn managed_settings_folder(&self) -> Option<PathBuf> {
         self.managed_settings_folders.native_path()
     }
@@ -359,10 +355,6 @@ impl ReportedVersionReading {
     /// `token` as the version where it is a canonical semantic version of at most
     /// [`VERSION_TOKEN_MAX_LEN`] characters, else `reply`, the text
     /// that carried it, as unreadable; every driver's version reader decides through this one rule.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "each driver's version read decides through it")
-    )]
     pub(crate) fn from_token(token: &str, reply: &str) -> Self {
         if token.chars().count() <= VERSION_TOKEN_MAX_LEN && is_canonical_semver(token) {
             Self::Version(token.to_owned())

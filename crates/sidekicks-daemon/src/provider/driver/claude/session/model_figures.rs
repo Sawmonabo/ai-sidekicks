@@ -105,10 +105,6 @@ struct EndpointContextReads {
 /// The figures held for one installed Claude Code build.
 pub(crate) struct ClaudeModelFigures {
     /// The build version these figures describe; `None` before the daemon reads one.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver checks the installed build against it"
-    )]
     pub(crate) build_version: Option<String>,
     rules: PathRules,
     command_choices: HeldReads<ClaudeChoicesKey, ClaudeCommandChoices>,
@@ -119,13 +115,6 @@ pub(crate) struct ClaudeModelFigures {
 impl ClaudeModelFigures {
     /// An empty store for the build `build_version`, whose processes run in a place that spells
     /// paths and environment names by `rules`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver keeps one store per installed build it reads"
-        )
-    )]
     pub(crate) fn new(build_version: Option<String>, rules: PathRules) -> Self {
         Self {
             build_version,
@@ -139,10 +128,6 @@ impl ClaudeModelFigures {
     /// The style and advisor choices of `place`'s folder and config folder: the held read's
     /// result, else `read`'s, which runs once however many sessions wait on it. Fails with the
     /// read's failure, shared with every waiter, and then forgets it.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session creation reads its command choices through it"
-    )]
     pub(crate) async fn command_choices<Read>(
         &self,
         place: &ClaudeSessionFolderReadRequest,
@@ -160,13 +145,6 @@ impl ClaudeModelFigures {
 
     /// The reply reserve of `place`'s model at its endpoint, read as
     /// [`command_choices`](Self::command_choices) reads.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the compaction slider's stops below the window key's reach come from it"
-        )
-    )]
     pub(crate) async fn reply_reserve<Read>(
         &self,
         place: &ClaudeSessionFolderReadRequest,
@@ -197,10 +175,6 @@ impl ClaudeModelFigures {
     }
 
     /// Every model whose context read at that endpoint is done, for the next read to skip.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's creation-time read skips the models already read"
-    )]
     pub(crate) fn context_read_models(
         &self,
         spawn_environment: &[(String, String)],

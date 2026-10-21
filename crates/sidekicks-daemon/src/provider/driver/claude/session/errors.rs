@@ -44,36 +44,16 @@ pub(crate) enum ClaudeSessionUnavailableReason {
     /// No live session is bound to the session.
     NoLiveSession,
     /// No live session is bound to the run.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's run controls refuse with it")
-    )]
     NoLiveRun,
     /// The run's turn is already dispatched and has not settled.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's run start refuses with it")
-    )]
     RunAlreadyDispatched,
     /// Another run's turn is still in flight on the session.
     SessionTurnInFlight,
     /// The run's execution posture differs from the one the session was spawned with.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's run start refuses with it")
-    )]
     ExecutionPostureMismatch,
     /// The run requires schema-constrained output and the session was spawned without a schema.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's run start refuses with it")
-    )]
     OutputSchemaUnbound,
     /// The run's output schema differs from the one the session was spawned with.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's run start refuses with it")
-    )]
     OutputSchemaMismatch,
     /// The request named a provider account that is present but empty.
     #[expect(
@@ -82,20 +62,12 @@ pub(crate) enum ClaudeSessionUnavailableReason {
     )]
     ProviderAccountUnusable,
     /// Two resolvers name different provider accounts for the session.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle refuses with it"
-    )]
     ProviderAccountAmbiguous,
     /// The process exited before it answered.
     ProcessExited,
     /// The session holds no execution posture, so a turn the daemon starts has no level to run at.
     ExecutionPostureAbsent,
     /// Claude Code cannot run the session at that permission level.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session controls refuse with it"
-    )]
     PermissionLevelUnavailable,
     /// The installed Claude Code lists no code-review skill for the session.
     #[expect(
@@ -104,10 +76,6 @@ pub(crate) enum ClaudeSessionUnavailableReason {
     )]
     ReviewSkillAbsent,
     /// Claude Code's model id names its window, so a session takes no larger-window figure.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session controls refuse with it"
-    )]
     LargerWindowFigureUnsupported,
 }
 
@@ -169,31 +137,10 @@ impl ClaudeSessionUnavailableReason {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeSessionSlotState {
     /// A create or resume is in flight.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session lifecycle names the slot a create meets with it"
-        )
-    )]
     Establishing,
     /// A live session holds the slot.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session lifecycle names the slot a create meets with it"
-        )
-    )]
     Live,
     /// The session is still being torn down.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session lifecycle names the slot a create meets with it"
-        )
-    )]
     Closing,
 }
 
@@ -258,13 +205,6 @@ pub(crate) enum ClaudeSessionError {
     },
     /// A process already holds the session's slot.
     #[error("a Claude session already holds this session's slot ({holder_state:?})")]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session lifecycle refuses a second process with it"
-        )
-    )]
     SessionAlreadyLive {
         /// The state the slot is in.
         holder_state: ClaudeSessionSlotState,
@@ -274,10 +214,6 @@ pub(crate) enum ClaudeSessionError {
 impl ClaudeSessionError {
     /// The recovery condition the failure leaves the session in: sign in again after a refused
     /// sign-in, recover after anything else.
-    #[expect(
-        dead_code,
-        reason = "the Claude session lifecycle reports a failed resume's recovery condition"
-    )]
     pub(crate) fn recovery_condition(&self) -> RecoveryCondition {
         match self {
             Self::AuthenticationRequired { .. } => RecoveryCondition::ReauthRequired,
@@ -377,11 +313,11 @@ fn missing_capability(subtype: ClaudeControlSubtype) -> Option<DriverCapabilityF
     }
 }
 
-/// Records a failure no caller hears, as `kind`'s diagnostic on `session_id`: `step` names in plain
-/// words what failed, and the reason carries `error` with its causes.
+/// Records a failure no caller hears, as `kind`'s diagnostic on `session_id` where one is named:
+/// `step` names in plain words what failed, and the reason carries `error` with its causes.
 pub(crate) fn record_unheard_claude_failure(
     kind: DriverDiagnosticKind,
-    session_id: SessionId,
+    session_id: impl Into<Option<SessionId>>,
     step: &str,
     error: &(dyn Error + 'static),
 ) {
@@ -391,7 +327,9 @@ pub(crate) fn record_unheard_claude_failure(
         kind,
         raw_wire_type: None,
         disposition_reason: format!("{step} failed: {}", describe_error(error)),
-        details: [("sessionId".to_owned(), json!(session_id))]
+        details: session_id
+            .into()
+            .map(|session_id| ("sessionId".to_owned(), json!(session_id)))
             .into_iter()
             .collect(),
     });

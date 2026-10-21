@@ -27,6 +27,9 @@ use crate::provider::driver::claude::session::transport::control::{
 };
 use crate::provider::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::provider::driver::claude::session::ultracode::{
+    ClaudeUltracodeReading, read_claude_ultracode,
+};
 use crate::provider::driver::claude::spawn::arguments::{
     ClaudeArgumentsRequest, ClaudeConversationStart, compose_claude_arguments,
 };
@@ -83,6 +86,8 @@ pub(crate) struct ClaudeSettingsReadback {
     pub(crate) cleanup_period_days: Option<f64>,
     /// The advisor Claude Code says it attaches.
     pub(crate) attached_advisor: ClaudeAttachedAdvisor,
+    /// Ultracode's state, where the build reports it.
+    pub(crate) ultracode: Option<ClaudeUltracodeReading>,
 }
 
 /// A process brought up, with what it declared.
@@ -204,6 +209,7 @@ fn read_settings_readback(reply: Option<&RawValue>) -> ClaudeSettingsReadback {
     ClaudeSettingsReadback {
         cleanup_period_days,
         attached_advisor: read_claude_attached_advisor(reply),
+        ultracode: read_claude_ultracode(reply),
     }
 }
 

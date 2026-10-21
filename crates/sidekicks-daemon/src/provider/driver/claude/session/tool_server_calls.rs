@@ -86,13 +86,6 @@ impl ClaudeToolServerCalls {
     }
 
     /// Cancels every running call, as the process exited.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's exit path cancels the process's calls through it"
-        )
-    )]
     pub(crate) fn cancel_all(&self) {
         for (_, call) in self.lock().drain() {
             call.abort();

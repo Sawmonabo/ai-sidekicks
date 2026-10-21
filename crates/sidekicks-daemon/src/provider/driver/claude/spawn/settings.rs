@@ -171,10 +171,6 @@ pub(crate) fn compose_claude_permissions(
 
 /// The `--settings` document for a process at the session's current `posture`, advisor, output
 /// style and own rules. Fails as [`compose_claude_permissions`] does.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's launch passes it as each process's --settings"
-)]
 pub(crate) fn compose_claude_spawn_settings(
     request: &ClaudePermissionsRequest<'_>,
     posture: Option<&ExecutionPosture>,

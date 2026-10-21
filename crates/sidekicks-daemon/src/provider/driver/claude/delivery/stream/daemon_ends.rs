@@ -280,13 +280,6 @@ pub(crate) struct ClaudeStreamDialogPorts {
 
 impl ClaudeStreamDialogPorts {
     /// Ports over the run engine, the runs' routes and every session's stream.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's composition builds its dialogs over them"
-        )
-    )]
     pub(crate) fn new(
         engine: Arc<dyn ClaudeRunEngine>,
         routes: Arc<ClaudeRunRoutes>,

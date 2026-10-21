@@ -50,13 +50,6 @@ pub(crate) enum ClaudeCloseStart {
 
 impl ClaudeSessionSlots {
     /// The slots, with what runs when a restored predecessor had exited.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's composition builds the slots its sessions share"
-        )
-    )]
     pub(crate) fn new(predecessor_exited: ClaudePredecessorExited) -> Self {
         Self {
             table: Arc::new(Mutex::new(SlotTable::default())),
@@ -127,13 +120,6 @@ impl ClaudeSessionSlots {
 
     /// Claims an empty slot for a create or resume. Refuses `SessionAlreadyLive` with the state
     /// the slot is in.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's create and resume claim the slot through it"
-        )
-    )]
     pub(crate) fn claim_bring_up(
         &self,
         session_id: SessionId,
@@ -171,13 +157,6 @@ impl ClaudeSessionSlots {
 
     /// Starts a close: a live or quarantined process is the close's to dispose of, a transition
     /// in flight is waited out first, and an empty slot needs nothing.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session close takes the slot through it"
-        )
-    )]
     pub(crate) fn begin_close(&self, session_id: SessionId) -> ClaudeCloseStart {
         let mut table = self.lock();
         let channel = match table.by_session.get(&session_id) {
@@ -285,13 +264,6 @@ impl ClaudeSlotClaim {
     /// Installs the process the bring-up started as the session's live slot and answers the
     /// rewind's predecessor it replaces, which the caller then disposes of. `None` when the slot
     /// is no longer this claim's (a close took it), so the new process is the caller's to end.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's create, resume and rewind install their process through it"
-        )
-    )]
     pub(crate) fn install(
         mut self,
         live: Arc<LiveClaudeSession>,
@@ -363,25 +335,11 @@ pub(crate) struct ClaudeSlotClose {
 
 impl ClaudeSlotClose {
     /// The process the close disposes of.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session close disposes of the process through it"
-        )
-    )]
     pub(crate) fn channel(&self) -> &Arc<dyn ClaudeProcessChannel> {
         &self.channel
     }
 
     /// Empties the slot once the process is disposed of.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session close settles the slot through it"
-        )
-    )]
     pub(crate) fn finish(mut self) {
         self.is_disposed = true;
     }

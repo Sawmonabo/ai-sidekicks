@@ -40,6 +40,7 @@ use crate::provider::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeFlagSettings, ClaudePermissionMode,
 };
 use crate::provider::driver::claude::spawn::settings::compose_claude_sandbox_settings;
+use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::diagnostics::DriverDiagnosticKind;
 use crate::provider::driver::session_control::{
     UpdatePermissionLevelParams, permission_level_not_offered,
@@ -118,6 +119,19 @@ pub(crate) enum ClaudeLevelMoveError {
     Permissions(#[from] ClaudePermissionsError),
 }
 
+impl From<ClaudeLevelMoveError> for DriverError {
+    /// A level the session cannot run keeps its refusal, and a failed send its own answer; every
+    /// other failure is internal.
+    fn from(error: ClaudeLevelMoveError) -> Self {
+        match error {
+            ClaudeLevelMoveError::NotOffered(refusal) => Self::Refused(refusal),
+            ClaudeLevelMoveError::Permissions(error) => error.into(),
+            error @ (ClaudeLevelMoveError::WritableRoot { .. }
+            | ClaudeLevelMoveError::WritableRootsAtLevel { .. }) => Self::Internal(Box::new(error)),
+        }
+    }
+}
+
 /// The permission mode Claude Code runs a level in, `--permission-mode` at a start and
 /// `set_permission_mode` on a move; a session with no level runs in Read-only's.
 pub(crate) fn claude_permission_mode_for(level: Option<PermissionLevel>) -> ClaudePermissionMode {
@@ -143,10 +157,6 @@ pub(crate) fn permission_level_of(posture: &ExecutionPosture) -> PermissionLevel
 
 /// The levels a Claude Code session can run at on this system, each named by the mode it runs in;
 /// Sandboxed only where `can_run_sandbox`, the descriptor's command-sandbox check, holds.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's mode list offers the levels through it"
-)]
 pub(crate) fn list_claude_modes(can_run_sandbox: bool) -> Vec<ProviderMode> {
     PermissionLevel::VARIANTS
         .iter()
@@ -164,13 +174,13 @@ pub(crate) fn list_claude_modes(can_run_sandbox: bool) -> Vec<ProviderMode> {
 
 /// Whether Claude Code's command sandbox runs in the place `spawn_environment` and
 /// `working_folder` name, checked on the spawner thread, which the namespace check needs. A check
-/// that fails is recorded against `session_id` and answers no, so Sandboxed is never offered on a
-/// guess.
+/// that fails is recorded, against `session_id` where one is named, and answers no, so Sandboxed is
+/// never offered on a guess.
 pub(crate) async fn read_claude_sandbox_support(
     spawner: &Spawner,
     spawn_environment: &[(String, String)],
     working_folder: &Path,
-    session_id: SessionId,
+    session_id: Option<SessionId>,
 ) -> bool {
     let environment = spawn_environment.to_vec();
     let folder = working_folder.to_path_buf();
@@ -212,10 +222,6 @@ pub(crate) fn can_run_claude_level(
 /// plans, then its whole permission rules with `session_rules` in force and its command sandbox,
 /// on at Sandboxed and removed at every other level, then the posture it runs at. Refused before
 /// anything is sent for a level the model or system cannot run, or roots the level cannot carry.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's permission level control moves a live session through it"
-)]
 pub(crate) async fn move_claude_permission_level(
     live: &LiveClaudeSession,
     params: &UpdatePermissionLevelParams,

@@ -23,6 +23,7 @@ use crate::provider::driver::claude::session::transport::declarations::{
     ClaudeHandshakeDeclaration, ClaudeInboundFrameObservation, ClaudeInitializeDeclaration,
 };
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::provider::driver::claude::session::ultracode::ClaudeUltracodeReading;
 use crate::provider::thread_frame_router::{
     RoutableProviderFrame, ThreadFrameFamilyClass, ThreadFrameRouter, ThreadFrameRouterConfig,
 };
@@ -31,13 +32,6 @@ use crate::queue::delivery::ProviderProcessIdentity;
 
 /// The router's bounds. The hold covers a helper's frames arriving ahead of its start; the short
 /// timeout means a frame held longer names a helper never announced.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle builds each session's router with it"
-    )
-)]
 pub(crate) const CLAUDE_THREAD_FRAME_ROUTER_CONFIG: ThreadFrameRouterConfig =
     ThreadFrameRouterConfig {
         max_quarantined_frames: 64,
@@ -106,20 +100,9 @@ pub(crate) struct ClaudeSpawnBinding {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeUsageEstablishment {
     /// Zero.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session create starts its usage from it"
-        )
-    )]
     Fresh,
     /// The sums already reported under `prior_emitted_thread_id`, which after a rewind is the
     /// predecessor's, since the fork announces a new one.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session resume and rewind start their usage from it"
-    )]
     Resume {
         /// The thread the sums were reported under.
         prior_emitted_thread_id: String,
@@ -138,22 +121,10 @@ pub(crate) struct ClaudeLiveSettings {
     /// The posture the session runs at; a relaunch starts at this one.
     pub(crate) execution_posture: Option<ExecutionPosture>,
     /// Whether the next turns build or plan; a fresh process builds.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's relaunch and controls read it"
-    )]
     pub(crate) session_mode: SessionMode,
     /// The advisor model, `None` when off.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's relaunch and controls read it"
-    )]
     pub(crate) advisor_model: Option<String>,
     /// The session's own output style, `None` where Claude Code's own setting holds.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's relaunch and controls read it"
-    )]
     pub(crate) output_style: Option<String>,
     /// The model the session runs on; a relaunch and a fork pass this one as `--model`.
     pub(crate) running_model: String,
@@ -166,6 +137,11 @@ pub(crate) struct ClaudeLiveSettings {
     /// The output-speed level the process last took, which a rewind applies to its fork; `None`
     /// when it took none.
     pub(crate) applied_output_speed: Option<String>,
+    /// The Ultracode value the agent asked for, which a relaunch starts with; `None` keeps Claude
+    /// Code's own.
+    pub(crate) ultracode_requested: Option<bool>,
+    /// Ultracode's state as Claude Code last reported it.
+    pub(crate) ultracode: Option<ClaudeUltracodeReading>,
 }
 
 /// A session whose Claude Code process is running, with the legs it was started with.
@@ -177,23 +153,9 @@ pub(crate) struct LiveClaudeSession {
     /// The process.
     pub(crate) channel: Arc<dyn ClaudeProcessChannel>,
     /// What the process was started with, for a later run's check.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's run start checks a run against it"
-        )
-    )]
     pub(crate) spawn_binding: ClaudeSpawnBinding,
     /// The legs the process was started with; a rewind starts its fork from these, since
     /// deriving them again would guess, and a guess without the posture runs unsandboxed.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's rewind starts its fork from it"
-        )
-    )]
     pub(crate) spawn_bound_legs: ClaudeSpawnBoundLegs,
     /// What the process's `initialize` reply declared.
     pub(crate) initialize: ClaudeInitializeDeclaration,
@@ -232,13 +194,6 @@ pub(crate) type ClaudeSlotSettled = Arc<SetOnce<()>>;
 pub(crate) enum ClaudeSessionSlot {
     /// A create, resume or rewind is bringing a process up. A rewind keeps the session it forks
     /// from, whose frames stay attributable during the fork and which a failed fork restores.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session lifecycle holds a bring-up in it"
-        )
-    )]
     Establishing {
         /// The bring-up.
         settled: ClaudeSlotSettled,
@@ -251,26 +206,12 @@ pub(crate) enum ClaudeSessionSlot {
         session: Arc<LiveClaudeSession>,
     },
     /// The process is being disposed of; Empty once that succeeds, Quarantined when it fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session lifecycle holds a disposal in it"
-        )
-    )]
     Closing {
         /// The disposal.
         settled: ClaudeSlotSettled,
     },
     /// The disposal failed, so the process still lives and this is the only handle on it, kept
     /// until a later close disposes of it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session lifecycle holds a failed disposal in it"
-        )
-    )]
     Quarantined {
         /// The process.
         channel: Arc<dyn ClaudeProcessChannel>,

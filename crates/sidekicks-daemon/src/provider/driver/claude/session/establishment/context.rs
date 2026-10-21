@@ -22,6 +22,9 @@ use crate::session::console_state::{read_session_advisor_model, read_session_max
 /// The id of the Settings row holding the output style new sessions start with.
 pub(crate) const CLAUDE_OUTPUT_STYLE_ROW_ID: &str = "outputStyle";
 
+/// The id of the Settings row holding the advisor new sessions start with.
+pub(crate) const CLAUDE_ADVISOR_ROW_ID: &str = "advisor";
+
 // The newest output style the session's own command set.
 const SELECT_OUTPUT_STYLE_SQL: &str = "SELECT json_extract(payload, '$.outputStyle')
   FROM session_events WHERE session_id = ? AND type = ? ORDER BY sequence DESC LIMIT 1";
@@ -86,11 +89,13 @@ pub(crate) async fn resolve_claude_spawn_context(
         }),
         // Claude Code finds each folder's memory itself; the daemon names none beside them.
         memory_folders: Vec::new(),
-        advisor_model: stored.advisor_model,
-        // The session's own style, else the one the app keeps for new sessions.
+        // The session's own advisor and style, else the ones the app keeps for new sessions.
+        advisor_model: stored
+            .advisor_model
+            .or_else(|| read_claude_row_text(row_values, CLAUDE_ADVISOR_ROW_ID)),
         output_style: stored
             .output_style
-            .or_else(|| stored_output_style_row(row_values)),
+            .or_else(|| read_claude_row_text(row_values, CLAUDE_OUTPUT_STYLE_ROW_ID)),
     })
 }
 
@@ -128,10 +133,9 @@ fn read_stored_settings(
     })
 }
 
-// The output style the app keeps for new sessions, where one is chosen.
-fn stored_output_style_row(row_values: &ProviderRowValues) -> Option<String> {
-    let id = ProviderDeclarationId::new(CLAUDE_OUTPUT_STYLE_ROW_ID.to_owned())
-        .expect("the output style row's id fits the id pattern");
+/// The choice the app keeps for new sessions on the Settings row `row_id`, where one is chosen.
+pub(crate) fn read_claude_row_text(row_values: &ProviderRowValues, row_id: &str) -> Option<String> {
+    let id = ProviderDeclarationId::new(row_id.to_owned()).expect("a row's id fits the id pattern");
     match row_values.as_map().get(&id)? {
         ProviderRowValue::Value(value) => value.as_ref().map(|text| text.as_str().to_owned()),
         ProviderRowValue::Places(_) => None,

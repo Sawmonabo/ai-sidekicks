@@ -63,10 +63,6 @@ pub(crate) enum ClaudePurgeError {
 /// ran in, its config folder resolved from the environment a spawn on its account would start
 /// with, `resolve_spawn_environment` (`None`, the person's own home). Every home is tried; fails
 /// after with each home that failed.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's session purge deletes its conversations through it"
-)]
 pub(crate) async fn purge_claude_conversations<ResolveEnvironment, EnvironmentResolution>(
     params: &PurgeSessionParams,
     place: &ClaudePurgePlace<'_>,

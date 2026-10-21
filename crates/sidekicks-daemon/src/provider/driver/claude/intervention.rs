@@ -129,13 +129,6 @@ impl ClaudeInterventions {
     /// Interventions starting next turns through `start`, settling choices through `dialogs`,
     /// holding a `Send now` while `requests` holds an ask open, and reaching helpers through
     /// `helper_steers` and `foreground_helpers`, which the session's hooks and frames fill.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's composition builds the one intervention dispatcher"
-        )
-    )]
     pub(crate) fn new(
         start: ClaudeRunStart,
         dialogs: Arc<ClaudeProviderDialogs<ClaudeStreamDialogPorts>>,
@@ -161,13 +154,6 @@ impl ClaudeInterventions {
     /// `NoLiveRun` when the run has no live process, with `SteerTurnEnded` when the run's turn
     /// ended before its steer could go, as the files' read fails before anything is sent, and as a
     /// write or the interrupt fails; nothing is written twice.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's intervention applies each one through it"
-        )
-    )]
     pub(crate) async fn apply_intervention(
         &self,
         params: ApplyInterventionParams,

@@ -134,10 +134,6 @@ impl ClaudeRunControls {
     /// `interrupted`; a refusal Claude Code holds the run on is settled `cancelled` instead, which
     /// ends the run refused, and a run apart from the session's process stops with that process.
     /// Fails `NoLiveRun` with no live run and `ControlRequestRefused` when Claude Code refuses.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's run interrupt sends it")
-    )]
     pub(crate) async fn interrupt_run(&self, run_id: RunId) -> Result<(), DriverError> {
         if self.start.routes.stop_apart_run(run_id, false) {
             return Ok(());
@@ -161,10 +157,6 @@ impl ClaudeRunControls {
 
     /// Pauses the lead run or a helper's child run from its next step on; the pause takes effect
     /// at the run's next hook, which reports it. Fails `NoLiveSession` with no live session.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's run pause sends it")
-    )]
     pub(crate) fn pause_run(&self, params: &PauseRunParams) -> Result<(), DriverError> {
         self.start.live_session(params.session_id)?;
         let mut pauses = lock(&self.pauses);
@@ -185,10 +177,6 @@ impl ClaudeRunControls {
     /// its next turn when its last one ended on the pause. Fails `NoLiveSession`,
     /// `SessionTurnInFlight` while another turn holds the session, as the files' read fails before
     /// anything is sent, and as a write fails.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's run resume sends it")
-    )]
     pub(crate) async fn resume_run(&self, params: ResumeRunParams) -> Result<(), DriverError> {
         let live = self.start.live_session(params.session_id)?;
         let session_id = params.session_id;
@@ -270,10 +258,6 @@ impl ClaudeRunControls {
     /// written is `Withdrawn` before Claude Code read it, a run that went on to its next turn for
     /// that message alone then ending, and `AlreadyDelivered` once it had. Fails `NoLiveSession`
     /// and as the request fails.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's steer withdrawal sends it")
-    )]
     pub(crate) async fn withdraw_queued_message(
         &self,
         params: &WithdrawQueuedMessageParams,
@@ -315,10 +299,6 @@ impl ClaudeRunControls {
 
     /// Answers one request Claude Code holds a run on, the lead's or a helper's, under its own id.
     /// Fails `NoLiveRun` and as the requests' answer fails.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's request answer sends it")
-    )]
     pub(crate) async fn respond_to_request(
         &self,
         params: RespondToRequestParams,
@@ -332,10 +312,6 @@ impl ClaudeRunControls {
 
     /// Sends the person's answer to a choice a run is held on. Fails `NoLiveSession` and as the
     /// dialogs' answer fails.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's choice answer sends it")
-    )]
     pub(crate) async fn answer_provider_choice(
         &self,
         params: &AnswerProviderChoiceParams,
@@ -357,10 +333,6 @@ impl ClaudeRunControls {
     /// the lead's session takes it into its running turn, or as its own run while no run holds its
     /// turn. Fails for a denial the daemon never kept in Claude Code's shape, `NoLiveRun` for a run
     /// apart from the session's process, and as the write or the run's start fails.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's reviewer override sends it")
-    )]
     pub(crate) async fn override_denial(
         &self,
         params: &OverrideDenialParams,

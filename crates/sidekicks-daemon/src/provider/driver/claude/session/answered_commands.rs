@@ -132,10 +132,6 @@ struct SettingsReply {
 }
 
 /// Reads the advisor a `get_settings` reply says will attach to the session's requests.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's /advisor answer reads what attaches through it"
-)]
 pub(crate) fn read_claude_attached_advisor(reply: Option<&RawValue>) -> ClaudeAttachedAdvisor {
     let applied = reply
         .and_then(|reply| serde_json::from_str::<SettingsReply>(reply.get()).ok())
@@ -154,10 +150,6 @@ pub(crate) fn read_claude_attached_advisor(reply: Option<&RawValue>) -> ClaudeAt
 
 /// What a session holds from the command replies of its creation-time process: the style
 /// descriptions, unlisted when the build no longer lists `/output-style`, and the advisors.
-#[expect(
-    dead_code,
-    reason = "the Claude model figures hold each folder's command choices through it"
-)]
 pub(crate) fn read_claude_command_choices(
     reading: &ClaudeCreationFiguresReading,
 ) -> ClaudeCommandChoices {
@@ -180,13 +172,6 @@ pub(crate) fn read_claude_command_choices(
 }
 
 /// What a session holds when its command choices could not be read, with the reason given.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver holds it for a session whose creation-time read failed"
-    )
-)]
 pub(crate) fn unreadable_claude_command_choices(detail: &str) -> ClaudeCommandChoices {
     ClaudeCommandChoices {
         output_styles: ClaudeOutputStyleDescriptions::Unlisted {

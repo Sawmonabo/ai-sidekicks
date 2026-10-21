@@ -28,10 +28,13 @@ use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::provider::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::provider::driver::claude::session::establishment::ClaudeSessionEstablishment;
-use crate::provider::driver::claude::session::establishment::context::CLAUDE_OUTPUT_STYLE_ROW_ID;
+use crate::provider::driver::claude::session::establishment::context::{
+    CLAUDE_ADVISOR_ROW_ID, CLAUDE_OUTPUT_STYLE_ROW_ID,
+};
 use crate::provider::driver::claude::session::process::ClaudeProcessEnd;
 use crate::provider::driver::claude::session::slots::{ClaudeCloseStart, ClaudeSessionSlots};
 use crate::provider::driver::claude::session::state::LiveClaudeSession;
+use crate::provider::driver::claude::session::ultracode::relaunch_claude_options;
 use crate::provider::driver::contract::{DriverError, DriverResumeResult, bound_failure_detail};
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
@@ -49,8 +52,19 @@ struct ClaudeRestartTable {
     pending_restarts: HashMap<SessionId, AbortOnDropHandle<()>>,
     // The build each busy session moves to once its turn settles.
     pending_build_moves: HashMap<SessionId, ProviderBuildChange>,
+    // The conversation each session's last ended process wrote, until the session closes.
+    ended_conversations: HashMap<SessionId, ClaudeEndedConversation>,
     // Set once the daemon stops: from then on no session is started again.
     is_stopped: bool,
+}
+
+/// The conversation an ended process wrote, where its file is found again.
+#[derive(Clone, Debug)]
+pub(crate) struct ClaudeEndedConversation {
+    /// Claude Code's id of the conversation.
+    pub(crate) provider_session_id: String,
+    /// The environment the process ran in, which names its Claude Code home.
+    pub(crate) spawn_environment: Vec<(String, String)>,
 }
 
 /// Every Claude Code session's restarts after an exit, and its moves to a new build.
@@ -112,8 +126,14 @@ impl ClaudeSessionRestarts {
     ) {
         let session_id = live.session_id;
         let runs = self.routes.bound_runs_on(session_id);
-        // The restart resumes on the build installed now, so a move that waited is done.
-        self.lock().pending_build_moves.remove(&session_id);
+        {
+            let mut table = self.lock();
+            // The restart resumes on the build installed now, so a move that waited is done.
+            table.pending_build_moves.remove(&session_id);
+            table
+                .ended_conversations
+                .insert(session_id, ended_conversation_of(&live));
+        }
         self.routes.retire_run_routes(session_id);
         self.routes.retire_child_routes(session_id);
         for run in &runs {
@@ -185,6 +205,45 @@ impl ClaudeSessionRestarts {
         table.pending_restarts.remove(&session_id);
         table.crash_windows.remove(&session_id);
         table.pending_build_moves.remove(&session_id);
+        table.ended_conversations.remove(&session_id);
+    }
+
+    /// The conversation the session's last ended process wrote; `None` before any ended.
+    pub(crate) fn ended_conversation(
+        &self,
+        session_id: SessionId,
+    ) -> Option<ClaudeEndedConversation> {
+        self.lock().ended_conversations.get(&session_id).cloned()
+    }
+
+    /// Relaunches `live`'s process before a turn whose step bound it was not started with, on
+    /// the same conversation and binding. Does nothing once the process is no longer the
+    /// session's; fails with the resume's failure, which the session directory records too.
+    pub(crate) async fn relaunch_for_step_bound(
+        &self,
+        live: &Arc<LiveClaudeSession>,
+    ) -> Result<(), DriverError> {
+        let session_id = live.session_id;
+        let Some(result) = self.relaunch(live).await else {
+            return Ok(());
+        };
+        let DriverResumeResult::Failed {
+            provider_failure_detail,
+            ..
+        } = &result
+        else {
+            return Ok(());
+        };
+        let failure = DriverError::Internal(provider_failure_detail.as_str().into());
+        if let Err(error) = self.report_relaunch(session_id, result).await {
+            record_unheard_claude_failure(
+                DriverDiagnosticKind::ProcessReportFailed,
+                session_id,
+                "the record of a failed relaunch",
+                &error,
+            );
+        }
+        Err(failure)
     }
 
     /// Drops every restart and build move still waiting and starts none from here, as the daemon
@@ -270,33 +329,10 @@ impl ClaudeSessionRestarts {
         change: &ProviderBuildChange,
     ) -> Result<(), DriverError> {
         let session_id = live.session_id;
-        let close = {
-            let is_stopped = {
-                let mut table = self.lock();
-                table.pending_build_moves.remove(&session_id);
-                table.is_stopped
-            };
-            let is_own = self
-                .slots
-                .live_session(session_id)
-                .is_some_and(|held| Arc::ptr_eq(&held.channel, &live.channel));
-            if is_stopped || !is_own {
-                return Ok(());
-            }
-            match self.slots.begin_close(session_id) {
-                ClaudeCloseStart::Closing(close) => close,
-                // A create, resume or close took the session first and owns it now.
-                ClaudeCloseStart::Empty | ClaudeCloseStart::Wait(_) => return Ok(()),
-            }
+        self.lock().pending_build_moves.remove(&session_id);
+        let Some(result) = self.relaunch(live).await else {
+            return Ok(());
         };
-        let relaunch = compose_claude_relaunch(live);
-        self.routes.retire_run_routes(session_id);
-        close.channel().close().await;
-        close.finish();
-        if let Some(process_gone) = self.ports.process_gone.port() {
-            process_gone.process_gone(session_id);
-        }
-        let result = self.resume(relaunch).await;
         let is_resumed = matches!(result, DriverResumeResult::Resumed { .. });
         self.report_relaunch(session_id, result).await?;
         if is_resumed
@@ -317,6 +353,37 @@ impl ClaudeSessionRestarts {
             .await;
         }
         Ok(())
+    }
+
+    // Ends `live`'s process the way a close does and resumes its conversation; `None`, with
+    // nothing ended, once the process is no longer the session's or the daemon stops.
+    async fn relaunch(&self, live: &Arc<LiveClaudeSession>) -> Option<DriverResumeResult> {
+        let session_id = live.session_id;
+        let close = {
+            let is_own = self
+                .slots
+                .live_session(session_id)
+                .is_some_and(|held| Arc::ptr_eq(&held.channel, &live.channel));
+            if self.lock().is_stopped || !is_own {
+                return None;
+            }
+            match self.slots.begin_close(session_id) {
+                ClaudeCloseStart::Closing(close) => close,
+                // A create, resume or close took the session first and owns it now.
+                ClaudeCloseStart::Empty | ClaudeCloseStart::Wait(_) => return None,
+            }
+        };
+        let relaunch = compose_claude_relaunch(live);
+        self.lock()
+            .ended_conversations
+            .insert(session_id, ended_conversation_of(live));
+        self.routes.retire_run_routes(session_id);
+        close.channel().close().await;
+        close.finish();
+        if let Some(process_gone) = self.ports.process_gone.port() {
+            process_gone.process_gone(session_id);
+        }
+        Some(self.resume(relaunch).await)
     }
 
     // The wait passed: the session resumes unless a create, resume or close reached it meanwhile.
@@ -433,6 +500,14 @@ impl ClaudeSessionRestarts {
     }
 }
 
+// Where the file of the conversation `live`'s process wrote is found again.
+fn ended_conversation_of(live: &LiveClaudeSession) -> ClaudeEndedConversation {
+    ClaudeEndedConversation {
+        provider_session_id: live.provider_session_id.clone(),
+        spawn_environment: live.spawn_bound_legs.spawn_environment.clone(),
+    }
+}
+
 /// The exit a process's end crosses the wire with: a wait that failed reads as code 0, its error
 /// the output tail, since the process is gone either way.
 pub(crate) fn claude_process_exit_of(end: &ClaudeProcessEnd) -> ProcessExit {
@@ -459,17 +534,18 @@ fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<ResumeSessionPara
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
     let legs = &live.spawn_bound_legs;
-    // The style the session ran with, read where a new session's would be.
-    let output_style = settings
-        .output_style
-        .and_then(|style| FreeFormText::new(style).ok());
-    let style_row = ProviderDeclarationId::new(CLAUDE_OUTPUT_STYLE_ROW_ID.to_owned())
-        .expect("the output style row's id fits the id pattern");
-    let row_values: ProviderRowValues = Record::new(BTreeMap::from([(
-        style_row,
-        ProviderRowValue::Value(output_style),
-    )]))
-    .expect("the output style row's id is no reserved key");
+    // The advisor and style the session ran with, read where a new session's would be.
+    let row = |row_id: &str, value: Option<String>| {
+        (
+            ProviderDeclarationId::new(row_id.to_owned()).expect("a row's id fits the id pattern"),
+            ProviderRowValue::Value(value.and_then(|value| FreeFormText::new(value).ok())),
+        )
+    };
+    let row_values: ProviderRowValues = Record::new(BTreeMap::from([
+        row(CLAUDE_ADVISOR_ROW_ID, settings.advisor_model),
+        row(CLAUDE_OUTPUT_STYLE_ROW_ID, settings.output_style),
+    ]))
+    .expect("the rows' ids are no reserved key");
     Some(ResumeSessionParams {
         session_id: live.session_id,
         resume_handle: live.provider_session_id.clone(),
@@ -482,7 +558,7 @@ fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<ResumeSessionPara
         output_speed: settings
             .applied_output_speed
             .and_then(|level| FreeFormText::new(level).ok()),
-        options: Vec::new(),
+        options: relaunch_claude_options(settings.ultracode_requested),
         row_values,
         callback_tools: legs.callback_tools.clone(),
         subagent_policy: legs.subagent_policy.clone(),

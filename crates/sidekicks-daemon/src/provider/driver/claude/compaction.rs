@@ -31,13 +31,6 @@ const CLAUDE_COMPACTION_COMMAND_NAME: &str = "compact";
 
 /// Sends `/compact` on a live session whose handshake lists it and answers `applied` only on the
 /// typed compaction frame, recording every other end as a diagnostic.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's context compaction sends the command through it"
-    )
-)]
 pub(crate) async fn compact_claude_context(
     live: &LiveClaudeSession,
     handshakes: &ClaudeHandshakeRegister,

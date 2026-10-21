@@ -25,26 +25,12 @@ impl ProviderProcessRegistry {
     }
 
     /// Records `identity` as the process now running `session_id`, replacing the one before.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "each driver records the process it spawns for a session"
-        )
-    )]
     pub(crate) fn record(&self, session_id: SessionId, identity: ProviderProcessIdentity) {
         self.lock().insert(session_id, identity);
     }
 
     /// Removes `session_id`'s entry when its process, `identity`, has exited; a later process's
     /// entry stays, so a replaced process's late exit never removes its successor.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "each driver removes its session's process when that process exits"
-        )
-    )]
     pub(crate) fn remove_exited(&self, session_id: SessionId, identity: ProviderProcessIdentity) {
         let mut processes = self.lock();
         if processes

@@ -135,9 +135,9 @@ impl ClaudeConversationCuts {
         });
     }
 
-    // The run whose turn the cut took ends failed, on its own binding, through the session's
-    // queue so it keeps its place behind the turn's frames.
-    fn fail_superseded_run(
+    /// Ends the run whose turn a cut or a fork took as failed, on its own binding, through the
+    /// session's queue so it keeps its place behind the turn's frames.
+    pub(crate) fn fail_superseded_run(
         &self,
         live: &LiveClaudeSession,
         run_id: RunId,

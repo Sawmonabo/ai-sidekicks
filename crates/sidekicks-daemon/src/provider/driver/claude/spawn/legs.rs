@@ -48,13 +48,6 @@ const CLAUDE_IN_PROCESS_ROUTE_UNAVAILABLE_DETAIL: &str = "the daemon's in-proces
      not registered, so Claude Code has no route to reach the callback tools on";
 
 /// Where one session's process runs and what it is started with, resolved at every spawn.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's create and resume resolve each spawn's context into it"
-    )
-)]
 pub(crate) struct ClaudeSpawnContext {
     /// The session's working folder, its worktree, absolute.
     pub(crate) working_directory: PathBuf,
@@ -74,13 +67,6 @@ pub(crate) struct ClaudeSpawnContext {
 
 /// What one spawn's legs are built from: the create's or resume's spawn-bound members and the
 /// context resolved for it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's create and resume build each spawn's legs from it"
-    )
-)]
 pub(crate) struct ClaudeSpawnLegsRequest {
     /// The session.
     pub(crate) session_id: SessionId,
@@ -105,13 +91,6 @@ pub(crate) struct ClaudeSpawnLegsRequest {
 }
 
 /// The daemon's services a spawn's legs are built with.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's create and resume build each spawn's legs with them"
-    )
-)]
 pub(crate) struct ClaudeSpawnLegServices<'a> {
     /// Resolves the curated credential list.
     pub(crate) posture_service: &'a ExecutionPostureService,
@@ -147,13 +126,6 @@ pub(crate) enum ClaudeSpawnLegsError {
 /// which the live session holds and a failed spawn rolls back. Sets the retention of a home the
 /// app manages; the person's own home is theirs. Fails when the retention cannot be written, the
 /// curated credential list cannot be resolved or the environment cannot be built.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's create and resume build every spawn's legs through it"
-    )
-)]
 pub(crate) async fn build_claude_spawn_bound_legs(
     request: ClaudeSpawnLegsRequest,
     services: &ClaudeSpawnLegServices<'_>,
@@ -229,13 +201,6 @@ pub(crate) async fn build_claude_spawn_bound_legs(
 
 /// The posture and output-schema digest a session is spawned under, which later runs must match.
 /// Fails when the schema has no canonical form.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's create and resume record each spawn's binding through it"
-    )
-)]
 pub(crate) fn build_claude_spawn_binding(
     legs: &ClaudeSpawnBoundLegs,
 ) -> Result<ClaudeSpawnBinding, CanonicalizationRefusal> {
@@ -253,13 +218,6 @@ pub(crate) fn build_claude_spawn_binding(
 /// the posture's credential list and writable roots, and the output schema, when it starts. Each
 /// axis the run declares nothing on is free. Fails with `ExecutionPostureMismatch`,
 /// `OutputSchemaUnbound` or `OutputSchemaMismatch`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's run start checks each run against its spawn through it"
-    )
-)]
 pub(crate) fn assert_claude_spawn_bound_realization(
     params: &StartRunParams,
     live: &LiveClaudeSession,

@@ -22,8 +22,9 @@ use crate::provider::driver::claude::session::settings_file::{
 };
 use crate::provider::driver::claude::spawn::settings::CLAUDE_CLEANUP_PERIOD_DAYS;
 
-// The base managed file and the folder of drop-ins that apply over it, in the managed folder.
-const MANAGED_SETTINGS_FILE: &str = "managed-settings.json";
+/// The administrator's base settings file in the managed folder.
+pub(crate) const MANAGED_SETTINGS_FILE: &str = "managed-settings.json";
+// The folder of drop-ins that apply over the base file, in the managed folder.
 const MANAGED_SETTINGS_DROP_IN_FOLDER: &str = "managed-settings.d";
 
 // The retention key, as Claude Code's settings and the notice name it.
@@ -63,10 +64,6 @@ pub(crate) struct ClaudeManagedSettingRead<Setting> {
 /// The `settings_ignored` notice for a session whose process lowered the daemon's retention, and
 /// every managed file or folder that could not be read while naming the file in force.
 #[derive(Debug)]
-#[expect(
-    dead_code,
-    reason = "the Claude driver's spawn posts the notice and reports each file it could not read"
-)]
 pub(crate) struct ClaudeIgnoredSettingCheck {
     /// The notice, `None` when the process kept the retention or reported none.
     pub(crate) notice: Option<SettingsIgnoredAtKeyNotice>,
@@ -119,10 +116,6 @@ pub(crate) async fn read_claude_managed_setting<Setting>(
 /// The notice for a session whose process reports `effective_cleanup_period_days` below the
 /// retention the daemon set, naming the managed file in `managed_settings_folder` whose value
 /// lowers it, where one does; no notice when the process kept it or reported none.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's spawn checks each process's settings readback through it"
-)]
 pub(crate) async fn find_ignored_setting_notice(
     session_id: SessionId,
     effective_cleanup_period_days: Option<f64>,

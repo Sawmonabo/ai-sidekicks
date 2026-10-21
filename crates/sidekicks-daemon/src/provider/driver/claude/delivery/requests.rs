@@ -207,13 +207,6 @@ pub(crate) struct ClaudeInboundRequests {
 
 impl ClaudeInboundRequests {
     /// Requests handled through `dependencies`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's composition builds the requests its sessions share"
-        )
-    )]
     pub(crate) fn new(dependencies: ClaudeInboundRequestsDependencies) -> Self {
         Self {
             dependencies,
@@ -283,13 +276,6 @@ impl ClaudeInboundRequests {
     /// written; the session's open asks close once its answer went. Fails for a request the
     /// session no longer holds or an answer of the other kind, as the answer's write fails, and
     /// with [`ProviderRuleNotKeptError`] once the call is answered but its rule was not kept.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's request answer writes each answer through it"
-        )
-    )]
     pub(crate) async fn respond(
         &self,
         live: &LiveClaudeSession,
@@ -359,13 +345,6 @@ impl ClaudeInboundRequests {
 
     /// Whether the session holds an ask or a question open, and a receiver told once the last one
     /// closes; the receiver fails when the session's process ends first. `None` when none is open.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's Send now holds its row while an ask is open"
-        )
-    )]
     pub(crate) fn wait_asks_closed(&self, session_id: SessionId) -> Option<oneshot::Receiver<()>> {
         let mut tables = self.lock();
         let requests = tables.by_session.get_mut(&session_id)?;

@@ -578,7 +578,10 @@ impl ClaudeSessionControls {
 
 // The session's legs on its full model id, level, advisor and style now, in `working_directory`
 // where one is given, for a one-turn process that runs the very model the session does.
-fn one_turn_legs(
+/// The legs a one-turn process of `live`'s session starts on: its own, at the level, advisor and
+/// style it runs with now, on the full id of the model it runs, in `working_directory` where one is
+/// given.
+pub(crate) fn one_turn_legs(
     live: &LiveClaudeSession,
     working_directory: Option<std::path::PathBuf>,
 ) -> ClaudeSpawnBoundLegs {

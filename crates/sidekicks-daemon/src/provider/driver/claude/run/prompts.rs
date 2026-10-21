@@ -79,13 +79,6 @@ impl ClaudeSentPrompts {
 
     /// Takes back a message Claude Code had not taken, the newest no more, settled with no report;
     /// answers the run it was a steer into, if any.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's steer withdrawal takes a written steer back through it"
-        )
-    )]
     pub(crate) fn withdraw(&mut self, session_id: SessionId, message_uuid: &str) -> Option<RunId> {
         if self
             .newest_by_session

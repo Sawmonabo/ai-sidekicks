@@ -249,15 +249,8 @@ impl ClaudeAnswerRules {
             .iter()
             .chain(std::iter::once(own_path))
             .zip(&readings)
-            .map(|(working_folder, reading)| ClaudeProjectFolder {
-                working_folder,
-                repository: reading
-                    .as_ref()
-                    .map(|(reading, is_owned_by_user)| ClaudeRepository {
-                        root: &reading.root,
-                        common_git_folder: &reading.common_git_folder,
-                        is_owned_by_user: *is_owned_by_user,
-                    }),
+            .map(|(working_folder, reading)| {
+                claude_project_folder(working_folder, reading.as_ref())
             })
             .collect();
         let own_folder = folders.pop().expect("the own folder was read last");
@@ -275,9 +268,25 @@ impl ClaudeAnswerRules {
     }
 }
 
-// The repository of `working_folder`, with whether the person owns its root and the `.git` and
-// `.claude` entries Claude Code reads its project settings beside.
-async fn read_claude_repository(
+/// `working_folder` with what Claude Code reads to place its project settings, from its
+/// repository `reading` where it sits in one.
+pub(crate) fn claude_project_folder<'a>(
+    working_folder: &'a Path,
+    reading: Option<&'a (RepositoryReading, bool)>,
+) -> ClaudeProjectFolder<'a> {
+    ClaudeProjectFolder {
+        working_folder,
+        repository: reading.map(|(reading, is_owned_by_user)| ClaudeRepository {
+            root: &reading.root,
+            common_git_folder: &reading.common_git_folder,
+            is_owned_by_user: *is_owned_by_user,
+        }),
+    }
+}
+
+/// The repository of `working_folder`, with whether the person owns its root and the `.git` and
+/// `.claude` entries Claude Code reads its project settings beside; `None` outside git.
+pub(crate) async fn read_claude_repository(
     repositories: &dyn RepositoryReader,
     working_folder: &Path,
 ) -> Option<(RepositoryReading, bool)> {

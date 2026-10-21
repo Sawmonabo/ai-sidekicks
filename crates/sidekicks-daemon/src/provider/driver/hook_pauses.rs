@@ -16,13 +16,6 @@ pub(crate) enum PausedRole {
     /// The session's own conversation.
     Lead,
     /// A helper's conversation.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "run control pauses a helper's run on its own conversation"
-        )
-    )]
     Helper,
 }
 

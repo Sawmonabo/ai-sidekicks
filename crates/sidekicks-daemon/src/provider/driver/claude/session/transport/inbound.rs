@@ -140,22 +140,8 @@ pub(crate) struct ClaudeMcpMessageAnswer {
 #[derive(Debug)]
 pub(crate) struct ClaudeControlResponse {
     /// The id the request was written under, as sent.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process reader settles the request it names"
-        )
-    )]
     pub(crate) request_id: String,
     /// The answer.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process reader settles the request with it"
-        )
-    )]
     pub(crate) outcome: ClaudeControlOutcome,
 }
 
@@ -250,13 +236,6 @@ pub(crate) struct ClaudeControlFrameReader {
 
 impl ClaudeControlFrameReader {
     /// A reader for the process running `provider_session_id` on `provider_account_id`'s home.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process reader reads each control frame through it"
-        )
-    )]
     pub(crate) fn new(
         provider_account_id: Option<ProviderAccountId>,
         provider_session_id: String,
@@ -269,13 +248,6 @@ impl ClaudeControlFrameReader {
     }
 
     /// Reads a `control_request` frame's text; `None`, recorded, when it names no id or subtype.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process reader reads each control request through it"
-        )
-    )]
     pub(crate) fn read_request(&mut self, frame: &str) -> Option<ClaudeInboundRequestEvent> {
         let read = read_object::<ControlRequestFrame>(frame);
         let request_id = read.as_ref().and_then(|frame| frame.request_id.clone());
@@ -314,13 +286,6 @@ impl ClaudeControlFrameReader {
     }
 
     /// Reads a `control_cancel_request` frame's text; `None`, recorded, when it names no id.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process reader reads each withdrawal through it"
-        )
-    )]
     pub(crate) fn read_cancel(&mut self, frame: &str) -> Option<ClaudeInboundRequestEvent> {
         if let Some(request_id) =
             read_object::<ControlCancelFrame>(frame).and_then(|frame| frame.request_id)
@@ -332,13 +297,6 @@ impl ClaudeControlFrameReader {
     }
 
     /// Reads a `control_response` frame's text; `None`, recorded, when it names no request id.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process reader reads each control answer through it"
-        )
-    )]
     pub(crate) fn read_response(&mut self, frame: &str) -> Option<ClaudeControlResponse> {
         let Some((body, request_id)) = read_object::<ControlResponseFrame>(frame)
             .and_then(|frame| frame.response)
@@ -370,13 +328,6 @@ impl ClaudeControlFrameReader {
     }
 
     /// Records an answer for an id this process never issued, which says the process is broken.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process reader records an answer to an id it never issued"
-        )
-    )]
     pub(crate) fn report_unissued_answer(&self) {
         emit_driver_diagnostic(&self.record(
             DriverDiagnosticKind::ControlFrameMalformed,

@@ -151,13 +151,6 @@ pub(crate) struct ClaudeReviewerCapture {
 
 impl ClaudeReviewerCapture {
     /// A capture handing blocks to `denials` once it is registered.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's composition builds the one capture its sessions share"
-        )
-    )]
     pub(crate) fn new(denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>) -> Self {
         Self {
             denials,

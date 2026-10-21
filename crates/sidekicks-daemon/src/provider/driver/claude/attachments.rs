@@ -56,13 +56,6 @@ pub(crate) enum ClaudeAttachmentError {
 /// The content blocks a message's attachments follow its words with, one per attachment in staging
 /// order. Fails with the resolver's failure, the file system's when a picture cannot be read, and
 /// a refusal in Claude Code's own words, naming the file, for a picture past its limit.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's run start and steer write each message's files through it"
-    )
-)]
 pub(crate) async fn compose_claude_attachment_blocks(
     resolver: &dyn AttachmentResolver,
     session_id: &SessionId,

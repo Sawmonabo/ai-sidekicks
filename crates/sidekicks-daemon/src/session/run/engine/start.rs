@@ -223,10 +223,6 @@ impl RunEngine {
     /// The run of a provider's own turn takes over, in its `running` write, the lead messages
     /// waiting for the session's interrupted lead runs, so a turn that fails to open leaves them
     /// where they were. Fails as [`RunEngine::start_run`] does.
-    #[expect(
-        dead_code,
-        reason = "the turns the daemon starts on a session itself, such as a goal or a review"
-    )]
     pub(crate) async fn start_daemon_turn(
         &self,
         request: DaemonTurnStartRequest,
@@ -281,7 +277,6 @@ impl RunEngine {
     /// which asked its provider for the subagent, then `starting` and `running`, and returns the
     /// new run's id. Returns `None` with nothing written when the parent has ended, and fails with
     /// [`RunRefusal::NotFound`] for a parent the daemon has no run for.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn start_provider_subagent_run(
         &self,
         parent_run_id: RunId,
@@ -537,7 +532,6 @@ impl RunEngine {
     /// `None` with nothing written when the run no longer reads interrupted, or while another
     /// continue or a resume holds it. Whatever the provider reports on the run after this call
     /// waits for its write. Fails as [`RunEngine::transition`] does.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn continue_run_with_kept_messages(
         &self,
         run_id: RunId,

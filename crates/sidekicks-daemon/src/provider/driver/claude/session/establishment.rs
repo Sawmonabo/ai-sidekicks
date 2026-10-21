@@ -73,6 +73,9 @@ use crate::provider::driver::claude::session::transport::control::{
 };
 use crate::provider::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::provider::driver::claude::session::ultracode::{
+    ClaudeUltracodeReading, apply_claude_ultracode, requested_claude_ultracode,
+};
 use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::provider::driver::claude::spawn::environment::claude_config_folder;
 use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
@@ -95,7 +98,9 @@ use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::ports::DriverPorts;
 use crate::provider::driver::session_control::{CreateSessionParams, ResumeSessionParams};
+use crate::provider::port::registration::PortRegistrationError;
 use crate::provider::process_registry::ProviderProcessRegistry;
+use crate::provider::runtime_binding::store::RuntimeBindingStoreError;
 use crate::provider::spawn_environment::ReservedEnvironmentNames;
 use crate::provider::thread_frame_router::ThreadFrameRouter;
 use crate::provider::usage_delta_accountant::UsageDeltaAccountant;
@@ -125,6 +130,12 @@ pub(crate) enum ClaudeEstablishmentError {
     /// The output schema has no canonical form to bind.
     #[error("the session's output schema has no canonical form")]
     OutputSchema(#[from] CanonicalizationRefusal),
+    /// A handle the daemon registers after the drivers is not registered yet.
+    #[error(transparent)]
+    Port(#[from] PortRegistrationError),
+    /// The session's binding could not be pointed at the conversation it moved onto.
+    #[error("the session's binding could not be pointed at its new conversation")]
+    Rebind(#[source] RuntimeBindingStoreError),
     /// A close took the session's slot while its process came up, so the process was ended.
     #[error("the session was closed while its Claude Code process came up")]
     Closed,
@@ -143,6 +154,8 @@ impl ClaudeEstablishmentError {
             | Self::StepBound(_)
             | Self::SessionRules(_)
             | Self::OutputSchema(_)
+            | Self::Port(_)
+            | Self::Rebind(_)
             | Self::Closed => RecoveryCondition::RecoveryNeeded,
         }
     }
@@ -159,6 +172,8 @@ impl From<ClaudeEstablishmentError> for DriverError {
             | ClaudeEstablishmentError::StepBound(_)
             | ClaudeEstablishmentError::SessionRules(_)
             | ClaudeEstablishmentError::OutputSchema(_)
+            | ClaudeEstablishmentError::Port(_)
+            | ClaudeEstablishmentError::Rebind(_)
             | ClaudeEstablishmentError::Closed) => Self::Internal(Box::new(error)),
         }
     }
@@ -260,6 +275,7 @@ struct ClaudeSessionStart {
     command_choices: ClaudeHeldCommandChoices,
     spawn_binding: ClaudeSpawnBinding,
     model_check: ClaudeModelCheck,
+    ultracode: Option<bool>,
 }
 
 /// What a resume or create asks a spawn to start with, beside its legs.
@@ -284,6 +300,8 @@ pub(crate) struct ClaudeSpawnRequest {
     pub(crate) provider_account_id: Option<ProviderAccountId>,
     /// The Settings values the app stored for the provider.
     pub(crate) row_values: ProviderRowValues,
+    /// The Ultracode value the agent asked for; `None` keeps Claude Code's own.
+    pub(crate) ultracode: Option<bool>,
 }
 
 impl ClaudeSessionEstablishment {
@@ -315,6 +333,7 @@ impl ClaudeSessionEstablishment {
             output_schema: params.output_schema,
             on_mcp_server_status: params.on_mcp_server_status,
             provider_account_id: params.provider_account_id,
+            ultracode: requested_claude_ultracode(&params.options),
             row_values: params.row_values,
         };
         let start = self
@@ -375,6 +394,7 @@ impl ClaudeSessionEstablishment {
             output_schema: params.output_schema,
             on_mcp_server_status: params.on_mcp_server_status,
             provider_account_id: params.provider_account_id,
+            ultracode: requested_claude_ultracode(&params.options),
             row_values: params.row_values,
         };
         let start = self
@@ -427,11 +447,7 @@ impl ClaudeSessionEstablishment {
             &request.row_values,
         )
         .await?;
-        let host = sources
-            .ports
-            .callback_tool_host
-            .require_port()
-            .map_err(|error| ClaudeEstablishmentError::SessionRules(Box::new(error)))?;
+        let host = sources.ports.callback_tool_host.require_port()?;
         let data_folder = sources.data_folder.to_string_lossy();
         let provider_account_id = request.provider_account_id.clone();
         let (legs, binding) = build_claude_spawn_bound_legs(
@@ -483,6 +499,7 @@ impl ClaudeSessionEstablishment {
             command_choices,
             spawn_binding,
             model_check: ClaudeModelCheck::Checked,
+            ultracode: request.ultracode,
         })
     }
 
@@ -521,6 +538,7 @@ impl ClaudeSessionEstablishment {
             command_choices,
             spawn_binding,
             model_check,
+            ultracode,
         } = start;
         let session_id = legs.session_id;
         let sources = &self.sources;
@@ -607,10 +625,10 @@ impl ClaudeSessionEstablishment {
                 &legs,
                 session_mode,
                 output_speed.as_deref(),
-                model_check,
+                (model_check, ultracode),
             )
             .await;
-        let applied_output_speed = match checked {
+        let (applied_output_speed, ultracode_reading) = match checked {
             Ok(applied) => applied,
             Err(error) => {
                 self.end_unadopted(&started, session_id, callback_tools)
@@ -635,6 +653,8 @@ impl ClaudeSessionEstablishment {
                 running_model: legs.model.clone(),
                 attached_advisor: started.settings_readback.attached_advisor.clone(),
                 applied_output_speed,
+                ultracode_requested: ultracode,
+                ultracode: ultracode_reading.or(started.settings_readback.ultracode),
             }),
             process_identity: started.identity,
             callback_tool_binding: callback_tools.into_shared(),
@@ -653,15 +673,16 @@ impl ClaudeSessionEstablishment {
         Ok(started.spawned_version)
     }
 
-    // The checks a started process passes before it is adopted, and the output speed it took.
+    // The checks a started process passes before it is adopted, the output speed it took, and
+    // Ultracode's state once the value asked for is set.
     async fn check_started(
         &self,
         started: &ClaudeStartedSession,
         legs: &ClaudeSpawnBoundLegs,
         session_mode: SessionMode,
         output_speed: Option<&str>,
-        model_check: ClaudeModelCheck,
-    ) -> Result<Option<String>, ClaudeEstablishmentError> {
+        (model_check, ultracode): (ClaudeModelCheck, Option<bool>),
+    ) -> Result<(Option<String>, Option<ClaudeUltracodeReading>), ClaudeEstablishmentError> {
         let session_id = legs.session_id;
         let channel = &*started.channel;
         if model_check == ClaudeModelCheck::Checked
@@ -679,7 +700,7 @@ impl ClaudeSessionEstablishment {
                 &self.sources.spawner,
                 &legs.spawn_environment,
                 &legs.working_directory,
-                session_id,
+                Some(session_id),
             )
             .await;
             let level = permission_level_of(posture);
@@ -713,7 +734,11 @@ impl ClaudeSessionEstablishment {
                 })
                 .await?;
         }
-        Ok(applied)
+        let ultracode = match ultracode {
+            Some(is_on) => apply_claude_ultracode(channel, is_on).await?,
+            None => None,
+        };
+        Ok((applied, ultracode))
     }
 
     // The adopted process's stream, task and notices.
@@ -815,7 +840,9 @@ fn offers_model(initialize: &ClaudeInitializeDeclaration, model: &str) -> bool {
 }
 
 // The conversation file `handle` names in the Claude Code home `spawn_environment` reads.
-async fn conversation_file_of(
+/// The file of conversation `handle` in the Claude Code home `spawn_environment` names; `None`
+/// where the home names no folder or holds no such file. Fails as the home cannot be listed.
+pub(crate) async fn conversation_file_of(
     spawn_environment: &[(String, String)],
     handle: &str,
 ) -> std::io::Result<Option<PathBuf>> {

@@ -53,13 +53,6 @@ struct RequestTable {
 
 impl ClaudeControlRequests {
     /// An empty table for one process, withdrawing a request through `withdraw`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process opens its control table with its input writer"
-        )
-    )]
     pub(crate) fn new(withdraw: ClaudeRequestWithdrawal) -> Self {
         Self {
             table: Arc::new(Mutex::new(RequestTable {
@@ -94,13 +87,6 @@ impl ClaudeControlRequests {
     }
 
     /// Settles the request an answer names by its `request_id`, as sent.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process reader settles each control answer with it"
-        )
-    )]
     pub(crate) fn settle(
         &self,
         request_id: &str,
@@ -131,13 +117,6 @@ impl ClaudeControlRequests {
 
     /// Fails every pending request at once, and refuses every later one, because the process
     /// exited with `detail`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process closes its table when it exits"
-        )
-    )]
     pub(crate) fn close_on_exit(&self, detail: String) {
         let mut table = lock(&self.table);
         table.exit_detail = Some(detail);

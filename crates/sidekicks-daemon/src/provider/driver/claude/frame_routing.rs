@@ -58,13 +58,6 @@ pub(crate) struct ClaudeFrameRouting {
 impl ClaudeFrameRouting {
     /// Routing that taps handshakes into `handshakes` and compaction boundaries into
     /// `pending_compactions`, and hands metered usage to `usage` once it is registered.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's composition builds the one routing its sessions share"
-        )
-    )]
     pub(crate) fn new(
         handshakes: Arc<ClaudeHandshakeRegister>,
         pending_compactions: PendingCompactionRegistry,
@@ -81,13 +74,6 @@ impl ClaudeFrameRouting {
     /// frame meters at once and an unestablished thread refuses it, then the frames held for it
     /// routed again. A resumed thread's base is the daemon's prior-emitted sum; one that cannot be
     /// read is recorded and starts at zero, since failing here would orphan a live process.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session bring-up binds each process's thread"
-        )
-    )]
     pub(crate) fn bind_session_thread(
         &self,
         band: &mut ClaudeSessionRoutingBand,

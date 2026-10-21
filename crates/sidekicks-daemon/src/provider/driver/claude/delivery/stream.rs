@@ -114,13 +114,6 @@ pub(crate) struct ClaudeSessionStream {
 impl ClaudeSessionStream {
     /// A stream for the process running on `provider_account_id`'s home, counting each turn's
     /// steps against `step_bound` and queuing onto `arrivals`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session bring-up makes each process's stream"
-        )
-    )]
     pub(crate) fn new(
         provider_account_id: Option<ProviderAccountId>,
         step_bound: Option<SafeInt<1>>,
@@ -142,6 +135,11 @@ impl ClaudeSessionStream {
     /// The session.
     pub(crate) fn session_id(&self) -> SessionId {
         self.session_id
+    }
+
+    /// The bound on each turn's steps the process was started with.
+    pub(crate) fn step_bound(&self) -> Option<SafeInt<1>> {
+        self.step_bound
     }
 
     /// The session's queue.
@@ -245,13 +243,6 @@ pub(crate) struct ClaudeSessionStreams {
 
 impl ClaudeSessionStreams {
     /// Keeps `stream` as its session's, replacing a process's that came before.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session bring-up keeps each process's stream"
-        )
-    )]
     pub(crate) fn insert(&self, stream: Arc<ClaudeSessionStream>) {
         self.lock().insert(stream.session_id, stream);
     }
@@ -292,13 +283,6 @@ pub(crate) struct ClaudeDeliveryStream {
 
 impl ClaudeDeliveryStream {
     /// A stream delivering through `dependencies`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's composition builds the one stream its sessions share"
-        )
-    )]
     pub(crate) fn new(dependencies: ClaudeStreamDependencies) -> Self {
         Self { dependencies }
     }

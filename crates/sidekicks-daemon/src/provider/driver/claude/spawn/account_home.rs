@@ -24,13 +24,6 @@ const CLAUDE_HOME_SETTINGS_MODE: u32 = 0o600;
 /// Sets `cleanupPeriodDays` in the `settings.json` of the account home at `config_folder` to
 /// [`CLAUDE_CLEANUP_PERIOD_DAYS`], every other byte kept, and writes nothing when it already holds
 /// it. Fails as the file cannot be read or written, or is refused as not a strict JSON object.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "each spawn on a home the app manages sets its retention through it"
-    )
-)]
 pub(crate) async fn write_claude_home_retention(
     config_folder: &Path,
 ) -> Result<(), ClaudeSettingsFileError> {
