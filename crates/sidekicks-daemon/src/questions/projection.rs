@@ -22,13 +22,34 @@ use crate::recovery::projection_rebuild::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which registers the projection with the rebuild"
+    )
+)]
 const CLEAR_ANSWER_ITEMS_SQL: &str = "DELETE FROM question_answer_items
   WHERE question_id IN (SELECT id FROM questions WHERE session_id = ?)";
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which registers the projection with the rebuild"
+    )
+)]
 const CLEAR_QUESTIONS_SQL: &str = "DELETE FROM questions WHERE session_id = ?";
 
 // Every type the fold reads: a record, its cancellation, a send that answers it, and what becomes
 // of a queued answer.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which registers the projection with the rebuild"
+    )
+)]
 const QUESTION_EVENT_TYPES: [SessionEventType; 6] = [
     SessionEventType::QuestionAsked,
     SessionEventType::QuestionCanceled,

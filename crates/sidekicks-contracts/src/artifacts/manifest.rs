@@ -1,5 +1,6 @@
-//! The manifest the daemon keeps for every artifact in a session, and the closed set of its kinds. A manifest keeps every member and value a newer daemon adds, so an older reader passes
-//! them through instead of refusing the whole list.
+//! The manifest the daemon keeps for every artifact in a session, and the closed set of its kinds.
+//! A manifest keeps every member and value a newer daemon adds, so an older reader passes them
+//! through instead of refusing the whole list.
 
 use std::borrow::Cow;
 

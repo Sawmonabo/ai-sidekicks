@@ -14,7 +14,7 @@ use sidekicks_contracts::run::state::RunState;
 
 use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use crate::events::session::appender::SessionEventDraft;
-use crate::plans::store::{hold_end_write, read_held_plans};
+use crate::plans::store::{hold_end_write, read_held_plans_of_run};
 use crate::questions::store::{read_open_held_questions, settle_question_statement};
 use crate::session::run::engine::RunEngineError;
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
@@ -33,7 +33,7 @@ pub(crate) async fn settle_held_requests_at_run_end(
         .read(ReadLength::Short, move |reader| {
             Ok::<_, RunEngineError>((
                 read_open_held_questions(reader, &run_id)?,
-                read_held_plans(reader, Some(run_id))?,
+                read_held_plans_of_run(reader, &run_id)?,
             ))
         })
         .await?;

@@ -118,8 +118,8 @@ pub(crate) struct ChatFileVersions {
 
 impl ChatFileVersions {
     /// Versions of the writes in the chats' workspaces under `workspaces_folder`, appended through
-    /// `appender`, read through `reads`, stored into `payloads` and spooled in `spool_folder`, which
-    /// must be on the store's volume.
+    /// `appender`, read through `reads`, stored into `payloads` and spooled in `spool_folder`,
+    /// which must be on the store's volume.
     #[cfg_attr(
         not(test),
         expect(
@@ -149,12 +149,9 @@ impl ChatFileVersions {
 
     /// Records each write `writes` reports, one at a time, until its sender is gone; a write that
     /// could not be recorded is logged, and the next one goes on.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which hands the workspace's watch the sender"
-        )
+    #[expect(
+        dead_code,
+        reason = "the daemon's start, which hands the workspace's watch the sender"
     )]
     pub(crate) async fn record_reported_writes(
         &self,
@@ -194,6 +191,13 @@ impl ChatFileVersions {
     }
 
     // Holds the watch's reports of the call's path until the call settles.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code and Codex drivers' file tools, which report each write"
+        )
+    )]
     fn open_call(&self, opened: FileToolWriteOpened) {
         let Some(key) = self.workspace_path_of(opened.session_id, &opened.path) else {
             return;
@@ -210,6 +214,13 @@ impl ChatFileVersions {
 
     // Records the call's outcome and every settled call ahead of the path's first open one, in the
     // order they opened, then a report that waited once none is open.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code and Codex drivers' file tools, which report each write"
+        )
+    )]
     async fn settle_call(&self, settled: FileToolWriteSettled) -> Result<(), ChatFileVersionError> {
         let Some(key) = self.workspace_path_of(settled.session_id, &settled.path) else {
             return Ok(());

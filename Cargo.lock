@@ -8326,6 +8326,7 @@ dependencies = [
  "icu_collator",
  "ignore",
  "image",
+ "image-webp",
  "insta",
  "instant-acme",
  "interprocess",

@@ -114,7 +114,8 @@ pub struct QuestionPrompt {
     pub several_answers: bool,
     /// Whether the answer is masked and never stored.
     pub secret: bool,
-    /// Whether the form must have this field answered; present only on a tool server's form field.
+    /// Whether the form must have this field answered. Only a tool server's form field sets it, and
+    /// a producer that sets it on an agent's question makes that question refuse typed text.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -235,8 +236,8 @@ macro_rules! question_asked {
             pub session_id: SessionId,
             $($own)*
             /// False only on a question the agent does not wait for: its run keeps running, no card
-            /// of its own is raised, and the `user.message.sent` naming it as `answersQuestionId`
-            /// marks it answered.
+            /// of its own is raised, and the admission of the queued message naming it as
+            /// `answersQuestionId` marks it answered.
             pub is_agent_waiting: bool,
             /// Every question of the record in page order, so a rebuilt card pages through them
             /// with no further read.

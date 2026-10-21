@@ -12,6 +12,13 @@ use sidekicks_contracts::session::id::SessionId;
 
 /// A file tool's call opened on one path, before it writes. A call that moves a file opens on the
 /// path it moves the file to.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude Code and Codex drivers' file tools, which report each write"
+    )
+)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FileToolWriteOpened {
     /// The session whose agent called the tool.
@@ -23,6 +30,10 @@ pub(crate) struct FileToolWriteOpened {
 }
 
 /// What a file tool's call left at its path.
+#[expect(
+    dead_code,
+    reason = "the Claude Code and Codex drivers' file tools, which report each write"
+)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum FileToolWriteOutcome {
     /// The file's whole bytes after the call, as its result gives them.
@@ -32,6 +43,13 @@ pub(crate) enum FileToolWriteOutcome {
 }
 
 /// A file tool's call settled, by the id it opened under.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude Code and Codex drivers' file tools, which report each write"
+    )
+)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FileToolWriteSettled {
     /// The session whose agent called the tool.
@@ -47,6 +65,13 @@ pub(crate) struct FileToolWriteSettled {
 /// A chat's versions' intake of its agent's file tool writes, registered through a
 /// `PortRegistration`. Until it is registered, a chat's versions come from its workspace's watch
 /// alone.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude Code and Codex drivers' file tools, which report each write"
+    )
+)]
 pub(crate) trait FileToolWritePort: Send + Sync {
     /// Holds the watch's reports of `opened`'s path until the call settles. An error when the call
     /// could not be held.

@@ -216,6 +216,8 @@ icu_datetime = "2.3.0"
 icu_decimal = "2.3.0"
 icu_locale_core = "2.3.0"
 image = { version = "0.25.10", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
+# A WebP's header read with its metadata bounded: `image`'s WebP decoder sets no bound.
+image-webp = "0.2.4"
 jiff = { version = "0.2.38", features = ["tzdb-bundle-always"] }
 jsonata-core = { version = "2.2.11", default-features = false }
 jsonc-parser = { version = "0.34.0", features = ["cst"] }

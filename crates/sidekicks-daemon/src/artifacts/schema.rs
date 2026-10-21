@@ -12,9 +12,9 @@ use sidekicks_contracts::artifacts::manifest::ArtifactType;
 use crate::database::sql_list::sql_list_of_every;
 
 /// The statements the artifact services read through the shared read pool: the owner check's two,
-/// a client publish's lookup by its key, an attachment's payload read, the list's two and a read's
-/// four.
-pub(crate) const ARTIFACT_STATEMENT_CAPACITY: usize = 10;
+/// a client publish's lookup by its key, an attachment's payload read, the list's two, a read's
+/// four and the chat versions' read of a path's newest hash.
+pub(crate) const ARTIFACT_STATEMENT_CAPACITY: usize = 11;
 
 /// The SQL of the artifact tables and their indexes, run as part of the daemon schema's script.
 pub(crate) static ARTIFACT_SCHEMA_SQL: LazyLock<String> = LazyLock::new(artifact_schema_sql);

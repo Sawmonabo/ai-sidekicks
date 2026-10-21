@@ -1,9 +1,9 @@
 //! The ordered pipeline every caller-supplied payload runs before anything of it is kept: the type
 //! is read from the payload's own leading bytes, a picture's size from its header, then the payload
-//! is moved into the content-addressed store under its SHA-256, which is the pipeline's last act. A payload refused
-//! on the way never reaches the store and leaves no row. No file is refused for its type and none
-//! is rewritten; the type read decides only what the manifest records and whether a picture goes
-//! to a provider as one.
+//! is moved into the content-addressed store under its SHA-256, which is the pipeline's last act. A
+//! payload refused on the way never reaches the store and leaves no row. No file is refused for its
+//! type and none is rewritten; the type read decides only what the manifest records and whether a
+//! picture goes to a provider as one.
 //!
 //! - Bytes whose signature names no type are recorded as text when they are valid UTF-8: as the
 //!   text type the caller declared, or as plain text when it declared none; anything else is
@@ -27,7 +27,7 @@ use unicode_properties::{GeneralCategory, UnicodeGeneralCategory as _};
 
 use crate::artifacts::detection::{DETECTION_PREFIX_BYTES, detect_media_type};
 use crate::artifacts::payload_store::{ContentHash, PayloadStore};
-use crate::artifacts::picture_size::read_picture_size;
+use crate::artifacts::picture_size::{PictureFormat, read_picture_size};
 use crate::artifacts::refusals::ArtifactError;
 use crate::text_cut::cut_to_code_points;
 
@@ -96,10 +96,10 @@ where
         payload.is_utf8,
         payload.declared_media_type.as_deref(),
     );
-    let natural_size = match format {
-        Some(format) => {
+    let natural_size = match format.and_then(PictureFormat::from_file_format) {
+        Some(picture) => {
             let spool_path = payload.spool_path.clone();
-            tokio::task::spawn_blocking(move || read_picture_size(&spool_path, format)).await??
+            tokio::task::spawn_blocking(move || read_picture_size(&spool_path, picture)).await??
         }
         None => None,
     };
@@ -119,21 +119,8 @@ where
     })
 }
 
-/// The media type a payload is recorded as: the one its leading bytes name, else the declared
-/// text type or plain text for UTF-8 bytes, else an unknown binary.
-pub(crate) fn derive_media_type(
-    leading_bytes: &[u8],
-    is_utf8: bool,
-    declared_media_type: Option<&str>,
-) -> String {
-    media_type_of(
-        detect_media_type(leading_bytes),
-        is_utf8,
-        declared_media_type,
-    )
-}
-
-// The media type recorded for a payload whose leading bytes name `format`, or none.
+// The media type recorded for a payload whose leading bytes name `format`, or none: that format's,
+// else the declared text type or plain text for UTF-8 bytes, else an unknown binary.
 fn media_type_of(
     format: Option<FileFormat>,
     is_utf8: bool,
@@ -297,7 +284,8 @@ pub(crate) fn keep_leading_bytes(leading_bytes: &mut Vec<u8>, chunk: &[u8]) {
 mod tests {
     use rstest::rstest;
 
-    use super::{Utf8Check, derive_media_type, normalize_file_name};
+    use super::{Utf8Check, media_type_of, normalize_file_name};
+    use crate::artifacts::detection::detect_media_type;
 
     #[rstest]
     #[case::a_signature_wins_over_the_declaration(
@@ -333,7 +321,7 @@ mod tests {
         let mut check = Utf8Check::default();
         check.feed(bytes);
         assert_eq!(
-            derive_media_type(bytes, check.is_utf8(), declared),
+            media_type_of(detect_media_type(bytes), check.is_utf8(), declared),
             expected
         );
     }

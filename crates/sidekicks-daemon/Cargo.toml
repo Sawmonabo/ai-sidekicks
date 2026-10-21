@@ -111,7 +111,6 @@ fast_image_resize.workspace = true
 ferriki-textmate.workspace = true
 ferroni.workspace = true
 file-format.workspace = true
-flate2.workspace = true
 flexi_logger.workspace = true
 form_urlencoded.workspace = true
 futures.workspace = true
@@ -125,6 +124,7 @@ hyper-util.workspace = true
 icu_collator.workspace = true
 ignore.workspace = true
 image.workspace = true
+image-webp.workspace = true
 instant-acme.workspace = true
 interprocess.workspace = true
 jiff.workspace = true
@@ -206,6 +206,8 @@ zstd.workspace = true
 zune-jpeg.workspace = true
 
 [dev-dependencies]
+# The CRC of each chunk the picture size tests write into a PNG.
+flate2.workspace = true
 insta.workspace = true
 mockall.workspace = true
 proptest.workspace = true

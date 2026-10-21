@@ -16,6 +16,7 @@ use sidekicks_contracts::question::{
     QuestionAnswer, QuestionId, QuestionPrompt, QuestionResolveRequest, QuestionSettledState,
 };
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::list::BoundedVec;
@@ -46,6 +47,7 @@ use crate::recovery::projection_rebuild::{
 };
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
+use crate::session::run::read::{LiveRun, RunRead};
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
 use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
 use crate::uuid_v7::mint_uuid_v7;
@@ -72,6 +74,12 @@ struct Fixture {
 
 impl Fixture {
     async fn new() -> Self {
+        Self::with_driver(false).await
+    }
+
+    /// The fixture whose stand-in driver, when `is_run_ended_on_answer`, fails the run as it takes
+    /// an answer, as a provider that exits at that moment does.
+    async fn with_driver(is_run_ended_on_answer: bool) -> Self {
         let database = TestDatabase::new();
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
@@ -94,8 +102,10 @@ impl Fixture {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         insert_running_run(&database, session_id, run_id);
         bind_run_to_first_provider(&database, run_id);
+        let engine = test_engine(&database, Arc::clone(&event_log), home.path());
         let handed = HandedAnswers::default();
         let recorded = Arc::clone(&handed);
+        let ending_engine = is_run_ended_on_answer.then(|| Arc::clone(&engine));
         let mut driver = MockProviderDriver::new();
         driver.expect_respond_to_request().returning(move |params| {
             let ProviderRequestAnswer::Question { answers } = params.response else {
@@ -105,9 +115,21 @@ impl Fixture {
                 .lock()
                 .expect("the test's record is never poisoned")
                 .push((params.request_id, answers));
-            async { Ok(()) }.boxed()
+            let ending_engine = ending_engine.clone();
+            async move {
+                if let Some(engine) = ending_engine {
+                    engine
+                        .transition(
+                            RunStateChange::new(run_id, failed()),
+                            RunStateChangeCompanions::default(),
+                        )
+                        .await
+                        .expect("the run ends");
+                }
+                Ok(())
+            }
+            .boxed()
         });
-        let engine = test_engine(&database, Arc::clone(&event_log), home.path());
         let appender =
             SessionEventAppender::new(Arc::clone(&event_log), SESSION_EVENT_VERSION.clone());
         let questions = QuestionsService::new(
@@ -232,8 +254,25 @@ fn choice_page() -> Value {
     })
 }
 
+/// `choice_page` as a tool server's form field, which must be answered.
+fn form_field_page() -> Value {
+    let mut page = choice_page();
+    page["required"] = json!(true);
+    page
+}
+
 fn secret_page() -> Value {
     json!({ "text": "The token?", "options": [], "severalAnswers": false, "secret": true })
+}
+
+/// A run's failed end, as any end but an interrupt.
+fn failed() -> RunStateEntry {
+    RunStateEntry::Failed {
+        intended_close: None,
+        failure_cause: None,
+        provider_failure_detail: None,
+        process_exit: None,
+    }
 }
 
 fn refusal_of(failure: QuestionError) -> (RefusalCode, Value) {
@@ -306,7 +345,11 @@ async fn a_held_questions_answer_goes_to_the_driver_then_settles_it_in_one_write
 // not wait for `question.notWaiting`; none of them reaches the driver. Killed by removing the
 // count check, any one reason's check, or the waiting check.
 #[rstest]
-#[case::one_answer_short(json!([{ "kind": "skipped" }]), RefusalCode::QuestionAnswersIncomplete, None)]
+#[case::one_answer_short(
+    json!([{ "kind": "skipped" }]),
+    RefusalCode::QuestionAnswersIncomplete,
+    None
+)]
 #[case::a_secret_on_a_plain_question(
     json!([{ "kind": "secret", "value": SECRET }, { "kind": "skipped" }]),
     RefusalCode::QuestionAnswerInvalid,
@@ -327,6 +370,11 @@ async fn a_held_questions_answer_goes_to_the_driver_then_settles_it_in_one_write
     RefusalCode::QuestionAnswerInvalid,
     Some((0, "severalOnSingle"))
 )]
+#[case::text_on_a_form_fields_choice(
+    json!([{ "kind": "typed", "text": "Gamma" }, { "kind": "skipped" }]),
+    RefusalCode::QuestionAnswerInvalid,
+    Some((0, "textOnChoice"))
+)]
 #[tokio::test]
 async fn an_answer_its_record_cannot_take_is_refused_with_nothing_sent(
     #[case] answers: Value,
@@ -335,7 +383,7 @@ async fn an_answer_its_record_cannot_take_is_refused_with_nothing_sent(
 ) {
     let fixture = Fixture::new().await;
     let question_id = fixture
-        .ask("request-1", json!([choice_page(), secret_page()]), true)
+        .ask("request-1", json!([form_field_page(), secret_page()]), true)
         .await;
 
     let (refused, detail) = refusal_of(
@@ -390,13 +438,16 @@ enum QuestionEnd {
     RunInterrupted,
     /// Its run fails, as any end but an interrupt.
     RunFailed,
+    /// A restart finds its run waiting and ends it.
+    Restart,
 }
 
 // A held question that ends unanswered is canceled once, in the write that moves or ends its run,
 // with the reason the run's own state gives: a withdrawal `withdrawn` and the run back to
 // `running`, unless an interrupt of the run is recorded, which makes it `interrupted`; an
-// interrupted end `interrupted`; any other end `runEnded`. Killed by a cancellation in a second
-// write, by a reason read from the report rather than the run, and by a run left waiting.
+// interrupted end `interrupted`; any other end, a restart's among them, `runEnded`. Killed by a
+// cancellation in a second write, by a reason read from the report rather than the run, and by a
+// run left waiting.
 #[rstest]
 #[case::withdrawn(QuestionEnd::Withdrawn, "withdrawn", "running")]
 #[case::withdrawn_under_an_interrupt(
@@ -406,6 +457,7 @@ enum QuestionEnd {
 )]
 #[case::run_interrupted(QuestionEnd::RunInterrupted, "interrupted", "interrupted")]
 #[case::run_failed(QuestionEnd::RunFailed, "runEnded", "failed")]
+#[case::restart(QuestionEnd::Restart, "runEnded", "failed")]
 #[tokio::test]
 async fn a_held_question_ends_canceled_with_its_runs_reason(
     #[case] end: QuestionEnd,
@@ -443,12 +495,7 @@ async fn a_held_question_ends_canceled_with_its_runs_reason(
                     trigger: None,
                 }
             } else {
-                RunStateEntry::Failed {
-                    intended_close: None,
-                    failure_cause: None,
-                    provider_failure_detail: None,
-                    process_exit: None,
-                }
+                failed()
             };
             fixture
                 .engine
@@ -458,6 +505,26 @@ async fn a_held_question_ends_canceled_with_its_runs_reason(
                 )
                 .await
                 .expect("the run ends");
+        }
+        QuestionEnd::Restart => {
+            let (_, version) = stored_run_state(&fixture.database, &fixture.run_id);
+            fixture
+                .engine
+                .settle_run_after_restart(
+                    &LiveRun {
+                        run_id: fixture.run_id,
+                        run: RunRead {
+                            version,
+                            session_id: fixture.session_id,
+                            state: RunState::WaitingForInput,
+                        },
+                        parent_run_id: None,
+                        reached_by: None,
+                    },
+                    "not resumed",
+                )
+                .await
+                .expect("the restart ends the run");
         }
     }
     // A withdrawal after the run's end finds the question settled and writes nothing.
@@ -472,6 +539,37 @@ async fn a_held_question_ends_canceled_with_its_runs_reason(
     assert_eq!(canceled[0]["reason"], reason);
     assert_eq!(fixture.state(question_id), "canceled");
     assert_eq!(fixture.run_state(), run_state);
+}
+
+// A run that ends while its driver takes a held question's answer settles the question `canceled`
+// in its end's write; the answer reads that state back and lets the request go, with no turn
+// written. Killed by reading the state back only on the settle's refusal, and by keeping the
+// request held.
+#[tokio::test]
+async fn an_answer_whose_run_ends_meanwhile_reads_canceled_and_lets_the_request_go() {
+    let fixture = Fixture::with_driver(true).await;
+    let question_id = fixture.ask("request-1", json!([choice_page()]), true).await;
+
+    let state = fixture
+        .answer(
+            question_id,
+            json!([{ "kind": "picked", "labels": ["Alpha"] }]),
+        )
+        .await;
+
+    assert_eq!(
+        state.expect("the answer reads the run's end"),
+        QuestionSettledState::Canceled
+    );
+    assert_eq!(fixture.handed_count(), 1);
+    assert!(fixture.questions.held_request(&question_id).is_none());
+    assert_eq!(fixture.state(question_id), "canceled");
+    assert_eq!(
+        fixture.payloads("question.canceled")[0]["reason"],
+        "runEnded"
+    );
+    assert_eq!(fixture.payloads("user.message.sent"), Vec::<Value>::new());
+    assert_eq!(fixture.run_state(), "failed");
 }
 
 fn table_rows(connection: &Connection, sql: &str) -> Vec<Vec<SqlValue>> {

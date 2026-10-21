@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use rusqlite::types::Value;
-use rusqlite::{Connection, named_params};
+use rusqlite::{Connection, Row, named_params};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::plan::{
     PlanHoldEndedPayload, PlanHoldEndedReason, PlanId, PlanProposedPayload, PlanState,
@@ -53,11 +53,19 @@ static SETTLE_VERDICT_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The plans of a run, or of every run when the run is NULL, still waiting on a held request.
-static HELD_PLANS_SQL: LazyLock<String> = LazyLock::new(|| {
+// The plans of one run still waiting on a held request.
+static HELD_PLANS_OF_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT id, session_id FROM plans
-  WHERE state = '{waiting}' AND holds_request = 1 AND (@runId IS NULL OR run_id = @runId)",
+  WHERE run_id = @runId AND state = '{waiting}' AND holds_request = 1",
+        waiting = <&'static str>::from(PlanState::Waiting)
+    )
+});
+
+// The plans of every run still waiting on a held request.
+static HELD_PLANS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT id, session_id FROM plans WHERE state = '{waiting}' AND holds_request = 1",
         waiting = <&'static str>::from(PlanState::Waiting)
     )
 });
@@ -107,6 +115,13 @@ pub(crate) fn end_hold_statement(plan_id: &PlanId) -> WriteStatement {
 
 /// A verdict that settled `plan_id` in `state`, from `device_id` at `resolved_at`, naming the
 /// session it was handed off to when it was; refused unless the plan waits.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the plan verdicts' writes, and the rebuild the daemon's start registers"
+    )
+)]
 pub(crate) fn settle_verdict_statement(
     plan_id: &PlanId,
     state: PlanState,
@@ -148,23 +163,34 @@ pub(crate) fn hold_end_write(
     (end_hold_statement(&held.plan_id), event)
 }
 
-/// The plans still waiting on a request their driver holds: `run_id`'s, or every run's when it is
-/// `None`. Fails as SQLite does, or when a stored id does not read.
-pub(crate) fn read_held_plans(
+/// The plans of `run_id` still waiting on a request their driver holds. Fails as SQLite does, or
+/// when a stored id does not read.
+pub(crate) fn read_held_plans_of_run(
     connection: &Connection,
-    run_id: Option<RunId>,
+    run_id: &RunId,
 ) -> rusqlite::Result<Vec<HeldPlan>> {
-    let run_text = run_id.map(|run_id| run_id.text());
     connection
-        .prepare_cached(&HELD_PLANS_SQL)?
+        .prepare_cached(&HELD_PLANS_OF_RUN_SQL)?
         .query_map(
-            named_params! { "@runId": run_text.as_ref().map(UuidText::as_str) },
-            |row| {
-                Ok(HeldPlan {
-                    plan_id: text_column(row, 0, |text| PlanId::new(&text))?,
-                    session_id: text_column(row, 1, |text| SessionId::new(&text))?,
-                })
-            },
+            named_params! { "@runId": run_id.text().as_str() },
+            held_plan_of_row,
         )?
         .collect()
+}
+
+/// The plans of every run still waiting on a request their driver holds. Fails as SQLite does, or
+/// when a stored id does not read.
+pub(crate) fn read_held_plans(connection: &Connection) -> rusqlite::Result<Vec<HeldPlan>> {
+    connection
+        .prepare_cached(&HELD_PLANS_SQL)?
+        .query_map([], held_plan_of_row)?
+        .collect()
+}
+
+// A held plan's row, as both reads select it.
+fn held_plan_of_row(row: &Row<'_>) -> rusqlite::Result<HeldPlan> {
+    Ok(HeldPlan {
+        plan_id: text_column(row, 0, |text| PlanId::new(&text))?,
+        session_id: text_column(row, 1, |text| SessionId::new(&text))?,
+    })
 }

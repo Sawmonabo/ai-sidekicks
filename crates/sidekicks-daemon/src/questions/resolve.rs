@@ -1,9 +1,9 @@
 //! `question.resolve`: the person's answers to every question of one record, checked against its
 //! pages before anything goes out. A question its run waits on gets its answers through the run's
 //! driver first; only then does one write settle the record `answered`, append the person's turn
-//! and move the run back to `running`, guarded so a second answer that raced the first is refused
-//! whole and reads the state back. A question a workflow wait holds gets its answers through the
-//! wait. A settled record answers its state and sends nothing.
+//! and move the run back to `running`, guarded so a second answer that raced the first, or the
+//! run's end, is refused whole and reads the state back. A question a workflow wait holds gets its
+//! answers through the wait. A settled record answers its state and sends nothing.
 //!
 //! One window stays open on a provider that drops its own pending requests when its turn ends and
 //! drops a late answer with no word back: an answer that reaches the driver in that window returns
@@ -35,13 +35,7 @@ use crate::questions::store::{
     QuestionHolder, read_asked, read_question, settle_question_statement,
 };
 use crate::questions::waits::QuestionWaitAnswer;
-use crate::session::run::engine::RunEngineError;
-use crate::session::run::state_change::{
-    RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateEntry,
-};
-
-// The record's settle is the one companion of the answer's move.
-const SETTLE_COMPANION_INDEX: usize = 0;
+use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
 
 impl QuestionsService {
     /// Answers every question of `request`'s record from `device_id` and answers its state.
@@ -98,7 +92,9 @@ impl QuestionsService {
     }
 
     // The answers to the run's driver, then the settle, the person's turn and the run's move in
-    // one write; a settle the guard refuses reads the state back.
+    // one write. A write refused after the driver took the answers, as when a second answer raced
+    // it or the run ended meanwhile, reads the state back: the run's end settled it `canceled`.
+    // The request is let go either way, since the driver has answered it.
     async fn answer_held(
         &self,
         question_id: QuestionId,
@@ -158,20 +154,18 @@ impl QuestionsService {
                 },
             )
             .await;
-        let state = match moved {
-            Ok(_run) => QuestionSettledState::Answered,
-            Err(RunEngineError::Change(RunStateChangeError::CompanionRefused {
-                companion_index: SETTLE_COMPANION_INDEX,
-                ..
-            })) => self
-                .read_state(question_id)
-                .await?
-                .and_then(settled_state)
-                .ok_or_else(|| question_not_found(question_id))?,
-            Err(failure) => return Err(failure.into()),
+        let failure = match moved {
+            Ok(_run) => {
+                self.forget_held_request(&question_id);
+                return Ok(QuestionSettledState::Answered);
+            }
+            Err(failure) => failure,
         };
+        let stored = self.read_state(question_id).await;
         self.forget_held_request(&question_id);
-        Ok(state)
+        stored?
+            .and_then(settled_state)
+            .ok_or_else(|| failure.into())
     }
 }
 

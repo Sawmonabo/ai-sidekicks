@@ -1,8 +1,8 @@
 //! The plan table as a rebuild writes it from the session's log: each plan from its
-//! `plan.proposed`, each verdict from its `plan.accepted`, `plan.kept` or `plan.handedOff`, and each
-//! lost hold from its `plan.hold.ended`. Every row is written at the event's own instant through
-//! the live write's own statements and guards, so the rows a rebuild writes are the rows the live
-//! writes wrote.
+//! `plan.proposed`, each verdict from its `plan.accepted`, `plan.kept` or `plan.handedOff`, and
+//! each lost hold from its `plan.hold.ended`. Every row is written at the event's own instant
+//! through the live write's own statements and guards, so the rows a rebuild writes are the rows
+//! the live writes wrote.
 
 use std::borrow::Cow;
 
@@ -20,9 +20,23 @@ use crate::recovery::projection_rebuild::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which registers the projection with the rebuild"
+    )
+)]
 const CLEAR_PLANS_SQL: &str = "DELETE FROM plans WHERE session_id = ?";
 
 // Every type the fold reads: a plan, its three verdicts and its lost hold.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which registers the projection with the rebuild"
+    )
+)]
 const PLAN_EVENT_TYPES: [SessionEventType; 5] = [
     SessionEventType::PlanProposed,
     SessionEventType::PlanAccepted,

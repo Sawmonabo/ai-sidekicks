@@ -428,25 +428,14 @@ pub(crate) trait CodexSessionServerRequestResponder: Send + Sync {
     ) -> BoxFuture<'_, Result<CodexServerRequestDecision, DriverError>>;
 }
 
-// The questions card's answer to a held question, as it arrives.
-#[derive(Deserialize)]
-struct QuestionAnswerResponse {
-    answers: Vec<QuestionAnswer>,
-}
-
-/// Reads the questions card's answer to a held question, `{answers}`, one per question in order.
-/// Fails when `response` holds no such list.
+/// The Codex answer to a held question from the person's `answers`, the typed list a
+/// `ProviderRequestAnswer::Question` carries, one per question in order.
 #[expect(
     dead_code,
-    reason = "the Codex ask delivery reads a held question's answer with it"
+    reason = "the Codex ask delivery answers a held question with it"
 )]
-pub(crate) fn read_codex_question_answer(
-    response: &RawValue,
-) -> Result<CodexServerRequestAnswer, serde_json::Error> {
-    let response: QuestionAnswerResponse = serde_json::from_str(response.get())?;
-    Ok(CodexServerRequestAnswer::Answered {
-        answers: response.answers,
-    })
+pub(crate) fn read_codex_question_answer(answers: Vec<QuestionAnswer>) -> CodexServerRequestAnswer {
+    CodexServerRequestAnswer::Answered { answers }
 }
 
 /// The turn a routed ask names. An over-long id is never resolved, since a cut prefix could match

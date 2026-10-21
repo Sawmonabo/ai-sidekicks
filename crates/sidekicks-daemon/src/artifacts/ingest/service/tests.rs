@@ -207,8 +207,8 @@ async fn a_resent_chunk_racing_its_original_is_written_once() {
 }
 
 /// A completion below its declaration records what was sent with one `artifact.published`, and a
-/// resent completion answers the saved result without writing again; a saved result that no longer names its digest ends the
-/// stream, and past the count held the oldest completion is let go.
+/// resent completion answers the saved result without writing again; a saved result that no longer
+/// names its digest ends the stream, and past the count held the oldest completion is let go.
 #[tokio::test]
 async fn a_resent_completion_answers_the_saved_result_while_held() {
     let store = ArtifactTestStore::open().await;

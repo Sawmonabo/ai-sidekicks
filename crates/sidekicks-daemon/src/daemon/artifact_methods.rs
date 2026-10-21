@@ -1,9 +1,9 @@
 //! Builds the artifact store over the daemon's one database and registers the `artifact.*` calls it
-//! answers: the three ingest calls, the publish, the list and the read. The store sits in the data folder, the
-//! content-addressed payloads in `objects/` and the spools of ingests and publishes beside them in
-//! `spool/`, on one volume, so a spool moves into the store by a rename. Its start schedules the
-//! ingest reaper on the daemon's one scheduler: a pass at once, which clears the spools a stopped
-//! daemon left, then one every ten minutes.
+//! answers: the three ingest calls, the publish, the list and the read. The store sits in the data
+//! folder, the content-addressed payloads in `objects/` and the spools of ingests and publishes
+//! beside them in `spool/`, on one volume, so a spool moves into the store by a rename. Its start
+//! schedules the ingest reaper on the daemon's one scheduler: a pass at once, which clears the
+//! spools a stopped daemon left, then one every ten minutes.
 
 use std::path::PathBuf;
 use std::sync::Arc;

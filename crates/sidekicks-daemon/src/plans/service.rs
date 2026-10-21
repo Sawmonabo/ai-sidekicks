@@ -89,6 +89,13 @@ impl PlansService {
     /// Records `plan` `waiting`: its artifact, `artifact.published`, the plan's row and
     /// `plan.proposed` naming the artifact, in one write. Answers the minted plan id. Fails with
     /// `session.notFound` or `agent.run.notFound`, as the store fails, or as the write does.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code and Codex drivers, which hand a finished plan over"
+        )
+    )]
     pub(crate) async fn take_plan(&self, plan: ProviderPlan) -> Result<PlanId, PlanError> {
         let metadata = match &plan.plan_file_path {
             Some(path) => file_name_metadata(path.as_str()),
@@ -142,6 +149,13 @@ impl PlansService {
     /// Reopens the plan `hold_end` names, recording `plan.hold.ended` with its reason, when it
     /// still waits on the request its driver held; a plan that holds none, or that is settled,
     /// is left as it is. Fails as the write fails.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code and Codex drivers, which hand a finished plan over"
+        )
+    )]
     pub(crate) async fn end_plan_hold(
         &self,
         hold_end: ProviderPlanHoldEnd,
@@ -170,7 +184,7 @@ impl PlansService {
         let held = self
             .reads
             .read(ReadLength::Short, |reader| {
-                Ok::<_, PlanError>(read_held_plans(reader, None)?)
+                Ok::<_, PlanError>(read_held_plans(reader)?)
             })
             .await?;
         let mut outcomes = Vec::with_capacity(held.len());

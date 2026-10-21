@@ -10,6 +10,10 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::UuidTextForm;
 
 /// The person's answers to a question a workflow wait holds.
+#[expect(
+    dead_code,
+    reason = "the workflow engine, which settles the wait with the answers"
+)]
 #[derive(Debug)]
 pub(crate) struct QuestionWaitAnswer {
     /// The session.

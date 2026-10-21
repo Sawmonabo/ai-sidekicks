@@ -178,10 +178,7 @@ impl QuestionsService {
     }
 
     /// The workflow waits' port, which the workflow engine registers once.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the workflow engine, which registers its waits")
-    )]
+    #[expect(dead_code, reason = "the workflow engine, which registers its waits")]
     pub(crate) fn waits(&self) -> &PortRegistration<Arc<dyn QuestionWaits>> {
         &self.waits
     }
@@ -189,6 +186,13 @@ impl QuestionsService {
     /// Records `question` open under a minted id: when its agent waits, in the write that moves
     /// its run from `running` to `waitingForInput`, keeping its request for the answer; else in a
     /// write of its own, the run unmoved. Fails as the draft, the move or the write fails.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code and Codex drivers, which hand each question over"
+        )
+    )]
     pub(crate) async fn take_question(
         &self,
         question: ProviderQuestion,
@@ -257,6 +261,13 @@ impl QuestionsService {
     /// that moves its run back to `running`: `interrupted` when the run has an interrupt recorded,
     /// else `withdrawn`. A request no open question holds, its question answered or settled by its
     /// run's end, is left as it is. Fails as the read or the move fails, the question left open.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code and Codex drivers, which hand each question over"
+        )
+    )]
     pub(crate) async fn withdraw_question(
         &self,
         withdrawal: ProviderQuestionWithdrawal,
