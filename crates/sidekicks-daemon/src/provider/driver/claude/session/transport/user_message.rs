@@ -195,22 +195,8 @@ pub(crate) fn compose_claude_user_frame(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeWriteDelivery {
     /// No byte reached the process.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process reports each failed write with it"
-        )
-    )]
     Unsent,
     /// Some bytes may have reached it, so it may act on them.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process reports each failed write with it"
-        )
-    )]
     Indeterminate,
 }
 
@@ -228,13 +214,6 @@ pub(crate) enum ClaudeWriteAttempt {
     )]
     Written,
     /// The write failed.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process reports each write with it"
-        )
-    )]
     Failed {
         /// How far it got.
         delivery: ClaudeWriteDelivery,

@@ -73,13 +73,6 @@ impl ClaudeControlRequests {
 
     /// Opens a request under a fresh id, before it is written, so an answer arriving at once finds
     /// it. Fails with `Unavailable` once the process exited, since nothing would answer.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process opens each control request with it"
-        )
-    )]
     pub(crate) fn open(
         &self,
         subtype: ClaudeControlSubtype,
@@ -177,13 +170,6 @@ impl PendingControlRequest {
     /// answer. Fails with `InputUnwritable` when no byte was written; with `Unanswered` when some
     /// were and no answer came: the write was cut short, the deadline passed (the request is then
     /// withdrawn) or the process exited; and with `ControlRequestRefused` when Claude Code refused.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process settles each control request it writes through it"
-        )
-    )]
     pub(crate) async fn answer_within(
         mut self,
         written: ClaudeWriteAttempt,

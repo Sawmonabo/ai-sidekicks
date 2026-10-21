@@ -152,25 +152,34 @@ pub(crate) struct ClaudeUserDialog {
 pub(crate) struct ClaudeMcpMessage {
     /// The server, as `initialize` or `mcp_set_servers` named it.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's in-process tool servers read it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's in-process tool servers read it"
+        )
     )]
     pub(crate) server_name: Option<String>,
     /// The JSON-RPC message for it, relayed as sent.
     #[serde(default)]
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's in-process tool servers read it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's in-process tool servers read it"
+        )
     )]
     pub(crate) message: Option<Box<RawValue>>,
 }
 
 /// The success an `mcp_message` request is answered with: the server's JSON-RPC reply.
 #[derive(Debug, Serialize)]
-#[expect(
-    dead_code,
-    reason = "the Claude driver's in-process tool servers answer with it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's in-process tool servers answer with it"
+    )
 )]
 pub(crate) struct ClaudeMcpMessageAnswer {
     /// The reply, relayed as the server wrote it.
@@ -181,15 +190,21 @@ pub(crate) struct ClaudeMcpMessageAnswer {
 #[derive(Debug)]
 pub(crate) struct ClaudeControlResponse {
     /// The id the request was written under, as sent.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code process reader settles the request it names"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code process reader settles the request it names"
+        )
     )]
     pub(crate) request_id: String,
     /// The answer.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code process reader settles the request with it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code process reader settles the request with it"
+        )
     )]
     pub(crate) outcome: ClaudeControlOutcome,
 }
@@ -350,9 +365,12 @@ impl ClaudeControlFrameReader {
     }
 
     /// Reads a `control_cancel_request` frame's text; `None`, recorded, when it names no id.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code process reader reads each withdrawal through it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code process reader reads each withdrawal through it"
+        )
     )]
     pub(crate) fn read_cancel(&mut self, frame: &str) -> Option<ClaudeInboundRequestEvent> {
         if let Some(request_id) =
@@ -365,9 +383,12 @@ impl ClaudeControlFrameReader {
     }
 
     /// Reads a `control_response` frame's text; `None`, recorded, when it names no request id.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code process reader reads each control answer through it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code process reader reads each control answer through it"
+        )
     )]
     pub(crate) fn read_response(&mut self, frame: &str) -> Option<ClaudeControlResponse> {
         let Some((body, request_id)) = read_object::<ControlResponseFrame>(frame)
@@ -400,9 +421,12 @@ impl ClaudeControlFrameReader {
     }
 
     /// Records an answer for an id this process never issued, which says the process is broken.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code process reader records an answer to an id it never issued"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude Code process reader records an answer to an id it never issued"
+        )
     )]
     pub(crate) fn report_unissued_answer(&self) {
         emit_driver_diagnostic(&self.record(

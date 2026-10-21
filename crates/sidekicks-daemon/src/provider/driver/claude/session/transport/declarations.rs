@@ -19,10 +19,6 @@ pub(crate) struct ClaudeFastModeDeclaration {
 
 /// The `system/init` declaration, as sent and whole.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-#[expect(
-    dead_code,
-    reason = "the Claude driver's stream reader reads each process's declaration into it"
-)]
 pub(crate) struct ClaudeHandshakeDeclaration {
     /// The fast mode it reports.
     pub(crate) fast_mode: ClaudeFastModeDeclaration,
@@ -68,10 +64,6 @@ pub(crate) struct ClaudeInitializeDeclaration {
 
 /// One frame's cumulative token readings; the driver differences them, the reader never does.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(
-    dead_code,
-    reason = "the Claude driver's stream reader reads each usage report into it"
-)]
 pub(crate) struct ClaudeCumulativeUsageObservation {
     /// The turn the metered frame names, or `None` where it names none.
     pub(crate) named_turn_id: Option<String>,
@@ -84,10 +76,6 @@ pub(crate) struct ClaudeCumulativeUsageObservation {
 /// A compaction boundary, the only evidence that a compaction applied; `boundary_position` is
 /// `None` where the frame names none.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[expect(
-    dead_code,
-    reason = "the Claude driver's stream reader reads each compaction boundary into it"
-)]
 pub(crate) struct ClaudeCompactionBoundaryObservation {
     /// The position the boundary names.
     pub(crate) boundary_position: Option<u64>,
@@ -95,10 +83,6 @@ pub(crate) struct ClaudeCompactionBoundaryObservation {
 
 /// The routing facts of one inbound stream frame, not the frame itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(
-    dead_code,
-    reason = "the Claude driver's stream reader observes each frame as it"
-)]
 pub(crate) struct ClaudeInboundFrameObservation {
     /// The `type/subtype` wire kind, as sent and untrusted.
     pub(crate) frame_kind: String,

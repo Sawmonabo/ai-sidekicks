@@ -42,10 +42,6 @@ pub(crate) const CLAUDE_THREAD_FRAME_ROUTER_CONFIG: ThreadFrameRouterConfig =
 /// under: a rewind forks a new process behind the same session, so a read checks the stamp and
 /// answers as unread rather than with the old process's declaration.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(
-    dead_code,
-    reason = "the Claude driver's stream reader holds each process's declaration in it"
-)]
 pub(crate) struct ClaudeHeldHandshake {
     /// The provider session the declaration was read under.
     pub(crate) provider_session_id: String,

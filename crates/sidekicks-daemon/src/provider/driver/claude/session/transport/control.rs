@@ -157,10 +157,6 @@ pub(crate) enum ClaudeControlRequest {
 
 impl ClaudeControlRequest {
     /// The request's subtype.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code process names each request it writes through it"
-    )]
     pub(crate) fn subtype(&self) -> ClaudeControlSubtype {
         match self {
             Self::Initialize { .. } => ClaudeControlSubtype::Initialize,
@@ -383,33 +379,48 @@ lenient_object!(
 #[serde(rename_all = "camelCase")]
 pub(crate) enum ClaudePermissionMode {
     /// Asks before each change.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's launch and session controls send it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's launch and session controls send it"
+        )
     )]
     Default,
     /// Takes file changes unasked.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's launch and session controls send it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's launch and session controls send it"
+        )
     )]
     AcceptEdits,
     /// Claude Code's own reviewer decides.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's launch and session controls send it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's launch and session controls send it"
+        )
     )]
     Auto,
     /// Refuses whatever would ask.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's launch and session controls send it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's launch and session controls send it"
+        )
     )]
     DontAsk,
     /// Asks nothing.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's launch and session controls send it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Claude driver's launch and session controls send it"
+        )
     )]
     BypassPermissions,
     /// Plans without changing anything.
