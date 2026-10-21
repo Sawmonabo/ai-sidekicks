@@ -45,7 +45,7 @@ pub(crate) enum SecretsPlace {
 #[serde(rename_all = "camelCase")]
 pub(crate) enum SecretsFileReason {
     /// No Secret Service ran on Linux when the place was picked; the items move into one once one
-    /// runs.
+    /// runs and its default collection is unlocked.
     NoSecretService,
     /// The Mac's service runs while the person is logged out, where the login keychain cannot be
     /// reached; the items move back only when that service is uninstalled.

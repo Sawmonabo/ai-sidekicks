@@ -1,6 +1,7 @@
-//! The settling run: the pick and its check under the place's lock, then the move of the items
-//! file's secrets into a Secret Service, one run at a time, a request made during a run running it
-//! once more when it ends.
+//! The settling run, made with no person's call: for a file kept because no Secret Service ran, the
+//! pick and its check under the place's lock, then the move of its secrets into a Secret Service,
+//! one run at a time, a request made during a run running it once more when it ends. Any other
+//! place, or none recorded yet, is settled inside the next call.
 
 use std::error::Error;
 use std::sync::{Arc, MutexGuard, PoisonError};
@@ -13,47 +14,27 @@ use crate::credential_store::place::{PlaceRecord, SecretsPlace};
 use crate::credential_store::service::KeychainService;
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
 
-// Whether a settling run is under way and whether another was asked for during it; `run` counts the
-// runs begun, so a run dropped partway frees the next only while no later run has begun.
+// Whether a settling run is under way and whether another was asked for during it.
 #[derive(Default)]
 pub(super) struct SettleRuns {
     is_running: bool,
     is_rerun_asked: bool,
-    run: u64,
-}
-
-// Ends the run it was made for when dropped partway, so the next request runs.
-struct RunEnd<'items> {
-    items: &'items SecretItems,
-    run: u64,
-}
-
-impl Drop for RunEnd<'_> {
-    fn drop(&mut self) {
-        let mut runs = self.items.lock_settle_runs();
-        if runs.run == self.run {
-            runs.is_running = false;
-        }
-    }
 }
 
 impl SecretItems {
-    /// Picks the place, checks it, and moves the items file's secrets into a Secret Service that
-    /// runs with its default collection unlocked. One run at a time: a request while one runs asks
-    /// it to run once more when it ends and returns at once. A refusal is logged, and the next
-    /// request tries again.
-    pub(crate) async fn settle(&self) {
-        let run = {
+    /// Settles a file kept because no Secret Service ran, picked or recorded with no move under
+    /// way: checks it and moves its secrets into a Secret Service that runs with its default
+    /// collection unlocked. One run at a time: a request while one runs asks it to run once more
+    /// when it ends and returns at once. A refusal is logged, and the next request tries again.
+    pub(super) async fn settle(&self) {
+        {
             let mut runs = self.lock_settle_runs();
             if runs.is_running {
                 runs.is_rerun_asked = true;
                 return;
             }
             runs.is_running = true;
-            runs.run += 1;
-            runs.run
-        };
-        let _end = RunEnd { items: self, run };
+        }
         loop {
             self.settle_once().await;
             let mut runs = self.lock_settle_runs();
@@ -78,10 +59,15 @@ impl SecretItems {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
-    // One settling run: the pick and its check, then the move when the items wait for it.
+    // One settling run: the pick and its check, then the move when the items wait for it; nothing
+    // when the place is no file waiting to move, which the next call settles.
     async fn settle_once(&self) {
         let place = {
             let mut state = self.state.write().await;
+            self.read_record_once(&mut state).await;
+            if !state.can_settle_in_background() {
+                return;
+            }
             match self.settle_held(&mut state).await {
                 Ok(place) if state.is_waiting_to_move(place) => place,
                 Ok(_settled) => return,

@@ -148,10 +148,8 @@ impl KeychainRefusal {
         code: RefusalCode,
         details: impl FnOnce(KeychainRefusalCause) -> Details,
     ) -> DomainError {
-        let refused = DomainError::new(self.to_string(), code).with_detail(details(self.cause));
-        match self.failure {
-            Some(failure) => refused.with_source(failure),
-            None => refused,
-        }
+        DomainError::new(self.to_string(), code)
+            .with_detail(details(self.cause))
+            .with_optional_source(self.failure)
     }
 }

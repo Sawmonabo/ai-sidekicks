@@ -262,11 +262,11 @@ async fn the_start_picks_and_keeps_the_secrets_place(
     );
 }
 
-/// The items file's secrets move into a Secret Service once one runs: every item lands in the
-/// store with its value, the file goes and the record names the store. A store that keeps another
-/// value leaves the file and the record byte for byte, and calls go on to the file. Mutations:
-/// delete an item from the file before its copy reads back; record the store before the last
-/// item moved.
+/// The items file's secrets move into a Secret Service once one runs and its default collection is
+/// unlocked: every item lands in the store with its value, the file goes and the record names the
+/// store. A store that keeps another value leaves the file and the record byte for byte, and calls
+/// go on to the file. Mutations: delete an item from the file before its copy reads back; record
+/// the store before the last item moved.
 #[tokio::test]
 async fn the_items_file_moves_into_a_secret_service_only_once_every_copy_reads_back() {
     for keeps_another_value in [false, true] {
@@ -639,6 +639,85 @@ async fn a_write_during_the_copy_waits_for_it_and_lands_in_the_store() {
     assert_eq!(
         read_text(&folder.path().join(RECORD)).as_deref(),
         Some(OPERATING_SYSTEM)
+    );
+}
+
+/// A settling run made with no person's call leaves every place but a file waiting to move for the
+/// next call: with no record, a recorded store or a recorded move it makes no store call, so it
+/// never writes the check's probe into a locked Secret Service, and the record stays as it was.
+/// Mutation: drop the run's early return, so it picks and checks the store.
+#[rstest]
+#[case::no_record(None)]
+#[case::recorded_store(Some(OPERATING_SYSTEM))]
+#[case::recorded_move(Some(MOVING_IN))]
+#[tokio::test]
+async fn a_run_with_no_call_settles_only_a_file_waiting_to_move(#[case] record: Option<&str>) {
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    if let Some(record) = record {
+        std::fs::write(folder.path().join(RECORD), record).expect("the test writes the record");
+    }
+    let blocking_store = BlockingCredentialStore::new();
+    blocking_store.release();
+    let access = TestStoreAccess::new(CredentialStore::from_store(blocking_store.clone()));
+    let items = secret_items(folder.path(), &access, false, Duration::from_secs(5));
+
+    items.settle().await;
+
+    assert_eq!(blocking_store.calls(), 0);
+    assert_eq!(read_text(&folder.path().join(RECORD)).as_deref(), record);
+}
+
+/// A move refused after it recorded its direction leaves the run on the recorded move, which the
+/// next call finishes, never on the file it was emptying. Mutation: keep the run's file state when
+/// the move stops after its record, so the next call is served from that file.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_move_refused_after_its_record_is_finished_by_the_next_call() {
+    let folder = folder_with_a_filed_secret().await;
+    let blocking_store = BlockingCredentialStore::new();
+    blocking_store.release();
+    blocking_store.hold_calls_for(WORKFLOW);
+    let credentials = CredentialStore::from_store(blocking_store.clone());
+    let access = TestStoreAccess::new(credentials.clone());
+    let items = secret_items(folder.path(), &access, false, Duration::from_secs(5));
+
+    let scenario = async {
+        let settling = tokio::spawn({
+            let items = Arc::clone(&items);
+            async move { items.settle().await }
+        });
+        // The check's write, read and delete answer; the copy has read the file and its write is
+        // held.
+        blocking_store.wait_for_calls(4).await;
+        // The source's delete then reads a file that is not an items file and is refused.
+        std::fs::write(folder.path().join(ITEMS), "not an items file")
+            .expect("the test spoils the file");
+        blocking_store.release();
+        settling.await.expect("the settling run ends");
+    };
+    let outcome = tokio::time::timeout(Duration::from_secs(5), scenario).await;
+    blocking_store.release();
+    outcome.expect("the settling run ends within its time");
+    assert_eq!(
+        read_text(&folder.path().join(RECORD)).as_deref(),
+        Some(MOVING_IN)
+    );
+    // The state a move leaves once its first source delete landed.
+    std::fs::remove_file(folder.path().join(ITEMS)).expect("the test deletes the file");
+
+    let first = items
+        .keychain(KeychainService::WorkflowSecrets)
+        .read("first")
+        .await
+        .expect("the call finishes the move");
+
+    assert_eq!(first.as_ref().map(ExposeSecret::expose_secret), Some("one"));
+    assert_eq!(
+        read_text(&folder.path().join(RECORD)).as_deref(),
+        Some(OPERATING_SYSTEM)
+    );
+    assert_eq!(
+        stored(&credentials, WORKFLOW, "first").as_deref(),
+        Some("one")
     );
 }
 

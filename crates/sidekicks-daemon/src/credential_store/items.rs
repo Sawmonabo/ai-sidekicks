@@ -96,8 +96,8 @@ struct PlaceState {
     // Where calls go, once picked.
     picked: Option<SecretsPlace>,
     verdict: Verdict,
-    // Whether a Secret Service kept another value than its check wrote, which stops the move until
-    // the next start.
+    // Whether the move is stopped until the next start: a Secret Service kept another value than
+    // its check wrote, or the erase emptied the places.
     is_move_stopped: bool,
 }
 
@@ -163,6 +163,25 @@ impl PlaceState {
                 == SecretsPlace::File {
                     reason: SecretsFileReason::NoSecretService,
                 }
+    }
+
+    // Whether a run made with no person's call may settle the place: only a file kept because no
+    // Secret Service ran, picked or recorded with no move under way, and waiting to move, so such a
+    // run never writes the check's probe into a Secret Service.
+    fn can_settle_in_background(&self) -> bool {
+        match (self.picked, &self.record) {
+            (Some(place), _) => self.is_waiting_to_move(place),
+            (None, RecordState::Present(record)) if record.moving_to.is_none() => {
+                self.is_waiting_to_move(record.place)
+            }
+            (
+                None,
+                RecordState::Present(_)
+                | RecordState::Unread
+                | RecordState::Unreadable(_)
+                | RecordState::Absent,
+            ) => false,
+        }
     }
 }
 
@@ -260,23 +279,29 @@ impl SecretItems {
         answer
     }
 
+    // Reads the place record into `state` when this run has not read it yet.
+    async fn read_record_once(&self, state: &mut PlaceState) {
+        if !matches!(state.record, RecordState::Unread) {
+            return;
+        }
+        state.record = match place::read_record(&self.record_path).await {
+            Ok(Some(record)) => RecordState::Present(record),
+            Ok(None) => RecordState::Absent,
+            Err(refusal) => {
+                tracing::error!(
+                    error = &refusal as &(dyn Error + 'static),
+                    "The secrets' place record cannot be read, so every secret call is refused \
+                     until it is fixed"
+                );
+                RecordState::Unreadable(refusal.reason().to_owned())
+            }
+        };
+    }
+
     // Reads the record, picks the place and checks it, as far as each is not done yet, and answers
     // the place calls go to. Fails with the refusal the caller answers with.
     async fn settle_held(&self, state: &mut PlaceState) -> Result<SecretsPlace, KeychainRefusal> {
-        if matches!(state.record, RecordState::Unread) {
-            state.record = match place::read_record(&self.record_path).await {
-                Ok(Some(record)) => RecordState::Present(record),
-                Ok(None) => RecordState::Absent,
-                Err(refusal) => {
-                    tracing::error!(
-                        error = &refusal as &(dyn Error + 'static),
-                        "The secrets' place record cannot be read, so every secret call is \
-                         refused until it is fixed"
-                    );
-                    RecordState::Unreadable(refusal.reason().to_owned())
-                }
-            };
-        }
+        self.read_record_once(state).await;
         if let RecordState::Unreadable(reason) = &state.record {
             return Err(unreadable_record(reason));
         }
@@ -345,7 +370,7 @@ impl SecretItems {
                                 error = &unreachable as &(dyn Error + 'static),
                                 file = %self.items_file.file_path().display(),
                                 "No Secret Service answers, so the secrets are kept in the items \
-                                 file until one runs"
+                                 file until one runs and its default collection is unlocked"
                             );
                             SecretsPlace::File {
                                 reason: SecretsFileReason::NoSecretService,

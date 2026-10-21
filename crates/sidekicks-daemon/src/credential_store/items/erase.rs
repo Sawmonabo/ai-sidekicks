@@ -43,7 +43,7 @@ impl SecretItems {
     /// [`KeychainRefusal`] at the first item a store that must be emptied refuses, before the data
     /// folder goes, so the erase can run again.
     pub(crate) async fn erase_all(&self) -> Result<(), KeychainRefusal> {
-        let _state = self.state.write().await;
+        let mut state = self.state.write().await;
         if let Some(sweep) = self.operating_system_sweep().await {
             for service in KeychainService::ALL {
                 if let Err(refusal) = self.os_store.erase_items(service.as_str()).await {
@@ -52,7 +52,9 @@ impl SecretItems {
                 }
             }
         }
-        self.items_file.remove_all().await
+        self.items_file.remove_all().await?;
+        state.is_move_stopped = true;
+        Ok(())
     }
 
     // How the erase treats the operating system's store, or `None` when it leaves it. It must be
