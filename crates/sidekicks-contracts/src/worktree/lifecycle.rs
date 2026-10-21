@@ -400,7 +400,7 @@ pub struct NewWorktreeSuggestion {
     /// The name's fixed part, from the branch pattern.
     pub fixed_part: String,
     /// A tail suggested from the session title; absent when the name has none, as for a branch
-    /// name the person typed that the pattern did not make.
+    /// name the person typed that the pattern did not make or a session with no title words.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

@@ -217,6 +217,14 @@ describe("WorktreeStatusRead (the switcher's one read, keyed by the project)", (
     ).toBe(true);
   });
 
+  it("accepts a suggestion with no tail, as for an untitled session", () => {
+    const response = buildWorktreeStatusReadResponse();
+    const { suggestedTail: _suggestedTail, ...withoutTail } = response.newWorktree;
+    expect(
+      WorktreeStatusReadResponseSchema.safeParse({ ...response, newWorktree: withoutTail }).success,
+    ).toBe(true);
+  });
+
   it("never lists a retired tree", () => {
     expect(parseStatusReadWithWorktree({ state: "retired" }).success).toBe(false);
     expect(parseStatusReadWithWorktree({ state: "failed" }).success).toBe(true);
