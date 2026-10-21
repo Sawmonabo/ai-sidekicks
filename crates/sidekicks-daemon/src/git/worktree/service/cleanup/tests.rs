@@ -3,12 +3,15 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use futures::future::BoxFuture;
+use rstest::rstest;
 use rusqlite::{Connection, params};
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
 use tokio_util::sync::CancellationToken;
 
-use super::{RetiredWorktreeKeeper, WorktreeCleanupError, WorktreeCleanupFailure};
+use super::{
+    RetiredWorktreeKeeper, WorktreeCleanupError, WorktreeCleanupFailure, is_nothing_to_stop,
+};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::events::log_service::tests::open_log;
@@ -301,4 +304,36 @@ async fn a_pass_defers_a_tree_in_use_keeps_new_work_aside_and_reports_every_fail
     assert_eq!(second.cleaned, [busy]);
     assert_eq!(second.kept, [kept]);
     assert!(!tree_at("busy").exists());
+}
+
+// Kills a refusal read by its prefix alone, a line that is not the last `fatal:` line read, and
+// any other failure of the stop read as nothing to stop.
+#[rstest]
+#[case::not_running("fatal: fsmonitor--daemon is not running\n", true)]
+#[case::bare("fatal: bare repository '/r' is incompatible with fsmonitor\n", true)]
+#[case::check_failed(
+    "fatal: repository '/r' is incompatible with fsmonitor due to errors\n",
+    true
+)]
+#[case::remote("fatal: remote repository '/r' is incompatible with fsmonitor\n", true)]
+#[case::virtual_repository(
+    "fatal: virtual repository '/r' is incompatible with fsmonitor\n",
+    true
+)]
+#[case::no_sockets(
+    "fatal: socket directory '/r/.git' is incompatible with fsmonitor due to lack of Unix sockets \
+     support\n",
+    true
+)]
+#[case::other_words_after_the_folder("fatal: remote repository '/r' is not reachable\n", false)]
+#[case::earlier_line(
+    "fatal: fsmonitor--daemon is not running\nfatal: could not send the stop\n",
+    false
+)]
+#[case::unsupported("fatal: fsmonitor--daemon not supported on this platform\n", false)]
+fn a_stop_with_no_daemon_to_stop_is_told_from_a_failed_one(
+    #[case] stderr: &str,
+    #[case] is_nothing: bool,
+) {
+    assert_eq!(is_nothing_to_stop(stderr), is_nothing);
 }

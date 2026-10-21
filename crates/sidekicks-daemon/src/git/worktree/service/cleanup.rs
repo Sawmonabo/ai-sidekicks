@@ -38,9 +38,35 @@ use crate::git::worktree::risks::{
 use crate::git::worktree::rows::{WorktreeRow, live_worktree_state_predicate};
 use crate::settle_all::SettleFailures;
 
-// git's exit, and its one line, when no file-watch daemon runs for the tree.
+// git's exit when its stop finds no file-watch daemon to stop.
 const FILE_WATCH_STOP_NOTHING_EXIT_CODE: i32 = 128;
-const FILE_WATCH_STOP_NOTHING_LINE: &str = "fatal: fsmonitor--daemon is not running";
+// git's line when no file-watch daemon runs for the tree.
+const FILE_WATCH_STOP_NOT_RUNNING_LINE: &str = "fatal: fsmonitor--daemon is not running";
+// git's lines, around the folder it names, when it refuses the daemon to a repository it cannot
+// watch (bare, remote, virtual, without Unix sockets, or failing the check). git makes that check
+// before every start as before the stop, so such a repository has no daemon to stop.
+const FILE_WATCH_INCOMPATIBLE_LINES: [(&str, &str); 5] = [
+    (
+        "fatal: bare repository '",
+        "' is incompatible with fsmonitor",
+    ),
+    (
+        "fatal: repository '",
+        "' is incompatible with fsmonitor due to errors",
+    ),
+    (
+        "fatal: remote repository '",
+        "' is incompatible with fsmonitor",
+    ),
+    (
+        "fatal: virtual repository '",
+        "' is incompatible with fsmonitor",
+    ),
+    (
+        "fatal: socket directory '",
+        "' is incompatible with fsmonitor due to lack of Unix sockets support",
+    ),
+];
 
 // Live worktrees on a mount no longer `attached`.
 static SELECT_SWEEPABLE_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -380,10 +406,23 @@ impl WorktreeService {
                 code: Some(FILE_WATCH_STOP_NOTHING_EXIT_CODE),
                 stderr,
                 ..
-            }) if last_fatal_line(&stderr) == Some(FILE_WATCH_STOP_NOTHING_LINE) => Ok(()),
+            }) if is_nothing_to_stop(&stderr) => Ok(()),
             Err(failure) => Err(WorktreeCleanupError::FileWatchStop(failure)),
         }
     }
+}
+
+// Whether git's stop failed because there is no daemon to stop: none runs for the tree, or the
+// repository is one git refuses a daemon to.
+fn is_nothing_to_stop(stderr: &str) -> bool {
+    last_fatal_line(stderr).is_some_and(|line| {
+        line == FILE_WATCH_STOP_NOT_RUNNING_LINE
+            || FILE_WATCH_INCOMPATIBLE_LINES.iter().any(|(before, after)| {
+                line.strip_prefix(before)
+                    .and_then(|rest| rest.strip_suffix(after))
+                    .is_some_and(|folder| !folder.is_empty())
+            })
+    })
 }
 
 // Whether `folder` is `<worktrees_folder>/<project slug>/<name>`, the only shape a name plan
