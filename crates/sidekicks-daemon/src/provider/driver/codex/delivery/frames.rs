@@ -260,8 +260,7 @@ impl CodexFrameDelivery {
     }
 
     /// Sends the streamed pieces whose interval has passed by `now` and the tool rows whose wait
-    /// for their start ran out, for the session's one timer at the earliest of
-    /// `record.delivery.streamed_text.next_deadline()`.
+    /// for their start ran out, for the session's one timer at `record.delivery.next_deadline()`.
     #[expect(
         dead_code,
         reason = "the Codex session's task fires its timer for the pieces due"
@@ -302,7 +301,13 @@ impl CodexFrameDelivery {
             provider_account_id: record.provider_account_id.clone(),
             raw_wire_type: Some(method),
         };
-        dispatch_delivery(&self.dependencies.dispatch, origin, delivery).await
+        // Boxed once here, so the engine's dispatch never sits inside every frame's future.
+        Box::pin(dispatch_delivery(
+            &self.dependencies.dispatch,
+            origin,
+            delivery,
+        ))
+        .await
     }
 
     // Sends one row, keeping the event and run of a tool call's start, which a reviewer flag and

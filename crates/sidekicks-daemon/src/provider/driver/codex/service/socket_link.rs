@@ -53,9 +53,9 @@ pub(crate) fn point_socket_link_at_service(
     replace_socket_link(home_link, &real_socket)
 }
 
-/// Removes `home_link` when it names the real socket the link at `service_socket` names, read
-/// before that service stopped; a link naming another service's socket is left. Answers whether it
-/// was removed.
+/// Removes `home_link` when it names `service_real_socket`, where the service's socket really is,
+/// as its start recorded it; a link naming another service's socket is left. Blocking. Answers
+/// whether it was removed; fails with the link's read or removal error.
 pub(crate) fn clear_socket_link_of(
     home_link: &Path,
     service_real_socket: &Path,
@@ -64,42 +64,4 @@ pub(crate) fn clear_socket_link_of(
         return Ok(false);
     }
     remove_socket_link(home_link)
-}
-
-#[cfg(all(test, unix))]
-mod tests {
-    use std::os::unix::fs::symlink;
-
-    use sidekicks_platforms::read_socket_link;
-
-    use super::{clear_socket_link_of, point_socket_link_at_service};
-
-    // Fails when a planned restart leaves the home's link on the first service, points it at the
-    // second service's own link (gone once that service exits), or a stop leaves it dangling or
-    // removes a link that names another service.
-    #[test]
-    fn a_planned_restart_moves_the_link_and_a_stop_clears_it() {
-        let folder = tempfile::tempdir().expect("a scratch folder is made");
-        let home_link = folder.path().join("app-server-control.sock");
-        let first_socket = folder.path().join("first-real.sock");
-        let second_link = folder.path().join("sidekicks-0a.sock");
-        let second_socket = folder.path().join("second-real.sock");
-        symlink(&first_socket, &home_link).expect("the first service's link is made");
-        symlink(&second_socket, &second_link).expect("the second service's link is made");
-
-        point_socket_link_at_service(&home_link, &second_link).expect("the link moves");
-        std::fs::remove_file(&second_link).expect("the second service's own link goes");
-        let after_move = read_socket_link(&home_link).expect("the link reads");
-        let is_cleared_for_first =
-            clear_socket_link_of(&home_link, &first_socket).expect("the first's stop reads");
-        let is_cleared_for_second =
-            clear_socket_link_of(&home_link, &second_socket).expect("the second's stop reads");
-        let after_stop = read_socket_link(&home_link).expect("the link reads");
-
-        assert_eq!(after_move, Some(second_socket));
-        assert!(!is_cleared_for_first);
-        assert!(is_cleared_for_second);
-        assert_eq!(after_stop, None);
-        assert!(!home_link.exists() && std::fs::symlink_metadata(&home_link).is_err());
-    }
 }

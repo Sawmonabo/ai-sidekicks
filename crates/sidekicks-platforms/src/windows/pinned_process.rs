@@ -101,6 +101,12 @@ impl PinnedProcess {
         ))
     }
 
+    /// Ends the process as [`Self::stop`] does: Windows has no group signal, so the caller asks it
+    /// to stop by the program's own means first, and its job's processes end with it.
+    pub fn stop_group(&self, grace: Duration) -> io::Result<ChildEnd> {
+        self.stop(grace)
+    }
+
     /// Ends every process still in the job of the process's own, through the handle held with it;
     /// `false` when it runs in none. Fails with the system's error.
     pub(crate) fn terminate_job(&self) -> io::Result<bool> {

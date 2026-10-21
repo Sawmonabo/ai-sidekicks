@@ -176,6 +176,27 @@ impl PinnedProcess {
         )
     }
 
+    /// Stops the process and the group it leads: `SIGTERM` to it and to the rest of its group,
+    /// unless its id has passed to another process, then as [`Self::stop`] once `grace` passes.
+    /// Blocking, so it runs in `spawn_blocking`; answers and fails as [`Self::stop`] does.
+    pub fn stop_group(&self, grace: Duration) -> io::Result<ChildEnd> {
+        let exit_watch = ExitWatch::attach(self.id)?;
+        stop_pinned_process(
+            grace,
+            |signal| {
+                if signal == Signal::SIGKILL {
+                    return self.send_signal(signal);
+                }
+                let is_running = self.send_checked_signal(signal);
+                let group_end = self.signal_rest_of_own_group(signal);
+                let is_running = is_running?;
+                group_end?;
+                Ok(is_running)
+            },
+            |bound| exit_watch.wait(bound),
+        )
+    }
+
     // Sends `signal` to the process; `false` when it has ended. A `SIGKILL` first lists every
     // descendant, since a command a lasting child starts in a session of its own leaves its group,
     // then kills the process, the rest of its group and each descendant, in that order; the group
@@ -188,7 +209,7 @@ impl PinnedProcess {
         }
         let descendants = list_descendants(self);
         let is_running = self.send_checked_signal(signal);
-        let group_end = self.kill_rest_of_own_group();
+        let group_end = self.signal_rest_of_own_group(signal);
         // Every descendant is signaled, and the first refusal is kept.
         let mut descendant_end = Ok(());
         for descendant in &descendants {
@@ -201,14 +222,14 @@ impl PinnedProcess {
         Ok(is_running)
     }
 
-    // Sends `SIGKILL` to the rest of the group the process leads by its id, unless another process
+    // Sends `signal` to the rest of the group the process leads by its id, unless another process
     // holds that id, which it takes only once the group has ended; `false` when nothing was
     // signaled.
-    fn kill_rest_of_own_group(&self) -> io::Result<bool> {
+    fn signal_rest_of_own_group(&self, signal: Signal) -> io::Result<bool> {
         if pin_running_process(self.id)?.is_some_and(|holder| holder.unique_id != self.unique_id) {
             return Ok(false);
         }
-        signal_group(self.id, Signal::SIGKILL)
+        signal_group(self.id, signal)
     }
 
     // Sends `signal` to the process the id still names, by the id version read in the same check

@@ -17,12 +17,13 @@ pub(crate) mod test_service;
 mod tests;
 mod transition;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, SystemTime};
 
-use futures::future::BoxFuture;
+use futures::future::{BoxFuture, join_all};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
@@ -45,7 +46,9 @@ use crate::provider::driver::codex::service::supervisor::transition::{
 };
 use crate::provider::driver::codex::service::threads::{CodexServiceThreads, ThreadClaim};
 use crate::provider::driver::codex::session::conversation_release::CodexConversationRelease;
-use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::codex::session::errors::{
+    CODEX_DRAINING_REASON, CODEX_INVALID_REQUEST_CODE, CodexError,
+};
 use crate::provider::driver::codex::session::inbound::{
     CodexSessionInbound, CodexSessionInboundSender,
 };
@@ -65,12 +68,6 @@ use crate::provider::spawned_version::{ResolvedProviderExecutable, SpawnedProvid
 
 /// The ask that reads whether the service may run a sandboxed command on Windows.
 const WINDOWS_SANDBOX_READINESS_METHOD: &str = "windowsSandbox/readiness";
-
-/// Codex's JSON-RPC code for a request it will not take, which its draining answer carries.
-const CODEX_INVALID_REQUEST_CODE: i64 = -32600;
-
-/// The `data.reason` Codex sends while it drains.
-const CODEX_DRAINING_REASON: &str = "serverShuttingDown";
 
 /// Resolves the configured Codex command again at every start, so a restart runs what the command
 /// names now.
@@ -166,6 +163,9 @@ pub(crate) struct CodexService {
     inputs: mpsc::UnboundedSender<RunnerInput>,
     availability: watch::Sender<CodexServiceAvailability>,
     live: Mutex<LiveService>,
+    // Where the socket of the process the last start brought up really is, which the home's link
+    // is cleared against once that process ends.
+    physical_socket: Mutex<Option<PathBuf>>,
     // The ticket of the connection whose frames are routed; an older one's are not.
     routed_dial: AtomicU64,
     threads: Arc<Mutex<CodexServiceThreads>>,
@@ -191,6 +191,7 @@ impl CodexService {
             inputs,
             availability: watch::Sender::new(CodexServiceAvailability::Stopped),
             live: Mutex::default(),
+            physical_socket: Mutex::default(),
             routed_dial: AtomicU64::new(0),
             threads: Arc::new(Mutex::new(CodexServiceThreads::new(
                 CODEX_THREAD_FRAME_ROUTER_CONFIG.max_pending_hold_frames,
@@ -225,6 +226,12 @@ impl CodexService {
         &self.socket.path
     }
 
+    /// Where the socket of the process the last start brought up really is: the target of the link
+    /// it was dialed through, or the path itself where that is no link; `None` before any start.
+    pub(crate) fn physical_socket(&self) -> Option<PathBuf> {
+        self.lock_physical_socket().clone()
+    }
+
     /// The kind of service it is, as its last start found it; a session's recovery and a
     /// conversation's purge read it.
     #[expect(
@@ -236,9 +243,12 @@ impl CodexService {
     }
 
     /// The process the daemon started or re-pinned, while it runs.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's recovery names the service process in its diagnostics"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex session's recovery names the service process in its diagnostics"
+        )
     )]
     pub(crate) fn process_id(&self) -> Option<u32> {
         self.lock_live().process_id
@@ -535,9 +545,12 @@ impl CodexService {
     /// Answers once Codex sends `thread_id`'s `thread/closed`, or once the connection ends, which
     /// unloads it too. Armed before the step that leads to the close, so the notice cannot come
     /// first; dropping it stops the wait.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's move to another service waits for the conversation's unload"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex session's move to another service waits for the conversation's unload"
+        )
     )]
     pub(crate) fn wait_for_thread_closed(&self, thread_id: String) -> oneshot::Receiver<()> {
         self.lock_routing().wait_for_closed(thread_id)
@@ -545,10 +558,13 @@ impl CodexService {
 
     /// The conversations started in a terminal that the service has loaded: every loaded one less
     /// those the daemon's sessions hold. Fails as the read's request does.
-    #[expect(
-        dead_code,
-        reason = "the terminal-session list, the switch-off stop and the Runtime page's stop \
-                  confirm count the terminal sessions inside the service"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the terminal-session list, the switch-off stop and the Runtime page's stop \
+                      confirm count the terminal sessions inside the service"
+        )
     )]
     pub(crate) async fn terminal_sessions(&self) -> Result<Vec<String>, CodexError> {
         let loaded = read_codex_loaded_threads(&*self.connection()?).await?;
@@ -557,6 +573,39 @@ impl CodexService {
             .into_iter()
             .filter(|thread_id| threads.session_for(thread_id).is_none())
             .collect())
+    }
+
+    /// Answers once the service is free to stop: no conversation a session moved off it is held
+    /// for a command it still runs, and no terminal session is inside it, each unload awaited as
+    /// Codex reports it rather than polled. A service with no connection holds none. Fails as a
+    /// read of the loaded conversations fails.
+    pub(crate) async fn when_free_to_stop(&self) -> Result<(), CodexError> {
+        self.dependencies.release.when_none_held_on(self.id).await;
+        loop {
+            if self.connection().is_err() {
+                return Ok(());
+            }
+            let inside = self.terminal_sessions().await?;
+            if inside.is_empty() {
+                return Ok(());
+            }
+            // Armed before the second read, so an unload between the two reads is never missed.
+            let mut unloads: HashMap<String, oneshot::Receiver<()>> = inside
+                .into_iter()
+                .map(|thread_id| {
+                    let unloaded = self.wait_for_thread_closed(thread_id.clone());
+                    (thread_id, unloaded)
+                })
+                .collect();
+            let still_inside = self.terminal_sessions().await?;
+            // A wait whose sender went answers as the connection's end does.
+            let _unloaded = join_all(
+                still_inside
+                    .iter()
+                    .filter_map(|thread_id| unloads.remove(thread_id)),
+            )
+            .await;
+        }
     }
 
     /// Whether the service's Windows sandbox runs commands: only `Ready` offers it; a status this
@@ -611,6 +660,12 @@ impl CodexService {
 
     fn lock_live(&self) -> MutexGuard<'_, LiveService> {
         self.live.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn lock_physical_socket(&self) -> MutexGuard<'_, Option<PathBuf>> {
+        self.physical_socket
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     fn lock_supervision(&self) -> MutexGuard<'_, Supervision> {

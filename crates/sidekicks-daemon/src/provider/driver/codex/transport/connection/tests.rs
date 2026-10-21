@@ -1,5 +1,4 @@
 use std::sync::{Arc, Mutex};
-use std::task::Poll;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
@@ -108,69 +107,71 @@ fn connect(
     (connection, service, events)
 }
 
-// Where a request's end falls, against the write.
-#[derive(Clone, Copy, Debug)]
-enum RequestEnd {
-    DeadlinePassed,
-    ClosedAfterSending,
-    ClosedBeforeSending,
-}
-
-// Kills: a post-write close mapped back to `Transport`, which a caller would send again blind, and
-// a pre-write failure read as `Unanswered`, which would keep a request nothing received.
-#[rstest]
-#[case::deadline(RequestEnd::DeadlinePassed, Some(RefusalCode::ProviderTimeout))]
-#[case::closed_after(RequestEnd::ClosedAfterSending, Some(RefusalCode::ProviderUnavailable))]
-#[case::closed_before(RequestEnd::ClosedBeforeSending, None)]
+// Kills: a request past its deadline mapped back to `Transport`, which a caller would send again
+// blind, or ended before the deadline.
 #[tokio::test(start_paused = true)]
-async fn a_request_whose_link_closes_after_the_write_is_unanswered(
-    #[case] end: RequestEnd,
-    #[case] unanswered_code: Option<RefusalCode>,
-) {
-    let (connection, mut service, _events) = connect(usize::MAX, None);
+async fn a_request_past_its_deadline_is_unanswered() {
+    let (connection, _service, _events) = connect(usize::MAX, None);
     let params = json!({});
-    if matches!(end, RequestEnd::ClosedBeforeSending) {
-        connection.close().await.expect("the close is sent");
-    }
-
     let request = connection.request("thread/read", &params);
     tokio::pin!(request);
-    let first_poll = poll!(request.as_mut());
-    let is_pending = first_poll.is_pending();
-    match end {
-        RequestEnd::DeadlinePassed => {
-            tokio::time::advance(CODEX_REQUEST_TIMEOUT.saturating_sub(Duration::from_millis(1)))
-                .await;
-            assert!(poll!(request.as_mut()).is_pending());
-            tokio::time::advance(Duration::from_millis(1)).await;
-        }
-        RequestEnd::ClosedAfterSending => {
-            service.next_sent().await;
-            service.close("the service ended");
-        }
-        RequestEnd::ClosedBeforeSending => {}
-    }
-    let outcome = match first_poll {
-        Poll::Ready(outcome) => outcome,
-        Poll::Pending => request.await,
-    };
-    let error = outcome.expect_err("no answer came");
 
-    assert_eq!(is_pending, !matches!(end, RequestEnd::ClosedBeforeSending));
-    match (unanswered_code, &error) {
-        (Some(_), CodexError::Unanswered { method, .. }) => assert_eq!(method, "thread/read"),
-        (None, CodexError::Transport { .. }) => {}
-        (_, other) => panic!("the request ended as {other:?}"),
-    }
-    match (unanswered_code, DriverError::from(error)) {
-        (Some(code), DriverError::Unanswered(RequestUnanswered { refusal })) => {
-            assert_eq!(refusal.code, code);
-        }
-        (None, DriverError::Refused(refusal)) => {
-            assert_eq!(refusal.code, RefusalCode::ProviderUnavailable);
-        }
-        (_, other) => panic!("the driver error is {other:?}"),
-    }
+    tokio::time::advance(CODEX_REQUEST_TIMEOUT.saturating_sub(Duration::from_millis(1))).await;
+    let is_pending_before = poll!(request.as_mut()).is_pending();
+    tokio::time::advance(Duration::from_millis(1)).await;
+    let error = request.await.expect_err("no answer came");
+
+    assert!(is_pending_before);
+    assert_unanswered(error, RefusalCode::ProviderTimeout);
+}
+
+// Kills: a close after the write mapped back to `Transport`, which a caller would send again
+// blind.
+#[tokio::test]
+async fn a_request_whose_link_closes_after_the_write_is_unanswered() {
+    let (connection, mut service, _events) = connect(usize::MAX, None);
+    let params = json!({});
+    let request = connection.request("thread/read", &params);
+    tokio::pin!(request);
+
+    let is_pending = poll!(request.as_mut()).is_pending();
+    service.next_sent().await;
+    service.close("the service ended");
+    let error = request.await.expect_err("no answer came");
+
+    assert!(is_pending);
+    assert_unanswered(error, RefusalCode::ProviderUnavailable);
+}
+
+// Kills: a failure before the write read as `Unanswered`, which would keep a request nothing
+// received.
+#[tokio::test]
+async fn a_request_on_a_closed_link_fails_unsent() {
+    let (connection, _service, _events) = connect(usize::MAX, None);
+    connection.close().await.expect("the close is sent");
+
+    let error = connection
+        .request("thread/read", &json!({}))
+        .await
+        .expect_err("no answer came");
+
+    assert!(matches!(error, CodexError::Transport { .. }), "{error:?}");
+    let DriverError::Refused(refusal) = DriverError::from(error) else {
+        panic!("the driver error is no refusal");
+    };
+    assert_eq!(refusal.code, RefusalCode::ProviderUnavailable);
+}
+
+// `error` is the unanswered `thread/read`, refused to the caller with `code`.
+fn assert_unanswered(error: CodexError, code: RefusalCode) {
+    let CodexError::Unanswered { method, .. } = &error else {
+        panic!("the request ended as {error:?}");
+    };
+    assert_eq!(method, "thread/read");
+    let DriverError::Unanswered(RequestUnanswered { refusal }) = DriverError::from(error) else {
+        panic!("the driver error is not unanswered");
+    };
+    assert_eq!(refusal.code, code);
 }
 
 // Kills: the overloaded or draining answer left on the `Internal` arm, or the connection closed on

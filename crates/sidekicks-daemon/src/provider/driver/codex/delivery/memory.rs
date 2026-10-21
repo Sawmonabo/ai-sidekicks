@@ -233,6 +233,19 @@ impl CodexDeliveryMemory {
         }
     }
 
+    /// When the session's one timer next fires: the earliest of a streamed piece's interval and a
+    /// held tool row's wait for its start; `None` when nothing waits.
+    #[expect(dead_code, reason = "the Codex session's task arms its timer on it")]
+    pub(crate) fn next_deadline(&self) -> Option<tokio::time::Instant> {
+        [
+            self.streamed_text.next_deadline(),
+            self.reorder_buffer.next_release(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+    }
+
     /// A turn's run epoch, given once, at the turn's first frame. `mint_epoch` counts across every
     /// record of the session, since its terminal gate outlives a resume.
     pub(crate) fn assign_turn_epoch(

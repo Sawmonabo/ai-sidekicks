@@ -186,13 +186,14 @@ pub(crate) async fn drain_codex_session_inbound(
 ) {
     loop {
         let deadline = handler.next_deadline();
+        // The deadline first, so timed work comes due on time during a burst of items.
         let item = tokio::select! {
             biased;
-            item = receiver.receiver.recv() => item,
             () = sleep_until_due(deadline) => {
                 handler.deadline_reached(Instant::now()).await;
                 continue;
             }
+            item = receiver.receiver.recv() => item,
         };
         let Some(item) = item else {
             return;

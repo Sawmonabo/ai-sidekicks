@@ -92,8 +92,9 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
 // Each cell of the supervisor's table that moves its state or tears something down, from a
 // stopped service of the daemon's own kind unless the case names another. Fails on any arm
 // changed: a drop while the process runs read as a crash, a stale start's outcome dropped with
-// no teardown (a leaked lasting service), a stop that forgets what follows it, a reconnect count
-// that starts again after a short uptime, or one that keeps growing after a long one.
+// no teardown (a leaked lasting service), a stop that forgets what follows it, a first redial
+// that waits past the first wait, a reconnect count that starts again after a short uptime, or
+// one that keeps growing after a long one.
 #[rstest]
 #[case::a_start(
     CodexServiceKind::Account,
@@ -123,8 +124,19 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         boxed(reconnected(2, 20)),
         boxed(dropped(2, 30, false)),
     ],
-    "Reconnecting { launch: 1, dial: 3, attempt: 2 }",
-    &["Disconnect { is_process_gone: false }", "ReportDropped", "Dial { dial: 3, attempt: 2 }",
+    "Reconnecting { launch: 1, dial: 3, attempt: 1 }",
+    &["Disconnect { is_process_gone: false }", "ReportDropped", "Dial { dial: 3, attempt: 1 }",
+        "Publish(Reconnecting)"],
+)]
+#[case::a_fresh_service_s_first_redial_waits_from_the_first_wait(
+    CodexServiceKind::Account,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Account)),
+        boxed(dropped(1, 10, false)),
+    ],
+    "Reconnecting { launch: 1, dial: 2, attempt: 0 }",
+    &["Disconnect { is_process_gone: false }", "ReportDropped", "Dial { dial: 2, attempt: 0 }",
         "Publish(Reconnecting)"],
 )]
 #[case::a_drop_after_a_long_uptime_starts_the_count_again(
@@ -158,8 +170,8 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         boxed(started(1, CodexServiceKind::Joined)),
         boxed(dropped(1, 10, true)),
     ],
-    "Reconnecting { launch: 1, dial: 2, attempt: 1 }",
-    &["Disconnect { is_process_gone: false }", "ReportDropped", "Dial { dial: 2, attempt: 1 }",
+    "Reconnecting { launch: 1, dial: 2, attempt: 0 }",
+    &["Disconnect { is_process_gone: false }", "ReportDropped", "Dial { dial: 2, attempt: 0 }",
         "Publish(Reconnecting)"],
 )]
 #[case::a_reconnect_where_nothing_listens_starts_the_daemon_s_own(

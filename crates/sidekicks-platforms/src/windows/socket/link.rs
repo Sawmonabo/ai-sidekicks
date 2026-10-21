@@ -4,17 +4,13 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Whether a service's advertised socket path is a link that can be moved onto another listening
-/// socket: no, the path is the socket itself.
-pub const CAN_MOVE_SOCKET_LINK: bool = false;
-
 /// The socket a link at `link` names: always `None`, since no link stands there. Never fails.
 pub fn read_socket_link(_link: &Path) -> io::Result<Option<PathBuf>> {
     Ok(None)
 }
 
-/// Refuses with `Unsupported`: the path is the socket itself, so a caller reads
-/// [`CAN_MOVE_SOCKET_LINK`] and stops one service before it starts the next on the same path.
+/// Refuses with `Unsupported`: the path is the socket itself, so a caller that meets the refusal
+/// stops one service before it starts the next on the same path.
 pub fn replace_socket_link(_link: &Path, _target: &Path) -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,

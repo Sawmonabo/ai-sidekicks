@@ -137,6 +137,14 @@ impl<Event> NormalizedEventReorderBuffer<Event> {
         self.release_held(now, |held_for| held_for >= pairing_timeout)
     }
 
+    /// When the oldest held completion's pairing timeout runs out, for the caller's timer; `None`
+    /// when none is held.
+    pub(crate) fn next_release(&self) -> Option<Instant> {
+        self.held_completions
+            .first()
+            .map(|held| held.held_at + self.pairing_timeout)
+    }
+
     /// Releases every held completion, in arrival order, each with the pairing timeout's
     /// diagnostic and the time it was held until `now`; for a run that ends with some unpaired.
     pub(crate) fn flush_all(&mut self, now: Instant) -> Vec<Event> {

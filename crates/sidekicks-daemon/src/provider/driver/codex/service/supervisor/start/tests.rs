@@ -1,14 +1,27 @@
+use std::sync::Arc;
 use std::time::Duration;
 
-use sidekicks_platforms::Spawner;
+use futures::{SinkExt as _, StreamExt as _};
+use serde_json::{Value, json};
+use sidekicks_platforms::{Spawner, connect_unix_domain_socket};
 use tokio::io::AsyncReadExt as _;
 use tokio::net::UnixListener;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_util::sync::CancellationToken;
 
-use super::retire_former_service;
+use super::{retire_former_service, start_codex_service};
+use crate::provider::driver::codex::service::home::{
+    CodexHomeKind, CodexServiceHome, CodexServiceKind,
+};
 use crate::provider::driver::codex::service::process::{
     CodexProcessLaunch, repin_lasting_codex_service, start_lasting_codex_service,
 };
 use crate::provider::driver::codex::service::record::LastingServiceRecordFile;
+use crate::provider::driver::codex::service::supervisor::test_service::{
+    TestCodexProgram, UnheardEvents, test_codex_service_dependencies,
+};
+use crate::provider::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
+use crate::provider::driver::codex::session::errors::CodexError;
 
 /// The survivor's stand-in: this test program, which holds a connection to the test's socket open
 /// while it runs, so its end closes it.
@@ -21,13 +34,17 @@ const SURVIVOR_SOCKET_NAME: &str = "SIDEKICKS_SURVIVOR_SOCKET";
 /// How long the test waits on the survivor's start and on its end.
 const SURVIVOR_WAIT: Duration = Duration::from_secs(10);
 
-#[test]
+// Skips unless the retire test started it, so a run of every ignored test passes it by.
+#[tokio::test]
 #[ignore = "run only as the retire test's survivor"]
-fn a_survivor_that_waits() {
-    let socket = std::env::var(SURVIVOR_SOCKET_NAME).expect("the survivor is named its socket");
-    let _connection =
-        std::os::unix::net::UnixStream::connect(socket).expect("the survivor reaches the test");
-    std::thread::sleep(Duration::from_secs(60));
+async fn a_survivor_that_waits() {
+    let Ok(socket) = std::env::var(SURVIVOR_SOCKET_NAME) else {
+        return;
+    };
+    let _connection = connect_unix_domain_socket(socket.as_ref())
+        .await
+        .expect("the survivor reaches the test");
+    tokio::time::sleep(Duration::from_secs(60)).await;
 }
 
 // Fails when a former service whose record no longer pins it is let go without ending the tree
@@ -65,9 +82,9 @@ async fn a_former_service_its_record_no_longer_pins_leaves_no_tree_running() {
         .await
         .expect("the root's exit reads");
     let record = service.record().clone();
-    let record_file = LastingServiceRecordFile::of_home(folder.path(), folder.path())
+    let record_file = LastingServiceRecordFile::of_socket(folder.path(), folder.path(), &socket)
         .expect("the record file is named");
-    let locked = record_file.lock().expect("the record is locked");
+    let locked = Arc::new(record_file.lock().expect("the record is locked"));
     locked.write(&record).expect("the record is written");
     let is_pinned = repin_lasting_codex_service(record.clone())
         .expect("the record re-pins")
@@ -85,4 +102,78 @@ async fn a_former_service_its_record_no_longer_pins_leaves_no_tree_running() {
         "the survivor still runs: {survivor_end:?}"
     );
     assert_eq!(kept, None);
+}
+
+// Answers every `initialize` on `listener` with an error, as a service that refuses the daemon.
+async fn refuse_every_initialize(listener: UnixListener) {
+    while let Ok((stream, _address)) = listener.accept().await {
+        tokio::spawn(async move {
+            // A probe that only connects ends before the upgrade.
+            let Ok(mut socket) = tokio_tungstenite::accept_async(stream).await else {
+                return;
+            };
+            while let Some(Ok(message)) = socket.next().await {
+                let Message::Text(text) = message else {
+                    continue;
+                };
+                let request: Value = serde_json::from_str(&text).expect("the daemon sends JSON");
+                if request["method"] == "initialize" {
+                    let refusal = json!({"id": request["id"],
+                        "error": {"code": -32600, "message": "not this client"}});
+                    let _sent = socket.send(Message::Text(refusal.to_string().into())).await;
+                }
+            }
+        });
+    }
+}
+
+// Fails when a start that finds a listener refusing its `initialize` tries again rather than
+// reporting the refusal, which spins until its deadline or, without one, past every stop.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_on_a_listener_that_refuses_it_reports_the_refusal_within_its_deadline() {
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let socket = folder.path().join("s.sock");
+    let listener = UnixListener::bind(&socket).expect("the test's socket listens");
+    tokio::spawn(refuse_every_initialize(listener));
+    let codex_home = folder.path().join("home");
+    std::fs::create_dir(&codex_home).expect("the home is made");
+    let dependencies = test_codex_service_dependencies(
+        folder.path(),
+        Arc::new(TestCodexProgram {
+            program: "/usr/bin/false".into(),
+            environment: Vec::new(),
+        }),
+        Arc::new(UnheardEvents),
+    );
+    let deadline = dependencies.startup_timeout;
+    let service = CodexService::new(
+        CodexServiceHome {
+            codex_home,
+            provider_account_id: None,
+            kind: CodexHomeKind::PersonalFolder {
+                is_terminal_reach_on: true,
+            },
+        },
+        CodexServiceSocket {
+            path: socket.clone(),
+            home_socket: socket,
+        },
+        CodexServiceKind::Terminal,
+        dependencies,
+    );
+
+    let started = tokio::time::timeout(
+        deadline,
+        start_codex_service(service, 1, CancellationToken::new(), None),
+    )
+    .await;
+
+    let Ok(Err(failure)) = started else {
+        panic!("the start did not fail within its deadline");
+    };
+    assert!(
+        matches!(&failure.error, CodexError::ProviderRequest { method, .. } if method == "initialize"),
+        "{:?}",
+        failure.error
+    );
 }

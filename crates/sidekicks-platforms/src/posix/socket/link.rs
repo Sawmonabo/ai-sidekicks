@@ -6,10 +6,6 @@ use std::path::{Path, PathBuf};
 
 use crate::posix::file_system::rename_replacing;
 
-/// Whether a service's advertised socket path is a link that can be moved onto another listening
-/// socket, so a second service takes new connects while the first still serves its own: yes.
-pub const CAN_MOVE_SOCKET_LINK: bool = true;
-
 /// The socket the link at `link` names, or `None` when `link` is missing or not a link. Fails with
 /// the read's other errors.
 pub fn read_socket_link(link: &Path) -> io::Result<Option<PathBuf>> {
@@ -23,9 +19,16 @@ pub fn read_socket_link(link: &Path) -> io::Result<Option<PathBuf>> {
 
 /// Points the link at `link` to `target` in one step: a new link made beside it is renamed over
 /// whatever stands at `link`, so a concurrent connect resolves the old target or the new one and
-/// never finds the path missing. Fails with the link's or the rename's error; a failed rename
-/// leaves `link` as it was and removes the new link.
+/// never finds the path missing. Fails with `InvalidInput` for a link that would name itself, and
+/// with the link's or the rename's error; a failed rename leaves `link` as it was and removes the
+/// new link.
 pub fn replace_socket_link(link: &Path, target: &Path) -> io::Result<()> {
+    if link == target {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a socket link cannot name itself",
+        ));
+    }
     let folder = link.parent().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,

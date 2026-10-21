@@ -1,14 +1,15 @@
-//! A Codex service whose connection a test scripts: a stopped service of the daemon's own kind
-//! holding a connection on a `ScriptedService`, its frames and asks routed as a dialed one's are.
+//! What a test's Codex services run on: their shared dependencies, a program a test names, and a
+//! service whose connection a test scripts, a stopped service of the daemon's own kind holding a
+//! connection on a `ScriptedService`, its frames and asks routed as a dialed one's are.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::run::control::ProcessExit;
-use sidekicks_platforms::Spawner;
+use sidekicks_platforms::{ProgramStart, Spawner};
 use tempfile::TempDir;
 
 use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
@@ -40,26 +41,69 @@ pub(crate) struct ScriptedCodexService {
     pub(crate) service: Arc<CodexService>,
     /// What its connection sent, and what the service sends it.
     pub(crate) script: ScriptedService,
-    /// The conversations the service's sessions moved off.
-    pub(crate) release: Arc<CodexConversationRelease>,
+    /// What the service runs on, the conversations its sessions moved off among them.
+    pub(crate) dependencies: Arc<CodexServiceDependencies>,
     _folder: TempDir,
+}
+
+/// The dependencies a test's services share: their data and logs under `folder`, the build
+/// `program` resolves, and `events` told what happens to them. Must be called within a runtime.
+pub(crate) fn test_codex_service_dependencies(
+    folder: &Path,
+    program: Arc<dyn CodexProgramResolver>,
+    events: Arc<dyn CodexServiceEvents>,
+) -> Arc<CodexServiceDependencies> {
+    // The daemon makes both before any service starts.
+    for made in ["data", "logs"] {
+        std::fs::create_dir_all(folder.join(made)).expect("a service folder is made");
+    }
+    Arc::new(CodexServiceDependencies {
+        spawner: Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts"),
+        provider_services: Arc::new(ProviderServiceProcesses::default()),
+        program,
+        data_folder: folder.join("data"),
+        logs_folder: folder.join("logs"),
+        additional_config_overrides: Vec::new(),
+        startup_timeout: Duration::from_secs(5),
+        events,
+        release: Arc::new(CodexConversationRelease::default()),
+    })
+}
+
+/// The program a test names, run as the Codex build with `environment` its whole environment.
+pub(crate) struct TestCodexProgram {
+    /// The program.
+    pub(crate) program: PathBuf,
+    /// Its environment.
+    pub(crate) environment: Vec<(String, String)>,
+}
+
+impl CodexProgramResolver for TestCodexProgram {
+    fn resolve<'call>(
+        &'call self,
+        _home: &'call CodexServiceHome,
+    ) -> BoxFuture<'call, Result<ResolvedProviderExecutable, DriverError>> {
+        let resolved = ResolvedProviderExecutable {
+            requested_command: "codex".to_owned(),
+            resolved_executable_path: self.program.clone(),
+            start: ProgramStart {
+                program: self.program.clone(),
+                leading_arguments: Vec::new(),
+            },
+            environment: self.environment.clone(),
+        };
+        Box::pin(async move { Ok(resolved) })
+    }
 }
 
 /// Starts a service whose connection the test scripts. Must be called within a runtime.
 pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
-    let release = Arc::new(CodexConversationRelease::default());
-    let dependencies = Arc::new(CodexServiceDependencies {
-        spawner: Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts"),
-        provider_services: Arc::new(ProviderServiceProcesses::default()),
-        program: Arc::new(UnstartedProgram),
-        data_folder: folder.path().join("data"),
-        logs_folder: folder.path().join("logs"),
-        additional_config_overrides: Vec::new(),
-        startup_timeout: Duration::from_secs(5),
-        events: Arc::new(UnheardEvents),
-        release: Arc::clone(&release),
-    });
+    let dependencies = test_codex_service_dependencies(
+        folder.path(),
+        Arc::new(UnstartedProgram),
+        Arc::new(UnheardEvents),
+    );
     let socket: PathBuf = folder.path().join("codex.sock");
     let service = CodexService::new(
         CodexServiceHome {
@@ -72,7 +116,7 @@ pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
             home_socket: socket,
         },
         CodexServiceKind::Account,
-        dependencies,
+        Arc::clone(&dependencies),
     );
     let (connection, script) = connect_scripted_service(
         SCRIPTED_MESSAGE_LIMIT,
@@ -84,12 +128,12 @@ pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
     ScriptedCodexService {
         service,
         script,
-        release,
+        dependencies,
         _folder: folder,
     }
 }
 
-// The scripted service is never started, so its program is never resolved.
+// A scripted service runs no program, so a start on its dependencies fails at the resolve.
 struct UnstartedProgram;
 
 impl CodexProgramResolver for UnstartedProgram {
@@ -97,12 +141,17 @@ impl CodexProgramResolver for UnstartedProgram {
         &'call self,
         _home: &'call CodexServiceHome,
     ) -> BoxFuture<'call, Result<ResolvedProviderExecutable, DriverError>> {
-        unreachable!("a scripted service never starts a process")
+        Box::pin(async {
+            Err(DriverError::Internal(
+                "a scripted service runs no program".into(),
+            ))
+        })
     }
 }
 
-// The scripted service never ends or recovers, so nothing hears its events.
-struct UnheardEvents;
+/// Events no test reads: a service that never ends or recovers, or one whose test reads what it
+/// does elsewhere.
+pub(crate) struct UnheardEvents;
 
 impl CodexServiceEvents for UnheardEvents {
     fn process_exited(&self, _service: &Arc<CodexService>, _exit: Option<&ProcessExit>) {}

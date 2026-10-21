@@ -1,12 +1,14 @@
 //! How each kind of Codex service starts. A service on an account home is the daemon's own child,
 //! dialed once it listens. On the person's own Codex folder with terminal reach on, the start
 //! clears a link that would block a plain `codex`, joins the lasting service a former daemon left
-//! when its record pins it, ends what such a service left once it is gone, joins Codex's own
-//! managed daemon while a conversation is loaded on it and stops it once none is, and otherwise
-//! starts the lasting service under Codex's start lock with the daemon's two hooks, trusted before
-//! any conversation.
+//! when its one record pins it, ends what such a service left once it is gone, retires every one
+//! when a planned restart cut short left two, joins Codex's own managed daemon while a
+//! conversation is loaded on it and stops it once none is, joins a listener no pid file names as
+//! it is, and otherwise starts the lasting service under Codex's start lock with the daemon's two
+//! hooks, trusted before any conversation.
 
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,7 +16,8 @@ use futures::FutureExt as _;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_platforms::{
-    ProcessRecord, RunningProgramPath, create_private_folder, read_running_program_path,
+    ProcessRecord, RunningProgramPath, connect_unix_domain_socket, create_private_folder,
+    read_running_program_path, read_socket_link,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -39,6 +42,7 @@ use crate::provider::driver::codex::service::record::{
 use crate::provider::driver::codex::service::socket_link::clear_blocking_socket_link;
 use crate::provider::driver::codex::service::start_lock::{CodexStartLock, take_codex_start_lock};
 use crate::provider::driver::codex::service::supervisor::CodexService;
+use crate::provider::driver::codex::service::supervisor::runner::SERVICE_STOP_GRACE;
 use crate::provider::driver::codex::service::trust::{list_codex_hooks, trust_codex_daemon_hooks};
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::transport::connection::{
@@ -73,8 +77,13 @@ const THREAD_LOADED_LIST_METHOD: &str = "thread/loaded/list";
 pub(crate) enum CodexServiceProcess {
     /// The daemon's own child on an account home.
     Managed(ManagedCodexService),
-    /// The lasting service on the person's own Codex folder.
-    Lasting(LastingCodexService),
+    /// The lasting service on the person's own Codex folder, with the file its record is kept in.
+    Lasting {
+        /// The service.
+        service: LastingCodexService,
+        /// Its record's file.
+        record_file: LastingServiceRecordFile,
+    },
 }
 
 impl CodexServiceProcess {
@@ -83,7 +92,7 @@ impl CodexServiceProcess {
     pub(super) fn exited(&self) -> Option<CodexServiceExit> {
         match self {
             Self::Managed(managed) => Some(managed.exited()),
-            Self::Lasting(lasting) => lasting.exited(),
+            Self::Lasting { service, .. } => service.exited(),
         }
     }
 
@@ -91,7 +100,7 @@ impl CodexServiceProcess {
     pub(super) fn process_id(&self) -> Option<u32> {
         match self {
             Self::Managed(managed) => managed.process_id(),
-            Self::Lasting(lasting) => Some(lasting.record().id()),
+            Self::Lasting { service, .. } => Some(service.record().id()),
         }
     }
 }
@@ -107,6 +116,9 @@ pub(super) struct StartedService {
     pub(super) connection: Arc<CodexAppServerConnection>,
     /// The version the service reported, with the build resolved at the start.
     pub(super) version: SpawnedProviderVersionReading,
+    /// Where its socket really is: the target of the link at the path it was dialed on, or that
+    /// path where it is no link.
+    pub(super) physical_socket: PathBuf,
     /// Whether a terminal service a former daemon left runs other hooks than this daemon's, so a
     /// planned restart is owed once it is up.
     pub(super) is_restart_owed: bool,
@@ -138,10 +150,13 @@ struct LoadedThreadsPage {
 }
 
 /// Starts or joins `service` under the start ticket `launch`; `cancel` stands the start down.
+/// `start_lock` is Codex's start lock, held from the stop of the managed daemon this start takes
+/// the place of, so no terminal starts another in between.
 pub(super) async fn start_codex_service(
     service: Arc<CodexService>,
     launch: u64,
     cancel: CancellationToken,
+    start_lock: Option<CodexStartLock>,
 ) -> Result<StartedService, StartFailure> {
     let executable = service
         .dependencies()
@@ -159,7 +174,7 @@ pub(super) async fn start_codex_service(
         } => start_account_service(&service, launch, &cancel, &executable).await,
         CodexHomeKind::PersonalFolder {
             is_terminal_reach_on: true,
-        } => start_terminal_service(&service, launch, &cancel, &executable).await,
+        } => start_terminal_service(&service, launch, &cancel, &executable, start_lock).await,
     }
 }
 
@@ -196,6 +211,7 @@ async fn start_account_service(
             process,
             connection,
             version,
+            physical_socket: read_physical_socket(service.socket_path()).await,
             is_restart_owed: false,
         }),
         Err(error) => Err(StartFailure { error, process }),
@@ -205,19 +221,42 @@ async fn start_account_service(
 // Lets go of a former lasting service its record no longer pins: ends what it left running, then
 // removes the record, so the fresh start that follows leaves no tree of the former one running.
 async fn retire_former_service(
-    locked: &LockedServiceRecord,
+    locked: &Arc<LockedServiceRecord>,
     record: ProcessRecord,
 ) -> Result<(), StartFailure> {
     let entry = codex_lasting_service_environment_entry();
     let ended = tokio::task::spawn_blocking(move || record.end_survivors(&entry)).await;
-    if let Err(error) = ended.map_err(std::io::Error::other).and_then(|ended| ended) {
+    if let Err(error) = ended.map_err(io::Error::other).and_then(|ended| ended) {
         tracing::warn!(
             error = &error as &(dyn std::error::Error + 'static),
             "what a former Codex service left running could not be ended"
         );
     }
-    locked
-        .remove()
+    on_record(locked, LockedServiceRecord::remove)
+        .await
+        .map_err(|error| start_failed("The Codex service's record could not be removed.", error))
+}
+
+// Retires a former lasting service whatever its state: one still running is stopped, one gone has
+// what it left ended; its record goes either way.
+async fn retire_recorded_service(
+    locked: &Arc<LockedServiceRecord>,
+    record: ProcessRecord,
+    control_socket: &Path,
+) -> Result<(), StartFailure> {
+    let repinned = repin_lasting_codex_service(record.clone())
+        .map_err(|error| start_failed("The Codex service could not be found again.", error))?;
+    let Some(lasting) = repinned else {
+        return retire_former_service(locked, record).await;
+    };
+    if let Err(error) = lasting.stop(SERVICE_STOP_GRACE, control_socket).await {
+        tracing::warn!(
+            error = &error as &(dyn std::error::Error + 'static),
+            "a former Codex service could not be stopped"
+        );
+    }
+    on_record(locked, LockedServiceRecord::remove)
+        .await
         .map_err(|error| start_failed("The Codex service's record could not be removed.", error))
 }
 
@@ -227,20 +266,33 @@ async fn start_terminal_service(
     launch: u64,
     cancel: &CancellationToken,
     executable: &ResolvedProviderExecutable,
+    start_lock: Option<CodexStartLock>,
 ) -> Result<StartedService, StartFailure> {
     let dependencies = service.dependencies();
     let codex_home = service.home().codex_home.clone();
     let socket = service.socket_path().to_owned();
-    let record_file = LastingServiceRecordFile::of_home(&dependencies.data_folder, &codex_home)
-        .map_err(|error| start_failed("The Codex service's record could not be named.", error))?;
-    let locked = tokio::task::spawn_blocking(move || record_file.lock())
-        .await
-        .map_err(|error| start_failed("The Codex service's record lock failed.", error))?
-        .map_err(|error| start_failed("The Codex service's record could not be locked.", error))?;
-    // A planned restart's second service, on a socket of its own: the first still runs in the
-    // record, so the second starts beside it and its record takes the first's place.
+    let record_file =
+        LastingServiceRecordFile::of_socket(&dependencies.data_folder, &codex_home, &socket)
+            .map_err(|error| {
+                start_failed("The Codex service's record could not be named.", error)
+            })?;
+    let locked = Arc::new(
+        tokio::task::spawn_blocking(move || record_file.lock())
+            .await
+            .map_err(|error| start_failed("The Codex service's record lock failed.", error))?
+            .map_err(|error| {
+                start_failed("The Codex service's record could not be locked.", error)
+            })?,
+    );
+    // A planned restart's second service, on a socket of its own and a record of its own: the
+    // first still runs beside it.
     if !service.socket.is_home_socket() {
         let start_lock = take_start_lock(&codex_home, dependencies.startup_timeout).await?;
+        return launch_terminal_service(service, launch, cancel, executable, start_lock, &locked)
+            .await;
+    }
+    // Codex's managed daemon was stopped under the lock this start still holds.
+    if let Some(start_lock) = start_lock {
         return launch_terminal_service(service, launch, cancel, executable, start_lock, &locked)
             .await;
     }
@@ -251,38 +303,66 @@ async fn start_terminal_service(
             "the Codex folder's socket link could not be checked"
         );
     }
-    let kept = locked
-        .read()
-        .map_err(|error| start_failed("The Codex service's record could not be read.", error))?;
-    if let Some(record) = kept {
-        let repinned = repin_lasting_codex_service(record.clone())
-            .map_err(|error| start_failed("The Codex service could not be found again.", error))?;
-        match repinned {
-            Some(lasting) => {
-                return join_former_service(service, launch, cancel, executable, lasting).await;
+    let mut kept = read_kept_records(&dependencies.data_folder, &codex_home, &locked).await?;
+    match kept.len() {
+        0 => {}
+        1 => {
+            let (kept_locked, record) = kept.remove(0);
+            let repinned = repin_lasting_codex_service(record.clone()).map_err(|error| {
+                start_failed("The Codex service could not be found again.", error)
+            })?;
+            match repinned {
+                Some(lasting) => {
+                    let record_file = kept_locked.file().clone();
+                    return join_former_service(
+                        service,
+                        launch,
+                        cancel,
+                        executable,
+                        lasting,
+                        record_file,
+                    )
+                    .await;
+                }
+                None => retire_former_service(&kept_locked, record).await?,
             }
-            None => retire_former_service(&locked, record).await?,
+        }
+        // A planned restart the daemon's own stop cut short left both services: neither is
+        // known to be the one terminals reach, so both go and the folder starts afresh.
+        _ => {
+            for (kept_locked, record) in kept {
+                retire_recorded_service(&kept_locked, record, &socket).await?;
+            }
         }
     }
     let deadline = tokio::time::Instant::now() + dependencies.startup_timeout;
     let start_lock = loop {
+        if cancel.is_cancelled() {
+            return Err(StartFailure::from(CodexError::Transport {
+                detail: "The Codex service's start was stood down.".to_owned(),
+                cause: None,
+            }));
+        }
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if let Ok((connection, reply)) =
-            connect(service, launch, CodexSocketWait::Never, None, cancel).await
-        {
-            // Something answers that is not the daemon's: Codex's own managed daemon.
+        if remaining.is_zero() {
+            return Err(StartFailure::from(CodexError::Transport {
+                detail: format!(
+                    "The Codex folder's socket was not free within {:?} of the start.",
+                    dependencies.startup_timeout
+                ),
+                cause: None,
+            }));
+        }
+        if is_listening(&socket).await? {
+            // Something answers that is not the daemon's: Codex's own managed daemon, or a
+            // service no pid file names.
+            let (connection, reply) =
+                connect(service, launch, CodexSocketWait::Never, None, cancel).await?;
             if !read_codex_loaded_threads(&connection).await?.is_empty() {
-                return Ok(StartedService {
-                    kind: CodexServiceKind::Joined,
-                    process: None,
-                    connection,
-                    version: read_service_version(&reply, executable)?,
-                    is_restart_owed: false,
-                });
+                return join_listener(connection, &reply, executable, &socket).await;
             }
-            close_quietly(&connection).await;
             let start_lock = take_start_lock(&codex_home, remaining).await?;
-            stop_codex_managed_daemon(&codex_home, &socket, &start_lock)
+            let is_stopped = stop_codex_managed_daemon(&codex_home, &socket, &start_lock)
                 .await
                 .map_err(|error| {
                     start_failed(
@@ -290,21 +370,78 @@ async fn start_terminal_service(
                         error,
                     )
                 })?;
+            // No pid file names the listener, so nothing the daemon may stop holds the socket.
+            if !is_stopped {
+                return join_listener(connection, &reply, executable, &socket).await;
+            }
+            close_quietly(&connection).await;
             break start_lock;
         }
         let start_lock = take_start_lock(&codex_home, remaining).await?;
         // Codex's updater holds the lock across a restart of its own, so a service may listen
         // now: that is the managed daemon again.
-        if sidekicks_platforms::connect_unix_domain_socket(&socket)
-            .await
-            .is_ok()
-        {
+        if is_listening(&socket).await? {
             drop(start_lock);
             continue;
         }
         break start_lock;
     };
     launch_terminal_service(service, launch, cancel, executable, start_lock, &locked).await
+}
+
+// A service already listening on the folder's socket, joined as it is.
+async fn join_listener(
+    connection: Arc<CodexAppServerConnection>,
+    reply: &RawValue,
+    executable: &ResolvedProviderExecutable,
+    socket: &Path,
+) -> Result<StartedService, StartFailure> {
+    Ok(StartedService {
+        kind: CodexServiceKind::Joined,
+        process: None,
+        version: read_service_version(reply, executable)?,
+        physical_socket: read_physical_socket(socket).await,
+        is_restart_owed: false,
+        connection,
+    })
+}
+
+// Every record kept for the folder's services, each under its lock: the start's own, held in
+// `own`, and every other one found beside it.
+async fn read_kept_records(
+    data_folder: &Path,
+    codex_home: &Path,
+    own: &Arc<LockedServiceRecord>,
+) -> Result<Vec<(Arc<LockedServiceRecord>, ProcessRecord)>, StartFailure> {
+    let data_folder = data_folder.to_owned();
+    let codex_home = codex_home.to_owned();
+    let own_file = own.file().clone();
+    let others = tokio::task::spawn_blocking(move || {
+        let mut others = Vec::new();
+        for file in LastingServiceRecordFile::all_of_home(&data_folder, &codex_home)? {
+            if file == own_file {
+                continue;
+            }
+            let locked = file.lock()?;
+            if let Some(record) = locked.read()? {
+                others.push((Arc::new(locked), record));
+            }
+        }
+        Ok::<_, io::Error>(others)
+    })
+    .await
+    .map_err(io::Error::other)
+    .and_then(|others| others)
+    .map_err(|error| start_failed("The Codex services' records could not be read.", error))?;
+    let mut kept = Vec::new();
+    if let Some(record) = on_record(own, LockedServiceRecord::read)
+        .await
+        .map_err(|error| start_failed("The Codex service's record could not be read.", error))?
+    {
+        kept.push((Arc::clone(own), record));
+    }
+    kept.extend(others);
+    Ok(kept)
 }
 
 // A lasting service a former daemon left: joined, its hooks compared with this daemon's.
@@ -314,8 +451,12 @@ async fn join_former_service(
     cancel: &CancellationToken,
     executable: &ResolvedProviderExecutable,
     lasting: LastingCodexService,
+    record_file: LastingServiceRecordFile,
 ) -> Result<StartedService, StartFailure> {
-    let process = Some(CodexServiceProcess::Lasting(lasting));
+    let process = Some(CodexServiceProcess::Lasting {
+        service: lasting,
+        record_file,
+    });
     let joined = async {
         let (connection, reply) =
             connect(service, launch, CodexSocketWait::Never, None, cancel).await?;
@@ -347,6 +488,7 @@ async fn join_former_service(
             process,
             connection,
             version,
+            physical_socket: read_physical_socket(service.socket_path()).await,
             is_restart_owed,
         }),
         Err(error) => Err(StartFailure { error, process }),
@@ -361,7 +503,7 @@ async fn launch_terminal_service(
     cancel: &CancellationToken,
     executable: &ResolvedProviderExecutable,
     start_lock: CodexStartLock,
-    locked: &LockedServiceRecord,
+    locked: &Arc<LockedServiceRecord>,
 ) -> Result<StartedService, StartFailure> {
     let dependencies = service.dependencies();
     let codex_home = &service.home().codex_home;
@@ -406,13 +548,18 @@ async fn launch_terminal_service(
     let lasting = start_lasting_codex_service(&dependencies.spawner, process_launch, &log_file)
         .await
         .map_err(|error| start_failed("The Codex service could not be started.", error))?;
-    if let Err(error) = locked.write(lasting.record()) {
+    let record_file = locked.file().clone();
+    let record = lasting.record().clone();
+    if let Err(error) = on_record(locked, move |locked| locked.write(&record)).await {
         return Err(StartFailure {
             error: CodexError::Transport {
                 detail: "The Codex service's record could not be kept.".to_owned(),
                 cause: Some(Box::new(error)),
             },
-            process: Some(CodexServiceProcess::Lasting(lasting)),
+            process: Some(CodexServiceProcess::Lasting {
+                service: lasting,
+                record_file,
+            }),
         });
     }
     let opened = connect(
@@ -425,7 +572,10 @@ async fn launch_terminal_service(
     .await;
     // Held only for the seconds the start takes.
     drop(start_lock);
-    let process = Some(CodexServiceProcess::Lasting(lasting));
+    let process = Some(CodexServiceProcess::Lasting {
+        service: lasting,
+        record_file,
+    });
     let trusted = match opened {
         Ok((connection, reply)) => match trust_codex_daemon_hooks(&connection, &hook_commands)
             .await
@@ -442,6 +592,7 @@ async fn launch_terminal_service(
             process,
             connection,
             version,
+            physical_socket: read_physical_socket(service.socket_path()).await,
             is_restart_owed: false,
         }),
         Err(error) => Err(StartFailure { error, process }),
@@ -631,6 +782,58 @@ async fn take_start_lock(
     take_codex_start_lock(codex_home, remaining)
         .await
         .map_err(|error| start_failed("Codex's start lock on the folder was not free.", error))
+}
+
+// Whether a service listens on `socket`: nothing there and a socket file no one listens on answer
+// `false`; any other failure fails the start.
+async fn is_listening(socket: &Path) -> Result<bool, StartFailure> {
+    match connect_unix_domain_socket(socket).await {
+        Ok(_listening) => Ok(true),
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+            ) =>
+        {
+            Ok(false)
+        }
+        Err(error) => Err(start_failed(
+            "The Codex folder's socket could not be reached.",
+            error,
+        )),
+    }
+}
+
+/// Where the socket at `socket` really is: the link's target, or `socket` itself where it is no
+/// link or the link cannot be read, which is logged.
+pub(super) async fn read_physical_socket(socket: &Path) -> PathBuf {
+    let path = socket.to_owned();
+    let read = tokio::task::spawn_blocking(move || read_socket_link(&path))
+        .await
+        .map_err(io::Error::other)
+        .and_then(|read| read);
+    match read {
+        Ok(target) => target.unwrap_or_else(|| socket.to_owned()),
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                socket = %socket.display(),
+                "where a Codex service's socket really is could not be read"
+            );
+            socket.to_owned()
+        }
+    }
+}
+
+// Runs `access` on the held record on the blocking pool, since each reads or writes a file.
+async fn on_record<Answer: Send + 'static>(
+    locked: &Arc<LockedServiceRecord>,
+    access: impl FnOnce(&LockedServiceRecord) -> io::Result<Answer> + Send + 'static,
+) -> io::Result<Answer> {
+    let locked = Arc::clone(locked);
+    tokio::task::spawn_blocking(move || access(&locked))
+        .await
+        .map_err(io::Error::other)?
 }
 
 // Closes a connection the start no longer needs; a failed close is logged.

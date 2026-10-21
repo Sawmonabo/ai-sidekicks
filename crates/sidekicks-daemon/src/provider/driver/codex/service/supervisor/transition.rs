@@ -33,7 +33,8 @@ pub(crate) enum SupervisorState {
         launch: u64,
         /// The ticket of the open connection.
         dial: u64,
-        /// The redial the connection came up at, 0 for a start.
+        /// How many redials the drops since the last stable connection made, 0 for a start; the
+        /// next drop's wait grows from it.
         attempt: u32,
         /// When the connection came up.
         since: Instant,
@@ -48,7 +49,8 @@ pub(crate) enum SupervisorState {
         launch: u64,
         /// The ticket of the redial under way.
         dial: u64,
-        /// Which redial it is, 0 for the first.
+        /// How many redials came before this one since the last stable connection, which its wait
+        /// grows from.
         attempt: u32,
     },
     /// The process ended on its own and the crash window's wait runs before the next start.
@@ -209,12 +211,12 @@ pub(crate) enum SupervisorAction {
         /// Whether the process ended, so its handle is let go of too.
         is_process_gone: bool,
     },
-    /// Waits redial `attempt`'s wait, then dials under `dial`, reporting `Reconnected` or
-    /// `ReconnectFailed`.
+    /// Waits the wait grown from `attempt` earlier redials, then dials under `dial`, reporting
+    /// `Reconnected` or `ReconnectFailed`.
     Dial {
         /// The redial's ticket.
         dial: u64,
-        /// Which redial it is.
+        /// How many redials came before it.
         attempt: u32,
     },
     /// Waits `wait` before a crash restart, reporting `WaitElapsed`.
@@ -408,7 +410,7 @@ impl Supervision {
         )
     }
 
-    // The next redial after `attempt`.
+    // A redial after `attempt` earlier ones, waiting the wait grown from that count.
     fn redial(
         &mut self,
         launch: u64,
@@ -596,14 +598,9 @@ impl Supervision {
                 ),
                 Some(_) | None => {
                     let is_stable = at.saturating_duration_since(since) >= RECONNECT_STABLE_UPTIME;
-                    let next_attempt = if is_stable {
-                        0
-                    } else {
-                        attempt.saturating_add(1)
-                    };
                     self.redial(
                         launch,
-                        next_attempt,
+                        if is_stable { 0 } else { attempt },
                         vec![
                             Action::Disconnect {
                                 is_process_gone: false,
@@ -696,7 +693,7 @@ impl Supervision {
                 State::Up {
                     launch,
                     dial,
-                    attempt,
+                    attempt: attempt.saturating_add(1),
                     since: at,
                     draining: None,
                 },

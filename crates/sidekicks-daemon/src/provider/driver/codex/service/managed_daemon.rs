@@ -2,8 +2,9 @@
 //! so the daemon's terminal service can take the folder, as Codex's own updater stops it: under
 //! Codex's start lock, each process named by its pid file and checked against the identity the
 //! file records, so a process given a freed id is never signaled. On macOS and Linux the server
-//! is asked to stop with `SIGTERM` and killed with its group after the grace; on Windows, which
-//! has no signal, the server takes Codex's own shutdown request and the updater a `.shutdown` file
+//! is asked to stop with `SIGTERM` and the updater with `SIGTERM` to its whole group, as Codex's
+//! own updater stops it, and each is killed with its group after the grace; on Windows, which has
+//! no signal, the server takes Codex's own shutdown request and the updater a `.shutdown` file
 //! beside its pid file, and each is ended after the grace.
 
 use std::io;
@@ -59,10 +60,7 @@ enum CodexProcessIdentity {
     },
     MacOsUnique {
         boot_id: String,
-        // Codex's mark of the process on macOS, which the platforms crate does not read; boot and
-        // start alone are compared.
-        #[serde(rename = "uniqueId")]
-        _unique_id: u64,
+        unique_id: u64,
         start_seconds: u64,
         start_microseconds: u64,
     },
@@ -73,9 +71,10 @@ enum CodexProcessIdentity {
 }
 
 impl CodexPidRecord {
-    // Whether the running process `running` is the one this record names: its boot, where the
-    // record keeps one, and its start as the system writes it.
-    fn names(&self, running: &ProcessIdentity) -> bool {
+    // Whether the running process `running`, whose system mark is `running_mark`, is the one this
+    // record names: its boot, where the record keeps one, its start as the system writes it, and
+    // on macOS its unique id where the record keeps one.
+    fn names(&self, running: &ProcessIdentity, running_mark: u64) -> bool {
         let start = running.process_start_time.as_ref();
         let boot = running.boot_id.as_ref();
         match &self.process_identity {
@@ -85,10 +84,14 @@ impl CodexPidRecord {
             }) => boot_id == boot && start_ticks.to_string() == start,
             Some(CodexProcessIdentity::MacOsUnique {
                 boot_id,
+                unique_id,
                 start_seconds,
                 start_microseconds,
-                ..
-            }) => boot_id == boot && macos_start(*start_seconds, *start_microseconds) == start,
+            }) => {
+                boot_id == boot
+                    && *unique_id == running_mark
+                    && macos_start(*start_seconds, *start_microseconds) == start
+            }
             Some(CodexProcessIdentity::MacOs {
                 start_seconds,
                 start_microseconds,
@@ -110,28 +113,32 @@ fn macos_start(start_seconds: u64, start_microseconds: u64) -> String {
 
 /// Stops Codex's managed daemon on `codex_home`: each pid file found, of either pair, whose
 /// process is still the one it records. `control_socket` is the home's control socket, over which
-/// Windows' shutdown request goes. Fails with the first stop that failed, once every one ran.
+/// Windows' shutdown request goes. Answers whether any process was stopped; fails with the first
+/// stop that failed, once every one ran.
 pub(crate) async fn stop_codex_managed_daemon(
     codex_home: &Path,
     control_socket: &Path,
     _start_lock: &CodexStartLock,
-) -> io::Result<()> {
+) -> io::Result<bool> {
     let folder = codex_daemon_state_folder(codex_home);
-    let mut outcome = Ok(());
+    let mut outcome = Ok(false);
     for (server, updater) in CODEX_PID_FILE_PAIRS {
         for (file_name, role) in [
             (server, ManagedProcessRole::Server),
             (updater, ManagedProcessRole::Updater),
         ] {
-            let stopped =
-                stop_recorded_process(&folder.join(file_name), role, control_socket).await;
-            if let Err(error) = stopped {
-                tracing::warn!(
-                    error = &error as &(dyn std::error::Error + 'static),
-                    pid_file = file_name,
-                    "a process of Codex's managed daemon could not be stopped"
-                );
-                outcome = outcome.and(Err(error));
+            match stop_recorded_process(&folder.join(file_name), role, control_socket).await {
+                Ok(is_stopped) => {
+                    outcome = outcome.map(|was_stopped| was_stopped || is_stopped);
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        error = &error as &(dyn std::error::Error + 'static),
+                        pid_file = file_name,
+                        "a process of Codex's managed daemon could not be stopped"
+                    );
+                    outcome = outcome.and(Err(error));
+                }
             }
         }
     }
@@ -139,15 +146,15 @@ pub(crate) async fn stop_codex_managed_daemon(
 }
 
 // Stops the process `pid_file` records, when the file is there and its process still runs as
-// recorded.
+// recorded; answers whether it stopped one.
 async fn stop_recorded_process(
     pid_file: &Path,
     role: ManagedProcessRole,
     control_socket: &Path,
-) -> io::Result<()> {
+) -> io::Result<bool> {
     let text = match tokio::fs::read_to_string(pid_file).await {
         Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error),
     };
     let record: CodexPidRecord = serde_json::from_str(&text)
@@ -161,20 +168,28 @@ async fn stop_recorded_process(
         let Some(running) = process_identity(pid)? else {
             return Ok(None);
         };
-        Ok(record.names(&running).then_some(pinned))
+        let Some(running_record) = pinned.record()? else {
+            return Ok(None);
+        };
+        Ok(record
+            .names(&running, running_record.start())
+            .then_some(pinned))
     })
     .await
     .map_err(io::Error::other)??;
     let Some(pinned) = pinned else {
-        return Ok(());
+        return Ok(false);
     };
     if !CAN_SIGNAL_A_STOP {
         ask_to_stop_without_a_signal(pid_file, role, pid, control_socket).await;
     }
-    tokio::task::spawn_blocking(move || pinned.stop(CODEX_MANAGED_DAEMON_GRACE))
-        .await
-        .map_err(io::Error::other)?
-        .map(drop)
+    tokio::task::spawn_blocking(move || match role {
+        ManagedProcessRole::Server => pinned.stop(CODEX_MANAGED_DAEMON_GRACE),
+        ManagedProcessRole::Updater => pinned.stop_group(CODEX_MANAGED_DAEMON_GRACE),
+    })
+    .await
+    .map_err(io::Error::other)??;
+    Ok(true)
 }
 
 // Where a stop sends no signal: the server's shutdown request over its control socket, the

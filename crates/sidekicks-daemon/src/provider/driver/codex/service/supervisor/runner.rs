@@ -5,7 +5,6 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant, SystemTime};
@@ -20,7 +19,7 @@ use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::service::managed_daemon::stop_codex_managed_daemon;
 use crate::provider::driver::codex::service::record::LastingServiceRecordFile;
 use crate::provider::driver::codex::service::socket_link::clear_socket_link_of;
-use crate::provider::driver::codex::service::start_lock::take_codex_start_lock;
+use crate::provider::driver::codex::service::start_lock::{CodexStartLock, take_codex_start_lock};
 use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::service::supervisor::reconnect::reconnect_wait;
 use crate::provider::driver::codex::service::supervisor::start::{
@@ -42,7 +41,8 @@ use crate::provider::spawned_version::SpawnedProviderVersionReading;
 
 /// How long the daemon's own service has to stop before it is killed, as long as the daemon
 /// gives every child at its own stop.
-const SERVICE_STOP_GRACE: Duration = Duration::from_millis(DAEMON_STOP_TERMINAL_DRAIN_MS);
+pub(super) const SERVICE_STOP_GRACE: Duration =
+    Duration::from_millis(DAEMON_STOP_TERMINAL_DRAIN_MS);
 
 /// One event for the runner, with what its outcome parked for the runner to adopt or tear down.
 pub(super) struct RunnerInput {
@@ -50,6 +50,8 @@ pub(super) struct RunnerInput {
     // What the outcome parked, under its ticket.
     parked: Option<(u64, Parked)>,
     exit: Option<ProcessExit>,
+    // Codex's start lock, held for the start the event leads to.
+    start_lock: Option<CodexStartLock>,
 }
 
 impl RunnerInput {
@@ -59,6 +61,7 @@ impl RunnerInput {
             event,
             parked: None,
             exit: None,
+            start_lock: None,
         }
     }
 }
@@ -84,6 +87,8 @@ pub(super) struct ServiceRunner {
     pending: CancellationToken,
     // How the process last ended, until the exit is reported.
     last_exit: Option<ProcessExit>,
+    // Codex's start lock an input carried, for the start its event leads to.
+    start_lock: Option<CodexStartLock>,
 }
 
 impl ServiceRunner {
@@ -99,6 +104,7 @@ impl ServiceRunner {
             process: None,
             pending: CancellationToken::new(),
             last_exit: None,
+            start_lock: None,
         }
     }
 
@@ -112,6 +118,7 @@ impl ServiceRunner {
                 mut event,
                 parked,
                 exit,
+                start_lock,
             } = input;
             if let Some((ticket, parked)) = parked {
                 self.parked.insert(ticket, parked);
@@ -119,11 +126,14 @@ impl ServiceRunner {
             if exit.is_some() {
                 self.last_exit = exit;
             }
+            self.start_lock = start_lock;
             self.read_process_gone(&mut event);
             let actions = service.lock_supervision().transition(event);
             for action in actions {
-                self.carry_out(&service, action);
+                self.carry_out(&service, action).await;
             }
+            // A lock no start took is let go of with its event.
+            self.start_lock = None;
         }
     }
 
@@ -139,10 +149,10 @@ impl ServiceRunner {
         else {
             return;
         };
-        if let Some(CodexServiceProcess::Lasting(lasting)) = &self.process
-            && lasting.exited().is_none()
+        if let Some(CodexServiceProcess::Lasting { service, .. }) = &self.process
+            && service.exited().is_none()
         {
-            match lasting.has_ended() {
+            match service.has_ended() {
                 Ok(true) => *process_gone_at = Some(SystemTime::now()),
                 Ok(false) => {}
                 Err(error) => tracing::warn!(
@@ -153,7 +163,7 @@ impl ServiceRunner {
         }
     }
 
-    fn carry_out(&mut self, service: &Arc<CodexService>, action: SupervisorAction) {
+    async fn carry_out(&mut self, service: &Arc<CodexService>, action: SupervisorAction) {
         match action {
             SupervisorAction::Launch { launch } => self.launch(service, launch),
             SupervisorAction::AdoptStart { launch } => self.adopt_start(service, launch),
@@ -164,6 +174,9 @@ impl ServiceRunner {
             } => self.tear_down(service, ticket, ends_lasting_service),
             SupervisorAction::Disconnect { is_process_gone } => {
                 self.disconnect(service, is_process_gone);
+                if is_process_gone {
+                    clear_home_socket_link(service).await;
+                }
             }
             SupervisorAction::Dial { dial, attempt } => self.dial(service, dial, attempt),
             SupervisorAction::WaitToRestart { ticket, wait } => {
@@ -206,6 +219,7 @@ impl ServiceRunner {
                     .process_exited(service, exit.as_ref());
             }
             SupervisorAction::ReportCrashLoop => {
+                clear_home_socket_link(service).await;
                 report_crash_loop(service);
                 service.dependencies.events.crash_loop(service);
             }
@@ -224,12 +238,14 @@ impl ServiceRunner {
         }
     }
 
-    fn launch(&self, service: &Arc<CodexService>, launch: u64) {
+    fn launch(&mut self, service: &Arc<CodexService>, launch: u64) {
         service.routed_dial.store(launch, Ordering::Release);
         let starting = Arc::clone(service);
         let cancel = self.pending.child_token();
+        let start_lock = self.start_lock.take();
         tokio::spawn(async move {
-            let input = match start_codex_service(Arc::clone(&starting), launch, cancel).await {
+            let started = start_codex_service(Arc::clone(&starting), launch, cancel, start_lock);
+            let input = match started.await {
                 Ok(started) => RunnerInput {
                     event: SupervisorEvent::Started {
                         launch,
@@ -238,6 +254,7 @@ impl ServiceRunner {
                     },
                     parked: Some((launch, Parked::Started(started))),
                     exit: None,
+                    start_lock: None,
                 },
                 Err(failure) => RunnerInput {
                     event: SupervisorEvent::StartFailed {
@@ -247,6 +264,7 @@ impl ServiceRunner {
                     },
                     parked: Some((launch, Parked::Failed(failure.process))),
                     exit: None,
+                    start_lock: None,
                 },
             };
             starting.send_input(input);
@@ -273,11 +291,13 @@ impl ServiceRunner {
                         },
                         parked: None,
                         exit: exit.ok(),
+                        start_lock: None,
                     });
                 }
             });
         }
         log_version(service, &started.version);
+        *service.lock_physical_socket() = Some(started.physical_socket);
         *service.lock_live() = super::LiveService {
             connection: Some(started.connection),
             process_id: started
@@ -392,6 +412,7 @@ impl ServiceRunner {
                             },
                         )),
                         exit: None,
+                        start_lock: None,
                     }
                 }
                 Err(error) => {
@@ -429,8 +450,10 @@ impl ServiceRunner {
             if let Some(connection) = connection {
                 close_connection(&connection).await;
             }
-            if let Some(process) = process {
-                stop_process(&stopping, process, ends_lasting_service).await;
+            if let Some(process) = process
+                && stop_process(&stopping, process, ends_lasting_service).await
+            {
+                clear_home_socket_link(&stopping).await;
             }
             stopping.send(SupervisorEvent::StopDone { ticket: launch });
         });
@@ -438,7 +461,9 @@ impl ServiceRunner {
 }
 
 // Codex's own managed daemon, joined while it had conversations of its own, is stopped once it
-// has none, under its start lock, so the daemon's own terminal service takes its place.
+// has none, under its start lock, which the daemon's own terminal service's start keeps, so it
+// takes the managed daemon's place with no terminal starting another in between. A listener no
+// pid file names is left joined.
 fn check_joined_service_free(service: &Arc<CodexService>, dial: u64) {
     let Ok(connection) = service.connection() else {
         return;
@@ -460,10 +485,18 @@ fn check_joined_service_free(service: &Arc<CodexService>, dial: u64) {
         let stopped = async {
             let lock =
                 take_codex_start_lock(&codex_home, checking.dependencies.startup_timeout).await?;
-            stop_codex_managed_daemon(&codex_home, checking.socket_path(), &lock).await
+            let is_stopped =
+                stop_codex_managed_daemon(&codex_home, checking.socket_path(), &lock).await?;
+            Ok::<_, io::Error>(is_stopped.then_some(lock))
         };
         match stopped.await {
-            Ok(()) => checking.send(SupervisorEvent::JoinedServiceFreed { dial }),
+            Ok(Some(lock)) => checking.send_input(RunnerInput {
+                event: SupervisorEvent::JoinedServiceFreed { dial },
+                parked: None,
+                exit: None,
+                start_lock: Some(lock),
+            }),
+            Ok(None) => {}
             Err(error) => report_stop_failed(error),
         }
     });
@@ -512,13 +545,13 @@ async fn close_connection(connection: &CodexAppServerConnection) {
 }
 
 // Ends a service process by its kind: the daemon's own child asked to stop and killed once the
-// wait runs out; a lasting service, only when `ends_lasting_service`, stopped, its record removed
-// and the home's link taken off it; else it is left running in its record.
+// wait runs out; a lasting service, only when `ends_lasting_service`, stopped and its record
+// removed; else it is left running in its record. Answers whether it was ended.
 async fn stop_process(
     service: &CodexService,
     process: CodexServiceProcess,
     ends_lasting_service: bool,
-) {
+) -> bool {
     match process {
         CodexServiceProcess::Managed(managed) => {
             managed.stop();
@@ -532,44 +565,45 @@ async fn stop_process(
                 }
             }
         }
-        CodexServiceProcess::Lasting(lasting) => {
+        CodexServiceProcess::Lasting {
+            service: lasting,
+            record_file,
+        } => {
             if !ends_lasting_service {
-                return;
+                return false;
             }
-            let real_socket = real_socket_of(service.socket_path());
             if let Err(error) = lasting
                 .stop(SERVICE_STOP_GRACE, service.socket_path())
                 .await
             {
                 report_stop_failed(error);
             }
-            remove_lasting_record(service, lasting.record().clone()).await;
-            // A clean exit removed Codex's own link already; a killed service left it dangling.
-            if let Err(error) = clear_socket_link_of(&service.socket.home_socket, &real_socket) {
-                report_stop_failed(error);
-            }
+            remove_lasting_record(record_file, lasting.record().clone()).await;
         }
+    }
+    true
+}
+
+// Takes the home's link off the service's socket once its process has ended: a clean exit removed
+// Codex's own link already, a killed one left it dangling, and a link the daemon moved onto
+// another service's socket is left.
+async fn clear_home_socket_link(service: &CodexService) {
+    let Some(physical_socket) = service.lock_physical_socket().clone() else {
+        return;
+    };
+    let home_socket = service.socket.home_socket.clone();
+    let cleared =
+        tokio::task::spawn_blocking(move || clear_socket_link_of(&home_socket, &physical_socket))
+            .await
+            .map_err(io::Error::other)
+            .and_then(|cleared| cleared);
+    if let Err(error) = cleared {
+        report_stop_failed(error);
     }
 }
 
-// Where a service's socket really lives, the path a home link to it names.
-fn real_socket_of(socket: &std::path::Path) -> PathBuf {
-    sidekicks_platforms::read_socket_link(socket)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| socket.to_path_buf())
-}
-
-// Removes the lasting service's record once it has stopped, when the record still names it: a
-// planned restart's second service has taken the first's record over.
-async fn remove_lasting_record(service: &CodexService, stopped: ProcessRecord) {
-    let record_file = match LastingServiceRecordFile::of_home(
-        &service.dependencies.data_folder,
-        &service.home.codex_home,
-    ) {
-        Ok(record_file) => record_file,
-        Err(error) => return report_stop_failed(error),
-    };
+// Removes the lasting service's record once it has stopped, when the record still names it.
+async fn remove_lasting_record(record_file: LastingServiceRecordFile, stopped: ProcessRecord) {
     let removed = tokio::task::spawn_blocking(move || {
         let locked = record_file.lock()?;
         if locked.read()?.as_ref() == Some(&stopped) {

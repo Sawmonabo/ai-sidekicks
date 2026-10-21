@@ -1,7 +1,8 @@
-//! Where a daemon keeps the record of the lasting Codex service on a Codex folder, so a later
-//! daemon finds the same process again: one JSON file per folder under the daemon's data folder,
-//! never in the Codex folder itself, replaced whole through a temporary file and read or written
-//! only under a lock on the file beside it, so two daemons never start two services on one folder.
+//! Where a daemon keeps the record of each lasting Codex service on a Codex folder, so a later
+//! daemon finds the same processes again: one JSON file per service, named for the socket it
+//! listens on, in a folder per Codex folder under the daemon's data folder, never in the Codex
+//! folder itself; each is replaced whole through a temporary file and read or written only under a
+//! lock on the file beside it, so two daemons never start two services on one socket.
 
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -16,10 +17,13 @@ use crate::provider::service_log::provider_home_key;
 /// The folder in the data folder that holds the lasting services' records.
 const RECORD_FOLDER_NAME: &str = "codex-services";
 
+/// The end of a record file's name, after the socket's own name.
+const RECORD_FILE_SUFFIX: &str = ".json";
+
 /// The mode a record is written with, before the umask: the user's alone.
 const RECORD_FILE_MODE: u32 = 0o600;
 
-/// The record file of the lasting service on one Codex folder.
+/// The record file of the lasting service on one socket of a Codex folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LastingServiceRecordFile {
     record: PathBuf,
@@ -34,16 +38,53 @@ pub(crate) struct LastingServiceRecordFile {
     )
 )]
 impl LastingServiceRecordFile {
-    /// The record file of the service on `codex_home`, in `data_folder`; `codex_home` is resolved
-    /// first, so two spellings of one folder share one record. Fails with the resolve's error, a
-    /// missing folder among them.
-    pub(crate) fn of_home(data_folder: &Path, codex_home: &Path) -> io::Result<Self> {
-        let key = provider_home_key(&real_path(codex_home)?);
-        let record = data_folder
-            .join(RECORD_FOLDER_NAME)
-            .join(format!("{key}.json"));
+    /// The record file of the service on `codex_home` listening on `socket`, in `data_folder`;
+    /// `codex_home` is resolved first, so two spellings of one folder share one record. Fails with
+    /// the resolve's error, a missing folder among them, and with `InvalidInput` for a socket path
+    /// that names no file.
+    pub(crate) fn of_socket(
+        data_folder: &Path,
+        codex_home: &Path,
+        socket: &Path,
+    ) -> io::Result<Self> {
+        let socket_name = socket.file_name().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a Codex service's socket path names no file",
+            )
+        })?;
+        let record = home_record_folder(data_folder, codex_home)?.join(format!(
+            "{}{RECORD_FILE_SUFFIX}",
+            socket_name.to_string_lossy()
+        ));
+        Ok(Self::at(record))
+    }
+
+    /// Every record file kept for the services on `codex_home`, in `data_folder`. Blocking. Fails
+    /// with the resolve's error and the folder's read error; a folder never made holds none.
+    pub(crate) fn all_of_home(data_folder: &Path, codex_home: &Path) -> io::Result<Vec<Self>> {
+        let entries = match std::fs::read_dir(home_record_folder(data_folder, codex_home)?) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error),
+        };
+        let mut files = Vec::new();
+        for entry in entries {
+            let path = entry?.path();
+            if path
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().ends_with(RECORD_FILE_SUFFIX))
+            {
+                files.push(Self::at(path));
+            }
+        }
+        Ok(files)
+    }
+
+    // The record at `record`, with its lock beside it.
+    fn at(record: PathBuf) -> Self {
         let lock = record.with_extension("json.lock");
-        Ok(Self { record, lock })
+        Self { record, lock }
     }
 
     /// Takes the record's lock, waiting while another daemon holds it; blocking, so it runs in
@@ -75,6 +116,12 @@ pub(crate) struct LockedServiceRecord {
     _lock: File,
 }
 
+/// The folder of the records of the services on `codex_home`, named for the folder resolved.
+fn home_record_folder(data_folder: &Path, codex_home: &Path) -> io::Result<PathBuf> {
+    let key = provider_home_key(&real_path(codex_home)?);
+    Ok(data_folder.join(RECORD_FOLDER_NAME).join(key))
+}
+
 #[cfg_attr(
     not(test),
     expect(
@@ -83,6 +130,11 @@ pub(crate) struct LockedServiceRecord {
     )
 )]
 impl LockedServiceRecord {
+    /// The record file the hold is on.
+    pub(crate) fn file(&self) -> &LastingServiceRecordFile {
+        &self.file
+    }
+
     /// The record kept, or `None` when none is. Blocking. Fails with the read's error, and with
     /// `InvalidData` for a file that does not read as a record.
     pub(crate) fn read(&self) -> io::Result<Option<ProcessRecord>> {
@@ -131,8 +183,12 @@ mod tests {
             .record()
             .expect("the record reads")
             .expect("this process runs");
-        let file = LastingServiceRecordFile::of_home(data_folder.path(), data_folder.path())
-            .expect("the folder resolves");
+        let file = LastingServiceRecordFile::of_socket(
+            data_folder.path(),
+            data_folder.path(),
+            &data_folder.path().join("app-server-control.sock"),
+        )
+        .expect("the folder resolves");
 
         let locked = file.lock().expect("the lock is taken");
         let before = locked.read().expect("a missing record reads");

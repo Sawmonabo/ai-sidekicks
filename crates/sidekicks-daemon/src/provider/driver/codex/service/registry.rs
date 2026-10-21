@@ -7,12 +7,13 @@
 //! terminal joins it (an inference: off means no terminal joins anything of the daemon's).
 
 use std::collections::HashMap;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_platforms::CAN_MOVE_SOCKET_LINK;
+use sidekicks_platforms::replace_socket_link;
 
 use crate::provider::driver::codex::service::home::{
     CodexHomeKind, CodexServiceHome, CodexServiceKind,
@@ -125,14 +126,27 @@ impl CodexServiceRegistry {
     }
 
     /// Stops the service on the person's own Codex folder as the switch turns terminal reach off,
-    /// the terminal service ended with it, and forgets it, so the folder's next session starts
-    /// the service the switch now names. Fails as the home's resolve does.
+    /// once no terminal session is inside it and no command a session left on it runs, the
+    /// terminal service ended with it, and forgets it, so the folder's next session starts the
+    /// service the switch now names. Fails as the home's resolve does, and as the wait's read of
+    /// the conversations inside does, the service then left running.
     pub(crate) async fn stop_terminal_service(&self) -> Result<(), DriverError> {
         let home = self.homes.codex_home_for(None).await?;
-        let removed = self.lock().by_home.remove(&home.codex_home);
-        if let Some(service) = removed {
-            service.stop().await;
+        let Some(service) = self.lock().by_home.get(&home.codex_home).cloned() else {
+            return Ok(());
+        };
+        service.when_free_to_stop().await?;
+        {
+            let mut services = self.lock();
+            if services
+                .by_home
+                .get(&home.codex_home)
+                .is_some_and(|registered| Arc::ptr_eq(registered, &service))
+            {
+                services.by_home.remove(&home.codex_home);
+            }
         }
+        service.stop().await;
         Ok(())
     }
 
@@ -141,24 +155,28 @@ impl CodexServiceRegistry {
         self.lock().by_home.values().cloned().collect()
     }
 
-    /// Starts a second service on `service`'s home, which becomes the home's service from now on;
-    /// the first stays until its conversations have moved off it. On macOS and Linux the second
-    /// listens on a socket of its own and the home's control socket is pointed at it once it is
-    /// up; on Windows, which has no link, the first is stopped first and the second takes the
-    /// home's own socket, terminals reconnecting by themselves. Fails as the start does, and when
-    /// the home's socket could not be pointed at the second, which then runs on unreached.
+    /// Starts a second service on `service`'s home, which becomes the home's service once it is
+    /// up; the first stays until its conversations have moved off it. Where the home's control
+    /// socket is a link, the second listens on a socket of its own and the link is pointed at it
+    /// once it is up; where the system refuses to move it, the path being the socket itself, the
+    /// first is stopped once no terminal session is inside it and no command left on it runs, and
+    /// the second takes the home's own socket, terminals reconnecting by themselves. Fails as the
+    /// start does, the first then kept as the home's service, and when the home's socket could not
+    /// be pointed at the second, which then runs on unreached.
     pub(crate) async fn replace(
         &self,
         service: &Arc<CodexService>,
     ) -> Result<Arc<CodexService>, CodexError> {
         let home = service.home().clone();
         let home_socket = home_socket_path(&home.codex_home);
-        let path = if CAN_MOVE_SOCKET_LINK {
+        let can_move_link = probe_socket_link_move(&home_socket, service).await?;
+        let path = if can_move_link {
             own_socket_path(&home.codex_home).map_err(|error| CodexError::Transport {
                 detail: "The second Codex service's socket could not be named.".to_owned(),
                 cause: Some(Box::new(error)),
             })?
         } else {
+            service.when_free_to_stop().await?;
             service.stop().await;
             home_socket.clone()
         };
@@ -171,19 +189,25 @@ impl CodexServiceRegistry {
             CodexServiceKind::Terminal,
             Arc::clone(&self.dependencies),
         );
+        if let Err(error) = replacement
+            .ensure_started(self.dependencies.startup_timeout)
+            .await
+        {
+            // A start still under way at the bound is stood down, so nothing it launches outlives
+            // the replacement.
+            replacement.stop().await;
+            return Err(error);
+        }
         {
             let mut services = self.lock();
             services
                 .by_home
                 .insert(home.codex_home, Arc::clone(&replacement));
-            if CAN_MOVE_SOCKET_LINK {
+            if can_move_link {
                 services.replaced.push(Arc::clone(service));
             }
         }
-        replacement
-            .ensure_started(self.dependencies.startup_timeout)
-            .await?;
-        if CAN_MOVE_SOCKET_LINK {
+        if can_move_link {
             point_socket_link_at_service(&home_socket, &path).map_err(|error| {
                 CodexError::Transport {
                     detail: "The Codex folder's socket could not be pointed at the second \
@@ -221,6 +245,32 @@ impl CodexServiceRegistry {
     }
 }
 
+/// Whether the home's control socket can be moved onto another service's socket: it is pointed
+/// again at the socket of `service`, the one it names now, which changes nothing where it is a
+/// link and is refused where the path is the socket itself. Fails with any other failure of the
+/// move.
+async fn probe_socket_link_move(
+    home_socket: &Path,
+    service: &CodexService,
+) -> Result<bool, CodexError> {
+    let link = home_socket.to_owned();
+    let target = service
+        .physical_socket()
+        .unwrap_or_else(|| home_socket.to_owned());
+    let moved = tokio::task::spawn_blocking(move || replace_socket_link(&link, &target))
+        .await
+        .map_err(io::Error::other)
+        .and_then(|moved| moved);
+    match moved {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::Unsupported => Ok(false),
+        Err(error) => Err(CodexError::Transport {
+            detail: "The Codex folder's socket link could not be checked.".to_owned(),
+            cause: Some(Box::new(error)),
+        }),
+    }
+}
+
 /// The home's own control socket.
 fn home_socket_path(codex_home: &Path) -> PathBuf {
     codex_home
@@ -235,3 +285,6 @@ fn own_socket_path(codex_home: &Path) -> Result<PathBuf, getrandom::Error> {
     let name = format!("sidekicks-{:08x}.sock", getrandom::u32()?);
     Ok(codex_home.join(CODEX_CONTROL_SOCKET_FOLDER).join(name))
 }
+
+#[cfg(test)]
+mod tests;

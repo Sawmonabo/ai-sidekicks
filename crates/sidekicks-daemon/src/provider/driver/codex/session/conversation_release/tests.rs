@@ -1,19 +1,73 @@
 use std::sync::Arc;
 
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
+use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use sidekicks_contracts::session::id::SessionId;
+use tokio::sync::oneshot;
+use tokio::time::Instant;
 
+use crate::provider::driver::codex::server_requests::{
+    CodexInboundServerRequest, CodexServerRequestDecision,
+};
 use crate::provider::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
+use crate::provider::driver::codex::session::inbound::{
+    CodexSessionInboundHandler, CodexSessionInboundReceiver, codex_session_inbound,
+    drain_codex_session_inbound,
+};
+use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
+use crate::provider::driver::contract::DriverError;
 use crate::uuid_v7::mint_uuid_v7;
 
 const THREAD: &str = "thread-1";
 
-// Holds `THREAD` for its session, answering the first list read with one running command.
-async fn hold_with_a_running_command(scripted: &mut ScriptedCodexService) -> SessionId {
+// The frames that reached the session, by method, in order.
+#[derive(Default)]
+struct SessionFrames {
+    methods: Vec<String>,
+}
+
+impl CodexSessionInboundHandler for SessionFrames {
+    fn frame(&mut self, method: String, _params: Box<RawValue>) -> BoxFuture<'_, ()> {
+        self.methods.push(method);
+        async {}.boxed()
+    }
+
+    fn ask(
+        &mut self,
+        _request: CodexInboundServerRequest,
+        _decision: oneshot::Sender<Result<CodexServerRequestDecision, DriverError>>,
+    ) -> BoxFuture<'_, ()> {
+        unreachable!("the service asks nothing")
+    }
+
+    fn asks_withdrawn(&mut self, _dropped: Vec<CodexForgottenRequest>) -> BoxFuture<'_, ()> {
+        unreachable!("the connection stays open")
+    }
+
+    fn held_thread(&mut self, _thread_id: String, _is_held: bool) {}
+
+    fn next_deadline(&self) -> Option<Instant> {
+        None
+    }
+
+    fn deadline_reached(&mut self, _now: Instant) -> BoxFuture<'_, ()> {
+        unreachable!("no deadline waits")
+    }
+}
+
+// Holds `THREAD` for a session with a queue attached, answering the first list read with one
+// running command.
+async fn hold_with_a_running_command(
+    scripted: &mut ScriptedCodexService,
+) -> (SessionId, CodexSessionInboundReceiver) {
     let session_id = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
-    let release = Arc::clone(&scripted.release);
+    let (queue, received) = codex_session_inbound(session_id);
+    scripted.service.attach_session(queue);
+    let release = Arc::clone(&scripted.dependencies.release);
     let service = Arc::clone(&scripted.service);
     let held = tokio::spawn(async move {
         release
@@ -25,7 +79,7 @@ async fn hold_with_a_running_command(scripted: &mut ScriptedCodexService) -> Ses
         .script
         .answer(&list, &json!({"data": [{"processId": "41"}]}));
     held.await.expect("the hold ends");
-    session_id
+    (session_id, received)
 }
 
 // The next request the connection sent, which must be `method` on `THREAD`.
@@ -40,13 +94,14 @@ fn frame(method: &str, params: &Value) -> Value {
     json!({"jsonrpc": "2.0", "method": method, "params": params})
 }
 
-// Fails when a conversation held for a running command is let go while the command runs, or a
-// frame that cannot change what it runs reads the list again, or a command's end or the
-// conversation going idle does not.
+// Fails when a conversation held for a running command is let go while the command runs, a
+// frame that cannot change what it runs reads the list again, a command's end or the
+// conversation going idle does not, or a frame other than a command's item reaches the session
+// that moved off it.
 #[tokio::test]
 async fn a_held_conversation_lets_go_only_once_no_command_runs() {
     let mut scripted = start_scripted_codex_service();
-    hold_with_a_running_command(&mut scripted).await;
+    let (session_id, received) = hold_with_a_running_command(&mut scripted).await;
 
     scripted.script.send(&frame(
         "item/agentMessage/delta",
@@ -72,13 +127,21 @@ async fn a_held_conversation_lets_go_only_once_no_command_runs() {
         .script
         .answer(&unsubscribe, &json!({"status": "unsubscribed"}));
     scripted
+        .dependencies
         .release
         .when_none_held_on(scripted.service.id())
         .await;
+    scripted.service.detach_session(&session_id);
+    let mut frames = SessionFrames::default();
+    drain_codex_session_inbound(received, &mut frames).await;
 
     assert!(
         scripted.script.sent.try_recv().is_err(),
         "a frame that changes nothing read the list again"
+    );
+    assert_eq!(
+        frames.methods,
+        ["item/agentMessage/delta", "item/completed"]
     );
 }
 
@@ -88,9 +151,9 @@ async fn a_held_conversation_lets_go_only_once_no_command_runs() {
 #[tokio::test]
 async fn ending_a_session_terminates_every_listed_command_then_cleans_then_unsubscribes() {
     let mut scripted = start_scripted_codex_service();
-    let session_id = hold_with_a_running_command(&mut scripted).await;
+    let (session_id, _received) = hold_with_a_running_command(&mut scripted).await;
 
-    let release = Arc::clone(&scripted.release);
+    let release = Arc::clone(&scripted.dependencies.release);
     let forgotten = tokio::spawn(async move { release.forget_session(&session_id).await });
     let first_page = next_request(&mut scripted, "thread/backgroundTerminals/list").await;
     scripted.script.answer(

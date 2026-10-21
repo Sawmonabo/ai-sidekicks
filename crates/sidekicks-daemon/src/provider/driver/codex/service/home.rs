@@ -7,9 +7,12 @@ use std::path::PathBuf;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
 /// What a Codex home is to the daemon.
-#[expect(
-    dead_code,
-    reason = "the daemon's Codex home resolver names each home's kind"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's Codex home resolver names each home's kind"
+    )
 )]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexHomeKind {
