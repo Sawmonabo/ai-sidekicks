@@ -3,7 +3,7 @@
 //! disposal failed.
 
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use futures::future::{BoxFuture, Shared};
@@ -16,6 +16,7 @@ use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::SetOnce;
 
+use crate::mutex_lock::lock;
 use crate::provider::callback_tools::spawn_binding::CallbackToolSpawnBinding;
 use crate::provider::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, ClaudeCommandChoices,
@@ -195,10 +196,7 @@ pub(crate) struct LiveClaudeSession {
 impl LiveClaudeSession {
     /// Records that a run on `binding_id` took the session's turn on this process.
     pub(crate) fn record_served_binding(&self, binding_id: RuntimeBindingId) {
-        self.served_bindings
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(binding_id);
+        lock(&self.served_bindings).insert(binding_id);
     }
 
     /// Releases the held `Allow once` presses of every binding this process served, through
@@ -209,12 +207,7 @@ impl LiveClaudeSession {
                   close release the presses its bindings held through it"
     )]
     pub(crate) fn release_served_presses(&self, reviewer_denials: &dyn ReviewerDenialPort) {
-        let served = std::mem::take(
-            &mut *self
-                .served_bindings
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner),
-        );
+        let served = std::mem::take(&mut *lock(&self.served_bindings));
         for binding_id in &served {
             reviewer_denials.release_held_presses(binding_id);
         }

@@ -12,7 +12,7 @@
 //! released, a write already handed to the database writer still commits whole, and a handshake
 //! child the driver started with `kill_on_drop` ends with it.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::future::join_all;
@@ -23,6 +23,7 @@ use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
 use crate::error_description::describe_error;
+use crate::mutex_lock::lock;
 use crate::provider::driver::capabilities::writer::{
     DriverCapabilitiesWriter, DriverCapabilitiesWriterError,
 };
@@ -55,7 +56,8 @@ pub(crate) struct CapabilityRefreshing {
 
 /// What the refresher's callers and its pass task share.
 struct RefreshAsks {
-    /// Which passes started and which one the newest ask needs.
+    /// Which passes started and which one the newest ask needs: two counts, which hold no
+    /// invariant a panicking holder could break.
     state: Mutex<RefreshAskState>,
     /// Wakes the task for a pass asked for.
     is_asked: Notify,
@@ -140,7 +142,7 @@ impl CapabilityRefresher {
     )]
     pub(crate) async fn refresh_now(&self) -> bool {
         let needed = {
-            let mut state = self.asks.lock_state();
+            let mut state = lock(&self.asks.state);
             state.requested = state.started + 1;
             state.requested
         };
@@ -166,13 +168,6 @@ impl CapabilityRefreshing {
     }
 }
 
-impl RefreshAsks {
-    fn lock_state(&self) -> std::sync::MutexGuard<'_, RefreshAskState> {
-        // Two counts hold no invariant a panicking holder could break.
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-}
-
 // The refresher's task: one pass for each ask the last pass started before, until `stop`, which
 // drops the pass or wait under way.
 async fn run_passes(
@@ -183,7 +178,7 @@ async fn run_passes(
 ) {
     loop {
         let pass = {
-            let mut state = asks.lock_state();
+            let mut state = lock(&asks.state);
             (state.requested > state.started).then(|| {
                 state.started += 1;
                 state.started

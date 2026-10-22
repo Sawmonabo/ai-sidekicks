@@ -26,6 +26,7 @@ pub mod keyed_lock;
 pub mod keyed_wait;
 pub mod mcp;
 pub mod missing_entry;
+pub(crate) mod mutex_lock;
 pub mod observability;
 pub mod orchestration;
 #[cfg(test)]
