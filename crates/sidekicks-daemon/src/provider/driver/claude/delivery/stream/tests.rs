@@ -257,3 +257,38 @@ async fn only_the_result_naming_a_now_steer_ends_its_turn() {
         }]
     );
 }
+
+// Killed by settling every turn the engine could not number under one version: a run's second
+// such turn would be taken for its first, already settled, and its end dropped.
+#[tokio::test(start_paused = true)]
+async fn each_unnumbered_turn_of_a_run_settles_its_own_end() {
+    let session = ScriptedSession::new();
+    session.engine.leave_turns_unnumbered();
+    let run_id = session.hold_lead_turn("lead");
+    session
+        .start
+        .prompts
+        .lock()
+        .expect("the prompts' lock holds")
+        .record_written(session.session_id, run_id, "waiting-steer", true);
+    session.frame(&init());
+    session.frame(&result(&json!({})));
+    settle().await;
+
+    session.frame(&init());
+    session.frame(&json!({
+        "type": "command_lifecycle",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "command_uuid": "waiting-steer",
+        "state": "started",
+    }));
+    session.frame(&result(&json!({})));
+    settle().await;
+
+    assert_eq!(
+        moves_of(&session, run_id),
+        [RunStateEntry::Completed {
+            intended_close: None
+        }]
+    );
+}

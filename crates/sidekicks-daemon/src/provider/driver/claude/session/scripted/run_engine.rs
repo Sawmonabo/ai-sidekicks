@@ -70,6 +70,7 @@ pub(crate) struct RecordingRunEngine {
     turn_start_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
     turns_started: AtomicU64,
     fails_daemon_turns: AtomicBool,
+    leaves_turns_unnumbered: AtomicBool,
 }
 
 impl RecordingRunEngine {
@@ -118,6 +119,11 @@ impl RecordingRunEngine {
     /// Makes every later daemon turn's start fail before any run exists.
     pub(crate) fn fail_daemon_turns(&self) {
         self.fails_daemon_turns.store(true, Ordering::SeqCst);
+    }
+
+    /// Makes every later turn open with no number, as a turn the engine could not number.
+    pub(crate) fn leave_turns_unnumbered(&self) {
+        self.leaves_turns_unnumbered.store(true, Ordering::SeqCst);
     }
 
     fn record(&self, call: EngineCall) {
@@ -178,9 +184,13 @@ impl ClaudeRunEngine for RecordingRunEngine {
         self.record(EngineCall::StartTurn(run_id));
         let turn_number = self.turns_started.fetch_add(1, Ordering::SeqCst) + 1;
         let hold = lock(&self.turn_start_holds).pop_front();
+        let is_unnumbered = self.leaves_turns_unnumbered.load(Ordering::SeqCst);
         async move {
             if let Some(hold) = hold {
                 hold.await.unwrap_or(());
+            }
+            if is_unnumbered {
+                return Ok(None);
             }
             Ok(Some(StartedTurn {
                 turn_number: SafeInt::new(turn_number).expect("a turn number is positive"),

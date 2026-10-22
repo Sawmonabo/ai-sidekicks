@@ -201,7 +201,11 @@ async fn an_edit_keeps_every_other_byte_and_a_block_moves_the_allow_out() {
     fs::create_dir_all(file.parent().expect("the file has a folder")).expect("the folder is made");
     fs::write(
         &file,
-        "{\n    \"model\": \"opus\",\n    \"permissions\": {\n        \"allow\": [\"WebFetch(domain:example.com)\", \"Read\"],\n        \"deny\": [\"Bash(rm *)\"]\n    }\n}\n",
+        concat!(
+            "{\n    \"model\": \"opus\",\n    \"permissions\": {\n",
+            "        \"allow\": [\"WebFetch(domain:example.com)\", \"Read\"],\n",
+            "        \"deny\": [\"Bash(rm *)\"]\n    }\n}\n",
+        ),
     )
     .expect("the file is written");
     let folders = [ClaudeProjectFolder {
@@ -225,7 +229,11 @@ async fn an_edit_keeps_every_other_byte_and_a_block_moves_the_allow_out() {
 
     assert_eq!(
         read(&file),
-        "{\n    \"model\": \"opus\",\n    \"permissions\": {\n        \"allow\": [\"Read\"],\n        \"deny\": [\"Bash(rm *)\", \"WebFetch(domain:example.com)\"]\n    }\n}\n"
+        concat!(
+            "{\n    \"model\": \"opus\",\n    \"permissions\": {\n",
+            "        \"allow\": [\"Read\"],\n",
+            "        \"deny\": [\"Bash(rm *)\", \"WebFetch(domain:example.com)\"]\n    }\n}\n",
+        )
     );
 }
 
@@ -288,6 +296,17 @@ async fn a_revoke_of_a_rule_a_file_the_daemon_does_not_edit_keeps_names_it_and_c
         "{\"permissions\": {\"allow\": [\"Bash(make *)\"]}}",
     )
     .expect("the managed settings are written");
+    let drop_in_file = config_folder
+        .path()
+        .join("managed-settings.d")
+        .join("10-team.json");
+    fs::create_dir_all(config_folder.path().join("managed-settings.d"))
+        .expect("the drop-in folder is made");
+    fs::write(
+        &drop_in_file,
+        "{\"permissions\": {\"allow\": [\"Bash(just *)\"]}}",
+    )
+    .expect("the drop-in is written");
     // The local file holds the rule the shared file keeps, which the revoke leaves in place.
     let local_text = "{\"permissions\": {\"allow\": [\"Bash(npm test *)\"]}}";
     fs::write(local_settings(folder.path()), local_text).expect("the local file is written");
@@ -297,7 +316,7 @@ async fn a_revoke_of_a_rule_a_file_the_daemon_does_not_edit_keeps_names_it_and_c
         repository: None,
     });
     let mut outcomes = Vec::new();
-    for subject in ["npm test", "cargo build", "make", "ls"] {
+    for subject in ["npm test", "cargo build", "make", "just", "ls"] {
         outcomes.push(
             remove_claude_project_rule(
                 &folders,
@@ -310,8 +329,13 @@ async fn a_revoke_of_a_rule_a_file_the_daemon_does_not_edit_keeps_names_it_and_c
             .await,
         );
     }
-    let [in_shared_file, in_user_file, in_managed_file, nowhere] =
-        <[_; 4]>::try_from(outcomes).expect("four revokes ran");
+    let [
+        in_shared_file,
+        in_user_file,
+        in_managed_file,
+        in_drop_in,
+        nowhere,
+    ] = <[_; 5]>::try_from(outcomes).expect("five revokes ran");
 
     assert!(matches!(
         in_shared_file,
@@ -325,6 +349,10 @@ async fn a_revoke_of_a_rule_a_file_the_daemon_does_not_edit_keeps_names_it_and_c
         in_managed_file,
         Err(ClaudeRulesError::RuleInUneditedFile { path }) if path == managed_file
     ));
+    assert!(matches!(
+        in_drop_in,
+        Err(ClaudeRulesError::RuleInUneditedFile { path }) if path == drop_in_file
+    ));
     assert!(matches!(nowhere, Err(ClaudeRulesError::RuleNotFound)));
     assert_eq!(read(&local_settings(folder.path())), local_text);
     assert!(!local_settings(other_folder.path()).exists());
@@ -337,7 +365,13 @@ async fn a_removed_tool_servers_rules_go_in_claude_codes_spelling_and_other_serv
     fs::create_dir_all(file.parent().expect("the file has a folder")).expect("the folder is made");
     fs::write(
         &file,
-        "{\"permissions\": {\"allow\": [\"mcp__my_server__read\", \"mcp__my_server\", \"mcp__reports\", \"mcp__reports__search\", \"mcp__reports__v2__*\", \"mcp__reports___*\", \"mcp__other__x\", \"mcp__my_serverx__y\", \"mcp__claude_ai_Notion_beta__search\"], \"deny\": [\"mcp__my_server__*\"]}}",
+        concat!(
+            "{\"permissions\": {\"allow\": [",
+            "\"mcp__my_server__read\", \"mcp__my_server\", \"mcp__reports\", ",
+            "\"mcp__reports__search\", \"mcp__reports__v2__*\", \"mcp__reports___*\", ",
+            "\"mcp__other__x\", \"mcp__my_serverx__y\", \"mcp__claude_ai_Notion_beta__search\"], ",
+            "\"deny\": [\"mcp__my_server__*\"]}}",
+        ),
     )
     .expect("the file is written");
     let folders = [ClaudeProjectFolder {
@@ -353,7 +387,10 @@ async fn a_removed_tool_servers_rules_go_in_claude_codes_spelling_and_other_serv
 
     assert_eq!(
         read(&file),
-        "{\"permissions\": {\"allow\": [\"mcp__reports__v2__*\", \"mcp__reports___*\", \"mcp__other__x\", \"mcp__my_serverx__y\"], \"deny\": []}}"
+        concat!(
+            "{\"permissions\": {\"allow\": [\"mcp__reports__v2__*\", \"mcp__reports___*\", ",
+            "\"mcp__other__x\", \"mcp__my_serverx__y\"], \"deny\": []}}",
+        )
     );
 }
 

@@ -56,6 +56,8 @@ pub(crate) enum ScriptedAnswer {
     Refused,
     /// No answer before the request's deadline.
     Deadline,
+    /// The request's write cut after some bytes.
+    WriteCut,
 }
 
 /// A Claude Code process that records what the driver writes and answers as scripted: a control
@@ -160,6 +162,10 @@ impl ClaudeProcessChannel for ScriptedChannel {
                 Some(ScriptedAnswer::Deadline) => Err(ClaudeSessionError::Unanswered {
                     subtype: control_subtype,
                     cause: ClaudeUnansweredCause::Deadline,
+                }),
+                Some(ScriptedAnswer::WriteCut) => Err(ClaudeSessionError::Unanswered {
+                    subtype: control_subtype,
+                    cause: ClaudeUnansweredCause::WriteCut,
                 }),
             }
         }

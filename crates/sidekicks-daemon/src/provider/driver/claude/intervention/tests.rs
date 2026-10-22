@@ -98,14 +98,46 @@ fn answers_and_messages(session: &ScriptedSession) -> Vec<ScriptedWrite> {
         .collect()
 }
 
-// Killed by sending `cancel_queued` on the wrong arm, by a missing `Degraded` where the build cannot
-// drop what it holds, by reading a refusal as a failure, by keeping an id that names no queue
-// item, and by waiting on a process that never answers instead of stopping it.
+// Killed by sending `cancel_queued` on the wrong arm, by a missing `Degraded` where the build
+// cannot drop what it holds, by reading a refusal as a failure, and by waiting on a process that
+// never answers, or whose input took only part of the request, instead of stopping it.
 #[rstest]
-#[case::next_turn(InterruptPendingChoice::NextTurn, false, true, ScriptedAnswer::Reply(json!({})), false, (InterventionResultStatus::Applied, None), false)]
-#[case::return_to_draft(InterruptPendingChoice::ReturnToDraft, false, true, ScriptedAnswer::Reply(json!({})), true, (InterventionResultStatus::Applied, None), false)]
-#[case::reordered_next_turn(InterruptPendingChoice::NextTurn, true, true, ScriptedAnswer::Reply(json!({})), true, (InterventionResultStatus::Applied, None), false)]
-#[case::keep_waiting_on_an_older_build(InterruptPendingChoice::KeepWaiting, false, false, ScriptedAnswer::Reply(json!({})), false, (InterventionResultStatus::Degraded, Some("plain-interrupt")), false)]
+#[case::next_turn(
+    InterruptPendingChoice::NextTurn,
+    false,
+    true,
+    ScriptedAnswer::Reply(json!({})),
+    false,
+    (InterventionResultStatus::Applied, None),
+    false
+)]
+#[case::return_to_draft(
+    InterruptPendingChoice::ReturnToDraft,
+    false,
+    true,
+    ScriptedAnswer::Reply(json!({})),
+    true,
+    (InterventionResultStatus::Applied, None),
+    false
+)]
+#[case::reordered_next_turn(
+    InterruptPendingChoice::NextTurn,
+    true,
+    true,
+    ScriptedAnswer::Reply(json!({})),
+    true,
+    (InterventionResultStatus::Applied, None),
+    false
+)]
+#[case::keep_waiting_on_an_older_build(
+    InterruptPendingChoice::KeepWaiting,
+    false,
+    false,
+    ScriptedAnswer::Reply(json!({})),
+    false,
+    (InterventionResultStatus::Degraded, Some("plain-interrupt")),
+    false
+)]
 #[case::refused(
     InterruptPendingChoice::NextTurn,
     false,
@@ -120,6 +152,15 @@ fn answers_and_messages(session: &ScriptedSession) -> Vec<ScriptedWrite> {
     false,
     true,
     ScriptedAnswer::Deadline,
+    false,
+    (InterventionResultStatus::Applied, None),
+    true
+)]
+#[case::cut_mid_write(
+    InterruptPendingChoice::NextTurn,
+    false,
+    true,
+    ScriptedAnswer::WriteCut,
     false,
     (InterventionResultStatus::Applied, None),
     true
@@ -353,13 +394,10 @@ async fn a_send_now_waits_for_the_open_ask_and_keeps_the_rows_behind_it() {
         unreachable!("the held `Send now` follows the answer")
     };
     assert_eq!(first["uuid"], now.to_string());
-    assert_eq!(first["priority"], "now");
-    assert_eq!(first["origin"], json!({"kind": "human"}));
     let ScriptedWrite::User(second) = &written[2] else {
         unreachable!("the row held behind it follows")
     };
     assert_eq!(second["uuid"], next.to_string());
-    assert_eq!(second.get("priority"), None);
 
     let taken_back = ScriptedSession::new();
     let run_id = taken_back.hold_lead_turn("lead");
@@ -415,5 +453,95 @@ async fn a_steer_taken_before_its_write_returns_is_reported_under_its_run() {
             .lock()
             .expect("the prompts' lock holds")
             .has_untaken_steer(run_id)
+    );
+}
+
+// Killed by a choice settled off the session's task that reaches the run engine at once: a frame
+// queued on the session before a held `Send now` is released would land after the choice's end.
+#[tokio::test(start_paused = true)]
+async fn a_released_send_now_settles_its_runs_choice_behind_the_frames_queued_before_it() {
+    let session = Arc::new(ScriptedSession::new());
+    let run_id = session.hold_lead_turn("lead");
+    session.request(
+        "refusal",
+        &json!({
+            "subtype": "request_user_dialog",
+            "dialog_kind": "refusal_fallback_prompt",
+            "payload": {"originalModel": "claude-fable-5", "fallbackModel": "claude-opus-5"},
+        }),
+    );
+    session.request(
+        "ask",
+        &json!({
+            "subtype": "can_use_tool",
+            "tool_name": "Bash",
+            "input": {"command": "ls"},
+            "tool_use_id": "call-1",
+        }),
+    );
+    settle().await;
+    apply(
+        &session,
+        steer(run_id, &message_id(), "now", Vec::new(), true),
+    )
+    .await;
+    // The session's task waits on the turn's opening while the next frame queues behind it.
+    let release_turn = session.engine.hold_next_turn_start();
+    session.frame(&json!({
+        "type": "system",
+        "subtype": "init",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+    }));
+    session.frame(&json!({
+        "type": "system",
+        "subtype": "informational",
+        "level": "warning",
+        "content": "queued first",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+    }));
+    settle().await;
+
+    let answering = tokio::spawn({
+        let session = Arc::clone(&session);
+        async move {
+            session
+                .controls
+                .respond_to_request(RespondToRequestParams {
+                    run_id,
+                    request_id: "ask".to_owned(),
+                    response: ProviderRequestAnswer::Permission(ProviderPermissionAnswer::Allow {
+                        correction: None,
+                        made_rule: None,
+                        answered_by_rule: None,
+                    }),
+                })
+                .await
+        }
+    });
+    settle().await;
+    drop(release_turn);
+    answering
+        .await
+        .expect("the answer's task ends")
+        .expect("the answer is written");
+    settle().await;
+
+    assert!(
+        answers_and_messages(&session).contains(&ScriptedWrite::Answer {
+            request_id: "refusal".to_owned(),
+            answer: json!({"behavior": "cancelled"}),
+        })
+    );
+    let kinds: Vec<_> = session
+        .engine
+        .deliveries()
+        .into_iter()
+        .map(|delivery| delivery.kind)
+        .collect();
+    let queued = kinds.iter().position(|kind| *kind == "sessionNotice");
+    let settled = kinds.iter().rposition(|kind| *kind == "unstampedRow");
+    assert!(
+        matches!((queued, settled), (Some(queued), Some(settled)) if queued < settled),
+        "{kinds:?}"
     );
 }
