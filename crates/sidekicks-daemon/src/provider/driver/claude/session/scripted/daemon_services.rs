@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -27,7 +27,8 @@ use crate::provider::callback_tools::spawn_binding::{
     CallbackToolSpawnBinding, bind_callback_tools_for_spawn,
 };
 use crate::provider::driver::attachments::{
-    AttachmentResolver, ProviderAttachment, UnresolvedAttachmentCause, UnresolvedAttachmentMarker,
+    AttachmentResolver, ProviderAttachment, ResolvedAttachment, UnresolvedAttachmentCause,
+    UnresolvedAttachmentMarker,
 };
 use crate::provider::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
 use crate::provider::driver::claude::DESCRIPTOR;
@@ -174,11 +175,13 @@ impl UsageSink for RecordingUsage {
     }
 }
 
-/// Files whose read takes the given time: every id answers its unresolved marker once its delay
-/// passed, so a message's blocks name it.
+/// Files whose read takes the given time, and stored PNG pictures: a picture's id answers its
+/// stored copy, and every other id its unresolved marker once its delay passed, so a message's
+/// blocks name it.
 #[derive(Default)]
 pub(crate) struct ScriptedAttachments {
     delays: Mutex<HashMap<ArtifactId, Duration>>,
+    pictures: Mutex<HashMap<ArtifactId, PathBuf>>,
 }
 
 impl ScriptedAttachments {
@@ -186,6 +189,13 @@ impl ScriptedAttachments {
     pub(crate) fn slow_file(&self, delay: Duration) -> ArtifactId {
         let artifact_id = ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID is an id");
         lock(&self.delays).insert(artifact_id, delay);
+        artifact_id
+    }
+
+    /// A PNG picture stored at `path`, named by its file name.
+    pub(crate) fn picture(&self, path: PathBuf) -> ArtifactId {
+        let artifact_id = ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID is an id");
+        lock(&self.pictures).insert(artifact_id, path);
         artifact_id
     }
 }
@@ -203,13 +213,23 @@ impl AttachmentResolver for ScriptedAttachments {
             .unwrap_or_default();
         async move {
             tokio::time::sleep(delay).await;
+            let pictures = lock(&self.pictures).clone();
             Ok(artifact_ids
                 .into_iter()
-                .map(|artifact_id| {
-                    ProviderAttachment::Unresolved(UnresolvedAttachmentMarker {
+                .map(|artifact_id| match pictures.get(&artifact_id) {
+                    Some(path) => ProviderAttachment::Resolved(ResolvedAttachment {
+                        artifact_id,
+                        path: path.clone(),
+                        file_name: path
+                            .file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_default(),
+                        media_type: "image/png".to_owned(),
+                    }),
+                    None => ProviderAttachment::Unresolved(UnresolvedAttachmentMarker {
                         artifact_id,
                         cause: UnresolvedAttachmentCause::Deleted,
-                    })
+                    }),
                 })
                 .collect())
         }

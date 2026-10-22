@@ -52,7 +52,7 @@ use crate::provider::driver::message_handing::MessageHanding;
 use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
-    ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
+    ApplyInterventionResponse, DriverRunRefusal, FasterModelRetryOutcome, FasterModelRetryParams,
     FindTakenMessagesParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
     PickedSkill, ResumeRunParams, SteerTurnEndedError, TakenMessages, WithdrawQueuedMessageParams,
     WithdrawQueuedMessageResult,
@@ -76,8 +76,8 @@ pub(crate) const PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE: &str =
 
 /// Why a driver operation did not answer: a refusal a client reads by its code, a request the
 /// provider got with no answer back, a steer whose turn ended before it was sent (the message
-/// waits for the next turn), a provider command that names no runnable build, or a failure inside
-/// the driver, keeping its cause.
+/// waits for the next turn), a run start the driver refused, a provider command that names no
+/// runnable build, or a failure inside the driver, keeping its cause.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DriverError {
     /// A refusal a client reads by its code.
@@ -89,6 +89,9 @@ pub(crate) enum DriverError {
     /// The turn a steer was handed for ended before it was sent.
     #[error(transparent)]
     SteerTurnEnded(#[from] SteerTurnEndedError),
+    /// The driver refused a run's start before its provider saw it; the run fails as that refusal.
+    #[error("the driver refused the run")]
+    RunRefused(#[source] DriverRunRefusal),
     /// The capability probe could not read the provider, so nothing is declared from it.
     #[error("the provider's capability probe failed")]
     CapabilityProbe(#[source] CapabilityProbeError),
@@ -112,8 +115,8 @@ impl From<DriverError> for HandlerError {
     /// `provider.unavailable`, the catalog's bounded fault as the provider failure's detail, and a
     /// command that names no runnable build as [`ExecutableUnresolvable::into_refusal`] says; a
     /// provider axis the provider does not offer answers `agent.providerAxisInvalid` naming the
-    /// agent, the axis and the value; a steer whose turn ended, reaching a handler, is a fault in
-    /// the daemon, as is the driver's own failure.
+    /// agent, the axis and the value; a steer whose turn ended or a refused run start, reaching a
+    /// handler, is a fault in the daemon, as is the driver's own failure.
     fn from(error: DriverError) -> Self {
         match error {
             DriverError::Refused(refusal)
@@ -152,6 +155,7 @@ impl From<DriverError> for HandlerError {
                 })),
             ),
             DriverError::SteerTurnEnded(steer) => Self::Internal(Box::new(steer)),
+            DriverError::RunRefused(refusal) => Self::Internal(Box::new(refusal)),
             DriverError::Internal(fault) => Self::Internal(fault),
         }
     }

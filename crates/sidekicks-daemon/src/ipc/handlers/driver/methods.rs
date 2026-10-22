@@ -203,6 +203,7 @@ fn provider_outcome<Read, Report>(
             | DriverError::ProviderAxisInvalid(_)
             | DriverError::Unanswered(_)
             | DriverError::SteerTurnEnded(_)
+            | DriverError::RunRefused(_)
             | DriverError::CapabilityProbe(_)
             | DriverError::Internal(_)),
         ) => {

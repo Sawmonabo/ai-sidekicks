@@ -8,15 +8,10 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::draft::{
-    ProviderRefusedReason, SessionAttachmentProviderRefusal, SessionAttachmentRefusedCode,
-};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::ipc::domain_error::DomainError;
 use crate::mutex_lock::lock;
 use crate::provider::driver::attachments::AttachmentResolver;
 use crate::provider::driver::claude::DESCRIPTOR;
@@ -34,6 +29,7 @@ use crate::provider::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::provider::driver::claude::run::routes::{
     ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes,
 };
+use crate::provider::driver::claude::session::controls::claude_full_model_id;
 use crate::provider::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason,
 };
@@ -45,7 +41,7 @@ use crate::provider::driver::claude::session::transport::user_message::{
 };
 use crate::provider::driver::claude::spawn::legs::assert_claude_spawn_bound_realization;
 use crate::provider::driver::contract::{DriverError, StartRunParams};
-use crate::provider::driver::run_control::DaemonTurnBindingResolver;
+use crate::provider::driver::run_control::{DaemonTurnBindingResolver, DriverRunRefusal};
 use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::session::run::start_request::DaemonTurnStartRequest;
 
@@ -137,11 +133,12 @@ impl ClaudeRunStart {
             )
         })?;
         assert_claude_spawn_bound_realization(params, &live)?;
-        // Read before the turn is held, so a file that cannot be read holds nothing.
+        // Read before the turn is held, so a file that cannot be read holds nothing; a picture
+        // Claude Code refuses fails the run as that refusal.
         let attachment_blocks =
             compose_claude_attachment_blocks(&*self.attachments, &session_id, &opening.attachments)
                 .await
-                .map_err(claude_attachment_failure)?;
+                .map_err(|error| claude_attachment_failure(&live, error))?;
         if self
             .routes
             .lead_run_on(session_id)
@@ -440,72 +437,102 @@ pub(crate) fn claude_session_unavailable(
     }
 }
 
-/// The failure a message's files that cannot be composed answer: a picture past Claude Code's
-/// limit is the provider's refusal of it, `session.attachment.refused` carrying Claude Code's own
-/// words; a file that cannot be bound or read is internal.
-pub(crate) fn claude_attachment_failure(error: ClaudeAttachmentError) -> DriverError {
-    match error {
-        ClaudeAttachmentError::PictureTooLarge { .. } => {
-            let provider_message = NonEmptyText::new(error.to_string())
-                .expect("Claude Code's refusal of a picture has words");
-            DriverError::Refused(
-                DomainError::new(
-                    "Claude Code refused a picture the message carries",
-                    RefusalCode::SessionAttachmentRefused,
-                )
-                .with_detail(SessionAttachmentProviderRefusal {
-                    code: SessionAttachmentRefusedCode::Value,
-                    reason: ProviderRefusedReason::Value,
-                    provider_message,
-                })
-                .with_source(error),
-            )
+// The failure a message's files that cannot be composed answer: a picture Claude Code refuses is
+// the run's refusal, naming the full id of the model the session runs; files that cannot be bound
+// or read, or a model id no refusal can carry, are internal.
+fn claude_attachment_failure(
+    live: &LiveClaudeSession,
+    error: ClaudeAttachmentError,
+) -> DriverError {
+    let running_model = lock(&live.settings).running_model.clone();
+    let model = FreeFormText::new(claude_full_model_id(&live.initialize, &running_model)).ok();
+    match (error.picture_refusal(), model) {
+        (Some(sentence), Some(model)) => {
+            DriverError::RunRefused(DriverRunRefusal { model, sentence })
         }
-        error @ (ClaudeAttachmentError::Unbound(_)
-        | ClaudeAttachmentError::PictureUnreadable { .. }) => {
-            DriverError::Internal(Box::new(error))
-        }
+        (Some(_) | None, _) => DriverError::Internal(Box::new(error)),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{Value, json};
+    use serde_json::json;
     use sidekicks_contracts::agent::definition::AgentId;
-    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::artifacts::id::ArtifactId;
+    use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::queue::QueueItemId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::text::FreeFormText;
 
-    use crate::provider::driver::claude::attachments::ClaudeAttachmentError;
     use crate::provider::driver::claude::session::scripted::{
-        SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
+        SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, mint_run_id, settle,
     };
     use crate::provider::driver::contract::{DriverError, RunOpening, StartRunParams};
 
-    use super::claude_attachment_failure;
+    // The opening of `run_id` on `session`'s lead binding, carrying `attachments`.
+    fn opening_params(
+        session: &ScriptedSession,
+        run_id: RunId,
+        attachments: Vec<ArtifactId>,
+    ) -> StartRunParams {
+        StartRunParams {
+            run_id,
+            opening: RunOpening {
+                session_id: session.session_id,
+                binding_id: binding_id("lead"),
+                agent_id: AgentId::new(&mint_uuid_v7().to_string())
+                    .expect("a minted UUID is an agent id"),
+                content: FreeFormText::new("go on".to_owned()).expect("the words fit"),
+                attachments,
+                message_id: QueueItemId::new(&mint_uuid_v7().to_string())
+                    .expect("a minted UUID is an item id"),
+                skills: Vec::new(),
+            },
+            conversation_history: None,
+            output_speed: None,
+            options: Vec::new(),
+            output_speed_for_turn: None,
+            execution_posture: None,
+            output_schema: None,
+        }
+    }
 
-    // Killed by answering a picture past Claude Code's limit as an internal failure, or by
-    // dropping Claude Code's own words from the refusal.
-    #[test]
-    fn a_picture_past_the_limit_is_the_providers_refusal_in_its_own_words() {
-        let error = ClaudeAttachmentError::PictureTooLarge {
-            file_name: "screen.png".to_owned(),
-            base64_size: 7_000_000,
-        };
-        let words = error.to_string();
+    // Killed by answering a picture past Claude Code's limit as an internal failure, by dropping
+    // Claude Code's own words or the session's model from the refusal, or by holding the session's
+    // turn for a run that never started.
+    #[tokio::test]
+    async fn a_picture_past_the_limit_refuses_the_run_in_claude_codes_own_words() {
+        let session = ScriptedSession::new();
+        let folder = tempfile::tempdir().expect("the test makes a temporary folder");
+        let path = folder.path().join("screen.png");
+        // Sparse: its size, which the limit reads, without its bytes.
+        std::fs::File::create(&path)
+            .and_then(|file| file.set_len(4_000_000))
+            .expect("the test stores a large picture");
+        let picture = session.attachments.picture(path);
+        let run_id = mint_run_id();
 
-        let DriverError::Refused(refusal) = claude_attachment_failure(error) else {
-            panic!("a picture past the limit is refused");
+        let refused = session
+            .start
+            .start_run(&opening_params(&session, run_id, vec![picture]))
+            .await;
+
+        let Err(DriverError::RunRefused(refusal)) = refused else {
+            panic!("a picture past the limit refuses the run, not {refused:?}");
         };
-        assert_eq!(refusal.code, RefusalCode::SessionAttachmentRefused);
+        assert_eq!(refusal.model.as_str(), "opus");
         assert_eq!(
-            refusal.detail.map(Value::Object),
-            Some(json!({
-                "code": "session.attachment.refused",
-                "reason": "providerRefused",
-                "providerMessage": words,
-            }))
+            refusal.sentence,
+            "screen.png: Image base64 size (5333336) exceeds API limit (5242880). Please resize \
+             the image before sending."
+        );
+        assert!(session.channel.user_frames().is_empty());
+        assert!(
+            session
+                .start
+                .routes
+                .lead_run_on(session.session_id)
+                .is_none()
         );
     }
 
@@ -530,30 +557,12 @@ mod tests {
             "session_id": SCRIPTED_PROVIDER_SESSION_ID,
         }));
         settle().await;
-        let message_id =
-            QueueItemId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an item id");
+        let params = opening_params(&session, run_id, Vec::new());
+        let message_id = params.opening.message_id;
 
         session
             .start
-            .start_run(&StartRunParams {
-                run_id,
-                opening: RunOpening {
-                    session_id: session.session_id,
-                    binding_id: binding_id("lead"),
-                    agent_id: AgentId::new(&mint_uuid_v7().to_string())
-                        .expect("a minted UUID is an agent id"),
-                    content: FreeFormText::new("go on".to_owned()).expect("the words fit"),
-                    attachments: Vec::new(),
-                    message_id,
-                    skills: Vec::new(),
-                },
-                conversation_history: None,
-                output_speed: None,
-                options: Vec::new(),
-                output_speed_for_turn: None,
-                execution_posture: None,
-                output_schema: None,
-            })
+            .start_run(&params)
             .await
             .expect("the run starts without waiting on the session's task");
 

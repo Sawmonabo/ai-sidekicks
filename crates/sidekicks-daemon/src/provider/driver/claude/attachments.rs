@@ -55,6 +55,14 @@ pub(crate) enum ClaudeAttachmentError {
     },
 }
 
+impl ClaudeAttachmentError {
+    /// Claude Code's own refusal of a picture past its limit, the sentence a refused run or steer
+    /// carries; `None` for files that could not be bound or read, the daemon's own failure.
+    pub(crate) fn picture_refusal(&self) -> Option<String> {
+        matches!(self, Self::PictureTooLarge { .. }).then(|| self.to_string())
+    }
+}
+
 /// The content blocks a message's attachments follow its words with, one per attachment in staging
 /// order. Fails with the resolver's failure, the file system's when a picture cannot be read, and
 /// a refusal in Claude Code's own words, naming the file, for a picture past its limit.
