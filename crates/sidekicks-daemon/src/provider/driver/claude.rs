@@ -317,6 +317,11 @@ impl ProviderDriver for ClaudeDriver {
         CLAUDE_MESSAGE_HANDING
     }
 
+    // Claude Code takes a pick as its text, so a resolve reads nothing from a process.
+    fn skill_resolve_starts_process(&self) -> bool {
+        false
+    }
+
     fn starts_process(&self, session_id: SessionId) -> BoxFuture<'_, bool> {
         ready(self.starts_process(session_id)).boxed()
     }

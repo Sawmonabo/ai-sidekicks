@@ -52,25 +52,26 @@ impl QueueAdmission {
                 }
             }
         }
-        let place = if driver.starts_process(session_id).await {
-            let place = self.deps.memory_gate.enqueue(provider_work(
-                &self.deps.providers,
-                provider,
-                false,
-            )?);
-            let mut admitted = place.admitted();
-            let waited = tokio::time::timeout(
-                self.deps.delivery_timeout,
-                admitted.wait_for(Option::is_some),
-            )
-            .await;
-            if waited.is_err() || place.state() != MemoryAdmissionState::Admitted {
-                return Err(provider_timed_out(session_id).into());
-            }
-            Some(place)
-        } else {
-            None
-        };
+        let place =
+            if driver.skill_resolve_starts_process() && driver.starts_process(session_id).await {
+                let place = self.deps.memory_gate.enqueue(provider_work(
+                    &self.deps.providers,
+                    provider,
+                    false,
+                )?);
+                let mut admitted = place.admitted();
+                let waited = tokio::time::timeout(
+                    self.deps.delivery_timeout,
+                    admitted.wait_for(Option::is_some),
+                )
+                .await;
+                if waited.is_err() || place.state() != MemoryAdmissionState::Admitted {
+                    return Err(provider_timed_out(session_id).into());
+                }
+                Some(place)
+            } else {
+                None
+            };
         let resolved = driver.resolve_skill_picks(session_id, picks).await;
         drop(place);
         Ok(Some(resolved?))

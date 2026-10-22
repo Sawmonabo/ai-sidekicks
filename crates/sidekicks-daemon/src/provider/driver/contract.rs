@@ -266,6 +266,14 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// the driver, which the queue reads instead of naming the provider.
     fn message_handing(&self) -> MessageHanding;
 
+    /// Whether resolving a message's skill picks starts a provider process where none runs the
+    /// session, which the memory gate then weighs: a fixed fact of the driver, like
+    /// [`message_handing`](Self::message_handing). A driver that reads its picks from the
+    /// provider's own list does.
+    fn skill_resolve_starts_process(&self) -> bool {
+        true
+    }
+
     /// Whether a run started on `session_id` now brings a provider process up, which the memory
     /// gate weighs before the start; `false` when one already serves the session.
     fn starts_process(&self, session_id: SessionId) -> BoxFuture<'_, bool>;
