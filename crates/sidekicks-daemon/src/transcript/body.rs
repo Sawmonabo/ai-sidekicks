@@ -6,7 +6,7 @@
 //! later parts read only their frames, and one still taking pieces is read whole for each part.
 //! Each part carries the block starts that fall in it.
 
-mod starts_cache;
+pub(crate) mod starts_cache;
 
 use rusqlite::Connection;
 use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;

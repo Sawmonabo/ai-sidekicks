@@ -17,7 +17,7 @@ use crate::database::statement::{StatementBindings, WriteStatement};
 use crate::database::stored_column::{rowid_column, text_column};
 use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::session::search::index::rows::{
-    INDEX_BATCH_ROW_LIMIT, IndexRowReader, empty_index_batch_room, index_row_of,
+    INDEX_BATCH_ROW_LIMIT, IndexRowReader, empty_index_batch_room, index_rows_of,
 };
 use crate::session::search::rowid_floors::{RowidFloorLog, floors_let_go_statement};
 
@@ -215,8 +215,8 @@ impl<'connection> OutboxReader<'connection> {
             for key in keys {
                 match current_rows.remove(&key) {
                     Some(row) => {
-                        room.text_bytes = room.text_bytes.saturating_sub(row.text.len());
-                        rows.push(index_row_of(row));
+                        room.text_bytes = room.text_bytes.saturating_sub(row.text_len());
+                        rows.extend(index_rows_of(row));
                     }
                     None => removed_keys.push(key),
                 }

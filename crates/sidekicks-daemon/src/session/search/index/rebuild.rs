@@ -25,7 +25,7 @@ use crate::helper_mode::child::{HelperModeChildError, HelperModeEnd, run_helper_
 use crate::session::search::index::build_mode::SEARCH_INDEX_BUILD_MODE;
 use crate::session::search::index::columns::source_rowid_of;
 use crate::session::search::index::rows::{
-    INDEX_BATCH_ROW_LIMIT, IndexRowReader, SourceRow, empty_index_batch_room, index_row_of,
+    INDEX_BATCH_ROW_LIMIT, IndexRowReader, SourceRow, empty_index_batch_room, index_rows_of,
 };
 
 // The indexing arena, at its budget's ceiling: the larger the arena, the fewer segments a batch
@@ -290,7 +290,7 @@ fn fill_and_merge(
         }
         index.apply(&IndexBatch {
             last_outbox_id,
-            rows: batch_rows.into_iter().map(index_row_of).collect(),
+            rows: batch_rows.into_iter().flat_map(index_rows_of).collect(),
             removed_keys: Vec::new(),
             removed_owners: Vec::new(),
             group_members: Vec::new(),

@@ -93,10 +93,6 @@ pub(super) fn keep_block_cut(key: BlockCutKey, cut: EndedBlockCut) {
 }
 
 /// Lets go of every kept cut of `session_id`'s replies, once the session is purged.
-#[expect(
-    dead_code,
-    reason = "the purge lets go of a purged session's cuts once it removes its rows"
-)]
 pub(crate) fn forget_session_block_cuts(session_id: &SessionId) {
     let mut cuts = lock();
     let BlockCuts {

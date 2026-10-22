@@ -265,9 +265,9 @@ impl SearchIndex {
 
     // Removals first, then rows: a row in the batch is as the database holds it now. A row whose
     // key is above its slot's highest was never added, so it is added without a delete; any other
-    // row replaces whatever its key holds. The segments of a removed owner, a purged session or a
-    // deleted group, are noted for rewriting, so its words leave the index's files however few its
-    // rows.
+    // row replaces whatever its key holds, deleted once before its first page so its later pages
+    // stay. The segments of a removed owner, a purged session or a deleted group, are noted for
+    // rewriting, so its words leave the index's files however few its rows.
     fn stage(
         &self,
         writer: &mut IndexWriter,
@@ -299,12 +299,15 @@ impl SearchIndex {
                 .iter()
                 .any(|segment| segment.segment_id() == *noted)
         });
+        let mut staged_keys = HashSet::new();
         for row in &batch.rows {
             let highest = &mut highest_row_keys[key_slot(row.key)];
-            if row.key <= *highest {
-                writer.delete_term(key_term(&self.fields, row.key));
-            } else {
-                *highest = row.key;
+            if staged_keys.insert(row.key) {
+                if row.key <= *highest {
+                    writer.delete_term(key_term(&self.fields, row.key));
+                } else {
+                    *highest = row.key;
+                }
             }
             let owner = match row.kind {
                 IndexRowKind::Group => Owner::Group(row.owner_key),

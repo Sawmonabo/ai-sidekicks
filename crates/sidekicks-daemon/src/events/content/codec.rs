@@ -379,6 +379,27 @@ impl StoredBodyPlace {
         Ok(())
     }
 
+    /// Hands the body's text to `each` a frame at a time as [`StoredBodyPlace::stream`] does, for
+    /// a reader of the row's columns from `index`: a damaged body fails with rusqlite's conversion
+    /// error on that column, keeping why, and a refused read with SQLite's own error.
+    pub(crate) fn stream_column(
+        &self,
+        connection: &Connection,
+        index: usize,
+        mut each: impl FnMut(&str),
+    ) -> rusqlite::Result<()> {
+        self.stream(connection, |frame| {
+            each(frame);
+            Ok(())
+        })
+        .map_err(|error| match error {
+            BodyStreamError::Read(error) => error,
+            other @ (BodyStreamError::Damaged(_) | BodyStreamError::Write(_)) => {
+                rusqlite::Error::FromSqlConversionFailure(index, Type::Blob, Box::new(other))
+            }
+        })
+    }
+
     fn open<'connection>(
         &self,
         connection: &'connection Connection,

@@ -39,10 +39,7 @@ pub(crate) fn tokenize(text: &str) -> Vec<TextToken> {
     let mut scratch = String::new();
     for character in text.chars() {
         let group = character.general_category_group();
-        let starts = matches!(
-            group,
-            GeneralCategoryGroup::Letter | GeneralCategoryGroup::Number
-        );
+        let starts = is_token_start(group);
         let continues = starts || matches!(group, GeneralCategoryGroup::Mark);
         match open.as_mut() {
             Some((folded, _)) if continues => fold_into(character, folded, &mut scratch),
@@ -63,6 +60,30 @@ pub(crate) fn tokenize(text: &str) -> Vec<TextToken> {
         close_token(&mut tokens, &mut position, folded, start, offset);
     }
     tokens
+}
+
+/// Where a page of a long text ends so no token is cut in two: the start of the token the text
+/// ends inside, which the next page then begins with, or the text's end when it ends between
+/// tokens or inside one longer than the index keeps or begun before the text.
+pub fn find_page_end(text: &str) -> usize {
+    for (offset, character) in text.char_indices().rev() {
+        let group = character.general_category_group();
+        if !is_token_start(group) && !matches!(group, GeneralCategoryGroup::Mark) {
+            return offset + character.len_utf8();
+        }
+        if text.len() - offset >= MAX_TOKEN_LEN {
+            break;
+        }
+    }
+    text.len()
+}
+
+// Whether a character of `group` starts a token: a letter or a digit.
+fn is_token_start(group: GeneralCategoryGroup) -> bool {
+    matches!(
+        group,
+        GeneralCategoryGroup::Letter | GeneralCategoryGroup::Number
+    )
 }
 
 fn close_token(

@@ -12,8 +12,9 @@ use crate::index::tokenizer::tokenize;
 use crate::index::version::IndexVersion;
 use crate::index::{MatchRange, SearchQuery, SessionFind};
 
-/// The session's live `event` rows matching every phrase, newest first, each with the number of
-/// tokens `mark_matches` marks in it. Fails when Tantivy fails a read.
+/// The session's live `event` rows matching every phrase, newest first, each once with the number
+/// of tokens `mark_matches` marks in it, a row of several pages counted over all of them. Fails
+/// when Tantivy fails a read.
 pub(crate) fn find_in_session(
     version: &IndexVersion,
     session_key: u64,
@@ -59,6 +60,14 @@ pub(crate) fn find_in_session(
         }
     }
     found.sort_unstable_by_key(|(key, _)| std::cmp::Reverse(*key));
+    // A row of several pages is found once, with its pages' counts summed.
+    found.dedup_by(|later, kept| {
+        let is_same_row = later.0 == kept.0;
+        if is_same_row {
+            kept.1 += later.1;
+        }
+        is_same_row
+    });
     let (row_keys, match_counts) = found.into_iter().unzip();
     Ok(SessionFind {
         row_keys,

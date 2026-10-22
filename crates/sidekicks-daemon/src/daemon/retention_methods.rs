@@ -41,6 +41,7 @@ use crate::ipc::registry::{
 };
 use crate::ipc::stream::feed::Feed;
 use crate::ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
+use crate::transcript::body::starts_cache::forget_session_block_cuts;
 use crate::workflow::runs::record::{StoredInstantBound, stored_instant_bound};
 
 /// The statements the methods' reads prepare, counted into the read pool's statement capacity.
@@ -235,6 +236,7 @@ async fn purge_old_data(
         match outcome {
             SessionPurgeOutcome::Removed { hand_out_failure } => {
                 deleted += 1;
+                forget_session_block_cuts(session_id);
                 if let Some(failure) = hand_out_failure {
                     tracing::warn!(
                         %session_id,

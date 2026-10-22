@@ -1,19 +1,21 @@
 //! The line each hit shows, read from the database by the hit's key: the row's text as it is now,
-//! marked where the search matches it. The index stores no text, so a hit whose row is gone since
+//! marked where the search matches it on the first of its pages that holds a match. The index stores no text, so a hit whose row is gone since
 //! the index saw it is passed over, and one whose text changed is marked on its current text, or
 //! passed over once that text no longer holds a match. A search with words marks them as the index
 //! finds them; a search by tags alone marks each tag's levels the queried tag names.
 
 use sidekicks_search::index::{MatchRange, SearchQuery, mark_matches};
 
-use crate::session::search::index::rows::{IndexRowReader, SourceRow};
+use crate::session::search::index::rows::{IndexRowReader, LogRowPosition, SourceRow};
 use crate::session::search::marked_line::{MarkedLine, cut_marked_line};
 
 /// A hit's row as the database holds it now, and the marked line the hit shows.
 #[derive(Debug)]
 pub(crate) struct HitLine {
-    /// The row.
-    pub(crate) row: SourceRow,
+    /// The row's index key.
+    pub(crate) key: u64,
+    /// The row's id and position in its session's log; `None` on a title, group or tag.
+    pub(crate) log_row: Option<LogRowPosition>,
     /// The line it shows, marked.
     pub(crate) marked: MarkedLine,
 }
@@ -49,7 +51,7 @@ impl<'connection> HitLineReader<'connection> {
         query: &SearchQuery,
         count: usize,
     ) -> rusqlite::Result<Vec<Vec<HitLine>>> {
-        self.read_marked_lines(key_lists, |row| mark_matches(&row.text, query), count)
+        self.read_marked_lines(key_lists, |_, page| mark_matches(page, query), count)
     }
 
     /// For each list of keys, the lines of the first `count` of its tag rows that a queried tag,
@@ -61,7 +63,11 @@ impl<'connection> HitLineReader<'connection> {
         tag_folds: &[String],
         count: usize,
     ) -> rusqlite::Result<Vec<Vec<HitLine>>> {
-        self.read_marked_lines(key_lists, |row| tag_match_ranges(row, tag_folds), count)
+        self.read_marked_lines(
+            key_lists,
+            |row, page| tag_match_ranges(row, page, tag_folds),
+            count,
+        )
     }
 
     // Each round reads, for every list short of `count` lines with keys left, as many of its next
@@ -69,7 +75,7 @@ impl<'connection> HitLineReader<'connection> {
     fn read_marked_lines(
         &self,
         key_lists: &[&[u64]],
-        marker: impl Fn(&SourceRow) -> Vec<MatchRange>,
+        marker: impl Fn(&SourceRow, &str) -> Vec<MatchRange>,
         count: usize,
     ) -> rusqlite::Result<Vec<Vec<HitLine>>> {
         let mut reads: Vec<KeyListRead<'_>> = key_lists
@@ -103,13 +109,16 @@ impl<'connection> HitLineReader<'connection> {
                     let Some(row) = rows.get(key) else {
                         continue;
                     };
-                    let ranges = marker(row);
-                    if let Some((first, later)) = ranges.split_first() {
-                        let marked =
-                            cut_marked_line(&row.text, *first, later, self.line_max_length);
+                    let marked = row.pages.iter().find_map(|page| {
+                        let ranges = marker(row, page);
+                        let (first, later) = ranges.split_first()?;
+                        Some(cut_marked_line(page, *first, later, self.line_max_length))
+                    });
+                    if let Some(marked) = marked {
                         // The rows read serve every list's chunk, so each line takes its own copy.
                         reads[place].lines.push(HitLine {
-                            row: row.clone(),
+                            key: row.key,
+                            log_row: row.log_row.clone(),
                             marked,
                         });
                     }
@@ -119,15 +128,16 @@ impl<'connection> HitLineReader<'connection> {
     }
 }
 
-fn tag_match_ranges(row: &SourceRow, tag_folds: &[String]) -> Vec<MatchRange> {
-    let Some(tag) = &row.tag else {
+// A tag row's one page, `tag`, marked through the levels a queried tag names.
+fn tag_match_ranges(row: &SourceRow, tag: &str, tag_folds: &[String]) -> Vec<MatchRange> {
+    let Some(row_tag) = &row.tag else {
         return Vec::new();
     };
     let level_count = tag_folds
         .iter()
         .filter(|tag_fold| {
-            tag.fold == **tag_fold
-                || tag
+            row_tag.fold == **tag_fold
+                || row_tag
                     .fold
                     .strip_prefix(tag_fold.as_str())
                     .is_some_and(|rest| rest.starts_with('/'))
@@ -135,7 +145,7 @@ fn tag_match_ranges(row: &SourceRow, tag_folds: &[String]) -> Vec<MatchRange> {
         .map(|tag_fold| tag_fold.split('/').count())
         .max();
     level_count.map_or_else(Vec::new, |level_count| {
-        vec![leading_levels_range(&row.text, level_count)]
+        vec![leading_levels_range(tag, level_count)]
     })
 }
 

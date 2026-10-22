@@ -426,17 +426,20 @@ mod tests {
 
     use serde_json::json;
 
-    use super::{RestoreError, restore_backup};
+    use super::{BACKUP_DATABASE_FILE_NAME, RestoreError, restore_backup};
     use crate::daemon::data_folder::data_folder;
     use crate::daemon::data_folder_lock::DataFolderLock;
-    use crate::database::connection::writer_open::open_database;
+    use crate::database::connection::writer_open::{
+        DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME, open_database,
+    };
     use crate::database::schema::DAEMON_SCHEMA_FINGERPRINT;
 
     // A backup folder holding a store this build opened, its `user_version` set to `version`, its
     // manifest naming `service_version`.
     fn write_backup(backup: &Path, version: i32, service_version: &str) {
         fs::create_dir_all(backup).expect("the backup's folder is made");
-        let connection = open_database(&backup.join("daemon.db")).expect("the store opens");
+        let connection =
+            open_database(&backup.join(BACKUP_DATABASE_FILE_NAME)).expect("the store opens");
         connection
             .pragma_update(None, "user_version", version)
             .expect("the version is set");
@@ -500,9 +503,9 @@ mod tests {
         let message = refusal.to_string();
         assert!(message.contains("9.9.9"), "{message}");
         assert!(message.contains(env!("CARGO_PKG_VERSION")), "{message}");
-        let store = data_folder.join("daemon.db");
+        let store = data_folder.join(DAEMON_DATABASE_FILE_NAME);
         fs::write(&store, b"the store before the restore").expect("written");
-        let index = data_folder.join("search-index");
+        let index = data_folder.join(SEARCH_INDEX_FOLDER_NAME);
         fs::create_dir_all(&index).expect("the index folder is made");
         fs::write(index.join("segment"), b"rows of the store before").expect("written");
         let held = DataFolderLock::take(&data_folder).expect("the test holds the data folder");

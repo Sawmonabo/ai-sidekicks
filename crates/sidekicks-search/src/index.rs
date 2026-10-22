@@ -25,6 +25,7 @@ use tantivy::TantivyError;
 
 pub use self::engine::SearchIndex;
 pub use self::find::mark_matches;
+pub use self::tokenizer::find_page_end;
 pub use self::view::HeldSearch;
 
 /// Why the index failed a call.
@@ -61,18 +62,20 @@ pub enum IndexRowKind {
     Tag,
 }
 
-/// One row handed to the index, with its text as the database holds it now.
+/// One row handed to the index, with its text as the database holds it now; a row longer than a
+/// page of text is handed as one `IndexRow` per page, each indexed as its own document.
 #[derive(Clone, Debug)]
 pub struct IndexRow {
-    /// The row's key, unique across the index: its source row's rowid times four plus its kind's
-    /// slot.
+    /// The row's key: its source row's rowid times four plus its kind's slot. Every page of one row
+    /// carries it, so no two rows share it; a hit on any page is the row's hit.
     pub key: u64,
     /// What the row holds, which sets its key's slot and whom it counts toward.
     pub kind: IndexRowKind,
     /// The session key the row belongs to; for a `Group` row, the group key whose name it is. A
     /// rowid, so below 2^63.
     pub owner_key: u64,
-    /// The row's text as the database holds it; the index keeps its tokens, never the text.
+    /// The row's text as the database holds it, or one page of it; the index keeps its tokens,
+    /// never the text.
     pub text: String,
     /// What a `Tag` row carries besides its text; no other row carries it.
     pub tag: Option<IndexRowTag>,
@@ -102,7 +105,8 @@ pub struct RemovedOwner {
 pub struct IndexBatch {
     /// The highest outbox id the batch carries; the commit records it.
     pub last_outbox_id: u64,
-    /// Rows to index; a row already indexed under the same key is replaced.
+    /// Rows to index, every page of a row in this one batch; a row already indexed under the same
+    /// key is replaced, all its pages at once.
     pub rows: Vec<IndexRow>,
     /// Keys of rows to remove; a key the index does not hold is passed over.
     pub removed_keys: Vec<u64>,

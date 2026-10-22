@@ -555,12 +555,14 @@ fn response_of(page: SearchPage, hold_search: impl FnOnce() -> String) -> Sessio
 // A hit as a page shows it: its line, and the cursor that opens its session at it. A title, group
 // or tag hit names no row of the session's log, so it opens the session at its start.
 fn page_hit_of(hit_line: HitLine) -> Result<PageHit, EventCursorPositionOutOfRange> {
-    let HitLine { row, marked } = hit_line;
-    let position = row
-        .log_row
-        .map_or(START_OF_LOG_POSITION, |log_row| log_row.sequence);
+    let HitLine {
+        key,
+        log_row,
+        marked,
+    } = hit_line;
+    let position = log_row.map_or(START_OF_LOG_POSITION, |log_row| log_row.sequence);
     Ok(PageHit {
-        key: row.key,
+        key,
         hit: SessionSearchHit {
             cursor: encode_event_cursor(position)?,
             line: BoundedText::new(marked.line)

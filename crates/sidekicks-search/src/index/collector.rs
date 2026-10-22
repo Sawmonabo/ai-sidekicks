@@ -360,7 +360,7 @@ fn visit_matches_in(
 }
 
 /// Every matching session in rank order, with each one's hits best first, from one pass over
-/// every matching row.
+/// every matching row; a row of several pages is one hit, at its best page.
 pub(crate) struct ScoredSessions {
     /// The matching sessions' keys, best first.
     pub(crate) order: Vec<u64>,
@@ -375,7 +375,8 @@ pub(crate) fn score_every_session(
     within: Option<&SessionSet>,
 ) -> tantivy::Result<ScoredSessions> {
     let mut best: HashMap<u64, RankKey> = HashMap::new();
-    let mut rows: HashMap<u64, Vec<RankKey>> = HashMap::new();
+    // Each session's hit rows by key, each at its best page.
+    let mut rows: HashMap<u64, HashMap<u64, RankKey>> = HashMap::new();
     for ordinal in 0..version.segments.len() {
         let mut credit_row = |columns: &SegmentColumns, doc: DocId, score: f64| {
             let row_key = columns.key.get_val(doc);
@@ -394,10 +395,15 @@ pub(crate) fn score_every_session(
                     best.entry(session)
                         .and_modify(|held| *held = (*held).min(key))
                         .or_insert(key);
-                    rows.entry(session).or_default().push(RankKey {
+                    let row_key_rank = RankKey {
                         member_place: 0,
                         ..key
-                    });
+                    };
+                    rows.entry(session)
+                        .or_default()
+                        .entry(row_key)
+                        .and_modify(|held| *held = (*held).min(row_key_rank))
+                        .or_insert(row_key_rank);
                 },
             );
         };
@@ -410,7 +416,8 @@ pub(crate) fn score_every_session(
     order.sort_unstable();
     let hits = rows
         .into_iter()
-        .map(|(session, mut keys)| {
+        .map(|(session, keys)| {
+            let mut keys: Vec<RankKey> = keys.into_values().collect();
             keys.sort_unstable();
             (session, keys.into_iter().map(|key| key.row_key).collect())
         })
