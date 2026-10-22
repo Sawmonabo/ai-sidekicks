@@ -127,11 +127,11 @@ The machine's Ed25519 identity key MUST NOT be silently regenerated. Specificall
 #### WSL 2
 
 - On a Windows computer with sessions in a WSL 2 distribution, every item stays in Windows' Credential Manager, written and read by the native daemon in its own process; the distribution's WSL server holds no credential and no secret at rest, and a token a provider there needs reaches it as an environment value or a provider request the daemon sends over the channel ([ADR-039](./039-sessions-in-wsl-2-distributions.md)).
-- A distribution's own systemd credential service, Secret Service and keyutils are never used, so none of the Linux preconditions apply inside it.
+- A distribution's own systemd credential service, desktop keyring and keyutils are never used, so none of the Linux preconditions apply inside it.
 
 ## Alternatives Considered
 
-### Option A: Each secret its own credential-store item, with a `0600` file where that store cannot be used (Chosen)
+### Option A: Each secret its own item, in the platform's credential store or the service's `0600` file (Chosen)
 
 - **What:** Every secret is its own item, verified by write-probe-read-delete before the store is accepted: in the operating system's credential store on macOS and Windows, Windows' Credential Manager in the service's own process; on Linux in one file readable by this account alone, each item sealed through systemd's credential service, and plain where that service cannot seal; and in the same file, plain, on a Mac whose secrets are in it.
 - **Steel man:** Every secret opens unattended, on Linux before login and with no desktop keyring too; the store is the one each platform's own tools use, protected by the computer; the app runs no key, wrap or sealing format of its own; no silent fallback, since the place the items are in is named; no silent rotation of the identity key; a headless Linux machine still runs, the way `gh` and Codex do.
@@ -200,7 +200,7 @@ The machine's Ed25519 identity key MUST NOT be silently regenerated. Specificall
 
 ### Negative (accepted trade-offs)
 
-- The start's check on Linux, a probe sealed and opened and one item per key id opened, adds up to 2 seconds at start, not per command, and each call seals or opens one item through a short-lived `systemd-creds` process.
+- The start's check on Linux, a probe sealed and opened and one item per key id opened, adds up to 2 seconds at start, not per command, and each call seals or opens one item over one short connection to systemd's credential service.
 - On Linux a sealed file is lost when the key it was sealed with changes or systemd is downgraded below 256; the computer is then removed and linked again, and the secrets the person handed it are entered again.
 - The keychain and the file are software-protected and provide no defense against same-user malware. An attacker with code execution as the same person can read the items through the store or read decrypted keys from the daemon's memory. Defense against same-user code execution is out of scope.
 - A locked keychain fails a run that needs an item until the person unlocks it.

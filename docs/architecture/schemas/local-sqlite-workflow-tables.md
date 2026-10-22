@@ -336,7 +336,7 @@ CREATE TABLE workflow_node_state (
 -- ========================================================================
 -- Owner: Plan-014
 -- A secret's record, never its value: the daemon keeps the value as its own item in the operating system's credential store,
--- or in the daemon's secrets.json items file where that store cannot be used (ADR-036), and no read, reply, event, log or error carries it. A step parameter stores only
+-- or in the daemon's secrets.json items file on Linux and on a Mac whose secrets are in it (ADR-036), and no read, reply, event, log or error carries it. A step parameter stores only
 -- secret://<scope>/<name>, resolved when the step runs and only in a field its kind marks sensitive.
 -- Managed through workflow.secret.create, workflow.secret.update, workflow.secret.delete and
 -- workflow.secret.list, from the step's Credential field; nothing on Settings holds them.
