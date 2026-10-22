@@ -12,7 +12,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use jsonc_parser::cst::{CstInputValue, CstNode, CstObject};
@@ -23,6 +23,7 @@ use sidekicks_platforms::PathRules;
 use crate::cleanup_failures::CleanupFailures;
 use crate::git::exclude::{ExcludeError, add_repository_exclude};
 use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
+use crate::mutex_lock::lock;
 use crate::policy::destructive_git::covers_destructive_git;
 use crate::provider::driver::claude::session::ignored_settings::list_managed_settings_files;
 use crate::provider::driver::claude::session::settings_file::{
@@ -208,10 +209,10 @@ pub(crate) fn compose_claude_project_allow_update(
 
 /// Adds a project rule once to the local settings file of each of `folders`, in the list of its
 /// sense, taking the same entries out of the other list so an allow and a block never stand
-/// together; `written_by_answer`, the resolved file Claude Code itself writes for the answer's allow
-/// (the repository root's in the normal case), is skipped, and taken back with the rest when a
-/// later file fails. A file the daemon creates in a repository is first listed in its exclude list,
-/// each repository's list read once per call. One edit at a time on each file.
+/// together; `written_by_answer`, the resolved file Claude Code itself writes for the answer's
+/// allow (the repository root's in the normal case), is skipped, and taken back with the rest when
+/// a later file fails. A file the daemon creates in a repository is first listed in its exclude
+/// list, each repository's list read once per call. One edit at a time on each file.
 pub(crate) async fn write_claude_project_rule(
     folders: &[ClaudeProjectFolder<'_>],
     home_folder: &Path,
@@ -290,7 +291,7 @@ pub(crate) async fn write_claude_project_rule(
     not(test),
     expect(
         dead_code,
-        reason = "the Claude driver's remembered rules are removed through it"
+        reason = "the approvals' revoke removes a project rule through it"
     )
 )]
 pub(crate) async fn remove_claude_project_rule(
@@ -359,7 +360,7 @@ pub(crate) async fn remove_claude_project_rule(
     not(test),
     expect(
         dead_code,
-        reason = "the Claude driver's tool-server removal clears its rules through it"
+        reason = "the removal of a tool server clears its rules through it"
     )
 )]
 pub(crate) async fn remove_claude_tool_server_rules(
@@ -621,10 +622,7 @@ async fn edit_local_settings(
             return Ok(());
         }
         if let Some(common_git_folder) = common_git_folder
-            && excluded_repositories
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .insert(common_git_folder.to_path_buf())
+            && lock(excluded_repositories).insert(common_git_folder.to_path_buf())
         {
             add_repository_exclude(common_git_folder, CLAUDE_LOCAL_SETTINGS_EXCLUDE_PATTERN)
                 .await

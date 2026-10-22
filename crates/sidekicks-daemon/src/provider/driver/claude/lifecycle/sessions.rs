@@ -10,7 +10,8 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 
-use super::{ClaudeDriver, internal, lock};
+use super::{ClaudeDriver, internal};
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::delivery::requests::answers::claude_project_folder;
 use crate::provider::driver::claude::session::conversation_file::find_claude_taken_messages;
 use crate::provider::driver::claude::session::establishment::conversation_file_of;

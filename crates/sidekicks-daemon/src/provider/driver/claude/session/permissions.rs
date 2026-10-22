@@ -5,7 +5,7 @@
 
 use std::error::Error;
 use std::path::Path;
-use std::sync::{Arc, PoisonError};
+use std::sync::Arc;
 
 use sidekicks_contracts::approval::RememberedRuleSense;
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -15,6 +15,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::session::errors::ClaudeSessionError;
 use crate::provider::driver::claude::session::permission_level::permission_level_of;
 use crate::provider::driver::claude::session::rules::{
@@ -130,12 +131,7 @@ pub(crate) async fn resend_claude_permissions(
     session_rules: &[ProviderAskRule],
     path_rules: PathRules,
 ) -> Result<(), ClaudePermissionsError> {
-    let posture = live
-        .settings
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .execution_posture
-        .clone();
+    let posture = lock(&live.settings).execution_posture.clone();
     let permissions = compose_live_claude_permissions(
         live,
         posture
@@ -205,7 +201,7 @@ pub(crate) async fn keep_claude_project_rule(
 /// file the daemon never edits keeps it. Fails as the removal fails.
 #[expect(
     dead_code,
-    reason = "the Claude driver's rule revoke takes a project rule out of force through it"
+    reason = "the approvals' revoke takes a project rule out of force through it"
 )]
 pub(crate) async fn revoke_claude_project_rule(
     rule: &ProviderAskRule,

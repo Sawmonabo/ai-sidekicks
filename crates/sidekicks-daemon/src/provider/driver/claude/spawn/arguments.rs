@@ -14,7 +14,8 @@ use crate::provider::driver::claude::spawn::settings::ClaudeSpawnSettings;
     not(test),
     expect(
         dead_code,
-        reason = "the Claude driver's launch composes each command line through it"
+        reason = "the Claude driver the daemon's start registers composes each command line \
+                  through it"
     )
 )]
 pub(crate) enum ClaudeConversationStart {

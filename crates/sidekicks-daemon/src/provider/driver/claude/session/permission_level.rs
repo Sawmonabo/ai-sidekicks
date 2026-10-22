@@ -5,7 +5,6 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::PoisonError;
 
 use serde_json::Value;
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -20,6 +19,7 @@ use sidekicks_platforms::{PathRules, Spawner};
 use strum::VariantArray;
 
 use crate::ipc::domain_error::DomainError;
+use crate::mutex_lock::lock;
 use crate::policy::execution_posture_service::CURATED_CREDENTIAL_POLICY_REF;
 use crate::provider::driver::CommandSandboxAvailability;
 use crate::provider::driver::claude::DESCRIPTOR;
@@ -109,7 +109,7 @@ pub(crate) enum ClaudeLevelMoveError {
         refusal: TextError,
     },
     /// The level opens no folder to writes and the move named some; nothing was sent.
-    #[error("the {} level opens no folder to writes, and the move named some", <&str>::from(.level))]
+    #[error("the move named writable folders the {} level never opens", <&str>::from(.level))]
     WritableRootsAtLevel {
         /// The level.
         level: PermissionLevel,
@@ -232,7 +232,7 @@ pub(crate) async fn move_claude_permission_level(
 ) -> Result<(), ClaudeLevelMoveError> {
     let level = params.level;
     let (current_posture, session_mode, is_runnable) = {
-        let settings = live.settings.lock().unwrap_or_else(PoisonError::into_inner);
+        let settings = lock(&live.settings);
         let is_runnable = can_run_claude_level(
             level,
             &settings.running_model,
@@ -290,10 +290,7 @@ pub(crate) async fn move_claude_permission_level(
         })
         .await
         .map_err(ClaudePermissionsError::from)?;
-    live.settings
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .execution_posture = Some(posture);
+    lock(&live.settings).execution_posture = Some(posture);
     Ok(())
 }
 
@@ -484,13 +481,48 @@ mod tests {
     // careful level than the one the model cannot run, or by starting at anything but YOLO with
     // nothing set.
     #[rstest]
-    #[case::project_bypass(Some((ClaudeSettingsSource::Project, "bypassPermissions")), true, PermissionLevel::Readonly, SessionMode::Build)]
-    #[case::person_bypass(Some((ClaudeSettingsSource::Person, "bypassPermissions")), true, PermissionLevel::Yolo, SessionMode::Build)]
-    #[case::project_auto(Some((ClaudeSettingsSource::Project, "auto")), true, PermissionLevel::Yolo, SessionMode::Build)]
-    #[case::managed_auto(Some((ClaudeSettingsSource::Managed, "auto")), true, PermissionLevel::Reviewed, SessionMode::Build)]
-    #[case::auto_without_its_model(Some((ClaudeSettingsSource::Person, "auto")), false, PermissionLevel::Ask, SessionMode::Build)]
-    #[case::plan(Some((ClaudeSettingsSource::Project, "plan")), true, PermissionLevel::Readonly, SessionMode::Plan)]
-    #[case::unknown_mode(Some((ClaudeSettingsSource::Person, "delegate")), true, PermissionLevel::Readonly, SessionMode::Build)]
+    #[case::project_bypass(
+        Some((ClaudeSettingsSource::Project, "bypassPermissions")),
+        true,
+        PermissionLevel::Readonly,
+        SessionMode::Build,
+    )]
+    #[case::person_bypass(
+        Some((ClaudeSettingsSource::Person, "bypassPermissions")),
+        true,
+        PermissionLevel::Yolo,
+        SessionMode::Build,
+    )]
+    #[case::project_auto(
+        Some((ClaudeSettingsSource::Project, "auto")),
+        true,
+        PermissionLevel::Yolo,
+        SessionMode::Build,
+    )]
+    #[case::managed_auto(
+        Some((ClaudeSettingsSource::Managed, "auto")),
+        true,
+        PermissionLevel::Reviewed,
+        SessionMode::Build,
+    )]
+    #[case::auto_without_its_model(
+        Some((ClaudeSettingsSource::Person, "auto")),
+        false,
+        PermissionLevel::Ask,
+        SessionMode::Build,
+    )]
+    #[case::plan(
+        Some((ClaudeSettingsSource::Project, "plan")),
+        true,
+        PermissionLevel::Readonly,
+        SessionMode::Plan,
+    )]
+    #[case::unknown_mode(
+        Some((ClaudeSettingsSource::Person, "delegate")),
+        true,
+        PermissionLevel::Readonly,
+        SessionMode::Build,
+    )]
     #[case::nothing_set(None, true, PermissionLevel::Yolo, SessionMode::Build)]
     fn a_new_session_starts_at_the_level_claude_code_would_start_in(
         #[case] default_mode: Option<(ClaudeSettingsSource, &str)>,

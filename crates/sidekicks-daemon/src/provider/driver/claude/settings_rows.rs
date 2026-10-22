@@ -18,12 +18,16 @@ use crate::provider::driver::claude::session::establishment::context::{
 use crate::text_cut::cut_to_code_points;
 
 /// The line under the `Output style` row.
-const OUTPUT_STYLE_LINE: &str = "Applies to sessions started later. A session already running changes its own style from its \
-     composer.";
+const OUTPUT_STYLE_LINE: &str = concat!(
+    "Applies to sessions started later. ",
+    "A session already running changes its own style from its composer."
+);
 
 /// The line under the `Advisor` row.
-const ADVISOR_LINE: &str = "Applies to sessions started later. A session already running changes its own advisor from \
-     its composer.";
+const ADVISOR_LINE: &str = concat!(
+    "Applies to sessions started later. ",
+    "A session already running changes its own advisor from its composer."
+);
 
 /// The words of the advisor choice's none.
 const NO_ADVISOR_LABEL: &str = "No advisor";

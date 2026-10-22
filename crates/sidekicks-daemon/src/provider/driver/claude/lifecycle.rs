@@ -9,7 +9,7 @@ mod sessions;
 mod tests;
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -471,8 +471,4 @@ fn internal(error: impl std::error::Error + Send + Sync + 'static) -> DriverErro
 // The home folder a person's own Claude Code settings sit under.
 fn person_settings_folder(home_folder: &std::path::Path) -> PathBuf {
     home_folder.join(".claude")
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }

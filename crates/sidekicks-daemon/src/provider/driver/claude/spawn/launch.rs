@@ -18,6 +18,7 @@ use std::time::Duration;
 use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
 use sidekicks_platforms::Spawner;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::session::errors::ClaudeSessionError;
 use crate::provider::driver::claude::session::process::{
     ClaudeCodeProcess, ClaudeProcessLaunch, ClaudeProcessListener, ClaudeTurnHolds,
@@ -116,7 +117,8 @@ struct LiveProcesses {
     not(test),
     expect(
         dead_code,
-        reason = "the Claude driver starts and stops every process through it"
+        reason = "the Claude driver the daemon's start registers starts and stops every \
+                  process through it"
     )
 )]
 impl ClaudeProcessLauncher {
@@ -193,9 +195,7 @@ impl ClaudeProcessLauncher {
     }
 
     fn lock(&self) -> MutexGuard<'_, LiveProcesses> {
-        self.live
-            .lock()
-            .expect("the live processes' lock is never held across a panic")
+        lock(&self.live)
     }
 }
 

@@ -195,7 +195,7 @@ struct AccountSources {
     not(test),
     expect(
         dead_code,
-        reason = "the Claude driver's sign-in probe answers through it"
+        reason = "the daemon's provider sign-in check probes Claude Code through it"
     )
 )]
 pub(crate) async fn probe_claude_sign_in(

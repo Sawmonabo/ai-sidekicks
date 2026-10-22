@@ -5,14 +5,15 @@
 //! review finishes however the turn ends.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::event::declared_variants::RunAgentOutputPayload;
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::session::controls::events::SessionNotice;
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -20,6 +21,7 @@ use super::{ClaudeSessionControls, compose_review_command, one_turn_legs};
 use crate::cleanup_failures::CleanupFailures;
 use crate::error_description::describe_error;
 use crate::git::worktree::staged_changes::StagedChangesError;
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::run::routes::ClaudeBoundRun;
 use crate::provider::driver::claude::run::start::ClaudeDaemonTurnOpening;
 use crate::provider::driver::claude::session::errors::record_unheard_claude_failure;
@@ -37,7 +39,7 @@ enum ClaudeStagedReviewEnd {
     Refused(RunFailureCause),
     Reported {
         text: String,
-        provider_message_id: String,
+        provider_message_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
     },
 }
 
@@ -50,6 +52,8 @@ enum ClaudeStagedReviewError {
     Turn(#[from] CleanupFailures<ClaudeLaunchError, StagedChangesError>),
     #[error("the staged review's Claude Code process sent no report")]
     NoReport,
+    #[error("the staged review's report has a message id no event carries")]
+    ReportIdUnwritable(#[source] TextError),
     #[error("the staged review was stopped before it began")]
     Stopped,
 }
@@ -88,11 +92,7 @@ impl ClaudeSessionControls {
                     run_stop.stop.cancel();
                 }),
             );
-            if let Some(sender) = bound_sender
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .take()
-            {
+            if let Some(sender) = lock(&bound_sender).take() {
                 // The start stopped waiting only once it failed, which forgets the route.
                 sender.send(run).unwrap_or(());
             }
@@ -269,10 +269,13 @@ impl ClaudeSessionControls {
         if let Some(refusal) = reply.refusal {
             return Ok(ClaudeStagedReviewEnd::Refused(refusal));
         }
-        // A review that sent no message has no report, so the run fails rather than ending empty.
+        // A review that sent no message has no report, so the run fails rather than ending empty;
+        // one whose id no event carries fails too, since its report could not be stored.
         let provider_message_id = reply
             .provider_message_id
             .ok_or(ClaudeStagedReviewError::NoReport)?;
+        let provider_message_id = FreeFormText::new(provider_message_id)
+            .map_err(ClaudeStagedReviewError::ReportIdUnwritable)?;
         Ok(ClaudeStagedReviewEnd::Reported {
             text: reply.text,
             provider_message_id,
@@ -285,11 +288,8 @@ impl ClaudeSessionControls {
         live: &LiveClaudeSession,
         run: &ClaudeBoundRun,
         text: String,
-        provider_message_id: String,
+        provider_message_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
     ) {
-        let Ok(provider_message_id) = FreeFormText::new(provider_message_id) else {
-            return;
-        };
         let payload = RunAgentOutputPayload {
             session_id: live.session_id,
             provider_message_id,

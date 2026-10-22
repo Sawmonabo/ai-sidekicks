@@ -6,6 +6,7 @@ use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactRes
 use sidekicks_contracts::session::id::SessionId;
 
 use super::{ClaudeDriver, internal};
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::compaction::compact_claude_context;
 use crate::provider::driver::claude::session::establishment::context::read_claude_step_bound;
 use crate::provider::driver::claude::session::ultracode::{
@@ -47,10 +48,10 @@ impl ClaudeDriver {
         }
         if let Some(is_on) = requested_claude_ultracode(&params.options)
             && let Some(live) = parts.slots().live_session(session_id)
-            && super::lock(&live.settings).ultracode_requested != Some(is_on)
+            && lock(&live.settings).ultracode_requested != Some(is_on)
         {
             let reading = apply_claude_ultracode(&*live.channel, is_on).await?;
-            let mut settings = super::lock(&live.settings);
+            let mut settings = lock(&live.settings);
             settings.ultracode_requested = Some(is_on);
             if reading.is_some() {
                 settings.ultracode = reading;

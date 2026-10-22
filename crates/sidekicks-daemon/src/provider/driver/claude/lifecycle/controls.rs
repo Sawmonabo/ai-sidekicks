@@ -20,7 +20,8 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 
-use super::{ClaudeDriver, internal, lock, person_settings_folder};
+use super::{ClaudeDriver, internal, person_settings_folder};
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::capabilities::resolve_claude_model_catalog;
 use crate::provider::driver::claude::delivery::requests::answers::claude_project_folder;
@@ -51,9 +52,10 @@ use crate::provider::driver::claude::session::ultracode::{
 };
 use crate::provider::driver::claude::settings_rows::compose_claude_rows;
 use crate::provider::driver::claude::spawn::environment::claude_config_folder;
-use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
-use crate::provider::driver::claude::spawn::launch::initialize_reply::read_claude_initialize_declaration;
 use crate::provider::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
+use crate::provider::driver::claude::spawn::launch::{
+    ClaudeLaunchError, initialize_reply::read_claude_initialize_declaration,
+};
 use crate::provider::driver::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsRequest, build_claude_spawn_bound_legs,
 };

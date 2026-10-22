@@ -11,6 +11,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio::time::Instant;
 
 use crate::provider::driver::claude::session::errors::ClaudeSessionError;
+use crate::provider::driver::claude::session::process::ClaudeCodeProcess;
 use crate::provider::driver::claude::session::reply_reserve::{
     CLAUDE_AUTO_COMPACT_WINDOW_KEY, CLAUDE_MAX_OUTPUT_TOKENS_KEY,
     CLAUDE_RESERVE_READ_MAXIMUM_OUTPUT_TOKENS, CLAUDE_RESERVE_READ_WINDOW_TOKENS,
@@ -21,6 +22,7 @@ use crate::provider::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeFlagSettings,
 };
 use crate::provider::driver::claude::session::transport::declarations::ClaudeOfferedModel;
+use crate::provider::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
 use crate::provider::driver::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeLocalCommandReply, ClaudeModelContextRead,
     ClaudeReplyReserveReads, ClaudeSessionFolderReadRequest,
@@ -34,6 +36,7 @@ use crate::provider::driver::claude::spawn::launch::control_only::{
 use crate::provider::driver::claude::spawn::launch::initialize_reply::{
     read_claude_initialize_declaration, read_claude_listed_commands,
 };
+use crate::provider::driver::claude::spawn::launch::one_turn::compose_unwatched_answer;
 use crate::provider::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
 use crate::provider::driver::claude::turn_evidence::classify_claude_turn_evidence;
 use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
@@ -90,7 +93,8 @@ pub(crate) async fn read_claude_creation_figures(
     not(test),
     expect(
         dead_code,
-        reason = "the Claude driver's model figures read the reply reserve through it"
+        reason = "a session's move to another model reads that model's reply reserve through \
+                  it"
     )
 )]
 pub(crate) async fn read_claude_reply_reserve(
@@ -257,7 +261,7 @@ async fn print_local_command(
     // Written beside the wait, so an exit while the text is still being written is read too.
     let (written, answered) = tokio::join!(
         short.process.write_user_frame(frame),
-        read_command_reply(&mut arrivals, command)
+        read_command_reply(&short.process, &mut arrivals, command)
     );
     if let ClaudeWriteAttempt::Failed { cause, .. } = written {
         return Err(ClaudeSessionError::InputUnwritable(cause).into());
@@ -281,8 +285,10 @@ async fn print_local_command(
 }
 
 // Waits for the command's `result` within the request deadline, keeping the last outcome stamped
-// on a frame before it.
+// on a frame before it and answering each request the process holds meanwhile, as one no one
+// watches answers it. Fails as an answer cannot be written.
 async fn read_command_reply(
+    process: &ClaudeCodeProcess,
     arrivals: &mut tokio::sync::mpsc::UnboundedReceiver<ClaudeShortProcessArrival>,
     command: &'static str,
 ) -> Result<(Value, Option<String>), ClaudeLaunchError> {
@@ -297,7 +303,21 @@ async fn read_command_reply(
             .map_err(|_elapsed| unanswered())?;
         let frame = match arrival {
             Some(ClaudeShortProcessArrival::Frame(frame)) => frame,
-            Some(ClaudeShortProcessArrival::Request(_)) => continue,
+            Some(ClaudeShortProcessArrival::Request(ClaudeInboundRequestEvent::Request(asked))) => {
+                let answer =
+                    serde_json::value::to_raw_value(&compose_unwatched_answer(&asked.body))
+                        .expect("an answer the daemon composes always serializes");
+                if let ClaudeWriteAttempt::Failed { cause, .. } = process
+                    .answer_inbound_request(asked.request_id, answer)
+                    .await
+                {
+                    return Err(ClaudeSessionError::InputUnwritable(cause).into());
+                }
+                continue;
+            }
+            Some(ClaudeShortProcessArrival::Request(ClaudeInboundRequestEvent::Cancel {
+                ..
+            })) => continue,
             Some(ClaudeShortProcessArrival::Exit) | None => return Err(unanswered()),
         };
         let stamped = serde_json::from_str::<CommandReplyFrame>(&frame.text)

@@ -18,12 +18,13 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::hash::Hash;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use sidekicks_platforms::PathRules;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::session::answered_commands::ClaudeCommandChoices;
 use crate::provider::driver::claude::session::reply_reserve::{
     ClaudeReplyReserve, read_context_reply,
@@ -265,11 +266,6 @@ where
     result
 }
 
-fn lock<V>(held: &Mutex<V>) -> MutexGuard<'_, V> {
-    held.lock()
-        .expect("a figure store's lock is never held across a panic")
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -285,8 +281,9 @@ mod tests {
         ClaudeSessionError, ClaudeUnansweredCause,
     };
     use crate::provider::driver::claude::session::reply_reserve::ClaudeReplyReserve;
-    use crate::provider::driver::claude::session::transport::control::ClaudeControlSubtype;
-    use crate::provider::driver::claude::session::transport::readings::ClaudeSessionFolderReadRequest;
+    use crate::provider::driver::claude::session::transport::{
+        control::ClaudeControlSubtype, readings::ClaudeSessionFolderReadRequest,
+    };
     use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
 
     fn place() -> ClaudeSessionFolderReadRequest {

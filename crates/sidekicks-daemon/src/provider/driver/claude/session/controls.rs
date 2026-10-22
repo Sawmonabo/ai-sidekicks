@@ -7,7 +7,7 @@ mod staged_review;
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
 use serde::Deserialize;
@@ -31,6 +31,7 @@ use sidekicks_platforms::PathRules;
 use tokio_util::sync::CancellationToken;
 
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
+use crate::mutex_lock::lock;
 use crate::provider::callback_tools::spawn_binding::CallbackToolSpawnBinding;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::run::start::{
@@ -385,7 +386,7 @@ impl ClaudeSessionControls {
         }
         let tables = Arc::clone(&self.tables);
         ProviderCommandsSubscription::new(move || {
-            let mut tables = tables.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut tables = lock(&tables);
             if let Some(followers) = tables.followers.get_mut(&session_id) {
                 followers.remove(&follower);
                 if followers.is_empty() {
@@ -774,8 +775,4 @@ fn compose_review_command(target: SessionReviewTarget) -> String {
             format!("/{CLAUDE_REVIEW_SKILL_NAME} the uncommitted changes in the working tree")
         }
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }

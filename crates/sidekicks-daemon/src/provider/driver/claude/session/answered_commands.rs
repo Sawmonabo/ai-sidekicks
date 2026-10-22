@@ -2,9 +2,9 @@
 //! Claude Code's own `/output-style` writes the project's local settings, its `/advisor` saves the
 //! choice for the whole machine, and its `/config` writes the person's settings, so each is applied
 //! for this one session instead. Only the `/config` keys a console control owns are the daemon's;
-//! every other `/config` goes as typed. Typed with nothing, `/output-style` and `/advisor` list what
-//! a control-only process in the session's folder printed for each; an argument the session cannot
-//! take goes as typed, and Claude Code answers it.
+//! every other `/config` goes as typed. Typed with nothing, `/output-style` and `/advisor` list
+//! what a control-only process in the session's folder printed for each; an argument the session
+//! cannot take goes as typed, and Claude Code answers it.
 
 use std::collections::HashMap;
 
@@ -192,7 +192,7 @@ pub(crate) fn unreadable_claude_command_choices(detail: &str) -> ClaudeCommandCh
 /// it.
 #[expect(
     dead_code,
-    reason = "the Claude driver reads each typed message through it before writing it"
+    reason = "message admission reads each typed message through it before writing it"
 )]
 pub(crate) fn read_claude_answered_command(text: &str) -> Option<ClaudeAnsweredCommand> {
     let typed = text.strip_prefix('/')?;
@@ -223,7 +223,7 @@ pub(crate) fn read_claude_answered_command(text: &str) -> Option<ClaudeAnsweredC
 /// show included, is the listing laid out as Claude Code's own with the descriptions it printed.
 #[expect(
     dead_code,
-    reason = "the Claude driver answers a typed /output-style through it"
+    reason = "message admission answers a typed /output-style through it"
 )]
 pub(crate) fn answer_claude_output_style(
     argument: &str,
@@ -276,7 +276,7 @@ pub(crate) fn answer_claude_output_style(
 /// name it.
 #[expect(
     dead_code,
-    reason = "the Claude driver answers a typed /advisor through it"
+    reason = "message admission answers a typed /advisor through it"
 )]
 pub(crate) fn answer_claude_advisor(
     argument: &str,

@@ -21,13 +21,14 @@ use crate::provider::driver::claude::session::tool_server_calls::{
     ClaudeToolServerCallContext, ClaudeToolServerCalls,
 };
 use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::control::ClaudePermissionMode;
-use crate::provider::driver::claude::session::transport::declarations::ClaudeCumulativeUsageObservation;
 use crate::provider::driver::claude::session::transport::inbound::{
     ClaudeInboundRequest, ClaudeInboundRequestBody, ClaudeInboundRequestEvent,
 };
 use crate::provider::driver::claude::session::transport::user_message::{
     ClaudeWriteAttempt, compose_claude_user_frame,
+};
+use crate::provider::driver::claude::session::transport::{
+    control::ClaudePermissionMode, declarations::ClaudeCumulativeUsageObservation,
 };
 use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::provider::driver::claude::spawn::launch::bring_up::{
@@ -176,18 +177,11 @@ async fn answer_unwatched(
     context: ClaudeToolServerCallContext,
     asked: ClaudeInboundRequest,
 ) {
-    let answer = match asked.body {
-        ClaudeInboundRequestBody::McpMessage(message) => {
-            calls.start(context, asked.request_id, message);
-            return;
-        }
-        ClaudeInboundRequestBody::CanUseTool(_) => {
-            json!({"behavior": "deny", "message": CLAUDE_ONE_TURN_ASK_DENIAL})
-        }
-        ClaudeInboundRequestBody::HookCallback(_)
-        | ClaudeInboundRequestBody::RequestUserDialog(_)
-        | ClaudeInboundRequestBody::Unrouted { .. } => json!({}),
-    };
+    if let ClaudeInboundRequestBody::McpMessage(message) = asked.body {
+        calls.start(context, asked.request_id, message);
+        return;
+    }
+    let answer = compose_unwatched_answer(&asked.body);
     answer_claude_request(
         &*context.channel,
         &context.session_id,
@@ -225,6 +219,21 @@ fn read_lead_frame(frame: &ClaudeStreamFrame, reading: &mut OneTurnReading) {
             reading.refusal = read_claude_refusal_without_fallback(&members);
         }
         _ => {}
+    }
+}
+
+/// The answer of a process no one watches to a request it holds: a tool ask is denied, since no one
+/// can approve it, and every other request passes; a process that names no tool server sends no
+/// message for one.
+pub(super) fn compose_unwatched_answer(body: &ClaudeInboundRequestBody) -> Value {
+    match body {
+        ClaudeInboundRequestBody::CanUseTool(_) => {
+            json!({"behavior": "deny", "message": CLAUDE_ONE_TURN_ASK_DENIAL})
+        }
+        ClaudeInboundRequestBody::McpMessage(_)
+        | ClaudeInboundRequestBody::HookCallback(_)
+        | ClaudeInboundRequestBody::RequestUserDialog(_)
+        | ClaudeInboundRequestBody::Unrouted { .. } => json!({}),
     }
 }
 

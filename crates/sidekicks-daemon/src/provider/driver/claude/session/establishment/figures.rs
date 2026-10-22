@@ -4,13 +4,14 @@
 //! read again for a model the session moved to. A failed read is recorded and held as its reason,
 //! and the next session reads it again.
 
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::session::answered_commands::{
     ClaudeCommandChoices, read_claude_command_choices, unreadable_claude_command_choices,
 };
@@ -184,7 +185,7 @@ impl ClaudeHeldFigures {
     }
 
     fn lock(&self) -> MutexGuard<'_, Arc<ClaudeModelFigures>> {
-        self.current.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.current)
     }
 }
 
