@@ -16,6 +16,7 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
+use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_platforms::{
     LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
     WindowsSystemFolder,
@@ -326,13 +327,14 @@ impl ProviderDriver for ClaudeDriver {
         ready(self.starts_process(session_id)).boxed()
     }
 
-    // Claude Code takes a skill pick as the text that opens the turn, so none resolves apart.
+    // Claude Code takes a skill pick as the text that opens the turn, so each pick is answered as
+    // `skill.list` gave it, by its name and folder, with nothing read.
     fn resolve_skill_picks(
         &self,
         _session_id: SessionId,
-        _picks: Vec<QueuedSkillPick>,
+        picks: Vec<QueuedSkillPick>,
     ) -> BoxFuture<'_, Result<Vec<PickedSkill>, DriverError>> {
-        ready(Ok(Vec::new())).boxed()
+        ready(Ok(picks.into_iter().map(picked_skill_of).collect())).boxed()
     }
 
     fn answer_provider_choice(
@@ -523,5 +525,62 @@ impl ProviderDriver for ClaudeDriver {
 
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>> {
         self.session_inbox_addresser()
+    }
+}
+
+/// A pick as Claude Code takes it: the name and folder `skill.list` gave, both checked non-empty.
+fn picked_skill_of(pick: QueuedSkillPick) -> PickedSkill {
+    let non_empty = |text: String| NonEmptyText::new(text).expect("a checked pick is never empty");
+    PickedSkill {
+        name: non_empty(pick.name.into_string()),
+        path: non_empty(pick.folder_path.as_str().to_owned()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sidekicks_contracts::free_form_string::FilesystemPath;
+    use sidekicks_contracts::run::queue::QueuedSkillPick;
+    use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
+
+    use crate::provider::driver::claude::lifecycle::ClaudeDriver;
+    use crate::provider::driver::contract::ProviderDriver;
+    use crate::provider::driver::run_control::PickedSkill;
+    use crate::provider::driver::test_registry::test_driver_services;
+
+    // Killed by answering no skill, which drops every pick from the stored message.
+    #[tokio::test]
+    async fn each_skill_pick_is_answered_in_order_by_its_name_and_folder() {
+        let driver = ClaudeDriver::new(&test_driver_services());
+        let session_id =
+            SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d").expect("a valid session id");
+        let pick = |name: &str, folder: &str| QueuedSkillPick {
+            name: FreeFormText::new(name.to_owned()).expect("a valid name"),
+            folder_path: FilesystemPath::new(folder.to_owned()).expect("a valid folder"),
+        };
+        let picked = |name: &str, folder: &str| PickedSkill {
+            name: NonEmptyText::new(name.to_owned()).expect("a name"),
+            path: NonEmptyText::new(folder.to_owned()).expect("a folder"),
+        };
+
+        let skills = driver
+            .resolve_skill_picks(
+                session_id,
+                vec![
+                    pick("review", "/skills/review"),
+                    pick("deploy", "/skills/deploy"),
+                ],
+            )
+            .await
+            .expect("Claude Code resolves every pick");
+
+        assert_eq!(
+            skills,
+            [
+                picked("review", "/skills/review"),
+                picked("deploy", "/skills/deploy")
+            ]
+        );
     }
 }
