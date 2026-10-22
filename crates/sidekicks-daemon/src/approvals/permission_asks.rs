@@ -39,7 +39,7 @@ use crate::approvals::rules::{ApprovalRuleError, ApprovalRules};
 use crate::approvals::service::{
     ApprovalService, ApprovalServiceError, ResolveAnswer, ResolvedAnswer,
 };
-use crate::approvals::store::StoredApprovalRequest;
+use crate::approvals::store::{StoredApprovalRequest, StoredApprovalResolution};
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::ipc::domain_error::DomainError;
@@ -324,9 +324,10 @@ impl PermissionAsks {
 
     /// Records one answer, then hands it to the provider that holds the call, decision first,
     /// then records the rule it made once the provider kept it; a card the daemon raised itself
-    /// records its rule at once. Every rule is the one the stored answer asked for. The same answer
-    /// sent again hands it again only where no earlier hand reached, or may have reached, the
-    /// provider, and records a daemon card's rule whose record failed. Fails with the approval
+    /// records its rule at once. What is handed is the stored answer, its correction, its decline's
+    /// words and its rule, never a resend's. The same answer sent again hands it again only where
+    /// no earlier hand reached, or may have reached, the provider, and records a daemon card's rule
+    /// whose record failed. Fails with the approval
     /// service's refusals; `approval.requestCanceled`, the answer not recorded and the card
     /// withdrawn, for a provider's pending card whose ask is no longer held;
     /// `approval.rule.notKept` when the call was answered but its provider could not keep the rule,
@@ -370,9 +371,7 @@ impl PermissionAsks {
             }
             return Ok(response);
         };
-        let Some((request_id, answer, made_rule)) =
-            self.claim_hand(&stored, &ask_id, &answer).await?
-        else {
+        let Some((request_id, answer, made_rule)) = self.claim_hand(&stored, &ask_id).await? else {
             return Ok(response);
         };
         match self.hand_answer(&(stored.run_id, request_id), answer).await {
@@ -400,14 +399,13 @@ impl PermissionAsks {
         });
     }
 
-    // Keeps the answer with the held ask and claims its hand: the answer to hand, its request id
-    // and the rule its stored answer asked for, or `None` where no ask is held for it, or a hand of
-    // it is under way or reached its provider.
+    // Keeps the stored answer with the held ask and claims its hand: the answer to hand, its
+    // request id and the rule the stored answer asked for, or `None` where no ask is held for it, or
+    // a hand of it is under way or reached its provider.
     async fn claim_hand(
         &self,
         stored: &StoredApprovalRequest,
         ask_id: &NonEmptyText,
-        answer: &ResolveAnswer<'_>,
     ) -> Result<
         Option<(String, ProviderPermissionAnswer, Option<ProviderAnswerRule>)>,
         PermissionAskError,
@@ -430,7 +428,11 @@ impl PermissionAsks {
             }),
             None => None,
         };
-        let composed = compose_answer(answer, made_rule.clone());
+        let resolution = stored
+            .resolution
+            .as_ref()
+            .expect("an ask the service settled holds its answer");
+        let composed = compose_answer(stored.approval_request_id, resolution, made_rule.clone());
         let mut held = self.lock_held();
         let Some(ask) = held.get_mut(&(stored.run_id, request_id.clone())) else {
             return Ok(None);
@@ -648,26 +650,28 @@ fn rule_of(scope: &RememberedScope, action: ProviderAskActionKind) -> ProviderAs
     }
 }
 
-// The provider's answer to a card's answer: an allow with the correction it carries, or a refusal
-// with the decline's words, each with the rule it made.
+// The provider's answer to card `approval_request_id`'s stored answer: an allow with the
+// correction it carries, or a refusal with the decline's words, each with the rule it made.
 fn compose_answer(
-    answer: &ResolveAnswer<'_>,
+    approval_request_id: ApprovalRequestId,
+    resolution: &StoredApprovalResolution,
     made_rule: Option<ProviderAnswerRule>,
 ) -> ProviderPermissionAnswer {
-    match answer.decision {
+    match resolution.decision {
         ApprovalDecision::Approved => ProviderPermissionAnswer::Allow {
-            correction: answer
-                .edited_action
-                .map(|edited_action| ProviderAnswerCorrection {
+            correction: resolution.edited_action.as_ref().map(|edited_action| {
+                ProviderAnswerCorrection {
                     edited_action: edited_action.as_str().to_owned(),
-                    approval_request_id: answer.approval_request_id,
-                }),
+                    approval_request_id,
+                }
+            }),
             made_rule,
             answered_by_rule: None,
         },
         ApprovalDecision::Rejected => ProviderPermissionAnswer::Refuse {
-            reason: answer
+            reason: resolution
                 .decline_reason
+                .as_ref()
                 .map(|reason| reason.as_str().to_owned()),
             made_rule,
         },

@@ -438,7 +438,7 @@ impl ApprovalService {
             match answer.decision {
                 ApprovalDecision::Approved => RaisedRequestSettlement::Approved,
                 ApprovalDecision::Rejected => RaisedRequestSettlement::Rejected {
-                    decline_reason: answer.decline_reason.cloned(),
+                    decline_reason: resolution.decline_reason.clone(),
                 },
             },
         );
@@ -679,8 +679,8 @@ fn refusal_of_failed_write(failure: SessionEventAppendError) -> DomainError {
 }
 
 // What an answer to an ask already settled gets: the saved answer when it is the same one sent
-// again, under its client resolution id with its decision and scopes, else the refusal naming how
-// the ask was settled.
+// again, under its client resolution id with its decision, scopes, correction and decline words,
+// else the refusal naming how the ask was settled.
 fn answer_settled(
     stored: &StoredApprovalRequest,
     answer: &ResolveAnswer<'_>,
@@ -694,7 +694,9 @@ fn answer_settled(
                 && resolution.decision == answer.decision
                 && &resolution.effective_scope
                     == answer.effective_scope.unwrap_or(&stored.scope)
-                && resolution.asked_scope.as_ref() == answer.remembered_scope =>
+                && resolution.asked_scope.as_ref() == answer.remembered_scope
+                && resolution.edited_action.as_ref() == answer.edited_action
+                && resolution.decline_reason.as_ref() == answer.decline_reason =>
         {
             Ok(ApprovalResolveResponse {
                 approval_request_id: stored.approval_request_id,
