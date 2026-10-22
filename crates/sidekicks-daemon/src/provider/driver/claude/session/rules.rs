@@ -24,6 +24,7 @@ use crate::cleanup_failures::CleanupFailures;
 use crate::git::exclude::{ExcludeError, add_repository_exclude};
 use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
 use crate::policy::destructive_git::covers_destructive_git;
+use crate::provider::driver::claude::session::ignored_settings::list_managed_settings_files;
 use crate::provider::driver::claude::session::settings_file::{
     ClaudeSettingsFileError, edit_settings_object, hold_settings_file, read_claude_settings_file,
     read_settings_file, write_settings_file,
@@ -280,10 +281,11 @@ pub(crate) async fn write_claude_project_rule(
 /// Removes a revoked project rule from the local settings of each of `folders`: the file Claude
 /// Code keeps for the folder and the one in the folder itself, since Claude Code applies the rules
 /// of both. A file that does not exist holds none and is not made. First searches every file
-/// Claude Code reads and the daemon does not edit, the managed settings at
-/// `managed_settings_file`, the user settings of `config_folder` and each folder's shared
-/// `.claude/settings.json`: where one keeps the rule it answers `RuleInUneditedFile` and changes
-/// nothing, since the rule would still apply. Refuses a rule no file holds with `RuleNotFound`.
+/// Claude Code reads and the daemon does not edit, the managed settings in
+/// `managed_settings_folder` with every drop-in, the user settings of `config_folder` and each
+/// folder's shared `.claude/settings.json`: where one keeps the rule it answers
+/// `RuleInUneditedFile` and changes nothing, since the rule would still apply. Refuses a rule no
+/// file holds with `RuleNotFound`, and fails as a file or the drop-in folder cannot be read.
 #[cfg_attr(
     not(test),
     expect(
@@ -293,7 +295,7 @@ pub(crate) async fn write_claude_project_rule(
 )]
 pub(crate) async fn remove_claude_project_rule(
     folders: &[ClaudeProjectFolder<'_>],
-    managed_settings_file: &Path,
+    managed_settings_folder: Option<&Path>,
     config_folder: &Path,
     home_folder: &Path,
     path_rules: PathRules,
@@ -301,16 +303,26 @@ pub(crate) async fn remove_claude_project_rule(
 ) -> Result<(), ClaudeRulesError> {
     let entries = rule_entries(rule, path_rules)?;
     let (list, _) = sense_lists(rule.sense);
-    let unedited_files = [
-        managed_settings_file.to_path_buf(),
-        config_folder.join(CLAUDE_USER_SETTINGS_FILE),
-    ]
-    .into_iter()
-    .chain(
-        folders
-            .iter()
-            .map(|folder| settings_path(folder.working_folder, CLAUDE_SHARED_SETTINGS_FILE)),
-    );
+    let mut managed_files = Vec::new();
+    if let Some(folder) = managed_settings_folder {
+        let mut failures = Vec::new();
+        managed_files = list_managed_settings_files(folder, &mut failures).await;
+        if let Some(unlisted) = failures.pop() {
+            return Err(ClaudeSettingsFileError::Read {
+                path: unlisted.path,
+                failure: unlisted.failure,
+            }
+            .into());
+        }
+    }
+    let unedited_files = managed_files
+        .into_iter()
+        .chain([config_folder.join(CLAUDE_USER_SETTINGS_FILE)])
+        .chain(
+            folders
+                .iter()
+                .map(|folder| settings_path(folder.working_folder, CLAUDE_SHARED_SETTINGS_FILE)),
+        );
     for file in unedited_files {
         let settings = read_claude_settings_file(&file).await.map_err(|failure| {
             ClaudeSettingsFileError::Read {

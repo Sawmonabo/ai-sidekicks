@@ -33,7 +33,6 @@ use crate::provider::driver::claude::session::errors::{
 };
 use crate::provider::driver::claude::session::establishment::ClaudeSpawnSources;
 use crate::provider::driver::claude::session::establishment::context::resolve_claude_spawn_context;
-use crate::provider::driver::claude::session::ignored_settings::MANAGED_SETTINGS_FILE;
 use crate::provider::driver::claude::session::permission_level::{
     ClaudeStartingLevelSources, can_run_claude_level, list_claude_modes,
     move_claude_permission_level, read_claude_sandbox_support, read_claude_starting_level,
@@ -171,30 +170,29 @@ impl ClaudeDriver {
 
     /// Takes a revoked rule out of force: a project rule out of the folder's local settings, a
     /// session rule out of the live process's permissions, which a session at rest reads again
-    /// when it opens. Fails as the removal, the rules' read or the resend fails.
+    /// when it opens. A project rule is looked for in the config folder of the home the session
+    /// ran on last, the person's own where no process of it is known. Fails as the removal, the
+    /// rules' read or the resend fails.
     pub(crate) async fn revoke_rule(&self, params: RevokeRuleParams) -> Result<(), DriverError> {
-        let live = self
-            .composed_parts()
-            .and_then(|parts| parts.slots().live_session(params.session_id));
+        let parts = self.composed_parts();
+        let live = parts.and_then(|parts| parts.slots().live_session(params.session_id));
         if let Some(project_folder) = &params.project_folder {
-            let config_folder = match &live {
-                Some(live) => claude_config_folder(
-                    &live.spawn_bound_legs.spawn_environment,
-                    PathRules::NATIVE,
-                ),
-                None => None,
-            }
-            .unwrap_or_else(|| person_settings_folder(&self.sources.home_folder));
+            let spawn_environment = match &live {
+                Some(live) => Some(live.spawn_bound_legs.spawn_environment.clone()),
+                None => parts
+                    .and_then(|parts| parts.restarts.ended_conversation(params.session_id))
+                    .map(|ended| ended.spawn_environment),
+            };
+            let config_folder = spawn_environment
+                .and_then(|environment| claude_config_folder(&environment, PathRules::NATIVE))
+                .unwrap_or_else(|| person_settings_folder(&self.sources.home_folder));
             let repository = self.read_repository(project_folder).await;
-            let managed_settings_file = DESCRIPTOR
-                .managed_settings_folder()
-                .map(|folder| folder.join(MANAGED_SETTINGS_FILE))
-                .unwrap_or_default();
+            let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
             revoke_claude_project_rule(
                 &params.rule,
                 &ClaudeProjectRuleRemoval {
                     project_folder: &claude_project_folder(project_folder, repository.as_ref()),
-                    managed_settings_file: &managed_settings_file,
+                    managed_settings_folder: managed_settings_folder.as_deref(),
                     config_folder: &config_folder,
                     home_folder: &self.sources.home_folder,
                 },

@@ -159,13 +159,14 @@ pub(crate) async fn find_ignored_setting_notice(
     }
 }
 
-// The managed files in the order Claude Code applies them: the base file, then the drop-ins named
-// `*.json` in JavaScript's name order. A drop-in folder the daemon cannot list adds none.
+/// The managed files in `managed_settings_folder` in the order Claude Code applies them: the base
+/// file, then the drop-ins named `*.json` in JavaScript's name order. A drop-in folder the daemon
+/// cannot list adds none, and its failure is pushed onto `failures`.
 #[expect(
     clippy::case_sensitive_file_extension_comparisons,
     reason = "Claude Code reads a drop-in only when its name ends in `.json`, in this spelling"
 )]
-async fn list_managed_settings_files(
+pub(crate) async fn list_managed_settings_files(
     managed_settings_folder: &Path,
     failures: &mut Vec<ClaudeSettingsReadError>,
 ) -> Vec<PathBuf> {

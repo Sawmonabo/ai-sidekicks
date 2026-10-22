@@ -108,7 +108,7 @@ async fn a_write_lands_at_the_root_once_and_a_revoke_clears_the_root_and_the_sta
 
     remove_claude_project_rule(
         &folders,
-        &home.join("managed-settings.json"),
+        Some(&home),
         &home.join(".claude"),
         &home,
         PathRules::Posix,
@@ -301,7 +301,7 @@ async fn a_revoke_of_a_rule_a_file_the_daemon_does_not_edit_keeps_names_it_and_c
         outcomes.push(
             remove_claude_project_rule(
                 &folders,
-                &managed_file,
+                Some(config_folder.path()),
                 config_folder.path(),
                 folder.path(),
                 PathRules::Posix,
@@ -384,7 +384,7 @@ async fn a_revoke_keeps_every_byte_of_the_list_but_the_entry_and_its_separator(
 
     remove_claude_project_rule(
         &folders,
-        &folder.path().join("managed-settings.json"),
+        Some(folder.path()),
         folder.path(),
         folder.path(),
         PathRules::Posix,
