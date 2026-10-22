@@ -526,7 +526,7 @@ mod tests {
             "screen.png: Image base64 size (5333336) exceeds API limit (5242880). Please resize \
              the image before sending."
         );
-        assert!(session.channel.user_frames().is_empty());
+        assert_eq!(session.channel.user_frames(), [] as [serde_json::Value; 0]);
         assert!(
             session
                 .start

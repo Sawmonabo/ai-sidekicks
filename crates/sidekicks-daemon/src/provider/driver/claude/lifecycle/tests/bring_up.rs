@@ -118,20 +118,17 @@ async fn a_new_session_switches_to_an_unlisted_model_and_refuses_one_claude_code
         .iter()
         .filter(|request| request["subtype"] == "set_model")
         .count();
-    match switches {
-        Some(count) => {
-            assert!(created.is_ok(), "the session opens");
-            assert_eq!(model_switches, count);
-        }
-        None => {
-            let Err(DriverError::ProviderAxisInvalid(invalid)) = created else {
-                panic!("a model Claude Code refuses is refused for the session's lead");
-            };
-            assert_eq!(invalid.agent_id, agent_id);
-            assert_eq!(invalid.axis, ProviderAxis::ModelId);
-            assert_eq!(invalid.value, Value::from(model));
-            assert!(channel.writes().contains(&ScriptedWrite::Terminate));
-        }
+    if let Some(count) = switches {
+        assert!(created.is_ok(), "the session opens");
+        assert_eq!(model_switches, count);
+    } else {
+        let Err(DriverError::ProviderAxisInvalid(invalid)) = created else {
+            panic!("a model Claude Code refuses is refused for the session's lead");
+        };
+        assert_eq!(invalid.agent_id, agent_id);
+        assert_eq!(invalid.axis, ProviderAxis::ModelId);
+        assert_eq!(invalid.value, Value::from(model));
+        assert!(channel.writes().contains(&ScriptedWrite::Terminate));
     }
 }
 

@@ -43,13 +43,16 @@ fn figures_offering_advisors() -> ClaudeCreationFiguresReading {
 
 // The advisor row's value in `rows`.
 fn advisor_value(rows: &[ProviderRow]) -> Option<String> {
-    rows.iter().find_map(|row| match row {
-        ProviderRow::Setting {
+    rows.iter().find_map(|row| {
+        let ProviderRow::Setting {
             id,
             control: ProviderSettingControl::Choice { value, .. },
             ..
-        } if id.as_str() == "advisor" => Some(value.as_ref()?.as_str().to_owned()),
-        _ => None,
+        } = row
+        else {
+            return None;
+        };
+        (id.as_str() == "advisor").then(|| value.as_ref().map(|value| value.as_str().to_owned()))?
     })
 }
 
