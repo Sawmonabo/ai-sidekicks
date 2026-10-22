@@ -28,6 +28,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::Instant;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::provider::driver::claude::delivery::messages::{
@@ -47,6 +48,7 @@ use crate::provider::driver::claude::delivery::system::{
     read_claude_refusal_without_fallback, read_claude_warning, read_claude_worker_shutdown_reason,
 };
 use crate::provider::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
+use crate::provider::driver::claude::event_normalizer::resolve_claude_frame_emission_route;
 use crate::provider::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::provider::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::provider::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
@@ -55,7 +57,7 @@ use crate::provider::driver::claude::session::arrivals::{
 };
 use crate::provider::driver::claude::spent_retries_signal::classify_claude_spent_retries;
 use crate::provider::driver::diagnostics::{
-    DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
+    DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics, emit_driver_diagnostic,
 };
 use crate::provider::driver::reorder_buffer::ReorderBufferedEvent;
 use crate::provider::record_readers::read_non_empty_string;
@@ -109,6 +111,8 @@ pub(crate) struct ClaudeSessionStream {
     arrivals: ClaudeArrivalSender,
     routes: Arc<ClaudeRunRoutes>,
     prompts: Arc<Mutex<ClaudeSentPrompts>>,
+    // The kinds outside the census already logged on this process's connection.
+    diagnostics: Mutex<OnceReportedDiagnostics>,
 }
 
 impl ClaudeSessionStream {
@@ -129,6 +133,7 @@ impl ClaudeSessionStream {
             arrivals,
             routes,
             prompts,
+            diagnostics: Mutex::default(),
         }
     }
 
@@ -484,7 +489,15 @@ impl ClaudeDeliveryStream {
             "stream_event" => stream_event(session, &lead, &frame.text),
             "assistant" => self.assistant(session, &lead, &frame.text, &members).await,
             "user" => self.user(session, &lead, &frame.text, &members).await,
-            _ => {}
+            // A kind this reader reads nothing from goes through the census, which logs one
+            // outside it once on the connection, so no frame vanishes unrecorded.
+            _ => {
+                resolve_claude_frame_emission_route(
+                    frame_kind,
+                    session.provider_account_id.clone(),
+                    &mut lock(&session.diagnostics),
+                );
+            }
         }
         after
     }

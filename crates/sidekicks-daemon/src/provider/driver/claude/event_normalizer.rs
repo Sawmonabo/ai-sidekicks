@@ -464,13 +464,6 @@ pub(crate) enum ClaudeFrameEmissionRoute {
 /// The driver core's entry point onto the census, for the account `provider_account_id` names.
 /// Never fails: a kind outside the census is routed to a diagnostic, logged once per kind on the
 /// connection `reports` belongs to, never forced into an envelope or dropped.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude stream reader routes each frame the delivery side leaves through it"
-    )
-)]
 pub(crate) fn resolve_claude_frame_emission_route(
     frame_kind: &str,
     provider_account_id: Option<ProviderAccountId>,
