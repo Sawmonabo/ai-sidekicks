@@ -1,11 +1,12 @@
 //! `Export all data`: everything the service keeps for the person written into a new folder they
 //! picked, one export at a time. `sessions/<id>.jsonl` holds each session's events in the
 //! canonical shape with every body decoded, then its queue items and interventions as stored;
-//! `files/<session id>/<manifest id>/<name>` each file the session's artifacts hold; `accounts.json`
-//! each provider account's provider, name and plan, and no credential; `README.txt` a line for
-//! each part. Sessions are read a page at a time and written as they are read, so memory stays
-//! bounded whatever the store holds. An export a restart cut short is unknown afterward; its folder
-//! stays, named in the service log when the export began.
+//! `files/<session id>/<manifest id>/<name>` each file the session's artifacts hold;
+//! `accounts.json` each provider account's provider, name and plan, and no credential;
+//! `README.txt` a line for each part. Sessions are read a page of bounded text at a time and
+//! written as they are read, and a body too long for a page is written a frame at a time, so
+//! memory stays bounded whatever the store holds. The export writes one line to the service log,
+//! when it begins, naming its folder, which is how an export a restart cut short is found.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -19,8 +20,10 @@ use serde::Serialize;
 use serde_json::Value;
 use sidekicks_contracts::daemon::data::{DataExportJobId, DataExportProgress};
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
+use sidekicks_contracts::event::envelope::HydratedSessionEvent;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::transcript::content::hydrated_content_of;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -32,13 +35,12 @@ use crate::artifacts::payload_store::{ContentHash, PayloadStore};
 use crate::artifacts::validation::FILE_NAME_MEMBER;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::error_description::describe_error;
+use crate::events::content::codec::BodyStreamError;
 use crate::events::session::read::{
-    DamagedFromSequenceReader, SessionEventReads, SessionLogReadError,
+    DamagedFromSequenceReader, SessionEventReads, SessionLogReadError, UnloadedBodyEvent,
+    malformed_body,
 };
 use crate::text_cut::cut_to_code_points;
-
-// The rows one read of a session's log takes, so a page of bodies stays small.
-const EVENT_PAGE_ROWS: i64 = 64;
 
 const SESSIONS_FOLDER_NAME: &str = "sessions";
 
@@ -116,6 +118,41 @@ enum ExportError {
     Write(#[from] io::Error),
     #[error("a record could not be written as JSON")]
     Json(#[from] serde_json::Error),
+    #[error("the export's folder could not be measured")]
+    Measure(#[source] io::Error),
+}
+
+// The running export's hold on the one export slot: dropped, it frees the slot before the export's
+// end is published, so a client that sees the end can start the next at once, and a task that
+// panicked frees it too and publishes the failure.
+struct RunningExport {
+    jobs: Arc<Mutex<ExportJobs>>,
+    progress: watch::Sender<DataExportProgress>,
+    ended: Option<DataExportProgress>,
+}
+
+impl RunningExport {
+    // Frees the slot and publishes `ended`.
+    fn end(mut self, ended: DataExportProgress) {
+        self.ended = Some(ended);
+    }
+}
+
+impl Drop for RunningExport {
+    fn drop(&mut self) {
+        self.jobs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .running = None;
+        let ended = self
+            .ended
+            .take()
+            .unwrap_or_else(|| DataExportProgress::Failed {
+                message: FreeFormText::new("The export stopped unexpectedly.".to_owned())
+                    .expect("the message is text without NUL"),
+            });
+        self.progress.send_replace(ended);
+    }
 }
 
 // One export this run of the service started: its progress and its stop.
@@ -188,11 +225,14 @@ impl DataExports {
         );
         tracing::info!(folder = %destination.display(), "An export began");
         let deps = Arc::clone(&self.deps);
-        let jobs = Arc::clone(&self.jobs);
+        let running = RunningExport {
+            jobs: Arc::clone(&self.jobs),
+            progress: progress.clone(),
+            ended: None,
+        };
         tokio::spawn(async move {
             let ended = run_export(&deps, &destination, &progress, &stop).await;
-            progress.send_replace(ended);
-            jobs.lock().unwrap_or_else(PoisonError::into_inner).running = None;
+            running.end(ended);
         });
         Ok(job_id)
     }
@@ -229,28 +269,21 @@ async fn run_export(
     progress: &watch::Sender<DataExportProgress>,
     stop: &CancellationToken,
 ) -> DataExportProgress {
-    match write_export(deps, destination, progress, stop).await {
+    let written = match write_export(deps, destination, progress, stop).await {
         Ok(()) if stop.is_cancelled() => {
-            tracing::info!(folder = %destination.display(), "An export was canceled");
-            DataExportProgress::Canceled {
+            return DataExportProgress::Canceled {
                 path: folder_path(destination),
-            }
+            };
         }
-        Ok(()) => {
-            let total_bytes = folder_bytes(destination.to_path_buf()).await;
-            tracing::info!(folder = %destination.display(), total_bytes, "An export finished");
-            DataExportProgress::Completed {
-                path: folder_path(destination),
-                total_bytes: SafeInt::new(total_bytes)
-                    .expect("an export's bytes are a safe integer"),
-            }
-        }
+        Ok(()) => folder_bytes(destination.to_path_buf()).await,
+        Err(failure) => Err(failure),
+    };
+    match written {
+        Ok(total_bytes) => DataExportProgress::Completed {
+            path: folder_path(destination),
+            total_bytes: SafeInt::new(total_bytes).expect("an export's bytes are a safe integer"),
+        },
         Err(failure) => {
-            tracing::warn!(
-                folder = %destination.display(),
-                error = &failure as &(dyn Error + 'static),
-                "An export failed"
-            );
             let message = describe_error(&failure);
             DataExportProgress::Failed {
                 message: FreeFormText::new(
@@ -329,8 +362,8 @@ fn read_session_ids(connection: &Connection) -> Result<Vec<SessionId>, ExportErr
         .collect()
 }
 
-// Writes `sessions/<id>.jsonl`: the session's events a page at a time, then its queue items and
-// interventions. A cancel stops it between pages.
+// Writes `sessions/<id>.jsonl`: the session's events a page at a time, a body too long for a page
+// a frame at a time, then its queue items and interventions. A cancel stops it between pages.
 fn write_session(
     connection: &Connection,
     session_id: &SessionId,
@@ -340,19 +373,24 @@ fn write_session(
 ) -> Result<(), ExportError> {
     let path = sessions_folder.join(format!("{}.jsonl", session_id.text().as_str()));
     let mut file = BufWriter::new(File::create(path)?);
+    // One snapshot for the session, so a body a page names is still there when it is read.
+    let snapshot = connection.unchecked_transaction()?;
     let reads = SessionEventReads::new(connection, read_damaged_from_sequence);
     let mut after_position = -1;
     loop {
         if stop.is_cancelled() {
             break;
         }
-        let page = reads.read_page_hydrated(session_id, after_position, EVENT_PAGE_ROWS)?;
-        let Some(last) = page.last() else {
+        let page = reads.read_page_hydrated(session_id, after_position)?;
+        let Some(last) = page.last_sequence() else {
             break;
         };
-        after_position = i64::from(last.event.sequence);
-        for event in &page {
+        after_position = last;
+        for event in &page.events {
             write_line(&mut file, event)?;
+        }
+        if let Some(unloaded) = page.oversized {
+            write_streamed_line(&mut file, connection, unloaded)?;
         }
     }
     for queue_item in read_queue_items(connection, session_id)? {
@@ -361,6 +399,7 @@ fn write_session(
     for intervention in read_interventions(connection, session_id)? {
         write_line(&mut file, &intervention)?;
     }
+    snapshot.commit()?;
     file.into_inner()
         .map_err(io::IntoInnerError::into_error)?
         .sync_all()?;
@@ -369,6 +408,54 @@ fn write_session(
 
 fn write_line(file: &mut BufWriter<File>, record: &impl Serialize) -> Result<(), ExportError> {
     serde_json::to_writer(&mut *file, record)?;
+    file.write_all(b"\n")?;
+    Ok(())
+}
+
+// The member that holds a hydrated event's body, as JSON writes it with an empty body.
+const EMPTY_BODY_MEMBER: &[u8] = b"\"body\":\"\"";
+
+// Writes `unloaded`'s line as `write_line` would write it with its body whole, reading the body
+// a frame at a time: the line is written with an empty body up to the body's opening quote, then
+// each frame's text escaped as JSON escapes it, then the rest of the line. A frame ends between
+// characters, so escaping it alone escapes it as the whole body would be.
+fn write_streamed_line(
+    file: &mut BufWriter<File>,
+    connection: &Connection,
+    unloaded: UnloadedBodyEvent,
+) -> Result<(), ExportError> {
+    let UnloadedBodyEvent { event, pieces } = unloaded;
+    let content = hydrated_content_of(Some(&event.payload), Some(String::new()));
+    let shell = serde_json::to_vec(&HydratedSessionEvent {
+        event: event.clone(),
+        content,
+    })?;
+    // The body is the line's last text member, so its empty form is the last match.
+    let body_start = shell
+        .windows(EMPTY_BODY_MEMBER.len())
+        .rposition(|member| member == EMPTY_BODY_MEMBER)
+        .expect("a line with an available body holds its body member")
+        + EMPTY_BODY_MEMBER.len()
+        - 1;
+    file.write_all(&shell[..body_start])?;
+    let mut escaped = Vec::new();
+    for piece in &pieces {
+        piece
+            .stream(connection, |frame| {
+                escaped.clear();
+                serde_json::to_writer(&mut escaped, frame).map_err(io::Error::from)?;
+                // The frame's text, without the quotes JSON writes around a string.
+                file.write_all(&escaped[1..escaped.len() - 1])
+            })
+            .map_err(|error| match error {
+                BodyStreamError::Read(error) => ExportError::Query(error),
+                BodyStreamError::Write(error) => ExportError::Write(error),
+                damaged @ BodyStreamError::Damaged(_) => {
+                    ExportError::Log(malformed_body(&event, damaged).into())
+                }
+            })?;
+    }
+    file.write_all(&shell[body_start..])?;
     file.write_all(b"\n")?;
     Ok(())
 }
@@ -536,19 +623,22 @@ fn folder_path(folder: &Path) -> FilesystemPath {
         .expect("a folder the export made is a path")
 }
 
-// The bytes of every file under `folder`; an entry that cannot be read counts as none.
-async fn folder_bytes(folder: PathBuf) -> u64 {
+// The bytes of every file under `folder`. Fails when an entry cannot be read, or when the walk's
+// task does not finish.
+async fn folder_bytes(folder: PathBuf) -> Result<u64, ExportError> {
     tokio::task::spawn_blocking(move || {
-        WalkDir::new(folder)
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter_map(|entry| entry.metadata().ok())
-            .filter(fs::Metadata::is_file)
-            .map(|metadata| metadata.len())
-            .sum()
+        let mut total_bytes = 0;
+        for entry in WalkDir::new(folder) {
+            let metadata = entry.and_then(|entry| entry.metadata())?;
+            if metadata.is_file() {
+                total_bytes += metadata.len();
+            }
+        }
+        Ok::<_, walkdir::Error>(total_bytes)
     })
     .await
-    .unwrap_or_default()
+    .map_err(|failure| ExportError::Measure(io::Error::other(failure)))?
+    .map_err(|failure| ExportError::Measure(failure.into()))
 }
 
 #[cfg(test)]

@@ -63,7 +63,7 @@ tracing-subscriber.features = ["fmt", "std", "tracing-log"]
 # Storage.
 deadpool = { version = "0.13.1", default-features = false, features = ["managed"] }
 libsqlite3-sys = "0.38.2"
-rusqlite = { version = "0.40.2", features = ["backup", "bundled", "hooks"] }
+rusqlite = { version = "0.40.2", features = ["backup", "blob", "bundled", "hooks"] }
 tantivy = { version = "0.26.2", default-features = false }
 tantivy-common = "0.11.0"
 tempfile = "3.27.0"

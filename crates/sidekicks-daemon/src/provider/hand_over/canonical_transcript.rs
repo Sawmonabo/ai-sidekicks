@@ -198,22 +198,33 @@ pub(crate) fn fold_canonical_transcript<DamagedFrom>(
 where
     DamagedFrom: Fn(&SessionId) -> Option<i64>,
 {
-    // Rows past the bound would only add segments the bound drops, so the read stops at it.
-    let events = reads.read_after_hydrated(
-        session_id,
-        run_id,
-        START_OF_LOG_POSITION,
-        TRANSCRIPT_EVENT_TYPES.as_slice(),
-        bound.before_sequence(),
-    )?;
+    let mut fold = TurnFold::default();
+    let mut after_position = START_OF_LOG_POSITION;
+    // Rows past the bound would only add segments the bound drops, so the read stops at it. Each
+    // page is folded before the next is read, so only the fold holds every row's text.
+    loop {
+        let page = reads.read_run_page_hydrated(
+            session_id,
+            run_id,
+            after_position,
+            TRANSCRIPT_EVENT_TYPES.as_slice(),
+            bound.before_sequence(),
+        )?;
+        let Some(last) = page.last_sequence() else {
+            break;
+        };
+        after_position = last;
+        for event in page.events {
+            fold.add(event)?;
+        }
+        if let Some(unloaded) = page.oversized {
+            fold.add(reads.load_body(unloaded)?)?;
+        }
+    }
     // Read after the rows, so the head is at or past every row the fold holds.
     let built_at_position = reads.read_head(session_id)?.map_or(0, |head| {
         u64::try_from(head).expect("a session's read head is never negative")
     });
-    let mut fold = TurnFold::default();
-    for event in events {
-        fold.add(event)?;
-    }
     Ok(CanonicalTranscriptProjection {
         session_id: *session_id,
         run_id: *run_id,
@@ -397,7 +408,7 @@ fn read_payload<Payload: DeserializeOwned>(
         .map_err(|cause| CanonicalTranscriptFoldError::Payload { sequence, cause })
 }
 
-/// The row's stored body, `None` when it cannot be read. A cut body is taken as stored.
+/// The row's stored body, whole, `None` when it cannot be read.
 fn body_of(content: HydratedSessionEventContent) -> Option<String> {
     match content {
         HydratedSessionEventContent::Available { body, .. } => Some(body),

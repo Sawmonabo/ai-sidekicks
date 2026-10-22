@@ -6,7 +6,7 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use secrecy::SecretString;
 use sidekicks_platforms::CredentialStore;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 
 use super::{DataErase, DataEraseDeps};
 use crate::credential_store::items::{SecretItems, SecretItemsStart};
@@ -32,9 +32,10 @@ fn write_file(path: &Path) {
 
 // The erase runs in its order: the work stops while the data folder is whole, each provider's
 // services end, the keychain's items go before the data folder closes, and the process ends
-// last; the data folder goes but for an earlier backup, and a project folder is untouched.
-// Killed by a delete before the stop, by items deleted after the folder, by a provider service
-// ended as for a restart, and by a project folder or a backup deleted.
+// last; the data folder goes but for an earlier backup, and a project folder is untouched. A
+// second erase sent while it stops the work starts nothing. Killed by a delete before the stop,
+// by items deleted after the folder, by a provider service ended as for a restart, by a project
+// folder or a backup deleted, and by a second erase let run beside the first.
 #[tokio::test]
 async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     let data_folder = tempfile::tempdir().expect("the data folder is made");
@@ -82,6 +83,8 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     let (stop_calls, close_calls, end_calls) =
         (Arc::clone(&calls), Arc::clone(&calls), Arc::clone(&calls));
     let (stop_data, end_signal) = (data.clone(), Arc::clone(&ended));
+    // The work stops only once the gate opens, so a second erase arrives while the first runs.
+    let (gate, gate_open) = watch::channel(false);
     let erase = Arc::new(DataErase::new(DataEraseDeps {
         data_folder: data.clone(),
         secret_items,
@@ -89,7 +92,14 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
         stop_work: Arc::new(move || {
             let whole = stop_data.join("daemon.db").exists();
             record(&stop_calls, format!("work stops (folder whole: {whole})"));
-            async {}.boxed()
+            let mut gate_open = gate_open.clone();
+            async move {
+                gate_open
+                    .wait_for(|is_open| *is_open)
+                    .await
+                    .expect("the gate stays while the test runs");
+            }
+            .boxed()
         }),
         close_data_folder: Arc::new(move || {
             let held = credentials
@@ -106,6 +116,12 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     }));
 
     erase.begin().await.expect("the keychain can be emptied");
+    tokio::task::yield_now().await;
+    erase
+        .begin()
+        .await
+        .expect("a second erase answers as the first");
+    gate.send_replace(true);
     tokio::time::timeout(Duration::from_secs(10), ended.notified())
         .await
         .expect("the erase ends the process");

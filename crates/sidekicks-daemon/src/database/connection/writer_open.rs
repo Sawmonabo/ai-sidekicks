@@ -45,7 +45,7 @@ pub enum DatabaseOpenError {
 pub(crate) const DAEMON_DATABASE_FILE_NAME: &str = "daemon.db";
 
 /// The search index's folder name in the data folder, beside the store whose rows it indexes.
-pub(crate) const SEARCH_INDEX_FOLDER_NAME: &str = "search-index";
+pub const SEARCH_INDEX_FOLDER_NAME: &str = "search-index";
 
 /// Opens the daemon's database at `database_path` for its one writer, creating the file and its
 /// schema when they are missing. Fails as SQLite does, with [`DatabaseOpenError::PragmaNotTaken`]

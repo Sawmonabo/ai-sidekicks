@@ -587,6 +587,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{SessionSearchError, SessionSearchService};
+    use crate::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
     use crate::database::schema::DAEMON_SCHEMA_SQL;
     use crate::session::search::cursor::decode_search_cursor;
     use crate::session::search::index::outbox::OutboxReader;
@@ -625,7 +626,7 @@ mod tests {
             let highest_id_given = OutboxReader::new(&connection)
                 .highest_id_given()
                 .expect("the outbox's highest id reads");
-            let index_folder = folder.path().join("search-index");
+            let index_folder = folder.path().join(SEARCH_INDEX_FOLDER_NAME);
             build_search_index(
                 &index_folder,
                 &IndexRowReader::new(&connection),

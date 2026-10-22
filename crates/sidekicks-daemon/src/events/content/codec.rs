@@ -1,15 +1,18 @@
 //! The one encode and decode of a stored body. A body of 1 KiB or more is stored as one zstd stream
 //! at level 3, made of one frame per page of text, each frame ending at a character boundary and
 //! recording its decoded size and a checksum; a smaller body is stored as its UTF-8 bytes. The
-//! payload names the encoding and the body's whole length, so a reader decodes by them and a part
-//! read decodes only the frames its part covers. The writer thread encodes, through one reused
+//! payload names the encoding and the body's whole length, so a reader decodes by them, a part
+//! read decodes only the frames its part covers, and a reader of a body too long to hold takes it
+//! a frame at a time from the stored column. The writer thread encodes, through one reused
 //! compressor; every reader decodes here.
 
 use std::io;
+use std::mem;
 use std::string::FromUtf8Error;
 
-use rusqlite::Row;
+use rusqlite::blob::Blob;
 use rusqlite::types::Type;
+use rusqlite::{Connection, MAIN_DB, Row};
 use sidekicks_contracts::event::declared_variants::{
     CONTENT_ENCODING_PAYLOAD_KEY, CONTENT_LENGTH_PAYLOAD_KEY, ContentEncoding,
 };
@@ -17,6 +20,7 @@ use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
 use zstd::bulk::{Compressor, Decompressor};
 use zstd::zstd_safe::{self, CParameter};
 
+use crate::database::schema::SESSION_EVENTS_TABLE;
 use crate::database::stored_column::{closed_word, optional_text_column};
 
 /// The smallest body stored compressed, in UTF-8 bytes.
@@ -192,11 +196,9 @@ pub(crate) fn decode_body_stretch(
     let mut covered: Option<(u64, usize, usize)> = None;
     let mut stream_offset = 0;
     while !rest.is_empty() {
-        let frame_bytes = zstd_safe::find_frame_compressed_size(rest).map_err(stream_fault)?;
-        let frame_text = zstd_safe::get_frame_content_size(rest)
-            .ok()
-            .flatten()
-            .ok_or_else(|| stream_fault(0))?;
+        let frame_bytes = zstd_safe::find_frame_compressed_size(rest)
+            .map_err(|code| stream_fault(StreamFault::Zstd(code)))?;
+        let frame_text = frame_text_bytes(rest)?;
         let frame_end = frame_start + frame_text;
         if frame_end > from as u64 && frame_start < to as u64 {
             let (start, first, _) = covered.unwrap_or((frame_start, stream_offset, 0));
@@ -204,7 +206,9 @@ pub(crate) fn decode_body_stretch(
         }
         stream_offset += frame_bytes;
         frame_start = frame_end;
-        rest = rest.get(frame_bytes..).ok_or_else(|| stream_fault(0))?;
+        rest = rest
+            .get(frame_bytes..)
+            .ok_or_else(|| stream_fault(StreamFault::FramePastEnd))?;
     }
     if frame_start != stated {
         return Err(BodyDecodeError::Length {
@@ -219,7 +223,8 @@ pub(crate) fn decode_body_stretch(
         });
     };
     let frames = &stored[first..last];
-    let capacity = Decompressor::upper_bound(frames).ok_or_else(|| stream_fault(0))?;
+    let capacity =
+        Decompressor::upper_bound(frames).ok_or_else(|| stream_fault(StreamFault::NoUpperBound))?;
     let decoded = Decompressor::new()
         .and_then(|mut decompressor| decompressor.decompress(frames, capacity))
         .map_err(BodyDecodeError::Stream)?;
@@ -229,14 +234,170 @@ pub(crate) fn decode_body_stretch(
     })
 }
 
-// A frame walk that met bytes no frame header reads, as the stream fault it is.
-fn stream_fault(code: usize) -> BodyDecodeError {
-    let name = if code == 0 {
-        "the frame records no decoded size"
-    } else {
-        zstd_safe::get_error_name(code)
+// What a frame walk met that no whole frame of a stored body holds.
+#[derive(Clone, Copy)]
+enum StreamFault {
+    // zstd's own error code, from a header it could not read.
+    Zstd(usize),
+    // A frame whose header records no decoded size.
+    NoDecodedSize,
+    // A frame that decodes to more than a page of text, which no writer stores.
+    FrameOverPage,
+    // A frame whose stated size runs past the stored bytes.
+    FramePastEnd,
+    // Frames whose decoded size zstd cannot bound.
+    NoUpperBound,
+}
+
+// A frame walk's fault, as the stream fault it is.
+fn stream_fault(fault: StreamFault) -> BodyDecodeError {
+    let name = match fault {
+        StreamFault::Zstd(code) => zstd_safe::get_error_name(code),
+        StreamFault::NoDecodedSize => "the frame records no decoded size",
+        StreamFault::FrameOverPage => "the frame decodes to more than a page of text",
+        StreamFault::FramePastEnd => "the frame runs past the stored bytes",
+        StreamFault::NoUpperBound => "the frames' decoded size has no bound",
     };
     BodyDecodeError::Stream(io::Error::new(io::ErrorKind::InvalidData, name))
+}
+
+// The decoded size the header at the start of `stored` records for its frame.
+fn frame_text_bytes(stored: &[u8]) -> Result<u64, BodyDecodeError> {
+    zstd_safe::get_frame_content_size(stored)
+        .ok()
+        .flatten()
+        .ok_or_else(|| stream_fault(StreamFault::NoDecodedSize))
+}
+
+/// Why a stored body could not be read a frame at a time.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum BodyStreamError {
+    /// The body does not read back as the text its payload describes; the row is damaged.
+    #[error(transparent)]
+    Damaged(#[from] BodyDecodeError),
+    /// SQLite refused to open or read the stored column.
+    #[error("the stored body could not be read")]
+    Read(#[from] rusqlite::Error),
+    /// The reader refused a frame's text.
+    #[error("a stored body's text could not be written")]
+    Write(#[source] io::Error),
+}
+
+/// Where a stored body sits before it is read: its row and what its payload states, read back by
+/// [`StoredBodyPlace::read`] from the columns [`stored_body_place_sql`] selects.
+#[derive(Clone, Debug)]
+pub(crate) struct StoredBodyPlace {
+    /// The `session_events` row whose `content_payload` holds it.
+    pub(crate) rowid: i64,
+    /// The encoding its payload names.
+    pub(crate) encoding: Option<ContentEncoding>,
+    /// The length its payload states.
+    pub(crate) content_length: Option<u64>,
+}
+
+/// The columns a reader selects to find the body of the row aliased `alias` without loading it:
+/// its rowid, the encoding and the length its payload states.
+pub(crate) fn stored_body_place_sql(alias: &str) -> String {
+    format!(
+        "{alias}.rowid, {}, {}",
+        stored_body_encoding_sql(alias),
+        stored_body_length_sql(alias)
+    )
+}
+
+impl StoredBodyPlace {
+    /// Reads the three columns from `index` on, `None` when the rowid is NULL, as an outer join
+    /// leaves it. Fails as [`StoredBodyColumns::read`] does.
+    pub(crate) fn read(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<Self>> {
+        let Some(rowid) = row.get::<_, Option<i64>>(index)? else {
+            return Ok(None);
+        };
+        Ok(Some(Self {
+            rowid,
+            encoding: optional_text_column(row, index + 1, closed_word::<ContentEncoding>)?,
+            content_length: stated_length_column(row, index + 2)?,
+        }))
+    }
+
+    /// The body's whole text, read on `connection`. Fails with [`BodyStreamError::Damaged`] as
+    /// [`decode_body`] does, and with [`BodyStreamError::Read`] when SQLite refuses the column.
+    pub(crate) fn decode(&self, connection: &Connection) -> Result<String, BodyStreamError> {
+        let blob = self.open(connection)?;
+        Ok(decode_body(
+            read_whole(&blob)?,
+            self.encoding,
+            self.content_length,
+        )?)
+    }
+
+    /// Hands the body's text to `each` a frame at a time, in order, so no more than a page of it
+    /// is held at once; a body stored as it is, under 1 KiB, is handed whole. Fails as
+    /// [`StoredBodyPlace::decode`] does, after handing over the frames before a damaged one, and
+    /// with [`BodyStreamError::Write`] when `each` fails.
+    pub(crate) fn stream(
+        &self,
+        connection: &Connection,
+        mut each: impl FnMut(&str) -> io::Result<()>,
+    ) -> Result<(), BodyStreamError> {
+        let blob = self.open(connection)?;
+        let Some(ContentEncoding::Zstd) = self.encoding else {
+            let text = decode_body(read_whole(&blob)?, self.encoding, self.content_length)?;
+            return each(&text).map_err(BodyStreamError::Write);
+        };
+        let stated = self.content_length.ok_or(BodyDecodeError::NoLength)?;
+        // A whole frame of a page of text is never longer than zstd's bound for that page.
+        let frame_bytes_max = zstd::compress_bound(FRAME_TEXT_MAX_BYTES);
+        let mut decompressor = Decompressor::new().map_err(BodyDecodeError::Stream)?;
+        let mut window = Vec::new();
+        let mut text = Vec::new();
+        let mut offset = 0;
+        let mut decoded: u64 = 0;
+        while offset < blob.len() {
+            window.resize(frame_bytes_max.min(blob.len() - offset), 0);
+            blob.read_at_exact(&mut window, offset)?;
+            let frame_bytes = zstd_safe::find_frame_compressed_size(&window)
+                .map_err(|code| stream_fault(StreamFault::Zstd(code)))?;
+            let frame_text = frame_text_bytes(&window)?;
+            let capacity = usize::try_from(frame_text)
+                .ok()
+                .filter(|capacity| *capacity <= FRAME_TEXT_MAX_BYTES)
+                .ok_or_else(|| stream_fault(StreamFault::FrameOverPage))?;
+            text.clear();
+            text.reserve(capacity);
+            decompressor
+                .decompress_to_buffer(&window[..frame_bytes], &mut text)
+                .map_err(BodyDecodeError::Stream)?;
+            let frame = String::from_utf8(mem::take(&mut text)).map_err(BodyDecodeError::Utf8)?;
+            each(&frame).map_err(BodyStreamError::Write)?;
+            text = frame.into_bytes();
+            decoded += frame_text;
+            offset += frame_bytes;
+        }
+        if decoded != stated {
+            return Err(BodyDecodeError::Length { stated, decoded }.into());
+        }
+        Ok(())
+    }
+
+    fn open<'connection>(
+        &self,
+        connection: &'connection Connection,
+    ) -> rusqlite::Result<Blob<'connection>> {
+        connection.blob_open(
+            MAIN_DB,
+            SESSION_EVENTS_TABLE,
+            "content_payload",
+            self.rowid,
+            true,
+        )
+    }
+}
+
+// Every stored byte of `blob`.
+fn read_whole(blob: &Blob<'_>) -> rusqlite::Result<Vec<u8>> {
+    let mut stored = vec![0; blob.len()];
+    blob.read_at_exact(&mut stored, 0)?;
+    Ok(stored)
 }
 
 /// The columns a reader selects to decode the body of the row aliased `alias`: the stored bytes,
@@ -275,21 +436,10 @@ impl StoredBodyColumns {
     /// Reads the three columns from `index` on. Fails with rusqlite's conversion error on an
     /// encoding no build writes or a negative length.
     pub(crate) fn read(row: &Row<'_>, index: usize) -> rusqlite::Result<Self> {
-        let content_length: Option<i64> = row.get(index + 2)?;
         Ok(Self {
             stored: row.get(index)?,
             encoding: optional_text_column(row, index + 1, closed_word::<ContentEncoding>)?,
-            content_length: content_length
-                .map(|length| {
-                    u64::try_from(length).map_err(|error| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            index + 2,
-                            Type::Integer,
-                            Box::new(error),
-                        )
-                    })
-                })
-                .transpose()?,
+            content_length: stated_length_column(row, index + 2)?,
         })
     }
 
@@ -326,6 +476,19 @@ impl StoredBodyColumns {
             })
             .transpose()
     }
+}
+
+// The length a payload states, read from `index`; a negative one fails with rusqlite's conversion
+// error.
+fn stated_length_column(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<u64>> {
+    let content_length: Option<i64> = row.get(index)?;
+    content_length
+        .map(|length| {
+            u64::try_from(length).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(index, Type::Integer, Box::new(error))
+            })
+        })
+        .transpose()
 }
 
 /// A body that does not decode, as the read's conversion failure on its column.

@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use rstest::rstest;
 use rusqlite::Connection;
 use rusqlite::config::DbConfig;
+use sidekicks_daemon::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
 use sidekicks_daemon::database::schema::{DAEMON_SCHEMA_FINGERPRINT, DAEMON_SCHEMA_SQL};
 use sidekicks_daemon::recovery::database_file::aside_copy::{
     AsideCopyError, DatabaseFilesAside, copy_database_files_aside,
@@ -625,7 +626,7 @@ async fn a_stop_before_the_aside_copy_leaves_the_damaged_file_as_it_was() {
         &DatabaseFileRepairOptions {
             database_path: &database_path,
             data_folder: data_folder.path(),
-            index_folder_path: &data_folder.path().join("search-index"),
+            index_folder_path: &data_folder.path().join(SEARCH_INDEX_FOLDER_NAME),
             shell: &shell,
             copier: &copier,
             now: jiff::Timestamp::now(),
@@ -690,7 +691,7 @@ async fn a_backup_copy_an_earlier_repair_left_is_removed_before_any_work(
         &DatabaseFileRepairOptions {
             database_path: &database_path,
             data_folder: data_folder.path(),
-            index_folder_path: &data_folder.path().join("search-index"),
+            index_folder_path: &data_folder.path().join(SEARCH_INDEX_FOLDER_NAME),
             shell: &shell,
             copier: &copier,
             now: jiff::Timestamp::now(),

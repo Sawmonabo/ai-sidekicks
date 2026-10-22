@@ -5,7 +5,11 @@ use sidekicks_contracts::event::declared_variants::ContentEncoding;
 use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
 use zstd::zstd_safe;
 
-use super::{BodyDecodeError, BodyEncoder, StoredBody, decode_body, decode_body_stretch};
+use super::{
+    BodyDecodeError, BodyEncoder, StoredBody, StoredBodyPlace, decode_body, decode_body_stretch,
+    stored_body_place_sql,
+};
+use crate::transcript::test_log::TranscriptTestLog;
 
 // A body of `length` UTF-8 bytes whose characters are one, two and three bytes wide, so a frame
 // cut by bytes alone would split one.
@@ -65,12 +69,13 @@ fn a_body_is_stored_compressed_from_one_kibibyte(
     assert_eq!(decoded, text);
 }
 
-// A 300 KiB body is stored whole, one frame per page of text, each ending between characters,
-// and reads back byte for byte. Killed by a frame cut inside a character, by frames longer than a
-// page, and by a body cut short.
+// A body of two pages and 300 KiB is stored whole as three frames, one per page of text, each
+// ending between characters, and reads back byte for byte. Killed by a frame cut inside a
+// character, by frames longer than a page, by a body cut short, and by a decode that stops after
+// the first frame.
 #[test]
 fn a_long_body_reads_back_whole_from_one_frame_per_page() {
-    let text = mixed_text(300 * 1024);
+    let text = mixed_text(2 * PAGE_MAX_BYTES + 300 * 1024);
     let mut encoder = BodyEncoder::new();
     // The encoder is reused, as the writer thread reuses it, so a stale buffer would show.
     encoder
@@ -81,7 +86,7 @@ fn a_long_body_reads_back_whole_from_one_frame_per_page() {
         .expect("the body encodes")
         .to_vec();
     let sizes = frame_sizes(&stored);
-    assert_eq!(sizes.len(), text.len().div_ceil(PAGE_MAX_BYTES).max(1));
+    assert_eq!(sizes.len(), 3);
     assert!(sizes.iter().all(|size| *size <= PAGE_MAX_BYTES as u64));
     assert_eq!(sizes.iter().sum::<u64>(), text.len() as u64);
     let decoded = decode_body(stored, Some(ContentEncoding::Zstd), Some(text.len() as u64))
@@ -91,7 +96,7 @@ fn a_long_body_reads_back_whole_from_one_frame_per_page() {
 
 // A body that does not decode to the length its payload states, or whose frame fails its
 // checksum, is refused, never answered short or damaged. Killed by dropping the length check or
-// the checksum flag.
+// the checksum flag: a frame stored without its checksum records none in its header.
 #[test]
 fn a_body_that_does_not_match_its_payload_is_refused() {
     let text = mixed_text(4_096);
@@ -126,6 +131,8 @@ fn a_body_that_does_not_match_its_payload_is_refused() {
         decode_body(stored.clone(), Some(ContentEncoding::Zstd), None),
         Err(BodyDecodeError::NoLength)
     ));
+    // The frame header's descriptor, after the four-byte magic number, flags a checksum.
+    assert_ne!(stored[4] & 0b100, 0, "the frame records no checksum");
     // The last four bytes are the frame's checksum.
     let mut damaged = stored;
     let last = damaged.len() - 1;
@@ -191,4 +198,36 @@ fn a_part_read_decodes_only_the_frames_it_covers() {
     assert_eq!((at_end.start, at_end.text.as_str()), (text.len(), ""));
 
     assert!(decode_body(stored, Some(ContentEncoding::Zstd), Some(text.len() as u64)).is_err());
+}
+
+// A long body read from its stored column is handed over a frame at a time, each at most a page
+// of text, and the frames joined are the body. Killed by handing over the body whole, by a frame
+// dropped or repeated, and by a window that loses the bytes past a frame's end.
+#[test]
+fn a_long_body_streams_from_its_column_a_frame_at_a_time() {
+    let log = TranscriptTestLog::new();
+    let text = mixed_text(2 * PAGE_MAX_BYTES + 300 * 1024);
+    let (sequence, _) = log.reply("m1", None, &text);
+    let reader = log.reader();
+    let place = reader
+        .query_row(
+            &format!(
+                "SELECT {} FROM session_events AS event WHERE sequence = ?1",
+                stored_body_place_sql("event")
+            ),
+            [sequence],
+            |row| StoredBodyPlace::read(row, 0),
+        )
+        .expect("the row reads")
+        .expect("the row holds a body");
+    let mut frames: Vec<String> = Vec::new();
+    place
+        .stream(&reader, |frame| {
+            frames.push(frame.to_owned());
+            Ok(())
+        })
+        .expect("the body streams");
+    assert_eq!(frames.len(), 3);
+    assert!(frames.iter().all(|frame| frame.len() <= PAGE_MAX_BYTES));
+    assert_eq!(frames.concat(), text);
 }

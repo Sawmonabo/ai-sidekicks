@@ -34,7 +34,7 @@ use crate::database::stored_column::{closed_word, optional_text_column, text_col
 use crate::events::content::codec::{
     StoredBodyColumns, stored_body_columns_sql, stored_body_encoding_sql, stored_body_length_sql,
 };
-use crate::events::session::read::readable_event_sql;
+use crate::events::session::read::{payload_damage_of, readable_event_sql};
 use crate::session::run::transitions::is_run_terminal_event_type;
 use crate::transcript::block_cut::{BlockCutError, BlockParse, StreamingBlockCut, prose_body_of};
 use crate::transcript::child_run::read_child_counts;
@@ -42,13 +42,13 @@ use crate::transcript::projector::TRANSCRIPT_ROW_BODY_INLINE_MAX_UTF8_BYTES;
 use crate::transcript::rejoin::is_row_ending_event_type;
 
 // Each page event's place in the rows: the row it continues, whether it is a piece of a run's
-// reply or reasoning, which only those types are, and its body's length as its payload states it,
-// with its stored body when it can travel inline.
+// reply or reasoning, which only those types are, and whether it holds a body, with its stored
+// body when it can travel inline and the encoding and length its payload states.
 static PAGE_PIECES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT event.sequence, event.joins_sequence,
             event.join_key IS NOT NULL AND event.type IN ('{reply}', '{reasoning}'),
-            CASE WHEN event.content_payload IS NOT NULL THEN {length} END,
+            event.content_payload IS NOT NULL,
             CASE WHEN {length} <= @inline_max THEN event.content_payload END, {encoding}, {length}
        FROM session_events AS event
       WHERE event.session_id = @session_id
@@ -161,36 +161,41 @@ impl StreamedPiece {
 }
 
 /// Reads the stored facts of the events at `sequences` of `session_id`, on `reader`, by sequence.
+/// Fails on a body whose payload states no length or that does not decode to it, and on a payload
+/// no JSON function reads, as [`payload_damage_of`] names it.
 pub(crate) fn read_streamed_pieces(
     reader: &Connection,
     session_id: &SessionId,
     sequences: &[i64],
 ) -> rusqlite::Result<HashMap<i64, StreamedPiece>> {
-    let mut statement = reader.prepare_cached(&PAGE_PIECES_SQL)?;
-    let mut rows = statement.query(named_params! {
-        "@session_id": session_id.text().as_str(),
-        "@sequences": serde_json::to_string(sequences).expect("a list of integers serializes"),
-        "@inline_max": TRANSCRIPT_ROW_BODY_INLINE_MAX_UTF8_BYTES,
-    })?;
-    let mut pieces = HashMap::new();
-    while let Some(row) = rows.next()? {
-        let has_body = row.get_ref(3)?.data_type() != rusqlite::types::Type::Null;
-        let body = has_body
-            .then(|| {
-                let body = StoredBodyColumns::read(row, 4)?;
-                Ok::<_, rusqlite::Error>((body.stated_length(4)?, body.decode(4)?))
-            })
-            .transpose()?;
-        pieces.insert(
-            row.get(0)?,
-            StreamedPiece {
-                joins_sequence: row.get(1)?,
-                is_piece: row.get(2)?,
-                body,
-            },
-        );
-    }
-    Ok(pieces)
+    let read = || {
+        let mut statement = reader.prepare_cached(&PAGE_PIECES_SQL)?;
+        let mut rows = statement.query(named_params! {
+            "@session_id": session_id.text().as_str(),
+            "@sequences": serde_json::to_string(sequences).expect("a list of integers serializes"),
+            "@inline_max": TRANSCRIPT_ROW_BODY_INLINE_MAX_UTF8_BYTES,
+        })?;
+        let mut pieces = HashMap::new();
+        while let Some(row) = rows.next()? {
+            let has_body: bool = row.get(3)?;
+            let body = has_body
+                .then(|| {
+                    let body = StoredBodyColumns::read(row, 4)?;
+                    Ok::<_, rusqlite::Error>((body.stated_length(4)?, body.decode(4)?))
+                })
+                .transpose()?;
+            pieces.insert(
+                row.get(0)?,
+                StreamedPiece {
+                    joins_sequence: row.get(1)?,
+                    is_piece: row.get(2)?,
+                    body,
+                },
+            );
+        }
+        Ok(pieces)
+    };
+    read().map_err(|error| payload_damage_of(reader, session_id, error))
 }
 
 /// Loads, on `reader`, the text of each of `pieces` of `session_id` at `sequences` whose text is
@@ -204,21 +209,24 @@ pub(crate) fn load_piece_texts(
     if sequences.is_empty() {
         return Ok(());
     }
-    let mut statement = reader.prepare_cached(&PIECE_TEXTS_SQL)?;
-    let mut rows = statement.query(named_params! {
-        "@session_id": session_id.text().as_str(),
-        "@sequences": serde_json::to_string(sequences).expect("a list of integers serializes"),
-    })?;
-    while let Some(row) = rows.next()? {
-        let sequence: i64 = row.get(0)?;
-        if let Some((_, text)) = pieces
-            .get_mut(&sequence)
-            .and_then(|piece| piece.body.as_mut())
-        {
-            *text = StoredBodyColumns::read(row, 1)?.decode(1)?;
+    let mut read = || {
+        let mut statement = reader.prepare_cached(&PIECE_TEXTS_SQL)?;
+        let mut rows = statement.query(named_params! {
+            "@session_id": session_id.text().as_str(),
+            "@sequences": serde_json::to_string(sequences).expect("a list of integers serializes"),
+        })?;
+        while let Some(row) = rows.next()? {
+            let sequence: i64 = row.get(0)?;
+            if let Some((_, text)) = pieces
+                .get_mut(&sequence)
+                .and_then(|piece| piece.body.as_mut())
+            {
+                *text = StoredBodyColumns::read(row, 1)?.decode(1)?;
+            }
         }
-    }
-    Ok(())
+        Ok(())
+    };
+    read().map_err(|error| payload_damage_of(reader, session_id, error))
 }
 
 /// A row still taking pieces.
@@ -307,8 +315,9 @@ impl TranscriptStreamState {
                 cut: prose.map(|prose| StreamingBlockCut::new(prose, self.parse)),
             },
             None => {
-                let (row_id, offset): (String, i64) =
-                    reader.prepare_cached(&ROW_PLACE_SQL)?.query_row(
+                let (row_id, offset): (String, i64) = reader
+                    .prepare_cached(&ROW_PLACE_SQL)?
+                    .query_row(
                         named_params! {
                             "@session_id": event.session_id.text().as_str(),
                             "@anchor_sequence": anchor_sequence,
@@ -316,7 +325,8 @@ impl TranscriptStreamState {
                             "@read_bound": read_bound,
                         },
                         |row| Ok((row.get(0)?, row.get(1)?)),
-                    )?;
+                    )
+                    .map_err(|error| payload_damage_of(reader, &event.session_id, error))?;
                 let received = match prose {
                     Some(_) => read_row_text_before(reader, read_bound, event, anchor_sequence)?,
                     None => String::new(),
@@ -507,22 +517,25 @@ fn read_row_text_before(
     event: &EventEnvelope,
     anchor_sequence: i64,
 ) -> rusqlite::Result<String> {
-    let mut statement = reader.prepare_cached(&ROW_TEXT_BEFORE_SQL)?;
-    let mut rows = statement.query(named_params! {
-        "@session_id": event.session_id.text().as_str(),
-        "@anchor_sequence": anchor_sequence,
-        "@sequence": i64::from(event.sequence),
-        "@read_bound": read_bound,
-    })?;
-    let mut text = String::new();
-    while let Some(row) = rows.next()? {
-        text.push_str(
-            &StoredBodyColumns::read(row, 0)?
-                .decode(0)?
-                .unwrap_or_default(),
-        );
-    }
-    Ok(text)
+    let read = || {
+        let mut statement = reader.prepare_cached(&ROW_TEXT_BEFORE_SQL)?;
+        let mut rows = statement.query(named_params! {
+            "@session_id": event.session_id.text().as_str(),
+            "@anchor_sequence": anchor_sequence,
+            "@sequence": i64::from(event.sequence),
+            "@read_bound": read_bound,
+        })?;
+        let mut text = String::new();
+        while let Some(row) = rows.next()? {
+            text.push_str(
+                &StoredBodyColumns::read(row, 0)?
+                    .decode(0)?
+                    .unwrap_or_default(),
+            );
+        }
+        Ok(text)
+    };
+    read().map_err(|error| payload_damage_of(reader, &event.session_id, error))
 }
 
 fn read_state(reader: &Connection, run_id: &RunId) -> rusqlite::Result<Option<RunState>> {
@@ -533,3 +546,6 @@ fn read_state(reader: &Connection, run_id: &RunId) -> rusqlite::Result<Option<Ru
         })
         .optional()
 }
+
+#[cfg(test)]
+mod tests;

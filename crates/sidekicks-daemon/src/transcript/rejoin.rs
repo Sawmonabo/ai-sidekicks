@@ -29,7 +29,7 @@ use crate::events::content::codec::{
     stored_body_length_sql,
 };
 use crate::events::session::read::{
-    SELECTED_COLUMNS, SessionEventReads, SessionLogReadError, readable_event_sql,
+    SELECTED_COLUMNS, SessionEventReads, SessionLogReadError, payload_damage_of, readable_event_sql,
 };
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 
@@ -363,32 +363,37 @@ where
     /// The body pieces of each row in `row_sequences` through `head`, by row, in order; each
     /// piece's text is loaded and decoded only when its row's whole body is at most
     /// `load_max_bytes` long. Fails on a piece whose payload states no length or whose body does
-    /// not decode to it.
+    /// not decode to it, and on a payload no JSON function reads, as [`payload_damage_of`] names
+    /// it.
     pub(crate) fn row_members(
         &self,
         row_sequences: &[i64],
         head: i64,
         load_max_bytes: i64,
     ) -> rusqlite::Result<HashMap<i64, Vec<RowMember>>> {
-        let mut members: HashMap<i64, Vec<RowMember>> = HashMap::new();
-        let mut statement = self.reader.prepare_cached(&ROW_MEMBERS_SQL)?;
-        let mut rows = statement.query(named_params! {
-            "@session_id": self.session_id.text().as_str(),
-            "@rows": serde_json::to_string(row_sequences).expect("a list of integers serializes"),
-            "@head": head,
-            "@read_bound": self.reads.read_bound(self.session_id, None),
-            "@load_max_bytes": load_max_bytes,
-        })?;
-        while let Some(row) = rows.next()? {
-            let body = StoredBodyColumns::read(row, 2)?;
-            let content_length = body.stated_length(2)?;
-            members.entry(row.get(0)?).or_default().push(RowMember {
-                sequence: row.get(1)?,
-                content_length,
-                text: body.decode(2)?,
-            });
-        }
-        Ok(members)
+        let read = || {
+            let mut members: HashMap<i64, Vec<RowMember>> = HashMap::new();
+            let mut statement = self.reader.prepare_cached(&ROW_MEMBERS_SQL)?;
+            let mut rows = statement.query(named_params! {
+                "@session_id": self.session_id.text().as_str(),
+                "@rows": serde_json::to_string(row_sequences)
+                    .expect("a list of integers serializes"),
+                "@head": head,
+                "@read_bound": self.reads.read_bound(self.session_id, None),
+                "@load_max_bytes": load_max_bytes,
+            })?;
+            while let Some(row) = rows.next()? {
+                let body = StoredBodyColumns::read(row, 2)?;
+                let content_length = body.stated_length(2)?;
+                members.entry(row.get(0)?).or_default().push(RowMember {
+                    sequence: row.get(1)?,
+                    content_length,
+                    text: body.decode(2)?,
+                });
+            }
+            Ok(members)
+        };
+        read().map_err(|error| payload_damage_of(self.reader, self.session_id, error))
     }
 
     /// Which of `rows`, each a row's sequence and its last piece's through `head`, still take
@@ -416,20 +421,25 @@ where
     }
 
     /// The text of the pieces at `sequences`, decoded and joined in log order; fails on a body
-    /// that does not decode to the length its payload states.
+    /// that does not decode to the length its payload states, and on a payload no JSON function
+    /// reads, as [`payload_damage_of`] names it.
     pub(crate) fn piece_texts(&self, sequences: &[i64]) -> rusqlite::Result<String> {
-        let mut statement = self.reader.prepare_cached(&PIECE_TEXTS_SQL)?;
-        let mut rows = statement.query(named_params! {
-            "@session_id": self.session_id.text().as_str(),
-            "@sequences": serde_json::to_string(sequences).expect("a list of integers serializes"),
-        })?;
-        let mut text = String::new();
-        while let Some(row) = rows.next()? {
-            if let Some(piece) = StoredBodyColumns::read(row, 0)?.decode(0)? {
-                text.push_str(&piece);
+        let read = || {
+            let mut statement = self.reader.prepare_cached(&PIECE_TEXTS_SQL)?;
+            let mut rows = statement.query(named_params! {
+                "@session_id": self.session_id.text().as_str(),
+                "@sequences": serde_json::to_string(sequences)
+                    .expect("a list of integers serializes"),
+            })?;
+            let mut text = String::new();
+            while let Some(row) = rows.next()? {
+                if let Some(piece) = StoredBodyColumns::read(row, 0)?.decode(0)? {
+                    text.push_str(&piece);
+                }
             }
-        }
-        Ok(text)
+            Ok(text)
+        };
+        read().map_err(|error| payload_damage_of(self.reader, self.session_id, error))
     }
 
     /// The stretch covering `from..to` of the body of the piece at `sequence`, decoding only the
@@ -452,6 +462,7 @@ where
             )
             .optional()
             .map(Option::flatten)
+            .map_err(|error| payload_damage_of(self.reader, self.session_id, error))
     }
 }
 

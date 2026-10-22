@@ -7,6 +7,7 @@ use tokio::sync::{Notify, watch};
 
 use super::test_services::TestDaemonServices;
 use super::{LiveIndexShared, OpenIndex, catch_up, delete_applied};
+use crate::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
 use crate::database::writer::test_file::TestDatabase;
 use crate::session::search::index::applier::SearchIndexApplier;
 use crate::session::search::index::outbox::{AppliedOutbox, OutboxReader, delete_applied_outbox};
@@ -41,7 +42,7 @@ async fn index_behind_its_database(
     let highest_id_given = OutboxReader::new(&connection)
         .highest_id_given()
         .expect("the outbox's highest id reads");
-    let index_folder = folder.join("search-index");
+    let index_folder = folder.join(SEARCH_INDEX_FOLDER_NAME);
     make_index_at(&index_folder, committed_id);
     let SearchIndexOpening::Opened(index) = open_search_index(index_folder, highest_id_given)
         .await

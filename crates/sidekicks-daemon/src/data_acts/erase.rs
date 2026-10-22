@@ -5,12 +5,14 @@
 //! homes in it, and the process ends so its caller starts it again, empty. The default `backups/`
 //! folder stays, since a backup taken earlier keeps its copy, and no project folder is touched.
 //! An item the store refuses to delete leaves the data folder whole, so the erase can run again.
+//! One erase runs at a time: a second sent while it runs starts nothing and answers as the first.
 
 use std::error::Error;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::daemon::backup::BACKUP_DEFAULT_FOLDER_NAME;
@@ -36,13 +38,15 @@ pub(crate) struct DataEraseDeps {
     /// Closes everything that holds a file in the data folder: the read pool and the writer, the
     /// run folder, the service log's file, the data-folder lock and the crash monitor.
     pub(crate) close_data_folder: EraseStep,
-    /// Ends the process; its caller starts it again.
+    /// Ends the process once the erase's reply is written, as the daemon's stop waits for the
+    /// reply that asked for it; its caller starts it again.
     pub(crate) end_process: Arc<dyn Fn() + Send + Sync>,
 }
 
 /// The erase of everything the service keeps.
 pub(crate) struct DataErase {
     deps: DataEraseDeps,
+    is_running: AtomicBool,
 }
 
 impl DataErase {
@@ -55,15 +59,26 @@ impl DataErase {
         )
     )]
     pub(crate) fn new(deps: DataEraseDeps) -> Self {
-        Self { deps }
+        Self {
+            deps,
+            is_running: AtomicBool::new(false),
+        }
     }
 
     /// Checks that every credential-store item the erase must delete can be, then starts the
     /// erase and answers, so the reply is written while the erase stops the work; a locked store
-    /// raises its unlock prompt while the person is at the screen. Fails with
+    /// raises its unlock prompt while the person is at the screen. While an erase runs, answers
+    /// at once and starts nothing, since the running one erases everything. Fails with
     /// [`KeychainRefusal`] when the store is locked or cannot be used; nothing is erased then.
     pub(crate) async fn begin(self: &Arc<Self>) -> Result<(), KeychainRefusal> {
+        if self.is_running.load(Ordering::Acquire) {
+            return Ok(());
+        }
         self.deps.secret_items.check_for_erase().await?;
+        // Two erases sent together may both pass the check; only the first to get here starts.
+        if self.is_running.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
         let erase = Arc::clone(self);
         tokio::spawn(async move { erase.erase().await });
         Ok(())
@@ -111,20 +126,21 @@ impl DataErase {
 }
 
 // Deletes every entry of `data_folder` but the default backups folder, then the folder itself
-// once nothing is left in it. A link is deleted as a link, never followed. Each entry is tried;
-// the first failure is answered once all were.
+// once nothing is left in it. A link is deleted as a link, never followed. Each entry is tried,
+// one that cannot be listed or read among them; the first failure is answered once all were.
 fn delete_data_folder(data_folder: &Path) -> io::Result<()> {
     let mut first_failure = None;
     for entry in fs::read_dir(data_folder)? {
-        let entry = entry?;
-        if entry.file_name() == BACKUP_DEFAULT_FOLDER_NAME {
-            continue;
-        }
-        let deleted = if entry.file_type()?.is_dir() {
-            fs::remove_dir_all(entry.path())
-        } else {
-            fs::remove_file(entry.path())
-        };
+        let deleted = entry.and_then(|entry| {
+            if entry.file_name() == BACKUP_DEFAULT_FOLDER_NAME {
+                return Ok(());
+            }
+            if entry.file_type()?.is_dir() {
+                fs::remove_dir_all(entry.path())
+            } else {
+                fs::remove_file(entry.path())
+            }
+        });
         if let Err(failure) = deleted {
             first_failure.get_or_insert(failure);
         }

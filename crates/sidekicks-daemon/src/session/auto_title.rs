@@ -554,8 +554,8 @@ fn read_naming_input(
 }
 
 // The run's reply messages in order, joined, read only as far as the pass's bound and cut there
-// at a character boundary. A body that is not UTF-8 reads with U+FFFD, since the pass only reads
-// it.
+// at a character boundary. A body that does not decode fails the read, as every read of a damaged
+// row does, so the session is not named from it.
 fn read_run_reply(
     reader: &Connection,
     session_id: &SessionId,
