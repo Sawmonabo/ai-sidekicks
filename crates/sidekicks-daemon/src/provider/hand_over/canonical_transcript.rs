@@ -187,8 +187,9 @@ pub(crate) enum CanonicalTranscriptFoldError {
 }
 
 /// Folds run `run_id`'s transcript under `bound` from the session log. It reads only the run's
-/// rows of the seven transcript types, at or below the bound, and then the session's head; nothing
-/// is kept between calls. Fails when the log cannot be read or a row's payload is not its type's.
+/// rows of the seven transcript types, at or below the bound, and then the session's head, all in
+/// one read transaction; nothing is kept between calls. Fails when the log cannot be read or a
+/// row's payload is not its type's.
 pub(crate) fn fold_canonical_transcript<DamagedFrom>(
     reads: &SessionEventReads<'_, DamagedFrom>,
     session_id: &SessionId,
@@ -198,6 +199,9 @@ pub(crate) fn fold_canonical_transcript<DamagedFrom>(
 where
     DamagedFrom: Fn(&SessionId) -> Option<i64>,
 {
+    // One snapshot from the first page to the head, so a body a page names is still there when
+    // it is read and the head is the one the rows were read under.
+    let snapshot = reads.snapshot().map_err(SessionLogReadError::from)?;
     let mut fold = TurnFold::default();
     let mut after_position = START_OF_LOG_POSITION;
     // Rows past the bound would only add segments the bound drops, so the read stops at it. Each
@@ -225,6 +229,7 @@ where
     let built_at_position = reads.read_head(session_id)?.map_or(0, |head| {
         u64::try_from(head).expect("a session's read head is never negative")
     });
+    snapshot.commit().map_err(SessionLogReadError::from)?;
     Ok(CanonicalTranscriptProjection {
         session_id: *session_id,
         run_id: *run_id,

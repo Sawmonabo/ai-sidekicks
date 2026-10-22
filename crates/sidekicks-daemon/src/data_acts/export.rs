@@ -101,8 +101,8 @@ pub(crate) enum DataExportStartRefusal {
     /// The folder cannot be made where it was named: its parent is missing or not writable.
     #[error("the export's folder cannot be made there")]
     DestinationNotWritable(#[source] io::Error),
-    /// The folder was made but could not be made private.
-    #[error("the export's folder could not be made private")]
+    /// The system refused to make the folder for another reason.
+    #[error("the export's folder could not be made")]
     Folder(#[source] io::Error),
 }
 
@@ -192,9 +192,9 @@ impl DataExports {
         }
     }
 
-    /// Makes the folder at `destination`, private, and starts an export into it. Refused while
-    /// another runs, when the folder already exists, when its parent is missing or not writable,
-    /// and when it cannot be made private.
+    /// Makes the folder at `destination`, private from the moment it exists, and starts an export
+    /// into it. Refused while another runs, when the folder already exists, when its parent is
+    /// missing or not writable, and when the system refuses the make otherwise, leaving no folder.
     pub(crate) fn start(
         &self,
         destination: PathBuf,
@@ -203,7 +203,7 @@ impl DataExports {
         if let Some(running) = jobs.running {
             return Err(DataExportStartRefusal::AlreadyRunning(running));
         }
-        match fs::create_dir(&destination) {
+        match sidekicks_platforms::create_new_private_folder(&destination) {
             Ok(()) => {}
             Err(failure) if failure.kind() == io::ErrorKind::AlreadyExists => {
                 return Err(DataExportStartRefusal::DestinationExists);
@@ -221,8 +221,6 @@ impl DataExports {
             }
             Err(failure) => return Err(DataExportStartRefusal::Folder(failure)),
         }
-        sidekicks_platforms::create_private_folder(&destination)
-            .map_err(DataExportStartRefusal::Folder)?;
         let job_id = DataExportJobId::try_from(mint_uuid_v7()).expect("a minted UUID is a job id");
         let zero = SafeInt::new(0).expect("zero is a safe integer");
         let (progress, _) = watch::channel(DataExportProgress::Running {
@@ -388,9 +386,9 @@ fn write_session(
 ) -> Result<(), ExportError> {
     let path = sessions_folder.join(format!("{}.jsonl", session_id.text().as_str()));
     let mut file = BufWriter::new(File::create(path)?);
-    // One snapshot for the session, so a body a page names is still there when it is read.
-    let snapshot = connection.unchecked_transaction()?;
     let reads = SessionEventReads::new(connection, read_damaged_from_sequence);
+    // One snapshot for the session, so a body a page names is still there when it is read.
+    let snapshot = reads.snapshot()?;
     let mut after_position = -1;
     loop {
         if stop.is_cancelled() {

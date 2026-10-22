@@ -257,7 +257,9 @@ pub use posix::null_device::NULL_DEVICE_PATH;
 #[cfg(unix)]
 pub use posix::os_text::os_text_bytes;
 #[cfg(unix)]
-pub use posix::private_folder::{create_missing_private_folders, create_private_folder};
+pub use posix::private_folder::{
+    create_missing_private_folders, create_new_private_folder, create_private_folder,
+};
 #[cfg(unix)]
 pub use posix::real_path::real_path;
 #[cfg(unix)]
@@ -411,7 +413,9 @@ pub use windows::pinned_process::this_process;
 #[cfg(target_os = "windows")]
 pub use windows::pinned_process::{PinnedProcess, pin_child_process, pin_running_process};
 #[cfg(target_os = "windows")]
-pub use windows::private_folder::{create_missing_private_folders, create_private_folder};
+pub use windows::private_folder::{
+    create_missing_private_folders, create_new_private_folder, create_private_folder,
+};
 #[cfg(target_os = "windows")]
 pub use windows::processes::{list_user_process_ids, read_process_environment};
 #[cfg(target_os = "windows")]

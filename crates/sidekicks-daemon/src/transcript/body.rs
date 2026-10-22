@@ -20,9 +20,7 @@ use crate::database::connection::read_pool::DatabaseReadError;
 use crate::events::session::read::SessionEventReads;
 use crate::ipc::registry::HandlerError;
 use crate::transcript::block_cut::{BlockParse, body_block_starts, prose_body_of};
-use crate::transcript::body::starts_cache::{
-    BlockCutKey, EndedBlockCut, keep_block_cut, kept_block_cut,
-};
+use crate::transcript::body::starts_cache::{BlockCutKey, BlockCuts, EndedBlockCut};
 use crate::transcript::rejoin::{RowReads, joined_body_of};
 use crate::transcript::window::{TranscriptReadError, read_transcript_head};
 
@@ -74,9 +72,10 @@ where
 }
 
 /// The part from `offset` of the body of `session_id`'s row standing at the event `row_id`, read
-/// on `reader`, a reply's cut into blocks by `parse`, or `None` when no row of the session stands
-/// there; `read_damaged_from_sequence` answers where a damaged session's reads stop. A reply drawn
-/// as markdown is loaded whole, which [`is_body_cut_into_blocks`] tells before the read. Fails
+/// on `reader`, a reply's cut into blocks by `parse` and an ended reply's cut kept in
+/// `block_cuts`, or `None` when no row of the session stands there; `read_damaged_from_sequence`
+/// answers where a damaged session's reads stop. A reply drawn as markdown is loaded whole, which
+/// [`is_body_cut_into_blocks`] tells before the read. Fails
 /// with [`TranscriptReadError::Refused`] (`session.notFound`) for a session this daemon holds no
 /// events for, with [`BodyReadError::Offset`] for an offset that is no place to resume from, and
 /// with [`TranscriptReadError`]'s faults when a read fails.
@@ -87,6 +86,7 @@ pub(crate) fn read_row_body<DamagedFrom>(
     row_id: &str,
     offset: u64,
     parse: BlockParse,
+    block_cuts: &BlockCuts,
 ) -> Result<Option<TranscriptBodyReadResponse>, BodyReadError>
 where
     DamagedFrom: Fn(&SessionId) -> Option<i64> + ?Sized,
@@ -143,7 +143,7 @@ where
         sequence,
         body_length,
     };
-    let kept_cut = prose.and_then(|_| kept_block_cut(&cut_key));
+    let kept_cut = prose.and_then(|_| block_cuts.kept_block_cut(&cut_key));
     let part = if let Some(prose) = prose.filter(|_| kept_cut.is_none()) {
         let all_sequences: Vec<i64> = piece_bounds.iter().map(|(sequence, _)| *sequence).collect();
         let whole = rows_of
@@ -164,7 +164,10 @@ where
                 Ok(cut) => {
                     starts = cut;
                     if is_final {
-                        keep_block_cut(cut_key, EndedBlockCut::Starts(starts.as_slice().into()));
+                        block_cuts.keep_block_cut(
+                            cut_key,
+                            EndedBlockCut::Starts(starts.as_slice().into()),
+                        );
                     }
                     BodyBlockCut::Starts(&starts)
                 }
@@ -172,7 +175,7 @@ where
             }
         } else {
             if is_final {
-                keep_block_cut(cut_key, EndedBlockCut::NotCut);
+                block_cuts.keep_block_cut(cut_key, EndedBlockCut::NotCut);
             }
             BodyBlockCut::NotCut
         };

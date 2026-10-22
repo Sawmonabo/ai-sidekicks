@@ -4,6 +4,7 @@
 
 use rusqlite::{Connection, params};
 use sidekicks_contracts::name_fold::fold_name;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::status::{
     WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
 };
@@ -82,8 +83,17 @@ pub(crate) fn insert_workflow_version(
         .expect("the test stores a version");
 }
 
+// `text`'s instant in the stored form every instant takes, as the runs' writer writes it.
+fn stored_instant(text: &str) -> String {
+    let timestamp: jiff::Timestamp = text.parse().expect("the test writes an instant");
+    WireInstant::from_timestamp(timestamp)
+        .expect("the test's instant is after the year 0000")
+        .as_str()
+        .to_owned()
+}
+
 /// Stores the first run of its own chain, `run_id`, of version `version_id`, at `status`, started
-/// at `started_at` and ended at `finished_at`.
+/// at `started_at` and ended at `finished_at`, both written in the stored form.
 pub(crate) fn insert_run(
     connection: &Connection,
     run_id: &str,
@@ -105,8 +115,8 @@ pub(crate) fn insert_run(
                 TEST_SESSION_ID,
                 <&'static str>::from(status),
                 <&'static str>::from(WorkflowRunMode::Manual),
-                started_at,
-                finished_at
+                stored_instant(started_at),
+                finished_at.map(stored_instant)
             ],
         )
         .expect("the test stores a run");

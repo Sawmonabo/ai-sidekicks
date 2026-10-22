@@ -506,7 +506,7 @@ mod tests {
 
     use super::{CrashReportDeps, REPORT_KEY_FILE_NAME, build_crash_reports, read_crash_reports};
     use crate::daemon::crash::monitor::{
-        CRASH_DUMPS_FOLDER_NAME, attach_crash_handler, connect_crash_monitor,
+        CRASH_DUMPS_FOLDER_NAME, PANIC_RECORD_SUFFIX, attach_crash_handler, connect_crash_monitor,
         crash_monitor_socket_path, serve_crash_monitor,
     };
     use crate::daemon::machine::settings::file::MachineSettingsFile;
@@ -594,11 +594,12 @@ mod tests {
 
     // A panic and a bad read in a child each leave one report of module file names and offsets;
     // the panic's report names its file and not its folder, holds the session id only as its
-    // keyed hash and holds neither credential its message named, nor does the panic's raw record;
+    // keyed hash and holds neither credential its message named, nor does either of the panic's
+    // raw records, the hook's and the one the monitor writes beside the dump;
     // no report holds the secret the child's dump does; each dump is deleted once built. While
     // `Keep crash reports` is off, no report is built and every dump, report and panic record
     // goes. Killed by a path kept whole or cut at a space, by an unkeyed or raw id, by the
-    // credential scrub dropped from the report or the raw record, by a dump left behind, by the
+    // credential scrub dropped from the report or either raw record, by a dump left behind, by the
     // monitor not writing, by the switch not read, and by the raw record kept while it is off.
     #[tokio::test]
     async fn crashes_become_stripped_reports_and_none_while_off() {
@@ -621,6 +622,23 @@ mod tests {
                 .any(|window| window == PLANTED_TOKEN.as_bytes()),
             "a dump holds the planted secret"
         );
+        let monitor_records: Vec<String> = fs::read_dir(&dumps)
+            .expect("the dumps list")
+            .map(|entry| entry.expect("an entry").path())
+            .filter(|path| path.to_string_lossy().ends_with(PANIC_RECORD_SUFFIX))
+            .map(|path| fs::read_to_string(path).expect("the monitor's record reads"))
+            .collect();
+        assert_eq!(
+            monitor_records.len(),
+            1,
+            "the monitor wrote the panic's record"
+        );
+        assert!(
+            monitor_records[0].contains(SESSION_ID),
+            "the monitor's record is the unstripped one"
+        );
+        assert!(!monitor_records[0].contains(PLANTED_API_KEY));
+        assert!(!monitor_records[0].contains(PLANTED_BEARER_TOKEN));
         let settings = Arc::new(MachineSettingsFile::new(
             data_folder.join("machine-settings.json"),
         ));

@@ -11,7 +11,7 @@ use std::sync::LazyLock;
 
 use garde::Validate as _;
 use rusqlite::types::Type;
-use rusqlite::{Connection, OptionalExtension as _, Row, named_params, params};
+use rusqlite::{Connection, OptionalExtension as _, Row, Transaction, ffi, named_params, params};
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::envelope::{
     EventCategory, EventEnvelope, EventEnvelopeType, EventOccurredAt, HydratedSessionEvent,
@@ -219,7 +219,8 @@ static SESSION_PAGE_HYDRATED_SQL: LazyLock<String> = LazyLock::new(|| {
 const HYDRATED_PAGE_ROWS: i64 = 64;
 
 /// The most text, in UTF-8 bytes as the payloads state it, one hydrated page loads: 8 MiB, so a
-/// reader holds a few pages of text at most whatever the bodies' sizes.
+/// reader holds a few pages of text at most whatever the bodies' sizes, and an export, which holds
+/// one page at a time, stays within its 64 MiB budget.
 pub(crate) const HYDRATED_PAGE_TEXT_BYTES: u64 = 8 * 1024 * 1024;
 
 /// One page of hydrated rows: the rows whose bodies together stay within
@@ -275,14 +276,19 @@ const UNREADABLE_PAYLOAD_SQL: &str = "SELECT id, sequence, payload FROM session_
 /// `error`, the failure of a read of `session_id` on `reader` whose statement runs a JSON function
 /// over stored payloads, as the damaged row it met: the session's first row whose payload is no
 /// JSON, as a conversion failure of the payload column carrying its [`MalformedStoredEventError`].
-/// Answers `error` itself when it is not SQLite's own failure, when every payload reads, or when
-/// the search for the row fails.
+/// Answers `error` itself when it is not SQLite's generic error, which a JSON function raises,
+/// when every payload reads, or when the search for the row fails.
 pub(crate) fn payload_damage_of(
     reader: &Connection,
     session_id: &SessionId,
     error: rusqlite::Error,
 ) -> rusqlite::Error {
-    if !matches!(error, rusqlite::Error::SqliteFailure(..)) {
+    // A JSON function's refusal of a payload is SQLite's generic error; a busy, locked,
+    // interrupted, corrupt or failed read of the file is no damaged row and passes through.
+    if !matches!(
+        &error,
+        rusqlite::Error::SqliteFailure(failure, _) if failure.extended_code == ffi::SQLITE_ERROR
+    ) {
         return error;
     }
     let unreadable = reader
@@ -365,6 +371,12 @@ where
             reader,
             read_damaged_from_sequence,
         }
+    }
+
+    /// A read transaction on the reads' connection, so every read made while it is held sees one
+    /// snapshot of the store; fails when SQLite refuses to begin it.
+    pub(crate) fn snapshot(&self) -> rusqlite::Result<Transaction<'reader>> {
+        self.reader.unchecked_transaction()
     }
 
     /// The session's highest sequence it reads to, below its last good point while its history is

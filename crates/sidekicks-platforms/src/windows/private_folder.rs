@@ -1,4 +1,5 @@
-//! A folder for its owner, made with any missing parents on Windows.
+//! A folder for its owner on Windows, made with any missing parents or made alone where none
+//! exists yet.
 
 use std::io;
 use std::path::Path;
@@ -16,4 +17,11 @@ pub fn create_private_folder(folder: &Path) -> io::Result<()> {
 /// with the system's error from the make.
 pub fn create_missing_private_folders(folder: &Path) -> io::Result<()> {
     std::fs::create_dir_all(folder)
+}
+
+/// Makes `folder` alone, inheriting the access list of the folder it is made in, and nothing above
+/// it. Fails with the system's error from the make, `AlreadyExists` when `folder` exists and
+/// `NotFound` when its parent is missing, leaving nothing made.
+pub fn create_new_private_folder(folder: &Path) -> io::Result<()> {
+    std::fs::create_dir(folder)
 }

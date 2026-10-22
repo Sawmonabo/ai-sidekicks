@@ -62,7 +62,7 @@ pub(crate) fn install_panic_hook(data_folder: &Path, log_file: Option<ArcFileLog
             && let Err(error) = send_panic_record(
                 monitor,
                 &PanicRecord {
-                    message,
+                    message: scrub_credentials(&message),
                     location: place,
                 },
             )

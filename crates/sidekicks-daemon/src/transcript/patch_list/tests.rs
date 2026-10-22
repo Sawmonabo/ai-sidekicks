@@ -12,6 +12,7 @@ use super::{PatchListError, list_patches};
 use crate::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 use crate::transcript::block_cut::MARKDOWN_PARSE;
 use crate::transcript::body::read_row_body;
+use crate::transcript::body::starts_cache::BlockCuts;
 use crate::transcript::test_log::{TranscriptTestLog, wire_message};
 use crate::transcript::whole_patch::text_of_part;
 use crate::transcript::window::{TranscriptReadError, read_transcript_window};
@@ -187,6 +188,7 @@ fn patch_list_reads_a_file_over_the_cap_across_pages_loading_only_the_parts_each
             &row_id,
             part_offset,
             MARKDOWN_PARSE,
+            &BlockCuts::default(),
         )
         .expect("the body reads")
         .expect("a row stands at the completion");
@@ -405,6 +407,7 @@ fn a_completion_naming_no_files_stores_its_body_whole(#[case] body: String) {
         &row_id,
         0,
         MARKDOWN_PARSE,
+        &BlockCuts::default(),
     )
     .expect("the body reads")
     .expect("a row stands at the completion");

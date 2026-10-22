@@ -279,10 +279,10 @@ async fn export_session_lines(log: &TranscriptTestLog) -> Vec<String> {
     .collect()
 }
 
-// A reply too long for a page is written a frame at a time, and its line is byte for byte the
-// line its whole body would make, every character JSON escapes among it. Killed by a frame
-// escaped as a quoted string, by a frame dropped or repeated, and by the body spliced in at the
-// wrong place.
+// A reply too long for a page, stored as three pieces of several frames each, is written a frame
+// at a time, and its line is byte for byte the line its whole body would make, every character
+// JSON escapes among it. Killed by a frame escaped as a quoted string, by a frame or a piece
+// dropped or repeated, and by the body spliced in at the wrong place.
 #[tokio::test]
 async fn a_reply_too_long_for_a_page_is_written_as_its_whole_line() {
     let log = TranscriptTestLog::new();
@@ -292,7 +292,15 @@ async fn a_reply_too_long_for_a_page_is_written_as_its_whole_line() {
         usize::try_from(HYDRATED_PAGE_TEXT_BYTES).expect("a page fits memory") + 300 * 1024;
     let mut body = pattern.repeat(length / pattern.len() + 1);
     body.truncate(body.floor_char_boundary(length));
-    log.reply("m1", None, &body);
+    let first_cut = body.floor_char_boundary(length / 3);
+    let second_cut = body.floor_char_boundary(2 * length / 3);
+    for piece in [
+        &body[..first_cut],
+        &body[first_cut..second_cut],
+        &body[second_cut..],
+    ] {
+        log.reply("m1", Some(0), piece);
+    }
 
     let lines = export_session_lines(&log).await;
     let exported: HydratedSessionEvent =
@@ -305,14 +313,15 @@ async fn a_reply_too_long_for_a_page_is_written_as_its_whole_line() {
         exported.content,
         HydratedSessionEventContent::Available {
             body: body.clone(),
-            content_length: SafeInt::new(body.len() as u64),
+            content_length: SafeInt::new(first_cut as u64),
         }
     );
 }
 
-// An export of 64 replies of 2 MiB each, 128 MiB of text, peaks within 64 MiB of what the process
-// held before the store was filled, on a system that reports a process's footprint. Killed by a
-// page that loads its rows' bodies whole whatever their size.
+// An export of 64 replies of 2 MiB each and one reply of 36 pieces of 2 MiB, 200 MiB of text,
+// peaks within 64 MiB of what the process held before the store was filled, on a system that
+// reports a process's footprint. Killed by a page that loads its rows' bodies whole whatever their
+// size, and by a reply too long for a page loaded whole.
 #[tokio::test]
 async fn an_export_of_long_replies_stays_within_64_mib() {
     const MEBIBYTE: u64 = 1024 * 1024;
@@ -332,6 +341,9 @@ async fn an_export_of_long_replies_stays_within_64_mib() {
             None,
             &letter.to_string().repeat(reply_bytes),
         );
+    }
+    for _ in 0..36 {
+        log.reply("m64", Some(0), &"z".repeat(reply_bytes));
     }
 
     let folder = tempfile::tempdir().expect("the test's folder is made");

@@ -12,6 +12,7 @@ use super::{TranscriptReadError, read_transcript_window};
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::transcript::block_cut::{BlockParse, MARKDOWN_PARSE};
 use crate::transcript::body::read_row_body;
+use crate::transcript::body::starts_cache::BlockCuts;
 use crate::transcript::test_log::{
     AT, STALLING_TEXT, TranscriptTestLog, stalling_parse, wire_block_starts, wire_message,
 };
@@ -306,6 +307,7 @@ fn a_rejoined_body_over_a_page_reads_back_whole_in_parts() {
             &row_id,
             part_offset,
             MARKDOWN_PARSE,
+            &BlockCuts::default(),
         )
         .expect("the body reads")
         .expect("a row stands at the anchor");
@@ -358,6 +360,7 @@ fn a_long_tool_output_is_stored_whole_and_read_back_in_parts() {
             &row_id,
             part_offset,
             MARKDOWN_PARSE,
+            &BlockCuts::default(),
         )
         .expect("the body reads")
         .expect("a row stands there");
@@ -480,6 +483,7 @@ fn a_body_read_spreads_starts_past_a_page_across_its_parts() {
             &row_id,
             part_offset,
             MARKDOWN_PARSE,
+            &BlockCuts::default(),
         )
         .expect("the body reads")
         .expect("a row stands at the anchor");

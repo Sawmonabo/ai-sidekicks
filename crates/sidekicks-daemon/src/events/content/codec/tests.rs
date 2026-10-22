@@ -1,13 +1,15 @@
 //! The stored body's encoding and decoding.
 
+use std::io::BufReader;
+
 use rstest::rstest;
 use sidekicks_contracts::event::declared_variants::ContentEncoding;
 use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
 use zstd::zstd_safe;
 
 use super::{
-    BodyDecodeError, BodyEncoder, StoredBody, StoredBodyPlace, decode_body, decode_body_stretch,
-    stored_body_place_sql,
+    BodyDecodeError, BodyEncoder, BodyStreamError, StoredBody, StoredBodyPlace, decode_body,
+    decode_body_stretch, stored_body_place_sql, stream_frames,
 };
 use crate::transcript::test_log::TranscriptTestLog;
 
@@ -201,10 +203,13 @@ fn a_part_read_decodes_only_the_frames_it_covers() {
 }
 
 // A long body read from its stored column is handed over a frame at a time, each at most a page
-// of text, and the frames joined are the body. Killed by handing over the body whole, by a frame
-// dropped or repeated, and by a window that loses the bytes past a frame's end.
+// of text, and the frames joined are the body; once a byte of its second frame is flipped, the
+// first frame is still handed over and the read then fails as damage. Killed by handing over the
+// body whole, by a frame dropped or repeated, by a reader that loses the bytes past a frame's end
+// or a header split across its buffer, and by a damaged frame handed over or answered as a read
+// SQLite refused.
 #[test]
-fn a_long_body_streams_from_its_column_a_frame_at_a_time() {
+fn a_long_body_streams_from_its_column_a_frame_at_a_time_until_a_damaged_frame() {
     let log = TranscriptTestLog::new();
     let text = mixed_text(2 * PAGE_MAX_BYTES + 300 * 1024);
     let (sequence, _) = log.reply("m1", None, &text);
@@ -220,14 +225,57 @@ fn a_long_body_streams_from_its_column_a_frame_at_a_time() {
         )
         .expect("the row reads")
         .expect("the row holds a body");
-    let mut frames: Vec<String> = Vec::new();
-    place
-        .stream(&reader, |frame| {
+    let stream_place = |frames: &mut Vec<String>| {
+        place.stream(&reader, |frame| {
             frames.push(frame.to_owned());
             Ok(())
         })
-        .expect("the body streams");
+    };
+    let mut frames = Vec::new();
+    stream_place(&mut frames).expect("the body streams");
     assert_eq!(frames.len(), 3);
     assert!(frames.iter().all(|frame| frame.len() <= PAGE_MAX_BYTES));
     assert_eq!(frames.concat(), text);
+
+    let mut stored: Vec<u8> = reader
+        .query_row(
+            "SELECT content_payload FROM session_events WHERE sequence = ?1",
+            [sequence],
+            |row| row.get(0),
+        )
+        .expect("the stored body reads");
+    let first_frame_bytes =
+        zstd_safe::find_frame_compressed_size(&stored).expect("the first frame is whole");
+    // A buffer that ends five bytes into the second frame's header reads the same frames.
+    let mut split_frames = Vec::new();
+    stream_frames(
+        BufReader::with_capacity(first_frame_bytes + 5, stored.as_slice()),
+        text.len() as u64,
+        |frame| {
+            split_frames.push(frame.to_owned());
+            Ok(())
+        },
+    )
+    .expect("the body streams across a split header");
+    assert_eq!(split_frames, frames);
+    let second_frame_bytes = zstd_safe::find_frame_compressed_size(&stored[first_frame_bytes..])
+        .expect("the second frame is whole");
+    // The second frame's last byte is its checksum, which then no longer holds.
+    stored[first_frame_bytes + second_frame_bytes - 1] ^= 0xff;
+    log.writer
+        .execute(
+            "UPDATE session_events SET content_payload = ?1 WHERE sequence = ?2",
+            rusqlite::params![stored, sequence],
+        )
+        .expect("the damaged body is stored");
+    let mut damaged_frames = Vec::new();
+    let refused = stream_place(&mut damaged_frames);
+    assert!(
+        matches!(
+            refused,
+            Err(BodyStreamError::Damaged(BodyDecodeError::Stream(_)))
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(damaged_frames, frames[..1]);
 }

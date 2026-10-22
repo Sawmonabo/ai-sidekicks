@@ -6,7 +6,7 @@
 //! a frame at a time from the stored column. The writer thread encodes, through one reused
 //! compressor; every reader decodes here.
 
-use std::io;
+use std::io::{self, BufRead, BufReader, Read as _};
 use std::mem;
 use std::string::FromUtf8Error;
 
@@ -18,7 +18,8 @@ use sidekicks_contracts::event::declared_variants::{
 };
 use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
 use zstd::bulk::{Compressor, Decompressor};
-use zstd::zstd_safe::{self, CParameter};
+use zstd::stream::read::Decoder;
+use zstd::zstd_safe::{self, CParameter, DCtx};
 
 use crate::database::schema::SESSION_EVENTS_TABLE;
 use crate::database::stored_column::{closed_word, optional_text_column};
@@ -31,6 +32,9 @@ const COMPRESSION_LEVEL: i32 = 3;
 
 /// The most text one frame holds, in UTF-8 bytes: a page, so a part read decodes at most two.
 const FRAME_TEXT_MAX_BYTES: usize = PAGE_MAX_BYTES;
+
+/// The longest zstd frame header, in bytes, which holds the frame's decoded size.
+const FRAME_HEADER_MAX_BYTES: usize = 18;
 
 /// A body as the append path hands it to the writer: its whole text, which the writer stores as it
 /// is or compressed by its length. Only the append path makes one, so every stored body went
@@ -261,6 +265,15 @@ fn stream_fault(fault: StreamFault) -> BodyDecodeError {
     BodyDecodeError::Stream(io::Error::new(io::ErrorKind::InvalidData, name))
 }
 
+// A failed read of a stored body's stream: SQLite's own refusal of the column as that, anything
+// else as the damage it is.
+fn stream_read_failure(error: io::Error) -> BodyStreamError {
+    match error.downcast::<rusqlite::Error>() {
+        Ok(refused) => BodyStreamError::Read(refused),
+        Err(damage) => BodyDecodeError::Stream(damage).into(),
+    }
+}
+
 // The decoded size the header at the start of `stored` records for its frame.
 fn frame_text_bytes(stored: &[u8]) -> Result<u64, BodyDecodeError> {
     zstd_safe::get_frame_content_size(stored)
@@ -330,8 +343,9 @@ impl StoredBodyPlace {
         )?)
     }
 
-    /// Hands the body's text to `each` a frame at a time, in order, so no more than a page of it
-    /// is held at once; a body stored as it is, under 1 KiB, is handed whole. Fails as
+    /// Hands the body's text to `each` a frame at a time, in order, reading each stored byte once
+    /// through one zstd input buffer, so no more than that buffer and a page of text are held at
+    /// once; a body stored as it is, under 1 KiB, is handed whole. Fails as
     /// [`StoredBodyPlace::decode`] does, after handing over the frames before a damaged one, and
     /// with [`BodyStreamError::Write`] when `each` fails.
     pub(crate) fn stream(
@@ -345,38 +359,11 @@ impl StoredBodyPlace {
             return each(&text).map_err(BodyStreamError::Write);
         };
         let stated = self.content_length.ok_or(BodyDecodeError::NoLength)?;
-        // A whole frame of a page of text is never longer than zstd's bound for that page.
-        let frame_bytes_max = zstd::compress_bound(FRAME_TEXT_MAX_BYTES);
-        let mut decompressor = Decompressor::new().map_err(BodyDecodeError::Stream)?;
-        let mut window = Vec::new();
-        let mut text = Vec::new();
-        let mut offset = 0;
-        let mut decoded: u64 = 0;
-        while offset < blob.len() {
-            window.resize(frame_bytes_max.min(blob.len() - offset), 0);
-            blob.read_at_exact(&mut window, offset)?;
-            let frame_bytes = zstd_safe::find_frame_compressed_size(&window)
-                .map_err(|code| stream_fault(StreamFault::Zstd(code)))?;
-            let frame_text = frame_text_bytes(&window)?;
-            let capacity = usize::try_from(frame_text)
-                .ok()
-                .filter(|capacity| *capacity <= FRAME_TEXT_MAX_BYTES)
-                .ok_or_else(|| stream_fault(StreamFault::FrameOverPage))?;
-            text.clear();
-            text.reserve(capacity);
-            decompressor
-                .decompress_to_buffer(&window[..frame_bytes], &mut text)
-                .map_err(BodyDecodeError::Stream)?;
-            let frame = String::from_utf8(mem::take(&mut text)).map_err(BodyDecodeError::Utf8)?;
-            each(&frame).map_err(BodyStreamError::Write)?;
-            text = frame.into_bytes();
-            decoded += frame_text;
-            offset += frame_bytes;
-        }
-        if decoded != stated {
-            return Err(BodyDecodeError::Length { stated, decoded }.into());
-        }
-        Ok(())
+        stream_frames(
+            BufReader::with_capacity(DCtx::in_size(), blob),
+            stated,
+            each,
+        )
     }
 
     /// Hands the body's text to `each` a frame at a time as [`StoredBodyPlace::stream`] does, for
@@ -412,6 +399,62 @@ impl StoredBodyPlace {
             true,
         )
     }
+}
+
+// Hands the text of the zstd frames `reader` holds to `each` a frame at a time, as
+// `StoredBodyPlace::stream` does, checking that they decode to `stated` bytes.
+fn stream_frames(
+    mut reader: impl BufRead,
+    stated: u64,
+    mut each: impl FnMut(&str) -> io::Result<()>,
+) -> Result<(), BodyStreamError> {
+    let mut context: DCtx<'static> = DCtx::try_create().ok_or_else(|| {
+        BodyDecodeError::Stream(io::Error::new(
+            io::ErrorKind::OutOfMemory,
+            "zstd could not make a decoding context",
+        ))
+    })?;
+    let mut header = [0; FRAME_HEADER_MAX_BYTES];
+    let mut text = Vec::new();
+    let mut decoded: u64 = 0;
+    loop {
+        let buffered = reader.fill_buf().map_err(stream_read_failure)?;
+        if buffered.is_empty() {
+            break;
+        }
+        // A header the buffer ends inside is carried out of it, read on from the next fill,
+        // and handed to the decoder ahead of the reader, so every stored byte is read once.
+        let carried = if buffered.len() < FRAME_HEADER_MAX_BYTES {
+            buffered.len()
+        } else {
+            0
+        };
+        header[..carried].copy_from_slice(&buffered[..carried]);
+        reader.consume(carried);
+        let ahead = reader.fill_buf().map_err(stream_read_failure)?;
+        let peeked = ahead.len().min(FRAME_HEADER_MAX_BYTES - carried);
+        header[carried..carried + peeked].copy_from_slice(&ahead[..peeked]);
+        if frame_text_bytes(&header[..carried + peeked])? > FRAME_TEXT_MAX_BYTES as u64 {
+            return Err(stream_fault(StreamFault::FrameOverPage).into());
+        }
+        text.clear();
+        Decoder::with_context((&header[..carried]).chain(&mut reader), &mut context)
+            .single_frame()
+            .take(FRAME_TEXT_MAX_BYTES as u64 + 1)
+            .read_to_end(&mut text)
+            .map_err(stream_read_failure)?;
+        if text.len() > FRAME_TEXT_MAX_BYTES {
+            return Err(stream_fault(StreamFault::FrameOverPage).into());
+        }
+        let frame = String::from_utf8(mem::take(&mut text)).map_err(BodyDecodeError::Utf8)?;
+        each(&frame).map_err(BodyStreamError::Write)?;
+        decoded += frame.len() as u64;
+        text = frame.into_bytes();
+    }
+    if decoded != stated {
+        return Err(BodyDecodeError::Length { stated, decoded }.into());
+    }
+    Ok(())
 }
 
 // Every stored byte of `blob`.
