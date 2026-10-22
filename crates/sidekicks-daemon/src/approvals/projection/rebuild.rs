@@ -449,15 +449,16 @@ mod tests {
     }
 
     // The rows the live writes wrote are the rows a rebuild writes: an approval with its
-    // correction and its rule, a decline, a cancellation, and an ask a workflow gate's answer
-    // names, with its rule, which the clear keeps with its answer. Rebuilt whole, the gate-named
-    // ask's answer is written over the kept one; where the session skipped that answer as damaged,
-    // the ask settles as the gate's row says; where it skipped only the rule, the answer is
-    // written without it. Every rebuild leaves the cursor current at the log's head. A clear that
-    // drops the gate-named ask breaks the gate's reference, one that drops its answer or a missing
-    // settle leaves it pending or unanswered, a plain insert of its answer collides with the kept
-    // one, and a rewrite that keeps the kept answer's rule keeps one the log no longer holds, each
-    // failing a case.
+    // correction, a decline with its words, a cancellation, and an ask a workflow gate's answer
+    // names, with the rule it asked for and made, which the clear keeps with its answer. Rebuilt
+    // whole, the gate-named ask's answer is written over the kept one; where the session skipped
+    // that answer as damaged, the ask settles as the gate's row says; where it skipped only the
+    // rule, the answer is written without the rule made and with the rule asked for, which its own
+    // event carries. Every rebuild leaves the cursor current at the log's head. A clear that drops
+    // the gate-named ask breaks the gate's reference, one that drops its answer or a missing settle
+    // leaves it pending or unanswered, a plain insert of its answer collides with the kept one, a
+    // rewrite that keeps the kept answer's rule made keeps one the log no longer holds, and one
+    // that clears the rule asked for drops one the answer's event holds, each failing a case.
     #[rstest]
     #[case::rebuilt_whole(GateNamedSkip::Nothing)]
     #[case::skipping_the_gate_named_answer(GateNamedSkip::AnswerAndRule)]
@@ -539,7 +540,6 @@ mod tests {
                 "approval.approved",
                 Some(("editedAction", "npm run build -- --watch")),
             ),
-            remembered(&approved),
             requested(&rejected, Some("ask-2")),
             answer(
                 &rejected,

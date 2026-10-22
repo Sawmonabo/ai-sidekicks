@@ -454,8 +454,8 @@ async fn after_an_unanswered_hand_only_the_providers_redelivery_hands_the_answer
 // leaves the one rule in force; a resend asking for another rule records nothing and is refused;
 // and a late resend after the rule was revoked and another card made its own records nothing and
 // revokes nothing. Killed by recording a daemon card's rule only when the answer is first
-// recorded, by a record that counts the card's own rule as one it replaces, by recording the rule
-// a resend carries, and by a record that skips only a rule still in force.
+// recorded, by a record that counts the card's own rule as one it replaces, and by a record that
+// skips only a rule still in force.
 #[tokio::test]
 async fn a_resend_records_the_rule_a_daemon_card_failed_to_record() {
     let fixture = AsksFixture::new().await;
