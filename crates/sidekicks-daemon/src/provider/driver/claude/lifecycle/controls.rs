@@ -198,7 +198,7 @@ impl ClaudeDriver {
                 &params.rule,
                 &ClaudeProjectRuleRemoval {
                     project_folder: &claude_project_folder(project_folder, repository.as_ref()),
-                    managed_settings_folder: managed_settings_folder.as_deref(),
+                    managed_settings: managed_settings_folder.as_deref(),
                     config_folder: &config_folder,
                     home_folder: &self.sources.home_folder,
                 },
@@ -455,6 +455,10 @@ impl ClaudeDriver {
     /// Each session's inbox address in every place the daemon runs sessions in, which Claude
     /// Code's sessions always answer: composed from the places the daemon's start registers, and
     /// until it does, every place answered as one the start did not list.
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "the driver interface answers an option, none for a provider with no session inbox"
+    )]
     pub(crate) fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>> {
         Some(Arc::new(ClaudeRegisteredPlacesAddresser {
             places: Arc::clone(&self.sources.ports.session_places),

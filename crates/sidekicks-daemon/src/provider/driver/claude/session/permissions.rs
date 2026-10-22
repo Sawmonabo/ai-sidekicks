@@ -81,7 +81,7 @@ pub(crate) struct ClaudeProjectRuleRemoval<'a> {
     /// The working folder whose local settings hold the rule.
     pub(crate) project_folder: &'a ClaudeProjectFolder<'a>,
     /// The administrator's managed settings folder; `None` where the system has none.
-    pub(crate) managed_settings_folder: Option<&'a Path>,
+    pub(crate) managed_settings: Option<&'a Path>,
     /// The config folder of the Claude Code home the session runs on.
     pub(crate) config_folder: &'a Path,
     /// The home folder of the place the session runs in.
@@ -210,7 +210,7 @@ pub(crate) async fn revoke_claude_project_rule(
 ) -> Result<(), ClaudePermissionsError> {
     remove_claude_project_rule(
         std::slice::from_ref(removal.project_folder),
-        removal.managed_settings_folder,
+        removal.managed_settings,
         removal.config_folder,
         removal.home_folder,
         path_rules,
