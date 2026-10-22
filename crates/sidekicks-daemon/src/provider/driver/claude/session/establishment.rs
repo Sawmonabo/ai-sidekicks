@@ -100,7 +100,7 @@ use crate::provider::driver::ports::DriverPorts;
 use crate::provider::driver::session_control::{CreateSessionParams, ResumeSessionParams};
 use crate::provider::port::registration::PortRegistrationError;
 use crate::provider::process_registry::ProviderProcessRegistry;
-use crate::provider::runtime_binding::store::RuntimeBindingStoreError;
+use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::provider::spawn_environment::ReservedEnvironmentNames;
 use crate::provider::thread_frame_router::ThreadFrameRouter;
 use crate::provider::usage_delta_accountant::UsageDeltaAccountant;
@@ -135,7 +135,7 @@ pub(crate) enum ClaudeEstablishmentError {
     Port(#[from] PortRegistrationError),
     /// The session's binding could not be pointed at the conversation it moved onto.
     #[error("the session's binding could not be pointed at its new conversation")]
-    Rebind(#[source] RuntimeBindingStoreError),
+    Rebind(#[source] Box<dyn Error + Send + Sync>),
     /// A close took the session's slot while its process came up, so the process was ended.
     #[error("the session was closed while its Claude Code process came up")]
     Closed,
@@ -185,6 +185,12 @@ pub(crate) struct ClaudeSpawnSources {
     pub(crate) spawner: Spawner,
     /// Where each session's process runs.
     pub(crate) spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
+    /// Points the session's binding at the conversation it moved onto.
+    #[expect(
+        dead_code,
+        reason = "a fork points the session's binding at its new conversation through it"
+    )]
+    pub(crate) runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
     /// The read pool, for the session's stored settings.
     pub(crate) pool: Arc<DatabaseReadPool>,
     /// Each posture's credential list.

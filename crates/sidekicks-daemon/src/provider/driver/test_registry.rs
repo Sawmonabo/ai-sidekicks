@@ -37,6 +37,8 @@ use crate::provider::driver::{
     SessionSpawnContextResolver,
 };
 use crate::provider::process_registry::ProviderProcessRegistry;
+use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
+use crate::provider::runtime_binding::store::RuntimeBindingRebind;
 use crate::provider::spawn_environment::ReservedEnvironmentNames;
 
 /// The statements a test's read pool caches.
@@ -45,13 +47,13 @@ const TEST_POOL_STATEMENT_CAPACITY: usize = 16;
 /// The most line bytes the test bound lets the shell-line reader parse at once.
 const TEST_SHELL_LINE_LIMIT: usize = 1 << 20;
 
-/// What a test that resolves no spawn context or attachment answers: the daemon's part that serves
-/// it is not built in that test.
+/// What a test that resolves no spawn context or attachment, or rebinds no binding, answers: the
+/// daemon's part that serves it is not built in that test.
 #[derive(Debug, thiserror::Error)]
 #[error("the test serves no {0}")]
 struct NotServedInTest(&'static str);
 
-/// A spawn-context resolver and attachment resolver that serve nothing.
+/// A spawn-context resolver, attachment resolver and binding rebinder that serve nothing.
 struct NothingServed;
 
 impl SessionSpawnContextResolver for NothingServed {
@@ -61,6 +63,15 @@ impl SessionSpawnContextResolver for NothingServed {
         _provider_account_id: Option<ProviderAccountId>,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn Error + Send + Sync>>> {
         async { Err(NotServedInTest("spawn context").into()) }.boxed()
+    }
+}
+
+impl RuntimeBindingRebinder for NothingServed {
+    fn rebind(
+        &self,
+        _rebind: RuntimeBindingRebind,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async { Err(NotServedInTest("runtime binding").into()) }.boxed()
     }
 }
 
@@ -74,8 +85,8 @@ impl AttachmentResolver for NothingServed {
     }
 }
 
-/// The shared services every driver's build takes, with every port unregistered, no spawn context
-/// or attachment served, the read pool on a database no test opens, and every folder under a
+/// The shared services every driver's build takes, with every port unregistered, no spawn context,
+/// attachment or binding rebind served, the read pool on a database no test opens, and every folder under a
 /// relative one that no test makes. Called on a tokio runtime, which the spawner thread starts on.
 pub(crate) fn test_driver_services() -> DriverServices {
     let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
@@ -109,6 +120,7 @@ pub(crate) fn test_driver_services() -> DriverServices {
         pending_compactions: PendingCompactionRegistry::default(),
         processes: Arc::new(ProviderProcessRegistry::default()),
         spawn_contexts: Arc::new(NothingServed),
+        runtime_bindings: Arc::new(NothingServed),
         shell_lines: Arc::new(ShellLineReadingBound::new(TEST_SHELL_LINE_LIMIT)),
         ports: Arc::new(DriverPorts::new()),
     }

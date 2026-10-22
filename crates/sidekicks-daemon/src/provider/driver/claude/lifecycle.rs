@@ -129,6 +129,7 @@ impl ClaudeDriver {
             sources: Arc::new(ClaudeSpawnSources {
                 spawner: services.spawner.clone(),
                 spawn_contexts: Arc::clone(&services.spawn_contexts),
+                runtime_bindings: Arc::clone(&services.runtime_bindings),
                 pool: Arc::clone(&services.pool),
                 execution_postures: Arc::clone(&services.execution_postures),
                 base_environment: Arc::clone(&services.base_environment),

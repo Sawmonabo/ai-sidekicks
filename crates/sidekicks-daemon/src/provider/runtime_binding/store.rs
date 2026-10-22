@@ -543,34 +543,6 @@ impl RuntimeBindingStore {
         }
     }
 
-    /// Points binding `rebind.binding_id` at the conversation its session moved onto, recording
-    /// each conversation the session left in the same write. Fails with
-    /// [`RuntimeBindingStoreError::NoRowToRebind`] when the binding has no row, so nothing was
-    /// recorded, and as [`RuntimeBindingStore::update`] does.
-    #[expect(
-        dead_code,
-        reason = "a fork or a restart's resume points the binding at its new conversation \
-                  through it"
-    )]
-    pub(crate) async fn rebind(
-        &self,
-        rebind: RuntimeBindingRebind,
-    ) -> Result<(), RuntimeBindingStoreError> {
-        let patch = RuntimeBindingPatch {
-            resume_handle: Some(rebind.resume_handle),
-            ..RuntimeBindingPatch::default()
-        };
-        match self
-            .update(&rebind.binding_id, patch, rebind.left_conversations)
-            .await?
-        {
-            Some(_) => Ok(()),
-            None => Err(RuntimeBindingStoreError::NoRowToRebind {
-                binding_id: rebind.binding_id,
-            }),
-        }
-    }
-
     /// Records the binding a driver minted when it resumed a session on its own: a new row on the
     /// predecessor's run, provider and legs, with the relaunched build's own version and path,
     /// naming the conversation the leg runs on now, and each conversation it left in the same

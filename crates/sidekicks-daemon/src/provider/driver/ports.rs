@@ -24,7 +24,6 @@ use crate::provider::port::reviewer_denial::ReviewerDenialPort;
 use crate::provider::port::session_rules::SessionRulePort;
 use crate::provider::port::tool_server_route::ToolServerRoute;
 use crate::provider::port::usage_sink::UsageSink;
-use crate::provider::runtime_binding::store::RuntimeBindingStore;
 use crate::session::run::engine::RunEngine;
 use crate::session::run::inbound::RunInboundDispatch;
 use crate::session::run::pause::RunPauseControl;
@@ -70,9 +69,6 @@ pub(crate) struct SessionPlace {
 /// each registered once by the daemon's start; a driver that finds one absent refuses or waits as
 /// its own call says.
 pub(crate) struct DriverPorts {
-    /// The runtime bindings, which a driver records at a spawn and repoints when it moves a session
-    /// onto another conversation.
-    pub(crate) runtime_bindings: Arc<PortRegistration<Arc<RuntimeBindingStore>>>,
     /// The run engine.
     pub(crate) run_engine: Arc<PortRegistration<Arc<RunEngine>>>,
     /// The run engine's dispatch of what a provider delivers.
@@ -123,7 +119,6 @@ impl DriverPorts {
     /// Every port unregistered, for the daemon's start to register.
     pub(crate) fn new() -> Self {
         Self {
-            runtime_bindings: Arc::new(PortRegistration::new("runtime bindings")),
             run_engine: Arc::new(PortRegistration::new("run engine")),
             inbound_dispatch: Arc::new(PortRegistration::new("inbound dispatch")),
             daemon_turn_bindings: Arc::new(PortRegistration::new("daemon turn bindings")),

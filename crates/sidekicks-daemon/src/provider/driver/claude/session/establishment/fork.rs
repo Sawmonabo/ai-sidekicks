@@ -159,8 +159,8 @@ impl ClaudeSessionEstablishment {
 
     // Points the session's binding at the conversation it moved onto.
     async fn rebind(&self, rebind: RuntimeBindingRebind) -> Result<(), ClaudeEstablishmentError> {
-        let store = self.sources.ports.runtime_bindings.require_port()?;
-        store
+        self.sources
+            .runtime_bindings
             .rebind(rebind)
             .await
             .map_err(ClaudeEstablishmentError::Rebind)

@@ -29,6 +29,7 @@ use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::driver::ports::DriverPorts;
 use crate::provider::output_validation::is_canonical_semver;
 use crate::provider::process_registry::ProviderProcessRegistry;
+use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::provider::spawn_environment::ReservedEnvironmentNames;
 
 pub(crate) mod attachments;
@@ -405,6 +406,8 @@ pub(crate) struct DriverServices {
     pub(crate) processes: Arc<ProviderProcessRegistry>,
     /// Where each session's provider process runs, resolved at every spawn.
     pub(crate) spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
+    /// Points a session's binding at the conversation a driver moved it onto.
+    pub(crate) runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
     /// The daemon-wide bound on the shell-line bytes an ask's checks parse at once.
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
     /// The handles the daemon builds after the drivers, each registered by its start.
