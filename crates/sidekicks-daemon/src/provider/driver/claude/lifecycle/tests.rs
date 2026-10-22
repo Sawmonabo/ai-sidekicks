@@ -45,14 +45,12 @@ use crate::provider::driver::claude::session::scripted::{
 };
 use crate::provider::driver::claude::session::transport::declarations::ClaudeHandshakeDeclaration;
 use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
-use crate::provider::driver::contract::{
-    DriverResumeResult, ProviderDriver, RunOpening, StartRunParams,
-};
+use crate::provider::driver::contract::{ProviderDriver, RunOpening, StartRunParams};
 use crate::provider::driver::ports::SessionRelaunchListener;
 use crate::provider::driver::run_control::InterruptRunRequest;
 use crate::provider::driver::session_control::{
-    CloseSessionParams, CreateSessionParams, ProviderBuildChange, ResumeSessionParams,
-    StartReviewParams, StartingLevelParams,
+    CloseSessionParams, CreateSessionParams, DriverResumeResult, ProviderBuildChange,
+    ResumeSessionParams, StartReviewParams, StartingLevelParams,
 };
 use crate::provider::driver::test_registry::test_driver_services;
 use crate::provider::driver::{

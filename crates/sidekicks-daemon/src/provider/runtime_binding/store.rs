@@ -34,9 +34,8 @@ use crate::database::statement::{
 };
 use crate::database::stored_column::{StoredJsonFault, parse_stored_json_object, text_column};
 use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::provider::driver::contract::{
-    DriverCliVersionReport, SessionToolServer, SpawnedVersionBindingCarriers, SubagentPolicy,
-};
+use crate::provider::driver::contract::{DriverCliVersionReport, SpawnedVersionBindingCarriers};
+use crate::provider::driver::session_control::{SessionToolServer, SubagentPolicy};
 use crate::provider::left_conversations::{LeftConversation, compose_left_conversation_insert};
 use crate::provider::output_validation::{
     ProviderOutputValidationError, check_contract_version, check_resume_handle,

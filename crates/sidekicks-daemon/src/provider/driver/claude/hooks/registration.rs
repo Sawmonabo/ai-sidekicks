@@ -11,7 +11,7 @@ use crate::provider::driver::claude::event_normalizer::CLAUDE_QUESTION_TOOL_NAME
 use crate::provider::driver::claude::session::transport::control::{
     ClaudeAgentDefinition, ClaudeControlRequest, ClaudeHookMatcher, ClaudeHooks,
 };
-use crate::provider::driver::contract::{SubagentDefinition, SubagentPolicy};
+use crate::provider::driver::session_control::{SubagentDefinition, SubagentPolicy};
 use crate::provider::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 
 /// How long Claude Code waits on a held callback, in seconds: one day. Without it a callback left

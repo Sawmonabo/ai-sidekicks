@@ -38,7 +38,7 @@ use crate::provider::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudePr
 use crate::provider::driver::claude::spawn::settings::{
     ClaudePermissionsRequest, compose_claude_spawn_settings,
 };
-use crate::provider::driver::contract::SubagentPolicy;
+use crate::provider::driver::session_control::SubagentPolicy;
 use crate::provider::port::in_process_tool_servers::InProcessToolServers;
 use crate::provider::port::permission_ask::ProviderAskRule;
 use crate::provider::spawned_version::ResolvedProviderExecutable;

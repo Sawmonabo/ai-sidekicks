@@ -12,8 +12,8 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::provider::callback_tools::host::CallbackToolHost;
-use crate::provider::driver::contract::DriverResumeResult;
 use crate::provider::driver::run_control::DaemonTurnBindingResolver;
+use crate::provider::driver::session_control::DriverResumeResult;
 use crate::provider::port::in_process_tool_servers::InProcessToolServers;
 use crate::provider::port::permission_ask::PermissionAskPort;
 use crate::provider::port::plan::PlanPort;

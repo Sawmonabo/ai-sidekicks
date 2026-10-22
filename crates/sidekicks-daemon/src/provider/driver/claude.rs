@@ -23,10 +23,9 @@ use sidekicks_platforms::{
 
 use crate::provider::driver::claude::lifecycle::ClaudeDriver;
 use crate::provider::driver::contract::{
-    ApplyRowValueParams, CompactContextParams, DriverAuthProbeResult, DriverError,
-    DriverResumeResult, GetCapabilitiesResult, ListModelsParams, ListProviderCommandsParams,
-    MoveSessionToForkParams, MoveSessionToForkResult, ProviderCommandsSubscription, ProviderDriver,
-    ProviderSessionHandle, RespondToRequestParams, StartRunParams,
+    ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
+    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription, ProviderDriver,
+    RespondToRequestParams, StartRunParams,
 };
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
@@ -40,9 +39,10 @@ use crate::provider::driver::run_control::{
 };
 use crate::provider::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
-    CreateSessionParams, DriverGoalResult, NameSessionParams, ProviderBuildChange,
-    ProviderCommandsListener, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
-    SessionCommandAnswer, SetSessionGoalParams, StartReviewParams, StartingLevel,
+    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverResumeResult,
+    MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
+    ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
+    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartReviewParams, StartingLevel,
     StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
     UpdateSessionModeParams,
 };

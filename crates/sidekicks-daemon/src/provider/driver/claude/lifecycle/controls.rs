@@ -47,15 +47,13 @@ use crate::provider::driver::claude::spawn::environment::{
 use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::provider::driver::claude::spawn::launch::initialize_reply::read_claude_initialize_declaration;
 use crate::provider::driver::contract::ProviderCommandsSubscription;
-use crate::provider::driver::contract::{
-    DriverAuthProbeResult, DriverAuthProbeStatus, DriverError, GetCapabilitiesResult,
-    ListModelsParams, build_auth_probe_result,
-};
+use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult, ListModelsParams};
 use crate::provider::driver::diagnostics::DriverDiagnosticKind;
 use crate::provider::driver::session_control::{
-    AnswerSessionCommandParams, AskSideQuestionParams, ProviderCommandsListener, RevokeRuleParams,
-    SessionCommandAnswer, StartReviewParams, StartingLevel, StartingLevelParams,
-    SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
+    AnswerSessionCommandParams, AskSideQuestionParams, DriverAuthProbeResult,
+    DriverAuthProbeStatus, ProviderCommandsListener, RevokeRuleParams, SessionCommandAnswer,
+    StartReviewParams, StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
+    UpdatePermissionLevelParams, UpdateSessionModeParams, build_auth_probe_result,
 };
 use crate::provider::port::session_inbox_address::SessionInboxAddresser;
 

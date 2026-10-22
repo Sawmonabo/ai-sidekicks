@@ -10,8 +10,8 @@ use sidekicks_contracts::session::id::SessionId;
 
 use crate::policy::execution_posture_service::CredentialDenyPath;
 use crate::provider::driver::callback_tool::CallbackToolDispatcher;
-use crate::provider::driver::contract::{SessionToolServer, SubagentPolicy};
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
+use crate::provider::driver::session_control::{SessionToolServer, SubagentPolicy};
 
 /// The legs a session's process is started with.
 #[derive(Clone)]

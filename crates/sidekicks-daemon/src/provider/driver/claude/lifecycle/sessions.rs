@@ -24,15 +24,13 @@ use crate::provider::driver::claude::session::slots::ClaudeCloseStart;
 use crate::provider::driver::claude::spawn::environment::{
     ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, compose_claude_process_environment,
 };
-use crate::provider::driver::contract::{
-    DriverError, DriverResumeResult, MoveSessionToForkParams, MoveSessionToForkResult,
-    ProviderSessionHandle,
-};
+use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::provider::driver::run_control::{FindTakenMessagesParams, TakenMessages};
 use crate::provider::driver::session_control::{
-    CloseSessionParams, CreateSessionParams, NameSessionParams, ProviderBuildChange,
+    CloseSessionParams, CreateSessionParams, DriverResumeResult, MoveSessionToForkParams,
+    MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderSessionHandle,
     PurgeSessionParams, ResumeSessionParams,
 };
 use crate::provider::spawn_environment::SessionEnvironment;

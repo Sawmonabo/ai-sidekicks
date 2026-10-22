@@ -90,15 +90,15 @@ use crate::provider::driver::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsError, ClaudeSpawnLegsRequest,
     build_claude_spawn_binding, build_claude_spawn_bound_legs,
 };
-use crate::provider::driver::contract::{
-    DriverError, DriverResumeResult, ProviderSessionHandle, SessionToolServer, SubagentPolicy,
-    bound_failure_detail,
-};
+use crate::provider::driver::contract::{DriverError, bound_failure_detail};
 use crate::provider::driver::diagnostics::DriverDiagnosticKind;
 use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::ports::DriverPorts;
-use crate::provider::driver::session_control::{CreateSessionParams, ResumeSessionParams};
+use crate::provider::driver::session_control::{
+    CreateSessionParams, DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
+    SessionToolServer, SubagentPolicy,
+};
 use crate::provider::port::registration::PortRegistrationError;
 use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;

@@ -36,8 +36,9 @@ use crate::provider::driver::claude::spawn::account_home::write_claude_home_rete
 use crate::provider::driver::claude::spawn::environment::{
     ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, compose_claude_process_environment,
 };
-use crate::provider::driver::contract::{SessionToolServer, StartRunParams, SubagentPolicy};
+use crate::provider::driver::contract::StartRunParams;
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
+use crate::provider::driver::session_control::{SessionToolServer, SubagentPolicy};
 use crate::provider::spawn_environment::{
     ReservedEnvironmentNames, SessionEnvironment, SpawnEnvironmentError,
 };

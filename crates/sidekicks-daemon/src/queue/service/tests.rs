@@ -39,12 +39,13 @@ use crate::events::session::read::DamagedFromSequenceReader;
 use crate::ipc::domain_error::DomainError;
 use crate::pause_point::PausePoint;
 use crate::provider::driver::PROVIDERS;
-use crate::provider::driver::contract::{DriverError, MockProviderDriver, ProviderSessionHandle};
+use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterventionResultStatus,
     SteerTurnEndedError, WithdrawQueuedMessageResult,
 };
+use crate::provider::driver::session_control::ProviderSessionHandle;
 use crate::provider::driver::test_registry::registry_of_first_provider;
 use crate::provider::runtime_binding::store::RuntimeBindingStore;
 use crate::queue::changes::QueueChangeSignals;

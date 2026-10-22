@@ -35,13 +35,15 @@ use crate::provider::driver::claude::session::process::ClaudeProcessEnd;
 use crate::provider::driver::claude::session::slots::{ClaudeCloseStart, ClaudeSessionSlots};
 use crate::provider::driver::claude::session::state::LiveClaudeSession;
 use crate::provider::driver::claude::session::ultracode::relaunch_claude_options;
-use crate::provider::driver::contract::{DriverError, DriverResumeResult, bound_failure_detail};
+use crate::provider::driver::contract::{DriverError, bound_failure_detail};
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::provider::driver::ports::DriverPorts;
-use crate::provider::driver::session_control::{ProviderBuildChange, ResumeSessionParams};
+use crate::provider::driver::session_control::{
+    DriverResumeResult, ProviderBuildChange, ResumeSessionParams,
+};
 use crate::session::run::inbound::InboundDelivery;
 use crate::settle_all::settle_all;
 

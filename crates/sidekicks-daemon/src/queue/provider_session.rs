@@ -28,11 +28,11 @@ use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::ipc::domain_error::DomainError;
 use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::policy::execution_posture_service::compose_execution_posture;
-use crate::provider::driver::contract::{
-    DriverError, DriverResumeResult, SpawnedVersionBindingCarriers,
-};
+use crate::provider::driver::contract::{DriverError, SpawnedVersionBindingCarriers};
 use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::session_control::{CreateSessionParams, UpdatePermissionLevelParams};
+use crate::provider::driver::session_control::{
+    CreateSessionParams, DriverResumeResult, UpdatePermissionLevelParams,
+};
 use crate::provider::left_conversations::LeftConversation;
 use crate::provider::runtime_binding::resume::{
     ResumeFunctionLegs, RuntimeBindingNotResumable, compose_resume_session_params,

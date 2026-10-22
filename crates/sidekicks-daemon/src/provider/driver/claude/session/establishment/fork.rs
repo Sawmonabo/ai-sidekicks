@@ -21,10 +21,9 @@ use crate::provider::driver::claude::session::state::{
 };
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
-use crate::provider::driver::contract::{
-    DriverError, MoveSessionToForkParams, MoveSessionToForkResult, bound_failure_detail,
-};
+use crate::provider::driver::contract::{DriverError, bound_failure_detail};
 use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::provider::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
 use crate::provider::left_conversations::LeftConversation;
 use crate::provider::runtime_binding::store::RuntimeBindingRebind;
 
