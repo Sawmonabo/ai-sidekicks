@@ -11,6 +11,7 @@ mod run_end;
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use serde_json::{Map, Value};
@@ -24,7 +25,7 @@ use sidekicks_contracts::session::controls::events::{
 };
 use sidekicks_contracts::session::events::SessionProviderStatusReportedPayload;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::Instant;
 
@@ -113,6 +114,8 @@ pub(crate) struct ClaudeSessionStream {
     prompts: Arc<Mutex<ClaudeSentPrompts>>,
     // The kinds outside the census already logged on this process's connection.
     diagnostics: Mutex<OnceReportedDiagnostics>,
+    // How many turns the run engine could not number have ended.
+    unnumbered_turns: AtomicU64,
 }
 
 impl ClaudeSessionStream {
@@ -134,7 +137,14 @@ impl ClaudeSessionStream {
             routes,
             prompts,
             diagnostics: Mutex::default(),
+            unnumbered_turns: AtomicU64::new(0),
         }
+    }
+
+    // A terminal gate version for one more turn the run engine could not number, past every
+    // turn number, so no two such turns share one.
+    fn unnumbered_turn_version(&self) -> u64 {
+        MAX_SAFE_INTEGER + 1 + self.unnumbered_turns.fetch_add(1, Ordering::Relaxed)
     }
 
     /// The session.
@@ -551,6 +561,9 @@ impl ClaudeDeliveryStream {
         };
         match state {
             "started" => self.report_taken(session, uuid),
+            // Claude Code's terminal drops: `discarded` for a message still queued as the
+            // session ends, `refused` on the same drop path's other arm, and `cancelled` for one
+            // an interrupt sent with `cancel_queued` took back.
             "discarded" | "refused" | "cancelled" => {
                 session.unmark_now_steer(uuid);
                 session

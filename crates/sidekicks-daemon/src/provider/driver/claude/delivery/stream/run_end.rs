@@ -10,7 +10,6 @@ use std::sync::PoisonError;
 use serde_json::Value;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::Instant;
 
@@ -116,18 +115,27 @@ impl ClaudeDeliveryStream {
         route: ThreadFrameRoute,
         is_reviewed: bool,
     ) -> Option<RunId> {
-        let (turn_number, pieces, released, failed_call_words) = {
+        let (turn_number, run_version, pieces, released, failed_call_words) = {
             let mut readings = session.lock();
-            let turn_number = readings
+            let open_turn = readings
                 .turn
                 .take()
-                .filter(|turn| turn.run_id == lead.run_id)
-                .and_then(|turn| turn.turn_number);
+                .filter(|turn| turn.run_id == lead.run_id);
+            let turn_number = open_turn.as_ref().and_then(|turn| turn.turn_number);
+            // A turn the engine numbered settles under its number, and one it could not number
+            // under a version of its own past every number, so a run's later turn is never taken
+            // for one already settled; an end with no turn open settles under 0.
+            let run_version = match (&open_turn, turn_number) {
+                (_, Some(turn_number)) => turn_number.get(),
+                (Some(_), None) => session.unnumbered_turn_version(),
+                (None, None) => 0,
+            };
             // A block the turn left unfinished keeps what streamed of it.
             let pieces = readings.streamed_blocks.end_turn(lead.run_id);
             let released = readings.buffer.flush_all(Instant::now());
             (
                 turn_number,
+                run_version,
                 pieces,
                 released,
                 readings.failed_call_words.clone(),
@@ -166,7 +174,7 @@ impl ClaudeDeliveryStream {
             let reader_carried = readings.reader_carried_run.take() == Some(lead.run_id);
             let decision = readings.gate.admit_terminal_frame(&TerminalRunFrame {
                 run_id: lead.run_id,
-                run_version: turn_number.map_or(0, SafeInt::get),
+                run_version,
                 route,
             });
             let TerminalEmissionDecision::Emit { intended_close } = decision else {
