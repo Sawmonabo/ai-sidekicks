@@ -94,6 +94,8 @@ pub(crate) struct StoredApprovalResolution {
     pub(crate) asked_scope: Option<RememberedScope>,
     /// The command or path as the person corrected it, on an approval that changed it.
     pub(crate) edited_action: Option<NonEmptyText>,
+    /// The `why not` words, on a decline the person typed them on.
+    pub(crate) decline_reason: Option<NonEmptyText>,
     /// When it was answered.
     pub(crate) resolved_at: WireInstant,
 }
@@ -138,6 +140,8 @@ pub(crate) struct InsertedApprovalResolution {
     pub(crate) asked_scope: Option<RememberedScope>,
     /// The command or path as the person corrected it, on an approval that changed it.
     pub(crate) edited_action: Option<NonEmptyText>,
+    /// The `why not` words, on a decline the person typed them on.
+    pub(crate) decline_reason: Option<NonEmptyText>,
     /// When it was answered.
     pub(crate) resolved_at: WireInstant,
 }
@@ -248,9 +252,10 @@ static SETTLE_PENDING_SQL: LazyLock<String> = LazyLock::new(|| {
 
 const INSERT_RESOLUTION_SQL: &str = "INSERT INTO approval_resolutions
     (request_id, device_id, client_resolution_id, decision, effective_scope, asked_scope_kind,
-     asked_scope_pattern, edited_action, resolved_at)
+     asked_scope_pattern, edited_action, decline_reason, resolved_at)
   VALUES (@request_id, @device_id, @client_resolution_id, @decision, @effective_scope,
-          @asked_scope_kind, @asked_scope_pattern, @edited_action, @resolved_at)";
+          @asked_scope_kind, @asked_scope_pattern, @edited_action, @decline_reason,
+          @resolved_at)";
 
 // A rebuild's write of an answer: the answer of an ask a workflow gate names outlives the
 // rebuild's clear with its ask, and is written over with what the log says, the rule asked for
@@ -271,7 +276,8 @@ static REWRITE_RESOLUTION_SQL: LazyLock<String> = LazyLock::new(|| {
     remembered_scope_kind = NULL, remembered_scope_pattern = NULL,
     asked_scope_kind = excluded.asked_scope_kind,
     asked_scope_pattern = excluded.asked_scope_pattern,
-    edited_action = excluded.edited_action, resolved_at = excluded.resolved_at"
+    edited_action = excluded.edited_action, decline_reason = excluded.decline_reason,
+    resolved_at = excluded.resolved_at"
     )
 });
 
@@ -296,8 +302,8 @@ const SELECT_REQUESTS_SQL: &str = "SELECT request.id, request.session_id, reques
        resolution.device_id, resolution.client_resolution_id, resolution.decision,
        resolution.effective_scope, resolution.remembered_scope_kind,
        resolution.remembered_scope_pattern, resolution.asked_scope_kind,
-       resolution.asked_scope_pattern, resolution.edited_action, resolution.resolved_at,
-       session.shape AS session_shape
+       resolution.asked_scope_pattern, resolution.edited_action, resolution.decline_reason,
+       resolution.resolved_at, session.shape AS session_shape
   FROM approval_requests AS request
   LEFT JOIN approval_resolutions AS resolution ON resolution.request_id = request.id
   LEFT JOIN sessions AS session ON session.id = request.session_id";
@@ -487,6 +493,10 @@ fn resolution_statement(
                 "@edited_action",
                 resolution.edited_action.as_ref().map(NonEmptyText::as_str),
             ),
+            nullable_text_binding(
+                "@decline_reason",
+                resolution.decline_reason.as_ref().map(NonEmptyText::as_str),
+            ),
             text_binding("@resolved_at", resolution.resolved_at.as_str()),
         ]),
         expected_row_count: Some(1),
@@ -675,7 +685,7 @@ fn stored_request_of(row: &Row<'_>) -> rusqlite::Result<StoredApprovalRequest> {
     let resource_descriptor: ApprovalResourceDescriptor =
         text_column(row, 6, |text| serde_json::from_str(&text))?;
     let ask_id = optional_text_column(row, 7, non_empty_text)?;
-    let session_shape: Option<SessionShape> = optional_text_column(row, 21, closed_word)?;
+    let session_shape: Option<SessionShape> = optional_text_column(row, 22, closed_word)?;
     let standing_allow_offered = resource_descriptor.standing_allow_offered;
     let project_scope_offered = standing_allow_offered
         && resource_descriptor.project_scope_offered
@@ -716,7 +726,8 @@ fn resolution_of(row: &Row<'_>) -> rusqlite::Result<Option<StoredApprovalResolut
         remembered_scope: rule_scope_of(row, 15, decision)?,
         asked_scope: rule_scope_of(row, 17, decision)?,
         edited_action: optional_text_column(row, 19, non_empty_text)?,
-        resolved_at: text_column(row, 20, WireInstant::try_from)?,
+        decline_reason: optional_text_column(row, 20, non_empty_text)?,
+        resolved_at: text_column(row, 21, WireInstant::try_from)?,
     }))
 }
 

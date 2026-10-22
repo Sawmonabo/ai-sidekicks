@@ -385,6 +385,7 @@ impl ApprovalService {
             client_resolution_id: answer.client_resolution_id.clone(),
             remembered_scope: answer.remembered_scope.cloned(),
             edited_action: answer.edited_action.cloned(),
+            decline_reason: answer.decline_reason.cloned(),
         };
         let resolution = InsertedApprovalResolution {
             approval_request_id,
@@ -394,6 +395,7 @@ impl ApprovalService {
             effective_scope: effective_scope.clone(),
             asked_scope: answer.remembered_scope.cloned(),
             edited_action: answer.edited_action.cloned(),
+            decline_reason: answer.decline_reason.cloned(),
             resolved_at: resolved_at.clone(),
         };
         let settlement = ApprovalSettlement::Decided(answer.decision);
@@ -463,6 +465,7 @@ impl ApprovalService {
                     remembered_scope: None,
                     asked_scope: resolution.asked_scope,
                     edited_action: resolution.edited_action,
+                    decline_reason: resolution.decline_reason,
                     resolved_at: resolution.resolved_at,
                 }),
                 ..stored

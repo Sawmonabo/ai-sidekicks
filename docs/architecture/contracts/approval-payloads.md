@@ -109,6 +109,9 @@ interface ApprovalResolvedPayload {
   // the rule the person asked to keep with the answer, so a rebuild and a resend record the rule
   // asked for even when `approval.rule.remembered` was never written
   rememberedScope?: RememberedScope;
+  // on `approval.rejected` only, the words the person typed on `Decline`'s optional line, which go
+  // back to the agent, so a resend and a rebuild hand and restore the words the answer carried
+  declineReason?: string;
   // on `approval.approved` only, the command or path the person corrected on the card: the one
   // action the approval covers, which the permission check lets run once, on the card's own run
   // (local-sqlite-schema.md §Approval Tables)

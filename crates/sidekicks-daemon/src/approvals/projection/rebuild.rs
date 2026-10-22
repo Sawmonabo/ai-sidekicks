@@ -238,6 +238,7 @@ fn push_answer(
         effective_scope: resolved.effective_scope.clone(),
         asked_scope: resolved.remembered_scope.clone(),
         edited_action: resolved.edited_action.clone(),
+        decline_reason: resolved.decline_reason.clone(),
         resolved_at,
     }));
 }
@@ -313,6 +314,7 @@ mod tests {
                     effective_scope: resolved.effective_scope.clone(),
                     asked_scope: resolved.remembered_scope.clone(),
                     edited_action: resolved.edited_action.clone(),
+                    decline_reason: resolved.decline_reason.clone(),
                     resolved_at: occurred_at.clone(),
                 }),
             ]
@@ -496,14 +498,15 @@ mod tests {
             }
             ask.event(session_id, "approval.requested", &extra)
         };
-        let answer = |ask: &Ask, event_type: &str, edited_action: Option<&str>| {
+        // `said` is what the person added to the answer: a correction, or a decline's words.
+        let answer = |ask: &Ask, event_type: &str, said: Option<(&str, &str)>| {
             let mut extra = json!({
                 "effectiveScope": "npm run build",
                 "deviceId": "device-1",
                 "clientResolutionId": mint_uuid_v7().to_string(),
             });
-            if let Some(edited_action) = edited_action {
-                extra["editedAction"] = json!(edited_action);
+            if let Some((field, text)) = said {
+                extra[field] = json!(text);
             }
             if ask.id == gate_named.id {
                 extra["rememberedScope"] = json!({
@@ -534,11 +537,15 @@ mod tests {
             answer(
                 &approved,
                 "approval.approved",
-                Some("npm run build -- --watch"),
+                Some(("editedAction", "npm run build -- --watch")),
             ),
             remembered(&approved),
             requested(&rejected, Some("ask-2")),
-            answer(&rejected, "approval.rejected", None),
+            answer(
+                &rejected,
+                "approval.rejected",
+                Some(("declineReason", "not on the build machine")),
+            ),
             requested(&canceled, None),
             canceled.event(session_id, "approval.canceled", &json!({})),
             requested(&gate_named, Some("ask-3")),
