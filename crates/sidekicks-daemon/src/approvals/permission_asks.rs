@@ -400,8 +400,8 @@ impl PermissionAsks {
     }
 
     // Keeps the stored answer with the held ask and claims its hand: the answer to hand, its
-    // request id and the rule the stored answer asked for, or `None` where no ask is held for it, or
-    // a hand of it is under way or reached its provider.
+    // request id and the rule the stored answer asked for, or `None` where no ask is held for it,
+    // or a hand of it is under way or reached its provider.
     async fn claim_hand(
         &self,
         stored: &StoredApprovalRequest,
