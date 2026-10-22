@@ -159,7 +159,8 @@ interface DaemonStatusReadResponse {
   // `secrets.json`: from the approved logged-out service's takeover until `sidekicks daemon
   // uninstall` moves them back, including after that service is turned off in Login Items &
   // Extensions, and never while it waits for approval. Settings › Runtime then shows the notice
-  // for the file's place, or why the sealed file cannot be opened (Spec-020 §Daemon Secrets).
+  // for the file's place, or why the sealed file cannot be opened, with this path in its own row
+  // under the notice's line (Spec-020 §Daemon Secrets).
   // Absent on every other machine.
   secretsFile?: string;
   // healthy, rebuilding, degraded or blocked, per session (persistence-payloads.md §Plan-012,
