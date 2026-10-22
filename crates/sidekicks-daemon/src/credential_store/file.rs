@@ -1,18 +1,23 @@
-//! The items kept where the operating system's credential store is not used, on Linux where no
-//! Secret Service ran when the place was picked and on a Mac whose service runs while the person is
-//! logged out: the daemon's one items file, `secrets.json` in its data folder, readable by this
-//! account alone (mode 0600). The file holds each value under its keychain service and account, so
-//! every service's items share it, and the values in it are not encrypted. It exists exactly while
-//! it holds an item: the write that removes the last one deletes it.
+//! The items kept outside the operating system's credential store, on Linux and on a Mac whose
+//! service runs while the person is logged out: the daemon's one items file, `secrets.json` in its
+//! data folder, readable by this account alone (mode 0600). The file holds each item under its
+//! keychain service and account, so every service's items share it, and names its form: `sealed`,
+//! each value sealed to this computer by systemd's credential service under its own name, or
+//! `plain`, each value as given. A run opens the file in one form and refuses a file in the other or
+//! in none. It exists exactly while it holds an item: the write that removes the last one deletes
+//! it.
 //!
 //! Every call reads the disk, so no copy of a value stays in memory past the call, and the calls on
 //! one file run one at a time, every service's keychain on it sharing one lock, so two writes never
 //! lose each other; another process writes the file only while the daemon is stopped, as the data
-//! folder's lock ensures. Each write replaces the whole file at once, and the first call on the
-//! file deletes the temporary files a write cut short left behind, since each holds every value.
-//! An items file that cannot be read refuses every call and is never rewritten, because rewriting
-//! it would lose every secret it holds. The text read and the text written are held in buffers
-//! that wipe themselves when dropped.
+//! folder's lock ensures. A value is sealed before that lock is taken and opened after it is let
+//! go, so a slow seal never holds another call's file access. A write or a removal holds its item
+//! from its seal through its file write in a task of its own, so it lands whole even after its
+//! caller stops waiting, and before the next call on that item. Each write replaces the whole file
+//! at once, and the first call on the file deletes the temporary files a write cut short left
+//! behind, since each holds every value. An items file that cannot be read refuses every call and
+//! is never rewritten, because rewriting it would lose every secret it holds. The text read and the
+//! text written are held in buffers that wipe themselves when dropped.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -21,14 +26,19 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use secrecy::{ExposeSecret, SecretString};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
+use sidekicks_platforms::SealFailure;
 use tokio::sync::{Mutex, MutexGuard};
 use zeroize::Zeroizing;
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::credential_store::seal::SecretSeal;
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
 use crate::file::atomic_write::write_file_atomically;
+use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::MissingEntry;
 
 const ITEMS_FILE_NAME: &str = "secrets.json";
@@ -37,27 +47,75 @@ const ITEMS_FILE_MODE: u32 = 0o600;
 
 const LEFTOVER_REMOVAL: &str = "removing the leftovers of a write cut short";
 
-// Each keychain service's values, by account.
+// Each keychain service's stored values, by account: the values themselves in a plain file, their
+// sealed blobs in a sealed one.
 type Items = BTreeMap<String, BTreeMap<String, SecretString>>;
 
-/// The daemon's one `secrets.json` in its data folder: its path and the lock every call on it
-/// holds, whichever service's keychain makes the call. One per data folder, every keychain on the
-/// file holding a handle to it.
+// How the file keeps its values, as its `form` names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum ItemsForm {
+    Plain,
+    Sealed,
+}
+
+// The file's text as read.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ItemsText {
+    form: ItemsForm,
+    items: Items,
+}
+
+// The file's text as written, each stored value exposed for the write alone.
+#[derive(Serialize)]
+struct ItemsTextWritten<'items> {
+    form: ItemsForm,
+    items: BTreeMap<&'items str, BTreeMap<&'items str, &'items str>>,
+}
+
+/// The daemon's one `secrets.json` in its data folder: its path, its form, the lock every call on
+/// it holds, whichever service's keychain makes the call, and the hold each write keeps on its
+/// item. One per data folder, every keychain on the file holding a handle to it.
 pub(crate) struct SecretItemsFile {
     /// The file's full path.
     file_path: PathBuf,
+    /// The seal each value goes through, or `None` for a plain file.
+    seal: Option<Arc<dyn SecretSeal>>,
     /// Held by each call for its whole read and write; `true` once the leftovers of a write cut
     /// short have been removed.
     calls: Mutex<bool>,
+    /// Held by each write and removal on an item, by service and account, from its seal through
+    /// its file write.
+    items: Arc<KeyedLock<(String, String)>>,
 }
 
 impl SecretItemsFile {
-    /// The items file in `data_folder`, an absolute path to a folder that exists and only this
-    /// account can read, as the daemon makes its data folder at start.
+    /// The plain items file in `data_folder`, an absolute path to a folder that exists and only
+    /// this account can read, as the daemon makes its data folder at start.
     pub(crate) fn new(data_folder: &Path) -> Arc<Self> {
+        Self::with_seal(data_folder, None)
+    }
+
+    /// The sealed items file in `data_folder`, each value put through `seal`.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start opens the sealed file where systemd's credential service \
+                      seals"
+        )
+    )]
+    pub(crate) fn sealed(data_folder: &Path, seal: Arc<dyn SecretSeal>) -> Arc<Self> {
+        Self::with_seal(data_folder, Some(seal))
+    }
+
+    fn with_seal(data_folder: &Path, seal: Option<Arc<dyn SecretSeal>>) -> Arc<Self> {
         Arc::new(Self {
             file_path: data_folder.join(ITEMS_FILE_NAME),
+            seal,
             calls: Mutex::new(false),
+            items: Arc::new(KeyedLock::new()),
         })
     }
 
@@ -126,16 +184,34 @@ impl SecretItemsFile {
         }
     }
 
-    // Every service's values in the file, nothing when it does not exist yet. An unreadable file
-    // refuses the call and is left as it is.
+    // The form this run keeps the file in.
+    fn form(&self) -> ItemsForm {
+        if self.seal.is_some() {
+            ItemsForm::Sealed
+        } else {
+            ItemsForm::Plain
+        }
+    }
+
+    // Every service's stored values in the file, nothing when it does not exist yet. A file that
+    // cannot be read, or is in another form than this run keeps, refuses the call and is left as it
+    // is.
     async fn read_items(&self) -> Result<Items, KeychainRefusal> {
         let text = match tokio::fs::read(&self.file_path).await.none_if_missing() {
             Ok(Some(text)) => Zeroizing::new(text),
             Ok(None) => return Ok(Items::new()),
             Err(failure) => return Err(file_failure(failure)),
         };
-        match serde_json::from_slice(&text) {
-            Ok(items) => Ok(items),
+        match serde_json::from_slice::<ItemsText>(&text) {
+            Ok(read) if read.form == self.form() => Ok(read.items),
+            Ok(_other_form) => Err(KeychainRefusal::new(
+                KeychainRefusalCause::Unavailable,
+                format!(
+                    "{} keeps its secrets in another form than this run opens, so it is left as \
+                     it is",
+                    self.file_path.display()
+                ),
+            )),
             // The parser's message can quote the file's text, which holds secret values, so it is
             // never kept.
             Err(_quotes_the_text) => Err(KeychainRefusal::new(
@@ -170,17 +246,97 @@ impl SecretItemsFile {
                 .map(drop)
                 .map_err(file_failure);
         }
-        let length = json_utf8_byte_length(&exposed).map_err(file_failure)?;
+        let written = ItemsTextWritten {
+            form: self.form(),
+            items: exposed,
+        };
+        let length = json_utf8_byte_length(&written).map_err(file_failure)?;
         let mut text = Zeroizing::new(Vec::with_capacity(length));
-        serde_json::to_writer(&mut *text, &exposed).map_err(file_failure)?;
+        serde_json::to_writer(&mut *text, &written).map_err(file_failure)?;
         write_file_atomically(&self.file_path, text, ITEMS_FILE_MODE)
             .await
             .map_err(file_failure)
     }
+
+    // Keeps `value` under `service` and `account`: sealed first, outside the file's lock, in a
+    // sealed file.
+    async fn write_item(
+        &self,
+        service: &str,
+        account: &str,
+        value: &SecretString,
+    ) -> Result<(), KeychainRefusal> {
+        let stored = match &self.seal {
+            Some(seal) => SecretString::from(
+                seal.seal(&credential_name(service, account), value)
+                    .await
+                    .map_err(seal_failure)?,
+            ),
+            None => value.clone(),
+        };
+        let _held = self.hold().await?;
+        let mut items = self.read_items().await?;
+        items
+            .entry(service.to_owned())
+            .or_default()
+            .insert(account.to_owned(), stored);
+        self.write_items(&items).await
+    }
+
+    // Removes the item under `service` and `account`; `false` when none was held.
+    async fn remove_item(&self, service: &str, account: &str) -> Result<bool, KeychainRefusal> {
+        let _held = self.hold().await?;
+        let mut items = self.read_items().await?;
+        let was_held = items
+            .get_mut(service)
+            .is_some_and(|entries| entries.remove(account).is_some());
+        if was_held {
+            self.write_items(&items).await?;
+        }
+        Ok(was_held)
+    }
+
+    // Runs `change` on the item under `service` and `account` in a task of its own that holds the
+    // item until the change lands, even after the caller stops waiting.
+    async fn change_item<Answer: Send + 'static>(
+        self: &Arc<Self>,
+        service: &str,
+        account: &str,
+        change: impl Future<Output = Result<Answer, KeychainRefusal>> + Send + 'static,
+    ) -> Result<Answer, KeychainRefusal> {
+        let logged_service = service.to_owned();
+        let landed = self
+            .items
+            .run_held(
+                (service.to_owned(), account.to_owned()),
+                change,
+                move |answer| {
+                    tracing::warn!(
+                        service = logged_service,
+                        is_answered = answer.is_ok(),
+                        "An items file write landed after its caller stopped waiting"
+                    );
+                },
+            )
+            .await;
+        match landed {
+            Ok(Some(answer)) => answer,
+            // A task skips its change only once its caller stopped waiting.
+            Ok(None) => Err(KeychainRefusal::new(
+                KeychainRefusalCause::Unavailable,
+                "the items file call ended without an answer",
+            )),
+            Err(interrupted) => Err(KeychainRefusal::new(
+                KeychainRefusalCause::Unavailable,
+                "the items file call ended without an answer",
+            )
+            .with_failure(interrupted)),
+        }
+    }
 }
 
 /// One keychain service's items in the daemon's items file; see the module doc. Every failure of
-/// the file refuses the call as the keychain being `unavailable`.
+/// the file or the seal refuses the call as the keychain being `unavailable`.
 pub(crate) struct FileSecretKeychain {
     /// The items file, shared with every other service's keychain on it.
     items_file: Arc<SecretItemsFile>,
@@ -194,15 +350,17 @@ impl SecretKeychain for FileSecretKeychain {
         account: &'call str,
         value: &'call SecretString,
     ) -> BoxFuture<'call, Result<(), KeychainRefusal>> {
-        Box::pin(async move {
-            let _held = self.items_file.hold().await?;
-            let mut items = self.items_file.read_items().await?;
-            items
-                .entry(self.service.clone())
-                .or_default()
-                .insert(account.to_owned(), value.clone());
-            self.items_file.write_items(&items).await
-        })
+        let items_file = Arc::clone(&self.items_file);
+        let (service, account_owned, value) =
+            (self.service.clone(), account.to_owned(), value.clone());
+        Box::pin(
+            self.items_file
+                .change_item(&self.service, account, async move {
+                    items_file
+                        .write_item(&service, &account_owned, &value)
+                        .await
+                }),
+        )
     }
 
     fn read<'call>(
@@ -210,11 +368,24 @@ impl SecretKeychain for FileSecretKeychain {
         account: &'call str,
     ) -> BoxFuture<'call, Result<Option<SecretString>, KeychainRefusal>> {
         Box::pin(async move {
-            let _held = self.items_file.hold().await?;
-            let mut items = self.items_file.read_items().await?;
-            Ok(items
-                .get_mut(&self.service)
-                .and_then(|entries| entries.remove(account)))
+            let stored = {
+                let _held = self.items_file.hold().await?;
+                let mut items = self.items_file.read_items().await?;
+                items
+                    .get_mut(&self.service)
+                    .and_then(|entries| entries.remove(account))
+            };
+            match (stored, &self.items_file.seal) {
+                (Some(blob), Some(seal)) => seal
+                    .unseal(
+                        &credential_name(&self.service, account),
+                        blob.expose_secret(),
+                    )
+                    .await
+                    .map(Some)
+                    .map_err(seal_failure),
+                (stored, _) => Ok(stored),
+            }
         })
     }
 
@@ -222,17 +393,14 @@ impl SecretKeychain for FileSecretKeychain {
         &'call self,
         account: &'call str,
     ) -> BoxFuture<'call, Result<bool, KeychainRefusal>> {
-        Box::pin(async move {
-            let _held = self.items_file.hold().await?;
-            let mut items = self.items_file.read_items().await?;
-            let was_held = items
-                .get_mut(&self.service)
-                .is_some_and(|entries| entries.remove(account).is_some());
-            if was_held {
-                self.items_file.write_items(&items).await?;
-            }
-            Ok(was_held)
-        })
+        let items_file = Arc::clone(&self.items_file);
+        let (service, account_owned) = (self.service.clone(), account.to_owned());
+        Box::pin(
+            self.items_file
+                .change_item(&self.service, account, async move {
+                    items_file.remove_item(&service, &account_owned).await
+                }),
+        )
     }
 
     fn accounts(&self) -> BoxFuture<'_, Result<Vec<String>, KeychainRefusal>> {
@@ -245,6 +413,24 @@ impl SecretKeychain for FileSecretKeychain {
                 .unwrap_or_default())
         })
     }
+}
+
+// The name an item is sealed under: its service, then the SHA-256 of its account in hexadecimal, so
+// every name is one systemd accepts and a blob opens only in its own item's place.
+fn credential_name(service: &str, account: &str) -> String {
+    format!(
+        "{service}.{}",
+        base16ct::lower::encode_string(&Sha256::digest(account.as_bytes()))
+    )
+}
+
+// The refusal for a seal that failed, kept as the source; nothing on Linux can be unlocked.
+fn seal_failure(failure: SealFailure) -> KeychainRefusal {
+    KeychainRefusal::new(
+        KeychainRefusalCause::Unavailable,
+        "systemd's credential service could not seal or open the secret",
+    )
+    .with_failure(failure)
 }
 
 // The refusal for a failure of the file system or of the file's write, kept as the source.
@@ -296,27 +482,57 @@ fn remove_leftovers_in(folder: &Path) -> Result<(), CleanupFailures<io::Error>> 
 mod tests {
     use std::error::Error;
     use std::sync::Arc;
+    use std::time::Duration;
 
+    use rstest::rstest;
     use secrecy::{ExposeSecret, SecretString};
     use sidekicks_contracts::keychain::KeychainRefusalCause;
 
     use super::SecretItemsFile;
     use crate::credential_store::SecretKeychain;
+    use crate::credential_store::seal::TestSeal;
 
     const SERVICE: &str = "ai-sidekicks-workflow-secrets";
     const OTHER_SERVICE: &str = "ai-sidekicks-notification-secrets";
 
-    fn items_file(folder: &tempfile::TempDir) -> Arc<SecretItemsFile> {
-        SecretItemsFile::new(folder.path())
+    // The items file in `folder`, sealed through `seal` or plain.
+    fn items_file(
+        folder: &tempfile::TempDir,
+        seal: Option<&Arc<TestSeal>>,
+    ) -> Arc<SecretItemsFile> {
+        match seal {
+            Some(seal) => SecretItemsFile::sealed(folder.path(), Arc::clone(seal) as _),
+            None => SecretItemsFile::new(folder.path()),
+        }
     }
 
-    /// Mutation: drop the unreadable-file guard (read an unparsable file as holding nothing), so a
-    /// write rewrites the file and every secret in it is lost.
+    /// A file this run cannot read refuses every call, names none of its values, and is left byte
+    /// for byte: one cut short, one with no form (an older build's), and one in the other form,
+    /// so a sealed run never serves or rewrites a plain file, nor a plain run a sealed one.
+    /// Mutations: read an unparsable or formless file as holding nothing (a write then rewrites
+    /// it and every secret is lost); drop the form check (a sealed run then serves plain values).
+    #[rstest]
+    #[case::cut_short(
+        false,
+        r#"{"form":"plain","items":{"ai-sidekicks-workflow-secrets":{"secret":"hunter2""#
+    )]
+    #[case::no_form(false, r#"{"ai-sidekicks-workflow-secrets":{"secret":"hunter2"}}"#)]
+    #[case::plain_under_a_sealed_run(
+        true,
+        r#"{"form":"plain","items":{"ai-sidekicks-workflow-secrets":{"secret":"hunter2"}}}"#
+    )]
+    #[case::sealed_under_a_plain_run(
+        false,
+        r#"{"form":"sealed","items":{"ai-sidekicks-workflow-secrets":{"secret":"aHVudGVyMg=="}}}"#
+    )]
     #[tokio::test]
-    async fn an_unreadable_items_file_refuses_every_call_and_is_left_byte_for_byte() {
+    async fn an_unreadable_items_file_refuses_every_call_and_is_left_byte_for_byte(
+        #[case] is_sealed: bool,
+        #[case] text: &str,
+    ) {
         let folder = tempfile::tempdir().expect("the test makes a folder");
-        let items_file = items_file(&folder);
-        let text = b"{\"ai-sidekicks-workflow-secrets\": {\"secret\": \"hunter2\"";
+        let seal = is_sealed.then(TestSeal::new);
+        let items_file = items_file(&folder, seal.as_ref());
         std::fs::write(items_file.file_path(), text).expect("the test writes the file");
         let keychain = items_file.keychain(SERVICE);
         let value = SecretString::from("new-value");
@@ -340,19 +556,27 @@ mod tests {
         }
         assert_eq!(
             std::fs::read(items_file.file_path()).expect("the file is still there"),
-            text
+            text.as_bytes()
         );
     }
 
-    /// Mutation: give each keychain its own lock (or none), so the two writes read the same file
-    /// and the second replaces the first's value.
+    /// Two services' writes joined on one file are both kept and read back, and a sealed file
+    /// holds neither value as written. Mutations: give each keychain its own lock (or none), so
+    /// the second write replaces the first's value; keep the value in place of its sealed blob.
+    #[rstest]
+    #[case::plain(false)]
+    #[case::sealed(true)]
     #[tokio::test]
-    async fn joined_writes_from_two_services_on_one_file_are_both_kept() {
+    async fn joined_writes_from_two_services_on_one_file_are_both_kept(#[case] is_sealed: bool) {
         let folder = tempfile::tempdir().expect("the test makes a folder");
-        let items_file = items_file(&folder);
+        let seal = is_sealed.then(TestSeal::new);
+        let items_file = items_file(&folder, seal.as_ref());
         let workflow_secrets = items_file.keychain(SERVICE);
         let other_secrets = items_file.keychain(OTHER_SERVICE);
-        let (first, second) = (SecretString::from("first"), SecretString::from("second"));
+        let (first, second) = (
+            SecretString::from("first-value"),
+            SecretString::from("second-value"),
+        );
 
         let (first_write, second_write) = tokio::join!(
             workflow_secrets.write("secret", &first),
@@ -368,10 +592,61 @@ mod tests {
         let second_read = other_secrets.read("secret").await.expect("the file reads");
         assert_eq!(
             first_read.as_ref().map(ExposeSecret::expose_secret),
-            Some("first")
+            Some("first-value")
         );
         assert_eq!(
             second_read.as_ref().map(ExposeSecret::expose_secret),
+            Some("second-value")
+        );
+        let text =
+            std::fs::read_to_string(items_file.file_path()).expect("the test reads the file");
+        assert_eq!(
+            !text.contains("first-value") && !text.contains("second-value"),
+            is_sealed
+        );
+    }
+
+    /// A sealed write held past its caller's time, then a retry with another value: the retry
+    /// seals only after the late write lands, so the item holds the retry's value. Mutation: hold
+    /// no item from the seal through the file write, so the retry lands first and the late write
+    /// overwrites it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_late_seal_lands_before_the_retry_and_never_overwrites_it() {
+        let folder = tempfile::tempdir().expect("the test makes a folder");
+        let seal = TestSeal::new();
+        let keychain = Arc::new(items_file(&folder, Some(&seal)).keychain(SERVICE));
+        let release = seal.hold_next_seal();
+
+        let scenario = async {
+            let first = SecretString::from("first");
+            let late =
+                tokio::time::timeout(Duration::from_millis(200), keychain.write("secret", &first));
+            let (late, ()) = tokio::join!(late, seal.wait_for_seals(1));
+            assert!(late.is_err(), "the held write is given up");
+            let retry = tokio::spawn({
+                let keychain = Arc::clone(&keychain);
+                async move {
+                    keychain
+                        .write("secret", &SecretString::from("second"))
+                        .await
+                }
+            });
+            // Long enough for a retry that took the item to reach the seal.
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let seals_before_release = seal.seals();
+            drop(release);
+            let retry = retry.await.expect("the retry's task ends");
+            (retry, seals_before_release)
+        };
+        let (retry, seals_before_release) = tokio::time::timeout(Duration::from_secs(5), scenario)
+            .await
+            .expect("every call answers within its time");
+
+        retry.expect("the retry is written once the late write lands");
+        assert_eq!(seals_before_release, 1);
+        let kept = keychain.read("secret").await.expect("the file reads");
+        assert_eq!(
+            kept.as_ref().map(ExposeSecret::expose_secret),
             Some("second")
         );
     }
@@ -384,7 +659,7 @@ mod tests {
         let leftover = folder.path().join("secrets.json.a1b2c3.tmp");
         std::fs::write(&leftover, b"{}").expect("the test writes a leftover");
 
-        let keychain = items_file(&folder).keychain(SERVICE);
+        let keychain = items_file(&folder, None).keychain(SERVICE);
         let read = keychain
             .read("secret")
             .await

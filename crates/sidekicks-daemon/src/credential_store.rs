@@ -11,6 +11,7 @@ pub(crate) mod file;
 pub(crate) mod items;
 pub(crate) mod os;
 pub(crate) mod place;
+pub(crate) mod seal;
 pub(crate) mod service;
 
 use std::borrow::Cow;
@@ -48,8 +49,7 @@ pub(crate) trait SecretKeychain: Send + Sync {
         account: &'call str,
     ) -> BoxFuture<'call, Result<bool, KeychainRefusal>>;
 
-    /// Every account this service files an item under. Fails with an `unavailable` refusal for an
-    /// item the store cannot name, since it could not be moved.
+    /// Every account this service files an item under.
     fn accounts(&self) -> BoxFuture<'_, Result<Vec<String>, KeychainRefusal>>;
 
     /// Writes `value` under `account` and reads it back, since a keychain that accepts a write may
