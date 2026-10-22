@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
@@ -41,6 +42,8 @@ use crate::provider::port::permission_ask::ProviderAskRule;
 pub(crate) struct CreateSessionParams {
     /// The session.
     pub(crate) session_id: SessionId,
+    /// The session's lead, which a refusal of the session's model at its start names.
+    pub(crate) agent_id: AgentId,
     /// The session's config.
     pub(crate) config: Map<String, Value>,
     /// The session's model. A provider that takes it at process start applies a usage-credits
@@ -90,6 +93,8 @@ pub(crate) struct CreateSessionParams {
 pub(crate) struct ResumeSessionParams {
     /// The session.
     pub(crate) session_id: SessionId,
+    /// The session's lead, which a refusal of the session's model at its start names.
+    pub(crate) agent_id: AgentId,
     /// The provider's own handle of the conversation.
     pub(crate) resume_handle: String,
     /// The session's current model, given by the caller since a later switch moves the session.

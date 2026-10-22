@@ -498,6 +498,7 @@ impl ProviderSessions {
             .await?;
         let params = compose_resume_session_params(
             session_id,
+            opening.create_params.agent_id,
             &leg,
             opening.create_params.model.clone(),
             opening.create_params.larger_window,

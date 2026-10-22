@@ -5,11 +5,13 @@ use std::sync::Arc;
 
 use futures::FutureExt as _;
 use serde_json::Map;
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::policy::execution_posture_service::compose_execution_posture;
@@ -36,6 +38,8 @@ pub(crate) fn test_opening_composer() -> ProviderSessionOpeningComposer {
                 git_folder: root.clone(),
                 create_params: CreateSessionParams {
                     session_id,
+                    agent_id: AgentId::new(&mint_uuid_v7().to_string())
+                        .expect("a minted UUID is an agent id"),
                     config: Map::new(),
                     model: ProviderToken::new("test-model".to_owned()).expect("a model token"),
                     larger_window: None,

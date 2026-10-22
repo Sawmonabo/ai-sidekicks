@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use serde_json::{Map, Value};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
@@ -270,6 +271,7 @@ enum ClaudeModelCheck {
 // One process brought up for a session and the settings it starts with.
 struct ClaudeSessionStart {
     claim: ClaudeSlotClaim,
+    agent_id: AgentId,
     provider_session_id: String,
     conversation: ClaudeConversationStart,
     legs: ClaudeSpawnBoundLegs,
@@ -288,6 +290,8 @@ struct ClaudeSessionStart {
 pub(crate) struct ClaudeSpawnRequest {
     /// The session.
     pub(crate) session_id: SessionId,
+    /// The session's lead.
+    pub(crate) agent_id: AgentId,
     /// The model, as Claude Code takes `--model`.
     pub(crate) model: String,
     /// The level the session runs at.
@@ -331,6 +335,7 @@ impl ClaudeSessionEstablishment {
         let provider_session_id = mint_uuid_v7().to_string();
         let request = ClaudeSpawnRequest {
             session_id,
+            agent_id: params.agent_id,
             model: params.model.as_str().to_owned(),
             execution_posture: params.execution_posture,
             callback_tools: params.callback_tools,
@@ -392,6 +397,7 @@ impl ClaudeSessionEstablishment {
         let resume_handle = params.resume_handle.clone();
         let request = ClaudeSpawnRequest {
             session_id,
+            agent_id: params.agent_id,
             model: params.model.as_str().to_owned(),
             execution_posture: params.execution_posture,
             callback_tools: params.callback_tools,
@@ -494,6 +500,7 @@ impl ClaudeSessionEstablishment {
         let command_choices = self.figures.read_creation_figures(&legs);
         Ok(ClaudeSessionStart {
             claim,
+            agent_id: request.agent_id,
             provider_session_id,
             conversation,
             legs,
@@ -533,6 +540,7 @@ impl ClaudeSessionEstablishment {
     > {
         let ClaudeSessionStart {
             claim,
+            agent_id,
             provider_session_id,
             conversation,
             legs,
@@ -644,6 +652,7 @@ impl ClaudeSessionEstablishment {
         };
         let live = Arc::new(LiveClaudeSession {
             session_id,
+            agent_id,
             provider_session_id: provider_session_id.clone(),
             channel: Arc::clone(&started.channel),
             spawn_binding,

@@ -273,6 +273,7 @@ impl DriverFixture {
 fn create_params(session_id: SessionId) -> CreateSessionParams {
     CreateSessionParams {
         session_id,
+        agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
         config: Map::new(),
         model: ProviderToken::new("opus".to_owned()).expect("the model fits"),
         larger_window: None,
@@ -606,6 +607,7 @@ async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
 fn resume_params(session_id: SessionId) -> ResumeSessionParams {
     ResumeSessionParams {
         session_id,
+        agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
         resume_handle: "conversation".to_owned(),
         model: ProviderToken::new("opus".to_owned()).expect("the model fits"),
         larger_window: None,

@@ -1,6 +1,7 @@
 //! Rebuilding a run's leg from its stored binding: which of a session's bindings is its leg, and
 //! the resume params composed from that binding's stored legs and the session as it stands now.
 
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::provider::declaration::ProviderOptionSetting;
@@ -36,7 +37,7 @@ pub(crate) struct RuntimeBindingNotResumable {
     pub(crate) run_id: RunId,
 }
 
-/// Rebuilds a resumed leg's params from its stored binding and the session's model, recorded
+/// Rebuilds a resumed leg's params from its stored binding and the session's lead, model, recorded
 /// larger window, mode, permission level's posture, option values and row values, as they stand
 /// now. Fails with [`RuntimeBindingNotResumable`] when the binding has no resume handle.
 #[expect(
@@ -45,6 +46,7 @@ pub(crate) struct RuntimeBindingNotResumable {
 )]
 pub(crate) fn compose_resume_session_params(
     session_id: SessionId,
+    agent_id: AgentId,
     binding: &RuntimeBinding,
     model: ProviderToken,
     larger_window: Option<SafeInt<1>>,
@@ -63,6 +65,7 @@ pub(crate) fn compose_resume_session_params(
     let spawn_config = binding.spawn_config.clone();
     Ok(ResumeSessionParams {
         session_id,
+        agent_id,
         resume_handle,
         model,
         larger_window,

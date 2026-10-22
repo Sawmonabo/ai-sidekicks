@@ -107,12 +107,14 @@ mod tests {
     use futures::FutureExt as _;
     use rstest::rstest;
     use serde_json::{Value, json};
+    use sidekicks_contracts::agent::definition::AgentId;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::machine::settings::ProviderRowValues;
     use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::controls::methods::SessionMode;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::text::FreeFormText;
 
     use super::{RestartTargetReader, SessionRestartTarget, restart};
@@ -199,6 +201,8 @@ mod tests {
                 provider: ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id"),
                 params: ResumeSessionParams {
                     session_id,
+                    agent_id: AgentId::new(&mint_uuid_v7().to_string())
+                        .expect("a minted UUID is an agent id"),
                     resume_handle: "conversation".to_owned(),
                     model: FreeFormText::new("model".to_owned()).expect("valid text"),
                     larger_window: None,

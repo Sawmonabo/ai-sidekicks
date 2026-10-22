@@ -548,6 +548,7 @@ fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<ResumeSessionPara
     .expect("the rows' ids are no reserved key");
     Some(ResumeSessionParams {
         session_id: live.session_id,
+        agent_id: live.agent_id,
         resume_handle: live.provider_session_id.clone(),
         // The model it runs on now, which a session-long switch by Claude Code may have moved.
         model: FreeFormText::new(settings.running_model).ok()?,

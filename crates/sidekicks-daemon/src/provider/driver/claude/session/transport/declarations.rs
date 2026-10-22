@@ -1,5 +1,5 @@
 //! What a Claude Code process declares about itself, as the stream reader reads it: the
-//! `initialize` reply's models, styles and fast mode, the `system/init` handshake's commands and
+//! `initialize` reply's models, the one match of a model against them, styles and fast mode, the `system/init` handshake's commands and
 //! capabilities, and the routing facts of each inbound frame.
 
 use std::collections::HashSet;
@@ -62,6 +62,48 @@ pub(crate) struct ClaudeInitializeDeclaration {
     pub(crate) output_style: Option<String>,
 }
 
+impl ClaudeInitializeDeclaration {
+    /// The offered model `model` names: compared lowercase, with a window suffix such as `-1m`
+    /// read as `[1m]` and never dropped, first against each `value`, then against each full id.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the session start's model check, the one-turn process and the model's \
+                      display name match the session's model through it"
+        )
+    )]
+    pub(crate) fn offered_model(&self, model: &str) -> Option<&ClaudeOfferedModel> {
+        let model = canonical_model_id(model);
+        self.models
+            .iter()
+            .find(|offered| canonical_model_id(&offered.value) == model)
+            .or_else(|| {
+                self.models.iter().find(|offered| {
+                    offered
+                        .resolved_model
+                        .as_deref()
+                        .is_some_and(|resolved| canonical_model_id(resolved) == model)
+                })
+            })
+    }
+}
+
+// `model` trimmed and lowercased, a window suffix such as `-1m` spelled `[1m]` as Claude Code's
+// own ids spell it.
+fn canonical_model_id(model: &str) -> String {
+    let model = model.trim().to_lowercase();
+    let window = model.rsplit_once('-').filter(|(_, suffix)| {
+        suffix.strip_suffix('m').is_some_and(|digits| {
+            !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+        })
+    });
+    match window {
+        Some((base, suffix)) => format!("{base}[{suffix}]"),
+        None => model,
+    }
+}
+
 /// One frame's cumulative token readings; the driver differences them, the reader never does.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ClaudeCumulativeUsageObservation {
@@ -96,4 +138,52 @@ pub(crate) struct ClaudeInboundFrameObservation {
     pub(crate) handshake: Option<ClaudeHandshakeDeclaration>,
     /// The compaction boundary it carries.
     pub(crate) compaction_boundary: Option<ClaudeCompactionBoundaryObservation>,
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::{ClaudeInitializeDeclaration, ClaudeOfferedModel};
+
+    fn offered(value: &str, resolved_model: Option<&str>) -> ClaudeOfferedModel {
+        ClaudeOfferedModel {
+            value: value.to_owned(),
+            resolved_model: resolved_model.map(str::to_owned),
+            display_name: None,
+        }
+    }
+
+    #[rstest]
+    #[case::window_suffix(
+        "claude-opus-4-6-1m",
+        vec![offered("claude-opus-4-6", None), offered("claude-opus-4-6[1m]", None)],
+        Some("claude-opus-4-6[1m]")
+    )]
+    #[case::full_id(
+        "Claude-Sonnet-4-5-20250929",
+        vec![offered("sonnet", Some("claude-sonnet-4-5-20250929"))],
+        Some("sonnet")
+    )]
+    #[case::larger_window_unlisted(
+        "claude-opus-4-6[1m]",
+        vec![offered("claude-opus-4-6", None)],
+        None
+    )]
+    fn a_model_matches_the_offered_row_that_names_it(
+        #[case] model: &str,
+        #[case] models: Vec<ClaudeOfferedModel>,
+        #[case] matched: Option<&str>,
+    ) {
+        let initialize = ClaudeInitializeDeclaration {
+            models,
+            ..ClaudeInitializeDeclaration::default()
+        };
+        assert_eq!(
+            initialize
+                .offered_model(model)
+                .map(|offered| offered.value.as_str()),
+            matched
+        );
+    }
 }

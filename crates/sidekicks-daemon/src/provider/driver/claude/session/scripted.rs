@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use serde_json::Value;
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::driver::capabilities::{CredentialPolicyRef, ExecutionPosture};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
@@ -134,6 +135,7 @@ pub(crate) fn scripted_live_session(
     let choices = unreadable_claude_command_choices("unread");
     LiveClaudeSession {
         session_id,
+        agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
         provider_session_id: SCRIPTED_PROVIDER_SESSION_ID.to_owned(),
         channel,
         spawn_binding: ClaudeSpawnBinding {

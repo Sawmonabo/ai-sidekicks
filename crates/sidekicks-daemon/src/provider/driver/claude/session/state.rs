@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use futures::future::{BoxFuture, Shared};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::control::ProcessExit;
@@ -148,6 +149,8 @@ pub(crate) struct ClaudeLiveSettings {
 pub(crate) struct LiveClaudeSession {
     /// The session.
     pub(crate) session_id: SessionId,
+    /// The session's lead, which a relaunch resumes as.
+    pub(crate) agent_id: AgentId,
     /// The provider session the process runs under.
     pub(crate) provider_session_id: String,
     /// The process.

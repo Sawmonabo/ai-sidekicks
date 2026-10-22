@@ -64,6 +64,7 @@ impl ClaudeSessionEstablishment {
         let forked_provider_session_id = mint_uuid_v7().to_string();
         let start = ClaudeSessionStart {
             claim,
+            agent_id: predecessor.agent_id,
             provider_session_id: forked_provider_session_id.clone(),
             conversation: ClaudeConversationStart::Fork {
                 resume_handle: predecessor.provider_session_id.clone(),
