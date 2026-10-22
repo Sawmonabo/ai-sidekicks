@@ -24,6 +24,7 @@ use crate::provider::driver::claude::session::transport::control::ClaudeControlR
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::rewind::RewindConversationResult;
 use crate::provider::lenient_json::{lenient_object, read_lenient};
+use crate::provider::port::reviewer_denial::ReviewerDenialPort;
 use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
 
@@ -62,7 +63,8 @@ impl ClaudeConversationCuts {
     /// choice the running turn is held on is settled as an interrupt's is, and the run whose turn
     /// the cut took ends failed before its route retires, since no turn end can reach it after. A
     /// refused cut is `Degraded` with Claude Code's reason; fails as the settle or the request
-    /// fails.
+    /// fails. An applied cut lets go the held `Allow once` presses of every binding the process
+    /// served, through `reviewer_denials` once the approvals are registered.
     #[cfg_attr(
         not(test),
         expect(
@@ -74,6 +76,7 @@ impl ClaudeConversationCuts {
         &self,
         live: &LiveClaudeSession,
         target_message_id: &str,
+        reviewer_denials: Option<&dyn ReviewerDenialPort>,
     ) -> Result<RewindConversationResult, DriverError> {
         if let Some(lead) = self.routes.lead_run_on(live.session_id) {
             settle_claude_choice(
@@ -96,6 +99,10 @@ impl ClaudeConversationCuts {
             }
             self.routes.retire_run_routes(live.session_id);
             self.lock_prompts().forget_session(live.session_id);
+            // Every run the process served is retired, so none still needs its presses.
+            if let Some(reviewer_denials) = reviewer_denials {
+                live.release_served_presses(reviewer_denials);
+            }
         }
         Ok(result)
     }

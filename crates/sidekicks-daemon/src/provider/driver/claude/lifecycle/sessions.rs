@@ -84,7 +84,15 @@ impl ClaudeDriver {
     ) -> Result<RewindConversationResult, DriverError> {
         let parts = self.parts()?;
         let live = parts.run_start.live_session(params.session_id)?;
-        parts.cuts.rewind(&live, &params.target_message_id).await
+        let reviewer_denials = self.sources.ports.reviewer_denials.port();
+        parts
+            .cuts
+            .rewind(
+                &live,
+                &params.target_message_id,
+                reviewer_denials.as_deref().map(|port| &**port),
+            )
+            .await
     }
 
     /// Moves every live session onto the build that replaced the running one; none is live before
