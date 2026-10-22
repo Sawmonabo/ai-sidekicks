@@ -53,6 +53,7 @@ use crate::approvals::store::{StoredApprovalRequest, remembered_scope_statement}
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::stored_column::{closed_word, text_column};
+use crate::events::log_service::EventAppendError;
 use crate::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
@@ -60,6 +61,7 @@ use crate::events::session::appender::{
 use crate::events::session::pending::PendingSessions;
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 use crate::ipc::domain_error::DomainError;
+use crate::ipc::registry::HandlerError;
 use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::contract::DriverError;
@@ -68,12 +70,13 @@ use crate::provider::port::permission_ask::{
     ProviderAnswerRule, ProviderAskAction, ProviderAskActionKind, ProviderAskRule,
 };
 use crate::provider::port::session_rules::SessionRulePort;
-use crate::session::directory::lookups::session_project_sql;
+use crate::session::directory::lookups::{session_exists, session_project_sql};
+use crate::session::not_found::session_not_found;
 use crate::workspace::schema::MountOrigin;
 
 /// The distinct statements [`ApprovalRules`] prepares, for the reading connection's statement
 /// cache.
-pub(crate) const APPROVAL_RULES_STATEMENT_CAPACITY: usize = 7;
+pub(crate) const APPROVAL_RULES_STATEMENT_CAPACITY: usize = 8;
 
 /// Takes a revoked rule out of force at the provider of one session, through its driver's
 /// `revoke_rule`; the daemon's start supplies it. Fails with the driver's own error.
@@ -83,7 +86,7 @@ pub(crate) type RevokeAtProvider =
 /// Why a rule could not be read, recorded or revoked.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ApprovalRuleError {
-    /// `approval.rule.notFound` or `approval.rule.alreadyRevoked`.
+    /// `session.notFound`, `approval.rule.notFound` or `approval.rule.alreadyRevoked`.
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// SQLite refused a read, or a stored column does not read as its type.
@@ -110,6 +113,27 @@ pub(crate) enum ApprovalRuleError {
     /// The rule's record failed, beside the failure of taking it back out of its provider.
     #[error(transparent)]
     NotRecorded(Box<CleanupFailures<ApprovalRuleError>>),
+}
+
+impl From<ApprovalRuleError> for HandlerError {
+    /// A refusal answers by its code, the session's refusal of a rule's event among them; the rest
+    /// are faults in the daemon.
+    fn from(error: ApprovalRuleError) -> Self {
+        match error {
+            ApprovalRuleError::Refused(refusal)
+            | ApprovalRuleError::Append(SessionEventAppendError::Append(
+                EventAppendError::SessionWriteRefused(refusal),
+            )) => Self::Refused(refusal),
+            fault @ (ApprovalRuleError::Database(_)
+            | ApprovalRuleError::Pool(_)
+            | ApprovalRuleError::Provider(_)
+            | ApprovalRuleError::EmptySubject
+            | ApprovalRuleError::Draft(_)
+            | ApprovalRuleError::Append(_)
+            | ApprovalRuleError::LineReading(_)
+            | ApprovalRuleError::NotRecorded(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
 }
 
 /// The project rules a purged session made, taken out of the project's files, and the other
@@ -325,15 +349,22 @@ impl ApprovalRules {
         Ok(rule_over(&in_force, action, subject))
     }
 
-    /// The rules in force on the session, as the inspector lists them, oldest first. Fails as the
-    /// read fails.
+    /// The rules in force on the session, as the inspector lists them, oldest first, read with the
+    /// session's existence in one read. Refuses `session.notFound` for a session the daemon does
+    /// not hold; fails as the read fails.
     pub(crate) async fn list(
         &self,
         session_id: SessionId,
     ) -> Result<ApprovalRuleListResponse, ApprovalRuleError> {
         let rows = self
-            .read_rule_rows(&SELECT_RULES_IN_FORCE_SQL, session_id)
-            .await?;
+            .read(move |connection| {
+                if !session_exists(connection, &session_id)? {
+                    return Ok(None);
+                }
+                query_rule_rows(connection, &SELECT_RULES_IN_FORCE_SQL, session_id).map(Some)
+            })
+            .await?
+            .ok_or_else(|| session_not_found(&session_id))?;
         Ok(ApprovalRuleListResponse {
             rules: rows
                 .into_iter()
