@@ -2,6 +2,7 @@
 //! keeping where each token sat in the source text.
 
 use icu_casemap::{CaseMapper, CaseMapperBorrowed};
+use sidekicks_contracts::transcript::limits::TRANSCRIPT_SEARCH_TEXT_MAX_LEN;
 use tantivy::tokenizer::MAX_TOKEN_LEN;
 use unicode_normalization::char::{canonical_combining_class, decompose_canonical};
 use unicode_properties::{GeneralCategory, GeneralCategoryGroup, UnicodeGeneralCategory};
@@ -23,10 +24,15 @@ pub(crate) struct TextToken {
     pub(crate) end: u32,
 }
 
-/// The places of a text's tokens a query's phrase can reach across a page's edge: the longest
-/// phrase a 4,096-code-point find query holds, one character a token and one between each, is
-/// 2,048 tokens, and a phrase across an edge keeps at least one of them on each side.
-pub(crate) const EDGE_PLACES: u32 = 2_047;
+/// The places of a text's tokens a query's phrase can reach across a page's edge: a phrase of `t`
+/// tokens takes at least `2t - 1` code points, one character a token and one between each, so the
+/// longest find query holds a phrase of half its code points rounded up, and a phrase across an
+/// edge keeps at least one of them on each side.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the longest query's phrase is a few thousand tokens"
+)]
+pub(crate) const EDGE_PLACES: u32 = (TRANSCRIPT_SEARCH_TEXT_MAX_LEN.div_ceil(2) - 1) as u32;
 
 /// Splits `text` into folded tokens in order. A token starts at a letter or a digit and runs
 /// through letters, digits and combining marks, so a decomposed accent stays inside its word. A
@@ -89,10 +95,10 @@ pub fn find_page_end(text: &str) -> usize {
     text.len()
 }
 
-/// Where the stretch of `text` holding its last 2,047 token places begins, as a byte offset: the
-/// start of the 2,047th token from the end, or 0 when the text holds fewer. A query's phrase across
-/// the text's end reaches back no further, so a page read after `text` is marked with that stretch
-/// before it.
+/// Where the stretch of `text` holding its last `EDGE_PLACES` token places begins, as a byte
+/// offset: the start of that many tokens from the end, or 0 when the text holds fewer. A query's
+/// phrase across the text's end reaches back no further, so a page read after `text` is marked
+/// with that stretch before it.
 pub fn find_tail_start(text: &str) -> usize {
     let mut places = 0;
     // The earliest letter or digit of the run of token characters being read back through.

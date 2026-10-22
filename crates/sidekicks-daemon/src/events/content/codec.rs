@@ -8,6 +8,7 @@
 
 use std::io::{self, BufRead, BufReader, Read as _};
 use std::mem;
+use std::ops::ControlFlow;
 use std::string::FromUtf8Error;
 
 use rusqlite::blob::Blob;
@@ -345,14 +346,15 @@ impl StoredBodyPlace {
 
     /// Hands the body's text to `each` a frame at a time, in order, reading each stored byte once
     /// through one zstd input buffer, so no more than that buffer and a page of text are held at
-    /// once; a body stored as it is, under 1 KiB, is handed whole. Fails as
+    /// once; a body stored as it is, under 1 KiB, is handed whole. Stops once `each` breaks,
+    /// answering what it broke with, before the rest is read or the length checked. Fails as
     /// [`StoredBodyPlace::decode`] does, after handing over the frames before a damaged one, and
     /// with [`BodyStreamError::Write`] when `each` fails.
-    pub(crate) fn stream(
+    pub(crate) fn stream<Stop>(
         &self,
         connection: &Connection,
-        mut each: impl FnMut(&str) -> io::Result<()>,
-    ) -> Result<(), BodyStreamError> {
+        mut each: impl FnMut(&str) -> io::Result<ControlFlow<Stop>>,
+    ) -> Result<ControlFlow<Stop>, BodyStreamError> {
         let blob = self.open(connection)?;
         let Some(ContentEncoding::Zstd) = self.encoding else {
             let text = decode_body(read_whole(&blob)?, self.encoding, self.content_length)?;
@@ -366,25 +368,23 @@ impl StoredBodyPlace {
         )
     }
 
-    /// Hands the body's text to `each` a frame at a time as [`StoredBodyPlace::stream`] does, for
-    /// a reader of the row's columns from `index`: a damaged body fails with rusqlite's conversion
-    /// error on that column, keeping why, and a refused read with SQLite's own error.
-    pub(crate) fn stream_column(
+    /// Hands the body's text to `each` a frame at a time as [`StoredBodyPlace::stream`] does,
+    /// stopping once `each` breaks, for a reader of the row's columns from `index`: a damaged body
+    /// fails with rusqlite's conversion error on that column, keeping why, and a refused read with
+    /// SQLite's own error.
+    pub(crate) fn stream_column<Stop>(
         &self,
         connection: &Connection,
         index: usize,
-        mut each: impl FnMut(&str),
-    ) -> rusqlite::Result<()> {
-        self.stream(connection, |frame| {
-            each(frame);
-            Ok(())
-        })
-        .map_err(|error| match error {
-            BodyStreamError::Read(error) => error,
-            other @ (BodyStreamError::Damaged(_) | BodyStreamError::Write(_)) => {
-                rusqlite::Error::FromSqlConversionFailure(index, Type::Blob, Box::new(other))
-            }
-        })
+        mut each: impl FnMut(&str) -> ControlFlow<Stop>,
+    ) -> rusqlite::Result<ControlFlow<Stop>> {
+        self.stream(connection, |frame| Ok(each(frame)))
+            .map_err(|error| match error {
+                BodyStreamError::Read(error) => error,
+                other @ (BodyStreamError::Damaged(_) | BodyStreamError::Write(_)) => {
+                    rusqlite::Error::FromSqlConversionFailure(index, Type::Blob, Box::new(other))
+                }
+            })
     }
 
     fn open<'connection>(
@@ -402,12 +402,13 @@ impl StoredBodyPlace {
 }
 
 // Hands the text of the zstd frames `reader` holds to `each` a frame at a time, as
-// `StoredBodyPlace::stream` does, checking that they decode to `stated` bytes.
-fn stream_frames(
+// `StoredBodyPlace::stream` does, checking that they decode to `stated` bytes unless `each` stops
+// them first.
+fn stream_frames<Stop>(
     mut reader: impl BufRead,
     stated: u64,
-    mut each: impl FnMut(&str) -> io::Result<()>,
-) -> Result<(), BodyStreamError> {
+    mut each: impl FnMut(&str) -> io::Result<ControlFlow<Stop>>,
+) -> Result<ControlFlow<Stop>, BodyStreamError> {
     let mut context: DCtx<'static> = DCtx::try_create().ok_or_else(|| {
         BodyDecodeError::Stream(io::Error::new(
             io::ErrorKind::OutOfMemory,
@@ -447,14 +448,16 @@ fn stream_frames(
             return Err(stream_fault(StreamFault::FrameOverPage).into());
         }
         let frame = String::from_utf8(mem::take(&mut text)).map_err(BodyDecodeError::Utf8)?;
-        each(&frame).map_err(BodyStreamError::Write)?;
+        if let ControlFlow::Break(stop) = each(&frame).map_err(BodyStreamError::Write)? {
+            return Ok(ControlFlow::Break(stop));
+        }
         decoded += frame.len() as u64;
         text = frame.into_bytes();
     }
     if decoded != stated {
         return Err(BodyDecodeError::Length { stated, decoded }.into());
     }
-    Ok(())
+    Ok(ControlFlow::Continue(()))
 }
 
 // Every stored byte of `blob`.

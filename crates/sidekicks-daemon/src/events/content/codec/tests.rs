@@ -1,6 +1,7 @@
 //! The stored body's encoding and decoding.
 
 use std::io::BufReader;
+use std::ops::ControlFlow;
 
 use rstest::rstest;
 use sidekicks_contracts::event::declared_variants::ContentEncoding;
@@ -203,11 +204,12 @@ fn a_part_read_decodes_only_the_frames_it_covers() {
 }
 
 // A long body read from its stored column is handed over a frame at a time, each at most a page
-// of text, and the frames joined are the body; once a byte of its second frame is flipped, the
-// first frame is still handed over and the read then fails as damage. Killed by handing over the
-// body whole, by a frame dropped or repeated, by a reader that loses the bytes past a frame's end
-// or a header split across its buffer, and by a damaged frame handed over or answered as a read
-// SQLite refused.
+// of text, and the frames joined are the body; a reader that stops after the first frame gets
+// what it stopped with and no other frame; once a byte of its second frame is flipped, the first
+// frame is still handed over and the read then fails as damage. Killed by handing over the body
+// whole, by a frame dropped or repeated, by a reader that loses the bytes past a frame's end or a
+// header split across its buffer, by a stop read on or checked against the whole length, and by a
+// damaged frame handed over or answered as a read SQLite refused.
 #[test]
 fn a_long_body_streams_from_its_column_a_frame_at_a_time_until_a_damaged_frame() {
     let log = TranscriptTestLog::new();
@@ -228,14 +230,24 @@ fn a_long_body_streams_from_its_column_a_frame_at_a_time_until_a_damaged_frame()
     let stream_place = |frames: &mut Vec<String>| {
         place.stream(&reader, |frame| {
             frames.push(frame.to_owned());
-            Ok(())
+            Ok(ControlFlow::<()>::Continue(()))
         })
     };
     let mut frames = Vec::new();
-    stream_place(&mut frames).expect("the body streams");
+    assert_eq!(
+        stream_place(&mut frames).expect("the body streams"),
+        ControlFlow::Continue(())
+    );
     assert_eq!(frames.len(), 3);
     assert!(frames.iter().all(|frame| frame.len() <= PAGE_MAX_BYTES));
     assert_eq!(frames.concat(), text);
+    let mut first_frames = Vec::new();
+    let stopped = place.stream(&reader, |frame| {
+        first_frames.push(frame.to_owned());
+        Ok(ControlFlow::Break(first_frames.len()))
+    });
+    assert!(matches!(stopped, Ok(ControlFlow::Break(1))), "{stopped:?}");
+    assert_eq!(first_frames, frames[..1]);
 
     let mut stored: Vec<u8> = reader
         .query_row(
@@ -248,15 +260,16 @@ fn a_long_body_streams_from_its_column_a_frame_at_a_time_until_a_damaged_frame()
         zstd_safe::find_frame_compressed_size(&stored).expect("the first frame is whole");
     // A buffer that ends five bytes into the second frame's header reads the same frames.
     let mut split_frames = Vec::new();
-    stream_frames(
+    let split_read = stream_frames(
         BufReader::with_capacity(first_frame_bytes + 5, stored.as_slice()),
         text.len() as u64,
         |frame| {
             split_frames.push(frame.to_owned());
-            Ok(())
+            Ok(ControlFlow::<()>::Continue(()))
         },
     )
     .expect("the body streams across a split header");
+    assert_eq!(split_read, ControlFlow::Continue(()));
     assert_eq!(split_frames, frames);
     let second_frame_bytes = zstd_safe::find_frame_compressed_size(&stored[first_frame_bytes..])
         .expect("the second frame is whole");

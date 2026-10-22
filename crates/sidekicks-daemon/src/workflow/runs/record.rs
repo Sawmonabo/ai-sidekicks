@@ -141,7 +141,7 @@ pub(crate) enum StoredInstantBound {
 /// stored instants keep, so a stored instant is before it, or at or after it, exactly when it is
 /// so against the rounded text.
 pub(crate) fn stored_instant_bound(instant: &WireInstant) -> StoredInstantBound {
-    let Some(timestamp) = millisecond_ceiling(instant.as_str()) else {
+    let Some(timestamp) = millisecond_ceiling(instant) else {
         // The instant's pattern holds only days of the calendar, so the text failed to read or
         // round for an offset that carries it past the last timestamp.
         return StoredInstantBound::AfterEvery;
@@ -150,35 +150,32 @@ pub(crate) fn stored_instant_bound(instant: &WireInstant) -> StoredInstantBound 
         .map_or(StoredInstantBound::BeforeEvery, StoredInstantBound::At)
 }
 
-// The instant `text` writes rounded up to the millisecond, `None` past the last timestamp. A
-// timestamp holds nine fraction digits, so digits past the ninth are dropped, and the instant
-// counts as past its ninth digit when any of them is not zero.
-fn millisecond_ceiling(text: &str) -> Option<jiff::Timestamp> {
-    let fraction_start = text.find('.').map_or(text.len(), |dot| dot + 1);
-    let digit_count = text[fraction_start..]
-        .bytes()
-        .take_while(u8::is_ascii_digit)
-        .count();
-    let kept_end = fraction_start + digit_count.min(9);
-    let dropped = &text[kept_end..fraction_start + digit_count];
-    let timestamp: jiff::Timestamp =
-        format!("{}{}", &text[..kept_end], &text[kept_end + dropped.len()..])
-            .parse()
-            .ok()?;
-    let timestamp = if dropped.bytes().any(|digit| digit != b'0') {
-        timestamp
-            .checked_add(jiff::SignedDuration::from_nanos(1))
-            .ok()?
-    } else {
-        timestamp
-    };
-    timestamp
+// `instant` rounded up to the millisecond, `None` past the last timestamp: its millisecond, and
+// the next one when any fraction digit past the third is not zero, a digit past the ninth that the
+// timestamp drops included.
+fn millisecond_ceiling(instant: &WireInstant) -> Option<jiff::Timestamp> {
+    let millisecond = instant
+        .timestamp()?
         .round(
             jiff::TimestampRound::new()
                 .smallest(jiff::Unit::Millisecond)
-                .mode(jiff::RoundMode::Ceil),
+                .mode(jiff::RoundMode::Floor),
         )
-        .ok()
+        .ok()?;
+    let text = instant.as_str();
+    let fraction = text.find('.').map_or("", |dot| &text[dot + 1..]);
+    let is_past_millisecond = fraction
+        .bytes()
+        .take_while(u8::is_ascii_digit)
+        .skip(3)
+        .any(|digit| digit != b'0');
+    if is_past_millisecond {
+        millisecond
+            .checked_add(jiff::SignedDuration::from_millis(1))
+            .ok()
+    } else {
+        Some(millisecond)
+    }
 }
 
 /// The select-list that reads a run's columns from `workflow_runs AS run` joined to its pinned

@@ -8634,6 +8634,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "sidekicks-contracts",
  "sidekicks-platforms",
  "strum 0.28.0",
  "tantivy",

@@ -27,7 +27,9 @@ use sidekicks_contracts::wire::record::RecordKey;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::events::content::codec::{BodyStreamError, StoredBodyPlace, stored_body_place_sql};
-use crate::events::content::read::{StoredEventContentRow, hydrate_stored_event};
+use crate::events::content::read::{
+    StoredEventContentRow, hydrate_stored_event, joined_content_length,
+};
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 use crate::transcript::rejoin::{row_condition_sql, stored_patch_part_sql};
 
@@ -476,11 +478,7 @@ where
         &self,
         unloaded: UnloadedBodyEvent,
     ) -> Result<HydratedSessionEvent, SessionLogReadError> {
-        let content_payload = self.load_pieces(&unloaded.event, &unloaded.pieces)?;
-        Ok(hydrate_stored_event(StoredEventContentRow {
-            envelope: unloaded.event,
-            content_payload,
-        }))
+        self.hydrate_pieces(unloaded.event, &unloaded.pieces)
     }
 
     /// The events with a sequence from `from_sequence` to `to_sequence`, both included.
@@ -598,36 +596,35 @@ where
         }
         let events = taken
             .into_iter()
-            .map(|(envelope, pieces)| {
-                let content_payload = self.load_pieces(&envelope, &pieces)?;
-                Ok(hydrate_stored_event(StoredEventContentRow {
-                    envelope,
-                    content_payload,
-                }))
-            })
+            .map(|(envelope, pieces)| self.hydrate_pieces(envelope, &pieces))
             .collect::<Result<Vec<_>, SessionLogReadError>>()?;
         Ok(HydratedPage { events, oversized })
     }
 
-    /// The text of `pieces`, the stored pieces of `envelope`'s body, decoded and joined in order,
-    /// `None` when there are none. Fails with [`SessionLogReadError::Malformed`] on a piece that
-    /// does not decode to the length its payload states.
-    fn load_pieces(
+    /// `envelope` paired with the text of `pieces`, the stored pieces of its body, decoded and
+    /// joined in order, unavailable when there are none. Fails with
+    /// [`SessionLogReadError::Malformed`] on a piece that does not decode to the length its
+    /// payload states.
+    fn hydrate_pieces(
         &self,
-        envelope: &EventEnvelope,
+        envelope: EventEnvelope,
         pieces: &[StoredBodyPlace],
-    ) -> Result<Option<String>, SessionLogReadError> {
+    ) -> Result<HydratedSessionEvent, SessionLogReadError> {
         let mut content_payload: Option<String> = None;
         for piece in pieces {
             let text = piece.decode(self.reader).map_err(|error| match error {
                 BodyStreamError::Read(error) => SessionLogReadError::Database(error),
                 damaged @ (BodyStreamError::Damaged(_) | BodyStreamError::Write(_)) => {
-                    malformed_body(envelope, damaged).into()
+                    malformed_body(&envelope, damaged).into()
                 }
             })?;
             content_payload.get_or_insert_default().push_str(&text);
         }
-        Ok(content_payload)
+        Ok(hydrate_stored_event(StoredEventContentRow {
+            envelope,
+            content_payload,
+            content_length: joined_content_length(pieces),
+        }))
     }
 
     /// Runs a statement selecting [`SELECTED_COLUMNS`] and checks each row as an envelope, in the

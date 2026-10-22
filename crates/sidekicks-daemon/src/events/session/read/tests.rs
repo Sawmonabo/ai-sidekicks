@@ -74,9 +74,10 @@ fn a_malformed_stored_row_is_refused_naming_its_event_and_session(
 }
 
 // A hydrated read decodes each stored piece of a row, a compressed one among them, and joins
-// them after the row's own, leaves the event's payload as stored, and reads a row with no body
-// as absent. Killed by joining the stored bytes undecoded, by dropping a piece, and by reading
-// a missing body as an empty one.
+// them after the row's own with the joined body's length, leaves the event's payload as stored,
+// and reads a row with no body as absent. Killed by joining the stored bytes undecoded, by
+// dropping a piece, by the row's own length taken for the whole, and by reading a missing body as
+// an empty one.
 #[test]
 fn a_hydrated_read_joins_each_rows_decoded_bodies() {
     let log = TranscriptTestLog::new();
@@ -114,11 +115,12 @@ fn a_hydrated_read_joins_each_rows_decoded_bodies() {
         serde_json::to_string(&events[0].event.payload).expect("a payload serializes"),
         stored_payload
     );
+    let joined = format!("{opening} and the rest.");
     assert_eq!(
         events[0].content,
         HydratedSessionEventContent::Available {
-            body: format!("{opening} and the rest."),
-            content_length: SafeInt::new(opening.len() as u64),
+            content_length: SafeInt::new(joined.len() as u64),
+            body: joined,
         }
     );
     assert_eq!(

@@ -9,11 +9,10 @@
 //! damaged or one whose payload damage left unreadable.
 
 use std::collections::HashMap;
+use std::mem;
 use std::ops::ControlFlow;
 use std::sync::LazyLock;
-use std::{fmt, io, mem};
 
-use rusqlite::types::Type;
 use rusqlite::{Connection, Row, named_params};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_search::index::{IndexRowKind, IndexRowTag, find_page_end};
@@ -21,7 +20,7 @@ use sidekicks_search::index::{IndexRowKind, IndexRowTag, find_page_end};
 use crate::database::sql_list::sql_list_of;
 use crate::database::stored_column::{optional_text_column, rowid_column};
 use crate::events::content::codec::{
-    BodyStreamError, StoredBodyPlace, stored_body_encoding_sql, stored_body_length_sql,
+    StoredBodyPlace, stored_body_encoding_sql, stored_body_length_sql,
 };
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 use crate::session::search::index::columns::{index_key_sql, index_row_kind_of, source_rowid_of};
@@ -106,19 +105,6 @@ impl SourceRow {
         self.text.len().saturating_add(body_len)
     }
 }
-
-// What the page reader hands the stored body's stream to stop it once a page's reader has what it
-// came for; it never leaves the reader.
-#[derive(Debug)]
-struct PagesStopped;
-
-impl fmt::Display for PagesStopped {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("the page reader stopped the body's stream")
-    }
-}
-
-impl std::error::Error for PagesStopped {}
 
 /// A log row's event id and its sequence in its session's log.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -362,33 +348,23 @@ impl<'connection> IndexRowReader<'connection> {
         let Some(body) = &row.body else {
             return Ok(each(page).break_value());
         };
-        let mut stopped = None;
         let mut is_frame_held = false;
-        let streamed = body.stream(self.reader, |frame| {
+        let streamed = body.stream_column(self.reader, BODY_COLUMN + 1, |frame| {
             // A frame after the first starts a page: the held one ends before the word it would
             // cut, and that word begins the next, so a word on a frame's edge stays one token.
             if is_frame_held {
                 let cut_word = page.split_off(find_page_end(&page));
                 if let ControlFlow::Break(stop) = each(mem::replace(&mut page, cut_word)) {
-                    stopped = Some(stop);
-                    return Err(io::Error::other(PagesStopped));
+                    return ControlFlow::Break(stop);
                 }
             }
             page.push_str(frame);
             is_frame_held = true;
-            Ok(())
-        });
+            ControlFlow::Continue(())
+        })?;
         match streamed {
-            Ok(()) => Ok(each(page).break_value()),
-            Err(BodyStreamError::Read(error)) => Err(error),
-            Err(BodyStreamError::Write(_)) if stopped.is_some() => Ok(stopped),
-            Err(failure @ (BodyStreamError::Damaged(_) | BodyStreamError::Write(_))) => {
-                Err(rusqlite::Error::FromSqlConversionFailure(
-                    BODY_COLUMN + 1,
-                    Type::Blob,
-                    Box::new(failure),
-                ))
-            }
+            ControlFlow::Break(stop) => Ok(Some(stop)),
+            ControlFlow::Continue(()) => Ok(each(page).break_value()),
         }
     }
 }

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::event::declared_variants::CONTENT_LENGTH_PAYLOAD_KEY;
-use crate::event::envelope::{HydratedContentUnavailableReason, HydratedSessionEventContent};
+use crate::event::envelope::HydratedContentUnavailableReason;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::byte_length::{fits_budget, json_utf8_byte_length};
@@ -129,23 +129,6 @@ fn echoed_content_length_of(payload: Option<&Map<String, Value>>) -> Option<Safe
         .and_then(|payload| payload.get(CONTENT_LENGTH_PAYLOAD_KEY))
         .and_then(Value::as_u64)
         .and_then(SafeInt::new)
-}
-
-/// An event's stored body as a hydrated read pairs it with its event: `Unavailable { Absent }`
-/// when no body is stored, else the whole stored body with the payload's own length.
-pub fn hydrated_content_of(
-    payload: Option<&Map<String, Value>>,
-    stored_body: Option<String>,
-) -> HydratedSessionEventContent {
-    let Some(body) = stored_body else {
-        return HydratedSessionEventContent::Unavailable {
-            reason: HydratedContentUnavailableReason::Absent,
-        };
-    };
-    HydratedSessionEventContent::Available {
-        body,
-        content_length: echoed_content_length_of(payload),
-    }
 }
 
 /// A `transcript.body.read` offset that is no place to resume from: inside a character, or past

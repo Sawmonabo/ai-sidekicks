@@ -27,8 +27,9 @@ pub struct LongRowDocument {
 }
 
 /// Cuts a row longer than a page into its documents, its pages handed in order. It holds the
-/// tokens of at most the last 2,047 places of the page before each boundary still waiting for the
-/// 2,047 places after it, and those places, so a row of any length costs one page and that tail.
+/// tokens of at most the last edge's reach of places of the page before each boundary still
+/// waiting for as many places after it, and those places, so a row of any length costs one page
+/// and that tail.
 #[derive(Debug)]
 pub struct LongRowDocuments {
     key: u64,
@@ -115,7 +116,7 @@ impl LongRowDocuments {
         }
     }
 
-    // The edge from `first` with its boundary at `boundary`, through the 2,047 places after it,
+    // The edge from `first` with its boundary at `boundary`, through the edge's reach after it,
     // when it holds a token on each side; an edge without one matches nothing across it.
     fn emit_edge(&self, first: u32, boundary: u32, emit: &mut impl FnMut(LongRowDocument)) {
         let end = boundary + EDGE_PLACES;

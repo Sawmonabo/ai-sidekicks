@@ -281,8 +281,9 @@ async fn export_session_lines(log: &TranscriptTestLog) -> Vec<String> {
 
 // A reply too long for a page, stored as three pieces of several frames each, is written a frame
 // at a time, and its line is byte for byte the line its whole body would make, every character
-// JSON escapes among it. Killed by a frame escaped as a quoted string, by a frame or a piece
-// dropped or repeated, and by the body spliced in at the wrong place.
+// JSON escapes among it, with the joined body's length. Killed by a frame escaped as a quoted
+// string, by a frame or a piece dropped or repeated, by the body spliced in at the wrong place,
+// and by the first piece's length taken for the whole.
 #[tokio::test]
 async fn a_reply_too_long_for_a_page_is_written_as_its_whole_line() {
     let log = TranscriptTestLog::new();
@@ -313,7 +314,7 @@ async fn a_reply_too_long_for_a_page_is_written_as_its_whole_line() {
         exported.content,
         HydratedSessionEventContent::Available {
             body: body.clone(),
-            content_length: SafeInt::new(first_cut as u64),
+            content_length: SafeInt::new(body.len() as u64),
         }
     );
 }

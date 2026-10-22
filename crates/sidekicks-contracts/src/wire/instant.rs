@@ -78,10 +78,15 @@ impl WireInstant {
         &self.0
     }
 
-    /// The instant's milliseconds since the Unix epoch, its fraction past the ninth digit dropped
-    /// first since a timestamp holds nanoseconds; `None` where it does not parse, as `Date.parse`
-    /// answers NaN.
+    /// The instant's milliseconds since the Unix epoch, as [`WireInstant::timestamp`] reads it;
+    /// `None` where it does not parse, as `Date.parse` answers NaN.
     pub fn unix_millisecond(&self) -> Option<i64> {
+        self.timestamp().map(jiff::Timestamp::as_millisecond)
+    }
+
+    /// The instant as a timestamp, its fraction past the ninth digit dropped since a timestamp
+    /// holds nanoseconds; `None` where it does not parse or lies past the last timestamp.
+    pub fn timestamp(&self) -> Option<jiff::Timestamp> {
         let instant = self.0.as_str();
         let trimmed = match instant.find('.').map(|dot| dot + 1) {
             Some(start) => {
@@ -101,10 +106,7 @@ impl WireInstant {
             }
             None => instant.to_owned(),
         };
-        trimmed
-            .parse::<jiff::Timestamp>()
-            .ok()
-            .map(jiff::Timestamp::as_millisecond)
+        trimmed.parse().ok()
     }
 }
 

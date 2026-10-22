@@ -9,9 +9,11 @@
 //! when it begins, naming its folder, which is how an export a restart cut short is found.
 
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write as _};
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -20,10 +22,8 @@ use serde::Serialize;
 use serde_json::Value;
 use sidekicks_contracts::daemon::data::{DataExportJobId, DataExportProgress};
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
-use sidekicks_contracts::event::envelope::HydratedSessionEvent;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::transcript::content::hydrated_content_of;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -36,6 +36,9 @@ use crate::artifacts::validation::FILE_NAME_MEMBER;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::error_description::describe_error;
 use crate::events::content::codec::BodyStreamError;
+use crate::events::content::read::{
+    StoredEventContentRow, hydrate_stored_event, joined_content_length,
+};
 use crate::events::session::read::{
     DamagedFromSequenceReader, SessionEventReads, SessionLogReadError, UnloadedBodyEvent,
     malformed_body,
@@ -438,11 +441,11 @@ fn write_streamed_line(
     unloaded: UnloadedBodyEvent,
 ) -> Result<(), ExportError> {
     let UnloadedBodyEvent { event, pieces } = unloaded;
-    let content = hydrated_content_of(Some(&event.payload), Some(String::new()));
-    let shell = serde_json::to_vec(&HydratedSessionEvent {
-        event: event.clone(),
-        content,
-    })?;
+    let shell = serde_json::to_vec(&hydrate_stored_event(StoredEventContentRow {
+        envelope: event.clone(),
+        content_payload: Some(String::new()),
+        content_length: joined_content_length(&pieces),
+    }))?;
     // The body is the line's last text member, so its empty form is the last match.
     let body_start = shell
         .windows(EMPTY_BODY_MEMBER.len())
@@ -453,12 +456,13 @@ fn write_streamed_line(
     file.write_all(&shell[..body_start])?;
     let mut escaped = Vec::new();
     for piece in &pieces {
-        piece
+        let ControlFlow::Continue(()) = piece
             .stream(connection, |frame| {
                 escaped.clear();
                 serde_json::to_writer(&mut escaped, frame).map_err(io::Error::from)?;
                 // The frame's text, without the quotes JSON writes around a string.
-                file.write_all(&escaped[1..escaped.len() - 1])
+                file.write_all(&escaped[1..escaped.len() - 1])?;
+                Ok(ControlFlow::<Infallible>::Continue(()))
             })
             .map_err(|error| match error {
                 BodyStreamError::Read(error) => ExportError::Query(error),
