@@ -138,7 +138,7 @@ impl ClaudeSessionEstablishment {
 
     // The predecessor a fork replaced: the run whose turn it held ends failed, its routes, waits
     // and messages go with it, and it is stopped at once, so neither its running turn nor what it
-    // queued writes into the conversation it leaves.
+    // queued writes into the conversation it leaves; the presses its bindings held are let go.
     async fn release_superseded(&self, predecessor: &LiveClaudeSession) {
         let session_id = predecessor.session_id;
         if let Some(lead) = self.routes.lead_run_on(session_id) {
@@ -155,6 +155,9 @@ impl ClaudeSessionEstablishment {
             .release_binding(&session_id.to_string());
         lock(&self.prompts).forget_session(session_id);
         predecessor.channel.terminate().await;
+        if let Some(reviewer_denials) = self.sources.ports.reviewer_denials.port() {
+            predecessor.release_served_presses(&**reviewer_denials);
+        }
     }
 
     // Points the session's binding at the conversation it moved onto.

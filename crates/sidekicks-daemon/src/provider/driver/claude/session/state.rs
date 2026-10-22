@@ -201,11 +201,6 @@ impl LiveClaudeSession {
 
     /// Releases the held `Allow once` presses of every binding this process served, through
     /// `reviewer_denials`, and forgets them, once the process is gone or no longer the session's.
-    #[expect(
-        dead_code,
-        reason = "a process's exit, its relaunch, a fork's superseded process, a rewind and a \
-                  close release the presses its bindings held through it"
-    )]
     pub(crate) fn release_served_presses(&self, reviewer_denials: &dyn ReviewerDenialPort) {
         let served = std::mem::take(&mut *lock(&self.served_bindings));
         for binding_id in &served {

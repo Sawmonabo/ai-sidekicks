@@ -3,7 +3,7 @@
 //! and the person is told. A new provider build relaunches each session the same way, an idle one
 //! at once and a busy one when its turn settles.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::SystemTime;
@@ -154,12 +154,7 @@ impl ClaudeSessionRestarts {
                 );
             }
         }
-        if let Some(reviewer_denials) = self.ports.reviewer_denials.port() {
-            let bindings: HashSet<_> = runs.into_iter().map(|run| run.binding_id).collect();
-            for binding_id in &bindings {
-                reviewer_denials.release_held_presses(binding_id);
-            }
-        }
+        self.release_served_presses(&live);
         if let Some(process_gone) = self.ports.process_gone.port() {
             process_gone.process_gone(session_id);
         }
@@ -382,6 +377,7 @@ impl ClaudeSessionRestarts {
         self.routes.retire_run_routes(session_id);
         close.channel().close().await;
         close.finish();
+        self.release_served_presses(live);
         if let Some(process_gone) = self.ports.process_gone.port() {
             process_gone.process_gone(session_id);
         }
@@ -406,6 +402,14 @@ impl ClaudeSessionRestarts {
         }
         if is_resumed {
             self.report_restarted(session_id, false).await;
+        }
+    }
+
+    // Lets go the held `Allow once` presses of every binding `live`'s process served, its ended
+    // runs' included, once the approvals are registered.
+    fn release_served_presses(&self, live: &LiveClaudeSession) {
+        if let Some(reviewer_denials) = self.ports.reviewer_denials.port() {
+            live.release_served_presses(&**reviewer_denials);
         }
     }
 
