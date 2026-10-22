@@ -72,6 +72,14 @@ pub struct DaemonDataExportAlreadyRunningDetails {
     pub job_id: DataExportJobId,
 }
 
+/// The details of `daemon.dataExport.destination.notWritable`: the folder that could not be made.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DaemonDataExportDestinationNotWritableDetails {
+    /// The folder.
+    pub path: FilesystemPath,
+}
+
 /// Where an export stands, told apart by its `state`. A running export exports one session at a
 /// time, so it counts sessions, never past its total.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -147,7 +155,11 @@ methods! {
             mutating: true,
             params: DaemonDataExportStartRequest,
             result: DaemonDataExportStartResponse,
-            refusals: [DaemonDataExportAlreadyRunning, DaemonDataExportDestinationAlreadyExists],
+            refusals: [
+                DaemonDataExportAlreadyRunning,
+                DaemonDataExportDestinationAlreadyExists,
+                DaemonDataExportDestinationNotWritable,
+            ],
         },
         /// Streams an export's progress: where it stands, then each change.
         DaemonDataExportSubscribe = subscription "daemon.dataExport.subscribe" {
@@ -186,6 +198,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DaemonDataExportSubscribeRequest>().checked(),
         Definition::read::<DaemonDataExportCancelRequest>().checked(),
         Definition::read::<DaemonDataExportAlreadyRunningDetails>().checked(),
+        Definition::read::<DaemonDataExportDestinationNotWritableDetails>().checked(),
         Definition::read::<DataExportProgress>().checked(),
         Definition::read::<DaemonDataStoreUnavailableDetails>().checked(),
     ],

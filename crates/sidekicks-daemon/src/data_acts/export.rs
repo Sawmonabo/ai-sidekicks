@@ -98,8 +98,11 @@ pub(crate) enum DataExportStartRefusal {
     /// The folder named already exists.
     #[error("the export's folder already exists")]
     DestinationExists,
-    /// The folder could not be made.
-    #[error("the export's folder could not be made")]
+    /// The folder cannot be made where it was named: its parent is missing or not writable.
+    #[error("the export's folder cannot be made there")]
+    DestinationNotWritable(#[source] io::Error),
+    /// The folder was made but could not be made private.
+    #[error("the export's folder could not be made private")]
     Folder(#[source] io::Error),
 }
 
@@ -190,7 +193,8 @@ impl DataExports {
     }
 
     /// Makes the folder at `destination`, private, and starts an export into it. Refused while
-    /// another runs, when the folder already exists, and when it cannot be made.
+    /// another runs, when the folder already exists, when its parent is missing or not writable,
+    /// and when it cannot be made private.
     pub(crate) fn start(
         &self,
         destination: PathBuf,
@@ -203,6 +207,17 @@ impl DataExports {
             Ok(()) => {}
             Err(failure) if failure.kind() == io::ErrorKind::AlreadyExists => {
                 return Err(DataExportStartRefusal::DestinationExists);
+            }
+            Err(failure)
+                if matches!(
+                    failure.kind(),
+                    io::ErrorKind::NotFound
+                        | io::ErrorKind::NotADirectory
+                        | io::ErrorKind::PermissionDenied
+                        | io::ErrorKind::ReadOnlyFilesystem
+                ) =>
+            {
+                return Err(DataExportStartRefusal::DestinationNotWritable(failure));
             }
             Err(failure) => return Err(DataExportStartRefusal::Folder(failure)),
         }

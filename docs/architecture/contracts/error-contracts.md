@@ -567,6 +567,7 @@ A per-place provider call's `place` is judged by its name on every Windows compu
 | `daemon.data.eraseRunning` | `daemon.data.erase` while an erase runs; nothing new starts, since the running one erases everything | `failedPrecondition` | 409 |
 | `daemon.dataExport.alreadyRunning` | `daemon.dataExport.start` while another export runs. `data.fields.jobId` names the running export, whose progress the caller can follow instead | `failedPrecondition` | 409 |
 | `daemon.dataExport.destination.alreadyExists` | `daemon.dataExport.start` named a folder that already exists; an export writes only into a new folder | `alreadyExists` | 409 |
+| `daemon.dataExport.destination.notWritable` | `daemon.dataExport.start` named a folder that cannot be made: its parent is missing or not writable. `data.fields.path` names the folder | `permissionDenied` | 403 |
 | `daemon.dataExport.notFound` | `daemon.dataExport.subscribe` or `daemon.dataExport.cancel` named an export this service does not know: never started, or started before the service last restarted | `notFound` | 404 |
 
 ### Attention

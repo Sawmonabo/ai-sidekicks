@@ -363,6 +363,10 @@ refusal_codes! {
     /// new folder.
     DaemonDataExportDestinationAlreadyExists = "daemon.dataExport.destination.alreadyExists"
         (AlreadyExists, 409);
+    /// `daemon.dataExport.start` named a folder that cannot be made: its parent is missing or not
+    /// writable. `data.fields.path` names the folder.
+    DaemonDataExportDestinationNotWritable = "daemon.dataExport.destination.notWritable"
+        (PermissionDenied, 403);
     /// `daemon.dataExport.subscribe` or `daemon.dataExport.cancel` named a job this service does
     /// not know: never started, or started before the service last restarted.
     DaemonDataExportNotFound = "daemon.dataExport.notFound" (NotFound, 404);

@@ -9,10 +9,12 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use sidekicks_contracts::daemon::data::{
     DaemonDataErase, DaemonDataExportAlreadyRunningDetails, DaemonDataExportCancel,
-    DaemonDataExportCancelRequest, DaemonDataExportStart, DaemonDataExportStartRequest,
-    DaemonDataExportStartResponse, DaemonDataExportSubscribe, DaemonDataExportSubscribeRequest,
-    DaemonDataStoreUnavailableDetails, DataExportProgress,
+    DaemonDataExportCancelRequest, DaemonDataExportDestinationNotWritableDetails,
+    DaemonDataExportStart, DaemonDataExportStartRequest, DaemonDataExportStartResponse,
+    DaemonDataExportSubscribe, DaemonDataExportSubscribeRequest, DaemonDataStoreUnavailableDetails,
+    DataExportProgress,
 };
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
 use sidekicks_contracts::method_descriptor::EmptyPayload;
@@ -54,7 +56,7 @@ pub(crate) fn register_data_methods(
             let started = starting
                 .start(PathBuf::from(request.destination.as_str()))
                 .map(|job_id| DaemonDataExportStartResponse { job_id })
-                .map_err(start_refusal);
+                .map_err(|refusal| start_refusal(refusal, request.destination));
             async move { started }.boxed()
         },
     )?;
@@ -117,7 +119,7 @@ fn follow_progress(
     move || following.abort()
 }
 
-fn start_refusal(refusal: DataExportStartRefusal) -> HandlerError {
+fn start_refusal(refusal: DataExportStartRefusal, destination: FilesystemPath) -> HandlerError {
     match refusal {
         DataExportStartRefusal::AlreadyRunning(job_id) => DomainError::new(
             "Another export is running. Follow it, or start again once it ends.",
@@ -129,6 +131,13 @@ fn start_refusal(refusal: DataExportStartRefusal) -> HandlerError {
             "A folder with that name is already there. Export into a new folder.",
             RefusalCode::DaemonDataExportDestinationAlreadyExists,
         )
+        .into(),
+        DataExportStartRefusal::DestinationNotWritable(failure) => DomainError::new(
+            "That folder can't be made there. Pick a place you can write to.",
+            RefusalCode::DaemonDataExportDestinationNotWritable,
+        )
+        .with_detail(DaemonDataExportDestinationNotWritableDetails { path: destination })
+        .with_source(failure)
         .into(),
         DataExportStartRefusal::Folder(failure) => HandlerError::Internal(Box::new(failure)),
     }
@@ -165,6 +174,7 @@ mod tests {
     use std::time::Duration;
 
     use futures::FutureExt as _;
+    use rstest::rstest;
     use serde_json::{Value, json};
     use sidekicks_contracts::daemon::data::{
         DaemonDataErase, DaemonDataExportCancel, DaemonDataExportStart, DaemonDataExportSubscribe,
@@ -354,6 +364,58 @@ mod tests {
                 refusal_of(refused).code,
                 RefusalCode::DaemonDataExportNotFound
             );
+        }
+    }
+
+    // A start whose folder cannot be made, its parent missing or read-only, is refused with
+    // `daemon.dataExport.destination.notWritable` naming the folder, and nothing is made. Killed by
+    // the create failure answered as an internal error and by the refusal under another code.
+    #[rstest]
+    #[case::parent_missing(false)]
+    #[cfg_attr(unix, case::parent_read_only(true))]
+    #[tokio::test]
+    async fn an_export_folder_that_cannot_be_made_is_not_writable(#[case] is_parent_made: bool) {
+        let verbs = data_verbs().await;
+        let parent = verbs.data_folder.path().join("parent");
+        if is_parent_made {
+            fs::create_dir(&parent).expect("the parent is made");
+            let mut permissions = fs::metadata(&parent)
+                .expect("the parent reads")
+                .permissions();
+            permissions.set_readonly(true);
+            fs::set_permissions(&parent, permissions).expect("the parent is made read-only");
+        }
+        let destination = parent.join("export");
+        let refused = verbs
+            .registry
+            .dispatch(
+                request(
+                    DaemonDataExportStart::DESCRIPTOR.method,
+                    Some(&json!({ "destination": destination.to_string_lossy() })),
+                ),
+                context(1),
+            )
+            .await;
+        let refusal = refusal_of(refused);
+        assert_eq!(
+            refusal.code,
+            RefusalCode::DaemonDataExportDestinationNotWritable
+        );
+        assert_eq!(
+            refusal.detail.expect("the refusal names the folder")["path"],
+            destination.to_string_lossy().as_ref()
+        );
+        assert!(!destination.exists());
+        if is_parent_made {
+            let mut permissions = fs::metadata(&parent)
+                .expect("the parent reads")
+                .permissions();
+            #[expect(
+                clippy::permissions_set_readonly_false,
+                reason = "the test gives the folder back its write bit so the folder is removed"
+            )]
+            permissions.set_readonly(false);
+            fs::set_permissions(&parent, permissions).expect("the parent is writable again");
         }
     }
 
