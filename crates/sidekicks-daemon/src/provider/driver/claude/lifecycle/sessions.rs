@@ -90,7 +90,7 @@ impl ClaudeDriver {
             .rewind(
                 &live,
                 &params.target_message_id,
-                reviewer_denials.as_deref().map(|port| &**port),
+                reviewer_denials.map(|port| &**port),
             )
             .await
     }

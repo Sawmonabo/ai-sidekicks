@@ -497,6 +497,8 @@ impl ClaudeDeliveryStream {
             "stream_event" => stream_event(session, &lead, &frame.text),
             "assistant" => self.assistant(session, &lead, &frame.text, &members).await,
             "user" => self.user(session, &lead, &frame.text, &members).await,
+            // A helper's start and moves are read off the frame before it reaches the reader.
+            "system/task_started" | "system/task_updated" => {}
             // A kind this reader reads nothing from goes through the census, which logs one
             // outside it once on the connection, so no frame vanishes unrecorded.
             _ => {
