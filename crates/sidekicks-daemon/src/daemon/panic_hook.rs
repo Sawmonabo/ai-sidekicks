@@ -1,8 +1,8 @@
-//! The service's end on a panic: a panic in any thread or task is written to the service log and
-//! to one record in the crash reports folder, its message and place are sent to the crash monitor
-//! once the service is connected to one, the log's file is flushed, and the process aborts, so the
-//! supervisor restarts the service rather than leaving it running without the work that panicked;
-//! the abort is the crash the monitor writes a dump of.
+//! The service's end on a panic: a panic in any thread or task is written, its credentials
+//! scrubbed, to the service log and to one record in the crash reports folder, its message and
+//! place are sent to the crash monitor once the service is connected to one, the log's file is
+//! flushed, and the process aborts, so the supervisor restarts the service rather than leaving it
+//! running without the work that panicked; the abort is the crash the monitor writes a dump of.
 
 use std::backtrace::Backtrace;
 use std::io::Write as _;
@@ -17,6 +17,13 @@ use sidekicks_platforms::{create_private_folder, replace_file_atomically};
 
 use crate::daemon::crash::monitor::{PanicRecord, send_panic_record};
 use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
+use crate::redaction::scrub_credentials;
+
+/// The start of a panic's record's name in the crash reports folder.
+pub(crate) const PANIC_RECORD_FILE_PREFIX: &str = "panic-";
+
+/// A panic's record's extension in the crash reports folder.
+pub(crate) const PANIC_RECORD_FILE_EXTENSION: &str = "txt";
 
 // A crash record readable by the person alone.
 const CRASH_RECORD_MODE: u32 = 0o600;
@@ -49,7 +56,7 @@ pub(crate) fn install_panic_hook(data_folder: &Path, log_file: Option<ArcFileLog
     let crash_reports = data_folder.join(CRASH_REPORTS_FOLDER_NAME);
     std::panic::set_hook(Box::new(move |panic| {
         let (message, place) = panic_message_and_place(panic);
-        let report = describe_panic(&message, &place);
+        let report = scrub_credentials(&describe_panic(&message, &place));
         tracing::error!(report = %report, "The background service panicked and stops");
         if let Some(monitor) = CRASH_MONITOR.get()
             && let Err(error) = send_panic_record(
@@ -124,7 +131,7 @@ fn describe_panic(message: &str, place: &str) -> String {
 fn write_crash_record(folder: &Path, report: &str) -> std::io::Result<()> {
     create_private_folder(folder)?;
     let record = folder.join(format!(
-        "panic-{}-{}.txt",
+        "{PANIC_RECORD_FILE_PREFIX}{}-{}.{PANIC_RECORD_FILE_EXTENSION}",
         Timestamp::now().strftime("%Y-%m-%dT%H-%M-%S-%3fZ"),
         CRASH_RECORD_COUNT.fetch_add(1, Ordering::Relaxed)
     ));

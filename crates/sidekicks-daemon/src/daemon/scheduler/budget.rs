@@ -35,10 +35,8 @@ pub(crate) enum WorkUnit {
     )]
     CheckpointedLogBytes,
     /// Entries an expiry examined.
-    #[expect(dead_code, reason = "the diagnostic expiry's registration")]
     EntriesExamined,
     /// Files an expiry deleted.
-    #[expect(dead_code, reason = "the diagnostic expiry's registration")]
     FilesDeleted,
     /// Artifacts the ingest reaper or the orphan sweep examined.
     #[expect(
@@ -47,7 +45,6 @@ pub(crate) enum WorkUnit {
     )]
     ArtifactsExamined,
     /// Bytes of the crash dump a report was built from.
-    #[expect(dead_code, reason = "the crash report build's registration")]
     DumpBytes,
 }
 
@@ -103,7 +100,6 @@ impl JobWorkload {
     }
 
     /// Adds `count` units of `unit`.
-    #[expect(dead_code, reason = "the diagnostic expiry, which counts two units")]
     pub(crate) fn add(&mut self, unit: WorkUnit, count: u64) {
         self.counts.push((unit, count));
     }

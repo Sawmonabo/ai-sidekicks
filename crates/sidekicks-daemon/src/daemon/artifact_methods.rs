@@ -121,7 +121,7 @@ impl ArtifactMethods {
                         if let Err(sweep_failure) = swept {
                             tracing::warn!(
                                 error = &sweep_failure as &(dyn std::error::Error + 'static),
-                                "the orphan sweep failed beside the ingest reaper"
+                                "The orphan sweep failed beside the ingest reaper"
                             );
                         }
                         Err(reap_failure.into())

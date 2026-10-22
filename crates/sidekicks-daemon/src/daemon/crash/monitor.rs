@@ -11,6 +11,7 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::{RecvTimeoutError, sync_channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -18,13 +19,13 @@ use std::time::{Duration, Instant};
 use crash_handler::{CrashContext, CrashEventResult, CrashHandler, make_crash_event};
 use minidumper::{Client, LoopAction, MinidumpBinary, Server, ServerHandler, SocketName};
 use serde::{Deserialize, Serialize};
-use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::{
     SocketPathRefused, check_socket_path, create_private_folder, rename_replacing,
     replace_file_atomically,
 };
 
+use crate::daemon::data_folder::data_folder;
 use crate::missing_entry::MissingEntry as _;
 
 /// The word the daemon's own program is started with to run the crash monitor; the socket's path
@@ -42,6 +43,13 @@ pub(crate) const PANIC_RECORD_SUFFIX: &str = ".panic.json";
 
 // The kind of message that carries a panic's record to the monitor.
 const PANIC_MESSAGE_KIND: u32 = 1;
+
+// How long a panic waits for the monitor to take its record before it aborts without it.
+const PANIC_RECORD_SEND_BOUND: Duration = Duration::from_secs(2);
+
+// The most bytes a panic's record takes as JSON: under the 64 KiB a message may hold on every
+// system the channel runs on.
+const PANIC_RECORD_MAX_BYTES: usize = 60 * 1024;
 
 // The suffix of a dump being written.
 const DUMP_IN_PROGRESS_SUFFIX: &str = ".partial";
@@ -96,6 +104,23 @@ pub(crate) enum CrashMonitorError {
     Channel(#[source] minidumper::Error),
 }
 
+/// Why a panic's record did not reach the monitor before the abort.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum PanicRecordSendError {
+    /// The channel failed.
+    #[error("the crash monitor's channel failed")]
+    Channel(#[source] minidumper::Error),
+    /// The monitor did not take the record within the bound.
+    #[error("the crash monitor did not take the panic's record within {0:?}")]
+    TimedOut(Duration),
+    /// The thread that sends it could not be started.
+    #[error("the thread that sends the panic's record could not be started")]
+    Thread(#[source] io::Error),
+    /// The thread that sends it ended without an answer.
+    #[error("the thread that sends the panic's record ended without an answer")]
+    Ended,
+}
+
 /// The socket a service with process id `daemon_pid` reaches its monitor at, in its run folder.
 #[cfg_attr(
     not(test),
@@ -120,9 +145,7 @@ pub fn run_crash_monitor(arguments: &[OsString]) -> ExitCode {
         write_line("The crash monitor cannot find the home folder");
         return ExitCode::FAILURE;
     };
-    let dumps_folder = home
-        .join(DAEMON_DATA_FOLDER_NAME)
-        .join(CRASH_DUMPS_FOLDER_NAME);
+    let dumps_folder = data_folder(&home).join(CRASH_DUMPS_FOLDER_NAME);
     match serve_crash_monitor(Path::new(socket_path), &dumps_folder) {
         Ok(()) => ExitCode::SUCCESS,
         Err(failure) => {
@@ -202,16 +225,62 @@ pub(crate) fn attach_crash_handler(
     CrashHandler::attach(on_crash)
 }
 
-/// Sends `record` to the monitor `client` reaches, and waits until the monitor has it, so it is
-/// kept beside the dump the abort that follows asks for. Fails when the channel fails.
+/// Sends `record`, cut under 64 KiB, to the monitor `client` reaches, and waits until the monitor
+/// has it, so it is kept beside the dump the abort that follows asks for. The send runs on its own
+/// thread and the wait is bounded, so a monitor that hangs never keeps the service from aborting.
+/// Fails when the channel fails or the monitor does not answer within the bound.
 pub(crate) fn send_panic_record(
-    client: &Client,
+    client: &Arc<Client>,
     record: &PanicRecord,
-) -> Result<(), minidumper::Error> {
-    let bytes = serde_json::to_vec(record).expect("a panic record serializes as JSON");
-    client.send_message(PANIC_MESSAGE_KIND, bytes)?;
-    // On macOS messages and dump requests travel apart; the ping makes the message land first.
-    client.ping()
+) -> Result<(), PanicRecordSendError> {
+    let bytes = panic_record_bytes(record);
+    let client = Arc::clone(client);
+    send_within(PANIC_RECORD_SEND_BOUND, move || {
+        client.send_message(PANIC_MESSAGE_KIND, bytes)?;
+        // On macOS messages and dump requests travel apart; the ping makes the message land first.
+        client.ping()
+    })
+}
+
+// `record` as JSON of at most `PANIC_RECORD_MAX_BYTES`: each text is cut at a character boundary,
+// by half again while escaping keeps the whole over the bound.
+fn panic_record_bytes(record: &PanicRecord) -> Vec<u8> {
+    let mut kept = PANIC_RECORD_MAX_BYTES;
+    loop {
+        let cut = |text: &str| text[..text.floor_char_boundary(kept)].to_owned();
+        let bytes = serde_json::to_vec(&PanicRecord {
+            message: cut(&record.message),
+            location: cut(&record.location),
+        })
+        .expect("a panic record serializes as JSON");
+        if bytes.len() <= PANIC_RECORD_MAX_BYTES {
+            return bytes;
+        }
+        kept /= 2;
+    }
+}
+
+// Runs `send` on a thread of its own and waits for its answer at most `bound`; a send still
+// running past it is left to the abort that follows.
+fn send_within(
+    bound: Duration,
+    send: impl FnOnce() -> Result<(), minidumper::Error> + Send + 'static,
+) -> Result<(), PanicRecordSendError> {
+    let (answer_sender, answer) = sync_channel(1);
+    thread::Builder::new()
+        .name("panic-record-send".to_owned())
+        .spawn(move || {
+            // The wait has given up once no one receives, and has said so itself.
+            if let Err(unreceived) = answer_sender.send(send()) {
+                drop(unreceived);
+            }
+        })
+        .map_err(PanicRecordSendError::Thread)?;
+    match answer.recv_timeout(bound) {
+        Ok(sent) => sent.map_err(PanicRecordSendError::Channel),
+        Err(RecvTimeoutError::Timeout) => Err(PanicRecordSendError::TimedOut(bound)),
+        Err(RecvTimeoutError::Disconnected) => Err(PanicRecordSendError::Ended),
+    }
 }
 
 // The socket path as the channel names it: checked for the system's bound and held in text.
@@ -315,5 +384,64 @@ fn write_line(line: &str) {
     // Nothing is left to report a failed write to; the exit status still says it failed.
     if let Err(error) = writeln!(io::stderr().lock(), "{line}") {
         drop(error);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::sync_channel;
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    use super::{
+        PANIC_RECORD_MAX_BYTES, PanicRecord, PanicRecordSendError, panic_record_bytes, send_within,
+    };
+
+    // A message far past the bound, of characters JSON escapes and characters of several bytes,
+    // is cut under 64 KiB at a character boundary and still reads back. Killed by the cap dropped,
+    // by a cut at a byte that splits a character, and by a cut that ignores the escaping.
+    #[test]
+    fn a_panic_record_is_cut_under_64_kib() {
+        let message = "\"é\u{1}".repeat(64 * 1024);
+        let record = PanicRecord {
+            message: message.clone(),
+            location: "src/main.rs:1:1".to_owned(),
+        };
+
+        let bytes = panic_record_bytes(&record);
+
+        assert!(bytes.len() <= PANIC_RECORD_MAX_BYTES && bytes.len() < 64 * 1024);
+        let sent: PanicRecord = serde_json::from_slice(&bytes).expect("the record reads back");
+        assert!(!sent.message.is_empty() && message.starts_with(&sent.message));
+        assert_eq!(sent.location, record.location);
+    }
+
+    // A monitor that never answers holds the panic no longer than the bound. Killed by a wait
+    // with no bound, which fails here at the outer wait rather than hanging.
+    #[test]
+    fn a_hung_monitor_does_not_hold_the_panic_past_the_bound() {
+        let bound = Duration::from_millis(100);
+        let (outcome_sender, outcome) = sync_channel(1);
+        let started = Instant::now();
+        thread::spawn(move || {
+            let sent = send_within(bound, || {
+                loop {
+                    thread::park();
+                }
+            });
+            outcome_sender
+                .send(sent)
+                .expect("the test waits for the outcome");
+        });
+
+        let sent = outcome
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the send gives up within its bound");
+
+        assert!(
+            matches!(sent, Err(PanicRecordSendError::TimedOut(_))),
+            "{sent:?}"
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 }

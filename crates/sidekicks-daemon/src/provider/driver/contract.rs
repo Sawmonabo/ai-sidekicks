@@ -7,8 +7,9 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
@@ -460,6 +461,19 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// The inbox addresses the daemon holds for every session, where this provider's sessions
     /// must answer them; `None` for a provider whose sessions answer no inbox.
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>>;
+
+    /// Deletes what the provider keeps for its own diagnosis in account home `home` from before
+    /// `cutoff`, beyond the descriptor's folders, which the expiry deletes itself; blocking. Does
+    /// nothing unless the provider keeps more; fails when that store cannot be read or written.
+    fn expire_account_home_diagnostics(
+        &self,
+        home: &Path,
+        cutoff: SystemTime,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // A provider that keeps nothing past its descriptor's folders reads neither.
+        let _ = (home, cutoff);
+        Ok(())
+    }
 }
 
 /// A follow of a session's live command list, ended when this drops.

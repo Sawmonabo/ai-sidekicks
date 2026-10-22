@@ -1,6 +1,6 @@
-//! The provider diagnostics in each account home the app manages: every account's home from the
-//! accounts table, joined with the folders its provider's descriptor names. No folder that holds a
-//! session's files is among them, so only `Delete old data` removes those.
+//! The account homes the app manages, from the accounts table, and the provider diagnostic folders
+//! in each, which its provider's descriptor names. No folder that holds a session's files is among
+//! them, so only `Delete old data` removes those.
 
 use std::path::{Path, PathBuf};
 
@@ -22,28 +22,34 @@ pub(crate) enum AccountHomesReadError {
     Query(#[from] rusqlite::Error),
 }
 
-/// Every provider diagnostic folder in every account home; an account whose provider no driver
-/// declares has none. Fails when the accounts cannot be read.
-pub(crate) async fn read_account_home_diagnostic_folders(
-    reads: &DatabaseReadPool,
-) -> Result<Vec<PathBuf>, AccountHomesReadError> {
-    let homes = reads
-        .read(ReadLength::Short, |connection| {
-            read_account_homes(connection)
-        })
-        .await?;
-    Ok(homes
-        .iter()
-        .flat_map(|(provider, home)| account_home_diagnostic_folders(provider, Path::new(home)))
-        .collect())
+/// One account's home and the provider whose account it is.
+pub(crate) struct AccountHome {
+    /// The provider's id.
+    pub(crate) provider: String,
+    /// The account's home folder.
+    pub(crate) home: PathBuf,
 }
 
-fn read_account_homes(
-    connection: &Connection,
-) -> Result<Vec<(String, String)>, AccountHomesReadError> {
+/// Every account home in the accounts table. Fails when the accounts cannot be read.
+pub(crate) async fn read_account_homes(
+    reads: &DatabaseReadPool,
+) -> Result<Vec<AccountHome>, AccountHomesReadError> {
+    reads
+        .read(ReadLength::Short, |connection| {
+            query_account_homes(connection)
+        })
+        .await
+}
+
+fn query_account_homes(connection: &Connection) -> Result<Vec<AccountHome>, AccountHomesReadError> {
     let mut statement = connection.prepare_cached(ACCOUNT_HOMES_SQL)?;
     let homes = statement
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .query_map([], |row| {
+            Ok(AccountHome {
+                provider: row.get(0)?,
+                home: PathBuf::from(row.get::<_, String>(1)?),
+            })
+        })?
         .collect::<Result<_, _>>()?;
     Ok(homes)
 }

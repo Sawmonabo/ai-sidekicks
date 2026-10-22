@@ -7,9 +7,8 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::sync::LazyLock;
 
-use regex::{Captures, NoExpand, Regex};
+use regex::{Captures, NoExpand};
 use serde_json::error::Category;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
@@ -28,6 +27,7 @@ use sidekicks_contracts::wire::record::Record;
 use crate::events::log_service::{EventLogFollowError, EventLogReadError};
 use crate::ipc::domain_error::{DomainError, refusal_fields};
 use crate::ipc::registry::{DispatchError, HandlerError};
+use crate::redaction::{DRIVE_PATH, UNC_PATH, UNIX_PATH};
 use crate::session::not_found::session_not_found;
 use crate::text_cut::cut_to_code_points;
 
@@ -73,26 +73,6 @@ const NOT_A_MESSAGE: &str = "the JSON is not a JSON-RPC 2.0 message";
 
 /// The message of a message over its size cap.
 const MESSAGE_TOO_LARGE: &str = "the message is over its size limit";
-
-/// A Unix path at a token boundary, with an optional `:line:col`; the leading group stands for
-/// the boundary (`regex` has no look-behind) and is written back, so `feature/login` stays.
-pub(crate) static UNIX_PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(^|[^A-Za-z0-9_.-])(?:/[A-Za-z0-9_.-]+)+(?::[0-9]+(?::[0-9]+)?)?")
-        .expect("the pattern is a valid regex")
-});
-
-/// A UNC path, in its plain or verbatim `\\?\UNC\` form: the host has no spaces and may hold `$`
-/// (`\\wsl$\`), the share and path segments may hold spaces.
-pub(crate) static UNC_PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\\\\(?:\?\\UNC\\)?[A-Za-z0-9_.$-]+(?:\\[A-Za-z0-9_. -]+)+(?::[0-9]+(?::[0-9]+)?)?")
-        .expect("the pattern is a valid regex")
-});
-
-/// A Windows drive path, plain or with its verbatim `\\?\` prefix, whose segments may hold spaces.
-pub(crate) static DRIVE_PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:\\\\\?\\)?[A-Za-z]:\\(?:[A-Za-z0-9_. -]+\\?)+(?::[0-9]+(?::[0-9]+)?)?")
-        .expect("the pattern is a valid regex")
-});
 
 /// Why a message gets an error response: its call's dispatch failed, its JSON is no JSON-RPC 2.0
 /// message, or it passed its size cap.
@@ -578,6 +558,12 @@ mod tests {
         "cannot run <redacted-path>"
     )]
     #[case::line_and_column("at /src/main.rs:12:7 (main)", "at <redacted-path> (main)")]
+    // Killed by a folder name with a space ending the path, and by the last segment taking the
+    // prose after it.
+    #[case::folder_with_a_space(
+        "cannot open /Users/a/My Project/x.rs now",
+        "cannot open <redacted-path> now"
+    )]
     #[case::branch_kept(
         "branch feature/login is checked out",
         "branch feature/login is checked out"

@@ -114,7 +114,8 @@ pub(crate) struct SwitchedRecorder<Record> {
 }
 
 impl<Record: Serialize> SwitchedRecorder<Record> {
-    /// Appends `record` when the switch is on now; while it is off nothing is written.
+    /// Appends `record` when the switch is on now, resolving once it is written; while it is off
+    /// nothing is written.
     #[cfg_attr(
         not(test),
         expect(
@@ -122,9 +123,10 @@ impl<Record: Serialize> SwitchedRecorder<Record> {
             reason = "each driver records through the recorder it is given"
         )
     )]
-    pub(crate) fn record(&self, record: &Record) {
-        if (self.is_on)(&self.configuration.borrow()) {
-            self.bucket.append(record);
+    pub(crate) async fn record(&self, record: &Record) {
+        let is_on = (self.is_on)(&self.configuration.borrow());
+        if is_on {
+            self.bucket.append(record).await;
         }
     }
 }
@@ -232,8 +234,9 @@ mod tests {
     }
 
     // With each switch off a record writes nothing; turned on, the next record lands whole and
-    // stamped; turned off again, nothing more is written. Killed by a switch read once when the
-    // recorder is made, and by a recorder that ignores its switch.
+    // stamped in the stored instant form; turned off again, nothing more is written. Killed by a
+    // switch read once when the recorder is made, by a recorder that ignores its switch, and by a
+    // stamp written in another form than three fraction digits and `Z`.
     #[tokio::test]
     async fn each_switch_gates_its_bucket_from_the_change_on() {
         let database = TestDatabase::new();
@@ -262,24 +265,26 @@ mod tests {
             message: text.to_owned(),
         };
 
-        traces.record(&trace("while-off"));
-        messages.record(&message("while off"));
+        traces.record(&trace("while-off")).await;
+        messages.record(&message("while off")).await;
         set(&store, DaemonConfigUpdateRequest::RecordTraces(true)).await;
         set(
             &store,
             DaemonConfigUpdateRequest::RecordProviderMessages(true),
         )
         .await;
-        traces.record(&trace("while-on"));
-        messages.record(&message("{\"type\":\"result\", \"spaced\" : 1}"));
+        traces.record(&trace("while-on")).await;
+        messages
+            .record(&message("{\"type\":\"result\", \"spaced\" : 1}"))
+            .await;
         set(&store, DaemonConfigUpdateRequest::RecordTraces(false)).await;
         set(
             &store,
             DaemonConfigUpdateRequest::RecordProviderMessages(false),
         )
         .await;
-        traces.record(&trace("off-again"));
-        messages.record(&message("off again"));
+        traces.record(&trace("off-again")).await;
+        messages.record(&message("off again")).await;
 
         let trace_lines = recorded_lines(
             &data_folder
@@ -294,7 +299,15 @@ mod tests {
         );
         assert_eq!(trace_lines[0]["toolCallId"], "while-on");
         assert_eq!(trace_lines[0]["result"], json!({ "stdout": "README.md\n" }));
-        assert!(trace_lines[0]["recordedAt"].is_string());
+        let recorded_at = trace_lines[0]["recordedAt"]
+            .as_str()
+            .expect("the stamp is text");
+        assert_eq!(
+            recorded_at.len(),
+            "2026-10-21T00:00:00.000Z".len(),
+            "{recorded_at}"
+        );
+        assert!(recorded_at.ends_with('Z') && recorded_at.as_bytes()[19] == b'.');
         let message_lines = recorded_lines(&provider_messages_folder(data_folder.path()));
         assert_eq!(
             message_lines.len(),
