@@ -13,6 +13,7 @@ use sidekicks_platforms::PathRules;
 
 use crate::policy::background_work::plain_background_work_forms;
 use crate::policy::execution_posture_service::{CredentialDenyPath, CredentialDenyPathKind};
+use crate::provider::driver::claude::session::permission_level::permission_level_of;
 use crate::provider::driver::claude::session::rules::{
     ClaudeRulesError, compose_claude_session_rule_lists, compose_path_content,
 };
@@ -209,17 +210,6 @@ pub(crate) fn compose_claude_sandbox_settings(
                 .map(|root| root.as_str().to_owned())
                 .collect(),
         },
-    }
-}
-
-// The level a posture runs at.
-fn permission_level_of(posture: &ExecutionPosture) -> PermissionLevel {
-    match posture {
-        ExecutionPosture::Readonly { .. } => PermissionLevel::Readonly,
-        ExecutionPosture::Ask { .. } => PermissionLevel::Ask,
-        ExecutionPosture::Reviewed { .. } => PermissionLevel::Reviewed,
-        ExecutionPosture::Sandboxed { .. } => PermissionLevel::Sandboxed,
-        ExecutionPosture::Yolo { .. } => PermissionLevel::Yolo,
     }
 }
 

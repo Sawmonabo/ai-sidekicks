@@ -10,6 +10,7 @@ pub(crate) mod figures;
 mod fork;
 
 use std::error::Error;
+use std::io;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
@@ -128,6 +129,15 @@ pub(crate) enum ClaudeEstablishmentError {
     /// The session's binding could not be pointed at the conversation it moved onto.
     #[error("the session's binding could not be pointed at its new conversation")]
     Rebind(#[source] Box<dyn Error + Send + Sync>),
+    /// The resumed conversation's file could not be found or read.
+    #[error("the conversation {resume_handle} could not be read")]
+    ConversationUnreadable {
+        /// Claude Code's id of the conversation.
+        resume_handle: String,
+        /// The read that failed.
+        #[source]
+        source: io::Error,
+    },
     /// A close took the session's slot while its process came up, so the process was ended.
     #[error("the session was closed while its Claude Code process came up")]
     Closed,
@@ -148,6 +158,7 @@ impl ClaudeEstablishmentError {
             | Self::OutputSchema(_)
             | Self::Port(_)
             | Self::Rebind(_)
+            | Self::ConversationUnreadable { .. }
             | Self::Closed => RecoveryCondition::RecoveryNeeded,
         }
     }
@@ -166,6 +177,7 @@ impl From<ClaudeEstablishmentError> for DriverError {
             | ClaudeEstablishmentError::OutputSchema(_)
             | ClaudeEstablishmentError::Port(_)
             | ClaudeEstablishmentError::Rebind(_)
+            | ClaudeEstablishmentError::ConversationUnreadable { .. }
             | ClaudeEstablishmentError::Closed) => Self::Internal(Box::new(error)),
         }
     }
@@ -418,7 +430,17 @@ impl ClaudeSessionEstablishment {
             )
             .await?;
         // Where the conversation stood when it was resumed, read before the process adds to it.
-        let session_position = read_turn_count(&start.legs.spawn_environment, &resume_handle).await;
+        let session_position =
+            match read_turn_count(&start.legs.spawn_environment, &resume_handle).await {
+                Ok(session_position) => session_position,
+                Err(source) => {
+                    start.callback_tools.roll_back();
+                    return Err(ClaudeEstablishmentError::ConversationUnreadable {
+                        resume_handle,
+                        source,
+                    });
+                }
+            };
         let started = self.bring_up(start).await?;
         Ok(DriverResumeResult::Resumed {
             binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
@@ -776,25 +798,30 @@ impl ClaudeSessionEstablishment {
 pub(crate) async fn conversation_file_of(
     spawn_environment: &[(String, String)],
     handle: &str,
-) -> std::io::Result<Option<PathBuf>> {
+) -> io::Result<Option<PathBuf>> {
     let Some(config_folder) = claude_config_folder(spawn_environment, PathRules::NATIVE) else {
         return Ok(None);
     };
     find_claude_conversation_file(&config_folder, handle).await
 }
 
-// How many turns the conversation holds; a conversation with no readable file holds none yet.
-async fn read_turn_count(spawn_environment: &[(String, String)], handle: &str) -> SafeInt<0> {
-    let count = match conversation_file_of(spawn_environment, handle).await {
-        Ok(Some(file)) => read_claude_conversation_outline(&file)
-            .await
-            .map_or(0, |outline| outline.turn_end_uuids.len()),
-        Ok(None) | Err(_) => 0,
+// How many turns the conversation holds; one with no file yet holds none. Fails as its home
+// cannot be listed or its file read.
+async fn read_turn_count(
+    spawn_environment: &[(String, String)],
+    handle: &str,
+) -> io::Result<SafeInt<0>> {
+    let count = match conversation_file_of(spawn_environment, handle).await? {
+        Some(file) => read_claude_conversation_outline(&file)
+            .await?
+            .turn_end_uuids
+            .len(),
+        None => 0,
     };
-    u64::try_from(count)
+    Ok(u64::try_from(count)
         .ok()
         .and_then(SafeInt::new)
-        .expect("a conversation's turn count is far below the wire's integer cap")
+        .expect("a conversation's turn count is far below the wire's integer cap"))
 }
 
 /// The `Failed` resume arm for `error`, its words fitted to the detail's cap.
