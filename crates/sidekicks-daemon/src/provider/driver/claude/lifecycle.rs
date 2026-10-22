@@ -11,6 +11,7 @@ mod tests;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
+use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::commands::{
     ProviderCommandBinding, ProviderCommandListResponse,
@@ -22,7 +23,6 @@ use sidekicks_platforms::PathRules;
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::compaction_wait::PendingCompactionRegistry;
-use crate::provider::driver::DriverServices;
 use crate::provider::driver::attachments::AttachmentResolver;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
@@ -70,6 +70,7 @@ use crate::provider::driver::claude::spawn::launch::installed_build::{
     ClaudeInstalledBuild, ClaudeProcessStarts,
 };
 use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::{DriverServices, ProviderAccountFolders};
 use crate::provider::port::repository_reader::RepositoryReading;
 use crate::provider::spawn_environment::SessionEnvironment;
 
@@ -193,31 +194,60 @@ impl ClaudeDriver {
         read_claude_repository(&**repositories, working_folder).await
     }
 
-    /// The environment a process that keeps nothing starts with on the person's own sign-in, or on
-    /// an account whose home the app manages. Fails as the environment cannot be composed.
+    /// The environment a process starts with on `account`'s home where the app manages it, else
+    /// on the person's own sign-in, with a session's environment rows where given. Fails as the
+    /// environment cannot be composed.
     fn process_environment(
         &self,
-        account: Option<(&ClaudeAccountFolders, &ProviderAccountId)>,
+        account: Option<(ProviderAccountFolders, &ProviderAccountId)>,
+        every_project_rows: &[EnvironmentRow],
+        project_rows: &[EnvironmentRow],
     ) -> Result<Vec<(String, String)>, DriverError> {
         let sources = &self.sources;
         let data_folder = sources.data_folder.to_string_lossy();
+        let account_folders = account.as_ref().map(|(folders, _)| ClaudeAccountFolders {
+            config_folder: folders.configuration_folder.to_string_lossy().into_owned(),
+            credential_store_folder: folders
+                .credential_store_folder
+                .to_string_lossy()
+                .into_owned(),
+        });
         compose_claude_process_environment(
             ClaudeProcessEnvironmentRequest {
                 session: SessionEnvironment {
                     base: &sources.base_environment,
-                    every_project_rows: &[],
-                    project_rows: &[],
+                    every_project_rows,
+                    project_rows,
                     reserved_names: &sources.reserved_names,
                     rules: PathRules::NATIVE,
                 },
                 deny_env_vars: &[],
-                account_folders: account.map(|(folders, _)| folders),
+                account_folders: account_folders.as_ref(),
                 data_folder: &data_folder,
                 provider_account_id: account.map(|(_, id)| id),
             },
             &[],
         )
         .map_err(internal)
+    }
+
+    /// The environment a process that keeps nothing starts with on `provider_account_id`'s home,
+    /// its folders read with no session, or on the person's own sign-in where `None`. Fails as the
+    /// account's folders cannot be read or the environment cannot be composed.
+    async fn account_environment(
+        &self,
+        provider_account_id: Option<&ProviderAccountId>,
+    ) -> Result<Vec<(String, String)>, DriverError> {
+        let folders = match provider_account_id {
+            Some(provider_account_id) => self
+                .sources
+                .spawn_contexts
+                .resolve_account_folders(provider_account_id.clone())
+                .await
+                .map_err(DriverError::Internal)?,
+            None => None,
+        };
+        self.process_environment(folders.zip(provider_account_id), &[], &[])
     }
 
     // Every piece a session shares, wired over `engine`.

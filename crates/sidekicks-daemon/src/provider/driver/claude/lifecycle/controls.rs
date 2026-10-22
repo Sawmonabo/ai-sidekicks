@@ -50,9 +50,7 @@ use crate::provider::driver::claude::session::ultracode::{
     claude_session_options, observe_claude_options,
 };
 use crate::provider::driver::claude::settings_rows::{ClaudeRowOffers, compose_claude_rows};
-use crate::provider::driver::claude::spawn::environment::{
-    ClaudeAccountFolders, claude_config_folder,
-};
+use crate::provider::driver::claude::spawn::environment::claude_config_folder;
 use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::provider::driver::claude::spawn::launch::initialize_reply::read_claude_initialize_declaration;
 use crate::provider::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
@@ -87,7 +85,9 @@ impl ClaudeDriver {
         &self,
         params: StartingLevelParams,
     ) -> Result<StartingLevel, DriverError> {
-        let environment = self.process_environment(None)?;
+        let environment = self
+            .account_environment(params.provider_account_id.as_ref())
+            .await?;
         let (catalog, can_run_sandbox, repository) = tokio::join!(
             self.starts.read_model_catalog(environment.clone()),
             read_claude_sandbox_support(
@@ -216,8 +216,8 @@ impl ClaudeDriver {
     }
 
     /// The models Claude Code offers on the account the params name, read from a process that
-    /// keeps nothing in the session's own place and account home, or the person's own home where
-    /// no session is named. Fails as the read or the catalog fails.
+    /// keeps nothing in the session's own place and account home, or the account's home where no
+    /// session is named. Fails as the account's folders, the read or the catalog fails.
     pub(crate) async fn list_models(
         &self,
         params: ListModelsParams,
@@ -230,17 +230,15 @@ impl ClaudeDriver {
                     .resolve_spawn_context(session_id, params.provider_account_id.clone())
                     .await
                     .map_err(DriverError::Internal)?;
-                let folders = context.account_folders.map(|folders| ClaudeAccountFolders {
-                    config_folder: folders.configuration_folder.to_string_lossy().into_owned(),
-                    credential_store_folder: folders
-                        .credential_store_folder
-                        .to_string_lossy()
-                        .into_owned(),
-                });
-                let account = folders.as_ref().zip(params.provider_account_id.as_ref());
-                self.process_environment(account)?
+                let account = context
+                    .account_folders
+                    .zip(params.provider_account_id.as_ref());
+                self.process_environment(account, &[], &[])?
             }
-            None => self.process_environment(None)?,
+            None => {
+                self.account_environment(params.provider_account_id.as_ref())
+                    .await?
+            }
         };
         let reading = self.starts.read_model_catalog(environment.clone()).await?;
         resolve_claude_model_catalog(reading, &self.figures.current(), &environment)
@@ -248,7 +246,7 @@ impl ClaudeDriver {
 
     /// The levels Claude Code runs on this system, as modes.
     pub(crate) async fn list_modes(&self) -> Result<Vec<ProviderMode>, DriverError> {
-        let environment = self.process_environment(None)?;
+        let environment = self.process_environment(None, &[], &[])?;
         let can_run_sandbox = read_claude_sandbox_support(
             &self.sources.spawner,
             &environment,
@@ -262,7 +260,7 @@ impl ClaudeDriver {
     /// The installed build's capabilities, version and tools, read live; the figures held for an
     /// older build are dropped once another is read.
     pub(crate) async fn get_capabilities(&self) -> Result<GetCapabilitiesResult, DriverError> {
-        let environment = self.process_environment(None)?;
+        let environment = self.process_environment(None, &[], &[])?;
         let result = self.starts.read_capabilities(environment).await?;
         self.figures.note_build(&result.cli_version.raw_version);
         Ok(result)
@@ -270,7 +268,7 @@ impl ClaudeDriver {
 
     /// How the person's own Claude Code is signed in, read from a process that takes no turn.
     pub(crate) async fn probe_auth(&self) -> Result<DriverAuthProbeResult, DriverError> {
-        let environment = self.process_environment(None)?;
+        let environment = self.process_environment(None, &[], &[])?;
         Ok(match self.starts.probe_sign_in(environment).await {
             Ok(detail) => build_auth_probe_result(DriverAuthProbeStatus::Authenticated, &detail),
             Err(error) => {
@@ -294,7 +292,7 @@ impl ClaudeDriver {
         &self,
         app_values: ProviderRowValues,
     ) -> Result<Vec<ProviderRow>, DriverError> {
-        let environment = self.process_environment(None)?;
+        let environment = self.process_environment(None, &[], &[])?;
         let place = ClaudeSessionFolderReadRequest {
             spawn_environment: environment,
             working_directory: self.sources.home_folder.clone(),

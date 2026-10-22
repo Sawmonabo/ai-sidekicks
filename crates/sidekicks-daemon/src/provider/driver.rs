@@ -455,11 +455,6 @@ pub(crate) trait SessionSpawnContextResolver: Send + Sync {
     /// The folders of `provider_account_id`'s account where the app manages its home, `None`
     /// where it does not; read with no session, before one exists. Fails when the account or its
     /// folders cannot be read.
-    #[expect(
-        dead_code,
-        reason = "a new session's starting level and a model list with no session read the \
-                  account's folders through it"
-    )]
     fn resolve_account_folders(
         &self,
         provider_account_id: ProviderAccountId,

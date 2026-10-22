@@ -21,9 +21,6 @@ use crate::provider::driver::claude::session::purge::{
 };
 use crate::provider::driver::claude::session::restart::ClaudeEndedConversation;
 use crate::provider::driver::claude::session::slots::ClaudeCloseStart;
-use crate::provider::driver::claude::spawn::environment::{
-    ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, compose_claude_process_environment,
-};
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
@@ -33,7 +30,6 @@ use crate::provider::driver::session_control::{
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderSessionHandle,
     PurgeSessionParams, ResumeSessionParams,
 };
-use crate::provider::spawn_environment::SessionEnvironment;
 use crate::settle_all::settle_all;
 
 impl ClaudeDriver {
@@ -282,29 +278,7 @@ impl ClaudeDriver {
             .spawn_contexts
             .resolve_spawn_context(session_id, provider_account_id.clone())
             .await?;
-        let account_folders = context.account_folders.map(|folders| ClaudeAccountFolders {
-            config_folder: folders.configuration_folder.to_string_lossy().into_owned(),
-            credential_store_folder: folders
-                .credential_store_folder
-                .to_string_lossy()
-                .into_owned(),
-        });
-        let data_folder = sources.data_folder.to_string_lossy();
-        Ok(compose_claude_process_environment(
-            ClaudeProcessEnvironmentRequest {
-                session: SessionEnvironment {
-                    base: &sources.base_environment,
-                    every_project_rows: &context.every_project_rows,
-                    project_rows: &context.project_rows,
-                    reserved_names: &sources.reserved_names,
-                    rules: PathRules::NATIVE,
-                },
-                deny_env_vars: &[],
-                account_folders: account_folders.as_ref(),
-                data_folder: &data_folder,
-                provider_account_id: provider_account_id.as_ref(),
-            },
-            &[],
-        )?)
+        let account = context.account_folders.zip(provider_account_id.as_ref());
+        Ok(self.process_environment(account, &context.every_project_rows, &context.project_rows)?)
     }
 }
