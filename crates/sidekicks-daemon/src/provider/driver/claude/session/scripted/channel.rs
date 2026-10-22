@@ -69,6 +69,7 @@ pub(crate) struct ScriptedChannel {
     answers: Mutex<HashMap<String, VecDeque<ScriptedAnswer>>>,
     user_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
     user_failures: Mutex<VecDeque<ClaudeWriteDelivery>>,
+    close_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
 }
 
 impl ScriptedChannel {
@@ -85,6 +86,14 @@ impl ScriptedChannel {
     pub(crate) fn hold_next_user_write(&self) -> oneshot::Sender<()> {
         let (release, held) = oneshot::channel();
         lock(&self.user_holds).push_back(held);
+        release
+    }
+
+    /// Holds the next close until the returned sender fires or drops; the stop is recorded as the
+    /// close starts.
+    pub(crate) fn hold_next_close(&self) -> oneshot::Sender<()> {
+        let (release, held) = oneshot::channel();
+        lock(&self.close_holds).push_back(held);
         release
     }
 
@@ -211,6 +220,12 @@ impl ClaudeProcessChannel for ScriptedChannel {
 
     fn close(&self) -> BoxFuture<'_, ()> {
         self.record(ScriptedWrite::Terminate);
-        async {}.boxed()
+        let hold = lock(&self.close_holds).pop_front();
+        async move {
+            if let Some(hold) = hold {
+                drop(hold.await);
+            }
+        }
+        .boxed()
     }
 }

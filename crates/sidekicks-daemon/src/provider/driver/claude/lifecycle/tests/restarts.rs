@@ -2,6 +2,7 @@
 //! presses each end lets go.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use rstest::rstest;
 
@@ -123,21 +124,25 @@ async fn a_build_move_on_a_busy_session_waits_for_its_turn_to_settle() {
 enum ProcessEnd {
     ExitWhileIdle,
     Close,
+    CloseOfQuarantined,
     BuildMove,
 }
 
 // Killed by letting go only the presses of runs still bound when the process ends, which keeps a
-// press held on a binding whose run already ended, and by an end that lets go none.
+// press held on a binding whose run already ended, by an end that lets go none, and by a close of
+// a process an abandoned close quarantined that forgets the bindings it served.
 #[rstest]
 #[case::exit_while_idle(ProcessEnd::ExitWhileIdle)]
 #[case::close(ProcessEnd::Close)]
+#[case::close_of_quarantined(ProcessEnd::CloseOfQuarantined)]
 #[case::build_move(ProcessEnd::BuildMove)]
 #[tokio::test]
 async fn a_process_end_lets_go_the_held_presses_of_every_binding_it_served(
     #[case] end: ProcessEnd,
 ) {
     let fixture = DriverFixture::new();
-    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let channel = Arc::new(ScriptedChannel::default());
+    let session_id = fixture.create(&channel).await;
     let first = fixture.next_start().await;
     fixture
         .driver
@@ -157,6 +162,25 @@ async fn a_process_end_lets_go_the_held_presses_of_every_binding_it_served(
             .close_session(CloseSessionParams { session_id })
             .await
             .expect("the close succeeds"),
+        ProcessEnd::CloseOfQuarantined => {
+            let held = channel.hold_next_close();
+            let abandoned = tokio::time::timeout(
+                Duration::from_millis(50),
+                fixture
+                    .driver
+                    .close_session(CloseSessionParams { session_id }),
+            )
+            .await;
+            assert!(abandoned.is_err(), "the held close is abandoned");
+            drop(held);
+            let released = PortCall::PressesReleased(binding_id("lead"));
+            assert!(!fixture.ports.calls().contains(&released));
+            fixture
+                .driver
+                .close_session(CloseSessionParams { session_id })
+                .await
+                .expect("the quarantined process's close succeeds");
+        }
         ProcessEnd::BuildMove => fixture
             .driver
             .move_to_provider_build(ProviderBuildChange {

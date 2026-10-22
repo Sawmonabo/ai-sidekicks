@@ -156,9 +156,7 @@ impl ClaudeSessionEstablishment {
             .release_binding(&session_id.to_string());
         lock(&self.prompts).forget_session(session_id);
         predecessor.channel.terminate().await;
-        if let Some(reviewer_denials) = self.sources.ports.reviewer_denials.port() {
-            predecessor.release_served_presses(&**reviewer_denials);
-        }
+        predecessor.release_served_presses(&self.sources.ports.reviewer_denials);
     }
 
     // Points the session's binding at the conversation it moved onto.

@@ -161,14 +161,15 @@ impl ClaudeSessionSlots {
     /// in flight is waited out first, and an empty slot needs nothing.
     pub(crate) fn begin_close(&self, session_id: SessionId) -> ClaudeCloseStart {
         let mut table = lock(&self.table);
-        let channel = match table.by_session.get(&session_id) {
+        let session = match table.by_session.get(&session_id) {
             None => return ClaudeCloseStart::Empty,
             Some(
                 ClaudeSessionSlot::Establishing { settled, .. }
                 | ClaudeSessionSlot::Closing { settled },
             ) => return ClaudeCloseStart::Wait(Arc::clone(settled)),
-            Some(ClaudeSessionSlot::Live { session }) => Arc::clone(&session.channel),
-            Some(ClaudeSessionSlot::Quarantined { channel }) => Arc::clone(channel),
+            Some(
+                ClaudeSessionSlot::Live { session } | ClaudeSessionSlot::Quarantined { session },
+            ) => Arc::clone(session),
         };
         let settled: ClaudeSlotSettled = Arc::new(SetOnce::new());
         table.by_session.insert(
@@ -181,7 +182,7 @@ impl ClaudeSessionSlots {
             table: Arc::clone(&self.table),
             session_id,
             settled,
-            channel,
+            session,
             is_disposed: false,
         })
     }
@@ -315,14 +316,14 @@ pub(crate) struct ClaudeSlotClose {
     table: Arc<Mutex<SlotTable>>,
     session_id: SessionId,
     settled: ClaudeSlotSettled,
-    channel: Arc<dyn ClaudeProcessChannel>,
+    session: Arc<LiveClaudeSession>,
     is_disposed: bool,
 }
 
 impl ClaudeSlotClose {
-    /// The process the close disposes of.
-    pub(crate) fn channel(&self) -> &Arc<dyn ClaudeProcessChannel> {
-        &self.channel
+    /// The session whose process the close disposes of.
+    pub(crate) fn session(&self) -> &Arc<LiveClaudeSession> {
+        &self.session
     }
 
     /// Empties the slot once the process is disposed of.
@@ -346,7 +347,7 @@ impl Drop for ClaudeSlotClose {
                     table.by_session.insert(
                         self.session_id,
                         ClaudeSessionSlot::Quarantined {
-                            channel: Arc::clone(&self.channel),
+                            session: Arc::clone(&self.session),
                         },
                     );
                 }
@@ -428,7 +429,7 @@ mod tests {
         let ClaudeCloseStart::Closing(close) = slots.begin_close(session_id) else {
             unreachable!("a quarantined process is the next close's")
         };
-        assert!(Arc::ptr_eq(close.channel(), &live.channel));
+        assert!(Arc::ptr_eq(close.session(), &live));
         close.finish();
         assert!(slots.claim_bring_up(session_id).is_ok());
     }

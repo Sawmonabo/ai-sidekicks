@@ -25,6 +25,7 @@ use crate::provider::driver::claude::session::transport::control::ClaudeControlR
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::rewind::RewindConversationResult;
 use crate::provider::lenient_json::{lenient_object, read_lenient};
+use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::reviewer_denial::ReviewerDenialPort;
 use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
@@ -77,7 +78,7 @@ impl ClaudeConversationCuts {
         &self,
         live: &LiveClaudeSession,
         target_message_id: &str,
-        reviewer_denials: Option<&dyn ReviewerDenialPort>,
+        reviewer_denials: &PortRegistration<Arc<dyn ReviewerDenialPort>>,
     ) -> Result<RewindConversationResult, DriverError> {
         if let Some(lead) = self.routes.lead_run_on(live.session_id) {
             settle_claude_choice(
@@ -101,9 +102,7 @@ impl ClaudeConversationCuts {
             self.routes.retire_run_routes(live.session_id);
             self.lock_prompts().forget_session(live.session_id);
             // Every run the process served is retired, so none still needs its presses.
-            if let Some(reviewer_denials) = reviewer_denials {
-                live.release_served_presses(reviewer_denials);
-            }
+            live.release_served_presses(reviewer_denials);
         }
         Ok(result)
     }

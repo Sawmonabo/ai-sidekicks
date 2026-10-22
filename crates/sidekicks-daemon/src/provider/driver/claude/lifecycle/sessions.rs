@@ -3,7 +3,6 @@
 //! of its conversations, and the messages its process took.
 
 use std::error::Error;
-use std::sync::Arc;
 
 use futures::future::join_all;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -84,13 +83,12 @@ impl ClaudeDriver {
     ) -> Result<RewindConversationResult, DriverError> {
         let parts = self.parts()?;
         let live = parts.run_start.live_session(params.session_id)?;
-        let reviewer_denials = self.sources.ports.reviewer_denials.port();
         parts
             .cuts
             .rewind(
                 &live,
                 &params.target_message_id,
-                reviewer_denials.map(|port| &**port),
+                &self.sources.ports.reviewer_denials,
             )
             .await
     }
@@ -122,7 +120,6 @@ impl ClaudeDriver {
         parts.session_controls.forget_session(session_id).await;
         parts.reviewer.forget_session(session_id);
         loop {
-            let live = parts.slots().live_session(session_id);
             match parts.slots().begin_close(session_id) {
                 ClaudeCloseStart::Empty => return Ok(()),
                 ClaudeCloseStart::Wait(settled) => {
@@ -136,14 +133,9 @@ impl ClaudeDriver {
                     lock(&parts.establishment.prompts).forget_session(session_id);
                     self.pending_compactions
                         .release_binding(&session_id.to_string());
-                    close.channel().close().await;
-                    // Only the process this close disposes of, never one that replaced it.
-                    if let (Some(live), Some(reviewer_denials)) = (
-                        live.filter(|live| Arc::ptr_eq(&live.channel, close.channel())),
-                        self.sources.ports.reviewer_denials.port(),
-                    ) {
-                        live.release_served_presses(&**reviewer_denials);
-                    }
+                    let session = close.session();
+                    session.channel.close().await;
+                    session.release_served_presses(&self.sources.ports.reviewer_denials);
                     close.finish();
                     return Ok(());
                 }

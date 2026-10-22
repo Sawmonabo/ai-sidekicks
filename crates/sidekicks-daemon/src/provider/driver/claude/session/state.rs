@@ -27,6 +27,7 @@ use crate::provider::driver::claude::session::transport::declarations::{
 };
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::provider::driver::claude::session::ultracode::ClaudeUltracodeReading;
+use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::reviewer_denial::ReviewerDenialPort;
 use crate::provider::thread_frame_router::{
     RoutableProviderFrame, ThreadFrameFamilyClass, ThreadFrameRouter, ThreadFrameRouterConfig,
@@ -200,8 +201,15 @@ impl LiveClaudeSession {
     }
 
     /// Releases the held `Allow once` presses of every binding this process served, through
-    /// `reviewer_denials`, and forgets them, once the process is gone or no longer the session's.
-    pub(crate) fn release_served_presses(&self, reviewer_denials: &dyn ReviewerDenialPort) {
+    /// `reviewer_denials` once the approvals are registered, and forgets them, once the process is
+    /// gone or no longer the session's.
+    pub(crate) fn release_served_presses(
+        &self,
+        reviewer_denials: &PortRegistration<Arc<dyn ReviewerDenialPort>>,
+    ) {
+        let Some(reviewer_denials) = reviewer_denials.port() else {
+            return;
+        };
         let served = std::mem::take(&mut *lock(&self.served_bindings));
         for binding_id in &served {
             reviewer_denials.release_held_presses(binding_id);
@@ -236,10 +244,10 @@ pub(crate) enum ClaudeSessionSlot {
         settled: ClaudeSlotSettled,
     },
     /// The disposal failed, so the process still lives and this is the only handle on it, kept
-    /// until a later close disposes of it.
+    /// with the bindings it served until a later close disposes of it.
     Quarantined {
-        /// The process.
-        channel: Arc<dyn ClaudeProcessChannel>,
+        /// The session whose process it is.
+        session: Arc<LiveClaudeSession>,
     },
 }
 
