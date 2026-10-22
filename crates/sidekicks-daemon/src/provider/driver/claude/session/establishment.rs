@@ -674,6 +674,7 @@ impl ClaudeSessionEstablishment {
             process_identity: started.identity,
             callback_tool_binding: callback_tools.into_shared(),
             process_exit: OnceLock::new(),
+            served_bindings: Mutex::default(),
             spawn_bound_legs: legs,
         });
         if let Err(error) = before_install(&live).await {

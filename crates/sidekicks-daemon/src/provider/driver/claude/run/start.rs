@@ -260,7 +260,7 @@ impl ClaudeRunStart {
             Some(ClaudeDaemonTurnOpening::Apart { start }) => start(run),
             Some(ClaudeDaemonTurnOpening::Provider) => {
                 self.routes
-                    .hold_turn(run_id, session_id, run.binding_id)
+                    .hold_turn(run_id, session_id, run.binding_id.clone())
                     .map_err(|_held| {
                         claude_session_unavailable(
                             ClaudeSessionUnavailableReason::SessionTurnInFlight,
@@ -268,6 +268,9 @@ impl ClaudeRunStart {
                             Some(run_id),
                         )
                     })?;
+                if let Some(live) = self.slots.live_session(session_id) {
+                    live.record_served_binding(run.binding_id);
+                }
             }
             Some(ClaudeDaemonTurnOpening::Text {
                 text,
@@ -306,7 +309,7 @@ impl ClaudeRunStart {
         let ClaudeBoundRun { run_id, binding_id } = run;
         let session_id = live.session_id;
         self.routes
-            .hold_turn(run_id, session_id, binding_id)
+            .hold_turn(run_id, session_id, binding_id.clone())
             .map_err(|_held| {
                 DriverError::from(claude_session_unavailable(
                     ClaudeSessionUnavailableReason::SessionTurnInFlight,
@@ -314,6 +317,7 @@ impl ClaudeRunStart {
                     Some(run_id),
                 ))
             })?;
+        live.record_served_binding(binding_id);
         if let Some(level) = output_speed {
             self.apply_output_speed(live, run_id, level).await?;
         }

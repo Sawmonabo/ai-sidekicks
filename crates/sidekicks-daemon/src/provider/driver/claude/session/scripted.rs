@@ -180,6 +180,7 @@ pub(crate) fn scripted_live_session(
         },
         callback_tool_binding: test_callback_tool_binding(session_id),
         process_exit: OnceLock::new(),
+        served_bindings: Mutex::default(),
     }
 }
 

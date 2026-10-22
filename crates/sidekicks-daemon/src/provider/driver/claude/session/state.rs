@@ -3,13 +3,14 @@
 //! disposal failed.
 
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use futures::future::{BoxFuture, Shared};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
@@ -25,6 +26,7 @@ use crate::provider::driver::claude::session::transport::declarations::{
 };
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::provider::driver::claude::session::ultracode::ClaudeUltracodeReading;
+use crate::provider::port::reviewer_denial::ReviewerDenialPort;
 use crate::provider::thread_frame_router::{
     RoutableProviderFrame, ThreadFrameFamilyClass, ThreadFrameRouter, ThreadFrameRouterConfig,
 };
@@ -185,6 +187,38 @@ pub(crate) struct LiveClaudeSession {
     /// The exit the process ended with, set once it ended, for a rewind's predecessor whose exit
     /// is taken up only once its fork fails.
     pub(crate) process_exit: OnceLock<ProcessExit>,
+    /// The binding of each run that took the session's turn on this process, whose held `Allow
+    /// once` presses are released once the process is gone, ended runs' included.
+    pub(crate) served_bindings: Mutex<HashSet<RuntimeBindingId>>,
+}
+
+impl LiveClaudeSession {
+    /// Records that a run on `binding_id` took the session's turn on this process.
+    pub(crate) fn record_served_binding(&self, binding_id: RuntimeBindingId) {
+        self.served_bindings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(binding_id);
+    }
+
+    /// Releases the held `Allow once` presses of every binding this process served, through
+    /// `reviewer_denials`, and forgets them, once the process is gone or no longer the session's.
+    #[expect(
+        dead_code,
+        reason = "a process's exit, its relaunch, a fork's superseded process, a rewind and a \
+                  close release the presses its bindings held through it"
+    )]
+    pub(crate) fn release_served_presses(&self, reviewer_denials: &dyn ReviewerDenialPort) {
+        let served = std::mem::take(
+            &mut *self
+                .served_bindings
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+        for binding_id in &served {
+            reviewer_denials.release_held_presses(binding_id);
+        }
+    }
 }
 
 /// A slot's transition in flight, set once its slot write is made or the transition ends without
