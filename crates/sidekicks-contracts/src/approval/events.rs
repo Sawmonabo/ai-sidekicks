@@ -80,6 +80,15 @@ pub struct ApprovalResolvedPayload {
     pub device_id: DeviceId,
     /// The id the answering client minted.
     pub client_resolution_id: ClientUuid,
+    /// The rule the person asked to keep with the answer, so a rebuild and a resend record the
+    /// rule asked for even when its own event was never written.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "RememberedScope")]
+    pub remembered_scope: Option<RememberedScope>,
     /// The corrected command or path, which is what runs; only on `approval.approved`.
     #[serde(
         default,

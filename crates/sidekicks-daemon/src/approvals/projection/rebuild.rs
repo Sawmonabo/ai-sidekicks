@@ -236,8 +236,7 @@ fn push_answer(
         client_resolution_id: resolved.client_resolution_id.clone(),
         decision,
         effective_scope: resolved.effective_scope.clone(),
-        // The event names no rule the answer asked for; the rule's own event writes the one made.
-        asked_scope: None,
+        asked_scope: resolved.remembered_scope.clone(),
         edited_action: resolved.edited_action.clone(),
         resolved_at,
     }));
@@ -312,7 +311,7 @@ mod tests {
                     client_resolution_id: resolved.client_resolution_id.clone(),
                     decision,
                     effective_scope: resolved.effective_scope.clone(),
-                    asked_scope: None,
+                    asked_scope: resolved.remembered_scope.clone(),
                     edited_action: resolved.edited_action.clone(),
                     resolved_at: occurred_at.clone(),
                 }),
@@ -506,6 +505,13 @@ mod tests {
             if let Some(edited_action) = edited_action {
                 extra["editedAction"] = json!(edited_action);
             }
+            if ask.id == gate_named.id {
+                extra["rememberedScope"] = json!({
+                    "kind": "session",
+                    "pattern": "npm run",
+                    "sense": "allow",
+                });
+            }
             ask.event(session_id, event_type, &extra)
         };
         let remembered = |ask: &Ask| {
@@ -593,7 +599,8 @@ mod tests {
             .expect("the gate's row is written");
         let (live_requests, mut live_resolutions) = approval_rows(&reader);
         if let GateNamedSkip::Rule = skip {
-            // A rebuild that never reads the gate-named ask's rule writes its answer without it.
+            // A rebuild that never reads the gate-named ask's rule writes its answer without the
+            // rule made, and keeps the rule asked for, which the answer's own event carries.
             let columns = reader
                 .prepare("SELECT * FROM approval_resolutions")
                 .expect("the read prepares");
@@ -608,8 +615,6 @@ mod tests {
                 if row[at("request_id")] == Value::Text(gate_named.id.clone()) {
                     row[at("remembered_scope_kind")] = Value::Null;
                     row[at("remembered_scope_pattern")] = Value::Null;
-                    row[at("asked_scope_kind")] = Value::Null;
-                    row[at("asked_scope_pattern")] = Value::Null;
                 }
             }
         }

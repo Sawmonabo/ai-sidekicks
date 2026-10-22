@@ -253,8 +253,8 @@ const INSERT_RESOLUTION_SQL: &str = "INSERT INTO approval_resolutions
           @asked_scope_kind, @asked_scope_pattern, @edited_action, @resolved_at)";
 
 // A rebuild's write of an answer: the answer of an ask a workflow gate names outlives the
-// rebuild's clear with its ask, and is written over with what the log says, the rule it made and
-// the one it asked for cleared until the log's own rule event writes them again.
+// rebuild's clear with its ask, and is written over with what the log says, the rule asked for
+// from the answer's event and the rule made cleared until the log's own rule event writes it.
 #[cfg_attr(
     not(test),
     expect(
@@ -269,7 +269,8 @@ static REWRITE_RESOLUTION_SQL: LazyLock<String> = LazyLock::new(|| {
     device_id = excluded.device_id, client_resolution_id = excluded.client_resolution_id,
     decision = excluded.decision, effective_scope = excluded.effective_scope,
     remembered_scope_kind = NULL, remembered_scope_pattern = NULL,
-    asked_scope_kind = NULL, asked_scope_pattern = NULL,
+    asked_scope_kind = excluded.asked_scope_kind,
+    asked_scope_pattern = excluded.asked_scope_pattern,
     edited_action = excluded.edited_action, resolved_at = excluded.resolved_at"
     )
 });
@@ -281,8 +282,7 @@ const INSERT_CORRECTION_USE_SQL: &str = "INSERT INTO approval_correction_uses
   ON CONFLICT (request_id) DO NOTHING";
 
 const SET_REMEMBERED_SCOPE_SQL: &str = "UPDATE approval_resolutions
-    SET remembered_scope_kind = @kind, remembered_scope_pattern = @pattern,
-        asked_scope_kind = @kind, asked_scope_pattern = @pattern
+    SET remembered_scope_kind = @kind, remembered_scope_pattern = @pattern
   WHERE request_id = @request_id";
 
 fn pending() -> &'static str {
@@ -512,9 +512,8 @@ pub(crate) fn insert_correction_use_statement(
     }
 }
 
-/// The statement that writes onto an ask's answer the rule it made, in that rule's own record, as
-/// the rule it asked for too, which the answer's own event does not name for a rebuild; refused
-/// when the ask has no answer.
+/// The statement that writes onto an ask's answer the rule it made, in that rule's own record;
+/// refused when the ask has no answer.
 pub(crate) fn remembered_scope_statement(
     approval_request_id: &ApprovalRequestId,
     remembered_scope: &RememberedScope,

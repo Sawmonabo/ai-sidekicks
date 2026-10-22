@@ -106,6 +106,9 @@ interface ApprovalResolvedPayload {
   // the resolving request's own `clientResolutionId`, echoed so the device whose answer landed
   // knows it did
   clientResolutionId: string;
+  // the rule the person asked to keep with the answer, so a rebuild and a resend record the rule
+  // asked for even when `approval.rule.remembered` was never written
+  rememberedScope?: RememberedScope;
   // on `approval.approved` only, the command or path the person corrected on the card: the one
   // action the approval covers, which the permission check lets run once, on the card's own run
   // (local-sqlite-schema.md §Approval Tables)

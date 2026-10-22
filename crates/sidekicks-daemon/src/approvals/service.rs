@@ -383,6 +383,7 @@ impl ApprovalService {
             effective_scope: effective_scope.clone(),
             device_id: device_id.clone(),
             client_resolution_id: answer.client_resolution_id.clone(),
+            remembered_scope: answer.remembered_scope.cloned(),
             edited_action: answer.edited_action.cloned(),
         };
         let resolution = InsertedApprovalResolution {
