@@ -31,7 +31,7 @@ use crate::policy::execution_posture_service::{
 use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::provider::driver::claude::session::scripted::channel::{ScriptedChannel, ScriptedWrite};
 use crate::provider::driver::claude::session::scripted::daemon_services::{
-    NoRepositories, RecordingPorts, ScriptedBindings, test_callback_tool_host,
+    RecordingPorts, register_scripted_ports, test_callback_tool_host,
 };
 use crate::provider::driver::claude::session::scripted::run_engine::{
     EngineCall, RecordingRunEngine,
@@ -195,18 +195,7 @@ impl DriverFixture {
             .callback_tool_host
             .register(test_callback_tool_host())
             .expect("the host registers once");
-        ports
-            .daemon_turn_bindings
-            .register(Arc::new(ScriptedBindings))
-            .expect("the turn bindings register once");
-        ports
-            .repositories
-            .register(Arc::new(NoRepositories))
-            .expect("the repositories register once");
-        ports
-            .reviewer_denials
-            .register(recording)
-            .expect("the denials register once");
+        register_scripted_ports(ports, &recording);
         ports
             .session_relaunched
             .register(relaunches.clone())

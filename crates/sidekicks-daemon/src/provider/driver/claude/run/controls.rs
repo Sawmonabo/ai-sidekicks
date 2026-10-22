@@ -96,7 +96,9 @@ pub(crate) async fn settle_claude_choice(
     }
 }
 
-/// Interrupt, pause, continue, withdraw, background and answers on live Claude runs.
+/// Interrupt, pause, continue, withdraw, background and answers on live Claude runs; clones share
+/// everything.
+#[derive(Clone)]
 pub(crate) struct ClaudeRunControls {
     /// Starts the session's own runs, and reaches its slots, routes, streams and messages.
     pub(crate) start: ClaudeRunStart,

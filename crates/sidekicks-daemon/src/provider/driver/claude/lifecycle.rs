@@ -88,11 +88,15 @@ pub(crate) struct ClaudeDriver {
 
 /// What every session shares once the daemon's run engine is registered.
 pub(crate) struct ClaudeSessionParts {
-    establishment: Arc<ClaudeSessionEstablishment>,
+    /// Brings sessions up and holds what their tasks share.
+    pub(crate) establishment: Arc<ClaudeSessionEstablishment>,
     restarts: Arc<ClaudeSessionRestarts>,
-    run_start: ClaudeRunStart,
-    run_controls: ClaudeRunControls,
-    interventions: Arc<ClaudeInterventions>,
+    /// Starts runs on live sessions.
+    pub(crate) run_start: ClaudeRunStart,
+    /// Interrupts, pauses and answers live runs.
+    pub(crate) run_controls: ClaudeRunControls,
+    /// Applies steers and interruptions.
+    pub(crate) interventions: Arc<ClaudeInterventions>,
     cuts: Arc<ClaudeConversationCuts>,
     session_controls: Arc<ClaudeSessionControls>,
     goals: Arc<ClaudeGoalCommands>,
@@ -183,7 +187,7 @@ impl ClaudeDriver {
 
     /// The session pieces once composed; `None` before any session call composed them, when no
     /// session is live either.
-    fn composed_parts(&self) -> Option<&Arc<ClaudeSessionParts>> {
+    pub(crate) fn composed_parts(&self) -> Option<&Arc<ClaudeSessionParts>> {
         self.parts.get()
     }
 

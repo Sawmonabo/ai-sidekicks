@@ -2,8 +2,8 @@
 //! success.
 
 use std::collections::VecDeque;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -19,6 +19,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::oneshot;
 
 use super::mint_run_id;
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::session::run::engine::RunEngineError;
 use crate::session::run::engine::turns::{ProviderTurnEnd, StartedTurn, TurnOutcome};
@@ -307,8 +308,4 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         }
     }
     recorded
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }

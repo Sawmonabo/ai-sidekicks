@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::Mutex;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -11,6 +11,7 @@ use serde_json::Value;
 use serde_json::value::RawValue;
 use tokio::sync::oneshot;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
 use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::provider::driver::claude::session::transport::control::ClaudeControlRequest;
@@ -206,8 +207,4 @@ impl ClaudeProcessChannel for ScriptedChannel {
         self.record(ScriptedWrite::Terminate);
         async {}.boxed()
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }

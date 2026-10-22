@@ -407,7 +407,7 @@ async fn a_steer_taken_before_its_write_returns_is_reported_under_its_run() {
         .expect("the steer's task ends")
         .expect("the steer is written");
 
-    assert_eq!(session.taken(), [(steered.to_string(), run_id)]);
+    assert_eq!(session.ports.taken(), [(steered.to_string(), run_id)]);
     assert!(
         !session
             .start

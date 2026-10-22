@@ -1,11 +1,11 @@
-//! The daemon services a scripted session reaches: approval ports that record what reaches them,
-//! files whose read takes a set time, the bindings of daemon turns and a machine with no
-//! repositories.
+//! The daemon services a scripted session reaches: approval ports and a queue intake that record
+//! what reaches them, files whose read takes a set time, the bindings of daemon turns and a machine
+//! with no repositories.
 
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt;
@@ -18,6 +18,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::binding_id;
+use crate::mutex_lock::lock;
 use crate::provider::callback_tools::host::{
     CallbackToolActivityRecord, CallbackToolActivitySink, CallbackToolExecutor, CallbackToolHost,
     CallbackToolPortError, CallbackToolSpawnRequest,
@@ -30,6 +31,7 @@ use crate::provider::driver::attachments::{
 };
 use crate::provider::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
 use crate::provider::driver::claude::DESCRIPTOR;
+use crate::provider::driver::ports::{DriverPorts, MessageTakenListener};
 use crate::provider::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
 };
@@ -52,16 +54,22 @@ pub(crate) enum PortCall {
     PressesReleased(RuntimeBindingId),
 }
 
-/// Approval ports that record what reaches them.
+/// Approval ports and the queue's intake of taken messages, each recording what reaches it.
 #[derive(Default)]
 pub(crate) struct RecordingPorts {
     calls: Mutex<Vec<PortCall>>,
+    taken: Mutex<Vec<(String, RunId)>>,
 }
 
 impl RecordingPorts {
     /// Every call so far, in order.
     pub(crate) fn calls(&self) -> Vec<PortCall> {
         lock(&self.calls).clone()
+    }
+
+    /// The messages reported taken so far, with the run each was reported under.
+    pub(crate) fn taken(&self) -> Vec<(String, RunId)> {
+        lock(&self.taken).clone()
     }
 
     fn record(&self, call: PortCall) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
@@ -97,6 +105,37 @@ impl ReviewerDenialPort for RecordingPorts {
     fn release_held_presses(&self, binding_id: &RuntimeBindingId) {
         lock(&self.calls).push(PortCall::PressesReleased(binding_id.clone()));
     }
+}
+
+impl MessageTakenListener for RecordingPorts {
+    fn message_taken(&self, _session_id: SessionId, message_id: &str, run_id: RunId) {
+        lock(&self.taken).push((message_id.to_owned(), run_id));
+    }
+}
+
+/// Registers what a scripted driver composes over: `recording` as the approval ports and the
+/// queue's intake, every daemon turn on one binding, and a machine with no repositories.
+pub(crate) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<RecordingPorts>) {
+    ports
+        .daemon_turn_bindings
+        .register(Arc::new(ScriptedBindings))
+        .expect("the turn bindings register once");
+    ports
+        .repositories
+        .register(Arc::new(NoRepositories))
+        .expect("the repositories register once");
+    ports
+        .reviewer_denials
+        .register(recording.clone())
+        .expect("the denials register once");
+    ports
+        .permission_asks
+        .register(recording.clone())
+        .expect("the asks register once");
+    ports
+        .message_taken
+        .register(recording.clone())
+        .expect("the intake registers once");
 }
 
 /// Files whose read takes the given time: every id answers its unresolved marker once its delay
@@ -219,8 +258,4 @@ impl CallbackToolActivitySink for NoCallbackTools {
     ) -> BoxFuture<'a, Result<(), CallbackToolPortError>> {
         async { Ok(()) }.boxed()
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }

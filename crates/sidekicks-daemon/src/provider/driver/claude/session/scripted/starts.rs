@@ -3,7 +3,7 @@
 //! recorded with the conversation it asked for and the listener its frames and exit go to.
 
 use std::collections::{HashSet, VecDeque};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -106,7 +106,7 @@ impl ScriptedStarts {
     }
 
     fn lock(&self) -> MutexGuard<'_, ScriptedStartTables> {
-        self.tables.lock().unwrap_or_else(PoisonError::into_inner)
+        crate::mutex_lock::lock(&self.tables)
     }
 }
 
