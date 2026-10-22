@@ -274,7 +274,11 @@ async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
         .run_engine
         .register(engine)
         .expect("the run engine registers once");
-    let driver = ClaudeDriver::with_starts(&fixture.services, fixture.starts.clone());
+    let claude = Arc::new(ClaudeDriver::with_starts(
+        &fixture.services,
+        fixture.starts.clone(),
+    ));
+    let driver: Arc<dyn ProviderDriver> = claude.clone();
     let channel = Arc::new(ScriptedChannel::default());
     fixture.starts.script_session(Arc::clone(&channel));
     driver
@@ -287,7 +291,7 @@ async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
         .start_run(start_params(session_id, run_id))
         .await
         .expect("the run starts");
-    end_turn_of(&driver, &start, session_id);
+    end_turn_of(&claude, &start, session_id);
     DriverFixture::wait_for(|| stored_run_state(&fixture.database, &run_id).0 == "completed").await;
 
     assert_eq!(channel.user_frames().len(), 1);
