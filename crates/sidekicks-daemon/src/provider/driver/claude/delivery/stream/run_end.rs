@@ -5,8 +5,6 @@
 //! turn end alone where it moves no run. An end the run engine could not take is followed by a
 //! failed end, so no run is left open.
 
-use std::sync::PoisonError;
-
 use serde_json::Value;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
@@ -14,6 +12,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::Instant;
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, bound, report_engine_failure};
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::delivery::run_readings::{
     ClaudeEndedAs, ClaudeOpenTurn, ClaudeTurnEndDelivery,
 };
@@ -153,11 +152,7 @@ impl ClaudeDeliveryStream {
         }
         // Taken whatever the gate decides, so a pause never outlives the turn it was asked in.
         let (pause_effect, reported_pause) = {
-            let mut pauses = self
-                .dependencies
-                .pauses
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
+            let mut pauses = lock(&self.dependencies.pauses);
             let effect = pauses.take_lead_pause_effect(&session.session_id);
             (
                 effect,

@@ -8,7 +8,7 @@
 pub(crate) mod task;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -18,6 +18,7 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeDaemonEndSettlement;
 use crate::provider::driver::claude::delivery::stream::{
@@ -367,7 +368,7 @@ impl ClaudeSessionListener {
 impl ClaudeProcessListener for ClaudeSessionListener {
     fn take_frame(&self, frame: ClaudeStreamFrame) {
         let routed = {
-            let mut band = self.band.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut band = lock(&self.band);
             self.routing.route_frame(
                 &mut band,
                 self.session_id,
@@ -377,11 +378,7 @@ impl ClaudeProcessListener for ClaudeSessionListener {
         };
         let is_lead_result = frame.observation.subagent_id.is_none()
             && frame.observation.frame_kind.split('/').next() == Some("result");
-        let decided = self
-            .turn_ending
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let decided = lock(&self.turn_ending).take();
         let is_turn_ending =
             is_lead_result && decided.unwrap_or_else(|| self.stream.is_turn_ending(&frame.text));
         let turn_at_read = self.stream.turn_at_read();
@@ -407,10 +404,7 @@ impl ClaudeProcessListener for ClaudeSessionListener {
 
     fn is_turn_ending(&self, frame: &ClaudeStreamFrame) -> bool {
         let is_turn_ending = self.stream.is_turn_ending(&frame.text);
-        *self
-            .turn_ending
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Some(is_turn_ending);
+        *lock(&self.turn_ending) = Some(is_turn_ending);
         is_turn_ending
     }
 }

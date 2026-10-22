@@ -5,13 +5,14 @@
 //! reads unanswered.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
 
 use serde::Deserialize;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio::sync::oneshot;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::provider::driver::claude::run::start::{ClaudeDaemonTurnOpening, ClaudeRunStart};
 use crate::provider::driver::claude::session::state::LiveClaudeSession;
@@ -138,8 +139,6 @@ impl ClaudeGoalCommands {
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, oneshot::Sender<ClaudeGoalReply>>> {
-        self.waiting_by_session
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.waiting_by_session)
     }
 }

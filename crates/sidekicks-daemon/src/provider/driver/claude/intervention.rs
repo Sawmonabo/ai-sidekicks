@@ -4,12 +4,12 @@
 //!
 //! A typed refusal of the interrupt means Claude Code answered: `Degraded`, with no fallback. An
 //! interrupt left unanswered past its deadline, or whose write was cut partway, stops the process
-//! instead, which ends the turn as surely. Any other failure propagates. A choice Claude Code holds the run on is settled first,
-//! each helper running in the foreground moves to the background so the interrupt spares it, and
-//! the turn end the interrupt causes is held until Claude Code answers, then delivered
-//! `interrupted`. An interrupt whose choice takes waiting messages back asks Claude Code to drop
-//! the ones it holds and answers their ids, on a build that can; one that cannot answers
-//! `Degraded` with the plain interrupt as its fallback.
+//! instead, which ends the turn as surely. Any other failure propagates. A choice Claude Code holds
+//! the run on is settled first, each helper running in the foreground moves to the background so
+//! the interrupt spares it, and the turn end the interrupt causes is held until Claude Code
+//! answers, then delivered `interrupted`. An interrupt whose choice takes waiting messages back
+//! asks Claude Code to drop the ones it holds and answers their ids, on a build that can; one that
+//! cannot answers `Degraded` with the plain interrupt as its fallback.
 
 mod foreground_helpers;
 mod held_steers;

@@ -5,12 +5,13 @@
 //! itself, since its pause stops that turn again. A turn whose run cannot open is interrupted, so
 //! no turn runs with no run.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use crate::error_description::describe_error;
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::provider::driver::claude::intervention::send_claude_interrupt;
@@ -67,12 +68,7 @@ impl ClaudeSelfStartedTurns {
         {
             return;
         }
-        let paused = self
-            .pauses
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .reported_lead_pause(&session_id)
-            .copied();
+        let paused = lock(&self.pauses).reported_lead_pause(&session_id).copied();
         if paused.is_some_and(|run_id| routes.hold_turn_again(run_id).is_ok()) {
             return;
         }
@@ -128,7 +124,11 @@ mod tests {
 
     fn turn() -> [Value; 3] {
         [
-            json!({"type": "system", "subtype": "init", "session_id": SCRIPTED_PROVIDER_SESSION_ID}),
+            json!({
+                "type": "system",
+                "subtype": "init",
+                "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            }),
             json!({
                 "type": "assistant",
                 "session_id": SCRIPTED_PROVIDER_SESSION_ID,
@@ -136,7 +136,12 @@ mod tests {
                     "id": "message-1",
                     "role": "assistant",
                     "content": [
-                        {"type": "tool_use", "id": "call-1", "name": "Bash", "input": {"command": "ls"}},
+                        {
+                            "type": "tool_use",
+                            "id": "call-1",
+                            "name": "Bash",
+                            "input": {"command": "ls"},
+                        },
                     ],
                 },
             }),

@@ -14,7 +14,7 @@ mod taken_messages;
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::ModelRerouteScope;
@@ -240,11 +240,11 @@ impl ClaudeSessionStream {
     }
 
     fn lock(&self) -> MutexGuard<'_, ClaudeStreamSession> {
-        self.readings.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.readings)
     }
 
     fn lock_prompts(&self) -> MutexGuard<'_, ClaudeSentPrompts> {
-        self.prompts.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.prompts)
     }
 }
 
@@ -285,7 +285,7 @@ impl ClaudeSessionStreams {
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, Arc<ClaudeSessionStream>>> {
-        self.streams.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.streams)
     }
 }
 

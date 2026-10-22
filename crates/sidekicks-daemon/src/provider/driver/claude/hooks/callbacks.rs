@@ -84,9 +84,9 @@ lenient_object!(HookInput, ShellToolInput);
 /// Routes one request event off a session's process, at the session's `level`: a withdrawal also
 /// withdraws a held pause or helper start; a pause or helper-limit callback is answered or held
 /// here; a helper's post-tool and stop callbacks carry its waiting words; the background-work
-/// callback is checked; the question hook goes on only at Sandboxed and
-/// the denial hook only at Reviewed, both registered at every level since a live process can move,
-/// and pass with no decision off them; anything else goes on.
+/// callback is checked; the question hook goes on only at Sandboxed and the denial hook only at
+/// Reviewed, both registered at every level since a live process can move, and pass with no
+/// decision off them; anything else goes on.
 pub(crate) fn route_claude_request(
     event: ClaudeInboundRequestEvent,
     session_id: &SessionId,

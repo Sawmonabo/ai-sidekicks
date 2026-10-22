@@ -4,13 +4,14 @@
 //! `Allow once` on a block by Claude Code's reviewer. A choice is settled before an interrupt or a
 //! message goes, as Claude Code itself would settle it.
 
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::future::try_join_all;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::attachments::{compose_message_text, resolve_message_attachments};
 use crate::provider::driver::claude::attachments::compose_claude_attachment_blocks;
 use crate::provider::driver::claude::delivery::dialogs::{
@@ -85,12 +86,7 @@ pub(crate) async fn settle_claude_choice(
     run_id: RunId,
     settling: ClaudeChoiceSettling,
 ) -> Result<bool, DriverError> {
-    let running_model = live
-        .settings
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .running_model
-        .clone();
+    let running_model = lock(&live.settings).running_model.clone();
     let session = claude_dialog_session(live, &running_model);
     match settling {
         ClaudeChoiceSettling::Interrupt => dialogs.settle_for_interrupt(&session, run_id).await,
@@ -269,12 +265,7 @@ impl ClaudeRunControls {
         if reply.cancelled != Some(true) {
             return Ok(WithdrawQueuedMessageResult::AlreadyDelivered {});
         }
-        let steered_run_id = self
-            .start
-            .prompts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .withdraw(params.session_id, &message_uuid);
+        let steered_run_id = lock(&self.start.prompts).withdraw(params.session_id, &message_uuid);
         if let (Some(run_id), Some(stream)) =
             (steered_run_id, self.start.streams.get(params.session_id))
         {
@@ -303,12 +294,7 @@ impl ClaudeRunControls {
         params: &AnswerProviderChoiceParams,
     ) -> Result<AnswerProviderChoiceResult, DriverError> {
         let live = self.start.live_session(params.session_id)?;
-        let running_model = live
-            .settings
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .running_model
-            .clone();
+        let running_model = lock(&live.settings).running_model.clone();
         self.dialogs
             .answer(&claude_dialog_session(&live, &running_model), params)
             .await
@@ -394,11 +380,7 @@ impl ClaudeRunControls {
         attachment_blocks: Vec<ClaudeUserContentBlock>,
     ) -> Result<(), DriverError> {
         let session_id = live.session_id;
-        self.start
-            .prompts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .record_written(session_id, run_id, &message_uuid, false);
+        lock(&self.start.prompts).record_written(session_id, run_id, &message_uuid, false);
         let frame = compose_claude_user_frame(text, message_uuid.clone(), attachment_blocks);
         match live.channel.write_user_frame(frame).await {
             ClaudeWriteAttempt::Written => Ok(()),
@@ -406,11 +388,7 @@ impl ClaudeRunControls {
                 delivery: ClaudeWriteDelivery::Unsent,
                 cause,
             } => {
-                self.start
-                    .prompts
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .record_dropped(session_id, &message_uuid);
+                lock(&self.start.prompts).record_dropped(session_id, &message_uuid);
                 Err(ClaudeSessionError::InputUnwritable(cause).into())
             }
             ClaudeWriteAttempt::Failed {
@@ -419,10 +397,6 @@ impl ClaudeRunControls {
             } => Err(DriverError::Internal(Box::new(cause))),
         }
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 #[cfg(test)]

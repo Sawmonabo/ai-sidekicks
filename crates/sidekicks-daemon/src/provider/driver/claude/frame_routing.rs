@@ -22,7 +22,7 @@ use crate::provider::driver::claude::handshake_register::{
 use crate::provider::driver::claude::session::state::{
     ClaudeRoutableFrame, ClaudeSessionRoutingBand, ClaudeUsageEstablishment,
 };
-use crate::provider::driver::claude::session::transport::declarations::ClaudeInboundFrameObservation;
+use crate::provider::driver::claude::session::transport::declarations;
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -107,7 +107,7 @@ impl ClaudeFrameRouting {
         band: &mut ClaudeSessionRoutingBand,
         session_id: SessionId,
         provider_session_id: &str,
-        observation: &ClaudeInboundFrameObservation,
+        observation: &declarations::ClaudeInboundFrameObservation,
     ) -> ClaudeRoutedObservation {
         let mut routed = ClaudeRoutedObservation {
             route: ThreadFrameRoute::Quarantined,
@@ -165,7 +165,7 @@ impl ClaudeFrameRouting {
         band: &mut ClaudeSessionRoutingBand,
         session_id: SessionId,
         provider_session_id: &str,
-        observation: &ClaudeInboundFrameObservation,
+        observation: &declarations::ClaudeInboundFrameObservation,
         routed: &mut ClaudeRoutedObservation,
     ) {
         let Some(signal) = observation.subagent_lifecycle.clone() else {

@@ -4,7 +4,7 @@
 //! of their messages, ending the run whose turn the cut took; a turn too long to fit even after
 //! compaction is cut back out, since every later turn would fail on it again.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -12,6 +12,7 @@ use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::provider::driver::claude::delivery::stream::ClaudeSessionStreams;
 use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
@@ -179,7 +180,7 @@ impl ClaudeConversationCuts {
     }
 
     fn lock_prompts(&self) -> std::sync::MutexGuard<'_, ClaudeSentPrompts> {
-        self.prompts.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.prompts)
     }
 }
 

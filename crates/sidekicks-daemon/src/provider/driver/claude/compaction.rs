@@ -119,7 +119,8 @@ pub(crate) async fn compact_claude_context(
 }
 
 // An applied compaction is ordinary success; every other end is recorded, a failed write with how
-// far it got: `unsent` never reached Claude Code, `indeterminate` may have run with its answer lost.
+// far it got: `unsent` never reached Claude Code, `indeterminate` may have run with its answer
+// lost.
 fn record_wait_end(
     live: &LiveClaudeSession,
     reason: String,
@@ -157,8 +158,9 @@ mod tests {
     use crate::provider::driver::claude::session::scripted::{
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession,
     };
-    use crate::provider::driver::claude::session::transport::declarations::ClaudeHandshakeDeclaration;
-    use crate::provider::driver::claude::session::transport::user_message::ClaudeWriteDelivery;
+    use crate::provider::driver::claude::session::transport::{
+        declarations::ClaudeHandshakeDeclaration, user_message::ClaudeWriteDelivery,
+    };
 
     // Killed by keeping the command's hold after a write that never left, which would refuse every
     // later run on the session, and by releasing it after one Claude Code may still run.

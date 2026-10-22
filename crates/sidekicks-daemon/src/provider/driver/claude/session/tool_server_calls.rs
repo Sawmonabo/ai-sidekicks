@@ -1,7 +1,7 @@
 //! The messages Claude Code sends the session's in-process tool servers as `mcp_message`
 //! requests: each is handed to its server on a task of its own and answered in band once the
 //! server replies, so a failed or unknown server fails only that message; a withdrawn call is
-//! cancelled and never answered. The servers' own messages go back as outbound `mcp_message`
+//! canceled and never answered. The servers' own messages go back as outbound `mcp_message`
 //! requests.
 
 use std::collections::HashMap;
@@ -291,11 +291,16 @@ mod tests {
         );
         settle_tasks().await;
         assert_eq!(
-            *answers.lock().expect("the test's lock is never held across a panic"),
+            *answers
+                .lock()
+                .expect("the test's lock is never held across a panic"),
             vec![(
                 "7".to_owned(),
-                r#"{"mcp_response":{"jsonrpc":"2.0","id":5,"error":{"code":-32601,"message":"Server 'elsewhere' not found"}}}"#
-                    .to_owned()
+                concat!(
+                    r#"{"mcp_response":{"jsonrpc":"2.0","id":5,"error":{"code":-32601,"#,
+                    r#""message":"Server 'elsewhere' not found"}}}"#
+                )
+                .to_owned()
             )]
         );
     }
@@ -342,7 +347,7 @@ mod tests {
     // Killed by answering a withdrawn call when its server replies late, and by leaving the
     // server's call running after the withdrawal.
     #[tokio::test(start_paused = true)]
-    async fn a_withdrawn_call_is_cancelled_and_never_answered() {
+    async fn a_withdrawn_call_is_canceled_and_never_answered() {
         let answers = Answers::default();
         let server = server(None);
         let calls = ClaudeToolServerCalls::default();
@@ -373,6 +378,6 @@ mod tests {
                 .expect("the test's lock is never held across a panic")
                 .is_empty()
         );
-        assert!(!calls.cancel("4"), "a cancelled call is gone");
+        assert!(!calls.cancel("4"), "a canceled call is gone");
     }
 }

@@ -1,7 +1,7 @@
 //! The Claude leg of the output-speed axis: the level a process is told with
-//! `apply_flag_settings {fastMode}`, after every spawn and before a run that changes it. A level the
-//! driver's table does not list runs at standard, and a refusal leaves the process on the level it
-//! held; either way the declared state, not the request, says what the process runs at.
+//! `apply_flag_settings {fastMode}`, after every spawn and before a run that changes it. A level
+//! the driver's table does not list runs at standard, and a refusal leaves the process on the level
+//! it held; either way the declared state, not the request, says what the process runs at.
 
 use serde_json::json;
 use sidekicks_contracts::session::id::SessionId;
