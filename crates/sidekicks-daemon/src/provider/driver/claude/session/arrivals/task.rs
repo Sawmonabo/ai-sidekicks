@@ -272,6 +272,7 @@ impl ClaudeSessionTask {
             return;
         }
         services.requests.forget_session(session_id);
+        services.settlement.handshakes.forget_handshake(session_id);
         services.dialogs.forget_session(session_id);
         services.reviewer.forget_session(session_id);
         services.goals.forget_session(session_id);

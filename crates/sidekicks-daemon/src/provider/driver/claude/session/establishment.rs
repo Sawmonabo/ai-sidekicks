@@ -712,6 +712,8 @@ impl ClaudeSessionEstablishment {
     ) {
         let session_id = live.session_id;
         self.streams.insert(Arc::clone(&stream));
+        // A resume reuses its predecessor's conversation id, which a held record would match.
+        self.handshakes.forget_handshake(session_id);
         self.handshakes.hold_fast_mode(
             session_id,
             &live.provider_session_id,

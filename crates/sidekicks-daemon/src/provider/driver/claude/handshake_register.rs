@@ -74,10 +74,6 @@ pub(crate) struct ClaudeHandshakeRegister {
     sessions: Mutex<HashMap<SessionId, ClaudeSessionDeclarations>>,
 }
 
-#[expect(
-    dead_code,
-    reason = "the Claude driver's stream reader, run start and command list read the register"
-)]
 impl ClaudeHandshakeRegister {
     /// Records one `system/init` declaration; the last wins, since the surface can change mid-run.
     /// A declaration reporting a fast-mode state replaces the held one; one reporting none keeps
@@ -178,6 +174,10 @@ impl ClaudeHandshakeRegister {
     /// `initialize` reply or a later `system/init`, or `None` where neither reported one. A
     /// declaration the contract's bounds refuse reads as absent; `cooldown` is carried as
     /// declared.
+    #[expect(
+        dead_code,
+        reason = "the agent list reads a live session's declared output speed through it"
+    )]
     pub(crate) fn observed_output_speed_for(
         &self,
         session_id: SessionId,
