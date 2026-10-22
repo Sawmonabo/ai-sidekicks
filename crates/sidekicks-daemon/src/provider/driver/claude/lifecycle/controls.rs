@@ -75,6 +75,9 @@ const CLAUDE_DEFAULT_MODEL: &str = "default";
 /// The key of the person's own output style in Claude Code's settings.
 const OUTPUT_STYLE_KEY: &str = "outputStyle";
 
+/// The key of the person's own advisor in Claude Code's settings, empty for none.
+const ADVISOR_MODEL_KEY: &str = "advisorModel";
+
 impl ClaudeDriver {
     /// The level and mode a new session starts at, as Claude Code's own settings for the folder set
     /// them, moved to the nearest more careful level the model and this system run. A catalog that
@@ -303,17 +306,21 @@ impl ClaudeDriver {
             self.figures.read_command_choices(&place),
             read_claude_settings_file(&settings_file),
         );
-        let person_output_style = settings.map_err(internal)?.and_then(|settings| {
+        let settings = settings.map_err(internal)?;
+        let person_setting = |key: &str| {
             settings
-                .get(OUTPUT_STYLE_KEY)
-                .and_then(|style| style.as_str())
+                .as_ref()?
+                .get(key)?
+                .as_str()
+                .filter(|value| !value.is_empty())
                 .map(str::to_owned)
-        });
+        };
         let offers = choices.map_err(|error| error.to_string());
         Ok(compose_claude_rows(
             offers,
             &app_values,
-            person_output_style,
+            person_setting(OUTPUT_STYLE_KEY),
+            person_setting(ADVISOR_MODEL_KEY),
         ))
     }
 

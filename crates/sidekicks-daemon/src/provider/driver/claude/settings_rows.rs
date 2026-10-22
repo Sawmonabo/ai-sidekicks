@@ -17,24 +17,30 @@ use crate::provider::driver::claude::session::establishment::context::{
 };
 use crate::text_cut::cut_to_code_points;
 
-/// The line under both rows.
-const LATER_SESSIONS_LINE: &str = "Applies to sessions started later.";
+/// The line under the `Output style` row.
+const OUTPUT_STYLE_LINE: &str = "Applies to sessions started later. A session already running changes its own style from its \
+     composer.";
 
-/// The words of the advisor choice's none, as Claude Code's own `/advisor` names it.
-const ADVISOR_OFF_LABEL: &str = "Off";
+/// The line under the `Advisor` row.
+const ADVISOR_LINE: &str = "Applies to sessions started later. A session already running changes its own advisor from \
+     its composer.";
+
+/// The words of the advisor choice's none.
+const NO_ADVISOR_LABEL: &str = "No advisor";
 
 /// The two rows from what the installed build offers, `offers`, or each as a status naming
-/// `unread` where the build could not be read. Each value is the app's pick in `app_values`, else what a new session runs with: the
-/// person's own `outputStyle`, `person_output_style`, and no advisor, since a session's settings
-/// turn the person's own advisor off.
+/// `unread` where the build could not be read. Each value is the app's pick in `app_values`, else
+/// the person's own Claude Code setting (`person_output_style`, `person_advisor_model`); an advisor
+/// neither sets reads `No advisor`.
 pub(crate) fn compose_claude_rows(
     offers: Result<ClaudeCommandChoices, String>,
     app_values: &ProviderRowValues,
     person_output_style: Option<String>,
+    person_advisor_model: Option<String>,
 ) -> Vec<ProviderRow> {
     let output_style =
         read_claude_row_text(app_values, CLAUDE_OUTPUT_STYLE_ROW_ID).or(person_output_style);
-    let advisor = read_claude_row_text(app_values, CLAUDE_ADVISOR_ROW_ID);
+    let advisor = read_claude_row_text(app_values, CLAUDE_ADVISOR_ROW_ID).or(person_advisor_model);
     let offers = match offers {
         Ok(offers) => offers,
         Err(unread) => {
@@ -56,6 +62,7 @@ pub(crate) fn compose_claude_rows(
         Some(options) => compose_choice_row(
             CLAUDE_OUTPUT_STYLE_ROW_ID,
             "Output style",
+            OUTPUT_STYLE_LINE,
             output_style,
             None,
             options,
@@ -77,8 +84,9 @@ pub(crate) fn compose_claude_rows(
                 Some(options) => compose_choice_row(
                     CLAUDE_ADVISOR_ROW_ID,
                     "Advisor",
+                    ADVISOR_LINE,
                     advisor,
-                    Some(ADVISOR_OFF_LABEL),
+                    Some(NO_ADVISOR_LABEL),
                     options,
                 ),
                 None => compose_status_row(
@@ -98,6 +106,7 @@ pub(crate) fn compose_claude_rows(
 fn compose_choice_row(
     row_id: &str,
     label: &str,
+    line: &str,
     value: Option<String>,
     none_label: Option<&str>,
     options: ProviderChoiceOptions,
@@ -105,7 +114,7 @@ fn compose_choice_row(
     ProviderRow::Setting {
         id: row_id_of(row_id),
         label: written_text(label),
-        line: Some(written_text(LATER_SESSIONS_LINE)),
+        line: Some(written_text(line)),
         control: ProviderSettingControl::Choice {
             value: value.and_then(|value| ProviderValueText::new(value).ok()),
             none_label: none_label.map(written_text),
