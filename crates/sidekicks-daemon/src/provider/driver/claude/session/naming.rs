@@ -87,10 +87,8 @@ pub(crate) async fn name_claude_session(
         )
         .await
     } else {
-        let (legs, binding) = compose_naming_legs(sources, params.session_id).await?;
-        let reply = run_naming_turn(starts, &legs, None, text, &params.cancel).await;
-        binding.rollback();
-        reply
+        let legs = compose_naming_legs(sources, params.session_id).await?;
+        run_naming_turn(starts, &legs, None, text, &params.cancel).await
     };
     match reply {
         Ok(reply) => Ok(clean_title(&reply)),
@@ -143,13 +141,7 @@ pub(crate) async fn tell_claude_session_name(
 async fn compose_naming_legs(
     sources: &ClaudeSpawnSources,
     session_id: SessionId,
-) -> Result<
-    (
-        ClaudeSpawnBoundLegs,
-        crate::provider::callback_tools::spawn_binding::CallbackToolSpawnBinding,
-    ),
-    DriverError,
-> {
+) -> Result<ClaudeSpawnBoundLegs, DriverError> {
     let no_rows: ProviderRowValues = Record::default();
     let context = resolve_claude_spawn_context(
         &*sources.spawn_contexts,
@@ -160,18 +152,11 @@ async fn compose_naming_legs(
     )
     .await
     .map_err(|error| DriverError::Internal(Box::new(error)))?;
-    let host = sources
-        .ports
-        .callback_tool_host
-        .require_port()
-        .map_err(|error| DriverError::Internal(Box::new(error)))?;
-    let data_folder = sources.data_folder.to_string_lossy();
     build_claude_spawn_bound_legs(
         ClaudeSpawnLegsRequest {
             session_id,
             model: CLAUDE_NAMING_MODEL.to_owned(),
             execution_posture: None,
-            callback_tools: None,
             subagent_policy: None,
             tool_servers: None,
             output_schema: None,
@@ -179,15 +164,7 @@ async fn compose_naming_legs(
             provider_account_id: None,
             context,
         },
-        &ClaudeSpawnLegServices {
-            posture_service: &sources.execution_postures,
-            callback_tool_host: host,
-            is_in_process_route_registered: false,
-            data_folder: &data_folder,
-            base_environment: &sources.base_environment,
-            reserved_names: &sources.reserved_names,
-            path_rules: PathRules::NATIVE,
-        },
+        &ClaudeSpawnLegServices::of(sources),
     )
     .await
     .map_err(|error| DriverError::Internal(Box::new(error)))

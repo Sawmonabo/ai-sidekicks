@@ -396,7 +396,6 @@ impl ClaudeDriver {
                 legs: one_turn_legs(&live, None),
                 provider_account_id: live.admitted_provider_account_id.clone(),
                 parent_provider_session_id: live.provider_session_id.clone(),
-                callback_tools: None,
             }))
             .boxed(),
             Err(no_live_session) => match params.resume {
@@ -483,14 +482,11 @@ async fn compose_resting_side_question_copy(
         &resume.row_values,
     )
     .await?;
-    let host = sources.ports.callback_tool_host.require_port()?;
-    let data_folder = sources.data_folder.to_string_lossy();
-    let (legs, callback_tools) = build_claude_spawn_bound_legs(
+    let legs = build_claude_spawn_bound_legs(
         ClaudeSpawnLegsRequest {
             session_id: resume.session_id,
             model: resume.model.as_str().to_owned(),
             execution_posture: resume.execution_posture,
-            callback_tools: None,
             subagent_policy: resume.subagent_policy,
             tool_servers: resume.tool_servers,
             output_schema: None,
@@ -498,27 +494,12 @@ async fn compose_resting_side_question_copy(
             provider_account_id: resume.provider_account_id.clone(),
             context,
         },
-        &ClaudeSpawnLegServices {
-            posture_service: &sources.execution_postures,
-            callback_tool_host: host,
-            is_in_process_route_registered: sources.ports.in_process_tool_servers.port().is_some(),
-            data_folder: &data_folder,
-            base_environment: &sources.base_environment,
-            reserved_names: &sources.reserved_names,
-            path_rules: PathRules::NATIVE,
-        },
+        &ClaudeSpawnLegServices::of(&sources),
     )
     .await?;
-    let catalog = match starts
+    let catalog = starts
         .read_model_catalog(legs.spawn_environment.clone())
-        .await
-    {
-        Ok(catalog) => catalog,
-        Err(error) => {
-            callback_tools.rollback();
-            return Err(error.into());
-        }
-    };
+        .await?;
     let declaration = read_claude_initialize_declaration(catalog.initialize.as_deref());
     Ok(ClaudeSideQuestionCopy {
         legs: ClaudeSpawnBoundLegs {
@@ -527,7 +508,6 @@ async fn compose_resting_side_question_copy(
         },
         provider_account_id: resume.provider_account_id,
         parent_provider_session_id: resume.resume_handle,
-        callback_tools: Some(callback_tools),
     })
 }
 

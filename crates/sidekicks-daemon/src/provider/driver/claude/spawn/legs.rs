@@ -1,6 +1,7 @@
 //! What a Claude Code process is started under: the legs every spawn path builds the one way, the
 //! binding a later run is checked against, and the check itself.
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -26,6 +27,7 @@ use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason,
 };
+use crate::provider::driver::claude::session::establishment::ClaudeSpawnSources;
 use crate::provider::driver::claude::session::posture::{
     digest_output_schema, find_posture_divergence,
 };
@@ -75,8 +77,6 @@ pub(crate) struct ClaudeSpawnLegsRequest {
     pub(crate) model: String,
     /// How the session may touch the machine.
     pub(crate) execution_posture: Option<ExecutionPosture>,
-    /// The callback tools the session asks to offer.
-    pub(crate) callback_tools: Option<Vec<SessionCallbackTool>>,
     /// The session's helper policy.
     pub(crate) subagent_policy: Option<SubagentPolicy>,
     /// Every tool server the session can reach.
@@ -94,19 +94,38 @@ pub(crate) struct ClaudeSpawnLegsRequest {
 /// The daemon's services a spawn's legs are built with.
 pub(crate) struct ClaudeSpawnLegServices<'a> {
     /// Resolves the curated credential list.
-    pub(crate) posture_service: &'a ExecutionPostureService,
-    /// Installs the spawn's callback-tool registry.
-    pub(crate) callback_tool_host: &'a Arc<CallbackToolHost>,
-    /// Whether the daemon's in-process tool servers are registered, the callback tools' route.
-    pub(crate) is_in_process_route_registered: bool,
+    posture_service: &'a ExecutionPostureService,
     /// The daemon's data folder, absolute.
-    pub(crate) data_folder: &'a str,
+    data_folder: Cow<'a, str>,
     /// The login shell's environment captured at the daemon's start.
-    pub(crate) base_environment: &'a [(String, String)],
+    base_environment: &'a [(String, String)],
     /// The names no environment row may set.
-    pub(crate) reserved_names: &'a ReservedEnvironmentNames,
+    reserved_names: &'a ReservedEnvironmentNames,
     /// How the place the process runs in spells paths and names.
-    pub(crate) path_rules: PathRules,
+    path_rules: PathRules,
+}
+
+impl<'a> ClaudeSpawnLegServices<'a> {
+    /// The services every spawn path builds its legs with, from the driver's spawn sources, on
+    /// the paths of the place the daemon runs in.
+    pub(crate) fn of(sources: &'a ClaudeSpawnSources) -> Self {
+        Self {
+            posture_service: &sources.execution_postures,
+            data_folder: sources.data_folder.to_string_lossy(),
+            base_environment: &sources.base_environment,
+            reserved_names: &sources.reserved_names,
+            path_rules: PathRules::NATIVE,
+        }
+    }
+}
+
+/// The callback-tool host a session's process installs its registry in, and whether the daemon's
+/// in-process tool servers, the tools' route, are registered.
+pub(crate) struct ClaudeCallbackToolRegistry<'a> {
+    /// The host.
+    pub(crate) host: &'a Arc<CallbackToolHost>,
+    /// Whether the in-process tool servers are registered.
+    pub(crate) is_in_process_route_registered: bool,
 }
 
 /// Why a spawn's legs could not be built.
@@ -123,14 +142,14 @@ pub(crate) enum ClaudeSpawnLegsError {
     Environment(#[from] SpawnEnvironmentError),
 }
 
-/// Builds the legs every spawn path starts a process from, with the spawn's callback-tool binding,
-/// which the live session holds and a failed spawn rolls back. Sets the retention of a home the
-/// app manages; the person's own home is theirs. Fails when the retention cannot be written, the
-/// curated credential list cannot be resolved or the environment cannot be built.
+/// Builds the legs every spawn path starts a process from, offering no callback tools and
+/// installing no registry. Sets the retention of a home the app manages; the person's own home is
+/// theirs. Fails when the retention cannot be written, the curated credential list cannot be
+/// resolved or the environment cannot be built.
 pub(crate) async fn build_claude_spawn_bound_legs(
     request: ClaudeSpawnLegsRequest,
     services: &ClaudeSpawnLegServices<'_>,
-) -> Result<(ClaudeSpawnBoundLegs, CallbackToolSpawnBinding), ClaudeSpawnLegsError> {
+) -> Result<ClaudeSpawnBoundLegs, ClaudeSpawnLegsError> {
     let context = request.context;
     if let Some(folders) = &context.account_folders {
         write_claude_home_retention(Path::new(&folders.config_folder)).await?;
@@ -158,35 +177,18 @@ pub(crate) async fn build_claude_spawn_bound_legs(
             },
             deny_env_vars: credential_policy.deny_env_vars,
             account_folders: context.account_folders.as_ref(),
-            data_folder: services.data_folder,
+            data_folder: &services.data_folder,
             provider_account_id: request.provider_account_id.as_ref(),
         },
         &[],
     )?;
-    // A withheld registry costs the model no turns, unlike one offered and then refused.
-    let callback_tools = bind_callback_tools_for_spawn(
-        services.callback_tool_host,
-        CallbackToolSpawnRequest {
-            session_id: request.session_id,
-            provider: DESCRIPTOR.provider_id(),
-            requested_tools: request.callback_tools.unwrap_or_default(),
-            provider_registration_unavailable: (!services.is_in_process_route_registered)
-                .then(|| CLAUDE_IN_PROCESS_ROUTE_UNAVAILABLE_DETAIL.to_owned()),
-        },
-    );
-    let offered_tools = match &callback_tools.admission {
-        CallbackToolAdmission::Admitted { tools } if !tools.is_empty() => Some(tools.clone()),
-        CallbackToolAdmission::Admitted { .. } | CallbackToolAdmission::Withheld { .. } => None,
-    };
-    let legs = ClaudeSpawnBoundLegs {
+    Ok(ClaudeSpawnBoundLegs {
         session_id: request.session_id,
         model: request.model,
         execution_posture: request.execution_posture,
         working_directory: context.working_directory,
-        on_callback_tool_call: offered_tools
-            .is_some()
-            .then(|| Arc::clone(&callback_tools.dispatcher)),
-        callback_tools: offered_tools,
+        on_callback_tool_call: None,
+        callback_tools: None,
         subagent_policy: request.subagent_policy,
         tool_servers: request.tool_servers.unwrap_or_default(),
         output_schema: request.output_schema,
@@ -196,8 +198,40 @@ pub(crate) async fn build_claude_spawn_bound_legs(
         spawn_environment,
         advisor_model: context.advisor_model,
         output_style: context.output_style,
+    })
+}
+
+/// Installs the callback-tool registry of the session `legs` start, in `registry`, and returns
+/// `legs` offering the tools it admits, with the binding the live session holds and a failed
+/// spawn rolls back. A withheld registry costs the model no turns, unlike one offered and then
+/// refused.
+pub(crate) fn bind_claude_callback_tools(
+    legs: ClaudeSpawnBoundLegs,
+    registry: &ClaudeCallbackToolRegistry<'_>,
+    requested_tools: Option<Vec<SessionCallbackTool>>,
+) -> (ClaudeSpawnBoundLegs, CallbackToolSpawnBinding) {
+    let callback_tools = bind_callback_tools_for_spawn(
+        registry.host,
+        CallbackToolSpawnRequest {
+            session_id: legs.session_id,
+            provider: DESCRIPTOR.provider_id(),
+            requested_tools: requested_tools.unwrap_or_default(),
+            provider_registration_unavailable: (!registry.is_in_process_route_registered)
+                .then(|| CLAUDE_IN_PROCESS_ROUTE_UNAVAILABLE_DETAIL.to_owned()),
+        },
+    );
+    let offered_tools = match &callback_tools.admission {
+        CallbackToolAdmission::Admitted { tools } if !tools.is_empty() => Some(tools.clone()),
+        CallbackToolAdmission::Admitted { .. } | CallbackToolAdmission::Withheld { .. } => None,
     };
-    Ok((legs, callback_tools))
+    let legs = ClaudeSpawnBoundLegs {
+        on_callback_tool_call: offered_tools
+            .is_some()
+            .then(|| Arc::clone(&callback_tools.dispatcher)),
+        callback_tools: offered_tools,
+        ..legs
+    };
+    (legs, callback_tools)
 }
 
 /// The posture and output-schema digest a session is spawned under, which later runs must match.

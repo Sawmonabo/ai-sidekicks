@@ -32,7 +32,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
 use crate::mutex_lock::lock;
-use crate::provider::callback_tools::spawn_binding::CallbackToolSpawnBinding;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::run::start::{
     ClaudeDaemonTurnOpening, ClaudeRunStart, claude_session_unavailable,
@@ -112,9 +111,8 @@ pub(crate) struct ClaudeSessionControls {
     tables: Arc<Mutex<ClaudeControlTables>>,
 }
 
-/// The copy a side question runs on: the legs at the session's full model id, the account, the
-/// conversation copied, and for a session at rest the callback-tool installation its legs made,
-/// undone once the turn ends.
+/// The copy a side question runs on: the legs at the session's full model id, the account and the
+/// conversation copied.
 pub(crate) struct ClaudeSideQuestionCopy {
     /// The legs the copy starts on.
     pub(crate) legs: ClaudeSpawnBoundLegs,
@@ -122,8 +120,6 @@ pub(crate) struct ClaudeSideQuestionCopy {
     pub(crate) provider_account_id: Option<ProviderAccountId>,
     /// The conversation copied, whose emitted usage the copy's is metered less.
     pub(crate) parent_provider_session_id: String,
-    /// The installation the legs of a session at rest made; `None` on a live session's own legs.
-    pub(crate) callback_tools: Option<CallbackToolSpawnBinding>,
 }
 
 // A `get_settings` reply's `effective` member, of which only the output style is read.
@@ -529,8 +525,7 @@ impl ClaudeSessionControls {
         Ok(attached)
     }
 
-    // The side question's one turn on its copy, the copy's callback tools undone once it ends,
-    // and its usage metered whether or not the model answered.
+    // The side question's one turn on its copy, and its usage metered once the model answered.
     async fn run_side_question(
         &self,
         copy: BoxFuture<'static, Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>>>,
@@ -547,11 +542,7 @@ impl ClaudeSessionControls {
                 question,
                 CancellationToken::new(),
             )
-            .await;
-        if let Some(callback_tools) = copy.callback_tools {
-            callback_tools.rollback();
-        }
-        let reply = reply?;
+            .await?;
         meter_side_question(
             usage,
             copy.legs.session_id,
