@@ -4,7 +4,7 @@
 //! the turn; a request goes through the daemon's hooks or on to the requests; the exit forgets
 //! everything the process held.
 
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -13,6 +13,7 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use tokio::time::Instant;
 
 use super::{ClaudeRoutedFrame, ClaudeSessionArrival, ClaudeSessionArrivalHandler};
+use crate::mutex_lock::lock;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::provider::driver::claude::delivery::requests::{
@@ -317,8 +318,4 @@ impl ClaudeSessionArrivalHandler for ClaudeSessionTask {
     fn deadline_reached(&mut self, now: Instant) -> BoxFuture<'_, ()> {
         async move { self.services.delivery.deliver_due(&self.stream, now).await }.boxed()
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }

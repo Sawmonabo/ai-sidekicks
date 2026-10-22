@@ -7,11 +7,12 @@
 //! settle cell, then reads the slot again.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::SetOnce;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionSlotState,
 };
@@ -60,7 +61,7 @@ impl ClaudeSessionSlots {
     /// The session's live process; `None` while it comes up, goes down, refuses to die, or none
     /// runs, since only a live slot starts a run.
     pub(crate) fn live_session(&self, session_id: SessionId) -> Option<Arc<LiveClaudeSession>> {
-        match self.lock().by_session.get(&session_id)? {
+        match lock(&self.table).by_session.get(&session_id)? {
             ClaudeSessionSlot::Live { session } => Some(Arc::clone(session)),
             ClaudeSessionSlot::Establishing { .. }
             | ClaudeSessionSlot::Closing { .. }
@@ -70,7 +71,7 @@ impl ClaudeSessionSlots {
 
     /// Every session whose process is live now.
     pub(crate) fn live_sessions(&self) -> Vec<Arc<LiveClaudeSession>> {
-        self.lock()
+        lock(&self.table)
             .by_session
             .values()
             .filter_map(|slot| match slot {
@@ -84,12 +85,12 @@ impl ClaudeSessionSlots {
 
     /// Every session holding a slot, in any state.
     pub(crate) fn session_ids(&self) -> Vec<SessionId> {
-        self.lock().by_session.keys().copied().collect()
+        lock(&self.table).by_session.keys().copied().collect()
     }
 
     /// Whether the session holds a slot, in any state.
     pub(crate) fn holds_slot(&self, session_id: SessionId) -> bool {
-        self.lock().by_session.contains_key(&session_id)
+        lock(&self.table).by_session.contains_key(&session_id)
     }
 
     /// Whether `channel` still writes this session's transcript: its live process, or a rewind's
@@ -99,7 +100,7 @@ impl ClaudeSessionSlots {
         session_id: SessionId,
         channel: &Arc<dyn ClaudeProcessChannel>,
     ) -> bool {
-        match self.lock().by_session.get(&session_id) {
+        match lock(&self.table).by_session.get(&session_id) {
             Some(
                 ClaudeSessionSlot::Live { session }
                 | ClaudeSessionSlot::Establishing {
@@ -124,7 +125,7 @@ impl ClaudeSessionSlots {
         &self,
         session_id: SessionId,
     ) -> Result<ClaudeSlotClaim, ClaudeSessionError> {
-        let mut table = self.lock();
+        let mut table = lock(&self.table);
         if let Some(slot) = table.by_session.get(&session_id) {
             return Err(ClaudeSessionError::SessionAlreadyLive {
                 holder_state: state_of(slot),
@@ -139,14 +140,15 @@ impl ClaudeSessionSlots {
         not(test),
         expect(
             dead_code,
-            reason = "the Claude driver's rewind claims the slot through it"
+            reason = "the daemon's start registers the Claude driver, whose rewind claims the \
+                      slot through it"
         )
     )]
     pub(crate) fn claim_rewind(
         &self,
         predecessor: &Arc<LiveClaudeSession>,
     ) -> Option<ClaudeSlotClaim> {
-        let mut table = self.lock();
+        let mut table = lock(&self.table);
         match table.by_session.get(&predecessor.session_id) {
             Some(ClaudeSessionSlot::Live { session }) if Arc::ptr_eq(session, predecessor) => {
                 Some(self.claim(&mut table, predecessor.session_id, Some(predecessor)))
@@ -158,7 +160,7 @@ impl ClaudeSessionSlots {
     /// Starts a close: a live or quarantined process is the close's to dispose of, a transition
     /// in flight is waited out first, and an empty slot needs nothing.
     pub(crate) fn begin_close(&self, session_id: SessionId) -> ClaudeCloseStart {
-        let mut table = self.lock();
+        let mut table = lock(&self.table);
         let channel = match table.by_session.get(&session_id) {
             None => return ClaudeCloseStart::Empty,
             Some(
@@ -192,7 +194,7 @@ impl ClaudeSessionSlots {
         session_id: SessionId,
         channel: &Arc<dyn ClaudeProcessChannel>,
     ) -> Option<Arc<LiveClaudeSession>> {
-        let mut table = self.lock();
+        let mut table = lock(&self.table);
         match table.by_session.get(&session_id) {
             Some(ClaudeSessionSlot::Live { session }) if Arc::ptr_eq(&session.channel, channel) => {
                 let session = Arc::clone(session);
@@ -232,10 +234,6 @@ impl ClaudeSessionSlots {
             is_installed: false,
         }
     }
-
-    fn lock(&self) -> MutexGuard<'_, SlotTable> {
-        lock(&self.table)
-    }
 }
 
 /// A bring-up's hold on its slot. Installing a live session settles it; dropped without one, it
@@ -249,18 +247,6 @@ pub(crate) struct ClaudeSlotClaim {
 }
 
 impl ClaudeSlotClaim {
-    /// The transition's settle cell, which a waiter waits on.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session lifecycle waits on a bring-up through it"
-        )
-    )]
-    pub(crate) fn settled(&self) -> ClaudeSlotSettled {
-        Arc::clone(&self.settled)
-    }
-
     /// Installs the process the bring-up started as the session's live slot and answers the
     /// rewind's predecessor it replaces, which the caller then disposes of. `None` when the slot
     /// is no longer this claim's (a close took it), so the new process is the caller's to end.
@@ -268,7 +254,7 @@ impl ClaudeSlotClaim {
         mut self,
         live: Arc<LiveClaudeSession>,
     ) -> Result<Option<Arc<LiveClaudeSession>>, Arc<LiveClaudeSession>> {
-        let mut table = self.slots.lock();
+        let mut table = lock(&self.slots.table);
         let predecessor = match table.by_session.get(&self.session_id) {
             Some(ClaudeSessionSlot::Establishing {
                 settled,
@@ -290,7 +276,7 @@ impl Drop for ClaudeSlotClaim {
     fn drop(&mut self) {
         if !self.is_installed {
             let exited = {
-                let mut table = self.slots.lock();
+                let mut table = lock(&self.slots.table);
                 let is_own = matches!(
                     table.by_session.get(&self.session_id),
                     Some(ClaudeSessionSlot::Establishing { settled, .. })
@@ -374,10 +360,8 @@ fn state_of(slot: &ClaudeSessionSlot) -> ClaudeSessionSlotState {
     match slot {
         ClaudeSessionSlot::Establishing { .. } => ClaudeSessionSlotState::Establishing,
         ClaudeSessionSlot::Live { .. } => ClaudeSessionSlotState::Live,
-        // A quarantined process still waits for a close to take it down.
-        ClaudeSessionSlot::Closing { .. } | ClaudeSessionSlot::Quarantined { .. } => {
-            ClaudeSessionSlotState::Closing
-        }
+        ClaudeSessionSlot::Closing { .. } => ClaudeSessionSlotState::Closing,
+        ClaudeSessionSlot::Quarantined { .. } => ClaudeSessionSlotState::Quarantined,
     }
 }
 
@@ -385,10 +369,6 @@ fn state_of(slot: &ClaudeSessionSlot) -> ClaudeSessionSlotState {
 // and were it to, the first settlement stands.
 fn settle(settled: &SetOnce<()>) {
     drop(settled.set(()));
-}
-
-fn lock(table: &Mutex<SlotTable>) -> MutexGuard<'_, SlotTable> {
-    table.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 #[cfg(test)]
@@ -421,8 +401,9 @@ mod tests {
         assert!(installed.is_ok(), "a fresh claim installs");
     }
 
-    // Killed by a create taking a slot mid-disposal, and by a failed disposal emptying the slot,
-    // which loses the only handle on a process that may still run.
+    // Killed by a create taking a slot mid-disposal, by a failed disposal emptying the slot, which
+    // loses the only handle on a process that may still run, and by a quarantined slot read as a
+    // close in flight.
     #[test]
     fn a_closing_slot_refuses_a_create_and_a_failed_disposal_quarantines_its_process() {
         let slots = ClaudeSessionSlots::new(Arc::new(|_predecessor| {}));
@@ -433,17 +414,16 @@ mod tests {
         let ClaudeCloseStart::Closing(close) = slots.begin_close(session_id) else {
             unreachable!("a live slot is the close's")
         };
-        let refused = |slots: &ClaudeSessionSlots| {
+        let refused = |slots: &ClaudeSessionSlots, state| {
             matches!(
                 slots.claim_bring_up(session_id),
-                Err(ClaudeSessionError::SessionAlreadyLive {
-                    holder_state: ClaudeSessionSlotState::Closing
-                })
+                Err(ClaudeSessionError::SessionAlreadyLive { holder_state })
+                    if holder_state == state
             )
         };
-        assert!(refused(&slots));
+        assert!(refused(&slots, ClaudeSessionSlotState::Closing));
         drop(close);
-        assert!(refused(&slots));
+        assert!(refused(&slots, ClaudeSessionSlotState::Quarantined));
 
         let ClaudeCloseStart::Closing(close) = slots.begin_close(session_id) else {
             unreachable!("a quarantined process is the next close's")

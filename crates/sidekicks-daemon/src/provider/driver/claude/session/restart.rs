@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::SystemTime;
 
 use futures::future::join_all;
@@ -23,6 +23,7 @@ use tokio_util::task::AbortOnDropHandle;
 
 use crate::crash_window::{CrashOutcome, CrashWindow};
 use crate::error_description::describe_error;
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
@@ -129,7 +130,7 @@ impl ClaudeSessionRestarts {
         let session_id = live.session_id;
         let runs = self.routes.bound_runs_on(session_id);
         {
-            let mut table = self.lock();
+            let mut table = lock(&self.table);
             // The restart resumes on the build installed now, so a move that waited is done.
             table.pending_build_moves.remove(&session_id);
             table
@@ -159,7 +160,7 @@ impl ClaudeSessionRestarts {
             process_gone.process_gone(session_id);
         }
         let outcome = {
-            let mut table = self.lock();
+            let mut table = lock(&self.table);
             if table.is_stopped {
                 return;
             }
@@ -176,10 +177,10 @@ impl ClaudeSessionRestarts {
                 let pending = tokio::spawn(async move {
                     tokio::time::sleep(wait).await;
                     // Held to the end, so dropping it aborts nothing of this run.
-                    let _own = restarts.lock().pending_restarts.remove(&session_id);
+                    let _own = lock(&restarts.table).pending_restarts.remove(&session_id);
                     restarts.restart(&live).await;
                 });
-                self.lock()
+                lock(&self.table)
                     .pending_restarts
                     .insert(session_id, AbortOnDropHandle::new(pending));
             }
@@ -189,7 +190,7 @@ impl ClaudeSessionRestarts {
     /// Forgets the session's crashes, so the next counts from the first, and drops a restart still
     /// waiting; the person's own restart.
     pub(crate) fn clear_crash_window(&self, session_id: SessionId) {
-        let mut table = self.lock();
+        let mut table = lock(&self.table);
         table.pending_restarts.remove(&session_id);
         if let Some(window) = table.crash_windows.get_mut(&session_id) {
             window.clear();
@@ -198,7 +199,7 @@ impl ClaudeSessionRestarts {
 
     /// Forgets a closed session's crash window and anything it had waiting.
     pub(crate) fn forget_session(&self, session_id: SessionId) {
-        let mut table = self.lock();
+        let mut table = lock(&self.table);
         table.pending_restarts.remove(&session_id);
         table.crash_windows.remove(&session_id);
         table.pending_build_moves.remove(&session_id);
@@ -210,7 +211,10 @@ impl ClaudeSessionRestarts {
         &self,
         session_id: SessionId,
     ) -> Option<ClaudeEndedConversation> {
-        self.lock().ended_conversations.get(&session_id).cloned()
+        lock(&self.table)
+            .ended_conversations
+            .get(&session_id)
+            .cloned()
     }
 
     /// Relaunches `live`'s process before a turn whose step bound it was not started with, on
@@ -246,7 +250,7 @@ impl ClaudeSessionRestarts {
     /// Drops every restart and build move still waiting and starts none from here, as the daemon
     /// stops.
     pub(crate) fn stop(&self) {
-        let mut table = self.lock();
+        let mut table = lock(&self.table);
         table.is_stopped = true;
         table.pending_restarts.clear();
         table.pending_build_moves.clear();
@@ -263,7 +267,7 @@ impl ClaudeSessionRestarts {
         let mut idle = Vec::new();
         for live in self.slots.live_sessions() {
             if self.routes.is_turn_held(live.session_id) {
-                self.lock()
+                lock(&self.table)
                     .pending_build_moves
                     .insert(live.session_id, change.clone());
             } else {
@@ -278,7 +282,10 @@ impl ClaudeSessionRestarts {
 
     /// `live`'s turn settled: a build move that waited for it goes now.
     pub(crate) fn turn_settled(self: &Arc<Self>, live: &Arc<LiveClaudeSession>) {
-        let Some(change) = self.lock().pending_build_moves.remove(&live.session_id) else {
+        let Some(change) = lock(&self.table)
+            .pending_build_moves
+            .remove(&live.session_id)
+        else {
             return;
         };
         let (restarts, live) = (Arc::clone(self), Arc::clone(live));
@@ -326,7 +333,7 @@ impl ClaudeSessionRestarts {
         change: &ProviderBuildChange,
     ) -> Result<(), DriverError> {
         let session_id = live.session_id;
-        self.lock().pending_build_moves.remove(&session_id);
+        lock(&self.table).pending_build_moves.remove(&session_id);
         let Some(result) = self.relaunch(live).await else {
             return Ok(());
         };
@@ -361,7 +368,7 @@ impl ClaudeSessionRestarts {
                 .slots
                 .live_session(session_id)
                 .is_some_and(|held| Arc::ptr_eq(&held.channel, &live.channel));
-            if self.lock().is_stopped || !is_own {
+            if lock(&self.table).is_stopped || !is_own {
                 return None;
             }
             match self.slots.begin_close(session_id) {
@@ -371,7 +378,7 @@ impl ClaudeSessionRestarts {
             }
         };
         let relaunch = compose_claude_relaunch(live);
-        self.lock()
+        lock(&self.table)
             .ended_conversations
             .insert(session_id, ended_conversation_of(live));
         self.routes.retire_run_routes(session_id);
@@ -387,7 +394,7 @@ impl ClaudeSessionRestarts {
     // The wait passed: the session resumes unless a create, resume or close reached it meanwhile.
     async fn restart(&self, live: &LiveClaudeSession) {
         let session_id = live.session_id;
-        if self.lock().is_stopped || self.slots.holds_slot(session_id) {
+        if lock(&self.table).is_stopped || self.slots.holds_slot(session_id) {
             return;
         }
         let result = self.resume(compose_claude_relaunch(live)).await;
@@ -500,10 +507,6 @@ impl ClaudeSessionRestarts {
                 .await,
         );
     }
-
-    fn lock(&self) -> MutexGuard<'_, ClaudeRestartTable> {
-        self.table.lock().unwrap_or_else(PoisonError::into_inner)
-    }
 }
 
 // Where the file of the conversation `live`'s process wrote is found again.
@@ -534,11 +537,7 @@ pub(crate) fn claude_process_exit_of(end: &ClaudeProcessEnd) -> ProcessExit {
 // included, under the account it was admitted on; `None` when the model it moved to has no name
 // a resume carries.
 fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<ResumeSessionParams> {
-    let settings = live
-        .settings
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
+    let settings = lock(&live.settings).clone();
     let legs = &live.spawn_bound_legs;
     // The advisor and style the session ran with, read where a new session's would be.
     let row = |row_id: &str, value: Option<String>| {

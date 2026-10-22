@@ -13,7 +13,7 @@ use std::error::Error;
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::agent::definition::AgentId;
@@ -35,7 +35,10 @@ use self::context::{ClaudeSpawnContextError, ClaudeStoredReadError, read_claude_
 use self::figures::ClaudeHeldFigures;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::events::canonicalizer::CanonicalizationRefusal;
-use crate::policy::execution_posture_service::ExecutionPostureService;
+use crate::mutex_lock::lock;
+use crate::policy::execution_posture_service::{
+    CredentialPolicyResolveError, ExecutionPostureService,
+};
 use crate::provider::callback_tools::spawn_binding::CallbackToolSpawnBinding;
 use crate::provider::driver::SessionSpawnContextResolver;
 use crate::provider::driver::claude::DESCRIPTOR;
@@ -82,7 +85,9 @@ use crate::provider::driver::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsError, ClaudeSpawnLegsRequest,
     build_claude_spawn_binding, build_claude_spawn_bound_legs,
 };
-use crate::provider::driver::contract::{DriverError, bound_failure_detail};
+use crate::provider::driver::contract::{
+    DriverError, SpawnedVersionBindingCarriers, bound_failure_detail,
+};
 use crate::provider::driver::diagnostics::DriverDiagnosticKind;
 use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
@@ -473,11 +478,12 @@ impl ClaudeSessionEstablishment {
         )
         .await?;
         let host = sources.ports.callback_tool_host.require_port()?;
+        let session_id = request.session_id;
         let data_folder = sources.data_folder.to_string_lossy();
         let provider_account_id = request.provider_account_id.clone();
         let (legs, binding) = build_claude_spawn_bound_legs(
             ClaudeSpawnLegsRequest {
-                session_id: request.session_id,
+                session_id,
                 model: request.model,
                 execution_posture: request.execution_posture,
                 callback_tools: request.callback_tools,
@@ -502,7 +508,8 @@ impl ClaudeSessionEstablishment {
                 path_rules: PathRules::NATIVE,
             },
         )
-        .await?;
+        .await
+        .map_err(|error| legs_failure(error, session_id))?;
         let spawn_binding = match build_claude_spawn_binding(&legs) {
             Ok(spawn_binding) => spawn_binding,
             Err(refusal) => {
@@ -533,24 +540,21 @@ impl ClaudeSessionEstablishment {
     async fn bring_up(
         &self,
         start: ClaudeSessionStart,
-    ) -> Result<
-        crate::provider::driver::contract::SpawnedVersionBindingCarriers,
-        ClaudeEstablishmentError,
-    > {
+    ) -> Result<SpawnedVersionBindingCarriers, ClaudeEstablishmentError> {
         self.bring_up_and(start, async |_live| Ok(())).await
     }
 
     // Brings the process up, checks it, runs `before_install` on it, then installs it as the
     // session's live process and starts its task; any failure ends the process and undoes its
     // registry, and the claim restores what the slot held.
-    async fn bring_up_and(
+    async fn bring_up_and<BeforeInstall>(
         &self,
         start: ClaudeSessionStart,
-        before_install: impl AsyncFnOnce(&LiveClaudeSession) -> Result<(), ClaudeEstablishmentError>,
-    ) -> Result<
-        crate::provider::driver::contract::SpawnedVersionBindingCarriers,
-        ClaudeEstablishmentError,
-    > {
+        before_install: BeforeInstall,
+    ) -> Result<SpawnedVersionBindingCarriers, ClaudeEstablishmentError>
+    where
+        BeforeInstall: AsyncFnOnce(&LiveClaudeSession) -> Result<(), ClaudeEstablishmentError>,
+    {
         let ClaudeSessionStart {
             claim,
             agent_id,
@@ -794,7 +798,6 @@ impl ClaudeSessionEstablishment {
     }
 }
 
-// The conversation file `handle` names in the Claude Code home `spawn_environment` reads.
 /// The file of conversation `handle` in the Claude Code home `spawn_environment` names; `None`
 /// where the home names no folder or holds no such file. Fails as the home cannot be listed.
 pub(crate) async fn conversation_file_of(
@@ -826,6 +829,26 @@ async fn read_turn_count(
         .expect("a conversation's turn count is far below the wire's integer cap"))
 }
 
+// A folder the session's commands are kept from that could not be resolved refuses the start
+// naming it; any other failure of the legs is the legs' own.
+fn legs_failure(error: ClaudeSpawnLegsError, session_id: SessionId) -> ClaudeEstablishmentError {
+    match error {
+        ClaudeSpawnLegsError::CredentialPolicy(CredentialPolicyResolveError::DenyPath {
+            path,
+            cause,
+        }) => ClaudeSessionError::Unavailable {
+            reason: ClaudeSessionUnavailableReason::CredentialFolderUnresolvable,
+            detail: Some(format!("{}: {cause}", path.display())),
+            session_id: Some(session_id),
+            run_id: None,
+        }
+        .into(),
+        error @ (ClaudeSpawnLegsError::HomeRetention(_)
+        | ClaudeSpawnLegsError::CredentialPolicy(_)
+        | ClaudeSpawnLegsError::Environment(_)) => error.into(),
+    }
+}
+
 /// The `Failed` resume arm for `error`, its words fitted to the detail's cap.
 pub(crate) fn resume_failure(
     recovery_condition: RecoveryCondition,
@@ -838,8 +861,4 @@ pub(crate) fn resume_failure(
             UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
         ),
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }

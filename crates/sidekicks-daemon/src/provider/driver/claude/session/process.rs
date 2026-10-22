@@ -503,11 +503,10 @@ async fn own_child(
             asked_end = Some(end);
         }
     };
-    let (waited, read) = tokio::join!(waiting, read_error_tail(standard_error));
-    let exit = match (waited, read) {
-        (Ok((status, asked_end)), Ok(tail)) => Ok(read_exit(status, asked_end, tail)),
-        (Err(error), _) | (_, Err(error)) => Err(Arc::new(error)),
-    };
+    let (waited, tail) = tokio::join!(waiting, read_error_tail(standard_error));
+    let exit = waited
+        .map(|(status, asked_end)| read_exit(status, asked_end, tail))
+        .map_err(Arc::new);
     settlement.settle(exit).await;
 }
 
@@ -548,16 +547,24 @@ fn describe_exit(child_exit: &ChildExit) -> String {
     }
 }
 
-// Reads the error output to its end into one tail, chunk by chunk as each arrives.
+// Reads the error output to its end into one tail, chunk by chunk as each arrives. A read that
+// fails ends the tail where it stands, so the exit is still read.
 async fn read_error_tail(
     mut standard_error: impl AsyncRead + Unpin,
-) -> io::Result<OutputTail<PROVIDER_FAILURE_DETAIL_MAX_LEN>> {
+) -> OutputTail<PROVIDER_FAILURE_DETAIL_MAX_LEN> {
     let mut tail = OutputTail::new();
     let mut chunk = vec![0; 8192];
     loop {
-        match standard_error.read(&mut chunk).await? {
-            0 => return Ok(tail),
-            length => tail.push(&chunk[..length]),
+        match standard_error.read(&mut chunk).await {
+            Ok(0) => return tail,
+            Ok(length) => tail.push(&chunk[..length]),
+            Err(error) => {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "the Claude Code process's error output could not be read to its end"
+                );
+                return tail;
+            }
         }
     }
 }

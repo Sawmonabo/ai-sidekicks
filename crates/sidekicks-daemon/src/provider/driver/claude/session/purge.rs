@@ -34,7 +34,10 @@ pub(crate) struct ClaudePurgePlace<'a> {
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ClaudePurgeError {
     /// The environment a spawn on the account would start with could not be resolved.
-    #[error("resolving the Claude Code home of {} failed", describe_home(.provider_account_id.as_ref()))]
+    #[error(
+        "resolving the Claude Code home of {} failed",
+        describe_home(.provider_account_id.as_ref())
+    )]
     HomeUnresolved {
         /// The account; `None`, the person's own home.
         provider_account_id: Option<ProviderAccountId>,
@@ -43,13 +46,19 @@ pub(crate) enum ClaudePurgeError {
         source: Box<dyn Error + Send + Sync>,
     },
     /// The spawn environment names no home, so no config folder is known.
-    #[error("no Claude Code config folder is known for {}", describe_home(.provider_account_id.as_ref()))]
+    #[error(
+        "no Claude Code config folder is known for {}",
+        describe_home(.provider_account_id.as_ref())
+    )]
     ConfigFolderUnknown {
         /// The account; `None`, the person's own home.
         provider_account_id: Option<ProviderAccountId>,
     },
     /// Claude Code's files of the home's conversations could not all be deleted.
-    #[error("deleting the Claude Code conversations of {} failed", describe_home(.provider_account_id.as_ref()))]
+    #[error(
+        "deleting the Claude Code conversations of {} failed",
+        describe_home(.provider_account_id.as_ref())
+    )]
     Delete {
         /// The account; `None`, the person's own home.
         provider_account_id: Option<ProviderAccountId>,

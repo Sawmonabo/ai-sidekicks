@@ -5,15 +5,24 @@
 //! anything is written, at the session's current posture, so every row of the turn has a run.
 
 use std::error::Error;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::draft::{
+    ProviderRefusedReason, SessionAttachmentProviderRefusal, SessionAttachmentRefusedCode,
+};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::NonEmptyText;
 
+use crate::ipc::domain_error::DomainError;
+use crate::mutex_lock::lock;
 use crate::provider::driver::attachments::AttachmentResolver;
 use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::attachments::compose_claude_attachment_blocks;
+use crate::provider::driver::claude::attachments::{
+    ClaudeAttachmentError, compose_claude_attachment_blocks,
+};
 use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::provider::driver::claude::delivery::stream::ClaudeSessionStreams;
 use crate::provider::driver::claude::handshake_register::ClaudeHandshakeRegister;
@@ -59,7 +68,8 @@ pub(crate) enum ClaudeDaemonTurnOpening {
         not(test),
         expect(
             dead_code,
-            reason = "the Claude driver's staged review starts its own turn with it"
+            reason = "the daemon's start registers the Claude driver, whose staged review starts \
+                      its own turn with it"
         )
     )]
     Apart {
@@ -131,7 +141,7 @@ impl ClaudeRunStart {
         let attachment_blocks =
             compose_claude_attachment_blocks(&*self.attachments, &session_id, &opening.attachments)
                 .await
-                .map_err(|error| DriverError::Internal(Box::new(error)))?;
+                .map_err(claude_attachment_failure)?;
         if self
             .routes
             .lead_run_on(session_id)
@@ -180,19 +190,17 @@ impl ClaudeRunStart {
         opening: ClaudeDaemonTurnOpening,
     ) -> Result<RunId, DriverError> {
         let live = self.live_session(session_id)?;
-        let execution_posture = live
-            .settings
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .execution_posture
-            .clone()
-            .ok_or_else(|| {
-                claude_session_unavailable(
-                    ClaudeSessionUnavailableReason::ExecutionPostureAbsent,
-                    session_id,
-                    None,
-                )
-            })?;
+        let execution_posture =
+            lock(&live.settings)
+                .execution_posture
+                .clone()
+                .ok_or_else(|| {
+                    claude_session_unavailable(
+                        ClaudeSessionUnavailableReason::ExecutionPostureAbsent,
+                        session_id,
+                        None,
+                    )
+                })?;
         let is_provider_started = matches!(opening, ClaudeDaemonTurnOpening::Provider);
         let is_apart = matches!(opening, ClaudeDaemonTurnOpening::Apart { .. });
         if matches!(opening, ClaudeDaemonTurnOpening::Text { .. })
@@ -217,10 +225,7 @@ impl ClaudeRunStart {
             is_apart,
             start_turn: Box::new(move |run_id| {
                 let start = start.clone();
-                let opening = opening
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .take();
+                let opening = lock(&opening).take();
                 async move { start.start_turn(session_id, run_id, opening).await }.boxed()
             }),
             interrupt_turn: Box::new(move |run_id| {
@@ -325,8 +330,7 @@ impl ClaudeRunStart {
         // write, since Claude Code may report the message taken before the write returns.
         self.handshakes
             .arm_run_output_speed(session_id, &live.provider_session_id, run_id);
-        self.lock_prompts()
-            .record_written(session_id, run_id, &message_id, false);
+        lock(&self.prompts).record_written(session_id, run_id, &message_id, false);
         let frame = compose_claude_user_frame(text, message_id.clone(), attachment_blocks);
         match live.channel.write_user_frame(frame).await {
             ClaudeWriteAttempt::Written => Ok(()),
@@ -336,7 +340,7 @@ impl ClaudeRunStart {
                 // hold; a write that never left releases it now. Nothing is resent.
                 Err(match delivery {
                     ClaudeWriteDelivery::Unsent => {
-                        self.lock_prompts().record_dropped(session_id, &message_id);
+                        lock(&self.prompts).record_dropped(session_id, &message_id);
                         self.routes.unbind_run(run_id);
                         ClaudeSessionError::InputUnwritable(cause).into()
                     }
@@ -355,21 +359,13 @@ impl ClaudeRunStart {
         level: &str,
     ) -> Result<(), ClaudeSessionError> {
         let session_id = live.session_id;
-        let applied = live
-            .settings
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .applied_output_speed
-            .clone();
+        let applied = lock(&live.settings).applied_output_speed.clone();
         if applied.as_deref() == Some(resolve_claude_output_speed(level)) {
             return Ok(());
         }
         match apply_claude_output_speed(&*live.channel, session_id, level).await {
             Ok(Some(level)) => {
-                live.settings
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .applied_output_speed = Some(level.to_owned());
+                lock(&live.settings).applied_output_speed = Some(level.to_owned());
             }
             Ok(None) => {}
             Err(error) => {
@@ -428,10 +424,6 @@ impl ClaudeRunStart {
             )
         })
     }
-
-    fn lock_prompts(&self) -> std::sync::MutexGuard<'_, ClaudeSentPrompts> {
-        self.prompts.lock().unwrap_or_else(PoisonError::into_inner)
-    }
 }
 
 /// The refusal of an operation the session cannot carry out now, for `reason`.
@@ -448,18 +440,74 @@ pub(crate) fn claude_session_unavailable(
     }
 }
 
+/// The failure a message's files that cannot be composed answer: a picture past Claude Code's
+/// limit is the provider's refusal of it, `session.attachment.refused` carrying Claude Code's own
+/// words; a file that cannot be bound or read is internal.
+pub(crate) fn claude_attachment_failure(error: ClaudeAttachmentError) -> DriverError {
+    match error {
+        ClaudeAttachmentError::PictureTooLarge { .. } => {
+            let provider_message = NonEmptyText::new(error.to_string())
+                .expect("Claude Code's refusal of a picture has words");
+            DriverError::Refused(
+                DomainError::new(
+                    "Claude Code refused a picture the message carries",
+                    RefusalCode::SessionAttachmentRefused,
+                )
+                .with_detail(SessionAttachmentProviderRefusal {
+                    code: SessionAttachmentRefusedCode::Value,
+                    reason: ProviderRefusedReason::Value,
+                    provider_message,
+                })
+                .with_source(error),
+            )
+        }
+        error @ (ClaudeAttachmentError::Unbound(_)
+        | ClaudeAttachmentError::PictureUnreadable { .. }) => {
+            DriverError::Internal(Box::new(error))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use serde_json::{Value, json};
     use sidekicks_contracts::agent::definition::AgentId;
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::run::queue::QueueItemId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::text::FreeFormText;
 
+    use crate::provider::driver::claude::attachments::ClaudeAttachmentError;
     use crate::provider::driver::claude::session::scripted::{
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
     };
-    use crate::provider::driver::contract::{RunOpening, StartRunParams};
+    use crate::provider::driver::contract::{DriverError, RunOpening, StartRunParams};
+
+    use super::claude_attachment_failure;
+
+    // Killed by answering a picture past Claude Code's limit as an internal failure, or by
+    // dropping Claude Code's own words from the refusal.
+    #[test]
+    fn a_picture_past_the_limit_is_the_providers_refusal_in_its_own_words() {
+        let error = ClaudeAttachmentError::PictureTooLarge {
+            file_name: "screen.png".to_owned(),
+            base64_size: 7_000_000,
+        };
+        let words = error.to_string();
+
+        let DriverError::Refused(refusal) = claude_attachment_failure(error) else {
+            panic!("a picture past the limit is refused");
+        };
+        assert_eq!(refusal.code, RefusalCode::SessionAttachmentRefused);
+        assert_eq!(
+            refusal.detail.map(Value::Object),
+            Some(json!({
+                "code": "session.attachment.refused",
+                "reason": "providerRefused",
+                "providerMessage": words,
+            }))
+        );
+    }
 
     // Killed by releasing an ended turn's hold on the session's task: a continue of the run that
     // the interrupt stopped would wait on the task, which is itself waiting on that run's turn.

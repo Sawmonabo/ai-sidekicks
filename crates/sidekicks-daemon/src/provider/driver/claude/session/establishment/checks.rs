@@ -56,7 +56,13 @@ impl ClaudeSessionEstablishment {
                         model: legs.model.clone(),
                         provider_error,
                     },
-                    error => error,
+                    error @ (ClaudeSessionError::Unavailable { .. }
+                    | ClaudeSessionError::InputUnwritable(_)
+                    | ClaudeSessionError::AuthenticationRequired { .. }
+                    | ClaudeSessionError::Unanswered { .. }
+                    | ClaudeSessionError::ControlRequestRefused { .. }
+                    | ClaudeSessionError::ModelNotOffered { .. }
+                    | ClaudeSessionError::SessionAlreadyLive { .. }) => error,
                 })?;
         }
         if let Some(posture) = &legs.execution_posture {

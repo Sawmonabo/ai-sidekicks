@@ -4,7 +4,7 @@
 //! own handshake arrives.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::Mutex;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -19,6 +19,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::mutex_lock::lock;
 use crate::provider::declared_output_speed::{DeclaredOutputSpeed, read_declared_output_speed};
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::session::errors::{
@@ -90,7 +91,7 @@ impl ClaudeHandshakeRegister {
         }
         let invocable_command_names: HashSet<String> =
             declaration.slash_commands.iter().cloned().collect();
-        self.lock_sessions()
+        lock(&self.sessions)
             .entry(session_id)
             .or_default()
             .handshake = Some(ClaudeHeldHandshake {
@@ -109,7 +110,7 @@ impl ClaudeHandshakeRegister {
         provider_session_id: &str,
         run_id: RunId,
     ) {
-        self.lock_sessions()
+        lock(&self.sessions)
             .entry(session_id)
             .or_default()
             .unsettled_run = Some(ClaudeUnsettledRun {
@@ -120,7 +121,7 @@ impl ClaudeHandshakeRegister {
 
     /// Drops the armed run without a report: its turn was never written.
     pub(crate) fn disarm_run_output_speed(&self, session_id: SessionId) {
-        if let Some(declarations) = self.lock_sessions().get_mut(&session_id) {
+        if let Some(declarations) = lock(&self.sessions).get_mut(&session_id) {
             declarations.unsettled_run = None;
         }
     }
@@ -132,7 +133,7 @@ impl ClaudeHandshakeRegister {
         session_id: SessionId,
         provider_session_id: &str,
     ) -> Option<ClaudeSettledOutputSpeed> {
-        let mut sessions = self.lock_sessions();
+        let mut sessions = lock(&self.sessions);
         let declarations = sessions.get_mut(&session_id)?;
         if declarations
             .unsettled_run
@@ -151,7 +152,7 @@ impl ClaudeHandshakeRegister {
 
     /// Discards the session's declarations and armed run: live reads of a replaced process.
     pub(crate) fn forget_handshake(&self, session_id: SessionId) {
-        self.lock_sessions().remove(&session_id);
+        lock(&self.sessions).remove(&session_id);
     }
 
     /// The handshake the process under `provider_session_id` declared, or `None` before it did.
@@ -162,7 +163,7 @@ impl ClaudeHandshakeRegister {
         session_id: SessionId,
         provider_session_id: &str,
     ) -> Option<ClaudeHeldHandshake> {
-        self.lock_sessions()
+        lock(&self.sessions)
             .get(&session_id)?
             .handshake
             .as_ref()
@@ -184,7 +185,7 @@ impl ClaudeHandshakeRegister {
         provider_session_id: &str,
     ) -> Option<ProviderOutputSpeedState> {
         held_state(
-            self.lock_sessions().get(&session_id)?.fast_mode.as_ref(),
+            lock(&self.sessions).get(&session_id)?.fast_mode.as_ref(),
             provider_session_id,
         )
     }
@@ -206,7 +207,7 @@ impl ClaudeHandshakeRegister {
                 reason: declaration.fast_mode_disabled_reason.clone(),
             })
         });
-        self.lock_sessions()
+        lock(&self.sessions)
             .entry(session_id)
             .or_default()
             .fast_mode = Some(ClaudeHeldFastMode {
@@ -245,10 +246,6 @@ impl ClaudeHandshakeRegister {
             binding,
             entries,
         })
-    }
-
-    fn lock_sessions(&self) -> MutexGuard<'_, HashMap<SessionId, ClaudeSessionDeclarations>> {
-        self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
