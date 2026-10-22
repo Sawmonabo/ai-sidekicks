@@ -81,8 +81,6 @@ pub(crate) struct ClaudeStreamDependencies {
     pub(crate) engine: Arc<dyn ClaudeRunEngine>,
     /// The runs bound to each session.
     pub(crate) routes: Arc<ClaudeRunRoutes>,
-    /// The messages written and not yet reported taken.
-    pub(crate) prompts: Arc<Mutex<ClaudeSentPrompts>>,
     /// The choices Claude Code holds a run on.
     pub(crate) dialogs: Arc<ClaudeProviderDialogs<ClaudeStreamDialogPorts>>,
     /// Each run's pause.

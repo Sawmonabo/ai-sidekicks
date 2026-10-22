@@ -303,7 +303,6 @@ impl ClaudeDriver {
         let delivery = Arc::new(ClaudeDeliveryStream::new(ClaudeStreamDependencies {
             engine: Arc::clone(engine),
             routes: Arc::clone(&routes),
-            prompts: Arc::clone(&prompts),
             dialogs: Arc::clone(&dialogs),
             pauses: Arc::clone(&pauses),
             reviewer: Arc::clone(&reviewer),

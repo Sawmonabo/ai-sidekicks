@@ -89,14 +89,6 @@ pub(crate) async fn read_claude_creation_figures(
 
 /// Reads the reply reserve of `place`'s model from its own process that keeps nothing. Fails as
 /// the start or `initialize` does; a refusal on the way is the answer.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "a session's move to another model reads that model's reply reserve through \
-                  it"
-    )
-)]
 pub(crate) async fn read_claude_reply_reserve(
     launcher: &ClaudeProcessLauncher,
     executable: &ResolvedProviderExecutable,

@@ -131,6 +131,11 @@ impl ClaudeHeldFigures {
 
     /// Reads the reply reserve of the model `legs`' session runs on now, `running_model`, in its
     /// own process that keeps nothing, where none is held for it at the session's endpoint.
+    #[expect(
+        dead_code,
+        reason = "a session's move to another model reads that model's reply reserve, which the \
+                  session's context-usage read takes"
+    )]
     pub(crate) fn read_reply_reserve_for(&self, legs: &ClaudeSpawnBoundLegs, running_model: &str) {
         let figures = self.current();
         let place = folder_read_of(legs, running_model);
