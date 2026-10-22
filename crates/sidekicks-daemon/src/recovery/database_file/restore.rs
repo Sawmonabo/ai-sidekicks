@@ -2,12 +2,12 @@
 //! backup, run with the service stopped, since it replaces the file the service holds. It makes
 //! the data folder when it is missing and takes its lock, so it is refused while a service runs;
 //! reads the backup's manifest; reads the backup's database header, refusing a copy another
-//! build's schema wrote and naming both versions; and reads the mirror's list and checks that
-//! each place it keeps, under this computer's home folder, can be written, all before it replaces
-//! anything. It then replaces the store, its log, its shared memory and its search index removed,
-//! brings each place the mirror keeps level with its copy, and records `daemon.backup.restored`
-//! in the restored store through the one writer before any service opens it. A restore that fails
-//! names its step and leaves what it had not reached as it was.
+//! build's schema wrote and naming both schemas and both service versions; and reads the mirror's
+//! list and checks that each place it keeps, under this computer's home folder, can be written,
+//! all before it replaces anything. It then replaces the store, its log, its shared memory and its
+//! search index removed, brings each place the mirror keeps level with its copy, and records
+//! `daemon.backup.restored` in the restored store through the one writer before any service opens
+//! it. A restore that fails names its step and leaves what it had not reached as it was.
 
 use std::ffi::OsString;
 use std::fs::{self, File};
@@ -19,11 +19,13 @@ use std::sync::Arc;
 use sidekicks_contracts::daemon::backup::{BACKUP_DATABASE_FILE_NAME, DaemonBackupRestoredPayload};
 use sidekicks_contracts::event::envelope::{DAEMON_SCOPE_SENTINEL_SESSION_ID, EventOccurredAt};
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_platforms::{create_private_folder, flush_folder, remove_tree, rename_replacing};
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::backup::mirror::{
     MIRROR_FOLDER_NAME, MIRROR_ROOTS_FILE_NAME, MirrorError, MirrorRoot, bring_level,
+    probe_time_precision,
 };
 use crate::daemon::data_folder::data_folder;
 use crate::daemon::data_folder_lock::{DataFolderLock, DataFolderLockError};
@@ -63,9 +65,6 @@ const RESTORE_STATEMENT_CAPACITY: usize = 0;
 // The file a restore writes and removes in each place's folder to learn that it can write there.
 const PLACE_PROBE_FILE_NAME: &str = ".sidekicks-restore-probe";
 
-// The service version of this build, which each backup's manifest names for its own.
-const SERVICE_VERSION: &str = env!("CARGO_PKG_VERSION");
-
 /// Why a restore failed, by its step.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RestoreError {
@@ -104,14 +103,19 @@ pub(crate) enum RestoreError {
     },
     /// Another build's schema wrote the backup's copy.
     #[error(
-        "the backup was written by service version {backup_service_version}, whose store this \
-         service version {build_service_version} cannot read"
+        "the backup's store has schema {backup_schema_version}, written by service version \
+         {backup_service_version}; this service version {build_service_version} reads schema \
+         {build_schema_version}"
     )]
     OtherBuild {
+        /// The schema the backup's copy names in its header.
+        backup_schema_version: i32,
         /// The service version the backup's manifest names.
         backup_service_version: String,
+        /// The schema this build reads.
+        build_schema_version: i32,
         /// This build's service version.
-        build_service_version: &'static str,
+        build_service_version: String,
     },
     /// The store could not be replaced.
     #[error("the service's store could not be replaced at {}", path.display())]
@@ -164,20 +168,29 @@ pub fn run_database_restore(arguments: &[OsString]) -> ExitCode {
     }
 }
 
+// The mode's own start: this build's service version, the one each backup's manifest names for
+// its own, and the home folder, handed to the restore.
 fn restore_from_home(backup_folder: &Path) -> Result<(), RestoreError> {
+    let service_version = ReleaseVersion::new(env!("CARGO_PKG_VERSION").to_owned())
+        .expect("the crate's version is a release version");
     let home = std::env::home_dir().ok_or(RestoreError::NoHome)?;
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(RestoreError::Runtime)?
-        .block_on(restore_backup(&home, backup_folder))
+        .block_on(restore_backup(&home, backup_folder, &service_version))
 }
 
 /// Restores the backup in `backup_folder` into the service of the home folder `home`, as the
-/// mode's doc says. Fails with the step that failed; before anything is replaced with
-/// [`RestoreError::Lock`] while a service holds the data folder, [`RestoreError::OtherBuild`]
-/// naming both versions, and [`RestoreError::Place`] for a kept place that cannot be written.
-pub(crate) async fn restore_backup(home: &Path, backup_folder: &Path) -> Result<(), RestoreError> {
+/// mode's doc says, `service_version` this build's. Fails with the step that failed; before
+/// anything is replaced with [`RestoreError::Lock`] while a service holds the data folder,
+/// [`RestoreError::OtherBuild`] naming both schemas and both service versions, and
+/// [`RestoreError::Place`] for a kept place that cannot be written.
+pub(crate) async fn restore_backup(
+    home: &Path,
+    backup_folder: &Path,
+    service_version: &ReleaseVersion,
+) -> Result<(), RestoreError> {
     let data_folder = data_folder(home);
     let locked_folder = data_folder.clone();
     let _lock = tokio::task::spawn_blocking(move || {
@@ -194,7 +207,6 @@ pub(crate) async fn restore_backup(home: &Path, backup_folder: &Path) -> Result<
         source,
     };
     let manifest = read_backup_manifest(backup_folder)
-        .await
         .map_err(|failure| missing_manifest(Some(failure)))?
         .ok_or_else(|| missing_manifest(None))?;
     let backup_database = backup_folder.join(BACKUP_DATABASE_FILE_NAME);
@@ -205,8 +217,10 @@ pub(crate) async fn restore_backup(home: &Path, backup_folder: &Path) -> Result<
         })?;
     if backup_version != *DAEMON_SCHEMA_FINGERPRINT {
         return Err(RestoreError::OtherBuild {
+            backup_schema_version: backup_version,
             backup_service_version: manifest.service_version.as_str().to_owned(),
-            build_service_version: SERVICE_VERSION,
+            build_schema_version: *DAEMON_SCHEMA_FINGERPRINT,
+            build_service_version: service_version.as_str().to_owned(),
         });
     }
     let mirror_folder = backup_folder
@@ -350,7 +364,8 @@ fn check_place_writable(place: &Path) -> Result<(), (PathBuf, io::Error)> {
     fs::remove_file(&probe).map_err(|failure| (probe, failure))
 }
 
-// Brings each kept place level with its copy, making the folders on its way.
+// Brings each kept place level with its copy, making the folders on its way, its times compared
+// at the precision the place's folder keeps.
 fn restore_mirror(kept: &[KeptPlace]) -> Result<(), RestoreError> {
     let stop = CancellationToken::new();
     for KeptPlace { copy, place } in kept {
@@ -358,15 +373,18 @@ fn restore_mirror(kept: &[KeptPlace]) -> Result<(), RestoreError> {
             place: place.clone(),
             source,
         };
-        if let Some(parent) = place.parent() {
-            fs::create_dir_all(parent).map_err(|failure| {
-                failed(MirrorError::Io {
-                    path: parent.to_path_buf(),
-                    source: failure,
-                })
-            })?;
-        }
-        bring_level(copy, place, &stop).map_err(failed)?;
+        let parent = place
+            .parent()
+            .expect("a kept place sits under the home folder");
+        let in_parent = |failure| {
+            failed(MirrorError::Io {
+                path: parent.to_path_buf(),
+                source: failure,
+            })
+        };
+        fs::create_dir_all(parent).map_err(in_parent)?;
+        let precision = probe_time_precision(parent).map_err(in_parent)?;
+        bring_level(copy, place, precision, &stop).map_err(failed)?;
     }
     Ok(())
 }
@@ -425,6 +443,7 @@ mod tests {
     use std::path::Path;
 
     use serde_json::json;
+    use sidekicks_contracts::release_manifest::ReleaseVersion;
 
     use super::{BACKUP_DATABASE_FILE_NAME, RestoreError, restore_backup};
     use crate::daemon::data_folder::data_folder;
@@ -472,12 +491,12 @@ mod tests {
     }
 
     // A restore makes a missing data folder and takes its lock, refusing a copy another build
-    // wrote by naming both service versions; it is refused while the folder is held, and for a
-    // kept place it cannot write, each before the store is replaced. One that runs leaves the
-    // store holding `daemon.backup.restored` on the service's own session, the search index gone,
-    // and a kept file back under this home, whatever home wrote it. Killed by the folder not
-    // made, by the lock skipped, by the version check skipped, by the places checked after the
-    // store is replaced, by the index kept, and by the event written to the old store.
+    // wrote by naming both schemas and both service versions; it is refused while the folder is
+    // held, and for a kept place it cannot write, each before the store is replaced. One that runs
+    // leaves the store holding `daemon.backup.restored` on the service's own session, the search
+    // index gone, and a kept file back under this home, whatever home wrote it. Killed by the
+    // folder not made, by the lock skipped, by the version check skipped, by the places checked
+    // after the store is replaced, by the index kept, and by the event written to the old store.
     #[tokio::test]
     async fn a_restore_is_refused_while_held_and_records_itself_in_the_restored_store() {
         let scratch = tempfile::tempdir().expect("a scratch folder");
@@ -488,28 +507,31 @@ mod tests {
         let other_build = backups.join("other-build");
         write_backup(&other_build, *DAEMON_SCHEMA_FINGERPRINT ^ 1, "9.9.9");
         let this_build = backups.join("this-build");
-        write_backup(
-            &this_build,
-            *DAEMON_SCHEMA_FINGERPRINT,
-            env!("CARGO_PKG_VERSION"),
-        );
+        write_backup(&this_build, *DAEMON_SCHEMA_FINGERPRINT, "1.2.3");
+        let service_version = ReleaseVersion::new("1.2.3".to_owned()).expect("a version");
         fs::create_dir_all(backups.join("mirror/agent-memory")).expect("made");
         fs::write(backups.join("mirror/agent-memory/notes.md"), b"learned").expect("written");
 
-        let refused = restore_backup(&home, &other_build).await;
+        let refused = restore_backup(&home, &other_build, &service_version).await;
         let Err(refusal @ RestoreError::OtherBuild { .. }) = refused else {
             panic!("a copy another build wrote is refused, not {refused:?}");
         };
         let message = refusal.to_string();
-        assert!(message.contains("9.9.9"), "{message}");
-        assert!(message.contains(env!("CARGO_PKG_VERSION")), "{message}");
+        for named in [
+            "9.9.9".to_owned(),
+            "1.2.3".to_owned(),
+            (*DAEMON_SCHEMA_FINGERPRINT ^ 1).to_string(),
+            DAEMON_SCHEMA_FINGERPRINT.to_string(),
+        ] {
+            assert!(message.contains(&named), "{message} names {named}");
+        }
         let store = data_folder.join(DAEMON_DATABASE_FILE_NAME);
         fs::write(&store, b"the store before the restore").expect("written");
         let index = data_folder.join(SEARCH_INDEX_FOLDER_NAME);
         fs::create_dir_all(&index).expect("the index folder is made");
         fs::write(index.join("segment"), b"rows of the store before").expect("written");
         let held = DataFolderLock::take(&data_folder).expect("the test holds the data folder");
-        let refused = restore_backup(&home, &this_build).await;
+        let refused = restore_backup(&home, &this_build, &service_version).await;
         assert!(matches!(refused, Err(RestoreError::Lock(_))));
         drop(held);
         fs::write(home.join("blocked"), b"a file where a folder goes").expect("written");
@@ -517,7 +539,7 @@ mod tests {
             &backups,
             &json!([{ "name": "agent-memory", "source": "blocked/agent-memory" }]),
         );
-        let refused = restore_backup(&home, &this_build).await;
+        let refused = restore_backup(&home, &this_build, &service_version).await;
         assert!(
             matches!(refused, Err(RestoreError::Place { .. })),
             "{refused:?}"
@@ -532,7 +554,7 @@ mod tests {
             &backups,
             &json!([{ "name": "agent-memory", "source": ".agent/agent-memory" }]),
         );
-        restore_backup(&home, &this_build)
+        restore_backup(&home, &this_build, &service_version)
             .await
             .expect("the restore runs");
         assert!(!index.exists());

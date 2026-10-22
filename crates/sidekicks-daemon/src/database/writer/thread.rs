@@ -2,7 +2,8 @@
 //! the write queue sends, one at a time: a batch as one transaction, each write in it under a
 //! savepoint of its own, so a refused or failed write rolls back alone while the batch commits
 //! whole or not at all; or a WAL checkpoint; or the repack; or the online copy, serving the
-//! requests that come while it lives. It closes its connection and exits once the queue lets it
+//! requests that come while it lives. It counts the batches that committed a write, so a copy
+//! names exactly the writes it holds. It closes its connection and exits once the queue lets it
 //! go.
 
 use rusqlite::config::DbConfig;
@@ -22,7 +23,7 @@ use crate::database::statement::{
 };
 use crate::database::writer::backup::{CopyOrder, LOCK_BOUND, ThreadServing, copy_database};
 use crate::database::writer::messages::{
-    BatchAnswer, BatchFailure, CheckpointAnswer, CheckpointReport, FailedBatch,
+    BatchAnswer, BatchFailure, CheckpointAnswer, CheckpointReport, CommittedBatch, FailedBatch,
     MeasuredCheckpointAnswer, ThreadExit, ThreadRequest, WriteJob, WriteJobFailure,
     WriteJobOutcome,
 };
@@ -99,8 +100,18 @@ fn serve(
     stop: &ThreadStop,
     runtime: &Handle,
 ) {
+    let mut commit_count = 0;
     while let Some(request) = requests.blocking_recv() {
-        if !serve_request(connection, encoder, request, &mut requests, stop, runtime) {
+        let is_served = serve_request(
+            connection,
+            encoder,
+            request,
+            &mut requests,
+            stop,
+            runtime,
+            &mut commit_count,
+        );
+        if !is_served {
             // The queue is gone, so no request follows.
             break;
         }
@@ -109,7 +120,8 @@ fn serve(
 
 /// Closes the connection. When `skips_checkpoint`, the close first turns off the checkpoint SQLite
 /// makes on the last close, whatever else still holds the file open: an ended writer keeps the
-/// files as they were found, and a stop cut at its bound leaves the log for the next open to replay.
+/// files as they were found, and a stop cut at its bound leaves the log for the next open to
+/// replay.
 fn close(connection: Connection, skips_checkpoint: bool) -> ThreadExit {
     let switch_failure = if skips_checkpoint {
         connection
@@ -193,7 +205,8 @@ impl UnkeptWrite {
 
 /// Runs one request and answers it; false once the queue is gone, so no request follows. A copy
 /// serves the requests that come while it lives, each through here. A checkpoint's and a repack's
-/// answers carry the thread's processor time around their statements.
+/// answers carry the thread's processor time around their statements; a batch's and a copy's carry
+/// `commit_count`, the thread's count of the batches that committed a write.
 pub(super) fn serve_request(
     connection: &Connection,
     encoder: &mut BodyEncoder,
@@ -201,10 +214,11 @@ pub(super) fn serve_request(
     requests: &mut mpsc::Receiver<ThreadRequest>,
     stop: &ThreadStop,
     runtime: &Handle,
+    commit_count: &mut u64,
 ) -> bool {
     match request {
         ThreadRequest::Batch { jobs, reply } => reply
-            .send(run_batch(connection, encoder, &jobs, stop))
+            .send(run_batch(connection, encoder, &jobs, stop, commit_count))
             .is_ok(),
         ThreadRequest::Checkpoint { mode, reply } => {
             reply.send(checkpoint_measured(connection, mode)).is_ok()
@@ -235,6 +249,7 @@ pub(super) fn serve_request(
                 requests,
                 stop,
                 runtime,
+                commit_count,
             };
             let (answer, is_queue_gone) = copy_database(&order, &mut serving);
             reply.send(answer).is_ok() && !is_queue_gone
@@ -242,16 +257,24 @@ pub(super) fn serve_request(
     }
 }
 
-// Runs a requested checkpoint and reads the store's page size, with the thread's processor time
-// around both.
+// Runs a requested checkpoint right after a `NOOP` one, whose count of frames already moved
+// leaves the frames this one moved, and reads the store's page size, with the thread's processor
+// time around them.
 fn checkpoint_measured(connection: &Connection, mode: CheckpointMode) -> MeasuredCheckpointAnswer {
     let mut processor_time = ThreadProcessorTime::default();
     let report = processor_time.measure(|| {
+        let before = checkpoint(connection, CheckpointMode::Noop)?;
         let result = checkpoint(connection, mode)?;
         let page_size = connection
             .pragma_query_value(None, "page_size", |row| row.get(0))
             .map_err(|failure| CleanupFailures::new(failure, Vec::new(), CHECKPOINT_OPERATION))?;
-        Ok(CheckpointReport { result, page_size })
+        Ok(CheckpointReport {
+            result,
+            moved_frames: result
+                .checkpointed_frames
+                .saturating_sub(before.checkpointed_frames),
+            page_size,
+        })
     })?;
     Ok(Measured {
         report,
@@ -260,16 +283,29 @@ fn checkpoint_measured(connection: &Connection, mode: CheckpointMode) -> Measure
 }
 
 /// Runs `jobs` as one immediate transaction and answers every write's outcome once it committed,
-/// or the batch's failure beside the failures of the writes that failed alone before it.
+/// with `commit_count` raised when one of them committed, or the batch's failure beside the
+/// failures of the writes that failed alone before it.
 fn run_batch(
     connection: &Connection,
     encoder: &mut BodyEncoder,
     jobs: &[WriteJob],
     stop: &ThreadStop,
+    commit_count: &mut u64,
 ) -> BatchAnswer {
     let mut outcomes = Vec::with_capacity(jobs.len());
     match run_transaction(connection, encoder, jobs, stop, &mut outcomes) {
-        Ok(()) => Ok(outcomes),
+        Ok(()) => {
+            if outcomes
+                .iter()
+                .any(|outcome| matches!(outcome, WriteJobOutcome::Committed { .. }))
+            {
+                *commit_count += 1;
+            }
+            Ok(CommittedBatch {
+                outcomes,
+                commit_count: *commit_count,
+            })
+        }
         Err(failure) => Err(Box::new(FailedBatch {
             failure: *failure,
             earlier_write_failures: outcomes

@@ -282,8 +282,8 @@ mod tests {
     }
 
     // An erase the keychain cannot carry out is refused with `daemon.data.storeUnavailable`,
-    // naming its cause, before anything stops or goes. Killed by an erase that starts before the keychain check,
-    // and by the refusal answered under another code.
+    // naming its cause, before anything stops or goes. Killed by an erase that starts before the
+    // keychain check, and by the refusal answered under another code.
     #[tokio::test]
     async fn an_erase_the_keychain_refuses_answers_store_unavailable_and_erases_nothing() {
         let verbs = data_verbs().await;
@@ -367,23 +367,19 @@ mod tests {
         }
     }
 
-    // A start whose folder cannot be made, its parent missing or read-only, is refused with
-    // `daemon.dataExport.destination.notWritable` naming the folder, and nothing is made. Killed by
-    // the create failure answered as an internal error and by the refusal under another code.
+    // A start whose folder cannot be made, its parent missing or a file, which refuses every
+    // account on every system, is refused with `daemon.dataExport.destination.notWritable` naming
+    // the folder, and nothing is made. Killed by the create failure answered as an internal error,
+    // by `NotADirectory` left out of the refusal, and by the refusal under another code.
     #[rstest]
     #[case::parent_missing(false)]
-    #[cfg_attr(unix, case::parent_read_only(true))]
+    #[case::parent_is_a_file(true)]
     #[tokio::test]
-    async fn an_export_folder_that_cannot_be_made_is_not_writable(#[case] is_parent_made: bool) {
+    async fn an_export_folder_that_cannot_be_made_is_not_writable(#[case] is_parent_a_file: bool) {
         let verbs = data_verbs().await;
         let parent = verbs.data_folder.path().join("parent");
-        if is_parent_made {
-            fs::create_dir(&parent).expect("the parent is made");
-            let mut permissions = fs::metadata(&parent)
-                .expect("the parent reads")
-                .permissions();
-            permissions.set_readonly(true);
-            fs::set_permissions(&parent, permissions).expect("the parent is made read-only");
+        if is_parent_a_file {
+            fs::write(&parent, b"").expect("the parent is written as a file");
         }
         let destination = parent.join("export");
         let refused = verbs
@@ -406,17 +402,6 @@ mod tests {
             destination.to_string_lossy().as_ref()
         );
         assert!(!destination.exists());
-        if is_parent_made {
-            let mut permissions = fs::metadata(&parent)
-                .expect("the parent reads")
-                .permissions();
-            #[expect(
-                clippy::permissions_set_readonly_false,
-                reason = "the test gives the folder back its write bit so the folder is removed"
-            )]
-            permissions.set_readonly(false);
-            fs::set_permissions(&parent, permissions).expect("the parent is writable again");
-        }
     }
 
     async fn next_emission(

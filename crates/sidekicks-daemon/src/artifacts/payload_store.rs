@@ -193,10 +193,9 @@ impl PayloadStore {
 
     /// Reclaims every stored payload no reference names, as
     /// [`PayloadStore::reclaim_unreferenced`] does, for bytes a crash left behind: run at the
-    /// daemon's start and on the ingest reaper's cadence, its listing and removals charged to
-    /// `meter`. Answers
-    /// the payloads it examined, each one stored. Fails when the store's folder cannot be listed or
-    /// the referenced keys read.
+    /// daemon's start and on the ingest reaper's cadence, its listing, reads and removals charged
+    /// to `meter`. Answers the payloads it examined, each one stored. Fails when the store's folder
+    /// cannot be listed or the referenced keys read.
     #[cfg_attr(
         not(test),
         expect(
@@ -214,13 +213,16 @@ impl PayloadStore {
             .run_blocking(move || list_stored(&algorithm_folder))
             .await
             .map_err(io::Error::other)??;
+        let read_meter = meter.clone();
         let referenced = reads
-            .read(ReadLength::Long, |connection| {
-                connection
-                    .prepare_cached(REFERENCED_KEYS_SQL)?
-                    .query_map([], |row| row.get::<_, String>(0))?
-                    .collect::<rusqlite::Result<HashSet<String>>>()
-                    .map_err(PayloadReclaimError::from)
+            .read(ReadLength::Long, move |connection| {
+                read_meter.measure(|| {
+                    connection
+                        .prepare_cached(REFERENCED_KEYS_SQL)?
+                        .query_map([], |row| row.get::<_, String>(0))?
+                        .collect::<rusqlite::Result<HashSet<String>>>()
+                        .map_err(PayloadReclaimError::from)
+                })
             })
             .await?;
         let examined = u64::try_from(stored.len()).expect("a payload count fits in u64");
@@ -232,8 +234,8 @@ impl PayloadStore {
         Ok(examined)
     }
 
-    // Removes the payload once, under its key, no reference names it, the removal charged to
-    // `meter`.
+    // Removes the payload once, under its key, no reference names it, the read and the removal
+    // charged to `meter`.
     async fn reclaim(
         &self,
         reads: &DatabaseReadPool,
@@ -242,14 +244,17 @@ impl PayloadStore {
     ) -> Result<(), PayloadReclaimError> {
         let _key_hold = self.storage_key_lock.acquire(content_hash.clone()).await;
         let key = content_hash.as_str().to_owned();
+        let read_meter = meter.clone();
         let is_referenced = reads
             .read(ReadLength::Short, move |connection| {
-                connection
-                    .prepare_cached(KEY_REFERENCED_SQL)?
-                    .query_row([key], |_row| Ok(()))
-                    .optional()
-                    .map(|found| found.is_some())
-                    .map_err(PayloadReclaimError::from)
+                read_meter.measure(|| {
+                    connection
+                        .prepare_cached(KEY_REFERENCED_SQL)?
+                        .query_row([key], |_row| Ok(()))
+                        .optional()
+                        .map(|found| found.is_some())
+                        .map_err(PayloadReclaimError::from)
+                })
             })
             .await?;
         if is_referenced {
@@ -323,7 +328,6 @@ fn move_into_store(source: &Path, object: &Path, objects_folder: &Path) -> io::R
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::time::Duration;
 
     use sha2::{Digest as _, Sha256};
     use tokio::sync::oneshot;
@@ -403,8 +407,10 @@ mod tests {
             .expect("the admit ends")
             .expect("the admit records");
         reclaiming.await.expect("the reclaim ends");
-        // The unlink is charged to the meter it ran under. Killed by a removal off the meter.
-        assert!(meter.take_spent().expect("the clock reads") > Duration::ZERO);
+        // Each key's read and the one unlink are measured on the meter they ran under, read as the
+        // pieces it measured, since a clock that moves in ticks may count none of the time. Killed
+        // by a removal or a read off the meter.
+        assert_eq!(meter.take_spent().expect("the clock reads").readings, 4);
 
         assert!(
             store.payloads.object_path_of(&named).exists(),

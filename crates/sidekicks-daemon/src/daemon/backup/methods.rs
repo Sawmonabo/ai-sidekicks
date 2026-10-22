@@ -1,6 +1,6 @@
 //! The backup methods on Settings › Runtime: where the backups stand, and `Back up now`, which
 //! queues a run at once whether `Back up automatically` is on or off and joins a run already
-//! queued or running.
+//! queued, or running and not yet copying.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -61,24 +61,25 @@ pub(crate) fn register_backup_methods(
 async fn read_backup_standing(backups: &Backups) -> Result<DaemonBackupReadResponse, HandlerError> {
     let folder = backups.folder().await?;
     let internal = |failure: io::Error| HandlerError::Internal(Box::new(failure));
-    let mut listed = read_backups(&folder).await.map_err(internal)?;
+    let measured_folder = folder.clone();
+    let data_folder = backups.data_folder();
+    let (mut listed, total_bytes, folder_on_service_disk) =
+        tokio::task::spawn_blocking(move || {
+            Ok::<_, io::Error>((
+                read_backups(&measured_folder)?,
+                folder_bytes(&measured_folder)?,
+                is_on_same_volume(&measured_folder, &data_folder)?,
+            ))
+        })
+        .await
+        .map_err(|failure| HandlerError::Internal(Box::new(failure)))?
+        .map_err(internal)?;
     listed.sort_by(|(_, left), (_, right)| {
         right
             .taken_at
             .unix_millisecond()
             .cmp(&left.taken_at.unix_millisecond())
     });
-    let measured_folder = folder.clone();
-    let data_folder = backups.data_folder();
-    let (total_bytes, folder_on_service_disk) = tokio::task::spawn_blocking(move || {
-        Ok::<_, io::Error>((
-            folder_bytes(&measured_folder)?,
-            is_on_same_volume(&measured_folder, &data_folder)?,
-        ))
-    })
-    .await
-    .map_err(|failure| HandlerError::Internal(Box::new(failure)))?
-    .map_err(internal)?;
     let last_run = backups
         .read_last_run()
         .await

@@ -1,12 +1,13 @@
 //! A job's processor budget and its meter. Each job registers a figure per unit of the work a run
 //! reports, and a run is measured on its own threads only, never the whole process: each poll of
-//! its async work, each blocking closure from entry to exit, and the writer thread's time around
-//! the job's own statements, which comes back in the thread's answer. A run over its budget is
-//! written to the service log as a warning, one within it as a line of its own.
+//! its async work, each blocking closure and read from entry to exit, and the writer thread's time
+//! around the job's own statements, which comes back in the thread's answer. A run over its budget
+//! is written to the service log as a warning, one within it as a line of its own.
 
 use std::error::Error;
 use std::future::Future;
 use std::io;
+use std::mem;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
@@ -42,6 +43,10 @@ pub(crate) enum WorkUnit {
     ArtifactsExamined,
     /// Bytes of the crash dump a report was built from.
     DumpBytes,
+    /// Rows a provider's own diagnostic store deleted for an expiry.
+    RowsDeleted,
+    /// Runs of the job, one each, for the fixed work every run does.
+    Runs,
 }
 
 /// One term of a budget: `figure` of processor time per `per` units of `unit`.
@@ -62,8 +67,17 @@ pub(crate) struct JobBudget {
 }
 
 impl JobBudget {
-    /// The budget summing `terms`.
+    /// The budget summing `terms`; a term covering no units fails the build, since every budget is
+    /// a constant.
     pub(crate) const fn new(terms: &'static [BudgetTerm]) -> Self {
+        let mut index = 0;
+        while index < terms.len() {
+            assert!(
+                terms[index].per > 0,
+                "a budget term covers at least one unit"
+            );
+            index += 1;
+        }
         Self { terms }
     }
 
@@ -74,7 +88,7 @@ impl JobBudget {
             .iter()
             .map(|term| {
                 term.figure.as_nanos() * u128::from(workload.count(term.unit))
-                    / u128::from(term.per.max(1))
+                    / u128::from(term.per)
             })
             .sum();
         Duration::from_nanos(u64::try_from(nanoseconds).unwrap_or(u64::MAX))
@@ -109,11 +123,12 @@ impl JobWorkload {
     }
 }
 
-/// Processor time summed over readings of one thread's clock around pieces of a job's work; the
-/// first reading that failed is kept, so the run's line says its time could not be read.
+/// Processor time summed over readings of one thread's clock around pieces of a job's work, with
+/// the count of pieces measured; the first reading that failed is kept, so the run's line says its
+/// time could not be read.
 #[derive(Debug, Default)]
 pub(crate) struct ThreadProcessorTime {
-    spent: Duration,
+    spent: SpentTime,
     unread: Option<io::Error>,
 }
 
@@ -122,14 +137,25 @@ impl ThreadProcessorTime {
     pub(crate) fn measure<Answer>(&mut self, work: impl FnOnce() -> Answer) -> Answer {
         let start = thread_cpu_time();
         let answer = work();
+        self.spent.readings += 1;
         match (start, thread_cpu_time()) {
-            (Ok(start), Ok(end)) => self.spent += end.saturating_sub(start),
+            (Ok(start), Ok(end)) => self.spent.time += end.saturating_sub(start),
             (Err(failure), _) | (_, Err(failure)) => {
                 self.unread.get_or_insert(failure);
             }
         }
         answer
     }
+}
+
+/// The processor time a run spent and the pieces of its work measured, each a pair of readings of
+/// its thread's clock; a clock that moves in ticks errs by up to a tick per piece.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SpentTime {
+    /// The processor time.
+    pub(crate) time: Duration,
+    /// The pieces measured.
+    pub(crate) readings: u64,
 }
 
 /// What the writer's thread answers for the job's work it ran: the work's report, and its own
@@ -152,10 +178,20 @@ impl ProcessorMeter {
     /// Adds a thread's time to the run's.
     pub(crate) fn add(&self, time: ThreadProcessorTime) {
         let mut total = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
-        total.spent += time.spent;
+        total.spent.time += time.spent.time;
+        total.spent.readings += time.spent.readings;
         if let Some(failure) = time.unread {
             total.unread.get_or_insert(failure);
         }
+    }
+
+    /// Runs `work` on the calling thread, adding the thread's time across it; for work that runs on
+    /// a thread the run does not own, such as a read pool's.
+    pub(crate) fn measure<Answer>(&self, work: impl FnOnce() -> Answer) -> Answer {
+        let mut time = ThreadProcessorTime::default();
+        let answer = time.measure(work);
+        self.add(time);
+        answer
     }
 
     /// Runs `work` on the blocking pool, adding its thread's time from entry to exit. Fails when
@@ -165,19 +201,14 @@ impl ProcessorMeter {
         work: impl FnOnce() -> Answer + Send + 'static,
     ) -> Result<Answer, JoinError> {
         let meter = self.clone();
-        tokio::task::spawn_blocking(move || {
-            let mut time = ThreadProcessorTime::default();
-            let answer = time.measure(work);
-            meter.add(time);
-            answer
-        })
-        .await
+        tokio::task::spawn_blocking(move || meter.measure(work)).await
     }
 
-    /// The run's time so far. Fails with the first reading that failed.
-    pub(crate) fn take_spent(&self) -> Result<Duration, io::Error> {
-        let mut total = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
-        match total.unread.take() {
+    /// Takes the run's time so far, leaving the meter at zero. Fails with the first reading that
+    /// failed.
+    pub(crate) fn take_spent(&self) -> Result<SpentTime, io::Error> {
+        let total = mem::take(&mut *self.shared.lock().unwrap_or_else(PoisonError::into_inner));
+        match total.unread {
             Some(failure) => Err(failure),
             None => Ok(total.spent),
         }
@@ -240,7 +271,7 @@ impl Future for MeteredPolls {
 fn log_processor_time(
     budget: JobBudget,
     workload: &JobWorkload,
-    spent: Result<Duration, io::Error>,
+    spent: Result<SpentTime, io::Error>,
 ) {
     let allowed = budget.allowance(workload);
     match spent {
@@ -249,14 +280,16 @@ fn log_processor_time(
             budget_ms = allowed.as_millis(),
             "the job's processor time could not be read"
         ),
-        Ok(spent) if spent > allowed => tracing::warn!(
-            spent_ms = spent.as_millis(),
+        Ok(spent) if spent.time > allowed => tracing::warn!(
+            spent_ms = spent.time.as_millis(),
+            readings = spent.readings,
             budget_ms = allowed.as_millis(),
             ?workload,
             "the job took more processor time than its budget"
         ),
         Ok(spent) => tracing::info!(
-            spent_ms = spent.as_millis(),
+            spent_ms = spent.time.as_millis(),
+            readings = spent.readings,
             budget_ms = allowed.as_millis(),
             ?workload,
             "the job's processor time"
@@ -309,7 +342,7 @@ mod tests {
             .run_blocking(|| std::thread::sleep(Duration::from_millis(200)))
             .await
             .expect("the sleep ends");
-        let slept = meter.take_spent().expect("the clock reads");
+        let slept = meter.take_spent().expect("the clock reads").time;
         assert!(slept < Duration::from_millis(50), "{slept:?}");
         meter
             .run_blocking(|| {
@@ -321,6 +354,6 @@ mod tests {
             })
             .await
             .expect("the busy work ends");
-        assert!(meter.take_spent().expect("the clock reads") >= Duration::from_millis(50));
+        assert!(meter.take_spent().expect("the clock reads").time >= Duration::from_millis(50));
     }
 }

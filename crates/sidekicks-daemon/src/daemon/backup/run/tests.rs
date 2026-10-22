@@ -1,14 +1,15 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
 use futures::FutureExt as _;
 use serde_json::json;
 use sidekicks_contracts::daemon::backup::BackupLastRun;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_platforms::{WallClockTimer, check_private_run_folder};
 use tempfile::TempDir;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
@@ -20,11 +21,13 @@ use super::{
 use crate::daemon::backup::mirror::MirrorRoot;
 use crate::daemon::data_folder::data_folder;
 use crate::daemon::machine::settings::file::MachineSettingsFile;
+use crate::daemon::scheduler::Scheduler;
 use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
+use crate::session::run::live_count::LiveRunCount;
 
 /// The service's backups over the test's `database` and `log`, under the home folder
 /// `home_folder`, the mirror keeping what `read_mirror_roots` lists.
@@ -89,8 +92,10 @@ fn backup_folders(folder: &Path) -> Vec<PathBuf> {
 // is, its own unfinished one removed; the next run writes a backup that passes SQLite's check,
 // mirrors a place found under the home folder, prunes what no day or week keeps and a folder a
 // cut-short run left, never a folder of the person's own, and records its completion as the last
-// run. Killed by pruning before the run succeeds, by a failed run's folder left behind, by a
-// manifest-less folder kept, and by a folder pruned whatever its name.
+// run; the backup's folder and the mirror's are owner-only, though the backups folder was made
+// with the default mode. Killed by pruning before the run succeeds, by a failed run's folder left
+// behind, by a manifest-less folder kept, by a folder pruned whatever its name, and by the
+// backup's folder or the mirror's made with the default mode.
 #[tokio::test]
 async fn a_failed_run_prunes_nothing_and_the_next_one_prunes_after_it_succeeds() {
     let database = TestDatabase::new();
@@ -180,6 +185,8 @@ async fn a_failed_run_prunes_nothing_and_the_next_one_prunes_after_it_succeeds()
         fs::read(backups_folder.join("mirror/agent-memory")).expect("the kept file is mirrored"),
         b"learned"
     );
+    check_private_run_folder(&written).expect("the backup's folder is owner-only");
+    check_private_run_folder(&backups_folder.join("mirror")).expect("the mirror is owner-only");
     assert!(matches!(
         backups.read_last_run().await.expect("the last run reads"),
         Some(BackupLastRun::Completed { .. })
@@ -242,6 +249,56 @@ async fn a_stopped_run_waits_for_its_copy_and_leaves_no_folder() {
             .read_last_run()
             .await
             .expect("the last run reads")
+            .is_none()
+    );
+}
+
+// With `Back up automatically` off, a `Back up now` pressed once the daily run took its turn joins
+// that run, which takes the stronger request at its check and copies, then lets the requests go so
+// the next press queues a run of its own. Killed by the run keeping the trigger it started with,
+// which skips with the switch off and loses the press.
+#[tokio::test]
+async fn a_back_up_now_that_joins_a_daily_run_makes_it_copy() {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = TempDir::new().expect("a scratch folder");
+    let backups_folder = data_folder(home.path()).join("backups");
+    let read_mirror_roots: MirrorRootsReader = Arc::new(|| async { Ok(Vec::new()) }.boxed());
+    let backups = test_backups(
+        &database,
+        &log,
+        home.path().to_path_buf(),
+        read_mirror_roots,
+    );
+    let scheduler = Scheduler::start(
+        Arc::new(WallClockTimer::new().expect("the test arms a wall clock")),
+        None,
+        LiveRunCount::default().follow(),
+    );
+    // The daily run's turn, as its job takes it: no run was queued, so requests join this one.
+    *backups
+        .pending
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = Some(BackupTrigger::Daily);
+    backups
+        .request(&scheduler, BackupTrigger::Now)
+        .expect("the press joins the daily run");
+
+    backups
+        .run(
+            BackupTrigger::Daily,
+            &CancellationToken::new(),
+            &ProcessorMeter::default(),
+        )
+        .await
+        .expect("the run is recorded");
+
+    assert_eq!(backup_folders(&backups_folder).len(), 1);
+    assert!(
+        backups
+            .pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
             .is_none()
     );
 }

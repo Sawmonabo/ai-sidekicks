@@ -93,8 +93,14 @@ pub(crate) async fn write_file_atomically_if_changed(
     write_file_atomically(file_path, contents, mode).await
 }
 
-// The whole write, blocking: the file replaced, then its folder flushed.
-fn write_and_flush(target: &Path, contents: &[u8], mode: u32) -> Result<(), AtomicWriteError> {
+/// Replaces `target` with `contents` as [`write_file_atomically`] does, on the calling thread: the
+/// file replaced, then its folder flushed. Fails as [`write_file_atomically`] does, never with
+/// [`AtomicWriteError::Interrupted`].
+pub(crate) fn write_and_flush(
+    target: &Path,
+    contents: &[u8],
+    mode: u32,
+) -> Result<(), AtomicWriteError> {
     sidekicks_platforms::replace_file_atomically(target, contents, mode).map_err(|error| {
         AtomicWriteError::Write {
             path: target.to_path_buf(),

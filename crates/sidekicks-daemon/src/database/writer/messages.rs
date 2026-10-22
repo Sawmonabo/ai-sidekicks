@@ -115,20 +115,31 @@ pub(crate) struct FailedBatch {
     pub(crate) earlier_write_failures: Vec<WriteJobFailure>,
 }
 
-/// The thread's answer to one batch: every write's outcome, in the batch's order, once it
-/// committed; or why it did not.
-pub(crate) type BatchAnswer = Result<Vec<WriteJobOutcome>, Box<FailedBatch>>;
+/// A batch that committed, as the thread answers it.
+#[derive(Debug)]
+pub(crate) struct CommittedBatch {
+    /// Every write's outcome, in the batch's order.
+    pub(crate) outcomes: Vec<WriteJobOutcome>,
+    /// The thread's count of the batches that committed a write, this one among them when it did.
+    pub(crate) commit_count: u64,
+}
+
+/// The thread's answer to one batch: the batch once it committed, or why it did not.
+pub(crate) type BatchAnswer = Result<CommittedBatch, Box<FailedBatch>>;
 
 /// The thread's answer to one checkpoint: what SQLite reports of it, or its failure, beside the
 /// failure of putting the busy timeout back when that failed too.
 pub(crate) type CheckpointAnswer = Result<CheckpointResult, CleanupFailures<rusqlite::Error>>;
 
-/// What one requested checkpoint did: SQLite's report and the store's page size, by which its
-/// frames count in bytes.
+/// What one requested checkpoint did: SQLite's report, the frames it moved itself, and the store's
+/// page size, by which its frames count in bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CheckpointReport {
     /// What SQLite reports of the checkpoint.
     pub(crate) result: CheckpointResult,
+    /// The frames this checkpoint moved: its count less the count a `NOOP` checkpoint read just
+    /// before it, with no batch between.
+    pub(crate) moved_frames: i64,
     /// The store's page size in bytes.
     pub(crate) page_size: i64,
 }
@@ -140,12 +151,7 @@ impl CheckpointReport {
         reason = "the daemon's start schedules the passive checkpoint"
     )]
     pub(crate) fn checkpointed_bytes(self) -> u64 {
-        u64::try_from(
-            self.result
-                .checkpointed_frames
-                .saturating_mul(self.page_size),
-        )
-        .unwrap_or(0)
+        u64::try_from(self.moved_frames.saturating_mul(self.page_size)).unwrap_or(0)
     }
 }
 

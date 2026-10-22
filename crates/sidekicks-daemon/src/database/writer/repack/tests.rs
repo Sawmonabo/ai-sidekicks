@@ -1,13 +1,16 @@
-//! The repack job: a `VACUUM` the store refuses, and a repack a run going live cancels.
+//! The repack: a `VACUUM` the store refuses, a repack a run going live cancels, and a cancel that
+//! comes after the repack's first check.
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use rstest::rstest;
 use rusqlite::Connection;
+use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 use tokio::sync::{oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
-use super::{RepackJobDeps, repack_job};
+use super::{RepackEnd, RepackJobDeps, read_pages, repack, repack_job};
 use crate::database::connection::writer_open::open_database;
 use crate::database::writer::test_file::TestDatabase;
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
@@ -15,18 +18,19 @@ use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
 
 const WAIT: Duration = Duration::from_secs(10);
 
-// A store holding free pages, a filler table's rows written and deleted.
+// A store holding free pages and live rows, the later half of a filler table deleted, so a `VACUUM`
+// copies thousands of instructions' worth of rows.
 fn store_with_free_pages() -> TestDatabase {
     let database = TestDatabase::new();
     let connection = open_database(&database.path()).expect("the store opens");
     connection
         .execute_batch(
             "CREATE TABLE filler (id INTEGER PRIMARY KEY, body BLOB);
-             WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 600)
-             INSERT INTO filler SELECT i, zeroblob(4000) FROM n;
-             DELETE FROM filler;",
+             WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 2000)
+             INSERT INTO filler SELECT i, zeroblob(1000) FROM n;
+             DELETE FROM filler WHERE id > 1000;",
         )
-        .expect("the filler is written and deleted");
+        .expect("the filler is written and half deleted");
     connection
         .close()
         .map_err(|(_connection, failure)| failure)
@@ -132,4 +136,52 @@ async fn a_run_going_live_cancels_a_waiting_repack() {
         .expect("a canceled repack does not fail the job");
     hold.await.expect("the hold ends");
     assert_eq!(freelist_count(&database), free_before);
+}
+
+// The truncation before the `VACUUM`, which runs after the repack's first check.
+fn is_truncation(action: &AuthAction<'_>) -> bool {
+    matches!(
+        action,
+        AuthAction::Pragma {
+            pragma_name: "wal_checkpoint",
+            ..
+        }
+    )
+}
+
+// The `VACUUM`'s attach of its new file, which it makes once it is running.
+fn is_vacuum_running(action: &AuthAction<'_>) -> bool {
+    matches!(action, AuthAction::Attach { .. })
+}
+
+// A cancel that comes after the repack's first check, before its `VACUUM` begins or while it runs,
+// stops the `VACUUM`, which rolls back and leaves the file's pages and free pages as they were.
+// No queue interrupts this connection, so only the `VACUUM`'s own read of its cancel stops it.
+// Killed by the progress handler left out.
+#[rstest]
+#[case::before_the_vacuum_begins(is_truncation)]
+#[case::while_the_vacuum_runs(is_vacuum_running)]
+fn a_cancel_after_the_first_check_stops_the_vacuum(
+    #[case] is_cancel_point: fn(&AuthAction<'_>) -> bool,
+) {
+    let database = store_with_free_pages();
+    let connection = open_database(&database.path()).expect("the store opens");
+    let cancel = CancellationToken::new();
+    let canceled = cancel.clone();
+    connection
+        .authorizer(Some(move |context: AuthContext<'_>| {
+            if is_cancel_point(&context.action) {
+                canceled.cancel();
+            }
+            Authorization::Allow
+        }))
+        .expect("the test watches the statements");
+    let before = read_pages(&connection).expect("the pages read");
+    assert!(before.freelist_count > 0);
+
+    let ended = repack(&connection, &cancel).expect("the repack ends");
+
+    assert_eq!(ended, RepackEnd::Interrupted);
+    assert!(cancel.is_cancelled());
+    assert_eq!(read_pages(&connection).expect("the pages read"), before);
 }

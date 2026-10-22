@@ -464,9 +464,13 @@ async fn copy_newest_backup(
     backup_copy_path: &Path,
     stop: &CancellationToken,
 ) -> Result<bool, BackupCopyError> {
-    let Some(backup_database) = find_newest_backup_database(backup_folder)
-        .await
-        .map_err(BackupCopyError::Find)?
+    let searched = backup_folder.to_path_buf();
+    let Some(backup_database) =
+        tokio::task::spawn_blocking(move || find_newest_backup_database(&searched))
+            .await
+            .map_err(io::Error::other)
+            .and_then(|found| found)
+            .map_err(BackupCopyError::Find)?
     else {
         return Ok(false);
     };

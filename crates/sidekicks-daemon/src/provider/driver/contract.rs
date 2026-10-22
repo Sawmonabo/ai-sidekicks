@@ -463,16 +463,17 @@ pub(crate) trait ProviderDriver: Send + Sync {
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>>;
 
     /// Deletes what the provider keeps for its own diagnosis in account home `home` from before
-    /// `cutoff`, beyond the descriptor's folders, which the expiry deletes itself; blocking. Does
-    /// nothing unless the provider keeps more; fails when that store cannot be read or written.
+    /// `cutoff`, beyond the descriptor's folders, which the expiry deletes itself, and answers the
+    /// rows it deleted; blocking. Does nothing unless the provider keeps more; fails when that
+    /// store cannot be read or written.
     fn expire_account_home_diagnostics(
         &self,
         home: &Path,
         cutoff: SystemTime,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        // A provider that keeps nothing past its descriptor's folders reads neither.
+    ) -> Result<u64, Box<dyn Error + Send + Sync>> {
+        // Read by name: the generated mock uses every parameter, so `_home` would warn there.
         let _ = (home, cutoff);
-        Ok(())
+        Ok(0)
     }
 }
 

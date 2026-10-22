@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
+use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::provider::driver::PROVIDERS;
 
@@ -30,13 +31,16 @@ pub(crate) struct AccountHome {
     pub(crate) home: PathBuf,
 }
 
-/// Every account home in the accounts table. Fails when the accounts cannot be read.
+/// Every account home in the accounts table, the query's time on the pool's thread charged to
+/// `meter`. Fails when the accounts cannot be read.
 pub(crate) async fn read_account_homes(
     reads: &DatabaseReadPool,
+    meter: &ProcessorMeter,
 ) -> Result<Vec<AccountHome>, AccountHomesReadError> {
+    let meter = meter.clone();
     reads
-        .read(ReadLength::Short, |connection| {
-            query_account_homes(connection)
+        .read(ReadLength::Short, move |connection| {
+            meter.measure(|| query_account_homes(connection))
         })
         .await
 }

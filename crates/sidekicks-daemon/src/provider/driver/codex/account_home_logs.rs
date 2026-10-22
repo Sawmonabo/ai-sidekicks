@@ -27,8 +27,9 @@ const DELETE_OLDER_ROWS_SQL: &str =
 
 /// Deletes from the log database in the Codex home `home` every row written in a second before
 /// `cutoff`'s, a bounded batch per statement, through a connection of its own that overwrites the
-/// freed pages; nothing when the database is absent. Blocking. Fails when the database cannot be
-/// opened or a batch deleted, leaving the batches before it deleted.
+/// freed pages, and answers the rows it deleted; nothing when the database is absent. Blocking.
+/// Fails when the database cannot be opened or a batch deleted, leaving the batches before it
+/// deleted.
 #[cfg_attr(
     not(test),
     expect(
@@ -39,17 +40,17 @@ const DELETE_OLDER_ROWS_SQL: &str =
 pub(super) fn expire_account_home_logs(
     home: &Path,
     cutoff: SystemTime,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<u64, Box<dyn Error + Send + Sync>> {
     let database = home.join(LOGS_DATABASE_FILE_NAME);
     if std::fs::symlink_metadata(&database)
         .none_if_missing()?
         .is_none()
     {
-        return Ok(());
+        return Ok(0);
     }
     // A cutoff before 1970 is older than any row.
     let Ok(cutoff_second) = cutoff.duration_since(UNIX_EPOCH) else {
-        return Ok(());
+        return Ok(0);
     };
     let cutoff_second = i64::try_from(cutoff_second.as_secs())?;
     let connection = Connection::open_with_flags(
@@ -60,8 +61,14 @@ pub(super) fn expire_account_home_logs(
     connection.pragma_update(None, "secure_delete", "ON")?;
     let mut delete = connection.prepare(DELETE_OLDER_ROWS_SQL)?;
     let batch_limit = i64::try_from(ROWS_PER_DELETE)?;
-    while delete.execute(params![cutoff_second, batch_limit])? == ROWS_PER_DELETE {}
-    Ok(())
+    let mut deleted = 0;
+    loop {
+        let batch = delete.execute(params![cutoff_second, batch_limit])?;
+        deleted += u64::try_from(batch)?;
+        if batch < ROWS_PER_DELETE {
+            return Ok(deleted);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -84,12 +91,13 @@ mod tests {
     // The text of every row the expiry deletes.
     const DELETED_MARKER: &str = "deleted-log-text-5e0b";
 
-    // Rows written a second before the cutoff's second go, more than one batch of them, and the
-    // rest stay, a row in the cutoff's own second among them, as Codex's `<` keeps it; once every
-    // connection has closed, neither the database nor its log holds a deleted row's text; a home
-    // with no log database is no failure and is left without one. Killed by `<=`, by the cutoff
-    // rounded up to its next second, by a cutoff in milliseconds, by one batch alone, by the freed
-    // pages left as they were, and by an absent database made or refused.
+    // Rows written a second before the cutoff's second go, more than one batch of them, each
+    // counted, and the rest stay, a row in the cutoff's own second among them, as Codex's `<`
+    // keeps it; once every connection has closed, neither the database nor its log holds a deleted
+    // row's text; a home with no log database is no failure and is left without one. Killed by
+    // `<=`, by the cutoff rounded up to its next second, by a cutoff in milliseconds, by one batch
+    // alone or counted alone, by the freed pages left as they were, and by an absent database made
+    // or refused.
     #[test]
     fn rows_before_the_cutoff_go_overwritten_and_an_absent_database_is_left_absent() {
         let home = tempfile::tempdir().expect("the home is made");
@@ -129,7 +137,11 @@ mod tests {
             + Duration::from_secs(CUTOFF_SECOND.unsigned_abs())
             + Duration::from_millis(500);
 
-        expire_account_home_logs(home.path(), cutoff).expect("the rows are deleted");
+        let deleted = expire_account_home_logs(home.path(), cutoff).expect("the rows are deleted");
+        assert_eq!(
+            deleted,
+            u64::try_from(2 * ROWS_PER_DELETE + 1).expect("a count")
+        );
 
         let kept: Vec<i64> = connection
             .prepare("SELECT ts FROM logs ORDER BY ts")
@@ -159,8 +171,9 @@ mod tests {
         }
 
         let empty_home = tempfile::tempdir().expect("the home is made");
-        expire_account_home_logs(empty_home.path(), cutoff)
+        let deleted = expire_account_home_logs(empty_home.path(), cutoff)
             .expect("an absent database is no fault");
+        assert_eq!(deleted, 0);
         assert!(!empty_home.path().join(LOGS_DATABASE_FILE_NAME).exists());
     }
 }

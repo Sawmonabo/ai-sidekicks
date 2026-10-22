@@ -48,7 +48,8 @@ pub(crate) const DIAGNOSTIC_LOG_EXPIRY_INTERVAL: Duration = Duration::from_hours
 
 const DAY: Duration = Duration::from_hours(24);
 
-// A pass's processor time: under 1 ms per entry examined and 5 ms per file deleted.
+// A pass's processor time: under 1 ms per entry examined, 5 ms per file deleted and 20 µs per row
+// a provider's own diagnostic store deleted.
 const DIAGNOSTIC_EXPIRY_BUDGET: JobBudget = JobBudget::new(&[
     BudgetTerm {
         figure: Duration::from_millis(1),
@@ -59,6 +60,11 @@ const DIAGNOSTIC_EXPIRY_BUDGET: JobBudget = JobBudget::new(&[
         figure: Duration::from_millis(5),
         per: 1,
         unit: WorkUnit::FilesDeleted,
+    },
+    BudgetTerm {
+        figure: Duration::from_micros(20),
+        per: 1,
+        unit: WorkUnit::RowsDeleted,
     },
 ]);
 
@@ -85,6 +91,7 @@ pub(crate) struct DiagnosticExpiryDeps {
 struct ExpiryCount {
     examined: u64,
     deleted: u64,
+    rows_deleted: u64,
 }
 
 /// The hourly expiry job, run every [`DIAGNOSTIC_LOG_EXPIRY_INTERVAL`] with
@@ -127,7 +134,7 @@ async fn run_expiry(deps: Arc<DiagnosticExpiryDeps>, meter: ProcessorMeter) -> M
     folders.push(deps.data_folder.join(CRASH_DUMPS_FOLDER_NAME));
     folders.push(deps.data_folder.join(CRASH_REPORTS_FOLDER_NAME));
     let mut driven_homes: Vec<(Arc<dyn ProviderDriver>, PathBuf)> = Vec::new();
-    match read_account_homes(&deps.reads).await {
+    match read_account_homes(&deps.reads, &meter).await {
         Ok(account_homes) => {
             for account_home in account_homes {
                 folders.extend(account_home_diagnostic_folders(
@@ -146,7 +153,7 @@ async fn run_expiry(deps: Arc<DiagnosticExpiryDeps>, meter: ProcessorMeter) -> M
         }
         Err(failure) => tracing::warn!(
             error = &failure as &(dyn Error + 'static),
-            "The account homes' diagnostics could not be expired"
+            "the account homes' diagnostics could not be expired"
         ),
     }
     let expired = meter
@@ -158,12 +165,13 @@ async fn run_expiry(deps: Arc<DiagnosticExpiryDeps>, meter: ProcessorMeter) -> M
                 expire_folder(folder, cutoff, &mut count);
             }
             for (driver, home) in &driven_homes {
-                if let Err(failure) = driver.expire_account_home_diagnostics(home, cutoff) {
-                    tracing::warn!(
+                match driver.expire_account_home_diagnostics(home, cutoff) {
+                    Ok(rows_deleted) => count.rows_deleted += rows_deleted,
+                    Err(failure) => tracing::warn!(
                         home = %home.display(),
                         error = &*failure as &(dyn Error + 'static),
-                        "A provider's diagnostics in an account home could not be expired"
-                    );
+                        "a provider's diagnostics in an account home could not be expired"
+                    ),
                 }
             }
             (count, live_logs)
@@ -174,7 +182,7 @@ async fn run_expiry(deps: Arc<DiagnosticExpiryDeps>, meter: ProcessorMeter) -> M
         Err(failure) => {
             tracing::warn!(
                 error = &failure as &(dyn Error + 'static),
-                "The diagnostic logs' expiry did not finish"
+                "the diagnostic logs' expiry did not finish"
             );
             return Ok(None);
         }
@@ -184,12 +192,13 @@ async fn run_expiry(deps: Arc<DiagnosticExpiryDeps>, meter: ProcessorMeter) -> M
             tracing::warn!(
                 file = %path.display(),
                 error = &failure as &(dyn Error + 'static),
-                "A running provider service's log could not be cut"
+                "a running provider service's log could not be cut"
             );
         }
     }
     let mut workload = JobWorkload::of(WorkUnit::EntriesExamined, count.examined);
     workload.add(WorkUnit::FilesDeleted, count.deleted);
+    workload.add(WorkUnit::RowsDeleted, count.rows_deleted);
     Ok(Some(workload))
 }
 
@@ -209,7 +218,7 @@ fn expire_diagnostic_logs(
             tracing::warn!(
                 folder = %logs_folder.display(),
                 error = &failure as &(dyn Error + 'static),
-                "The diagnostic logs could not be listed"
+                "the diagnostic logs could not be listed"
             );
             return Vec::new();
         }
@@ -231,7 +240,7 @@ fn expire_diagnostic_logs(
             Err(failure) => tracing::warn!(
                 file = %path.display(),
                 error = &failure as &(dyn Error + 'static),
-                "A diagnostic log could not be expired"
+                "a diagnostic log could not be expired"
             ),
         }
     }
@@ -275,7 +284,7 @@ fn expire_folder(folder: &Path, cutoff: SystemTime, count: &mut ExpiryCount) {
                     tracing::warn!(
                         folder = %folder.display(),
                         error = &failure as &(dyn Error + 'static),
-                        "A diagnostic folder could not be listed"
+                        "a diagnostic folder could not be listed"
                     );
                 }
                 continue;
@@ -292,7 +301,7 @@ fn expire_folder(folder: &Path, cutoff: SystemTime, count: &mut ExpiryCount) {
             Err(failure) => tracing::warn!(
                 file = %path.display(),
                 error = &failure as &(dyn Error + 'static),
-                "A diagnostic file could not be expired"
+                "a diagnostic file could not be expired"
             ),
         }
     }
@@ -419,7 +428,7 @@ mod tests {
                         && *cutoff <= SystemTime::now() - KEEP
                 })
                 .times(1)
-                .returning(|_, _| Ok(()));
+                .returning(|_, _| Ok(0));
             drivers.push(Arc::new(driver));
         }
         for path in expired.iter().chain(&kept_old) {

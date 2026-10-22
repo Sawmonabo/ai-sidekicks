@@ -413,8 +413,9 @@ impl DatabaseWriter {
         Ok(self.enqueue(job, None)?.await?.sequences)
     }
 
-    /// A count raised once after each batch that committed a write; a reader that sees it change
-    /// can read what the batch wrote. Drop the receiver to stop following.
+    /// The writer thread's count of the batches that committed a write, raised once after each; a
+    /// reader that sees it change can read what the batch wrote, and a copy names the count it
+    /// holds every batch up to. Drop the receiver to stop following.
     pub(crate) fn follow_commits(&self) -> watch::Receiver<u64> {
         self.commits.clone()
     }
@@ -563,6 +564,7 @@ impl DatabaseWriter {
                                 is_busy = report.result.is_busy,
                                 log_frames = report.result.log_frames,
                                 checkpointed_frames = report.result.checkpointed_frames,
+                                moved_frames = report.moved_frames,
                                 "the passive WAL checkpoint ran"
                             );
                             Ok(Some(JobWorkload::of(

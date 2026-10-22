@@ -18,7 +18,8 @@ mod tests {
     // How long the measured thread sleeps while another thread burns processor time.
     const SLEEP_TIME: Duration = Duration::from_millis(300);
 
-    // The most the clock may grow over the sleep: its own wake-up and the reads, well under the sleep.
+    // The most the clock may grow over the sleep: its own wake-up and the reads, well under the
+    // sleep.
     const SLEEP_GROWTH_BOUND: Duration = Duration::from_millis(30);
 
     // The clock grows while the thread computes and stays still while it sleeps, though another

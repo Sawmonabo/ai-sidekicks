@@ -20,7 +20,8 @@ use crate::cleanup_failures::CleanupFailures;
 use crate::database::checkpoint::CheckpointMode;
 use crate::database::writer::backpressure::BackpressureAlert;
 use crate::database::writer::messages::{
-    BatchAnswer, BatchFailure, FailedBatch, ThreadExit, ThreadRequest, WriteJob, WriteJobOutcome,
+    BatchAnswer, BatchFailure, CommittedBatch, FailedBatch, ThreadExit, ThreadRequest, WriteJob,
+    WriteJobOutcome,
 };
 use crate::database::writer::queue::maintenance::{
     CancelableWork, MaintenanceAnswered, MaintenanceSlots,
@@ -146,8 +147,8 @@ enum Wake {
 struct ThreadStopped;
 
 impl WriteQueue {
-    /// A queue over `messages` and the writer's `thread`, reporting each commit on `commits` and
-    /// its close on `close_outcome`.
+    /// A queue over `messages` and the writer's `thread`, publishing on `commits` the thread's
+    /// count of the batches that committed a write and its close on `close_outcome`.
     pub(super) fn new(
         messages: mpsc::UnboundedReceiver<QueueMessage>,
         thread: ThreadLink,
@@ -475,11 +476,12 @@ impl WriteQueue {
     }
 
     /// Settles a batch from the thread's answer: committed writes run their hooks in order first,
-    /// then the commit count rises, then every caller hears; then waiting writes take the room.
+    /// then the thread's commit count is published, then every caller hears; then waiting writes
+    /// take the room.
     fn settle_batch(&mut self, waiters: Vec<Waiter>, answer: Result<BatchAnswer, RecvError>) {
         self.depth -= waiters.iter().map(|waiter| waiter.size).sum::<usize>();
         match answer {
-            Ok(Ok(outcomes)) => self.settle_committed_batch(waiters, outcomes),
+            Ok(Ok(committed)) => self.settle_committed_batch(waiters, committed),
             Ok(Err(failure)) => self.settle_failed_batch(waiters, *failure),
             Err(_unanswered) => {
                 let reason = self.end_writer(Arc::new(ThreadStopped));
@@ -492,7 +494,11 @@ impl WriteQueue {
         self.admit_waiting();
     }
 
-    fn settle_committed_batch(&mut self, waiters: Vec<Waiter>, outcomes: Vec<WriteJobOutcome>) {
+    fn settle_committed_batch(&mut self, waiters: Vec<Waiter>, committed: CommittedBatch) {
+        let CommittedBatch {
+            outcomes,
+            commit_count,
+        } = committed;
         let mut outcomes = outcomes.into_iter();
         let mut settled: Vec<(Waiter, WriteJobOutcome)> = waiters
             .into_iter()
@@ -503,18 +509,18 @@ impl WriteQueue {
                 (waiter, outcome)
             })
             .collect();
-        let mut has_committed = false;
         for (waiter, outcome) in &mut settled {
-            if let WriteJobOutcome::Committed { sequences, .. } = outcome {
-                has_committed = true;
-                if let Some(on_commit) = waiter.on_commit.take() {
-                    on_commit(sequences.as_slice());
-                }
+            if let WriteJobOutcome::Committed { sequences, .. } = outcome
+                && let Some(on_commit) = waiter.on_commit.take()
+            {
+                on_commit(sequences.as_slice());
             }
         }
-        if has_committed {
-            self.commits.send_modify(|count| *count += 1);
-        }
+        self.commits.send_if_modified(|count| {
+            let is_raised = *count != commit_count;
+            *count = commit_count;
+            is_raised
+        });
         for (waiter, outcome) in settled {
             let result = match outcome {
                 WriteJobOutcome::Committed {

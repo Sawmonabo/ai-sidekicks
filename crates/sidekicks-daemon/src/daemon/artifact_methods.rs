@@ -42,12 +42,21 @@ const ARTIFACTS_FOLDER_NAME: &str = "artifacts";
 // enough that a stream is ended within minutes of its six-hour lifetime.
 const INGEST_REAPER_INTERVAL: Duration = Duration::from_mins(10);
 
-// A reaper pass's processor budget, the reap's and the orphan sweep's work together.
-const INGEST_REAPER_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
-    figure: Duration::from_millis(200),
-    per: 10_000,
-    unit: WorkUnit::ArtifactsExamined,
-}]);
+// A reaper pass's processor budget, the reap's and the orphan sweep's work together: 20 µs per
+// artifact examined, and 5 ms for the work every pass does whatever it finds, its two listings
+// and its statements.
+const INGEST_REAPER_BUDGET: JobBudget = JobBudget::new(&[
+    BudgetTerm {
+        figure: Duration::from_micros(20),
+        per: 1,
+        unit: WorkUnit::ArtifactsExamined,
+    },
+    BudgetTerm {
+        figure: Duration::from_millis(5),
+        per: 1,
+        unit: WorkUnit::Runs,
+    },
+]);
 
 /// What the artifact store is built from.
 pub(crate) struct ArtifactMethodsDeps {
@@ -128,9 +137,9 @@ impl ArtifactMethods {
     }
 }
 
-// One metered reaper pass: its workload is the artifacts the reap and the sweep examined, none
-// when there were none. Fails with the reap's failure, the sweep's written to the service log
-// beside it, or the sweep's alone.
+// One metered reaper pass: its workload is the pass itself and the artifacts the reap and the
+// sweep examined. Fails with the reap's failure, the sweep's written to the service log beside it,
+// or the sweep's alone.
 async fn run_reaper_pass(
     ingest: &ArtifactIngestService,
     payloads: &PayloadStore,
@@ -146,16 +155,15 @@ async fn run_reaper_pass(
             if let Err(sweep_failure) = swept {
                 tracing::warn!(
                     error = &sweep_failure as &(dyn std::error::Error + 'static),
-                    "The orphan sweep failed beside the ingest reaper"
+                    "the orphan sweep failed beside the ingest reaper"
                 );
             }
             return Err(reap_failure.into());
         }
     };
-    if examined == 0 {
-        return Ok(None);
-    }
-    Ok(Some(JobWorkload::of(WorkUnit::ArtifactsExamined, examined)))
+    let mut workload = JobWorkload::of(WorkUnit::Runs, 1);
+    workload.add(WorkUnit::ArtifactsExamined, examined);
+    Ok(Some(workload))
 }
 
 /// Builds the artifact store and registers its calls on `registry`. Fails when the payload folder

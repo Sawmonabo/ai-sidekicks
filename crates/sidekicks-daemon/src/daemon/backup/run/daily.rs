@@ -74,7 +74,9 @@ fn next_midnight(after: SystemTime, time_zone: &TimeZone) -> Option<SystemTime> 
 }
 
 // Schedules the daily run at `cadence`, metered against the backup's budget; the run skips while
-// another run is queued or running, which copies for it, and schedules the next from its end.
+// another run is queued, which copies for it, and schedules the next from its end. A refused
+// schedule is the run's failure when the run itself succeeded, and written to the service log
+// beside the run's own failure otherwise.
 fn schedule_daily_at(
     backups: Arc<Backups>,
     scheduler_handle: Weak<Scheduler>,
@@ -102,25 +104,27 @@ fn schedule_daily_at(
                 let ran = if is_queued {
                     Ok(None)
                 } else {
-                    // A request that joined since keeps its stronger trigger.
-                    let trigger = backups
-                        .pending
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .unwrap_or(BackupTrigger::Daily);
-                    let ran = backups.run(trigger, &stop, &meter).await;
-                    *backups
-                        .pending
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner) = None;
-                    ran
+                    backups.run(BackupTrigger::Daily, &stop, &meter).await
                 };
-                if let Some(scheduler) = scheduler_handle.upgrade() {
-                    let now = SystemTime::now();
-                    let next = daily_cadence(Some(now), now, &TimeZone::system());
-                    schedule_daily_at(Arc::clone(&backups), scheduler_handle, &scheduler, next)?;
+                let Some(scheduler) = scheduler_handle.upgrade() else {
+                    return ran;
+                };
+                let now = SystemTime::now();
+                let next = daily_cadence(Some(now), now, &TimeZone::system());
+                let rescheduled =
+                    schedule_daily_at(Arc::clone(&backups), scheduler_handle, &scheduler, next);
+                match (ran, rescheduled) {
+                    (Ok(workload), Ok(())) => Ok(workload),
+                    (Ok(_workload), Err(refused)) => Err(refused.into()),
+                    (Err(failure), Ok(())) => Err(failure),
+                    (Err(failure), Err(refused)) => {
+                        tracing::error!(
+                            error = &refused as &(dyn Error + 'static),
+                            "the next daily backup could not be scheduled"
+                        );
+                        Err(failure)
+                    }
                 }
-                ran
             }
             .boxed()
         }),

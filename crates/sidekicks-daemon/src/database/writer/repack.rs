@@ -4,9 +4,10 @@
 //! retried until it succeeds, which is when the file shrinks. The job runs only while the data
 //! folder's volume has free room of at least twice the file, since a `VACUUM` can need that much;
 //! otherwise it is skipped with one service-log line, and the next purge's repack tries again, as
-//! it does after a refused `VACUUM`. A run going live while it repacks cancels it: the queue
-//! interrupts the `VACUUM`, which rolls back, and the next purge's repack tries again. It is
-//! metered against the backup's budget, since a `VACUUM` copies the store.
+//! it does after a refused `VACUUM`. A run going live while it repacks cancels it: the `VACUUM`
+//! checks the cancel every thousand instructions and the queue interrupts it, so it rolls back
+//! whether the cancel came before it began or while it ran, and the next purge's repack tries
+//! again. It is metered against the backup's budget, since a `VACUUM` copies the store.
 
 use std::convert::Infallible;
 use std::error::Error;
@@ -32,6 +33,10 @@ use crate::database::writer::{DatabaseWriter, MaintenanceError, is_interrupt};
 use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
 
 const REPACK_OPERATION: &str = "repacking the database";
+
+// The virtual-machine instructions the `VACUUM` runs between reads of its cancel: a few rows of its
+// copy, so a cancel ends it within milliseconds while each read, a lock taken, stays rare.
+const CANCEL_CHECK_INSTRUCTIONS: i32 = 1_000;
 
 /// The database file's page figures, as SQLite reports them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,8 +82,8 @@ pub(crate) struct RepackReport {
 pub(crate) type RepackAnswer = Result<Measured<RepackEnd>, CleanupFailures<rusqlite::Error>>;
 
 /// Repacks the file on the writer's connection, between batches, unless `cancel` is canceled
-/// already; SQLite's interrupt of a canceled repack reads as [`RepackEnd::Interrupted`]. A refused
-/// `VACUUM` fails it with SQLite's error and changes nothing.
+/// already; a `VACUUM` the cancel or SQLite's interrupt stopped reads as
+/// [`RepackEnd::Interrupted`]. A refused `VACUUM` fails it with SQLite's error and changes nothing.
 pub(super) fn repack(
     connection: &Connection,
     cancel: &CancellationToken,
@@ -86,7 +91,7 @@ pub(super) fn repack(
     if cancel.is_cancelled() {
         return Ok(RepackEnd::Interrupted);
     }
-    match repack_now(connection) {
+    match repack_now(connection, cancel) {
         Err(failure) if cancel.is_cancelled() && is_interrupt(failure.original()) => {
             Ok(RepackEnd::Interrupted)
         }
@@ -94,18 +99,51 @@ pub(super) fn repack(
     }
 }
 
-fn repack_now(connection: &Connection) -> Result<RepackReport, CleanupFailures<rusqlite::Error>> {
+fn repack_now(
+    connection: &Connection,
+    cancel: &CancellationToken,
+) -> Result<RepackReport, CleanupFailures<rusqlite::Error>> {
     let alone =
         |failure: rusqlite::Error| CleanupFailures::new(failure, Vec::new(), REPACK_OPERATION);
     let before = read_pages(connection).map_err(alone)?;
     let first_truncation = checkpoint(connection, CheckpointMode::Truncate)?;
-    connection.execute_batch("VACUUM").map_err(alone)?;
+    vacuum(connection, cancel)?;
     let after = read_pages(connection).map_err(alone)?;
     Ok(RepackReport {
         before,
         after,
         first_truncation,
     })
+}
+
+// Runs `VACUUM` with a progress handler that stops it once `cancel` is canceled, which catches a
+// cancel that came after the repack's first check, where an interrupt between statements is lost;
+// the handler is removed after, on the failure's path too, so no batch pays for it.
+fn vacuum(
+    connection: &Connection,
+    cancel: &CancellationToken,
+) -> Result<(), CleanupFailures<rusqlite::Error>> {
+    let alone =
+        |failure: rusqlite::Error| CleanupFailures::new(failure, Vec::new(), REPACK_OPERATION);
+    let watched = cancel.clone();
+    connection
+        .progress_handler(
+            CANCEL_CHECK_INSTRUCTIONS,
+            Some(move || watched.is_cancelled()),
+        )
+        .map_err(alone)?;
+    let vacuumed = connection.execute_batch("VACUUM");
+    let removed = connection.progress_handler(0, None::<fn() -> bool>);
+    match (vacuumed, removed) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Ok(()), Err(removal_failure)) => Err(alone(removal_failure)),
+        (Err(failure), Ok(())) => Err(alone(failure)),
+        (Err(failure), Err(removal_failure)) => Err(CleanupFailures::new(
+            failure,
+            vec![removal_failure],
+            REPACK_OPERATION,
+        )),
+    }
 }
 
 fn read_pages(connection: &Connection) -> rusqlite::Result<DatabasePages> {

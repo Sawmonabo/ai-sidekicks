@@ -7,9 +7,11 @@
 //!
 //! Runs come from three places: the daily run, while `Back up automatically` is on and something
 //! committed since the last copy; the run after a `Delete old data` that removed something, while
-//! the switch is on; and `Back up now`, whether it is on or off. A request while a run is queued
-//! or running joins it. The run's processor time on its own threads is measured against its
-//! budget, under one second per 256 MiB of store, and written to the service log.
+//! the switch is on; and `Back up now`, whether it is on or off. A request while a run is queued,
+//! or running and not yet copying, joins it, and the run takes the strongest request at each of
+//! its checks; one after the copy began queues a run of its own. The run's processor time on its
+//! own threads is measured against its budget, under one second per 256 MiB of store, and written
+//! to the service log.
 
 mod daily;
 
@@ -38,7 +40,8 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{
-    create_missing_private_folders, flush_file, flush_folder, remove_tree, rename_replacing,
+    create_missing_private_folders, create_new_private_folder, flush_file, flush_folder,
+    remove_tree, rename_replacing,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -60,7 +63,7 @@ use crate::events::log_service::{EventLogAppendOptions, EventLogService};
 use crate::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope};
 use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
 use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use crate::file::atomic_write::{AtomicWriteError, write_and_flush};
 use crate::recovery::database_file::check::SOUND_ROW;
 use crate::recovery::database_file::newest_backup::{BackupManifestError, read_backup_manifest};
 use crate::text_cut::cut_to_code_points;
@@ -207,18 +210,59 @@ pub(crate) enum BackupLastRunError {
     Pool(#[from] DatabaseReadError),
 }
 
-// One written backup, and the writer's commit count when its copy answered, every commit up to
-// which it holds.
+// One written backup, and the writer thread's commit count at the step that finished its copy,
+// every commit up to which it holds.
 struct WrittenBackup {
     backup_id: BackupId,
     total_bytes: u64,
     copied_through: u64,
 }
 
+// The requests a run takes: until it lets them go, a request joins it by raising `pending`, and it
+// lets them go once, as its copy begins, at a check that skips it, or as it ends.
+struct JoinedRequests<'backups> {
+    pending: &'backups Mutex<Option<BackupTrigger>>,
+    is_released: bool,
+}
+
+impl JoinedRequests<'_> {
+    // Takes the strongest of `trigger` and the requests that joined, and lets them go when
+    // `is_skipped` skips the run for it, under one lock, so a request is either seen or queues its
+    // own run. Answers whether the run is skipped.
+    fn release_if(
+        &mut self,
+        trigger: BackupTrigger,
+        is_skipped: impl FnOnce(BackupTrigger) -> bool,
+    ) -> bool {
+        let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+        let strongest = pending.map_or(trigger, |joined| joined.max(trigger));
+        let is_run_skipped = is_skipped(strongest);
+        if is_run_skipped {
+            *pending = None;
+            self.is_released = true;
+        }
+        is_run_skipped
+    }
+
+    // Lets the requests go, so the next one queues a run of its own.
+    fn release(&mut self) {
+        if !self.is_released {
+            *self.pending.lock().unwrap_or_else(PoisonError::into_inner) = None;
+            self.is_released = true;
+        }
+    }
+}
+
+impl Drop for JoinedRequests<'_> {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
 /// The service's backups: the runs, the request that joins a queued one, and the daily schedule.
 pub(crate) struct Backups {
     deps: BackupDeps,
-    // The strongest trigger of the run queued or running, if any.
+    // The strongest trigger of the run queued, or running and not yet copying, if any.
     pending: Mutex<Option<BackupTrigger>>,
     // The writer's commit count the last completed copy holds every commit up to.
     committed_at_last_copy: Mutex<Option<u64>>,
@@ -255,7 +299,8 @@ impl Backups {
 
     /// Queues a run for `trigger` on `scheduler`, metered against [`BACKUP_BUDGET`], at once for
     /// `Back up now` and otherwise once no run is live, at the latest an hour on; a run already
-    /// queued or running takes the request instead. Fails when the scheduler has stopped.
+    /// queued, or running and not yet copying, takes the request instead. Fails when the scheduler
+    /// has stopped.
     pub(crate) fn request(
         self: &Arc<Self>,
         scheduler: &Scheduler,
@@ -280,20 +325,7 @@ impl Backups {
             BACKUP_BUDGET,
             Box::new(move |stop, meter| {
                 let backups = Arc::clone(&backups);
-                async move {
-                    let trigger = backups
-                        .pending
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .unwrap_or(trigger);
-                    let ran = backups.run(trigger, &stop, &meter).await;
-                    *backups
-                        .pending
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner) = None;
-                    ran
-                }
-                .boxed()
+                async move { backups.run(trigger, &stop, &meter).await }.boxed()
             }),
         );
         let scheduled = scheduler.schedule("backup", condition, Duration::ZERO, job);
@@ -308,34 +340,43 @@ impl Backups {
         self.deps.reads.read(ReadLength::Short, read_last_run).await
     }
 
-    // One run for `trigger`, its blocking steps and its copy charged to `meter`: skipped while the
-    // switch is off unless it is `Back up now`, and the daily one when nothing committed since the
-    // last copy. A run that fails records why and keeps every backup; only a failed record fails
-    // the job. Answers the store it copied when it wrote a backup.
+    // One run for `trigger`, or a stronger request that joined it, its blocking steps and its copy
+    // charged to `meter`: skipped while the switch is off unless it is `Back up now`, and the daily
+    // one when nothing committed since the last copy. Requests join it until its copy begins, or
+    // until it ends when it never copies. A run that fails records why and keeps every backup; only
+    // a failed record fails the job. Answers the store it copied when it wrote a backup.
     async fn run(
         &self,
         trigger: BackupTrigger,
         stop: &CancellationToken,
         meter: &ProcessorMeter,
     ) -> MeteredJobOutcome {
+        let mut joined = JoinedRequests {
+            pending: &self.pending,
+            is_released: false,
+        };
         let settings = self.deps.settings.read().await?.settings.backup;
-        if trigger != BackupTrigger::Now && !settings.automatic {
-            return Ok(None);
-        }
         let commits = self.deps.writer.follow_commits();
-        let committed = *commits.borrow();
-        if trigger == BackupTrigger::Daily
-            && *self
-                .committed_at_last_copy
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                == Some(committed)
-        {
-            tracing::info!("the daily backup was skipped: nothing was written since the last");
+        let is_skipped = joined.release_if(trigger, |trigger| {
+            if trigger != BackupTrigger::Now && !settings.automatic {
+                return true;
+            }
+            let is_unchanged = trigger == BackupTrigger::Daily
+                && *self
+                    .committed_at_last_copy
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    == Some(*commits.borrow());
+            if is_unchanged {
+                tracing::info!("the daily backup was skipped: nothing was written since the last");
+            }
+            is_unchanged
+        });
+        if is_skipped {
             return Ok(None);
         }
         let folder = self.folder().await?;
-        let written = self.write_backup(&folder, stop, meter).await;
+        let written = self.write_backup(&folder, stop, meter, &mut joined).await;
         let mut copied = None;
         let event = match written {
             Ok(None) => return Ok(None),
@@ -383,12 +424,15 @@ impl Backups {
 
     // Writes one backup into `folder` under its lock, then prunes the backups no day or week
     // keeps, still under it: `None` when the stop came first, its partial folder removed once the
-    // writer's thread has answered, so no step writes into it after.
+    // writer's thread has answered, so no step writes into it after. The backup's own folder is
+    // owner-only from the moment it exists. The requests `joined` holds are let go as the copy
+    // begins, so one after it queues a run of its own.
     async fn write_backup(
         &self,
         folder: &Path,
         stop: &CancellationToken,
         meter: &ProcessorMeter,
+        joined: &mut JoinedRequests<'_>,
     ) -> Result<Option<WrittenBackup>, BackupRunError> {
         let locked_folder = folder.to_path_buf();
         let _lock = blocking(meter, move || take_folder_lock(&locked_folder)).await??;
@@ -397,9 +441,10 @@ impl Backups {
         let staged = backup_folder.join(format!("{BACKUP_DATABASE_FILE_NAME}.tmp"));
         let made_folder = backup_folder.clone();
         blocking(meter, move || {
-            fs::create_dir(&made_folder).map_err(at(&made_folder))
+            create_new_private_folder(&made_folder).map_err(at(&made_folder))
         })
         .await??;
+        joined.release();
         let written = self
             .fill_backup(folder, &backup_folder, &staged, id, stop, meter)
             .await;
@@ -444,15 +489,14 @@ impl Backups {
             .backup(staged.to_path_buf(), stop.clone())
             .await
             .map_err(BackupRunError::Copy)?;
-        let copied_through = *self.deps.writer.follow_commits().borrow();
         meter.add(copy.processor_time);
-        match copy.report {
-            BackupCopy::Copied { .. } => {}
+        let copied_through = match copy.report {
+            BackupCopy::Copied { copied_through, .. } => copied_through,
             BackupCopy::HeldByLock(lock) => {
                 return Err(BackupRunError::HeldByLock(lock.describe()));
             }
             BackupCopy::Stopped => return Ok(None),
-        }
+        };
         let checked = staged.to_path_buf();
         let database = backup_folder.join(BACKUP_DATABASE_FILE_NAME);
         let placed = database.clone();
@@ -481,12 +525,11 @@ impl Backups {
             "the backup's mirror was brought level"
         );
         let roots_list = serde_json::to_vec(&roots).map_err(BackupRunError::MirrorList)?;
-        write_file_atomically(
-            &mirror_folder.join(MIRROR_ROOTS_FILE_NAME),
-            roots_list,
-            BACKUP_FILE_MODE,
-        )
-        .await?;
+        let roots_file = mirror_folder.join(MIRROR_ROOTS_FILE_NAME);
+        blocking(meter, move || {
+            write_and_flush(&roots_file, &roots_list, BACKUP_FILE_MODE)
+        })
+        .await??;
         let backup_id = BackupId::new(
             FreeFormText::new(id).expect("a minted id is text within a backup id's cap"),
         );
@@ -501,12 +544,11 @@ impl Backups {
             distribution_parts: None,
         };
         let manifest_bytes = serde_json::to_vec(&manifest).expect("a manifest serializes as JSON");
-        write_file_atomically(
-            &backup_folder.join(BACKUP_MANIFEST_FILE_NAME),
-            manifest_bytes,
-            BACKUP_FILE_MODE,
-        )
-        .await?;
+        let manifest_file = backup_folder.join(BACKUP_MANIFEST_FILE_NAME);
+        blocking(meter, move || {
+            write_and_flush(&manifest_file, &manifest_bytes, BACKUP_FILE_MODE)
+        })
+        .await??;
         let flushed = folder.to_path_buf();
         blocking(meter, move || flush_folder(&flushed).map_err(at(&flushed))).await??;
         Ok(Some(WrittenBackup {
@@ -534,20 +576,22 @@ impl Backups {
     }
 }
 
-/// The backups in `folder` whose manifest reads, with when each was taken; a folder without one
-/// is no backup and is passed over. Fails when the folder or a manifest's file does not read.
-pub(crate) async fn read_backups(folder: &Path) -> io::Result<Vec<(PathBuf, BackupManifest)>> {
+/// The backups in `folder` whose manifest reads, with when each was taken, read on the calling
+/// thread; a folder without one is no backup and is passed over. Fails when the folder or a
+/// manifest's file does not read.
+pub(crate) fn read_backups(folder: &Path) -> io::Result<Vec<(PathBuf, BackupManifest)>> {
     let mut backups = Vec::new();
-    let mut entries = match tokio::fs::read_dir(folder).await {
+    let entries = match fs::read_dir(folder) {
         Ok(entries) => entries,
         Err(failure) if failure.kind() == io::ErrorKind::NotFound => return Ok(backups),
         Err(failure) => return Err(failure),
     };
-    while let Some(entry) = entries.next_entry().await? {
-        if !entry.file_type().await?.is_dir() {
+    for entry in entries {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
             continue;
         }
-        match read_backup_manifest(&entry.path()).await {
+        match read_backup_manifest(&entry.path()) {
             Ok(Some(manifest)) => backups.push((entry.path(), manifest)),
             Ok(None) => {}
             Err(BackupManifestError::Read(failure)) => return Err(failure),
@@ -567,18 +611,18 @@ pub(crate) async fn read_backups(folder: &Path) -> io::Result<Vec<(PathBuf, Back
 // short left without its manifest: only one named as a run names its backup, so no folder of the
 // person's own goes.
 async fn prune(folder: &Path, meter: &ProcessorMeter) -> io::Result<()> {
-    let generations: Vec<BackupGeneration> = read_backups(folder)
-        .await?
-        .into_iter()
-        .filter_map(|(folder, manifest)| {
-            let taken_at = manifest.taken_at.as_str().parse::<jiff::Timestamp>().ok()?;
-            Some(BackupGeneration { folder, taken_at })
-        })
-        .collect();
-    let mut pruned = backups_to_prune(&generations, &jiff::tz::TimeZone::system());
-    pruned.extend(read_unfinished_backups(folder).await?);
+    let listed = folder.to_path_buf();
     meter
         .run_blocking(move || {
+            let generations: Vec<BackupGeneration> = read_backups(&listed)?
+                .into_iter()
+                .filter_map(|(folder, manifest)| {
+                    let taken_at = manifest.taken_at.as_str().parse::<jiff::Timestamp>().ok()?;
+                    Some(BackupGeneration { folder, taken_at })
+                })
+                .collect();
+            let mut pruned = backups_to_prune(&generations, &jiff::tz::TimeZone::system());
+            pruned.extend(read_unfinished_backups(&listed)?);
             for folder in &pruned {
                 remove_tree(folder)?;
             }
@@ -589,17 +633,17 @@ async fn prune(folder: &Path, meter: &ProcessorMeter) -> io::Result<()> {
 }
 
 // The folders in `folder` named as a run names a backup that hold no manifest.
-async fn read_unfinished_backups(folder: &Path) -> io::Result<Vec<PathBuf>> {
+fn read_unfinished_backups(folder: &Path) -> io::Result<Vec<PathBuf>> {
     let mut unfinished = Vec::new();
-    let mut entries = tokio::fs::read_dir(folder).await?;
-    while let Some(entry) = entries.next_entry().await? {
+    for entry in fs::read_dir(folder)? {
+        let entry = entry?;
         let is_backup_name = entry
             .file_name()
             .to_str()
             .is_some_and(|name| uuid::Uuid::try_parse(name).is_ok());
         if is_backup_name
-            && entry.file_type().await?.is_dir()
-            && !tokio::fs::try_exists(entry.path().join(BACKUP_MANIFEST_FILE_NAME)).await?
+            && entry.file_type()?.is_dir()
+            && !fs::exists(entry.path().join(BACKUP_MANIFEST_FILE_NAME))?
         {
             unfinished.push(entry.path());
         }

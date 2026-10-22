@@ -106,7 +106,7 @@ impl DataErase {
                 tracing::warn!(
                     provider = provider.as_str(),
                     error = &failure as &(dyn Error + 'static),
-                    "A provider's services did not end before the erase"
+                    "a provider's services did not end before the erase"
                 );
             }
         }
@@ -123,13 +123,13 @@ impl DataErase {
                     tracing::warn!(
                         folder = %self.deps.data_folder.display(),
                         error = &failure as &(dyn Error + 'static),
-                        "The data folder was not deleted whole"
+                        "the data folder was not deleted whole"
                     );
                 }
             }
             Err(refusal) => tracing::warn!(
                 error = &refusal as &(dyn Error + 'static),
-                "The keychain refused to delete an item, so the data folder stays and the erase \
+                "the keychain refused to delete an item, so the data folder stays and the erase \
                  can run again"
             ),
         }
@@ -139,21 +139,33 @@ impl DataErase {
 
 // Deletes every entry of `data_folder` but the default backups folder, then the folder itself
 // once nothing is left in it. A link is deleted as a link, never followed. Each entry is tried,
-// one that cannot be listed or read among them; the first failure is answered once all were.
+// one that cannot be listed or read among them; each failure is written to the service log with
+// its entry, and the first is answered once all were tried.
 fn delete_data_folder(data_folder: &Path) -> io::Result<()> {
     let mut first_failure = None;
     for entry in fs::read_dir(data_folder)? {
-        let deleted = entry.and_then(|entry| {
-            if entry.file_name() == BACKUP_DEFAULT_FOLDER_NAME {
-                return Ok(());
+        let (path, deleted) = match entry {
+            Ok(entry) if entry.file_name() == BACKUP_DEFAULT_FOLDER_NAME => continue,
+            Ok(entry) => {
+                let path = entry.path();
+                let deleted = entry.file_type().and_then(|file_type| {
+                    if file_type.is_dir() {
+                        fs::remove_dir_all(&path)
+                    } else {
+                        fs::remove_file(&path)
+                    }
+                });
+                (path, deleted)
             }
-            if entry.file_type()?.is_dir() {
-                fs::remove_dir_all(entry.path())
-            } else {
-                fs::remove_file(entry.path())
-            }
-        });
+            // An entry that cannot be listed is named by its folder.
+            Err(failure) => (data_folder.to_path_buf(), Err(failure)),
+        };
         if let Err(failure) = deleted {
+            tracing::warn!(
+                entry = %path.display(),
+                error = &failure as &(dyn Error + 'static),
+                "an entry of the data folder was not deleted"
+            );
             first_failure.get_or_insert(failure);
         }
     }

@@ -240,12 +240,13 @@ async fn purge_old_data(
         .await;
     match meter.take_spent() {
         Ok(spent) => tracing::info!(
-            spent_ms = spent.as_millis(),
-            "the processor time of the payloads the purge unlinked"
+            spent_ms = spent.time.as_millis(),
+            readings = spent.readings,
+            "the processor time of the purge's payload reclaims, their reads and unlinks"
         ),
         Err(failure) => tracing::warn!(
             error = &failure as &(dyn Error + 'static),
-            "the processor time of the payloads the purge unlinked could not be read"
+            "the processor time of the purge's payload reclaims could not be read"
         ),
     }
     let mut deleted = 0_u64;

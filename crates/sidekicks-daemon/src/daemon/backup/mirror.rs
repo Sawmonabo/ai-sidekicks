@@ -1,20 +1,24 @@
 //! The mirror: one copy, in the backups folder, of the files a backup holds beside the database,
-//! each named root under a folder of its name. Each root is a place under the home folder, kept
-//! relative to it, so a restore on a computer whose home differs puts it back under its own. A
-//! run copies only a file whose size differs from its copy's or whose modification time is two
-//! seconds or more from it, since FAT and exFAT keep a time to two seconds; it keeps the source's
-//! modification time on the copy so the next run passes it over, and deletes each copy whose
-//! source is gone, so a session `Delete old data` removed leaves the mirror at the next run. A
-//! file is copied under a temporary name, flushed and renamed over its copy, so a copy whose size
-//! and time reached the disk holds its bytes too. Links are not followed and not copied.
+//! each named root under a folder of its name, owner-only. Each root is a place under the home
+//! folder, kept relative to it, so a restore on a computer whose home differs puts it back under
+//! its own. A run copies only a file whose size differs from its copy's or whose modification time
+//! is apart from it by the precision the copies' folder keeps or more, which each run measures
+//! there, since file systems keep a time to a nanosecond (APFS, ext4), 100 ns (NTFS), 10 ms
+//! (exFAT) or two seconds (FAT); it keeps the source's modification time on the copy so the next
+//! run passes it over, and deletes each copy whose source is gone, so a session `Delete old data`
+//! removed leaves the mirror at the next run. A file is copied under a temporary name, flushed and
+//! renamed over its copy, so a copy whose size and time reached the disk holds its bytes too. Links
+//! are not followed and not copied.
 
 use std::fs::{self, File};
 use std::io;
 use std::path::{Component, Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use sidekicks_platforms::{flush_file, remove_tree, rename_replacing};
+use sidekicks_platforms::{
+    create_missing_private_folders, flush_file, remove_tree, rename_replacing,
+};
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
@@ -30,9 +34,15 @@ pub(crate) const MIRROR_ROOTS_FILE_NAME: &str = "roots.json";
 // The suffix of a copy on its way to its place.
 const COPY_IN_PROGRESS_SUFFIX: &str = ".mirror-copy";
 
-// How far apart two modification times may be and still count as one: FAT and exFAT keep a time
-// to two seconds.
-const MODIFIED_TOLERANCE: Duration = Duration::from_secs(2);
+// The file a precision probe sets times on, removed once it has read them back.
+const TIME_PROBE_FILE_NAME: &str = ".sidekicks-time-probe";
+
+// An even second well inside every file system's range, FAT's from 1980 among them, that a probe
+// adds each fraction to.
+const TIME_PROBE_BASE: Duration = Duration::from_secs(1_700_000_000);
+
+// The precision of a folder that keeps no time a probe set to the second: FAT's two seconds.
+const COARSEST_TIME_PRECISION: Duration = Duration::from_secs(2);
 
 // The separator of a root's path in the mirror's list, whatever system wrote it.
 const LISTED_PATH_SEPARATOR: char = '/';
@@ -173,11 +183,12 @@ pub(crate) enum MirrorError {
     },
 }
 
-/// Brings the mirror at `mirror_folder` level with `roots`, each a place under `home`: each
-/// changed file copied, each copy whose source is gone deleted, and every folder of a root no
-/// longer listed deleted. Checks `stop` before each entry. Blocking, so it runs through
-/// `spawn_blocking`. Fails with [`MirrorError::Stopped`] once `stop` fires, and with the first
-/// refused read, copy or removal.
+/// Brings the mirror at `mirror_folder` level with `roots`, each a place under `home`: the folder
+/// made owner-only where it is missing and the precision of its times probed, then each changed
+/// file copied, each copy whose source is gone deleted, and every folder of a root no longer
+/// listed deleted. Checks `stop` before each entry. Blocking, so it runs through `spawn_blocking`.
+/// Fails with [`MirrorError::Stopped`] once `stop` fires, and with the first refused read, copy or
+/// removal.
 pub(crate) fn mirror_roots(
     mirror_folder: &Path,
     home: &Path,
@@ -188,10 +199,16 @@ pub(crate) fn mirror_roots(
         let path = path.to_path_buf();
         move |source| MirrorError::Io { path, source }
     };
-    fs::create_dir_all(mirror_folder).map_err(at(mirror_folder))?;
+    create_missing_private_folders(mirror_folder).map_err(at(mirror_folder))?;
+    let precision = probe_time_precision(mirror_folder).map_err(at(mirror_folder))?;
     let mut report = MirrorReport::default();
     for root in roots {
-        let leveled = bring_level(&root.place(home), &mirror_folder.join(&root.name), stop)?;
+        let leveled = bring_level(
+            &root.place(home),
+            &mirror_folder.join(&root.name),
+            precision,
+            stop,
+        )?;
         report.copied_files += leveled.copied_files;
         report.copied_bytes += leveled.copied_bytes;
         report.removed_entries += leveled.removed_entries;
@@ -209,25 +226,28 @@ pub(crate) fn mirror_roots(
 }
 
 /// Brings the file or folder at `copy` level with `source`, the mirror's run for one root and a
-/// restore's for one place: each file whose copy differs in size or modification time copied, and
+/// restore's for one place: each file whose copy differs in size, or in modification time by
+/// `precision`, the one [`probe_time_precision`] measured where the copy is, or more, copied, and
 /// each copy whose source is gone deleted; a source that is gone leaves no copy. Checks `stop`
 /// before each entry. Blocking. Fails as [`mirror_roots`] does.
 pub(crate) fn bring_level(
     source: &Path,
     copy: &Path,
+    precision: Duration,
     stop: &CancellationToken,
 ) -> Result<MirrorReport, MirrorError> {
     let mut report = MirrorReport::default();
-    copy_changed(source, copy, stop, &mut report)?;
+    copy_changed(source, copy, precision, stop, &mut report)?;
     remove_gone(source, copy, stop, &mut report)?;
     Ok(report)
 }
 
-// Copies each file under `source` whose copy under `copy_root` differs in size or modification
-// time; a source that is gone copies nothing.
+// Copies each file under `source` whose copy under `copy_root` differs in size or in modification
+// time by `precision` or more; a source that is gone copies nothing.
 fn copy_changed(
     source: &Path,
     copy_root: &Path,
+    precision: Duration,
     stop: &CancellationToken,
     report: &mut MirrorReport,
 ) -> Result<(), MirrorError> {
@@ -282,7 +302,7 @@ fn copy_changed(
                 && copy_metadata.len() == metadata.len()
                 && copy_metadata
                     .modified()
-                    .is_ok_and(|copied| is_same_modified_time(copied, modified))
+                    .is_ok_and(|copied| is_same_modified_time(copied, modified, precision))
             {
                 continue;
             }
@@ -306,13 +326,38 @@ fn path_under(root: &Path, relative: &Path) -> PathBuf {
     }
 }
 
-// Whether two modification times are one at the precision FAT and exFAT keep.
-fn is_same_modified_time(left: SystemTime, right: SystemTime) -> bool {
+// Whether two modification times are one at `precision`.
+fn is_same_modified_time(left: SystemTime, right: SystemTime, precision: Duration) -> bool {
     let apart = left
         .duration_since(right)
         .or_else(|_earlier| right.duration_since(left))
         .unwrap_or(Duration::MAX);
-    apart < MODIFIED_TOLERANCE
+    apart < precision
+}
+
+/// The precision of the modification times `folder` keeps: a file there is given a time 1 ns past
+/// an even second, then 10 ns, 100 ns and so on up to 1 s, and the first that reads back whole is
+/// it; two seconds when none does. The file is removed after. Blocking. Fails when the file cannot
+/// be made, timed, read or removed.
+pub(crate) fn probe_time_precision(folder: &Path) -> io::Result<Duration> {
+    let probe = folder.join(TIME_PROBE_FILE_NAME);
+    let file = File::create(&probe)?;
+    let base = UNIX_EPOCH + TIME_PROBE_BASE;
+    let mut fraction = Duration::from_nanos(1);
+    let precision = loop {
+        let set = base + fraction;
+        file.set_modified(set)?;
+        if fs::metadata(&probe)?.modified()? == set {
+            break fraction;
+        }
+        if fraction >= Duration::from_secs(1) {
+            break COARSEST_TIME_PRECISION;
+        }
+        fraction *= 10;
+    };
+    drop(file);
+    fs::remove_file(&probe)?;
+    Ok(precision)
 }
 
 // Copies `source` beside `copy`, with `modified` as its modification time, flushes it and renames
@@ -405,12 +450,12 @@ mod tests {
             .expect("the test reads a modification time")
     }
 
-    // A changed file is copied with its modification time; an unchanged one is passed over, which
-    // a copy whose bytes alone differ and whose time is a second off, as FAT keeps it, shows; a
-    // file whose source is gone, and a root no longer listed, are deleted; a second run copies
-    // nothing. Each root is found under the home it is given. Killed by the size-and-time compare
-    // dropped, by an exact time compare, by the modification time not kept, and by the removal
-    // of gone copies dropped.
+    // A changed file is copied with its modification time, a same-size rewrite a second later
+    // among them, since this folder keeps finer times than a second; a file whose source is gone,
+    // and a root no longer listed, are deleted; a third run copies nothing. Each root is found
+    // under the home it is given. Killed by the size-and-time compare dropped, by a blanket
+    // tolerance of two seconds, by the modification time not kept, and by the removal of gone
+    // copies dropped.
     #[test]
     fn a_run_copies_what_changed_and_deletes_what_is_gone() {
         let scratch = tempfile::tempdir().expect("a scratch folder");
@@ -433,16 +478,15 @@ mod tests {
         assert_eq!(first.copied_files, 4);
         assert_eq!(fs::read(mirror.join("settings")).expect("read"), b"{}");
 
-        // The kept file's copy differs only in its bytes and by a second in its time, so a run
-        // that copies it shows.
-        let kept_copy = mirror.join("workspace/notes/kept.md");
-        let kept_time = modified(&kept_copy) + Duration::from_secs(1);
-        fs::write(&kept_copy, b"KEPT").expect("written");
+        // The rewritten file keeps its size and is written a second after its copy's time.
+        let rewritten = workspace.join("notes/kept.md");
+        let rewritten_time = modified(&rewritten) + Duration::from_secs(1);
+        fs::write(&rewritten, b"KEPT").expect("written");
         File::options()
             .write(true)
-            .open(&kept_copy)
-            .and_then(|file| file.set_modified(kept_time))
-            .expect("the copy's time is set");
+            .open(&rewritten)
+            .and_then(|file| file.set_modified(rewritten_time))
+            .expect("the source's time is set");
         fs::write(workspace.join("notes/changed.md"), b"second, longer").expect("written");
         fs::remove_file(workspace.join("gone.md")).expect("removed");
         let listed = [roots[0].clone()];
@@ -452,12 +496,15 @@ mod tests {
         assert_eq!(
             second,
             MirrorReport {
-                copied_files: 1,
-                copied_bytes: 14,
+                copied_files: 2,
+                copied_bytes: 18,
                 removed_entries: 2,
             }
         );
-        assert_eq!(fs::read(&kept_copy).expect("read"), b"KEPT");
+        assert_eq!(
+            fs::read(mirror.join("workspace/notes/kept.md")).expect("read"),
+            b"KEPT"
+        );
         let changed_copy = mirror.join("workspace/notes/changed.md");
         assert_eq!(fs::read(&changed_copy).expect("read"), b"second, longer");
         assert_eq!(
