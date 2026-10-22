@@ -1,6 +1,7 @@
 //! Every process start answered by a script instead of a Claude Code program: a session's process
-//! is the next scripted channel, a one-turn process the next scripted reply, and each start is
-//! recorded with the conversation it asked for and the listener its frames and exit go to.
+//! is the next scripted channel, declaring the next scripted `initialize` reply; a one-turn process
+//! answers the next scripted reply; a catalog or figures read answers the next scripted reading.
+//! Each start is recorded with what it asked for.
 
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -13,6 +14,7 @@ use tokio::sync::{Notify, oneshot};
 use super::channel::ScriptedChannel;
 use crate::provider::driver::claude::session::answered_commands::ClaudeAttachedAdvisor;
 use crate::provider::driver::claude::session::process::ClaudeProcessListener;
+use crate::provider::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::provider::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
 use crate::provider::driver::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeModelCatalogReading, ClaudeReplyReserveReads,
@@ -44,13 +46,29 @@ pub(crate) struct ScriptedStartRecord {
     pub(crate) listener: Arc<dyn ClaudeProcessListener>,
 }
 
+/// One one-turn process the driver asked for.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ScriptedOneTurnRecord {
+    /// The model it runs on.
+    pub(crate) model: String,
+    /// The conversation it copies.
+    pub(crate) resume_handle: Option<String>,
+    /// The mode it runs in in place of its level's own.
+    pub(crate) permission_mode: Option<ClaudePermissionMode>,
+}
+
 #[derive(Default)]
 struct ScriptedStartTables {
     sessions: VecDeque<Result<Arc<ScriptedChannel>, String>>,
+    initializes: VecDeque<ClaudeInitializeDeclaration>,
     session_holds: VecDeque<oneshot::Receiver<()>>,
     catalogs: VecDeque<Value>,
+    catalog_environments: Vec<Vec<(String, String)>>,
+    creation_figures: VecDeque<ClaudeCreationFiguresReading>,
+    creation_reads: usize,
+    one_turn_replies: VecDeque<ClaudeOneTurnReply>,
+    one_turns: Vec<ScriptedOneTurnRecord>,
     started: Vec<ScriptedStartRecord>,
-    one_turns_run: usize,
     next_process_id: u32,
 }
 
@@ -72,6 +90,12 @@ impl ScriptedStarts {
         self.lock().sessions.push_back(Err(reason.to_owned()));
     }
 
+    /// Scripts the next session start's process to declare `initialize`, in place of an empty
+    /// declaration.
+    pub(crate) fn script_initialize(&self, initialize: ClaudeInitializeDeclaration) {
+        self.lock().initializes.push_back(initialize);
+    }
+
     /// Holds the next session start, once recorded, until the returned sender fires or drops.
     pub(crate) fn hold_next_session_start(&self) -> oneshot::Sender<()> {
         let (release, held) = oneshot::channel();
@@ -84,14 +108,34 @@ impl ScriptedStarts {
         self.lock().catalogs.push_back(initialize);
     }
 
+    /// Scripts the next creation-time figures read to answer `reading`.
+    pub(crate) fn script_creation_figures(&self, reading: ClaudeCreationFiguresReading) {
+        self.lock().creation_figures.push_back(reading);
+    }
+
+    /// Scripts the next one-turn process to answer `reply`.
+    pub(crate) fn script_one_turn(&self, reply: ClaudeOneTurnReply) {
+        self.lock().one_turn_replies.push_back(reply);
+    }
+
+    /// Takes the environment of each model catalog read so far.
+    pub(crate) fn take_catalog_environments(&self) -> Vec<Vec<(String, String)>> {
+        std::mem::take(&mut self.lock().catalog_environments)
+    }
+
+    /// Takes the count of creation-time figures reads so far.
+    pub(crate) fn take_creation_read_count(&self) -> usize {
+        std::mem::take(&mut self.lock().creation_reads)
+    }
+
     /// Takes every session start recorded so far.
     pub(crate) fn take_started(&self) -> Vec<ScriptedStartRecord> {
         std::mem::take(&mut self.lock().started)
     }
 
-    /// Takes the count of one-turn processes run so far.
-    pub(crate) fn take_one_turn_count(&self) -> usize {
-        std::mem::take(&mut self.lock().one_turns_run)
+    /// Takes every one-turn process run so far.
+    pub(crate) fn take_one_turns(&self) -> Vec<ScriptedOneTurnRecord> {
+        std::mem::take(&mut self.lock().one_turns)
     }
 
     /// Waits until at least `count` session starts were recorded since the last take.
@@ -116,7 +160,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
         request: ClaudeBringUpRequest<'a>,
     ) -> BoxFuture<'a, Result<ClaudeStartedSession, ClaudeLaunchError>> {
         async move {
-            let (channel, process_id, hold) = {
+            let (channel, initialize, process_id, hold) = {
                 let mut tables = self.lock();
                 let channel = match tables.sessions.pop_front() {
                     Some(Ok(channel)) => channel,
@@ -130,6 +174,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 });
                 (
                     channel,
+                    tables.initializes.pop_front().unwrap_or_default(),
                     tables.next_process_id,
                     tables.session_holds.pop_front(),
                 )
@@ -145,7 +190,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                     process_id,
                     spawn_sequence: u64::from(process_id),
                 },
-                initialize: ClaudeInitializeDeclaration::default(),
+                initialize,
                 settings_readback: ClaudeSettingsReadback {
                     cleanup_period_days: None,
                     attached_advisor: ClaudeAttachedAdvisor::Unreported,
@@ -162,7 +207,12 @@ impl ClaudeProcessStarts for ScriptedStarts {
         _place: ClaudeSessionFolderReadRequest,
         _read_models: HashSet<String>,
     ) -> BoxFuture<'static, Result<ClaudeCreationFiguresReading, ClaudeLaunchError>> {
-        async { Err(spawn_failure("no figures scripted")) }.boxed()
+        let reading = {
+            let mut tables = self.lock();
+            tables.creation_reads += 1;
+            tables.creation_figures.pop_front()
+        };
+        async move { reading.ok_or_else(|| spawn_failure("no figures scripted")) }.boxed()
     }
 
     fn read_reply_reserve(
@@ -174,10 +224,18 @@ impl ClaudeProcessStarts for ScriptedStarts {
 
     fn run_one_turn<'a>(
         &'a self,
-        _request: ClaudeOneTurnRequest<'a>,
+        request: ClaudeOneTurnRequest<'a>,
     ) -> BoxFuture<'a, Result<ClaudeOneTurnReply, ClaudeLaunchError>> {
-        self.lock().one_turns_run += 1;
-        async { Err(spawn_failure("no one-turn reply scripted")) }.boxed()
+        let reply = {
+            let mut tables = self.lock();
+            tables.one_turns.push(ScriptedOneTurnRecord {
+                model: request.spawn.legs.model.clone(),
+                resume_handle: request.resume_handle,
+                permission_mode: request.permission_mode,
+            });
+            tables.one_turn_replies.pop_front()
+        };
+        async move { reply.ok_or_else(|| spawn_failure("no one-turn reply scripted")) }.boxed()
     }
 
     fn probe_sign_in(
@@ -189,9 +247,13 @@ impl ClaudeProcessStarts for ScriptedStarts {
 
     fn read_model_catalog(
         &self,
-        _environment: Vec<(String, String)>,
+        environment: Vec<(String, String)>,
     ) -> BoxFuture<'_, Result<ClaudeModelCatalogReading, ClaudeLaunchError>> {
-        let initialize = self.lock().catalogs.pop_front();
+        let initialize = {
+            let mut tables = self.lock();
+            tables.catalog_environments.push(environment);
+            tables.catalogs.pop_front()
+        };
         async move {
             let initialize = initialize.ok_or_else(|| spawn_failure("no catalog scripted"))?;
             Ok(ClaudeModelCatalogReading {

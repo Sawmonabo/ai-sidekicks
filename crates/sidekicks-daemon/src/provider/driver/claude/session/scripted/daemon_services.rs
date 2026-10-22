@@ -40,6 +40,8 @@ use crate::provider::port::permission_ask::{
 };
 use crate::provider::port::repository_reader::{RepositoryReader, RepositoryReading};
 use crate::provider::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
+use crate::provider::port::usage_sink::UsageSink;
+use crate::provider::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
 
 /// What reached the approval ports, in order.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -136,6 +138,40 @@ pub(crate) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<Recor
         .message_taken
         .register(recording.clone())
         .expect("the intake registers once");
+}
+
+/// A usage record that keeps each metered delta and answers one set of sums as every thread's
+/// already reported ones.
+#[derive(Default)]
+pub(crate) struct RecordingUsage {
+    reported: Mutex<UsageAxisCounts>,
+    metered: Mutex<Vec<(SessionId, MeteredUsageDelta)>>,
+}
+
+impl RecordingUsage {
+    /// Answers `reported` as the sums already reported under every thread.
+    pub(crate) fn report_prior(&self, reported: UsageAxisCounts) {
+        *lock(&self.reported) = reported;
+    }
+
+    /// Every delta metered so far, with its session, in order.
+    pub(crate) fn metered(&self) -> Vec<(SessionId, MeteredUsageDelta)> {
+        lock(&self.metered).clone()
+    }
+}
+
+impl UsageSink for RecordingUsage {
+    fn record_metered(&self, session_id: SessionId, delta: MeteredUsageDelta) {
+        lock(&self.metered).push((session_id, delta));
+    }
+
+    fn read_prior_emitted(
+        &self,
+        _session_id: SessionId,
+        _thread_id: &str,
+    ) -> Result<UsageAxisCounts, Box<dyn Error + Send + Sync>> {
+        Ok(*lock(&self.reported))
+    }
 }
 
 /// Files whose read takes the given time: every id answers its unresolved marker once its delay
