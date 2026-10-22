@@ -112,6 +112,22 @@ impl ClaudeHeldFigures {
         held_choices
     }
 
+    /// The command choices `place` offers, as Settings reads them: the held read's, else one
+    /// process that keeps nothing, shared with every session and Settings read waiting on the same
+    /// folder and config folder. Fails with the read's failure, which is not held.
+    pub(crate) async fn read_command_choices(
+        &self,
+        place: &ClaudeSessionFolderReadRequest,
+    ) -> ClaudeFigureResult<ClaudeCommandChoices> {
+        let figures = self.current();
+        let creation = self.creation_read(&figures, place);
+        figures
+            .command_choices(place, move || async move {
+                creation.await.map(|figures| figures.command_choices)
+            })
+            .await
+    }
+
     /// Reads the reply reserve of the model `legs`' session runs on now, `running_model`, in its
     /// own process that keeps nothing, where none is held for it at the session's endpoint.
     pub(crate) fn read_reply_reserve_for(&self, legs: &ClaudeSpawnBoundLegs, running_model: &str) {

@@ -73,6 +73,8 @@ pub(crate) enum ClaudeAdvisorChoices {
 /// What a session holds for the commands the daemon answers itself with no argument.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ClaudeCommandChoices {
+    /// The style names the build offers, in its order.
+    pub(crate) output_style_names: Vec<String>,
     /// The style descriptions.
     pub(crate) output_styles: ClaudeOutputStyleDescriptions,
     /// The advisors.
@@ -166,6 +168,7 @@ pub(crate) fn read_claude_command_choices(
         ),
     };
     ClaudeCommandChoices {
+        output_style_names: reading.output_style_names.clone(),
         output_styles,
         advisor: read_advisor_choices(&reading.advisor),
     }
@@ -174,6 +177,7 @@ pub(crate) fn read_claude_command_choices(
 /// What a session holds when its command choices could not be read, with the reason given.
 pub(crate) fn unreadable_claude_command_choices(detail: &str) -> ClaudeCommandChoices {
     ClaudeCommandChoices {
+        output_style_names: Vec::new(),
         output_styles: ClaudeOutputStyleDescriptions::Unlisted {
             line: format!("Claude Code's style descriptions could not be read: {detail}"),
         },

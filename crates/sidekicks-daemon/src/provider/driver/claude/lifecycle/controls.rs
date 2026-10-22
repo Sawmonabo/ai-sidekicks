@@ -25,7 +25,6 @@ use crate::provider::driver::claude::delivery::requests::answers::claude_project
 use crate::provider::driver::claude::inbox_address::{
     ClaudeSessionInboxAddresser, PlaceInboxEnvironment,
 };
-use crate::provider::driver::claude::session::answered_commands::read_claude_command_choices;
 use crate::provider::driver::claude::session::controls::{
     ClaudeSideQuestionCopy, claude_full_model_id, one_turn_legs,
 };
@@ -49,7 +48,7 @@ use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawn
 use crate::provider::driver::claude::session::ultracode::{
     claude_session_options, observe_claude_options,
 };
-use crate::provider::driver::claude::settings_rows::{ClaudeRowOffers, compose_claude_rows};
+use crate::provider::driver::claude::settings_rows::compose_claude_rows;
 use crate::provider::driver::claude::spawn::environment::claude_config_folder;
 use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::provider::driver::claude::spawn::launch::initialize_reply::read_claude_initialize_declaration;
@@ -287,7 +286,8 @@ impl ClaudeDriver {
     }
 
     /// `Output style` and `Advisor`, each with the app's pick in `app_values` or what a new
-    /// session runs with, the choices read from the installed build in the person's own home.
+    /// session runs with, the choices read from the installed build in the person's own home once
+    /// per build and held, so a later read starts no process.
     pub(crate) async fn read_rows(
         &self,
         app_values: ProviderRowValues,
@@ -299,8 +299,8 @@ impl ClaudeDriver {
             model: CLAUDE_DEFAULT_MODEL.to_owned(),
         };
         let settings_file = person_settings_folder(&self.sources.home_folder).join("settings.json");
-        let (reading, settings) = tokio::join!(
-            self.starts.read_creation_figures(place, HashSet::new()),
+        let (choices, settings) = tokio::join!(
+            self.figures.read_command_choices(&place),
             read_claude_settings_file(&settings_file),
         );
         let person_output_style = settings.map_err(internal)?.and_then(|settings| {
@@ -309,16 +309,7 @@ impl ClaudeDriver {
                 .and_then(|style| style.as_str())
                 .map(str::to_owned)
         });
-        let offers = reading
-            .map(|reading| {
-                let choices = read_claude_command_choices(&reading);
-                ClaudeRowOffers {
-                    output_styles: reading.output_style_names,
-                    output_style_descriptions: choices.output_styles,
-                    advisors: choices.advisor,
-                }
-            })
-            .map_err(|error| error.to_string());
+        let offers = choices.map_err(|error| error.to_string());
         Ok(compose_claude_rows(
             offers,
             &app_values,

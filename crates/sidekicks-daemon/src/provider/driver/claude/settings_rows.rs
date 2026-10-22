@@ -10,7 +10,7 @@ use sidekicks_contracts::provider::declaration::{
 };
 
 use crate::provider::driver::claude::session::answered_commands::{
-    ClaudeAdvisorChoices, ClaudeOutputStyleDescriptions,
+    ClaudeAdvisorChoices, ClaudeCommandChoices, ClaudeOutputStyleDescriptions,
 };
 use crate::provider::driver::claude::session::establishment::context::{
     CLAUDE_ADVISOR_ROW_ID, CLAUDE_OUTPUT_STYLE_ROW_ID, read_claude_row_text,
@@ -23,22 +23,12 @@ const LATER_SESSIONS_LINE: &str = "Applies to sessions started later.";
 /// The words of the advisor choice's none, as Claude Code's own `/advisor` names it.
 const ADVISOR_OFF_LABEL: &str = "Off";
 
-/// What the installed build offers for the two rows, read from one process that keeps nothing.
-pub(crate) struct ClaudeRowOffers {
-    /// The output styles the build names, in its order.
-    pub(crate) output_styles: Vec<String>,
-    /// The descriptions it printed for them.
-    pub(crate) output_style_descriptions: ClaudeOutputStyleDescriptions,
-    /// The advisors it offers.
-    pub(crate) advisors: ClaudeAdvisorChoices,
-}
-
-/// The two rows from `offers`, or each as a status naming `unread` where the build could not be
-/// read. Each value is the app's pick in `app_values`, else what a new session runs with: the
+/// The two rows from what the installed build offers, `offers`, or each as a status naming
+/// `unread` where the build could not be read. Each value is the app's pick in `app_values`, else what a new session runs with: the
 /// person's own `outputStyle`, `person_output_style`, and no advisor, since a session's settings
 /// turn the person's own advisor off.
 pub(crate) fn compose_claude_rows(
-    offers: Result<ClaudeRowOffers, String>,
+    offers: Result<ClaudeCommandChoices, String>,
     app_values: &ProviderRowValues,
     person_output_style: Option<String>,
 ) -> Vec<ProviderRow> {
@@ -55,8 +45,8 @@ pub(crate) fn compose_claude_rows(
             ];
         }
     };
-    let style_options = offers.output_styles.iter().filter_map(|style| {
-        let line = match &offers.output_style_descriptions {
+    let style_options = offers.output_style_names.iter().filter_map(|style| {
+        let line = match &offers.output_styles {
             ClaudeOutputStyleDescriptions::Listed(described) => described.get(style),
             ClaudeOutputStyleDescriptions::Unlisted { .. } => None,
         };
@@ -76,7 +66,7 @@ pub(crate) fn compose_claude_rows(
             "This Claude Code build names no output styles.",
         ),
     };
-    let advisor_row = match &offers.advisors {
+    let advisor_row = match &offers.advisor {
         ClaudeAdvisorChoices::Listed(advisors) => {
             match ProviderChoiceOptions::new(
                 advisors
