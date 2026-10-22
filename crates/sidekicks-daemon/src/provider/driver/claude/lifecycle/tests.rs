@@ -155,10 +155,11 @@ struct DriverFixture {
     ports: Arc<RecordingPorts>,
     usage: Arc<RecordingUsage>,
     relaunches: Arc<RecordedRelaunches>,
+    services: DriverServices,
     home: PathBuf,
     work: PathBuf,
     _folder: TempDir,
-    _database: TestDatabase,
+    database: TestDatabase,
 }
 
 impl DriverFixture {
@@ -222,10 +223,11 @@ impl DriverFixture {
             ports: recording,
             usage,
             relaunches,
+            services: base,
             home,
             work,
             _folder: folder,
-            _database: database,
+            database,
         }
     }
 
@@ -272,28 +274,29 @@ impl DriverFixture {
 
     // Hands the lead `result` that ends the session's turn to the process `start` brought up.
     fn end_turn(&self, start: &ScriptedStartRecord, session_id: SessionId) {
-        let routes = &self
-            .driver
-            .composed_parts()
-            .expect("composed")
-            .run_start
-            .routes;
-        for frame in [
-            json!({
-                "type": "system",
-                "subtype": "init",
-                "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-            }),
-            json!({
-                "type": "result",
-                "subtype": "success",
-                "is_error": false,
-                "result": "done",
-                "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-            }),
-        ] {
-            hand_scripted_frame(&*start.listener, routes, session_id, &frame);
-        }
+        end_turn_of(&self.driver, start, session_id);
+    }
+}
+
+// Hands the lead `result` that ends the session's turn to the process `start` brought up for
+// `driver`.
+fn end_turn_of(driver: &ClaudeDriver, start: &ScriptedStartRecord, session_id: SessionId) {
+    let routes = &driver.composed_parts().expect("composed").run_start.routes;
+    for frame in [
+        json!({
+            "type": "system",
+            "subtype": "init",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        }),
+        json!({
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "result": "done",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        }),
+    ] {
+        hand_scripted_frame(&*start.listener, routes, session_id, &frame);
     }
 }
 

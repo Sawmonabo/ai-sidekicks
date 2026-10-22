@@ -1,7 +1,8 @@
 //! The session controls that run beside a session's own turns, reached through the driver: a side
 //! question, the staged review and a run started through the driver interface.
 
-use std::sync::Arc;
+use std::num::NonZeroUsize;
+use std::sync::{Arc, Mutex};
 
 use serde_json::json;
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -10,12 +11,19 @@ use sidekicks_contracts::session::controls::methods::{
 };
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-use super::{DriverFixture, create_params, resume_params, start_params};
+use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
+
+use super::{DriverFixture, create_params, end_turn_of, resume_params, start_params};
+use crate::events::log_service::tests::open_log;
 use crate::policy::execution_posture_service::compose_execution_posture;
+use crate::provider::driver::claude::DESCRIPTOR;
+use crate::provider::driver::claude::lifecycle::ClaudeDriver;
 use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::provider::driver::claude::session::scripted::run_engine::EngineCall;
 use crate::provider::driver::claude::session::scripted::starts::ScriptedOneTurnRecord;
-use crate::provider::driver::claude::session::scripted::{mint_run_id, mint_session_id, settle};
+use crate::provider::driver::claude::session::scripted::{
+    binding_id, mint_run_id, mint_session_id, settle,
+};
 use crate::provider::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::provider::driver::claude::session::transport::declarations::{
     ClaudeCumulativeUsageObservation, ClaudeHandshakeDeclaration, ClaudeInitializeDeclaration,
@@ -28,6 +36,10 @@ use crate::provider::driver::session_control::{
     AskSideQuestionParams, CreateSessionParams, StartReviewParams,
 };
 use crate::provider::usage_delta_accountant::UsageAxisCounts;
+use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
+use crate::session::run::epochs::{EpochBinding, ExecutionEpochs};
+use crate::session::run::inbound::RunInboundDispatch;
+use crate::session::run::inbound::tests::UnreadPublisher;
 use crate::session::run::state_change::RunStateEntry;
 
 // The full id the build resolves the session's `opus` to.
@@ -226,37 +238,57 @@ fn answered(fixture: &DriverFixture) -> usize {
         .count()
 }
 
-// Killed by any break on the path the daemon calls: the trait's create and run start reach the
-// scripted process, and its `result` ends the run completed.
+// A run started through the driver interface, on the daemon's own run engine and inbound
+// dispatch as the driver reaches them through its ports, ends `completed` on the process result.
 #[tokio::test]
 async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
     let fixture = DriverFixture::new();
-    let driver: Arc<dyn ProviderDriver> = fixture.driver.clone();
+    let session_id = mint_session_id();
+    let run_id = mint_run_id();
+    insert_running_run(&fixture.database, session_id, run_id);
+    let mut epochs = ExecutionEpochs::new(NonZeroUsize::new(2).expect("the cap is not zero"));
+    epochs
+        .open_binding(
+            EpochBinding {
+                id: binding_id("lead"),
+                run_id,
+                provider_name: DESCRIPTOR.provider_id(),
+                provider_account_id: None,
+            },
+            RUN_START_POSITION,
+        )
+        .expect("the binding has no cursor yet");
+    let log = open_log(&fixture.database, None).await;
+    let engine = test_engine(&fixture.database, Arc::clone(&log.service), &fixture.home);
+    let ports = &fixture.services.ports;
+    ports
+        .inbound_dispatch
+        .register(Arc::new(RunInboundDispatch::new(
+            Arc::clone(&engine),
+            Arc::new(Mutex::new(epochs)),
+            Arc::new(UnreadPublisher),
+            log.service,
+        )))
+        .expect("the dispatch registers once");
+    ports
+        .run_engine
+        .register(engine)
+        .expect("the run engine registers once");
+    let driver = ClaudeDriver::with_starts(&fixture.services, fixture.starts.clone());
     let channel = Arc::new(ScriptedChannel::default());
     fixture.starts.script_session(Arc::clone(&channel));
-    let session_id = mint_session_id();
     driver
         .create_session(create_params(session_id))
         .await
         .expect("the session opens");
     let start = fixture.next_start().await;
-    let run_id = mint_run_id();
 
     driver
         .start_run(start_params(session_id, run_id))
         .await
         .expect("the run starts");
-    fixture.end_turn(&start, session_id);
-    settle().await;
+    end_turn_of(&driver, &start, session_id);
+    DriverFixture::wait_for(|| stored_run_state(&fixture.database, &run_id).0 == "completed").await;
 
     assert_eq!(channel.user_frames().len(), 1);
-    let ends: Vec<_> = fixture
-        .engine
-        .run_moves()
-        .into_iter()
-        .filter_map(|delivery| delivery.change)
-        .filter(|change| change.run_id == run_id)
-        .map(|change| change.entry)
-        .collect();
-    assert!(matches!(ends.as_slice(), [RunStateEntry::Completed { .. }]));
 }
