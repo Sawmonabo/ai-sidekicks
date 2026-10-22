@@ -368,23 +368,6 @@ impl ReviewerDenials {
         self.row_waits.settle_where(|_| true, RowWait::Stopped);
     }
 
-    /// The process behind `binding_id` has ended, so nothing can still take an override sent to
-    /// it: a press held on one, or still waiting on its answer, sends again. A driver that has
-    /// released a binding never answers a later request to it as unanswered: such a request fails
-    /// as refused, so no press is held on a binding that will not be released again.
-    pub(crate) fn release_held_presses(&self, binding_id: &RuntimeBindingId) {
-        lock(&self.held_presses).retain(|_, held| match held {
-            HeldPress::Pending {
-                binding_id: sent_to,
-            }
-            | HeldPress::Unanswered {
-                binding_id: sent_to,
-                ..
-            } => sent_to != binding_id,
-            HeldPress::Answered { .. } => true,
-        });
-    }
-
     /// Records `denial` on the blocked call's own row, waiting for that row when the block came
     /// first; a block that names no call is recorded at once, as a row of its own. Fails with
     /// [`ReviewerDenialError::NoRow`] when the run ends with no row for it, with
@@ -650,8 +633,21 @@ impl ReviewerDenialPort for ReviewerDenials {
         Box::pin(async move { Ok(self.take(denial).await?) })
     }
 
+    /// The process behind `binding_id` has ended, so nothing can still take an override sent to
+    /// it: a press held on one, or still waiting on its answer, sends again. A driver that has
+    /// released a binding never answers a later request to it as unanswered: such a request fails
+    /// as refused, so no press is held on a binding that will not be released again.
     fn release_held_presses(&self, binding_id: &RuntimeBindingId) {
-        ReviewerDenials::release_held_presses(self, binding_id);
+        lock(&self.held_presses).retain(|_, held| match held {
+            HeldPress::Pending {
+                binding_id: sent_to,
+            }
+            | HeldPress::Unanswered {
+                binding_id: sent_to,
+                ..
+            } => sent_to != binding_id,
+            HeldPress::Answered { .. } => true,
+        });
     }
 }
 

@@ -60,7 +60,7 @@ pub(crate) enum StagedChangesError {
     not(test),
     expect(
         dead_code,
-        reason = "the staged-change diff reads the index through it"
+        reason = "Claude Code's staged review reads the index through it"
     )
 )]
 #[derive(Clone)]
@@ -71,7 +71,7 @@ pub(crate) struct StagedChangesWorktrees {
 
 #[expect(
     dead_code,
-    reason = "the staged-change diff reads the index through it"
+    reason = "Claude Code's staged review reads the index through it"
 )]
 impl StagedChangesWorktrees {
     /// The worktrees under `worktrees_folder`, the daemon's own and absolute, made with `git`.
@@ -206,7 +206,7 @@ impl StagedChangesWorktrees {
     not(test),
     expect(
         dead_code,
-        reason = "the staged-change diff reads the index through it"
+        reason = "Claude Code's staged review reads the index through it"
     )
 )]
 pub(crate) struct StagedChangesWorktree {
@@ -220,7 +220,7 @@ pub(crate) struct StagedChangesWorktree {
     not(test),
     expect(
         dead_code,
-        reason = "the staged-change diff reads the index through it"
+        reason = "Claude Code's staged review reads the index through it"
     )
 )]
 impl StagedChangesWorktree {

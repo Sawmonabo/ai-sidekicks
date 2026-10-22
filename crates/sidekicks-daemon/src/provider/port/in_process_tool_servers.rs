@@ -162,7 +162,10 @@ mod tests {
     #[case::an_unknown_server_with_no_id(
         r#"{"jsonrpc":"2.0","method":"tools/list"}"#,
         Err(InProcessToolServerError::ServerNotFound { server_name: "elsewhere".to_owned() }),
-        r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32601,"message":"Server 'elsewhere' not found"}}"#,
+        concat!(
+            r#"{"jsonrpc":"2.0","id":null,"#,
+            r#""error":{"code":-32601,"message":"Server 'elsewhere' not found"}}"#,
+        ),
     )]
     fn each_unanswered_message_is_answered_in_band(
         #[case] message: &str,

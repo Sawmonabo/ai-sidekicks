@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::mutex_lock::lock;
 use crate::queue::delivery::{ProviderProcessIdentity, ProviderProcessIds};
 
 /// The daemon's provider processes by session, and the count their spawn sequences come from.
@@ -26,13 +27,13 @@ impl ProviderProcessRegistry {
 
     /// Records `identity` as the process now running `session_id`, replacing the one before.
     pub(crate) fn record(&self, session_id: SessionId, identity: ProviderProcessIdentity) {
-        self.lock().insert(session_id, identity);
+        lock(&self.processes).insert(session_id, identity);
     }
 
     /// Removes `session_id`'s entry when its process, `identity`, has exited; a later process's
     /// entry stays, so a replaced process's late exit never removes its successor.
     pub(crate) fn remove_exited(&self, session_id: SessionId, identity: ProviderProcessIdentity) {
-        let mut processes = self.lock();
+        let mut processes = lock(&self.processes);
         if processes
             .get(&session_id)
             .is_some_and(|recorded| recorded.spawn_sequence == identity.spawn_sequence)
@@ -40,17 +41,11 @@ impl ProviderProcessRegistry {
             processes.remove(&session_id);
         }
     }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<SessionId, ProviderProcessIdentity>> {
-        self.processes
-            .lock()
-            .expect("the process registry's lock is never held across a panic")
-    }
 }
 
 impl ProviderProcessIds for ProviderProcessRegistry {
     fn process_identity(&self, session_id: &SessionId) -> Option<ProviderProcessIdentity> {
-        self.lock().get(session_id).copied()
+        lock(&self.processes).get(session_id).copied()
     }
 }
 
