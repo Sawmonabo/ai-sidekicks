@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use futures::future::try_join_all;
+use serde::Deserialize;
+use serde::de::value::StrDeserializer;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::session::id::SessionId;
 
@@ -117,23 +119,36 @@ async fn encode_claude_picture(
     Ok(STANDARD.encode(read.await?))
 }
 
-// The image block's format for a media type read from a file's bytes, `None` for one it does not
-// take.
+// The image block's format for a media type read from a file's bytes, by the names the block
+// writes, `None` for one it does not take.
 fn claude_picture_media_type(media_type: &str) -> Option<ClaudePictureMediaType> {
-    match media_type {
-        "image/jpeg" => Some(ClaudePictureMediaType::Jpeg),
-        "image/png" => Some(ClaudePictureMediaType::Png),
-        "image/gif" => Some(ClaudePictureMediaType::Gif),
-        "image/webp" => Some(ClaudePictureMediaType::Webp),
-        _ => None,
-    }
+    ClaudePictureMediaType::deserialize(StrDeserializer::<serde::de::value::Error>::new(media_type))
+        .ok()
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    use super::{ClaudeAttachmentError, encode_claude_picture};
+    use super::{ClaudeAttachmentError, claude_picture_media_type, encode_claude_picture};
+    use crate::provider::driver::claude::session::transport::user_message::ClaudePictureMediaType;
+
+    // Killed by a media type the image block writes that its read does not take, which would drop
+    // every picture of that type, and by taking one the block cannot carry.
+    #[test]
+    fn a_picture_is_taken_by_each_media_type_the_image_block_writes() {
+        for media_type in [
+            ClaudePictureMediaType::Jpeg,
+            ClaudePictureMediaType::Png,
+            ClaudePictureMediaType::Gif,
+            ClaudePictureMediaType::Webp,
+        ] {
+            let name = serde_json::to_value(media_type).expect("a media type serializes");
+            let name = name.as_str().expect("a media type is written as text");
+            assert_eq!(claude_picture_media_type(name), Some(media_type));
+        }
+        assert_eq!(claude_picture_media_type("image/bmp"), None);
+    }
 
     // Killed by reading the picture before its size is checked, and by refusing one exactly at the
     // limit.

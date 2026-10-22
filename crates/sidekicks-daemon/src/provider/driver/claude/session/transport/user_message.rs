@@ -4,7 +4,7 @@
 
 use std::io;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
 
@@ -87,8 +87,9 @@ pub(crate) enum ClaudePictureSource {
     },
 }
 
-/// The picture formats Claude Code's image block takes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+/// The picture formats Claude Code's image block takes, read from and written as their media
+/// types.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum ClaudePictureMediaType {
     /// JPEG.
     #[serde(rename = "image/jpeg")]
