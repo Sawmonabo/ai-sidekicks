@@ -8,12 +8,15 @@
 //! - The hold ends when it drops, by a value, an error or a cancel alike.
 //! - Each key's queue is a FIFO mutex, removed once no caller holds or waits on it, so the map never
 //!   grows with every key ever locked.
+//! - Work that must land whole, or not at all, runs held in a task of its own (`run_held`), which
+//!   keeps the key until the work ends even after its caller stops waiting.
 
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use tokio::sync::OwnedMutexGuard;
+use tokio::sync::{OwnedMutexGuard, oneshot};
+use tokio::task::JoinError;
 
 /// A per-key, first-come-first-served lock held across awaits; see the module doc.
 pub(crate) struct KeyedLock<Key> {
@@ -50,6 +53,42 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
         };
         hold.guard = Some(queue.lock_owned().await);
         hold
+    }
+
+    /// Runs `work` once `key` is held, in a task of its own that keeps the key until `work` ends
+    /// even after the caller stops waiting, so work that lands late always lands before the next
+    /// caller on that key runs. A task still waiting for the key when its caller stops waiting
+    /// leaves the queue and drops `work` unrun; work that ends after its caller stopped waiting is
+    /// handed to `landed_late`. Answers `None` only to a caller no longer waiting. Fails with the
+    /// task's error when the work panics.
+    pub(crate) async fn run_held<Answer: Send + 'static>(
+        self: &Arc<Self>,
+        key: Key,
+        work: impl Future<Output = Answer> + Send + 'static,
+        landed_late: impl FnOnce(&Answer) + Send + 'static,
+    ) -> Result<Option<Answer>, JoinError>
+    where
+        Key: Send + Sync + 'static,
+    {
+        // The caller holds the receiver while it waits and drops it when it stops waiting.
+        let (mut still_waiting, _caller_waits) = oneshot::channel::<()>();
+        let lock = Arc::clone(self);
+        tokio::spawn(async move {
+            let _held = tokio::select! {
+                held = lock.acquire(key) => held,
+                () = still_waiting.closed() => return None,
+            };
+            // The caller may stop waiting just as the key comes free.
+            if still_waiting.is_closed() {
+                return None;
+            }
+            let answer = work.await;
+            if still_waiting.is_closed() {
+                landed_late(&answer);
+            }
+            Some(answer)
+        })
+        .await
     }
 
     fn lock_queues(&self) -> std::sync::MutexGuard<'_, HashMap<Key, Arc<tokio::sync::Mutex<()>>>> {

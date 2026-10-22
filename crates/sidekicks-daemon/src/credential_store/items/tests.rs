@@ -6,7 +6,7 @@ use std::time::Duration;
 use rstest::rstest;
 use secrecy::{ExposeSecret, SecretString};
 use sidekicks_contracts::keychain::KeychainRefusalCause;
-use sidekicks_platforms::{BlockingCredentialStore, CredentialStore, CredentialStoreWatch};
+use sidekicks_platforms::{BlockingCredentialStore, CredentialStore, secret_store_offer};
 
 use super::{SecretItems, SecretItemsStart};
 use crate::credential_store::SecretKeychain;
@@ -735,8 +735,8 @@ async fn a_move_refused_after_its_record_is_finished_by_the_next_call() {
     );
 }
 
-/// Each item round-trips through this machine's own credential store, which on Linux is the Secret
-/// Service and never a file or the kernel keyring.
+/// Each item round-trips through this machine's own credential store, the login keychain or the
+/// Credential Manager.
 #[tokio::test]
 #[ignore = "needs this machine's real credential store"]
 async fn an_item_round_trips_through_this_machines_credential_store() {
@@ -745,7 +745,7 @@ async fn an_item_round_trips_through_this_machines_credential_store() {
         data_folder: folder.path().to_path_buf(),
         runs_while_logged_out: false,
         access: Arc::new(SystemCredentialStore {
-            watch: CredentialStoreWatch::start().await,
+            offer: secret_store_offer(),
         }),
         call_timeout: Duration::from_secs(30),
     })

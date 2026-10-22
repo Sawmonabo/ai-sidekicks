@@ -20,6 +20,7 @@ ignored = [
 
 [dependencies]
 alacritty_terminal.workspace = true
+base64.workspace = true
 icu_locale_core.workspace = true
 interprocess.workspace = true
 keepawake.workspace = true
@@ -29,6 +30,7 @@ process-wrap = { workspace = true, features = ["creation-flags", "process-sessio
 regex.workspace = true
 secrecy.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 sidekicks-contracts.workspace = true
 sysinfo.workspace = true
 tempfile.workspace = true
@@ -39,7 +41,6 @@ typed-path.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true
-serde_json.workspace = true
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 icu_datetime.workspace = true
@@ -49,10 +50,7 @@ tree-sitter.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 futures-util.workspace = true
-secret-service.workspace = true
-tokio-util.workspace = true
 zbus.workspace = true
-zbus-secret-service-keyring-store.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store.workspace = true

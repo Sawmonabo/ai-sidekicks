@@ -1,16 +1,16 @@
-//! The operating system's credential store, as one interface: the macOS login keychain, the
-//! Secret Service on Linux and the Windows Credential Manager, each platform's module supplying its
-//! store, the settings an entry is built with, how its search names a service, the name of what
-//! holds the items, and the reading of a locked store from the store's own error. Whether the store
-//! can be reached and whether it takes items without a prompt are the watch's, which holds the one
-//! session-bus connection that asks.
+//! Where this machine keeps the daemon's secrets, and the operating system's credential store as
+//! one interface. macOS and Windows offer their store, the login keychain and the Credential
+//! Manager, each platform's module supplying its store, the settings an entry is built with, how
+//! its search names a service, the name of what holds the items, and the reading of a locked store
+//! from the store's own error. Linux offers systemd's credential service, which seals each secret
+//! to this computer (`seal`); the store itself stays on every system for the tests' stores.
 //!
 //! Every call on a store blocks until the store answers, which on a locked store is when the person
 //! answers its unlock prompt, so a caller runs it on a blocking thread under its own time limit.
 
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod blocking;
-pub(crate) mod watch;
+pub(crate) mod seal;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -23,12 +23,61 @@ use keyring_core::error::PlatformError;
 use secrecy::zeroize::Zeroize;
 use secrecy::{ExposeSecret, SecretString};
 
-#[cfg(target_os = "linux")]
-use crate::linux::credential_store as native;
+use crate::credential_store::seal::CredentialSeal;
 #[cfg(target_os = "macos")]
 use crate::macos::credential_store as native;
 #[cfg(target_os = "windows")]
 use crate::windows::credential_store as native;
+
+// The socket systemd's credential service listens on.
+#[cfg(target_os = "linux")]
+const SYSTEMD_CREDENTIALS_SOCKET: &str = "/run/systemd/io.systemd.Credentials";
+
+/// What this machine offers for the daemon's secrets.
+#[derive(Clone, Debug)]
+pub enum SecretStoreOffer {
+    /// The operating system's credential store, on macOS and Windows.
+    OperatingSystem(StoreOpener),
+    /// systemd's credential service, on Linux. A computer whose systemd does not serve it is found
+    /// by the first call's [`seal::SealFailure::NoService`].
+    SealService(CredentialSeal),
+}
+
+/// What this machine offers for the daemon's secrets: its credential store on macOS and Windows,
+/// systemd's credential service on Linux.
+pub fn secret_store_offer() -> SecretStoreOffer {
+    #[cfg(target_os = "linux")]
+    {
+        SecretStoreOffer::SealService(CredentialSeal::at(SYSTEMD_CREDENTIALS_SOCKET))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        SecretStoreOffer::OperatingSystem(StoreOpener {
+            open: CredentialStore::open,
+            description: native::DESCRIPTION,
+        })
+    }
+}
+
+/// Opens the operating system's credential store and names it for the service log.
+#[derive(Clone, Copy, Debug)]
+pub struct StoreOpener {
+    open: fn() -> Result<CredentialStore, CredentialStoreError>,
+    description: &'static str,
+}
+
+impl StoreOpener {
+    /// Opens the store. Blocks while it does. Fails with [`CredentialStoreError`] when the store
+    /// cannot be built.
+    pub fn open(&self) -> Result<CredentialStore, CredentialStoreError> {
+        (self.open)()
+    }
+
+    /// What holds the store's items, in words for the service log.
+    pub fn description(&self) -> &'static str {
+        self.description
+    }
+}
 
 /// The operating system's credential store, each value filed under a service and an account. Every
 /// call blocks; see the module doc.
@@ -42,13 +91,12 @@ pub struct CredentialStore {
 }
 
 impl CredentialStore {
-    /// How long the store is given for an answer that must never wait on the person: the Secret
-    /// Service's reachability and lock reads, and each store call of a move into it.
+    /// How long the store is given for an answer that must never wait on the person.
     pub const QUICK_ANSWER_LIMIT: Duration = Duration::from_secs(2);
 
-    /// Opens this system's credential store. Blocks: on Linux it connects to the Secret Service
-    /// over the session bus. Fails with [`CredentialStoreError`] when the store cannot be built or
-    /// reached, as on Linux when no Secret Service answers.
+    /// Opens this system's credential store. Fails with [`CredentialStoreError`] when the store
+    /// cannot be built.
+    #[cfg(not(target_os = "linux"))]
     pub fn open() -> Result<Self, CredentialStoreError> {
         let store = native::open_store().map_err(CredentialStoreError::from_store_error)?;
         Ok(Self {
@@ -134,9 +182,7 @@ impl CredentialStore {
 
     /// Every item filed under exactly `service`, each with the handle that removes it: the
     /// platform's search, which may match more than the service, kept to the items whose service is
-    /// `service`. An item the Secret Service cannot name, as one it could not unlock, comes with no
-    /// account, since its search matched the service exactly. Fails with [`CredentialStoreError`]
-    /// when the store is locked or cannot be used; on Linux the search raises the unlock prompt.
+    /// `service`. Fails with [`CredentialStoreError`] when the store is locked or cannot be used.
     pub fn accounts(&self, service: &str) -> Result<Vec<StoreAccount>, CredentialStoreError> {
         let spec = (self.search_spec)(service);
         let spec: HashMap<&str, &str> = spec
@@ -147,19 +193,13 @@ impl CredentialStore {
             .store
             .search(&spec)
             .map_err(CredentialStoreError::from_store_error)?;
+        // Each store names every item it lists: the keychain and the in-memory store always, the
+        // Credential Manager every target its pattern matches.
         Ok(entries
             .into_iter()
-            .filter_map(|entry| match entry.get_specifiers() {
-                Some((entry_service, account)) => {
-                    (entry_service == service).then_some(StoreAccount {
-                        account: Some(account),
-                        entry,
-                    })
-                }
-                None => Some(StoreAccount {
-                    account: None,
-                    entry,
-                }),
+            .filter_map(|entry| {
+                let (entry_service, account) = entry.get_specifiers()?;
+                (entry_service == service).then_some(StoreAccount { account, entry })
             })
             .collect())
     }
@@ -185,59 +225,22 @@ impl CredentialStore {
 /// One item a store's listing found, with the handle that removes it.
 #[derive(Debug)]
 pub struct StoreAccount {
-    account: Option<String>,
+    account: String,
     entry: Entry,
 }
 
 impl StoreAccount {
-    /// The account the item is filed under, or `None` for an item the Secret Service cannot name.
-    pub fn account(&self) -> Option<&str> {
-        self.account.as_deref()
+    /// The account the item is filed under.
+    pub fn account(&self) -> &str {
+        &self.account
     }
 
-    /// Removes the item through its own handle, whether or not it has a name; `false` when it was
-    /// already gone. Blocks as every store call does. Fails with [`CredentialStoreError`] when the
-    /// store is locked or cannot be used.
+    /// Removes the item through its own handle; `false` when it was already gone. Blocks as every
+    /// store call does. Fails with [`CredentialStoreError`] when the store is locked or cannot be
+    /// used.
     pub fn remove(&self) -> Result<bool, CredentialStoreError> {
         remove_entry(&self.entry)
     }
-}
-
-/// Why this system's credential store cannot be reached now; each says which condition failed and
-/// what makes it hold.
-#[derive(Clone, Debug, thiserror::Error)]
-pub enum CredentialStoreUnreachable {
-    /// `DBUS_SESSION_BUS_ADDRESS` is not set, so the service runs outside any session bus.
-    #[error(
-        "DBUS_SESSION_BUS_ADDRESS is not set, so no Secret Service can be reached; start the \
-         service inside a desktop session, or set the variable to the session bus's address"
-    )]
-    NoSessionBus,
-    /// The session bus failed: it did not connect at the variable's address, or refused the
-    /// question.
-    #[error(
-        "the session bus at DBUS_SESSION_BUS_ADDRESS failed; check that the variable names the \
-         running session bus"
-    )]
-    SessionBusFailed(#[source] Arc<dyn Error + Send + Sync>),
-    /// No program owns the Secret Service's name on the session bus.
-    #[error(
-        "no Secret Service is running: nothing owns org.freedesktop.secrets on the session bus; \
-         start one, such as GNOME Keyring, KDE Wallet or KeePassXC"
-    )]
-    NoSecretService,
-    /// The Secret Service refused a question about its default collection.
-    #[error(
-        "the Secret Service refused to say whether its default collection is unlocked; check that \
-         it runs and is not stuck"
-    )]
-    SecretServiceFailed(#[source] Arc<dyn Error + Send + Sync>),
-    /// The session bus gave no answer within [`CredentialStore::QUICK_ANSWER_LIMIT`].
-    #[error(
-        "the session bus gave no answer within {limit} s; check that the session bus is not stuck",
-        limit = CredentialStore::QUICK_ANSWER_LIMIT.as_secs()
-    )]
-    NoAnswer,
 }
 
 /// A credential store call the store refused or could not answer. It says whether the store is
@@ -266,6 +269,17 @@ impl CredentialStoreError {
         self.is_locked
     }
 
+    /// The refusal of a machine whose secrets are not kept in a credential store, as on Linux,
+    /// whose secrets systemd's credential service seals.
+    pub fn not_offered() -> Self {
+        Self {
+            is_locked: false,
+            failure: StoreFailure::Refused {
+                message: "this computer keeps its secrets in no credential store".to_owned(),
+            },
+        }
+    }
+
     /// The refusal of a store that cannot be used, which a test's store answers with `reason`.
     #[cfg(any(test, feature = "test-support"))]
     pub fn unusable(reason: &str) -> Self {
@@ -283,10 +297,23 @@ impl CredentialStoreError {
         let failure = StoreFailure::from(error);
         let is_locked = failure.platform_error().is_some_and(|platform_error| {
             let platform_error: &(dyn Error + 'static) = platform_error.as_ref();
-            native::is_locked(platform_error)
+            is_locked_failure(platform_error)
         });
         Self { is_locked, failure }
     }
+}
+
+// Whether the platform store's `failure` says it is locked, as the platform's module reads it.
+#[cfg(not(target_os = "linux"))]
+fn is_locked_failure(failure: &(dyn Error + 'static)) -> bool {
+    native::is_locked(failure)
+}
+
+// Linux keeps no credential store of its own: only a test's store answers there, and it is never
+// locked.
+#[cfg(target_os = "linux")]
+fn is_locked_failure(_failure: &(dyn Error + 'static)) -> bool {
+    false
 }
 
 // What went wrong in the store, without the stored bytes or the matching entries its own error
