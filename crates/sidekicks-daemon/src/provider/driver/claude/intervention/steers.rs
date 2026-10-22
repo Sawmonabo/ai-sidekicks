@@ -138,16 +138,17 @@ impl ClaudeSteerWriter {
         });
     }
 
-    // Writes rows no caller waits on, in order; a row whose run's turn ended meanwhile starts the
-    // session's next turn, and a failure is recorded.
+    // Writes rows no caller waits on, in order, only the first keeping its `now` mark where
+    // `keeps_priority`, since a later `now` would cut short the turn the first one starts; a row
+    // whose run's turn ended meanwhile starts the session's next turn, and a failure is recorded.
     pub(super) async fn write_released(
         &self,
         live: &Arc<LiveClaudeSession>,
         rows: Vec<ClaudeSteer>,
         keeps_priority: bool,
     ) {
-        for mut row in rows {
-            row.is_priority &= keeps_priority;
+        for (index, mut row) in rows.into_iter().enumerate() {
+            row.is_priority &= keeps_priority && index == 0;
             let message_id = row.message_id;
             let written = match self.write_steer(live, row.clone()).await {
                 // No caller can take the row back for the run's next turn, so it opens one.
