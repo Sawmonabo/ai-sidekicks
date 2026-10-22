@@ -1,6 +1,7 @@
 //! The data verbs Settings › Runtime and the command line send: `daemon.dataExport.start`,
 //! `.subscribe` and `.cancel` over the service's exports, and `daemon.data.erase`, refused with
-//! `daemon.data.storeUnavailable` before anything is erased when the keychain cannot be emptied.
+//! `daemon.data.storeUnavailable` before anything is erased when the keychain cannot be emptied
+//! and with `daemon.data.eraseRunning` while an erase runs.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -17,8 +18,7 @@ use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, S
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use tokio::sync::watch;
 
-use crate::credential_store::KeychainRefusal;
-use crate::data_acts::erase::DataErase;
+use crate::data_acts::erase::{DataErase, DataEraseRefusal};
 use crate::data_acts::export::{DataExportStartRefusal, DataExports, is_finished};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::{
@@ -92,7 +92,7 @@ pub(crate) fn register_data_methods(
     registry.register::<DaemonDataErase, _>(move |_: EmptyPayload, _context: HandlerContext| {
         let erase = Arc::clone(&erase);
         async move {
-            erase.begin().await.map_err(store_unavailable)?;
+            erase.begin().await.map_err(erase_refusal)?;
             Ok(EmptyPayload {})
         }
         .boxed()
@@ -142,12 +142,19 @@ fn unknown_export() -> HandlerError {
     .into()
 }
 
-fn store_unavailable(refusal: KeychainRefusal) -> HandlerError {
-    refusal
-        .into_domain_error(RefusalCode::DaemonDataStoreUnavailable, |cause| {
-            DaemonDataStoreUnavailableDetails { cause }
-        })
-        .into()
+fn erase_refusal(refusal: DataEraseRefusal) -> HandlerError {
+    match refusal {
+        DataEraseRefusal::Running => DomainError::new(
+            "An erase is already running; nothing new starts.",
+            RefusalCode::DaemonDataEraseRunning,
+        )
+        .into(),
+        DataEraseRefusal::Keychain(refusal) => refusal
+            .into_domain_error(RefusalCode::DaemonDataStoreUnavailable, |cause| {
+                DaemonDataStoreUnavailableDetails { cause }
+            })
+            .into(),
+    }
 }
 
 #[cfg(test)]

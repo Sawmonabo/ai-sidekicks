@@ -5,7 +5,7 @@
 //! homes in it, and the process ends so its caller starts it again, empty. The default `backups/`
 //! folder stays, since a backup taken earlier keeps its copy, and no project folder is touched.
 //! An item the store refuses to delete leaves the data folder whole, so the erase can run again.
-//! One erase runs at a time: a second sent while it runs starts nothing and answers as the first.
+//! One erase runs at a time: a second sent while it runs is refused and starts nothing.
 
 use std::error::Error;
 use std::fs;
@@ -43,6 +43,17 @@ pub(crate) struct DataEraseDeps {
     pub(crate) end_process: Arc<dyn Fn() + Send + Sync>,
 }
 
+/// Why an erase did not start; nothing was erased by this call.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum DataEraseRefusal {
+    /// An erase already runs, and erases everything.
+    #[error("an erase is already running")]
+    Running,
+    /// The keychain the erase must empty is locked or cannot be used.
+    #[error(transparent)]
+    Keychain(#[from] KeychainRefusal),
+}
+
 /// The erase of everything the service keeps.
 pub(crate) struct DataErase {
     deps: DataEraseDeps,
@@ -67,17 +78,18 @@ impl DataErase {
 
     /// Checks that every credential-store item the erase must delete can be, then starts the
     /// erase and answers, so the reply is written while the erase stops the work; a locked store
-    /// raises its unlock prompt while the person is at the screen. While an erase runs, answers
-    /// at once and starts nothing, since the running one erases everything. Fails with
-    /// [`KeychainRefusal`] when the store is locked or cannot be used; nothing is erased then.
-    pub(crate) async fn begin(self: &Arc<Self>) -> Result<(), KeychainRefusal> {
+    /// raises its unlock prompt while the person is at the screen. Fails with
+    /// [`DataEraseRefusal::Running`] while an erase runs, and with
+    /// [`DataEraseRefusal::Keychain`] when the store is locked or cannot be used; this call then
+    /// starts nothing.
+    pub(crate) async fn begin(self: &Arc<Self>) -> Result<(), DataEraseRefusal> {
         if self.is_running.load(Ordering::Acquire) {
-            return Ok(());
+            return Err(DataEraseRefusal::Running);
         }
         self.deps.secret_items.check_for_erase().await?;
         // Two erases sent together may both pass the check; only the first to get here starts.
         if self.is_running.swap(true, Ordering::AcqRel) {
-            return Ok(());
+            return Err(DataEraseRefusal::Running);
         }
         let erase = Arc::clone(self);
         tokio::spawn(async move { erase.erase().await });

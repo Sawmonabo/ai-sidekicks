@@ -8,7 +8,7 @@ use secrecy::SecretString;
 use sidekicks_platforms::CredentialStore;
 use tokio::sync::{Notify, watch};
 
-use super::{DataErase, DataEraseDeps};
+use super::{DataErase, DataEraseDeps, DataEraseRefusal};
 use crate::credential_store::items::{SecretItems, SecretItemsStart};
 use crate::credential_store::os::TestStoreAccess;
 use crate::credential_store::service::KeychainService;
@@ -33,9 +33,10 @@ fn write_file(path: &Path) {
 // The erase runs in its order: the work stops while the data folder is whole, each provider's
 // services end, the keychain's items go before the data folder closes, and the process ends
 // last; the data folder goes but for an earlier backup, and a project folder is untouched. A
-// second erase sent while it stops the work starts nothing. Killed by a delete before the stop,
-// by items deleted after the folder, by a provider service ended as for a restart, by a project
-// folder or a backup deleted, and by a second erase let run beside the first.
+// second erase sent while it stops the work is refused and starts nothing. Killed by a delete
+// before the stop, by items deleted after the folder, by a provider service ended as for a
+// restart, by a project folder or a backup deleted, by a second erase let run beside the first,
+// and by a second erase answered as the first.
 #[tokio::test]
 async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     let data_folder = tempfile::tempdir().expect("the data folder is made");
@@ -117,10 +118,10 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
 
     erase.begin().await.expect("the keychain can be emptied");
     tokio::task::yield_now().await;
-    erase
-        .begin()
-        .await
-        .expect("a second erase answers as the first");
+    assert!(matches!(
+        erase.begin().await,
+        Err(DataEraseRefusal::Running)
+    ));
     gate.send_replace(true);
     tokio::time::timeout(Duration::from_secs(10), ended.notified())
         .await

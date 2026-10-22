@@ -169,7 +169,7 @@ methods! {
             mutating: true,
             params: EmptyPayload,
             result: EmptyPayload,
-            refusals: [DaemonDataStoreUnavailable],
+            refusals: [DaemonDataStoreUnavailable, DaemonDataEraseRunning],
         },
     ];
 }

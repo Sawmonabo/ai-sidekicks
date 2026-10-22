@@ -353,6 +353,9 @@ refusal_codes! {
     /// computer's keychain is locked. Unlock it, then try again.`) or `unavailable` (drawn `This
     /// computer's keychain can't be used right now, so nothing was erased.`).
     DaemonDataStoreUnavailable = "daemon.data.storeUnavailable" (Unavailable, 503);
+    /// `daemon.data.erase` while an erase runs; nothing new starts, since the running one erases
+    /// everything.
+    DaemonDataEraseRunning = "daemon.data.eraseRunning" (FailedPrecondition, 409);
     /// `daemon.dataExport.start` while another export runs; `data.fields.jobId` names the running
     /// one, whose progress the caller can follow instead.
     DaemonDataExportAlreadyRunning = "daemon.dataExport.alreadyRunning" (FailedPrecondition, 409);
