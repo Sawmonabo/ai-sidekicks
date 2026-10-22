@@ -178,6 +178,16 @@ struct QueueDepth {
     next_mark: AtomicUsize,
 }
 
+impl QueueDepth {
+    // Counts one item taken; a drained queue logs its next burst from the first mark again.
+    fn taken(&self) {
+        if self.items.fetch_sub(1, Ordering::Relaxed) == 1 {
+            self.next_mark
+                .store(CLAUDE_SESSION_ARRIVALS_DEPTH_MARK, Ordering::Relaxed);
+        }
+    }
+}
+
 /// A new queue for `session_id`'s process.
 pub(crate) fn claude_session_arrivals(
     session_id: SessionId,
@@ -209,10 +219,12 @@ impl ClaudeArrivalSender {
 
     /// Queues `arrival`; `false` when the session's task has ended, so nothing reads it.
     pub(crate) fn push(&self, arrival: ClaudeSessionArrival) -> bool {
+        // Counted before the send, so the task never takes an item the count does not hold yet.
+        let depth = self.depth.items.fetch_add(1, Ordering::Relaxed) + 1;
         if self.sender.send(arrival).is_err() {
+            self.depth.items.fetch_sub(1, Ordering::Relaxed);
             return false;
         }
-        let depth = self.depth.items.fetch_add(1, Ordering::Relaxed) + 1;
         let mark = self.depth.next_mark.load(Ordering::Relaxed);
         if depth >= mark
             && self
@@ -298,7 +310,7 @@ pub(crate) async fn drain_claude_session_arrivals(
         let Some(arrival) = arrival else {
             return;
         };
-        receiver.depth.items.fetch_sub(1, Ordering::Relaxed);
+        receiver.depth.taken();
         let is_exit = matches!(arrival, ClaudeSessionArrival::Exit(_));
         place.clone().scope(handler.arrive(arrival)).await;
         if is_exit {

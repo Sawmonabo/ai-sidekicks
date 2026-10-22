@@ -352,7 +352,9 @@ impl CapabilityProbeExchange for ClaudeProbeExchange<'_> {
         probe_name: &'static str,
     ) -> BoxFuture<'_, Result<Value, Box<dyn std::error::Error + Send + Sync>>> {
         async move {
-            let request = ClaudeControlRequest::probe(probe_name);
+            let request = ClaudeControlRequest::probe(probe_name).ok_or_else(|| {
+                format!("Claude Code has no control request for probe {probe_name}")
+            })?;
             match self.channel.send_control_request(request).await {
                 Ok(answer) => Ok(json!({
                     "subtype": "success",

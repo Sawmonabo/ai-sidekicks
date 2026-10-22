@@ -139,18 +139,20 @@ pub(crate) enum ClaudeControlRequest {
 
 impl ClaudeControlRequest {
     /// The request a capability probe named `probe_name` sends: `initialize` re-sent with nothing,
-    /// which answers what the process holds, else the negative control.
-    pub(crate) fn probe(probe_name: &str) -> Self {
+    /// which answers what the process holds, or the negative control; `None` for any other name.
+    pub(crate) fn probe(probe_name: &str) -> Option<Self> {
         if probe_name == ClaudeControlSubtype::Initialize.as_str() {
-            Self::Initialize {
+            Some(Self::Initialize {
                 hooks: None,
                 agents: None,
                 supported_dialog_kinds: None,
                 per_task_stop_affordance: None,
                 sdk_mcp_servers: None,
-            }
+            })
+        } else if probe_name == ClaudeControlSubtype::NegativeControl.as_str() {
+            Some(Self::NegativeControl {})
         } else {
-            Self::NegativeControl {}
+            None
         }
     }
 
