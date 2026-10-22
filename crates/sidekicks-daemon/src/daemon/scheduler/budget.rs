@@ -174,8 +174,8 @@ impl ProcessorMeter {
         .await
     }
 
-    // The run's time so far, or the first reading that failed.
-    fn take_spent(&self) -> Result<Duration, io::Error> {
+    /// The run's time so far. Fails with the first reading that failed.
+    pub(crate) fn take_spent(&self) -> Result<Duration, io::Error> {
         let mut total = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
         match total.unread.take() {
             Some(failure) => Err(failure),

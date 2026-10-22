@@ -171,15 +171,17 @@ impl PayloadStore {
 
     /// Unlinks each payload of `content_hashes` that no reference names any more, whether one does
     /// read on `reads` under the payload's key, so an admit of the same bytes keeps them; for a
-    /// purge, after its rows' delete committed. A payload already gone counts as removed; one whose
-    /// read or removal fails is logged and left to the orphan sweep.
+    /// purge, after its rows' delete committed. Each removal is charged to `meter`, the meter of
+    /// the job or call it runs under. A payload already gone counts as removed; one whose read or
+    /// removal fails is logged and left to the orphan sweep.
     pub(crate) async fn reclaim_unreferenced(
         &self,
         reads: &DatabaseReadPool,
         content_hashes: impl IntoIterator<Item = ContentHash>,
+        meter: &ProcessorMeter,
     ) {
         for content_hash in content_hashes {
-            if let Err(error) = self.reclaim(reads, content_hash).await {
+            if let Err(error) = self.reclaim(reads, content_hash, meter).await {
                 tracing::warn!(
                     error = &error as &(dyn Error + 'static),
                     "a stored payload no reference names was not removed; the orphan sweep \
@@ -191,7 +193,8 @@ impl PayloadStore {
 
     /// Reclaims every stored payload no reference names, as
     /// [`PayloadStore::reclaim_unreferenced`] does, for bytes a crash left behind: run at the
-    /// daemon's start and on the ingest reaper's cadence, its listing charged to `meter`. Answers
+    /// daemon's start and on the ingest reaper's cadence, its listing and removals charged to
+    /// `meter`. Answers
     /// the payloads it examined, each one stored. Fails when the store's folder cannot be listed or
     /// the referenced keys read.
     #[cfg_attr(
@@ -225,15 +228,17 @@ impl PayloadStore {
         let orphans = stored
             .into_iter()
             .filter(|content_hash| !referenced.contains(content_hash.as_str()));
-        self.reclaim_unreferenced(reads, orphans).await;
+        self.reclaim_unreferenced(reads, orphans, meter).await;
         Ok(examined)
     }
 
-    // Removes the payload once, under its key, no reference names it.
+    // Removes the payload once, under its key, no reference names it, the removal charged to
+    // `meter`.
     async fn reclaim(
         &self,
         reads: &DatabaseReadPool,
         content_hash: ContentHash,
+        meter: &ProcessorMeter,
     ) -> Result<(), PayloadReclaimError> {
         let _key_hold = self.storage_key_lock.acquire(content_hash.clone()).await;
         let key = content_hash.as_str().to_owned();
@@ -251,7 +256,8 @@ impl PayloadStore {
             return Ok(());
         }
         let object_path = self.object_path_of(&content_hash);
-        tokio::task::spawn_blocking(move || std::fs::remove_file(&object_path).none_if_missing())
+        meter
+            .run_blocking(move || std::fs::remove_file(&object_path).none_if_missing())
             .await
             .map_err(io::Error::other)??;
         Ok(())
@@ -317,6 +323,7 @@ fn move_into_store(source: &Path, object: &Path, objects_folder: &Path) -> io::R
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::Duration;
 
     use sha2::{Digest as _, Sha256};
     use tokio::sync::oneshot;
@@ -380,11 +387,13 @@ mod tests {
             }
         });
         holding.await.expect("the admit holds the key");
+        let meter = ProcessorMeter::default();
         let reclaiming = tokio::spawn({
             let payloads = Arc::clone(&store.payloads);
             let reads = Arc::clone(&store.reads);
             let hashes = vec![admitted.clone(), named.clone(), unnamed.clone()];
-            async move { payloads.reclaim_unreferenced(&reads, hashes).await }
+            let meter = meter.clone();
+            async move { payloads.reclaim_unreferenced(&reads, hashes, &meter).await }
         });
         // The reclaim reaches the admitted bytes' key while the admit still holds it.
         tokio::task::yield_now().await;
@@ -394,6 +403,8 @@ mod tests {
             .expect("the admit ends")
             .expect("the admit records");
         reclaiming.await.expect("the reclaim ends");
+        // The unlink is charged to the meter it ran under. Killed by a removal off the meter.
+        assert!(meter.take_spent().expect("the clock reads") > Duration::ZERO);
 
         assert!(
             store.payloads.object_path_of(&named).exists(),

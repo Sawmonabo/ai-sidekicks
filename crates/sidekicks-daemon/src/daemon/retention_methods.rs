@@ -29,6 +29,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::daemon::backup::run::{BackupTrigger, Backups};
 use crate::daemon::configuration::{ConfigurationChange, ConfigurationStore};
+use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::daemon::scheduler::{JobCondition, Scheduler};
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::sql_list::sql_list_of;
@@ -230,7 +231,21 @@ async fn purge_old_data(
             read_selected_ids(connection, &bound)
         })
         .await?;
-    let report = deps.purge.purge(&session_ids, PurgeCaller::Retention).await;
+    let meter = ProcessorMeter::default();
+    let report = deps
+        .purge
+        .purge(&session_ids, PurgeCaller::Retention, &meter)
+        .await;
+    match meter.take_spent() {
+        Ok(spent) => tracing::info!(
+            spent_ms = spent.as_millis(),
+            "the processor time of the payloads the purge unlinked"
+        ),
+        Err(failure) => tracing::warn!(
+            error = &failure as &(dyn Error + 'static),
+            "the processor time of the payloads the purge unlinked could not be read"
+        ),
+    }
     let mut deleted = 0_u64;
     for (session_id, outcome) in &report.outcomes {
         match outcome {
