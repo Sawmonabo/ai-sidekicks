@@ -10,7 +10,7 @@ Every unit in the desktop and daemon, Remote Control and command-line sections b
 
 A unit is ready once every unit in its "Waits on" has merged; it starts then, with no wait for a batch or a group. "Waits on" lists only direct dependencies: one already implied by another is left out. "Every macOS unit" means every unit in the first section below, except, on a row in that section, the row itself and the units that wait on it. A plan task listed under several units is built in parts: each unit builds the part its row names, and the task is done when the last of them merges.
 
-Free build lanes take ready units in the order of the sections below: desktop and daemon, then Remote Control, then the command line, then other platforms, release and email. Within a section, rows run from the unit with the longest chain of units after it to the shortest, so the first ready row in a section goes first.
+Free build lanes take ready units in the order of the sections below: desktop and daemon, then Remote Control, then the command line, then other platforms, release and email. Within the desktop and daemon section, the units a session with Claude Code or Codex and the Settings pages need go before the workflows, preview, the review pane and git flow. Within a section or that group, rows run from the unit with the longest chain of units after it to the shortest, so the first ready row goes first.
 
 A unit with a daemon, command-line, contract or control-plane side builds that side in Rust, in the crate `crates/AGENTS.md` names for it.
 
