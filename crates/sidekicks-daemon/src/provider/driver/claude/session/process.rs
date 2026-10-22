@@ -40,7 +40,7 @@ use crate::provider::driver::claude::session::transport::channel::ClaudeProcessC
 use crate::provider::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeControlSubtype,
 };
-use crate::provider::driver::claude::session::transport::declarations::ClaudeInboundFrameObservation;
+use crate::provider::driver::claude::session::transport::declarations;
 use crate::provider::driver::claude::session::transport::inbound::{
     ClaudeControlAnswer, ClaudeControlFrameReader, ClaudeInboundRequestEvent,
 };
@@ -87,7 +87,7 @@ pub(crate) struct ClaudeStreamFrame {
     /// The frame's text, as read.
     pub(crate) text: String,
     /// What routes it.
-    pub(crate) observation: ClaudeInboundFrameObservation,
+    pub(crate) observation: declarations::ClaudeInboundFrameObservation,
 }
 
 /// Takes what one process writes, on its reader and in the order read; every call returns at
