@@ -287,6 +287,50 @@ async fn an_interrupt_moves_each_foreground_helper_to_the_background_first() {
     assert_eq!(requests[0]["subtype"], "interrupt");
 }
 
+// Killed by sending the interrupt after a helper's move was cut mid-write, which would misframe
+// it, or by leaving that process running.
+#[tokio::test(start_paused = true)]
+async fn a_helper_move_cut_mid_write_stops_the_process_in_place_of_the_interrupt() {
+    let session = ScriptedSession::new();
+    let run_id = session.hold_lead_turn("lead");
+    let frame = json!({
+        "type": "system",
+        "subtype": "task_started",
+        "task_id": "helper-1",
+        "task_type": "local_agent",
+        "tool_use_id": "call-1",
+        "is_backgrounded": false,
+    });
+    session
+        .foreground_helpers
+        .lock()
+        .expect("the helpers' lock holds")
+        .observe_frame(
+            session.session_id,
+            "system/task_started",
+            &frame.to_string(),
+        );
+    session
+        .channel
+        .answer("background_tasks", ScriptedAnswer::WriteCut);
+
+    let response = apply(
+        &session,
+        interrupt(run_id, InterruptPendingChoice::NextTurn, false),
+    )
+    .await;
+
+    let subtypes: Vec<_> = session
+        .channel
+        .control_requests()
+        .iter()
+        .map(|request| request["subtype"].clone())
+        .collect();
+    assert_eq!(subtypes, [json!("background_tasks")]);
+    assert!(session.channel.writes().contains(&ScriptedWrite::Terminate));
+    assert_eq!(response.status, InterventionResultStatus::Applied);
+}
+
 // Killed by taking the session's steer order only after a steer's files are read, which lets a
 // later steer with no files overtake one whose files are slow.
 #[tokio::test(start_paused = true)]

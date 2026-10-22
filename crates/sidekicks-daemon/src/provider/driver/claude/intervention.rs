@@ -79,16 +79,37 @@ pub(crate) async fn send_claude_interrupt(
                 .and_then(|response| serde_json::from_str(response.get()).ok())
                 .unwrap_or_default(),
         )),
-        // A cut line leaves the process's input mid-frame, so no later write would read whole.
         Err(ClaudeSessionError::Unanswered {
-            cause: ClaudeUnansweredCause::Deadline | ClaudeUnansweredCause::WriteCut,
+            cause: ClaudeUnansweredCause::Deadline,
             ..
         }) => {
             live.channel.terminate().await;
             Ok(ClaudeInterruptOutcome::Stopped)
         }
+        Err(error) if stop_on_cut_write(live, &error).await => Ok(ClaudeInterruptOutcome::Stopped),
         Err(error) => Err(error),
     }
+}
+
+// Stops `live`'s process when `error` is a request cut mid-write; answers whether it did.
+async fn stop_on_cut_write(live: &LiveClaudeSession, error: &ClaudeSessionError) -> bool {
+    let is_cut = is_cut_write(error);
+    if is_cut {
+        live.channel.terminate().await;
+    }
+    is_cut
+}
+
+// Whether `error` is a request cut mid-write, which leaves the process's input mid-frame, so no
+// later write would read whole.
+fn is_cut_write(error: &ClaudeSessionError) -> bool {
+    matches!(
+        error,
+        ClaudeSessionError::Unanswered {
+            cause: ClaudeUnansweredCause::WriteCut,
+            ..
+        }
+    )
 }
 
 /// The driver's own interrupt of `run_id`'s turn: the run is marked so the turn end Claude Code
@@ -218,14 +239,19 @@ impl ClaudeInterventions {
         {
             return Ok(applied());
         }
-        self.background_foreground_helpers(&live).await;
+        let is_stopped_first = self.background_foreground_helpers(&live).await;
         if let Some(stream) = &stream {
             stream.hold_turn_end_for_interrupt(run_id);
         }
         let takes_messages_back =
             payload.reorders_waiting || payload.pending != InterruptPendingChoice::NextTurn;
         let can_cancel_queued = self.declares_cancel_queued(&live);
-        let outcome = send_claude_interrupt(&live, takes_messages_back && can_cancel_queued).await;
+        // A process stopped while its helpers moved ends its turn as surely as the interrupt.
+        let outcome = if is_stopped_first {
+            Ok(ClaudeInterruptOutcome::Stopped)
+        } else {
+            send_claude_interrupt(&live, takes_messages_back && can_cancel_queued).await
+        };
         let is_answered = match &outcome {
             Ok(_) | Err(ClaudeSessionError::ControlRequestRefused { .. }) => true,
             Err(_) => false,
@@ -275,20 +301,25 @@ impl ClaudeInterventions {
     // Moves each helper running in the foreground to the background, one request per helper, all
     // sent at once so the interrupt waits one request deadline at most; never the bare request,
     // which would move a running command too, which the interrupt is meant to end. A refusal is
-    // recorded and the interrupt still goes.
-    async fn background_foreground_helpers(&self, live: &LiveClaudeSession) {
+    // recorded and the interrupt still goes; answers whether a cut write stopped the process.
+    async fn background_foreground_helpers(&self, live: &LiveClaudeSession) -> bool {
         let tool_use_ids = lock(&self.foreground_helpers).tool_use_ids(live.session_id);
         let moves = tool_use_ids.into_iter().map(|tool_use_id| async move {
-            if let Err(error) = background_claude_task(live, &tool_use_id).await {
+            let moved = background_claude_task(live, &tool_use_id).await;
+            if let Err(error) = &moved {
                 tracing::warn!(
                     session_id = %live.session_id,
                     tool_use_id,
-                    error = &error as &(dyn std::error::Error + 'static),
+                    error = error as &(dyn std::error::Error + 'static),
                     "a Claude Code helper could not move to the background before an interrupt"
                 );
             }
+            moved
         });
-        futures::future::join_all(moves).await;
+        futures::future::join_all(moves)
+            .await
+            .iter()
+            .any(|moved| moved.as_ref().is_err_and(is_cut_write))
     }
 
     fn declares_cancel_queued(&self, live: &LiveClaudeSession) -> bool {
@@ -327,17 +358,25 @@ impl ClaudeInterventions {
 
 /// Moves the foreground work one tool call started (a command, a helper) to the background, and
 /// answers whether any moved: `false` when the call matched no foreground work. Fails as the
-/// request fails, refused where background tasks are turned off.
+/// request fails, refused where background tasks are turned off; a request cut mid-write stops
+/// the process first.
 pub(crate) async fn background_claude_task(
     live: &LiveClaudeSession,
     tool_use_id: &str,
 ) -> Result<bool, ClaudeSessionError> {
-    let answer = live
+    let answer = match live
         .channel
         .send_control_request(ClaudeControlRequest::BackgroundTasks {
             tool_use_id: Some(tool_use_id.to_owned()),
         })
-        .await?;
+        .await
+    {
+        Ok(answer) => answer,
+        Err(error) => {
+            stop_on_cut_write(live, &error).await;
+            return Err(error);
+        }
+    };
     let reply: ClaudeBackgroundTasksReply = answer
         .response
         .and_then(|response| serde_json::from_str(response.get()).ok())
