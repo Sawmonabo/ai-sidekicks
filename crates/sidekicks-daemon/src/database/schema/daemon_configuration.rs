@@ -1,8 +1,8 @@
 //! The service's machine-wide configuration and its two retention bounds: one row, which the
-//! configuration store writes whole the first time it opens and then changes one value at a time.
+//! schema writes whole with the table and the configuration store changes one value at a time.
 
 use sidekicks_contracts::daemon::config::{
-    RUN_TIME_LIMIT_MINUTES, WORKFLOW_CHAIN_ASK_AFTER_RUNS_STEPS,
+    DEFAULT_WORKFLOW_LISTENER_PORT, RUN_TIME_LIMIT_MINUTES, WORKFLOW_CHAIN_ASK_AFTER_RUNS_STEPS,
 };
 use sidekicks_contracts::daemon::retention::DEFAULT_KEEP_DIAGNOSTIC_LOGS_DAYS;
 
@@ -14,8 +14,8 @@ pub(super) fn daemon_configuration_schema_sql() -> String {
     format!(
         "
 -- ---------------------------------------------------------------------------
--- The service's configuration: one row, written whole the first time the
--- configuration store opens; each update changes one value.
+-- The service's configuration: one row, written whole with the table; each
+-- update changes one value.
 -- ---------------------------------------------------------------------------
 CREATE TABLE daemon_configuration (
   singleton                      INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -37,6 +37,9 @@ CREATE TABLE daemon_configuration (
   record_provider_messages       INTEGER NOT NULL DEFAULT 0
                                  CHECK (record_provider_messages IN (0, 1))
 ) STRICT;
+
+INSERT INTO daemon_configuration (singleton, workflow_listener_port)
+  VALUES (1, {DEFAULT_WORKFLOW_LISTENER_PORT});
 "
     )
 }

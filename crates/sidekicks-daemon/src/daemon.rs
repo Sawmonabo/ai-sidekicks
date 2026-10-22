@@ -9,6 +9,7 @@ pub(crate) mod backup;
 pub(crate) mod config_methods;
 pub(crate) mod configuration;
 pub mod crash;
+pub(crate) mod data_folder;
 pub(crate) mod data_folder_lock;
 pub(crate) mod data_methods;
 pub(crate) mod keep_awake;

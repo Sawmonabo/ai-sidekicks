@@ -10,8 +10,7 @@ use std::sync::Arc;
 use rusqlite::types::Value;
 use rusqlite::{Connection, Row};
 use sidekicks_contracts::daemon::config::{
-    DEFAULT_WORKFLOW_LISTENER_PORT, DaemonConfigUpdateRequest, RunTimeLimitMinutes,
-    WorkflowChainAskAfterRuns,
+    DaemonConfigUpdateRequest, RunTimeLimitMinutes, WorkflowChainAskAfterRuns,
 };
 use sidekicks_contracts::daemon::retention::{DaemonRetentionBounds, DaemonRetentionUpdateRequest};
 use sidekicks_contracts::session::cost::{TokensPerRun, UsdMicros};
@@ -29,10 +28,6 @@ use crate::database::writer::{DatabaseWriter, WriteError};
     expect(dead_code, reason = "the daemon's start, sizing its read connections")
 )]
 pub(crate) const DAEMON_CONFIGURATION_STATEMENT_CAPACITY: usize = 1;
-
-// Writes the row whole, at the default port and every other column's default, unless it exists.
-const CREATE_ROW_SQL: &str = "INSERT INTO daemon_configuration (singleton, workflow_listener_port)
-  VALUES (1, ?1) ON CONFLICT (singleton) DO NOTHING";
 
 const READ_ROW_SQL: &str = "SELECT keep_diagnostic_logs_days, keep_sessions_days,
   workflow_listener_port, run_time_limit_minutes, workflow_chain_ask_after_runs,
@@ -99,8 +94,8 @@ pub(crate) struct ConfigurationStore {
 }
 
 impl ConfigurationStore {
-    /// Opens the store: writes the row whole when the database has none yet, then reads it. Fails
-    /// when the write or the read fails, or a stored value does not read as its type.
+    /// Opens the store over the row the schema wrote, reading it. Fails when the read fails or a
+    /// stored value does not read as its type.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the daemon's start opens the configuration store")
@@ -109,15 +104,6 @@ impl ConfigurationStore {
         writer: Arc<DatabaseWriter>,
         reads: &DatabaseReadPool,
     ) -> Result<Self, ConfigurationError> {
-        writer
-            .write(vec![WriteStatement {
-                sql: Cow::Borrowed(CREATE_ROW_SQL),
-                bindings: StatementBindings::Positional(vec![Value::Integer(i64::from(
-                    DEFAULT_WORKFLOW_LISTENER_PORT,
-                ))]),
-                expected_row_count: None,
-            }])
-            .await?;
         let configuration = reads
             .read(ReadLength::Short, |connection| {
                 read_configuration(connection)

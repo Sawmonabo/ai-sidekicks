@@ -284,34 +284,89 @@ async fn a_job_waiting_for_no_live_run_holds_no_other_job_and_runs_when_runs_end
     scheduler.stop().await.expect("the task ends");
 }
 
-// A job bounded at 25 hours runs at its bound though a run is still live, and not before. Killed
-// by the bound missing, so the job waits forever, and by a bound read as no wait at all.
+// A run that goes live while an earlier job of the same drain runs parks the job after it, which
+// runs once the run ends. Killed by the count read once per drain, which runs it beside the turn.
 #[tokio::test(start_paused = true)]
-async fn a_bounded_job_runs_at_its_bound_with_a_run_still_live() {
+async fn a_run_going_live_mid_drain_parks_the_jobs_after_it() {
+    let live_runs = Arc::new(LiveRunCount::default());
+    let scheduler = Scheduler::start(TestWallClock::new(), None, live_runs.follow());
+    let (turn_started, turn_job_ran) = oneshot::channel();
+    let starting = Arc::clone(&live_runs);
+    let mut turn_started = Some(turn_started);
+    let _turn = scheduler
+        .schedule(
+            "turn test job",
+            JobCondition::Always,
+            Duration::ZERO,
+            move |_| {
+                starting.record(RunState::Queued, RunState::Running);
+                let turn_started = turn_started.take();
+                Box::pin(async move {
+                    if let Some(turn_started) = turn_started {
+                        turn_started.send(()).expect("the test waits for the turn");
+                    }
+                    Ok(())
+                })
+            },
+        )
+        .expect("the job is scheduled");
+    let quiet_count = Arc::new(AtomicUsize::new(0));
+    let (quiet_ran, quiet_job_ran) = oneshot::channel();
+    let _quiet = scheduler
+        .schedule(
+            "repack test job",
+            JobCondition::NoTurnRunning,
+            Duration::ZERO,
+            reporting_job(quiet_ran, &quiet_count),
+        )
+        .expect("the job is scheduled");
+
+    tokio::time::timeout(RUN_BOUND, turn_job_ran)
+        .await
+        .expect("the turn's job runs")
+        .expect("the job reports its run");
+    tokio::time::sleep(IDLE_SPAN).await;
+    assert_eq!(quiet_count.load(Ordering::Relaxed), 0);
+
+    live_runs.record(RunState::Running, RunState::Completed);
+    tokio::time::timeout(RUN_BOUND, quiet_job_ran)
+        .await
+        .expect("the parked job runs once the turn ends")
+        .expect("the job reports its run");
+    scheduler.stop().await.expect("the task ends");
+}
+
+// A job bounded 25 hours ahead on the wall clock runs once that clock reaches the bound though a
+// run is still live, and not before, however long tokio's clock, which stops in sleep, runs on.
+// Killed by the bound missing, so the job waits forever, by a bound read as no wait at all, and
+// by a bound kept on tokio's clock.
+#[tokio::test(start_paused = true)]
+async fn a_bounded_job_runs_at_its_wall_clock_bound_with_a_run_still_live() {
     const BOUND: Duration = Duration::from_hours(25);
     let wall_clock = TestWallClock::new();
     let live_runs = LiveRunCount::default();
     live_runs.record(RunState::Queued, RunState::Starting);
-    let scheduler = Scheduler::start(wall_clock, None, live_runs.follow());
+    let scheduler = Scheduler::start(wall_clock.clone(), None, live_runs.follow());
+    let started_at = wall_clock.now();
     let run_count = Arc::new(AtomicUsize::new(0));
     let (ran, job_ran) = oneshot::channel();
     let _bounded = scheduler
         .schedule(
             "bounded test job",
-            JobCondition::NoTurnRunningUntil(BOUND),
+            JobCondition::NoTurnRunningUntil(started_at + BOUND),
             Duration::ZERO,
             reporting_job(ran, &run_count),
         )
         .expect("the job is scheduled");
-    let scheduled_at = Instant::now();
 
-    tokio::time::sleep(Duration::from_hours(24)).await;
+    wall_clock.set_now(started_at + Duration::from_hours(24));
+    tokio::time::sleep(Duration::from_hours(26)).await;
     assert_eq!(run_count.load(Ordering::Relaxed), 0);
-    tokio::time::timeout(Duration::from_hours(2), job_ran)
+    wall_clock.set_now(started_at + BOUND);
+    tokio::time::timeout(RUN_BOUND, job_ran)
         .await
         .expect("the job runs at its bound")
         .expect("the job reports its run");
-    assert_eq!(Instant::now() - scheduled_at, BOUND);
     assert_eq!(*live_runs.follow().borrow(), 1);
     scheduler.stop().await.expect("the task ends");
 }

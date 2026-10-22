@@ -11,17 +11,20 @@ use rusqlite::{
     Connection, DropBehavior, ErrorCode, InterruptHandle, Params, Statement, Transaction,
     TransactionBehavior, params_from_iter,
 };
+use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::daemon::scheduler::budget::{Measured, ThreadProcessorTime};
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::statement::{
     StatementBindings, StatementResult, WriteStatement, named_bindings,
 };
-use crate::database::writer::backup::copy_database;
+use crate::database::writer::backup::{CopyOrder, LOCK_BOUND, ThreadServing, copy_database};
 use crate::database::writer::messages::{
-    BatchAnswer, BatchFailure, CheckpointAnswer, FailedBatch, ThreadExit, ThreadRequest, WriteJob,
-    WriteJobFailure, WriteJobOutcome,
+    BatchAnswer, BatchFailure, CheckpointAnswer, CheckpointReport, FailedBatch,
+    MeasuredCheckpointAnswer, ThreadExit, ThreadRequest, WriteJob, WriteJobFailure,
+    WriteJobOutcome,
 };
 use crate::database::writer::repack::repack;
 use crate::database::writer::{ThreadStop, is_interrupt, sqlite_error_code};
@@ -42,14 +45,16 @@ const CHECKPOINT_OPERATION: &str = "running a WAL checkpoint";
 const CLOSE_OPERATION: &str = "closing the writer's connection";
 
 /// The thread's body: runs `open`, answers `opened` with the connection's interrupt handle or the
-/// open's failure, serves `requests` until the queue drops its sender, then closes the connection
-/// and answers `exit` as its last act. A failed open ends the thread at once, `exit` unanswered.
+/// open's failure, serves `requests` until the queue drops its sender, waiting on `runtime` only
+/// while a copy's step meets a lock, then closes the connection and answers `exit` as its last
+/// act. A failed open ends the thread at once, `exit` unanswered.
 pub(super) fn run<OpenError>(
     open: impl FnOnce() -> Result<Connection, OpenError>,
     opened: oneshot::Sender<Result<InterruptHandle, OpenError>>,
     requests: mpsc::Receiver<ThreadRequest>,
     stop: &ThreadStop,
     exit: oneshot::Sender<ThreadExit>,
+    runtime: &Handle,
 ) {
     let connection = match open() {
         Ok(connection) => connection,
@@ -64,7 +69,13 @@ pub(super) fn run<OpenError>(
     // An opener that stopped waiting dropped the request channel with it, so nothing is served and
     // the connection closes at once.
     if opened.send(Ok(connection.get_interrupt_handle())).is_ok() {
-        serve(&connection, &mut BodyEncoder::new(), requests, stop);
+        serve(
+            &connection,
+            &mut BodyEncoder::new(),
+            requests,
+            stop,
+            runtime,
+        );
     }
     let closed = close(connection, stop.skips_checkpoint());
     if stop.is_cut_at_bound() && !stop.is_ended() {
@@ -86,9 +97,10 @@ fn serve(
     encoder: &mut BodyEncoder,
     mut requests: mpsc::Receiver<ThreadRequest>,
     stop: &ThreadStop,
+    runtime: &Handle,
 ) {
     while let Some(request) = requests.blocking_recv() {
-        if !serve_request(connection, encoder, request, &mut requests, stop) {
+        if !serve_request(connection, encoder, request, &mut requests, stop, runtime) {
             // The queue is gone, so no request follows.
             break;
         }
@@ -180,28 +192,71 @@ impl UnkeptWrite {
 }
 
 /// Runs one request and answers it; false once the queue is gone, so no request follows. A copy
-/// serves the requests that come while it lives, each through here.
+/// serves the requests that come while it lives, each through here. A checkpoint's and a repack's
+/// answers carry the thread's processor time around their statements.
 pub(super) fn serve_request(
     connection: &Connection,
     encoder: &mut BodyEncoder,
     request: ThreadRequest,
     requests: &mut mpsc::Receiver<ThreadRequest>,
     stop: &ThreadStop,
+    runtime: &Handle,
 ) -> bool {
     match request {
         ThreadRequest::Batch { jobs, reply } => reply
             .send(run_batch(connection, encoder, &jobs, stop))
             .is_ok(),
         ThreadRequest::Checkpoint { mode, reply } => {
-            reply.send(checkpoint(connection, mode)).is_ok()
+            reply.send(checkpoint_measured(connection, mode)).is_ok()
         }
-        ThreadRequest::Repack { reply } => reply.send(repack(connection)).is_ok(),
-        ThreadRequest::Backup { destination, reply } => {
-            let (answer, is_queue_gone) =
-                copy_database(connection, encoder, &destination, requests, stop);
+        ThreadRequest::Repack { cancel, reply } => {
+            let mut processor_time = ThreadProcessorTime::default();
+            let repacked = processor_time.measure(|| repack(connection, &cancel));
+            reply
+                .send(repacked.map(|report| Measured {
+                    report,
+                    processor_time,
+                }))
+                .is_ok()
+        }
+        ThreadRequest::Backup {
+            destination,
+            cancel,
+            reply,
+        } => {
+            let order = CopyOrder {
+                destination: &destination,
+                cancel: &cancel,
+                lock_bound: LOCK_BOUND,
+            };
+            let mut serving = ThreadServing {
+                connection,
+                encoder,
+                requests,
+                stop,
+                runtime,
+            };
+            let (answer, is_queue_gone) = copy_database(&order, &mut serving);
             reply.send(answer).is_ok() && !is_queue_gone
         }
     }
+}
+
+// Runs a requested checkpoint and reads the store's page size, with the thread's processor time
+// around both.
+fn checkpoint_measured(connection: &Connection, mode: CheckpointMode) -> MeasuredCheckpointAnswer {
+    let mut processor_time = ThreadProcessorTime::default();
+    let report = processor_time.measure(|| {
+        let result = checkpoint(connection, mode)?;
+        let page_size = connection
+            .pragma_query_value(None, "page_size", |row| row.get(0))
+            .map_err(|failure| CleanupFailures::new(failure, Vec::new(), CHECKPOINT_OPERATION))?;
+        Ok(CheckpointReport { result, page_size })
+    })?;
+    Ok(Measured {
+        report,
+        processor_time,
+    })
 }
 
 /// Runs `jobs` as one immediate transaction and answers every write's outcome once it committed,

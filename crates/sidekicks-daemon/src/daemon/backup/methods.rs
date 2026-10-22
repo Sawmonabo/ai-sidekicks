@@ -69,7 +69,7 @@ async fn read_backup_standing(backups: &Backups) -> Result<DaemonBackupReadRespo
             .cmp(&left.taken_at.unix_millisecond())
     });
     let measured_folder = folder.clone();
-    let data_folder = backups.data_folder().to_path_buf();
+    let data_folder = backups.data_folder();
     let (total_bytes, folder_on_service_disk) = tokio::task::spawn_blocking(move || {
         Ok::<_, io::Error>((
             folder_bytes(&measured_folder)?,

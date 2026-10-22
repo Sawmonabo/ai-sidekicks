@@ -8,14 +8,16 @@
 //! Runs come from three places: the daily run, while `Back up automatically` is on and something
 //! committed since the last copy; the run after a `Delete old data` that removed something, while
 //! the switch is on; and `Back up now`, whether it is on or off. A request while a run is queued
-//! or running joins it. The run's processor time is measured against its budget, under one second
-//! per 256 MiB of store, and written to the service log.
+//! or running joins it. The run's processor time on its own threads is measured against its
+//! budget, under one second per 256 MiB of store, and written to the service log.
+
+mod daily;
 
 use std::error::Error;
 use std::fs::{self, File, TryLockError};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 
 use futures::FutureExt as _;
@@ -36,17 +38,20 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{
-    create_private_folder, flush_file, flush_folder, remove_tree, rename_replacing,
+    create_missing_private_folders, flush_file, flush_folder, remove_tree, rename_replacing,
 };
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::backup::generations::{BackupGeneration, backups_to_prune};
 use crate::daemon::backup::mirror::{
     MIRROR_FOLDER_NAME, MIRROR_ROOTS_FILE_NAME, MirrorError, MirrorRoot, mirror_roots,
 };
+use crate::daemon::data_folder::data_folder;
 use crate::daemon::machine::settings::file::{MachineSettingsFile, MachineSettingsFileError};
-use crate::daemon::scheduler::{JobCondition, ScheduleError, ScheduledJobOutcome, Scheduler};
+use crate::daemon::scheduler::budget::{
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
+};
+use crate::daemon::scheduler::{JobCondition, ScheduleError, Scheduler};
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::writer::backup::BackupCopy;
 use crate::database::writer::{DatabaseWriter, MaintenanceError};
@@ -70,13 +75,17 @@ pub(crate) const BACKUP_LOCK_FILE_NAME: &str = "backup.lock";
 )]
 pub(crate) const BACKUP_STATEMENT_CAPACITY: usize = 1;
 
-// How long after the last run the daily run falls due, and how long past that it waits for no
-// run to be live before it runs whatever runs.
-const DAILY_INTERVAL: Duration = Duration::from_hours(24);
-const DAILY_LATEST_WAIT: Duration = Duration::from_hours(1);
+/// A run's processor budget, and a repack's, since a `VACUUM` copies the store too: one second
+/// per 256 MiB of store.
+pub(crate) const BACKUP_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
+    figure: Duration::from_secs(1),
+    per: 256 * 1024 * 1024,
+    unit: WorkUnit::StoreBytes,
+}]);
 
-// The store a run may copy per second of processor time.
-const STORE_BYTES_PER_PROCESSOR_SECOND: u64 = 256 * 1024 * 1024;
+// How long a requested run other than `Back up now` waits for no run to be live before it runs
+// whatever runs.
+const REQUESTED_LATEST_WAIT: Duration = Duration::from_hours(1);
 
 // A file holding a new backup's own files, owner-only.
 const BACKUP_FILE_MODE: u32 = 0o600;
@@ -128,8 +137,9 @@ pub(crate) struct BackupDeps {
     pub(crate) truncation: Arc<WriteAheadLogTruncation>,
     /// The settings file holding `Back up automatically` and `Back up to`.
     pub(crate) settings: Arc<MachineSettingsFile>,
-    /// The service's data folder, which holds the default backups folder.
-    pub(crate) data_folder: PathBuf,
+    /// The person's home folder, which holds the service's data folder and every place the mirror
+    /// keeps.
+    pub(crate) home_folder: PathBuf,
     /// The files and folders the mirror keeps.
     pub(crate) read_mirror_roots: MirrorRootsReader,
     /// What each manifest records.
@@ -197,10 +207,12 @@ pub(crate) enum BackupLastRunError {
     Pool(#[from] DatabaseReadError),
 }
 
-// One written backup.
+// One written backup, and the writer's commit count when its copy answered, every commit up to
+// which it holds.
 struct WrittenBackup {
     backup_id: BackupId,
     total_bytes: u64,
+    copied_through: u64,
 }
 
 /// The service's backups: the runs, the request that joins a queued one, and the daily schedule.
@@ -231,19 +243,19 @@ impl Backups {
     pub(crate) async fn folder(&self) -> Result<PathBuf, MachineSettingsFileError> {
         let settings = self.deps.settings.read().await?.settings.backup;
         Ok(settings.folder.map_or_else(
-            || self.deps.data_folder.join(BACKUP_DEFAULT_FOLDER_NAME),
+            || self.data_folder().join(BACKUP_DEFAULT_FOLDER_NAME),
             |folder| PathBuf::from(folder.as_str()),
         ))
     }
 
     /// The service's data folder.
-    pub(crate) fn data_folder(&self) -> &Path {
-        &self.deps.data_folder
+    pub(crate) fn data_folder(&self) -> PathBuf {
+        data_folder(&self.deps.home_folder)
     }
 
-    /// Queues a run for `trigger` on `scheduler`, at once for `Back up now` and otherwise once no
-    /// run is live, at the latest an hour on; a run already queued or running takes the request
-    /// instead. Fails when the scheduler has stopped.
+    /// Queues a run for `trigger` on `scheduler`, metered against [`BACKUP_BUDGET`], at once for
+    /// `Back up now` and otherwise once no run is live, at the latest an hour on; a run already
+    /// queued or running takes the request instead. Fails when the scheduler has stopped.
     pub(crate) fn request(
         self: &Arc<Self>,
         scheduler: &Scheduler,
@@ -260,48 +272,35 @@ impl Backups {
         let condition = match trigger {
             BackupTrigger::Now => JobCondition::Always,
             BackupTrigger::Daily | BackupTrigger::AfterPurge => {
-                JobCondition::NoTurnRunningUntil(DAILY_LATEST_WAIT)
+                JobCondition::NoTurnRunningUntil(SystemTime::now() + REQUESTED_LATEST_WAIT)
             }
         };
         let backups = Arc::clone(self);
-        let scheduled = scheduler.schedule("backup", condition, Duration::ZERO, move |stop| {
-            let backups = Arc::clone(&backups);
-            async move {
-                let trigger = backups
-                    .pending
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .unwrap_or(trigger);
-                let ran = backups.run(trigger, &stop).await;
-                *backups
-                    .pending
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner) = None;
-                ran
-            }
-            .boxed()
-        });
+        let job = metered_job(
+            BACKUP_BUDGET,
+            Box::new(move |stop, meter| {
+                let backups = Arc::clone(&backups);
+                async move {
+                    let trigger = backups
+                        .pending
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .unwrap_or(trigger);
+                    let ran = backups.run(trigger, &stop, &meter).await;
+                    *backups
+                        .pending
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner) = None;
+                    ran
+                }
+                .boxed()
+            }),
+        );
+        let scheduled = scheduler.schedule("backup", condition, Duration::ZERO, job);
         if scheduled.is_err() {
             *self.pending.lock().unwrap_or_else(PoisonError::into_inner) = None;
         }
         scheduled.map(drop)
-    }
-
-    /// Schedules the daily run a day after the last run ended, or at once before the first, on
-    /// the wall clock so sleep does not hold it back; each daily run schedules the next. Fails
-    /// when the last run does not read or the scheduler refuses the run.
-    #[expect(dead_code, reason = "the daemon's start schedules the daily backup")]
-    pub(crate) async fn schedule_daily(
-        self: &Arc<Self>,
-        scheduler: &Arc<Scheduler>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let last_finished = self
-            .read_last_run()
-            .await?
-            .and_then(|last_run| last_finished_at(&last_run));
-        let due = last_finished.map_or_else(SystemTime::now, |finished| finished + DAILY_INTERVAL);
-        schedule_daily_at(Arc::clone(self), Arc::downgrade(scheduler), scheduler, due)?;
-        Ok(())
     }
 
     /// How the last run ended, `None` before the first. Fails when the log does not read.
@@ -309,13 +308,19 @@ impl Backups {
         self.deps.reads.read(ReadLength::Short, read_last_run).await
     }
 
-    // One run for `trigger`: skipped while the switch is off unless it is `Back up now`, and the
-    // daily one when nothing committed since the last copy. A run that fails records why and
-    // keeps every backup; only a failed record fails the job.
-    async fn run(&self, trigger: BackupTrigger, stop: &CancellationToken) -> ScheduledJobOutcome {
+    // One run for `trigger`, its blocking steps and its copy charged to `meter`: skipped while the
+    // switch is off unless it is `Back up now`, and the daily one when nothing committed since the
+    // last copy. A run that fails records why and keeps every backup; only a failed record fails
+    // the job. Answers the store it copied when it wrote a backup.
+    async fn run(
+        &self,
+        trigger: BackupTrigger,
+        stop: &CancellationToken,
+        meter: &ProcessorMeter,
+    ) -> MeteredJobOutcome {
         let settings = self.deps.settings.read().await?.settings.backup;
         if trigger != BackupTrigger::Now && !settings.automatic {
-            return Ok(());
+            return Ok(None);
         }
         let commits = self.deps.writer.follow_commits();
         let committed = *commits.borrow();
@@ -327,23 +332,16 @@ impl Backups {
                 == Some(committed)
         {
             tracing::info!("the daily backup was skipped: nothing was written since the last");
-            return Ok(());
+            return Ok(None);
         }
         let folder = self.folder().await?;
-        let processor_before = read_own_processor_time().await;
-        let written = self.write_backup(&folder, stop).await;
-        let copied_through = *commits.borrow();
+        let written = self.write_backup(&folder, stop, meter).await;
+        let mut copied = None;
         let event = match written {
-            Ok(None) => return Ok(()),
+            Ok(None) => return Ok(None),
             Ok(Some(written)) => {
                 self.deps.truncation.request();
-                if let Err(failure) = prune(&folder).await {
-                    tracing::warn!(
-                        error = &failure as &(dyn Error + 'static),
-                        "the backups no day or week keeps could not all be pruned"
-                    );
-                }
-                log_processor_time(processor_before, written.total_bytes).await;
+                copied = Some((written.copied_through, written.total_bytes));
                 SessionEvent::DaemonBackupCompleted(DaemonBackupCompletedPayload {
                     backup_id: written.backup_id,
                     total_bytes: SafeInt::new(written.total_bytes)
@@ -364,45 +362,57 @@ impl Backups {
                 })
             }
         };
-        let is_completed = matches!(event, SessionEvent::DaemonBackupCompleted(_));
         self.record(&event).await?;
-        if is_completed {
-            // The copy holds every commit up to its own end; the record's commit is the one more,
-            // so a later commit in between leaves the next daily run to copy it.
-            let recorded = *commits.borrow();
-            let holds = if recorded == copied_through + 1 {
-                recorded
-            } else {
-                copied_through
-            };
-            *self
-                .committed_at_last_copy
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner) = Some(holds);
-        }
-        Ok(())
+        let Some((copied_through, total_bytes)) = copied else {
+            return Ok(None);
+        };
+        // The copy holds every commit up to its answer; the record's commit is the one more, so a
+        // later commit in between leaves the next daily run to copy it.
+        let recorded = *commits.borrow();
+        let holds = if recorded == copied_through + 1 {
+            recorded
+        } else {
+            copied_through
+        };
+        *self
+            .committed_at_last_copy
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(holds);
+        Ok(Some(JobWorkload::of(WorkUnit::StoreBytes, total_bytes)))
     }
 
-    // Writes one backup into `folder` under its lock: `None` when the stop came first, its
-    // partial folder removed.
+    // Writes one backup into `folder` under its lock, then prunes the backups no day or week
+    // keeps, still under it: `None` when the stop came first, its partial folder removed once the
+    // writer's thread has answered, so no step writes into it after.
     async fn write_backup(
         &self,
         folder: &Path,
         stop: &CancellationToken,
+        meter: &ProcessorMeter,
     ) -> Result<Option<WrittenBackup>, BackupRunError> {
         let locked_folder = folder.to_path_buf();
-        let _lock = blocking(move || take_folder_lock(&locked_folder)).await??;
+        let _lock = blocking(meter, move || take_folder_lock(&locked_folder)).await??;
         let id = mint_uuid_v7().to_string();
         let backup_folder = folder.join(&id);
         let staged = backup_folder.join(format!("{BACKUP_DATABASE_FILE_NAME}.tmp"));
         let made_folder = backup_folder.clone();
-        blocking(move || fs::create_dir(&made_folder).map_err(at(&made_folder))).await??;
+        blocking(meter, move || {
+            fs::create_dir(&made_folder).map_err(at(&made_folder))
+        })
+        .await??;
         let written = self
-            .fill_backup(folder, &backup_folder, &staged, id, stop)
+            .fill_backup(folder, &backup_folder, &staged, id, stop, meter)
             .await;
-        if !matches!(written, Ok(Some(_))) {
+        if matches!(written, Ok(Some(_))) {
+            if let Err(failure) = prune(folder, meter).await {
+                tracing::warn!(
+                    error = &failure as &(dyn Error + 'static),
+                    "the backups no day or week keeps could not all be pruned"
+                );
+            }
+        } else {
             let removed = backup_folder.clone();
-            let removal = match blocking(move || remove_tree(&removed)).await {
+            let removal = match blocking(meter, move || remove_tree(&removed)).await {
                 Ok(removal) => removal.map_err(at(&backup_folder)),
                 Err(interrupted) => Err(interrupted),
             };
@@ -416,7 +426,9 @@ impl Backups {
         written
     }
 
-    // Copies, checks and places the database, brings the mirror level and writes the manifest.
+    // Copies, checks and places the database, brings the mirror level and writes the manifest. The
+    // copy is never dropped while the writer's thread steps it: the stop cancels it, and the
+    // thread answers before its next step.
     async fn fill_backup(
         &self,
         folder: &Path,
@@ -424,13 +436,17 @@ impl Backups {
         staged: &Path,
         id: String,
         stop: &CancellationToken,
+        meter: &ProcessorMeter,
     ) -> Result<Option<WrittenBackup>, BackupRunError> {
-        let copy = tokio::select! {
-            biased;
-            () = stop.cancelled() => return Ok(None),
-            copy = self.deps.writer.backup(staged.to_path_buf()) => copy,
-        };
-        match copy.map_err(BackupRunError::Copy)? {
+        let copy = self
+            .deps
+            .writer
+            .backup(staged.to_path_buf(), stop.clone())
+            .await
+            .map_err(BackupRunError::Copy)?;
+        let copied_through = *self.deps.writer.follow_commits().borrow();
+        meter.add(copy.processor_time);
+        match copy.report {
             BackupCopy::Copied { .. } => {}
             BackupCopy::HeldByLock(lock) => {
                 return Err(BackupRunError::HeldByLock(lock.describe()));
@@ -440,16 +456,19 @@ impl Backups {
         let checked = staged.to_path_buf();
         let database = backup_folder.join(BACKUP_DATABASE_FILE_NAME);
         let placed = database.clone();
-        let total_bytes = blocking(move || check_and_place(&checked, &placed)).await??;
+        let total_bytes = blocking(meter, move || check_and_place(&checked, &placed)).await??;
         let roots = (self.deps.read_mirror_roots)()
             .await
             .map_err(BackupRunError::MirrorRoots)?;
         let mirror_folder = folder.join(MIRROR_FOLDER_NAME);
         let mirrored_folder = mirror_folder.clone();
         let mirrored_roots = roots.clone();
+        let home = self.deps.home_folder.clone();
         let mirror_stop = stop.clone();
-        let mirrored =
-            blocking(move || mirror_roots(&mirrored_folder, &mirrored_roots, &mirror_stop)).await?;
+        let mirrored = blocking(meter, move || {
+            mirror_roots(&mirrored_folder, &home, &mirrored_roots, &mirror_stop)
+        })
+        .await?;
         let report = match mirrored {
             Ok(report) => report,
             Err(MirrorError::Stopped) => return Ok(None),
@@ -489,10 +508,11 @@ impl Backups {
         )
         .await?;
         let flushed = folder.to_path_buf();
-        blocking(move || flush_folder(&flushed).map_err(at(&flushed))).await??;
+        blocking(meter, move || flush_folder(&flushed).map_err(at(&flushed))).await??;
         Ok(Some(WrittenBackup {
             backup_id,
             total_bytes,
+            copied_through,
         }))
     }
 
@@ -512,50 +532,6 @@ impl Backups {
             .await?;
         Ok(())
     }
-}
-
-// Schedules the daily run at `due`; the run schedules the next a day after it ends.
-fn schedule_daily_at(
-    backups: Arc<Backups>,
-    scheduler_handle: Weak<Scheduler>,
-    scheduler: &Scheduler,
-    due: SystemTime,
-) -> Result<(), ScheduleError> {
-    scheduler
-        .schedule_at(
-            "daily backup",
-            JobCondition::NoTurnRunningUntil(DAILY_LATEST_WAIT),
-            due,
-            move |stop| {
-                let backups = Arc::clone(&backups);
-                let scheduler_handle = scheduler_handle.clone();
-                async move {
-                    // A run queued or running copies for this one.
-                    let is_queued = backups
-                        .pending
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .is_some();
-                    let ran = if is_queued {
-                        Ok(())
-                    } else {
-                        backups.run(BackupTrigger::Daily, &stop).await
-                    };
-                    if let Some(scheduler) = scheduler_handle.upgrade() {
-                        let next = SystemTime::now() + DAILY_INTERVAL;
-                        schedule_daily_at(
-                            Arc::clone(&backups),
-                            scheduler_handle,
-                            &scheduler,
-                            next,
-                        )?;
-                    }
-                    ran
-                }
-                .boxed()
-            },
-        )
-        .map(drop)
 }
 
 /// The backups in `folder` whose manifest reads, with when each was taken; a folder without one
@@ -587,8 +563,10 @@ pub(crate) async fn read_backups(folder: &Path) -> io::Result<Vec<(PathBuf, Back
     Ok(backups)
 }
 
-// Removes the backups in `folder` that no day or week keeps.
-async fn prune(folder: &Path) -> io::Result<()> {
+// Removes the backups in `folder` that no day or week keeps, and each folder a run a crash cut
+// short left without its manifest: only one named as a run names its backup, so no folder of the
+// person's own goes.
+async fn prune(folder: &Path, meter: &ProcessorMeter) -> io::Result<()> {
     let generations: Vec<BackupGeneration> = read_backups(folder)
         .await?
         .into_iter()
@@ -597,21 +575,42 @@ async fn prune(folder: &Path) -> io::Result<()> {
             Some(BackupGeneration { folder, taken_at })
         })
         .collect();
-    let pruned = backups_to_prune(&generations, &jiff::tz::TimeZone::system());
-    tokio::task::spawn_blocking(move || {
-        for folder in &pruned {
-            remove_tree(folder)?;
-        }
-        Ok(())
-    })
-    .await
-    .map_err(io::Error::other)?
+    let mut pruned = backups_to_prune(&generations, &jiff::tz::TimeZone::system());
+    pruned.extend(read_unfinished_backups(folder).await?);
+    meter
+        .run_blocking(move || {
+            for folder in &pruned {
+                remove_tree(folder)?;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(io::Error::other)?
 }
 
-// Takes the backups folder's lock, making the folder owner-only first; the lock goes when the
-// file drops.
+// The folders in `folder` named as a run names a backup that hold no manifest.
+async fn read_unfinished_backups(folder: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut unfinished = Vec::new();
+    let mut entries = tokio::fs::read_dir(folder).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let is_backup_name = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| uuid::Uuid::try_parse(name).is_ok());
+        if is_backup_name
+            && entry.file_type().await?.is_dir()
+            && !tokio::fs::try_exists(entry.path().join(BACKUP_MANIFEST_FILE_NAME)).await?
+        {
+            unfinished.push(entry.path());
+        }
+    }
+    Ok(unfinished)
+}
+
+// Takes the backups folder's lock, making each missing folder on its way owner-only first and
+// leaving one that exists as it is; the lock goes when the file drops.
 fn take_folder_lock(folder: &Path) -> Result<File, BackupRunError> {
-    create_private_folder(folder).map_err(at(folder))?;
+    create_missing_private_folders(folder).map_err(at(folder))?;
     let lock_path = folder.join(BACKUP_LOCK_FILE_NAME);
     let file = File::options()
         .read(true)
@@ -683,55 +682,13 @@ fn last_finished_at(last_run: &BackupLastRun) -> Option<SystemTime> {
     Some(SystemTime::from(finished))
 }
 
-// The service's own processor time so far.
-async fn read_own_processor_time() -> Duration {
-    tokio::task::spawn_blocking(|| {
-        let pid = Pid::from_u32(std::process::id());
-        let mut system = System::new();
-        system.refresh_processes_specifics(
-            ProcessesToUpdate::Some(&[pid]),
-            true,
-            ProcessRefreshKind::nothing().without_tasks().with_cpu(),
-        );
-        system.process(pid).map_or(Duration::ZERO, |process| {
-            Duration::from_millis(process.accumulated_cpu_time())
-        })
-    })
-    .await
-    .unwrap_or_default()
-}
-
-// Writes the run's processor time beside its budget for a store of `store_bytes`.
-async fn log_processor_time(before: Duration, store_bytes: u64) {
-    let spent = read_own_processor_time().await.saturating_sub(before);
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "a budget in seconds needs no more than a double's precision"
-    )]
-    let budget =
-        Duration::from_secs_f64(store_bytes as f64 / STORE_BYTES_PER_PROCESSOR_SECOND as f64);
-    if spent > budget {
-        tracing::warn!(
-            spent_ms = spent.as_millis(),
-            budget_ms = budget.as_millis(),
-            store_bytes,
-            "the backup took more processor time than its budget"
-        );
-    } else {
-        tracing::info!(
-            spent_ms = spent.as_millis(),
-            budget_ms = budget.as_millis(),
-            store_bytes,
-            "the backup's processor time"
-        );
-    }
-}
-
-// Runs `work` on the blocking pool.
+// Runs `work` on the blocking pool, charged to `meter`.
 async fn blocking<Answer: Send + 'static>(
+    meter: &ProcessorMeter,
     work: impl FnOnce() -> Answer + Send + 'static,
 ) -> Result<Answer, BackupRunError> {
-    tokio::task::spawn_blocking(work)
+    meter
+        .run_blocking(work)
         .await
         .map_err(BackupRunError::Interrupted)
 }

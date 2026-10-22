@@ -1,17 +1,20 @@
 //! The mirror: one copy, in the backups folder, of the files a backup holds beside the database,
-//! each named root under a folder of its name. A run copies only a file whose size or modification
-//! time differs from its copy's, keeping the source's modification time on the copy so the next
-//! run passes it over, and deletes each copy whose source is gone, so a session `Delete old data`
-//! removed leaves the mirror at the next run. A file is copied under a temporary name and renamed
-//! over its copy; the copies are not flushed one by one, since a copy a crash loses differs from
-//! its source and the next run copies it again. Links are not followed and not copied.
+//! each named root under a folder of its name. Each root is a place under the home folder, kept
+//! relative to it, so a restore on a computer whose home differs puts it back under its own. A
+//! run copies only a file whose size differs from its copy's or whose modification time is two
+//! seconds or more from it, since FAT and exFAT keep a time to two seconds; it keeps the source's
+//! modification time on the copy so the next run passes it over, and deletes each copy whose
+//! source is gone, so a session `Delete old data` removed leaves the mirror at the next run. A
+//! file is copied under a temporary name, flushed and renamed over its copy, so a copy whose size
+//! and time reached the disk holds its bytes too. Links are not followed and not copied.
 
 use std::fs::{self, File};
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
-use sidekicks_platforms::{remove_tree, rename_replacing};
+use sidekicks_platforms::{flush_file, remove_tree, rename_replacing};
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
@@ -27,15 +30,119 @@ pub(crate) const MIRROR_ROOTS_FILE_NAME: &str = "roots.json";
 // The suffix of a copy on its way to its place.
 const COPY_IN_PROGRESS_SUFFIX: &str = ".mirror-copy";
 
+// How far apart two modification times may be and still count as one: FAT and exFAT keep a time
+// to two seconds.
+const MODIFIED_TOLERANCE: Duration = Duration::from_secs(2);
+
+// The separator of a root's path in the mirror's list, whatever system wrote it.
+const LISTED_PATH_SEPARATOR: char = '/';
+
 /// One file or folder the mirror keeps a copy of: the name of its folder in the mirror, one plain
-/// path component, and where it lives.
+/// path component, and its place under the home folder, plain components joined by `/`. The
+/// mirror's list is read from the backups folder, so a root that reads is checked as [`new`]
+/// checks one.
+///
+/// [`new`]: MirrorRoot::new
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase", try_from = "ListedMirrorRoot")]
 pub(crate) struct MirrorRoot {
+    name: String,
+    source: String,
+}
+
+// A root as the mirror's list holds it, before its check.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ListedMirrorRoot {
+    name: String,
+    source: String,
+}
+
+/// Why a root was refused.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum MirrorRootError {
+    /// The name is not one plain path component.
+    #[error("a kept place's name is not one plain folder name")]
+    Name,
+    /// The place is not a path of plain components under the home folder.
+    #[error("a kept place is not a path under the home folder")]
+    Source,
+}
+
+impl TryFrom<ListedMirrorRoot> for MirrorRoot {
+    type Error = MirrorRootError;
+
+    fn try_from(listed: ListedMirrorRoot) -> Result<Self, Self::Error> {
+        if !is_plain_component(&listed.name) {
+            return Err(MirrorRootError::Name);
+        }
+        if listed.source.is_empty()
+            || !listed
+                .source
+                .split(LISTED_PATH_SEPARATOR)
+                .all(is_plain_component)
+        {
+            return Err(MirrorRootError::Source);
+        }
+        Ok(Self {
+            name: listed.name,
+            source: listed.source,
+        })
+    }
+}
+
+impl MirrorRoot {
+    /// The root named `name` keeping `source`, a path relative to the home folder. Fails when the
+    /// name is not one plain path component, or the path is empty, absolute, not UTF-8 or holds a
+    /// component other than a plain name, such as `..`.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start lists the places the mirror keeps"
+        )
+    )]
+    pub(crate) fn new(name: String, source: &Path) -> Result<Self, MirrorRootError> {
+        let components = source
+            .components()
+            .map(|component| match component {
+                Component::Normal(part) => part.to_str().ok_or(MirrorRootError::Source),
+                Component::Prefix(_)
+                | Component::RootDir
+                | Component::CurDir
+                | Component::ParentDir => Err(MirrorRootError::Source),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Self::try_from(ListedMirrorRoot {
+            name,
+            source: components.join(&LISTED_PATH_SEPARATOR.to_string()),
+        })
+    }
+
     /// The copy's name in the mirror.
-    pub(crate) name: String,
-    /// The file or folder copied.
-    pub(crate) source: PathBuf,
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The place this root keeps on the computer whose home folder is `home`.
+    pub(crate) fn place(&self, home: &Path) -> PathBuf {
+        self.source
+            .split(LISTED_PATH_SEPARATOR)
+            .fold(home.to_path_buf(), |place, part| place.join(part))
+    }
+}
+
+// Whether `part` is one plain path component on this system and on every other: not empty, not
+// `.` or `..`, and holding neither separator.
+fn is_plain_component(part: &str) -> bool {
+    !part.is_empty()
+        && part != "."
+        && part != ".."
+        && !part.contains(['/', '\\'])
+        && matches!(
+            Path::new(part).components().collect::<Vec<_>>().as_slice(),
+            [Component::Normal(_)]
+        )
 }
 
 /// What one run of the mirror did.
@@ -66,12 +173,14 @@ pub(crate) enum MirrorError {
     },
 }
 
-/// Brings the mirror at `mirror_folder` level with `roots`: each changed file copied, each copy
-/// whose source is gone deleted, and every folder of a root no longer listed deleted. Checks
-/// `stop` before each entry. Blocking, so it runs through `spawn_blocking`. Fails with
-/// [`MirrorError::Stopped`] once `stop` fires, and with the first refused read, copy or removal.
+/// Brings the mirror at `mirror_folder` level with `roots`, each a place under `home`: each
+/// changed file copied, each copy whose source is gone deleted, and every folder of a root no
+/// longer listed deleted. Checks `stop` before each entry. Blocking, so it runs through
+/// `spawn_blocking`. Fails with [`MirrorError::Stopped`] once `stop` fires, and with the first
+/// refused read, copy or removal.
 pub(crate) fn mirror_roots(
     mirror_folder: &Path,
+    home: &Path,
     roots: &[MirrorRoot],
     stop: &CancellationToken,
 ) -> Result<MirrorReport, MirrorError> {
@@ -82,7 +191,7 @@ pub(crate) fn mirror_roots(
     fs::create_dir_all(mirror_folder).map_err(at(mirror_folder))?;
     let mut report = MirrorReport::default();
     for root in roots {
-        let leveled = bring_level(&root.source, &mirror_folder.join(&root.name), stop)?;
+        let leveled = bring_level(&root.place(home), &mirror_folder.join(&root.name), stop)?;
         report.copied_files += leveled.copied_files;
         report.copied_bytes += leveled.copied_bytes;
         report.removed_entries += leveled.removed_entries;
@@ -171,7 +280,9 @@ fn copy_changed(
         if let Some(copy_metadata) = &copy_metadata {
             if copy_metadata.is_file()
                 && copy_metadata.len() == metadata.len()
-                && copy_metadata.modified().ok() == Some(modified)
+                && copy_metadata
+                    .modified()
+                    .is_ok_and(|copied| is_same_modified_time(copied, modified))
             {
                 continue;
             }
@@ -195,8 +306,18 @@ fn path_under(root: &Path, relative: &Path) -> PathBuf {
     }
 }
 
-// Copies `source` beside `copy` and renames it over it, with `modified` as its modification time.
-fn copy_file(source: &Path, copy: &Path, modified: std::time::SystemTime) -> io::Result<()> {
+// Whether two modification times are one at the precision FAT and exFAT keep.
+fn is_same_modified_time(left: SystemTime, right: SystemTime) -> bool {
+    let apart = left
+        .duration_since(right)
+        .or_else(|_earlier| right.duration_since(left))
+        .unwrap_or(Duration::MAX);
+    apart < MODIFIED_TOLERANCE
+}
+
+// Copies `source` beside `copy`, with `modified` as its modification time, flushes it and renames
+// it over the copy.
+fn copy_file(source: &Path, copy: &Path, modified: SystemTime) -> io::Result<()> {
     let mut in_progress = copy.as_os_str().to_owned();
     in_progress.push(COPY_IN_PROGRESS_SUFFIX);
     let in_progress = PathBuf::from(in_progress);
@@ -206,6 +327,7 @@ fn copy_file(source: &Path, copy: &Path, modified: std::time::SystemTime) -> io:
         .write(true)
         .open(&in_progress)?
         .set_modified(modified)?;
+    flush_file(&in_progress)?;
     rename_replacing(&in_progress, copy)
 }
 
@@ -269,7 +391,10 @@ fn remove_gone(
 mod tests {
     use std::fs::{self, File};
     use std::path::Path;
+    use std::time::Duration;
 
+    use rstest::rstest;
+    use serde_json::json;
     use tokio_util::sync::CancellationToken;
 
     use super::{MirrorReport, MirrorRoot, mirror_roots};
@@ -281,12 +406,15 @@ mod tests {
     }
 
     // A changed file is copied with its modification time; an unchanged one is passed over, which
-    // a copy whose bytes alone differ shows; a file whose source is gone, and a root no longer
-    // listed, are deleted; a second run copies nothing. Killed by the size-and-time compare
-    // dropped, by the modification time not kept, and by the removal of gone copies dropped.
+    // a copy whose bytes alone differ and whose time is a second off, as FAT keeps it, shows; a
+    // file whose source is gone, and a root no longer listed, are deleted; a second run copies
+    // nothing. Each root is found under the home it is given. Killed by the size-and-time compare
+    // dropped, by an exact time compare, by the modification time not kept, and by the removal
+    // of gone copies dropped.
     #[test]
     fn a_run_copies_what_changed_and_deletes_what_is_gone() {
         let scratch = tempfile::tempdir().expect("a scratch folder");
+        let home = scratch.path();
         let workspace = scratch.path().join("workspace");
         fs::create_dir_all(workspace.join("notes")).expect("the source folder is made");
         fs::write(workspace.join("notes/kept.md"), b"kept").expect("written");
@@ -296,34 +424,30 @@ mod tests {
         fs::write(&settings, b"{}").expect("written");
         let mirror = scratch.path().join("backups/mirror");
         let roots = [
-            MirrorRoot {
-                name: "workspace".to_owned(),
-                source: workspace.clone(),
-            },
-            MirrorRoot {
-                name: "settings".to_owned(),
-                source: settings,
-            },
+            MirrorRoot::new("workspace".to_owned(), Path::new("workspace")).expect("a root"),
+            MirrorRoot::new("settings".to_owned(), Path::new("machine-settings.json"))
+                .expect("a root"),
         ];
         let stop = CancellationToken::new();
-        let first = mirror_roots(&mirror, &roots, &stop).expect("the first run copies");
+        let first = mirror_roots(&mirror, home, &roots, &stop).expect("the first run copies");
         assert_eq!(first.copied_files, 4);
         assert_eq!(fs::read(mirror.join("settings")).expect("read"), b"{}");
 
-        // The kept file's copy differs only in its bytes, so a run that copies it shows.
+        // The kept file's copy differs only in its bytes and by a second in its time, so a run
+        // that copies it shows.
         let kept_copy = mirror.join("workspace/notes/kept.md");
-        let kept_time = modified(&kept_copy);
+        let kept_time = modified(&kept_copy) + Duration::from_secs(1);
         fs::write(&kept_copy, b"KEPT").expect("written");
         File::options()
             .write(true)
             .open(&kept_copy)
             .and_then(|file| file.set_modified(kept_time))
-            .expect("the copy's time is put back");
+            .expect("the copy's time is set");
         fs::write(workspace.join("notes/changed.md"), b"second, longer").expect("written");
         fs::remove_file(workspace.join("gone.md")).expect("removed");
         let listed = [roots[0].clone()];
 
-        let second = mirror_roots(&mirror, &listed, &stop).expect("the second run copies");
+        let second = mirror_roots(&mirror, home, &listed, &stop).expect("the second run copies");
 
         assert_eq!(
             second,
@@ -343,8 +467,29 @@ mod tests {
         assert!(!mirror.join("workspace/gone.md").exists());
         assert!(!mirror.join("settings").exists());
         assert_eq!(
-            mirror_roots(&mirror, &listed, &stop).expect("the third run reads"),
+            mirror_roots(&mirror, home, &listed, &stop).expect("the third run reads"),
             MirrorReport::default()
+        );
+    }
+
+    // A list read from the backups folder that names a place outside the home folder, or a copy
+    // outside the mirror, is refused, so a restore never writes there; a plain one reads and is
+    // put under the home it is given. Killed by the read's check dropped.
+    #[rstest]
+    #[case::parent(json!({ "name": "notes", "source": "../outside" }))]
+    #[case::absolute(json!({ "name": "notes", "source": "/etc/hosts" }))]
+    #[case::inner_parent(json!({ "name": "notes", "source": "notes/../../outside" }))]
+    #[case::empty_source(json!({ "name": "notes", "source": "" }))]
+    #[case::name_path(json!({ "name": "../notes", "source": "notes" }))]
+    #[case::name_parent(json!({ "name": "..", "source": "notes" }))]
+    fn a_listed_root_outside_the_home_is_refused(#[case] listed: serde_json::Value) {
+        assert!(serde_json::from_value::<MirrorRoot>(listed).is_err());
+        let root: MirrorRoot =
+            serde_json::from_value(json!({ "name": "notes", "source": ".agent/notes.md" }))
+                .expect("a plain root reads");
+        assert_eq!(
+            root.place(Path::new("/home/other")),
+            Path::new("/home/other/.agent/notes.md")
         );
     }
 }

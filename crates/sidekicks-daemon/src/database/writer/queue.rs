@@ -1,9 +1,9 @@
-//! The write queue: the one task that owns the writer's queue. It takes every message the writer's
-//! handles send, in the order they sent them, admits writes up to the queue's cap and keeps the
-//! rest waiting in order, sends the thread one batch, checkpoint or repack at a time, beside at most
-//! one copy, settles each write from the thread's answer, and closes the writer. A batch holds
-//! whatever has been sent when the thread is free, so writes that arrive during a commit form the
-//! next one.
+//! The write queue: the one task that owns the writer's queue. It takes every message the
+//! writer's handles send, in the order they sent them, admits writes up to the queue's cap and
+//! keeps the rest waiting in order, sends the thread one batch, checkpoint or repack at a time,
+//! beside at most one copy, settles each write from the thread's answer, and closes the writer. A
+//! batch holds whatever has been sent when the thread is free, so writes that arrive during a
+//! commit form the next one.
 
 use std::collections::VecDeque;
 use std::error::Error;
@@ -14,6 +14,7 @@ use std::time::Duration;
 use tokio::sync::oneshot::error::RecvError;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::checkpoint::CheckpointMode;
@@ -21,7 +22,9 @@ use crate::database::writer::backpressure::BackpressureAlert;
 use crate::database::writer::messages::{
     BatchAnswer, BatchFailure, FailedBatch, ThreadExit, ThreadRequest, WriteJob, WriteJobOutcome,
 };
-use crate::database::writer::queue::maintenance::{MaintenanceAnswered, MaintenanceSlots};
+use crate::database::writer::queue::maintenance::{
+    CancelableWork, MaintenanceAnswered, MaintenanceSlots,
+};
 use crate::database::writer::{
     CloseOutcome, CommitHook, CommittedWrite, DatabaseWriterOptions, EndReason, MaintenanceError,
     QueueMessage, StopKind, ThreadJoinError, WRITE_QUEUE_CAPACITY, WriteError,
@@ -130,6 +133,7 @@ struct Closing {
 enum Wake {
     BatchAnswered(Result<BatchAnswer, RecvError>),
     MaintenanceAnswered(MaintenanceAnswered),
+    RepackCanceled,
     ThreadExited(Result<ThreadExit, RecvError>),
     DrainBoundPassed,
     HoldEnded(Result<Result<(), WritesHeldError>, RecvError>),
@@ -198,7 +202,9 @@ impl WriteQueue {
 
     async fn next_wake(&mut self) -> Wake {
         let drain_bound = self.drain_bound();
-        // The thread's answers come first, so a batch settles before its thread's exit is read.
+        let repack_cancel = self.maintenance.uninterrupted_repack_cancel();
+        // The thread's answers come first, so a batch settles before its thread's exit is read,
+        // and a repack that answered is never interrupted.
         tokio::select! {
             biased;
             answer = output_of(self.batch.as_mut().map(|batch| &mut batch.answer)) => {
@@ -206,6 +212,9 @@ impl WriteQueue {
             }
             answered = self.maintenance.answered(), if self.maintenance.is_running() => {
                 Wake::MaintenanceAnswered(answered)
+            }
+            () = output_of(repack_cancel.as_ref().map(CancellationToken::cancelled)) => {
+                Wake::RepackCanceled
             }
             exit = output_of(self.thread_exit.as_mut()) => Wake::ThreadExited(exit),
             () = output_of(drain_bound.map(tokio::time::sleep_until)) => Wake::DrainBoundPassed,
@@ -224,6 +233,12 @@ impl WriteQueue {
                 self.settle_batch(batch.waiters, answer);
             }
             Wake::MaintenanceAnswered(answered) => self.settle_maintenance_answer(answered),
+            Wake::RepackCanceled => {
+                // Nothing but the repack runs on the thread while it is in flight.
+                if self.maintenance.mark_repack_interrupted() {
+                    self.shared.interrupt_thread();
+                }
+            }
             Wake::ThreadExited(exit) => self.thread_exited(exit).await,
             Wake::DrainBoundPassed => self.stop_at_drain_bound(),
             Wake::HoldEnded(held) => self.hold_ended(held),
@@ -271,13 +286,21 @@ impl WriteQueue {
                 }
                 None => self.maintenance.take_checkpoint(mode, reply),
             },
-            QueueMessage::Repack(reply) => match self.maintenance_refusal() {
+            QueueMessage::Repack { cancel, reply } => match self.maintenance_refusal() {
                 Some(refusal) => send_answer(reply, Err(refusal)),
-                None => self.maintenance.take_repack(reply),
+                None => self
+                    .maintenance
+                    .take_repack(CancelableWork { cancel, reply }),
             },
-            QueueMessage::Backup { destination, reply } => match self.maintenance_refusal() {
+            QueueMessage::Backup {
+                destination,
+                cancel,
+                reply,
+            } => match self.maintenance_refusal() {
                 Some(refusal) => send_answer(reply, Err(refusal)),
-                None => self.maintenance.take_backup(destination, reply),
+                None => self
+                    .maintenance
+                    .take_backup(destination, CancelableWork { cancel, reply }),
             },
             QueueMessage::End => self.end_writes(),
             QueueMessage::Close { drain_within } => self.start_close(drain_within),
@@ -350,9 +373,9 @@ impl WriteQueue {
     }
 
     /// Answers what has come due and sends the thread its next request when none is in flight: a
-    /// hold whose writes have settled starts first, then a checkpoint, then a repack, then whatever
-    /// is queued, and none of them goes while the writer holds its writes. A close whose writes have
-    /// all settled lets the thread go.
+    /// hold whose writes have settled starts first, then a checkpoint, then a repack, then
+    /// whatever is queued, and none of them goes while the writer holds its writes. A close whose
+    /// writes have all settled lets the thread go.
     fn advance(&mut self) {
         self.answer_settled_flushes();
         if self.is_thread_busy() {
@@ -591,8 +614,8 @@ impl WriteQueue {
         self.shared.end_reason().unwrap_or(reason)
     }
 
-    /// Fails every write, checkpoint and repack not yet sent with the end's reason and lets the thread
-    /// go; the batch in flight settles from the thread's answer.
+    /// Fails every write, checkpoint and repack not yet sent with the end's reason and lets the
+    /// thread go; the batch in flight settles from the thread's answer.
     fn end_writes(&mut self) {
         let Some(reason) = self.shared.end_reason() else {
             return;
@@ -743,7 +766,9 @@ impl WriteQueue {
                 QueueMessage::Checkpoint { reply, .. } => {
                     send_answer(reply, Err(MaintenanceError::Closed));
                 }
-                QueueMessage::Repack(reply) => send_answer(reply, Err(MaintenanceError::Closed)),
+                QueueMessage::Repack { reply, .. } => {
+                    send_answer(reply, Err(MaintenanceError::Closed));
+                }
                 QueueMessage::Backup { reply, .. } => {
                     send_answer(reply, Err(MaintenanceError::Closed));
                 }

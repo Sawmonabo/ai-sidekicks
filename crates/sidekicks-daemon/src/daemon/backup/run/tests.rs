@@ -3,12 +3,14 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use futures::FutureExt as _;
 use serde_json::json;
 use sidekicks_contracts::daemon::backup::BackupLastRun;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tempfile::TempDir;
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -16,18 +18,20 @@ use super::{
     MirrorRootsReader,
 };
 use crate::daemon::backup::mirror::MirrorRoot;
+use crate::daemon::data_folder::data_folder;
 use crate::daemon::machine::settings::file::MachineSettingsFile;
+use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
 
-/// The service's backups over the test's `database` and `log`, its data folder `data_folder`, the
-/// mirror keeping what `read_mirror_roots` lists.
+/// The service's backups over the test's `database` and `log`, under the home folder
+/// `home_folder`, the mirror keeping what `read_mirror_roots` lists.
 pub(crate) fn test_backups(
     database: &TestDatabase,
     log: &TestLog,
-    data_folder: PathBuf,
+    home_folder: PathBuf,
     read_mirror_roots: MirrorRootsReader,
 ) -> Arc<Backups> {
     Backups::new(BackupDeps {
@@ -39,9 +43,9 @@ pub(crate) fn test_backups(
         )),
         truncation: Arc::new(WriteAheadLogTruncation::new(Arc::clone(&log.writer))),
         settings: Arc::new(MachineSettingsFile::new(
-            data_folder.join("machine-settings.json"),
+            data_folder(&home_folder).join("machine-settings.json"),
         )),
-        data_folder,
+        home_folder,
         read_mirror_roots,
         manifest_facts: BackupManifestFacts {
             app_version: serde_json::from_value(json!("0.1.0")).expect("a version reads"),
@@ -83,15 +87,16 @@ fn backup_folders(folder: &Path) -> Vec<PathBuf> {
 
 // A run whose mirror fails after the database is copied records why and keeps every backup there
 // is, its own unfinished one removed; the next run writes a backup that passes SQLite's check,
-// prunes what no day or week keeps, and records its completion as the last run. Killed by pruning
-// before the run succeeds and by a failed run's folder left behind.
+// mirrors a place found under the home folder, prunes what no day or week keeps and a folder a
+// cut-short run left, never a folder of the person's own, and records its completion as the last
+// run. Killed by pruning before the run succeeds, by a failed run's folder left behind, by a
+// manifest-less folder kept, and by a folder pruned whatever its name.
 #[tokio::test]
 async fn a_failed_run_prunes_nothing_and_the_next_one_prunes_after_it_succeeds() {
     let database = TestDatabase::new();
     let log = open_log(&database, None).await;
     let home = TempDir::new().expect("a scratch folder");
-    let data_folder = home.path().join(".ai-sidekicks");
-    let backups_folder = data_folder.join("backups");
+    let backups_folder = data_folder(home.path()).join("backups");
     // Monday the 5th of October 2020 to Tuesday the 13th.
     for day in 5..=13 {
         write_older_backup(&backups_folder, &format!("2020-10-{day:02}T12:00:00.000Z"));
@@ -100,28 +105,40 @@ async fn a_failed_run_prunes_nothing_and_the_next_one_prunes_after_it_succeeds()
     fs::write(&kept_file, b"learned").expect("written");
     let is_mirror_readable = Arc::new(AtomicBool::new(false));
     let readable = Arc::clone(&is_mirror_readable);
-    let source = kept_file.clone();
     let read_mirror_roots: MirrorRootsReader = Arc::new(move || {
         let roots = if readable.load(Ordering::SeqCst) {
-            Ok(vec![MirrorRoot {
-                name: "agent-memory".to_owned(),
-                source: source.clone(),
-            }])
+            Ok(vec![
+                MirrorRoot::new("agent-memory".to_owned(), Path::new("agent-memory.md"))
+                    .expect("a root"),
+            ])
         } else {
             Err(io::Error::other("the kept files did not list"))
         };
         async move { roots }.boxed()
     });
-    let backups = test_backups(&database, &log, data_folder, read_mirror_roots);
+    let backups = test_backups(
+        &database,
+        &log,
+        home.path().to_path_buf(),
+        read_mirror_roots,
+    );
+    // A run a crash cut short left a folder named as a run names one, with no manifest; a folder
+    // of the person's own beside the backups is no backup.
+    let unfinished = backups_folder.join("0192a4b0-7c3e-7d4f-8a5b-6c7d8e9f0a1b");
+    fs::create_dir_all(&unfinished).expect("the unfinished folder is made");
+    let own_folder = backups_folder.join("photos");
+    fs::create_dir_all(&own_folder).expect("the person's folder is made");
     let older = backup_folders(&backups_folder);
     let stop = CancellationToken::new();
+    let meter = ProcessorMeter::default();
 
     backups
-        .run(BackupTrigger::Now, &stop)
+        .run(BackupTrigger::Now, &stop, &meter)
         .await
         .expect("the failed run is recorded");
 
     assert_eq!(backup_folders(&backups_folder), older);
+    assert!(unfinished.exists());
     assert!(matches!(
         backups.read_last_run().await.expect("the last run reads"),
         Some(BackupLastRun::Failed { message, .. })
@@ -130,17 +147,19 @@ async fn a_failed_run_prunes_nothing_and_the_next_one_prunes_after_it_succeeds()
 
     is_mirror_readable.store(true, Ordering::SeqCst);
     backups
-        .run(BackupTrigger::Now, &stop)
+        .run(BackupTrigger::Now, &stop, &meter)
         .await
         .expect("the run is recorded");
 
-    // The new backup, the seven newest days and the week of the 5th's Monday stay.
+    // The new backup, the seven newest days, the week of the 5th's Monday and the person's own
+    // folder stay; the unfinished folder goes.
     let remaining = backup_folders(&backups_folder);
     let mut expected: Vec<PathBuf> = older
         .iter()
         .filter(|folder| {
             !folder.ends_with("2020-10-06T12:00:00.000Z")
                 && !folder.ends_with("2020-10-07T12:00:00.000Z")
+                && **folder != unfinished
         })
         .cloned()
         .collect();
@@ -165,4 +184,64 @@ async fn a_failed_run_prunes_nothing_and_the_next_one_prunes_after_it_succeeds()
         backups.read_last_run().await.expect("the last run reads"),
         Some(BackupLastRun::Completed { .. })
     ));
+}
+
+// A run stopped while its copy waits on the writer ends only once the writer's thread answers,
+// then removes its folder, so no backup's folder is left and nothing is recorded. Killed by the
+// copy dropped at the stop, which ends the run while the thread may still step into its folder.
+#[tokio::test]
+async fn a_stopped_run_waits_for_its_copy_and_leaves_no_folder() {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = TempDir::new().expect("a scratch folder");
+    let backups_folder = data_folder(home.path()).join("backups");
+    let read_mirror_roots: MirrorRootsReader = Arc::new(|| async { Ok(Vec::new()) }.boxed());
+    let backups = test_backups(
+        &database,
+        &log,
+        home.path().to_path_buf(),
+        read_mirror_roots,
+    );
+    let (held, is_held) = oneshot::channel();
+    let (release, released) = oneshot::channel::<()>();
+    let writer = Arc::clone(&log.writer);
+    let hold = tokio::spawn(async move {
+        writer
+            .hold_while(|| async move {
+                held.send(()).expect("the test waits for the hold");
+                released.await.expect("the test lets the hold go");
+            })
+            .await;
+    });
+    is_held.await.expect("the writer holds its writes");
+    let stop = CancellationToken::new();
+    let meter = ProcessorMeter::default();
+    let mut run = Box::pin(backups.run(BackupTrigger::Now, &stop, &meter));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), &mut run)
+            .await
+            .is_err(),
+        "the copy waits out the hold"
+    );
+
+    stop.cancel();
+
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), &mut run)
+            .await
+            .is_err(),
+        "the stopped run waits for its copy's answer"
+    );
+    release.send(()).expect("the hold waits");
+    let ran = run.await.expect("the stopped run ends cleanly");
+    assert!(ran.is_none());
+    hold.await.expect("the hold ends");
+    assert_eq!(backup_folders(&backups_folder), Vec::<PathBuf>::new());
+    assert!(
+        backups
+            .read_last_run()
+            .await
+            .expect("the last run reads")
+            .is_none()
+    );
 }

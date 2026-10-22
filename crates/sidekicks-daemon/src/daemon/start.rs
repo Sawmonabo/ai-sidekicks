@@ -10,12 +10,12 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
 use sidekicks_platforms::{
     StopRequest, contain_daemon_descendants, install_tree_sitter_allocator,
     restrict_library_search, stable_working_folder, turn_off_transparent_huge_pages,
 };
 
+use crate::daemon::data_folder::data_folder;
 use crate::daemon::own_root::become_own_root;
 use crate::daemon::panic_hook::install_panic_hook;
 use crate::daemon::service_log::open_service_log;
@@ -79,9 +79,7 @@ fn start_and_run() -> Result<(), ServiceStartError> {
     let folder = stable_working_folder();
     std::env::set_current_dir(&folder)
         .map_err(|source| ServiceStartError::WorkingFolder { folder, source })?;
-    let data_folder = std::env::home_dir()
-        .ok_or(ServiceStartError::NoHome)?
-        .join(DAEMON_DATA_FOLDER_NAME);
+    let data_folder = data_folder(&std::env::home_dir().ok_or(ServiceStartError::NoHome)?);
     let log = open_service_log(&data_folder, io::stderr())
         .install()
         .map_err(ServiceStartError::Log)?;

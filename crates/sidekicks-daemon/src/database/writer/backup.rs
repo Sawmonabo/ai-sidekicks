@@ -2,19 +2,23 @@
 //! of pages at a time from the writer's own connection, and between steps the thread serves the
 //! request waiting, so writes go on while the copy lives and SQLite carries each one into the copy;
 //! a write through any other connection would restart it, and the writer's is the only one. A
-//! step that meets a lock is stepped again after the next request or a short wait, and a copy
-//! whose steps have met a lock for ten minutes running ends naming it. The copy's file opens in
-//! SQLite's default rollback mode, since a WAL copy whose page size differs is refused.
+//! step that meets a lock is stepped again once the thread has served the next request, never
+//! after a sleep, and a copy whose steps have met a lock for the bound running (ten minutes) ends
+//! naming it. A canceled copy stops before its next step. The copy's file opens in SQLite's
+//! default rollback mode, since a WAL copy whose page size differs is refused, with no busy
+//! timeout, so a step meeting a lock answers at once.
 
 use std::path::Path;
-use std::thread;
 use std::time::{Duration, Instant};
 
 use rusqlite::Connection;
 use rusqlite::backup::{Backup, StepResult};
+use tokio::runtime::Handle;
 use tokio::sync::mpsc::{self, error::TryRecvError};
+use tokio_util::sync::CancellationToken;
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::daemon::scheduler::budget::{Measured, ThreadProcessorTime};
 use crate::database::writer::ThreadStop;
 use crate::database::writer::messages::ThreadRequest;
 use crate::database::writer::thread::serve_request;
@@ -24,10 +28,7 @@ use crate::events::content::codec::BodyEncoder;
 const PAGES_PER_STEP: i32 = 100;
 
 /// How long the steps may meet a lock before the copy ends.
-const LOCK_BOUND: Duration = Duration::from_mins(10);
-
-/// The wait before a step that met a lock is tried again, when no request waits.
-const LOCK_RETRY_WAIT: Duration = Duration::from_millis(50);
+pub(super) const LOCK_BOUND: Duration = Duration::from_mins(10);
 
 const BACKUP_OPERATION: &str = "copying the database";
 
@@ -53,40 +54,80 @@ impl BackupLock {
 /// How one copy ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BackupCopy {
-    /// Every page was copied: the database's page count when the copy finished.
+    /// Every page was copied: the database's page count when the copy finished, and the steps it
+    /// took, which a copy restarted by a write through another connection would multiply.
     Copied {
         /// The pages copied.
         page_count: i64,
+        /// The steps taken.
+        step_count: u64,
     },
-    /// The steps met `lock` for ten minutes running; the copy is incomplete.
+    /// The steps met `lock` for the bound running; the copy is incomplete.
     HeldByLock(BackupLock),
-    /// The queue let the thread go before the copy finished.
+    /// The copy was canceled, or the queue let the thread go, before the copy finished.
     Stopped,
 }
 
-/// The thread's answer to one copy: how it ended, or SQLite's failure.
-pub(crate) type BackupAnswer = Result<BackupCopy, CleanupFailures<rusqlite::Error>>;
+/// The thread's answer to one copy: how it ended with the thread's processor time around its
+/// steps, or SQLite's failure.
+pub(crate) type BackupAnswer = Result<Measured<BackupCopy>, CleanupFailures<rusqlite::Error>>;
 
-/// Copies the writer's database into the file at `destination`, serving each request that waits
-/// between steps. Answers how the copy ended and whether the queue is gone, so the thread stops
-/// serving. Fails with SQLite's error when the copy's file cannot open or a step fails.
+/// One copy as the thread runs it.
+pub(super) struct CopyOrder<'order> {
+    /// The copy's file, which must not exist yet.
+    pub(super) destination: &'order Path,
+    /// Canceled once the run that asked for the copy stops.
+    pub(super) cancel: &'order CancellationToken,
+    /// How long the steps may meet a lock before the copy ends.
+    pub(super) lock_bound: Duration,
+}
+
+/// What the thread serves the copy's waiting requests with.
+pub(super) struct ThreadServing<'serving> {
+    /// The writer's connection, which the copy reads and the requests write.
+    pub(super) connection: &'serving Connection,
+    /// The thread's body encoder, for the batches served.
+    pub(super) encoder: &'serving mut BodyEncoder,
+    /// The requests the queue sends.
+    pub(super) requests: &'serving mut mpsc::Receiver<ThreadRequest>,
+    /// The writer's stop.
+    pub(super) stop: &'serving ThreadStop,
+    /// The runtime the thread waits on while a step's lock holds.
+    pub(super) runtime: &'serving Handle,
+}
+
+/// Copies the writer's database into `order`'s file, serving each request that waits between
+/// steps. Answers how the copy ended and whether the queue is gone, so the thread stops serving.
+/// Fails with SQLite's error when the copy's file cannot open or a step fails.
 pub(super) fn copy_database(
-    connection: &Connection,
-    encoder: &mut BodyEncoder,
-    destination: &Path,
-    requests: &mut mpsc::Receiver<ThreadRequest>,
-    stop: &ThreadStop,
+    order: &CopyOrder<'_>,
+    serving: &mut ThreadServing<'_>,
 ) -> (BackupAnswer, bool) {
     let alone =
         |failure: rusqlite::Error| CleanupFailures::new(failure, Vec::new(), BACKUP_OPERATION);
-    let mut copy = match Connection::open(destination) {
+    let mut processor_time = ThreadProcessorTime::default();
+    let measured = |report, processor_time| {
+        Ok(Measured {
+            report,
+            processor_time,
+        })
+    };
+    if order.cancel.is_cancelled() {
+        return (measured(BackupCopy::Stopped, processor_time), false);
+    }
+    let mut copy = match Connection::open(order.destination) {
         Ok(copy) => copy,
         Err(failure) => return (Err(alone(failure)), false),
     };
-    let stepped = step_until_done(connection, &mut copy, encoder, requests, stop);
+    let stepped = match copy.busy_timeout(Duration::ZERO) {
+        Ok(()) => step_until_done(order, serving, &mut copy, &mut processor_time),
+        Err(failure) => (Err(failure), false),
+    };
     let closed = copy.close().map_err(|(_copy, failure)| failure);
     match (stepped, closed) {
-        ((Ok(copy_end), is_queue_gone), Ok(())) => (Ok(copy_end), is_queue_gone),
+        ((Ok(copy_end), is_queue_gone), Ok(())) => {
+            (measured(copy_end, processor_time), is_queue_gone)
+        }
         ((Ok(_copy_end), is_queue_gone), Err(close_failure)) => {
             (Err(alone(close_failure)), is_queue_gone)
         }
@@ -102,158 +143,104 @@ pub(super) fn copy_database(
     }
 }
 
-// Steps the copy until it is done, serving one waiting request after each step.
+// What ended the wait after a step that met a lock.
+enum LockWait {
+    Request(ThreadRequest),
+    Canceled,
+    BoundReached,
+    QueueGone,
+}
+
+// Steps the copy until it is done, serving one waiting request after each step, and after a step
+// that met a lock waiting for the next request, the cancel or the bound's end; each step's
+// processor time is added to `processor_time`.
 fn step_until_done(
-    connection: &Connection,
+    order: &CopyOrder<'_>,
+    serving: &mut ThreadServing<'_>,
     copy: &mut Connection,
-    encoder: &mut BodyEncoder,
-    requests: &mut mpsc::Receiver<ThreadRequest>,
-    stop: &ThreadStop,
+    processor_time: &mut ThreadProcessorTime,
 ) -> (rusqlite::Result<BackupCopy>, bool) {
-    let backup = match Backup::new(connection, copy) {
+    let backup = match Backup::new(serving.connection, copy) {
         Ok(backup) => backup,
         Err(failure) => return (Err(failure), false),
     };
     let mut held_since: Option<Instant> = None;
+    let mut step_count = 0_u64;
     loop {
-        if stop.is_stopped() {
+        if order.cancel.is_cancelled() || serving.stop.is_stopped() {
             return (Ok(BackupCopy::Stopped), false);
         }
-        let held = match backup.step(PAGES_PER_STEP) {
+        step_count += 1;
+        let held = match processor_time.measure(|| backup.step(PAGES_PER_STEP)) {
             Ok(StepResult::Done) => {
                 let page_count = i64::from(backup.progress().pagecount);
-                return (Ok(BackupCopy::Copied { page_count }), false);
+                return (
+                    Ok(BackupCopy::Copied {
+                        page_count,
+                        step_count,
+                    }),
+                    false,
+                );
             }
             Ok(StepResult::Busy) => Some(BackupLock::Busy),
             Ok(StepResult::Locked) => Some(BackupLock::Locked),
             Ok(_more) => None,
             Err(failure) => return (Err(failure), false),
         };
-        #[cfg(test)]
-        tests::record_pages_done(&backup);
-        match held {
-            Some(lock) => {
-                let since = *held_since.get_or_insert_with(Instant::now);
-                if since.elapsed() >= LOCK_BOUND {
-                    return (Ok(BackupCopy::HeldByLock(lock)), false);
+        let bound_end = if let Some(lock) = held {
+            let since = *held_since.get_or_insert_with(Instant::now);
+            if since.elapsed() >= order.lock_bound {
+                return (Ok(BackupCopy::HeldByLock(lock)), false);
+            }
+            Some(since + order.lock_bound)
+        } else {
+            held_since = None;
+            None
+        };
+        let next = match (serving.requests.try_recv(), bound_end) {
+            (Ok(request), _) => Some(request),
+            (Err(TryRecvError::Disconnected), _) => return (Ok(BackupCopy::Stopped), true),
+            (Err(TryRecvError::Empty), None) => None,
+            (Err(TryRecvError::Empty), Some(bound_end)) => {
+                match wait_past_lock(order.cancel, bound_end, serving) {
+                    LockWait::Request(request) => Some(request),
+                    LockWait::Canceled | LockWait::BoundReached => None,
+                    LockWait::QueueGone => return (Ok(BackupCopy::Stopped), true),
                 }
             }
-            None => held_since = None,
-        }
-        match requests.try_recv() {
-            Ok(request) => {
-                if !serve_request(connection, encoder, request, requests, stop) {
-                    return (Ok(BackupCopy::Stopped), true);
-                }
-            }
-            Err(TryRecvError::Empty) => {
-                if held.is_some() {
-                    thread::sleep(LOCK_RETRY_WAIT);
-                }
-            }
-            Err(TryRecvError::Disconnected) => return (Ok(BackupCopy::Stopped), true),
+        };
+        if let Some(request) = next
+            && !serve_request(
+                serving.connection,
+                serving.encoder,
+                request,
+                serving.requests,
+                serving.stop,
+                serving.runtime,
+            )
+        {
+            return (Ok(BackupCopy::Stopped), true);
         }
     }
+}
+
+// Waits on the runtime for the next request, the copy's cancel or `bound_end`, whichever comes
+// first, so a step that met a lock is stepped again without a sleep.
+fn wait_past_lock(
+    cancel: &CancellationToken,
+    bound_end: Instant,
+    serving: &mut ThreadServing<'_>,
+) -> LockWait {
+    let requests = &mut *serving.requests;
+    serving.runtime.block_on(async {
+        tokio::select! {
+            biased;
+            () = cancel.cancelled() => LockWait::Canceled,
+            request = requests.recv() => request.map_or(LockWait::QueueGone, LockWait::Request),
+            () = tokio::time::sleep_until(bound_end.into()) => LockWait::BoundReached,
+        }
+    })
 }
 
 #[cfg(test)]
-mod tests {
-    use std::cell::RefCell;
-
-    use rusqlite::backup::Backup;
-    use tokio::sync::{mpsc, oneshot};
-
-    use super::{BackupCopy, copy_database};
-    use crate::database::checkpoint::CheckpointMode;
-    use crate::database::connection::writer_open::open_database;
-    use crate::database::statement::{StatementBindings, WriteStatement};
-    use crate::database::writer::ThreadStop;
-    use crate::database::writer::messages::{ThreadRequest, WriteJob};
-    use crate::database::writer::test_file::TestDatabase;
-    use crate::events::content::codec::BodyEncoder;
-
-    thread_local! {
-        // The pages each step of a copy on this thread had copied, in order.
-        static PAGES_DONE: RefCell<Vec<i32>> = const { RefCell::new(Vec::new()) };
-    }
-
-    /// Records the pages `backup` has copied after a step.
-    pub(super) fn record_pages_done(backup: &Backup<'_, '_>) {
-        let progress = backup.progress();
-        PAGES_DONE.with_borrow_mut(|done| done.push(progress.pagecount - progress.remaining));
-    }
-
-    fn write_statement(sql: &str) -> WriteStatement {
-        WriteStatement {
-            sql: sql.to_owned().into(),
-            bindings: StatementBindings::Positional(Vec::new()),
-            expected_row_count: None,
-        }
-    }
-
-    // A write and a checkpoint queued while the copy steps are served between its steps: the write
-    // lands in the copy, which passes SQLite's whole check, and no step copies fewer pages than the
-    // one before, so neither restarted the copy. Killed by `run_to_completion` and by a write
-    // through a second connection, which restarts the copy.
-    #[test]
-    fn a_write_made_during_the_copy_lands_in_it_without_restarting_it() {
-        let database = TestDatabase::new();
-        let connection = open_database(&database.path()).expect("the writer's connection opens");
-        connection
-            .execute_batch(
-                "CREATE TABLE filler (id INTEGER PRIMARY KEY, body BLOB);
-                 WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 600)
-                 INSERT INTO filler SELECT i, zeroblob(4000) FROM n;",
-            )
-            .expect("the filler is written");
-        let (sender, mut requests) = mpsc::channel(4);
-        let (batch_reply, batch_answer) = oneshot::channel();
-        let (checkpoint_reply, checkpoint_answer) = oneshot::channel();
-        sender
-            .try_send(ThreadRequest::Batch {
-                jobs: vec![WriteJob {
-                    statements: vec![
-                        write_statement("UPDATE filler SET body = zeroblob(10) WHERE id = 1"),
-                        write_statement("INSERT INTO filler VALUES (100000, 'during the copy')"),
-                    ],
-                    events: Vec::new(),
-                }],
-                reply: batch_reply,
-            })
-            .expect("the write is queued");
-        sender
-            .try_send(ThreadRequest::Checkpoint {
-                mode: CheckpointMode::Passive,
-                reply: checkpoint_reply,
-            })
-            .expect("the checkpoint is queued");
-        let destination = database.path().with_file_name("copy.db");
-
-        let (answer, is_queue_gone) = copy_database(
-            &connection,
-            &mut BodyEncoder::new(),
-            &destination,
-            &mut requests,
-            &ThreadStop::new(),
-        );
-
-        assert!(matches!(answer, Ok(BackupCopy::Copied { .. })));
-        assert!(!is_queue_gone);
-        assert!(batch_answer.blocking_recv().expect("answered").is_ok());
-        assert!(checkpoint_answer.blocking_recv().expect("answered").is_ok());
-        let pages_done = PAGES_DONE.with_borrow(Clone::clone);
-        assert!(pages_done.len() > 2, "the copy took several steps");
-        assert!(pages_done.is_sorted(), "no step went back: {pages_done:?}");
-        let copy = rusqlite::Connection::open(&destination).expect("the copy opens");
-        let check: String = copy
-            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
-            .expect("the copy is checked");
-        assert_eq!(check, "ok");
-        let written: String = copy
-            .query_row("SELECT body FROM filler WHERE id = 100000", [], |row| {
-                row.get(0)
-            })
-            .expect("the write made during the copy is in it");
-        assert_eq!(written, "during the copy");
-    }
-}
+mod tests;

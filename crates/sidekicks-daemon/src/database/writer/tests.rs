@@ -12,10 +12,12 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
+use crate::daemon::scheduler::budget::{Measured, ThreadProcessorTime};
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::statement::{StatementBindings, WriteStatement};
 use crate::database::writer::messages::{
-    BatchAnswer, BatchFailure, ThreadExit, ThreadRequest, WriteJob, WriteJobOutcome,
+    BatchAnswer, BatchFailure, CheckpointReport, ThreadExit, ThreadRequest, WriteJob,
+    WriteJobOutcome,
 };
 use crate::database::writer::test_file::{TestDatabase, session_event_row, test_session_id};
 use crate::database::writer::{
@@ -300,7 +302,13 @@ async fn no_checkpoint_runs_while_the_writer_holds_its_writes() {
         checkpointed_frames: 0,
     };
     reply
-        .send(Ok(result))
+        .send(Ok(Measured {
+            report: CheckpointReport {
+                result,
+                page_size: 4096,
+            },
+            processor_time: ThreadProcessorTime::default(),
+        }))
         .expect("the writer waits on the checkpoint");
     assert_eq!(truncating.await.expect("the checkpoint runs"), result);
 }

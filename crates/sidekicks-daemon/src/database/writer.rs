@@ -37,14 +37,17 @@ use tokio_util::sync::CancellationToken;
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::scheduler::ScheduledJobOutcome;
+use crate::daemon::scheduler::budget::{
+    BudgetTerm, JobBudget, JobWorkload, Measured, WorkUnit, metered_job,
+};
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::statement::{StatementResult, WriteStatement};
 use crate::database::writer::backup::BackupCopy;
 use crate::database::writer::messages::{
-    BatchFailure, ThreadExit, ThreadRequest, WriteJob, WriteJobFailure,
+    BatchFailure, CheckpointReport, ThreadExit, ThreadRequest, WriteJob, WriteJobFailure,
 };
 use crate::database::writer::queue::{ThreadLink, WriteQueue};
-use crate::database::writer::repack::RepackReport;
+use crate::database::writer::repack::RepackEnd;
 use crate::events::session::insert::SessionEventRow;
 
 /// The most entries the write queue holds; each event is one entry, and a write with none is one.
@@ -52,6 +55,17 @@ pub(crate) const WRITE_QUEUE_CAPACITY: usize = 10_000;
 
 /// How often the passive WAL checkpoint job runs on the scheduler.
 pub(crate) const PASSIVE_CHECKPOINT_INTERVAL: Duration = Duration::from_mins(5);
+
+/// The passive checkpoint's processor budget: 250 ms per 64 MiB of log it moves into the store.
+#[expect(
+    dead_code,
+    reason = "the daemon's start schedules the passive checkpoint"
+)]
+const PASSIVE_CHECKPOINT_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
+    figure: Duration::from_millis(250),
+    per: 64 * 1024 * 1024,
+    unit: WorkUnit::CheckpointedLogBytes,
+}]);
 
 /// The writer thread's name, as a debugger or a crash report shows it.
 const WRITER_THREAD_NAME: &str = "database-writer";
@@ -272,10 +286,13 @@ impl DatabaseWriter {
         let (exit, exited) = oneshot::channel();
         let stop = Arc::new(ThreadStop::new());
         let thread_stop = Arc::clone(&stop);
+        let runtime = tokio::runtime::Handle::current();
         let thread = UnjoinedThread(Some(
             std::thread::Builder::new()
                 .name(WRITER_THREAD_NAME.to_owned())
-                .spawn(move || thread::run(open, opened, thread_requests, &thread_stop, exit))
+                .spawn(move || {
+                    thread::run(open, opened, thread_requests, &thread_stop, exit, &runtime);
+                })
                 .map_err(DatabaseWriterOpenError::Spawn)?,
         ));
         match has_opened.await {
@@ -455,6 +472,15 @@ impl DatabaseWriter {
         &self,
         mode: CheckpointMode,
     ) -> Result<CheckpointResult, MaintenanceError> {
+        Ok(self.checkpoint_measured(mode).await?.report.result)
+    }
+
+    // A checkpoint as `checkpoint` runs it, with the store's page size and the thread's processor
+    // time around it.
+    async fn checkpoint_measured(
+        &self,
+        mode: CheckpointMode,
+    ) -> Result<Measured<CheckpointReport>, MaintenanceError> {
         let (reply, answer) = oneshot::channel();
         self.messages
             .send(QueueMessage::Checkpoint { mode, reply })
@@ -466,11 +492,17 @@ impl DatabaseWriter {
 
     /// Repacks the file on the writer's connection between batches, as
     /// [`repack`](crate::database::writer::repack) describes, waiting out a hold as a truncating
-    /// checkpoint does. Fails with SQLite's error, or once the writer is ended or closed.
-    pub(crate) async fn repack(&self) -> Result<RepackReport, MaintenanceError> {
+    /// checkpoint does; once `cancel` is canceled a repack not yet begun is not run and one running
+    /// is interrupted, either answering [`RepackEnd::Interrupted`]. The answer carries the
+    /// thread's processor time around the repack. Fails with SQLite's error, or once the writer
+    /// is ended or closed.
+    pub(crate) async fn repack(
+        &self,
+        cancel: CancellationToken,
+    ) -> Result<Measured<RepackEnd>, MaintenanceError> {
         let (reply, answer) = oneshot::channel();
         self.messages
-            .send(QueueMessage::Repack(reply))
+            .send(QueueMessage::Repack { cancel, reply })
             .map_err(|_unsent| MaintenanceError::Closed)?;
         answer
             .await
@@ -479,53 +511,78 @@ impl DatabaseWriter {
 
     /// Copies the database into the new file at `destination` through SQLite's online backup on
     /// the writer's connection, as [`backup`](crate::database::writer::backup) describes, while
-    /// writes go on; it waits out a hold before it starts. Fails with SQLite's error, or once the
-    /// writer is ended or closed.
+    /// writes go on; it waits out a hold before it starts, and once `cancel` is canceled it stops
+    /// before its next step, answering [`BackupCopy::Stopped`]. The answer carries the thread's
+    /// processor time around the copy's steps. Fails with SQLite's error, or once the writer is
+    /// ended or closed.
     pub(crate) async fn backup(
         &self,
         destination: PathBuf,
-    ) -> Result<BackupCopy, MaintenanceError> {
+        cancel: CancellationToken,
+    ) -> Result<Measured<BackupCopy>, MaintenanceError> {
         let (reply, answer) = oneshot::channel();
         self.messages
-            .send(QueueMessage::Backup { destination, reply })
+            .send(QueueMessage::Backup {
+                destination,
+                cancel,
+                reply,
+            })
             .map_err(|_unsent| MaintenanceError::Closed)?;
         answer
             .await
             .unwrap_or_else(|_closed| Err(MaintenanceError::Closed))
     }
 
-    /// The body of the scheduler's passive WAL checkpoint job, run every
-    /// [`PASSIVE_CHECKPOINT_INTERVAL`]; each run fails as [`DatabaseWriter::checkpoint`] does.
+    /// The scheduler's passive WAL checkpoint job, run every [`PASSIVE_CHECKPOINT_INTERVAL`] and
+    /// metered against its budget; each run fails as [`DatabaseWriter::checkpoint`] does.
     pub(crate) fn passive_checkpoint_job(
         writer: Arc<Self>,
     ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static
     {
         // The checkpoint waits for the batch in flight, so the scheduler's stop ends the wait; a
         // hold answers it at once, so the scheduler never waits a hold out.
-        move |stop| {
-            let writer = Arc::clone(&writer);
-            async move {
-                let checkpointed = tokio::select! {
-                    biased;
-                    () = stop.cancelled() => return Ok(()),
-                    checkpointed = writer.checkpoint(CheckpointMode::Passive) => checkpointed,
-                };
-                match checkpointed {
-                    Ok(result) => tracing::debug!(
-                        is_busy = result.is_busy,
-                        log_frames = result.log_frames,
-                        checkpointed_frames = result.checkpointed_frames,
-                        "the passive WAL checkpoint ran"
-                    ),
-                    Err(MaintenanceError::Held) => tracing::debug!(
-                        "the passive WAL checkpoint did not run: the writer holds its writes"
-                    ),
-                    Err(failure) => return Err(failure.into()),
+        metered_job(
+            PASSIVE_CHECKPOINT_BUDGET,
+            Box::new(move |stop, meter| {
+                let writer = Arc::clone(&writer);
+                async move {
+                    let checkpointed = tokio::select! {
+                        biased;
+                        () = stop.cancelled() => return Ok(None),
+                        checkpointed = writer.checkpoint_measured(CheckpointMode::Passive) => {
+                            checkpointed
+                        }
+                    };
+                    match checkpointed {
+                        Ok(Measured {
+                            report,
+                            processor_time,
+                        }) => {
+                            meter.add(processor_time);
+                            tracing::debug!(
+                                is_busy = report.result.is_busy,
+                                log_frames = report.result.log_frames,
+                                checkpointed_frames = report.result.checkpointed_frames,
+                                "the passive WAL checkpoint ran"
+                            );
+                            Ok(Some(JobWorkload::of(
+                                WorkUnit::CheckpointedLogBytes,
+                                report.checkpointed_bytes(),
+                            )))
+                        }
+                        Err(MaintenanceError::Held) => {
+                            tracing::debug!(
+                                "the passive WAL checkpoint did not run: the writer holds its \
+                                 writes"
+                            );
+                            Ok(None)
+                        }
+                        Err(failure) => Err(failure.into()),
+                    }
                 }
-                ScheduledJobOutcome::Ok(())
-            }
-            .boxed()
-        }
+                .boxed()
+            }),
+        )
     }
 
     /// Whether the writer was ended: by [`DatabaseWriter::end`], by its hold's refusal, or by a
@@ -610,14 +667,18 @@ enum QueueMessage {
     /// Run a checkpoint between batches.
     Checkpoint {
         mode: CheckpointMode,
-        reply: oneshot::Sender<Result<CheckpointResult, MaintenanceError>>,
+        reply: oneshot::Sender<Result<Measured<CheckpointReport>, MaintenanceError>>,
     },
-    /// Repack the file between batches.
-    Repack(oneshot::Sender<Result<RepackReport, MaintenanceError>>),
-    /// Copy the database into a new file, beside the writes.
+    /// Repack the file between batches, unless `cancel` is canceled first.
+    Repack {
+        cancel: CancellationToken,
+        reply: oneshot::Sender<Result<Measured<RepackEnd>, MaintenanceError>>,
+    },
+    /// Copy the database into a new file, beside the writes, until `cancel` is canceled.
     Backup {
         destination: PathBuf,
-        reply: oneshot::Sender<Result<BackupCopy, MaintenanceError>>,
+        cancel: CancellationToken,
+        reply: oneshot::Sender<Result<Measured<BackupCopy>, MaintenanceError>>,
     },
     /// The writer was ended: fail what is queued and let the thread go.
     End,
@@ -740,7 +801,7 @@ pub(crate) fn sqlite_error_code(error: &(dyn Error + 'static)) -> Option<ErrorCo
         .find_map(|error| error.downcast_ref::<rusqlite::Error>()?.sqlite_error_code())
 }
 
-/// Whether `error` carries SQLite's interrupt, which only the writer's stop raises.
+/// Whether `error` carries SQLite's interrupt, which the writer's stop and a canceled repack raise.
 fn is_interrupt(error: &(dyn Error + 'static)) -> bool {
     sqlite_error_code(error) == Some(ErrorCode::OperationInterrupted)
 }

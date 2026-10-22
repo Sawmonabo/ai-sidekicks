@@ -12,7 +12,11 @@
 //!   deadline and the first instant are.
 //! - A job may run only while no run is live; one that falls due while a run is live is parked
 //!   aside, so it never holds the task, and runs once the count of live runs reaches zero, or at
-//!   the latest its condition's bound past its due time.
+//!   the latest at its condition's instant on the wall clock, which the wall clock's timer fires
+//!   at as it does a job's own instant. The count is read again before each run is taken, so a run
+//!   that goes live while earlier jobs run parks the jobs after them.
+//! - A job with a processor budget registers it with its run (`budget::metered_job`), which
+//!   meters the run on its own threads and writes its processor time beside the budget.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -27,10 +31,12 @@ use tokio::sync::{Notify, broadcast, oneshot, watch};
 use tokio::task::{JoinError, JoinHandle};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument as _;
 
 pub(crate) use crate::daemon::scheduler::condition::JobCondition;
 use crate::daemon::scheduler::condition::ParkedRuns;
 
+pub(crate) mod budget;
 mod condition;
 
 // Wakes a receiver may fall behind before it reads a lag; wakes are rare.
@@ -170,6 +176,19 @@ impl Scheduler {
             shared,
             task: Mutex::new(Some(task)),
         }
+    }
+
+    /// The names of the runs waiting to fall due or parked, for a test to read what was scheduled.
+    #[cfg(test)]
+    pub(crate) fn waiting_job_names(&self) -> Vec<&'static str> {
+        let state = self.shared.lock_state();
+        state
+            .pending_by_deadline
+            .values()
+            .chain(state.pending_by_instant.values())
+            .map(|run| run.name)
+            .chain(state.parked.names())
+            .collect()
     }
 
     /// Schedules one run of `run`, named `name` in the service log, `delay` from now on the
@@ -396,13 +415,17 @@ impl SchedulerShared {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    // Arms the wall-clock timer for the first pending instant, or disarms it when none is pending.
-    // On a refusal the timer keeps what it held.
+    // Arms the wall-clock timer for the first pending instant or parked run's latest moment,
+    // whichever comes first, or disarms it when there is neither. On a refusal the timer keeps what
+    // it held.
     fn arm_first_instant(&self, state: &mut SchedulerState) -> io::Result<()> {
         let first_instant = state
             .pending_by_instant
             .first_key_value()
-            .map(|(&(instant, _), _)| instant);
+            .map(|(&(instant, _), _)| instant)
+            .into_iter()
+            .chain(state.parked.first_latest())
+            .min();
         if first_instant == state.armed_instant {
             return Ok(());
         }
@@ -416,13 +439,30 @@ impl SchedulerShared {
 
     // Arms the wall-clock timer for the first pending instant. Each run whose instant the timer
     // refuses is taken out with the refusal, and the next first instant is armed in its place, so
-    // no instant is left pending without the timer armed for it.
+    // no instant is left pending without the timer armed for it; a parked run whose latest moment
+    // the timer refuses keeps waiting for no run to be live.
     fn arm_or_refuse_first_instants(
         &self,
         state: &mut SchedulerState,
     ) -> Vec<(PendingRun, io::Error)> {
         let mut refused_runs = Vec::new();
         while let Err(source) = self.arm_first_instant(state) {
+            let first_pending = state
+                .pending_by_instant
+                .first_key_value()
+                .map(|(&(instant, _), _)| instant);
+            if let Some(latest) = state.parked.first_latest()
+                && first_pending.is_none_or(|pending| latest < pending)
+            {
+                let job = state.parked.forget_first_latest();
+                tracing::error!(
+                    job,
+                    error = &source as &(dyn Error + 'static),
+                    "The wall-clock timer could not be armed for the job's latest moment, so it \
+                     waits for no run to be live"
+                );
+                continue;
+            }
             let Some((_, refused)) = state.pending_by_instant.pop_first() else {
                 // Nothing waits on the timer, so an instant it still holds only turns the task
                 // once more when it fires.
@@ -454,10 +494,7 @@ impl SchedulerShared {
                 let first_deadline = state
                     .pending_by_deadline
                     .first_key_value()
-                    .map(|(&(deadline, _), _)| deadline)
-                    .into_iter()
-                    .chain(state.parked.first_latest())
-                    .min();
+                    .map(|(&(deadline, _), _)| deadline);
                 (first_deadline, !state.parked.is_empty(), refused_runs)
             };
             // Told and dropped outside the lock, since a job's work may hold anything.
@@ -500,20 +537,18 @@ impl SchedulerShared {
                 }
                 SchedulerEvent::LiveRunsChanged(Err(_closed)) => is_count_followed = false,
             }
-            let live_run_count = if is_count_followed {
-                *live_runs.borrow()
-            } else {
-                0
-            };
-            self.drain_due_runs(live_run_count).await;
+            let live_runs = is_count_followed.then_some(&live_runs);
+            self.drain_due_runs(live_runs).await;
         }
     }
 
-    // Runs every due run its condition allows while `live_run_count` runs are live, parking each
-    // it does not, and every parked run that may now go.
-    async fn drain_due_runs(&self, live_run_count: u32) {
-        while let Some(mut due) = self.take_due_run(live_run_count) {
-            if let Err(failure) = (due.run)(self.stop.clone()).await {
+    // Runs every due run its condition allows, parking each it does not, and every parked run that
+    // may now go; the count of live runs is read before each take, none when it is not followed.
+    async fn drain_due_runs(&self, live_runs: Option<&watch::Receiver<u32>>) {
+        let live_run_count = || live_runs.map_or(0, |live_runs| *live_runs.borrow());
+        while let Some(mut due) = self.take_due_run(live_run_count()) {
+            let span = tracing::info_span!("scheduled job", job = due.name);
+            if let Err(failure) = (due.run)(self.stop.clone()).instrument(span).await {
                 tracing::warn!(
                     job = due.name,
                     error = &*failure as &(dyn Error + 'static),
@@ -525,15 +560,19 @@ impl SchedulerShared {
     }
 
     // Takes the first run that may go while the scheduler still runs: a parked run released by
-    // the count or its bound, else the first due run its condition allows, parking each due run it
-    // does not; the wall clock is read only while a wall-clock run is pending.
+    // the count or its latest moment, else the first due run its condition allows, parking each
+    // due run it does not; the wall clock is read only while a wall-clock run or a parked run's
+    // latest moment is pending.
     fn take_due_run(&self, live_run_count: u32) -> Option<PendingRun> {
         let mut state = self.lock_state();
         if state.is_stopped {
             return None;
         }
         let now = Instant::now();
-        if let Some(released) = state.parked.take_released(live_run_count, now) {
+        if let Some(released) = state
+            .parked
+            .take_released(live_run_count, || self.wall_clock.now())
+        {
             return Some(released);
         }
         loop {
@@ -551,7 +590,7 @@ impl SchedulerShared {
             if due.condition.allows(live_run_count) {
                 return Some(due);
             }
-            state.parked.park(due, now);
+            state.parked.park(due);
         }
     }
 

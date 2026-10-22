@@ -8,44 +8,15 @@
 
 use std::error::Error;
 
-use futures::FutureExt as _;
-use futures::future::BoxFuture;
 use sidekicks_contracts::machine::settings::MachineSettings;
 use sidekicks_platforms::{KeepAwakeHold, KeepAwakePurpose};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-/// The system's keep-awake hold, as the owner moves it.
-pub(crate) trait KeepAwakeTarget: Send + 'static {
-    /// Holds the machine awake for `purpose`, keeping whatever was held when the system refuses.
-    fn take(
-        &self,
-        purpose: KeepAwakePurpose,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
-
-    /// Lets go of the hold.
-    fn release(&self);
-}
-
-impl KeepAwakeTarget for KeepAwakeHold {
-    fn take(
-        &self,
-        purpose: KeepAwakePurpose,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        KeepAwakeHold::take(self, purpose)
-            .map(|taken| taken.map_err(Into::into))
-            .boxed()
-    }
-
-    fn release(&self) {
-        KeepAwakeHold::release(self);
-    }
-}
-
 /// What keep-awake follows.
-pub(crate) struct KeepAwakeDeps<Target> {
+pub(crate) struct KeepAwakeDeps {
     /// The hold it moves.
-    pub(crate) hold: Target,
+    pub(crate) hold: KeepAwakeHold,
     /// The live-run count.
     pub(crate) live_runs: watch::Receiver<u32>,
     /// The machine's settings, for the two switches.
@@ -65,7 +36,7 @@ pub(crate) struct KeepAwakeDeps<Target> {
         reason = "the daemon's start runs keep-awake over the hold and the power source"
     )
 )]
-pub(crate) async fn keep_machine_awake(deps: KeepAwakeDeps<impl KeepAwakeTarget>) {
+pub(crate) async fn keep_machine_awake(deps: KeepAwakeDeps) {
     let KeepAwakeDeps {
         hold,
         mut live_runs,
@@ -86,7 +57,7 @@ pub(crate) async fn keep_machine_awake(deps: KeepAwakeDeps<impl KeepAwakeTarget>
                     Ok(()) => held = wanted,
                     Err(refusal) => tracing::warn!(
                         ?purpose,
-                        error = &*refusal as &(dyn Error + 'static),
+                        error = &refusal as &(dyn Error + 'static),
                         "The system refused to keep the machine awake; the hold is tried again \
                          at the next change"
                     ),

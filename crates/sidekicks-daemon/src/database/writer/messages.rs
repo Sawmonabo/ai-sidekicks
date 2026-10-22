@@ -6,8 +6,10 @@ use std::path::PathBuf;
 
 use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::daemon::scheduler::budget::Measured;
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::statement::{StatementResult, WriteStatement};
 use crate::database::writer::backup::BackupAnswer;
@@ -121,6 +123,37 @@ pub(crate) type BatchAnswer = Result<Vec<WriteJobOutcome>, Box<FailedBatch>>;
 /// failure of putting the busy timeout back when that failed too.
 pub(crate) type CheckpointAnswer = Result<CheckpointResult, CleanupFailures<rusqlite::Error>>;
 
+/// What one requested checkpoint did: SQLite's report and the store's page size, by which its
+/// frames count in bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CheckpointReport {
+    /// What SQLite reports of the checkpoint.
+    pub(crate) result: CheckpointResult,
+    /// The store's page size in bytes.
+    pub(crate) page_size: i64,
+}
+
+impl CheckpointReport {
+    /// The bytes of write-ahead log the checkpoint moved into the store; none when it moved none.
+    #[expect(
+        dead_code,
+        reason = "the daemon's start schedules the passive checkpoint"
+    )]
+    pub(crate) fn checkpointed_bytes(self) -> u64 {
+        u64::try_from(
+            self.result
+                .checkpointed_frames
+                .saturating_mul(self.page_size),
+        )
+        .unwrap_or(0)
+    }
+}
+
+/// The thread's answer to one requested checkpoint: its report with the thread's processor time
+/// around it, or its failure as [`CheckpointAnswer`]'s.
+pub(crate) type MeasuredCheckpointAnswer =
+    Result<Measured<CheckpointReport>, CleanupFailures<rusqlite::Error>>;
+
 /// The thread's last answer, as it exits: its connection's close, or why that failed, beside the
 /// close's own failure when turning off an ended writer's closing checkpoint failed first.
 pub(crate) type ThreadExit = Result<(), CleanupFailures<rusqlite::Error>>;
@@ -141,17 +174,23 @@ pub(crate) enum ThreadRequest {
         /// The checkpoint's mode.
         mode: CheckpointMode,
         /// Where the answer goes.
-        reply: oneshot::Sender<CheckpointAnswer>,
+        reply: oneshot::Sender<MeasuredCheckpointAnswer>,
     },
-    /// Repack the file: truncate the log, then `VACUUM`.
+    /// Repack the file: truncate the log, then `VACUUM`; a canceled repack does not start, and
+    /// one the queue interrupts once it is canceled rolls back.
     Repack {
+        /// Canceled once the repack is to give way.
+        cancel: CancellationToken,
         /// Where the answer goes.
         reply: oneshot::Sender<RepackAnswer>,
     },
-    /// Copy the database into the file at `destination`, serving the requests that come meanwhile.
+    /// Copy the database into the file at `destination`, serving the requests that come meanwhile
+    /// and stopping before its next step once `cancel` is canceled.
     Backup {
         /// The copy's file, which must not exist yet.
         destination: PathBuf,
+        /// Canceled once the run that asked for the copy stops.
+        cancel: CancellationToken,
         /// Where the answer goes.
         reply: oneshot::Sender<BackupAnswer>,
     },

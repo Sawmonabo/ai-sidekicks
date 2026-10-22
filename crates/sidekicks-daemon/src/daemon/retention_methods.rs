@@ -355,6 +355,7 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::session::methods::SessionState;
     use sidekicks_platforms::WallClockTimer;
+    use tokio::sync::watch;
     use tokio_util::sync::CancellationToken;
 
     use super::{RETENTION_STATEMENT_CAPACITY, RetentionMethodsDeps, register_retention_methods};
@@ -393,7 +394,9 @@ mod tests {
         log: TestLog,
         truncation: Arc<WriteAheadLogTruncation>,
         registry: MethodRegistry,
-        _scheduler: Arc<Scheduler>,
+        scheduler: Arc<Scheduler>,
+        // Kept so the run stays live and the jobs a purge schedules stay parked.
+        _live_runs: LiveRunCount,
         _shells: TableFixture,
         _home: TempDir,
     }
@@ -434,11 +437,17 @@ mod tests {
                 reads,
                 purge: Arc::new(purge),
                 scheduler: Arc::clone(&scheduler),
-                repack: repack_deps(&log.writer, &truncation, &database.path(), |_| Ok(u64::MAX)),
+                repack: repack_deps(
+                    &log.writer,
+                    &truncation,
+                    &database.path(),
+                    |_| Ok(u64::MAX),
+                    live_runs.follow(),
+                ),
                 backups: test_backups(
                     &database,
                     &log,
-                    home.path().join(".ai-sidekicks"),
+                    home.path().to_path_buf(),
                     Arc::new(|| async { Ok(Vec::new()) }.boxed()),
                 ),
             },
@@ -449,7 +458,8 @@ mod tests {
             log,
             truncation,
             registry: builder.freeze(),
-            _scheduler: scheduler,
+            scheduler,
+            _live_runs: live_runs,
             _shells: shells,
             _home: home,
         }
@@ -460,13 +470,20 @@ mod tests {
         truncation: &Arc<WriteAheadLogTruncation>,
         database_path: &Path,
         read_volume_free_bytes: VolumeFreeBytesReader,
+        live_runs: watch::Receiver<u32>,
     ) -> Arc<RepackJobDeps> {
         Arc::new(RepackJobDeps {
             writer: Arc::clone(writer),
             truncation: Arc::clone(truncation),
             database_path: database_path.to_path_buf(),
             read_volume_free_bytes,
+            live_runs,
         })
+    }
+
+    // A count of live runs that stays at none.
+    fn no_live_runs() -> watch::Receiver<u32> {
+        watch::Sender::new(0).subscribe()
     }
 
     async fn call<Answer: serde::de::DeserializeOwned>(
@@ -547,14 +564,30 @@ mod tests {
 
     // The purge removes the sessions archived or closed before the read's cutoff, by their latest
     // finish and not their row's times, and every marked one; the read counts exactly those; a
-    // purge selecting nothing still truncates the log. The repack is skipped without twice the file
-    // free, and otherwise leaves an empty log and no free page. Killed by the finish read from the
-    // session row, by the read and the purge selecting apart, by a purge of nothing skipping the
-    // truncation, by the free-room check inverted, and by the second truncation dropped.
+    // purge selecting nothing schedules neither the repack nor the backup and still truncates the
+    // log, and one that removes something schedules both. The repack is skipped without twice the
+    // file free, and otherwise leaves an empty log and no free page. Killed by the finish read
+    // from the session row, by the read and the purge selecting apart, by a purge of nothing
+    // scheduling either job or skipping the truncation, by a removal scheduling neither, by the
+    // free-room check inverted, and by the second truncation dropped.
     #[tokio::test]
     async fn the_purge_removes_what_the_read_counted_and_the_repack_reclaims_the_file() {
         let fixture = retention_fixture().await;
         let database_path = fixture.database.path();
+        let first_read: DaemonRetentionReadResponse = call(
+            &fixture.registry,
+            DaemonRetentionRead::DESCRIPTOR.method,
+            json!({}),
+        )
+        .await;
+        let nothing: DaemonRetentionPurgeResponse = call(
+            &fixture.registry,
+            DaemonRetentionPurge::DESCRIPTOR.method,
+            json!({ "cutoffAt": first_read.purge.cutoff_at }),
+        )
+        .await;
+        assert_eq!(nothing.deleted_session_count.get(), 0);
+        assert_eq!(fixture.scheduler.waiting_job_names(), Vec::<&str>::new());
         let reader = fixture.database.reader();
         let old_archived = store_finished(&reader, SessionState::Archived, LONG_AGO, 400);
         let old_closed = store_finished(&reader, SessionState::Closed, LONG_AGO, 400);
@@ -577,6 +610,9 @@ mod tests {
         )
         .await;
         assert_eq!(purged.deleted_session_count.get(), 3);
+        let mut scheduled = fixture.scheduler.waiting_job_names();
+        scheduled.sort_unstable();
+        assert_eq!(scheduled, ["backup", "repack"]);
         for removed in [old_archived, old_closed, marked] {
             assert_eq!(session_count(&reader, removed), 0);
         }
@@ -597,6 +633,7 @@ mod tests {
             &fixture.truncation,
             &database_path,
             |_| Ok(0),
+            no_live_runs(),
         ));
         skipped(CancellationToken::new())
             .await
@@ -608,6 +645,7 @@ mod tests {
             &fixture.truncation,
             &database_path,
             |_| Ok(u64::MAX),
+            no_live_runs(),
         ));
         repack(CancellationToken::new())
             .await

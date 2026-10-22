@@ -1,5 +1,6 @@
 //! The count of live runs, moved by committed run state changes.
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use sidekicks_contracts::run::id::RunId;
@@ -8,6 +9,7 @@ use strum::VariantArray as _;
 
 use super::LiveRunCount;
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::statement::{StatementBindings, WriteStatement};
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
 use crate::events::session::appender::SessionEventAppender;
@@ -21,8 +23,10 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // The seed reads the live runs at start, and each committed change moves the count by the states
 // it leaves and enters: `pausing` stays live, `paused` and a wait on a person leave it, a return
-// to `running` enters it, and a refused change moves nothing. Killed by a state missing from the
-// live set, by a wait counted as live, and by a count moved before or without a commit.
+// to `running` enters it, and a refused change moves nothing, whether its state was refused or a
+// companion statement refused it after the state's swap ran. Killed by a state missing from the
+// live set, by a wait counted as live, by a count moved without a commit, and by one moved at the
+// swap, before the commit.
 #[tokio::test]
 async fn committed_changes_move_the_count_by_the_states_they_leave_and_enter() {
     let database = TestDatabase::new();
@@ -51,25 +55,39 @@ async fn committed_changes_move_the_count_by_the_states_they_leave_and_enter() {
     let running = RunStateEntry::Running {
         execution_posture: None,
     };
+    // A companion that changes no row where it expects one, so it refuses the write after the
+    // state's swap ran.
+    let refusing = || RunStateChangeCompanions {
+        statements: vec![WriteStatement {
+            sql: Cow::Borrowed("UPDATE runs SET state = state WHERE 0"),
+            bindings: StatementBindings::None,
+            expected_row_count: Some(1),
+        }],
+        ..RunStateChangeCompanions::default()
+    };
     let steps = [
-        (RunStateEntry::Pausing, Ok(RunState::Pausing), 1),
-        (RunStateEntry::Paused, Ok(RunState::Paused), 0),
+        (RunStateEntry::Pausing, Ok(RunState::Pausing), 1, false),
+        (RunStateEntry::Paused, Ok(RunState::Paused), 0, false),
         // A paused run cannot pause again, so the change is refused and nothing moves.
-        (RunStateEntry::Pausing, Err(()), 0),
-        (running.clone(), Ok(RunState::Running), 1),
+        (RunStateEntry::Pausing, Err(()), 0, false),
+        (running.clone(), Ok(RunState::Running), 1, false),
+        (RunStateEntry::WaitingForApproval, Err(()), 1, true),
         (
             RunStateEntry::WaitingForApproval,
             Ok(RunState::WaitingForApproval),
             0,
+            false,
         ),
-        (running, Ok(RunState::Running), 1),
+        (running, Ok(RunState::Running), 1, false),
     ];
-    for (entry, expected, expected_count) in steps {
+    for (entry, expected, expected_count, is_companion_refused) in steps {
+        let companions = if is_companion_refused {
+            refusing()
+        } else {
+            RunStateChangeCompanions::default()
+        };
         let written = changes
-            .write(
-                RunStateChange::new(run_id, entry.clone()),
-                RunStateChangeCompanions::default(),
-            )
+            .write(RunStateChange::new(run_id, entry.clone()), companions)
             .await
             .map(|run| run.state)
             .map_err(|_refused| ());
