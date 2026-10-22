@@ -12,7 +12,9 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio_util::sync::CancellationToken;
 
 use crate::provider::driver::claude::delivery::messages::ClaudeMessageFrame;
-use crate::provider::driver::claude::delivery::system::read_claude_assistant_refusal;
+use crate::provider::driver::claude::delivery::system::{
+    read_claude_assistant_refusal, read_claude_refusal_without_fallback,
+};
 use crate::provider::driver::claude::hooks::callbacks::answer_claude_request;
 use crate::provider::driver::claude::session::process::{ClaudeCodeProcess, ClaudeStreamFrame};
 use crate::provider::driver::claude::session::tool_server_calls::{
@@ -53,7 +55,7 @@ pub(crate) struct ClaudeOneTurnRequest<'a> {
     pub(crate) permission_mode: Option<ClaudePermissionMode>,
     /// The one message.
     pub(crate) text: OutboundText,
-    /// Ends the turn and its process at once when cancelled.
+    /// Ends the turn and its process at once when canceled.
     pub(crate) stop: CancellationToken,
 }
 
@@ -135,9 +137,7 @@ pub(crate) async fn run_claude_one_turn(
                     if frame.observation.frame_kind.split('/').next() == Some("result") {
                         return read_reply(&frame, reading);
                     }
-                    if frame.observation.frame_kind == "assistant" {
-                        read_assistant_frame(&frame.text, &mut reading);
-                    }
+                    read_lead_frame(&frame, &mut reading);
                 }
                 ClaudeShortProcessArrival::Request(ClaudeInboundRequestEvent::Request(asked)) => {
                     let context = ClaudeToolServerCallContext {
@@ -198,17 +198,33 @@ async fn answer_unwatched(
     .await;
 }
 
-// An assistant frame's message id and the refusal its message ends on, where it carries them.
-fn read_assistant_frame(text: &str, reading: &mut OneTurnReading) {
-    if let Ok(frame) = serde_json::from_str::<ClaudeMessageFrame>(text)
-        && let Some(id) = frame.provider_message_id()
-    {
-        reading.provider_message_id = Some(id.to_owned());
+// What a lead frame says of the reply, as Claude Code reads a turn: an assistant message's id and
+// the refusal it ends on, a refusal no other model took, and another model taking the refused
+// turn, which retracts the refusal.
+fn read_lead_frame(frame: &ClaudeStreamFrame, reading: &mut OneTurnReading) {
+    let frame_kind = frame.observation.frame_kind.as_str();
+    if frame_kind == "system/model_refusal_fallback" {
+        reading.refusal = None;
+        return;
     }
-    if let Ok(Value::Object(members)) = serde_json::from_str::<Value>(text)
-        && let Some(refusal) = read_claude_assistant_refusal(&members)
-    {
-        reading.refusal = Some(refusal);
+    let Ok(Value::Object(members)) = serde_json::from_str::<Value>(&frame.text) else {
+        return;
+    };
+    match frame_kind {
+        "assistant" => {
+            if let Ok(message) = serde_json::from_str::<ClaudeMessageFrame>(&frame.text)
+                && let Some(id) = message.provider_message_id()
+            {
+                reading.provider_message_id = Some(id.to_owned());
+            }
+            if let Some(refusal) = read_claude_assistant_refusal(&members) {
+                reading.refusal = Some(refusal);
+            }
+        }
+        "system/model_refusal_no_fallback" => {
+            reading.refusal = read_claude_refusal_without_fallback(&members);
+        }
+        _ => {}
     }
 }
 

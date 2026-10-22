@@ -61,8 +61,9 @@ pub(crate) struct SessionPlace {
     pub(crate) place: Option<Place>,
     /// The place's login-shell environment captured at the daemon's start.
     pub(crate) login_shell: Vec<(String, String)>,
-    /// The person's user id in that place, read on macOS, Linux and a WSL distribution.
-    pub(crate) user_id: u32,
+    /// The person's user id in that place, read on macOS, Linux and a WSL distribution; `None` on
+    /// native Windows, whose inbox is a pipe that needs none.
+    pub(crate) user_id: Option<u32>,
 }
 
 /// The ports every driver reads, one registration per handle the daemon builds after the drivers,
