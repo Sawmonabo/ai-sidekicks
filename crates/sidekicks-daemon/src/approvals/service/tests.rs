@@ -352,6 +352,14 @@ enum SecondAnswer {
     Replay,
     /// Another answer under another id.
     Another,
+    /// The other decision under the first answer's id.
+    SameIdOtherDecision,
+    /// Another scope under the first answer's id.
+    SameIdOtherScope,
+    /// A correction under the first answer's id, which had none.
+    SameIdOtherEdit,
+    /// Other words under the id of a first answer that declined with words.
+    SameIdOtherWords,
     /// Any answer once the run's end canceled the card.
     AfterCancel,
     /// The first answer, with the session refusing its write.
@@ -359,13 +367,31 @@ enum SecondAnswer {
 }
 
 // One answer settles a card: the same answer sent again is answered with what was saved and
-// records nothing; any other is refused; a canceled card takes no answer; a session refusing the
-// write is answered by its own code. Killed by dropping the replay's compare and the session
+// records nothing; any other, under another id or under the same id with another decision, scope,
+// correction or decline words, is refused; a canceled card takes no answer; a session refusing the
+// write is answered by its own code. Killed by dropping the replay's compare, or its compare of the
+// decision, the effective scope, the correction or the decline words, and by dropping the session
 // refusal's mapping; the read's pending check and the write's pending guard each settle a replay
 // alone.
 #[rstest]
 #[case::replay(SecondAnswer::Replay, None)]
 #[case::another(SecondAnswer::Another, Some(RefusalCode::ApprovalAlreadyResolved))]
+#[case::same_id_other_decision(
+    SecondAnswer::SameIdOtherDecision,
+    Some(RefusalCode::ApprovalAlreadyResolved)
+)]
+#[case::same_id_other_scope(
+    SecondAnswer::SameIdOtherScope,
+    Some(RefusalCode::ApprovalAlreadyResolved)
+)]
+#[case::same_id_other_edit(
+    SecondAnswer::SameIdOtherEdit,
+    Some(RefusalCode::ApprovalAlreadyResolved)
+)]
+#[case::same_id_other_words(
+    SecondAnswer::SameIdOtherWords,
+    Some(RefusalCode::ApprovalAlreadyResolved)
+)]
 #[case::after_cancel(SecondAnswer::AfterCancel, Some(RefusalCode::ApprovalRequestCanceled))]
 #[case::session_refusing(SecondAnswer::SessionRefusing, Some(RefusalCode::SessionRebuilding))]
 #[tokio::test]
@@ -376,7 +402,23 @@ async fn one_answer_settles_a_card(
     let fixture = ApprovalFixture::without_holds().await;
     let card = fixture.raise("git push").await.expect("the card is raised");
     let first_id = client_id();
-    let first = answer(&card, ApprovalDecision::Approved, &first_id, json!({}));
+    let first = match second {
+        SecondAnswer::SameIdOtherWords => answer(
+            &card,
+            ApprovalDecision::Rejected,
+            &first_id,
+            json!({ "declineReason": "not on main" }),
+        ),
+        SecondAnswer::Replay
+        | SecondAnswer::Another
+        | SecondAnswer::SameIdOtherDecision
+        | SecondAnswer::SameIdOtherScope
+        | SecondAnswer::SameIdOtherEdit
+        | SecondAnswer::AfterCancel
+        | SecondAnswer::SessionRefusing => {
+            answer(&card, ApprovalDecision::Approved, &first_id, json!({}))
+        }
+    };
     let saved = match second {
         SecondAnswer::SessionRefusing => {
             fixture.refuses_answers.store(true, Ordering::SeqCst);
@@ -390,7 +432,12 @@ async fn one_answer_settles_a_card(
                 .expect("the run's asks are canceled");
             None
         }
-        SecondAnswer::Replay | SecondAnswer::Another => {
+        SecondAnswer::Replay
+        | SecondAnswer::Another
+        | SecondAnswer::SameIdOtherDecision
+        | SecondAnswer::SameIdOtherScope
+        | SecondAnswer::SameIdOtherEdit
+        | SecondAnswer::SameIdOtherWords => {
             let resolved = fixture
                 .service
                 .resolve(&first, device())
@@ -402,6 +449,27 @@ async fn one_answer_settles_a_card(
     let again = match second {
         SecondAnswer::Replay | SecondAnswer::AfterCancel | SecondAnswer::SessionRefusing => first,
         SecondAnswer::Another => answer(&card, ApprovalDecision::Rejected, &client_id(), json!({})),
+        SecondAnswer::SameIdOtherDecision => {
+            answer(&card, ApprovalDecision::Rejected, &first_id, json!({}))
+        }
+        SecondAnswer::SameIdOtherScope => answer(
+            &card,
+            ApprovalDecision::Approved,
+            &first_id,
+            json!({ "effectiveScope": "Read" }),
+        ),
+        SecondAnswer::SameIdOtherEdit => answer(
+            &card,
+            ApprovalDecision::Approved,
+            &first_id,
+            json!({ "editedAction": "git push --dry-run" }),
+        ),
+        SecondAnswer::SameIdOtherWords => answer(
+            &card,
+            ApprovalDecision::Rejected,
+            &first_id,
+            json!({ "declineReason": "not today" }),
+        ),
     };
     let outcome = fixture.service.resolve(&again, device()).await;
     match code {

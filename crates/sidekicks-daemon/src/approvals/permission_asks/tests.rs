@@ -6,7 +6,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use futures::FutureExt as _;
 use serde_json::json;
-use sidekicks_contracts::approval::ApprovalResolveRequest;
+use sidekicks_contracts::approval::{
+    ApprovalResolveRequest, RememberedRuleSense, RememberedScopeKind,
+};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -23,8 +25,8 @@ use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_providers,
 };
 use crate::provider::port::permission_ask::{
-    ProviderAskAction, ProviderAskActionKind, ProviderPermissionAnswer, ProviderPermissionAsk,
-    ProviderPermissionAskWithdrawal,
+    ProviderAnswerRule, ProviderAskAction, ProviderAskActionKind, ProviderAskRule,
+    ProviderPermissionAnswer, ProviderPermissionAsk, ProviderPermissionAskWithdrawal,
 };
 use crate::session::run::pause::tests::unanswered;
 
@@ -347,6 +349,76 @@ async fn a_resend_hands_an_answer_only_where_no_hand_reached_the_provider() {
         .await
         .expect("the redelivery is answered");
     assert_eq!(fixture.handed(), [plain_allow(), plain_allow()]);
+}
+
+// A resend that finds its ask still waiting, the first answer's hand stopped at its project rule's
+// folder read, hands the stored answer: one under the same id with a correction the first never
+// carried is refused and hands nothing, and the same answer sent again hands the stored one.
+// Killed by comparing a resend without its correction.
+#[tokio::test]
+async fn a_resend_that_finds_its_ask_waiting_hands_the_stored_answer() {
+    let fixture = AsksFixture::new().await;
+    let approvals = &fixture.check.approvals;
+    approvals.execute("UPDATE sessions SET shape = 'project'");
+    fixture
+        .asks
+        .take_ask(fixture.git_push())
+        .await
+        .expect("the ask raises its card");
+    let [card] = <[String; 1]>::try_from(fixture.pending_cards()).expect("one card waits");
+    let [subject] = <[String; 1]>::try_from(fixture.read_texts(
+        "SELECT json_extract(resource_descriptor, '$.subject') FROM approval_requests",
+    ))
+    .expect("one card");
+    let client_resolution_id = mint_uuid_v7().to_string();
+    let project_allow = |edited_action: Option<&str>| -> ApprovalResolveRequest {
+        let mut request = json!({
+            "decision": "approved",
+            "approvalRequestId": card,
+            "clientResolutionId": client_resolution_id,
+            "rememberedScope": { "kind": "project", "pattern": subject, "sense": "allow" },
+        });
+        if let Some(edited_action) = edited_action {
+            request["editedAction"] = json!(edited_action);
+        }
+        from_json(request)
+    };
+    let answer = project_allow(None);
+    approvals.execute("ALTER TABLE workspaces RENAME TO workspaces_away");
+    assert!(fixture.asks.resolve(&answer, device()).await.is_err());
+    approvals.execute("ALTER TABLE workspaces_away RENAME TO workspaces");
+    assert_eq!(fixture.card_states(), ["approved"]);
+    let refused = fixture
+        .asks
+        .resolve(&project_allow(Some("git push --dry-run")), device())
+        .await;
+    assert!(matches!(
+        refused,
+        Err(PermissionAskError::Service(ApprovalServiceError::Refused(refusal)))
+            if refusal.code == RefusalCode::ApprovalAlreadyResolved
+    ));
+    assert_eq!(fixture.handed(), []);
+    fixture
+        .asks
+        .resolve(&answer, device())
+        .await
+        .expect("the resend hands the stored answer");
+    assert_eq!(
+        fixture.handed(),
+        [ProviderPermissionAnswer::Allow {
+            correction: None,
+            made_rule: Some(ProviderAnswerRule {
+                rule: ProviderAskRule {
+                    kind: RememberedScopeKind::Project,
+                    sense: RememberedRuleSense::Allow,
+                    action: ProviderAskActionKind::Command,
+                    subject,
+                },
+                project_folders: Vec::new(),
+            }),
+            answered_by_rule: None,
+        }]
+    );
 }
 
 // A hand that got no answer back may have reached the provider: the client's resend hands
