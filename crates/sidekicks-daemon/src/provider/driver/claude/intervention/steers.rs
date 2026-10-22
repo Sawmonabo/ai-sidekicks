@@ -3,7 +3,7 @@
 //! A person's `Send now` is written with Claude Code's `now` mark, and held while Claude Code holds
 //! an ask open, since `now` would cancel the open card; a helper's steer waits for its hooks.
 
-use std::sync::{Arc, PoisonError};
+use std::sync::Arc;
 
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
@@ -11,7 +11,8 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 
 use super::held_steers::ClaudeSteer;
-use super::{ClaudeInterventions, ClaudeSteerWriter, applied, lock, no_live_run, turn_in_flight};
+use super::{ClaudeInterventions, ClaudeSteerWriter, applied, no_live_run, turn_in_flight};
+use crate::mutex_lock::lock;
 use crate::provider::driver::attachments::{compose_message_text, resolve_message_attachments};
 use crate::provider::driver::claude::attachments::compose_claude_attachment_blocks;
 use crate::provider::driver::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
@@ -211,11 +212,7 @@ impl ClaudeSteerWriter {
             stream.mark_now_steer(&message_uuid);
         }
         // Recorded before the write, since Claude Code may report it taken first.
-        start
-            .prompts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .record_written(session_id, steer.run_id, &message_uuid, true);
+        lock(&start.prompts).record_written(session_id, steer.run_id, &message_uuid, true);
         let mut frame = compose_claude_user_frame(
             &OutboundText {
                 text: steer.content,
@@ -233,11 +230,7 @@ impl ClaudeSteerWriter {
                 delivery: ClaudeWriteDelivery::Unsent,
                 cause,
             } => {
-                start
-                    .prompts
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .record_dropped(session_id, &message_uuid);
+                lock(&start.prompts).record_dropped(session_id, &message_uuid);
                 if let Some(stream) = &stream {
                     stream.unmark_now_steer(&message_uuid);
                 }

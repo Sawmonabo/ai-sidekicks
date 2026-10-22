@@ -3,8 +3,8 @@
 //! Code's `interrupt`.
 //!
 //! A typed refusal of the interrupt means Claude Code answered: `Degraded`, with no fallback. An
-//! interrupt left unanswered past its deadline stops the process instead, which ends the turn as
-//! surely. Any other failure propagates. A choice Claude Code holds the run on is settled first,
+//! interrupt left unanswered past its deadline, or whose write was cut partway, stops the process
+//! instead, which ends the turn as surely. Any other failure propagates. A choice Claude Code holds the run on is settled first,
 //! each helper running in the foreground moves to the background so the interrupt spares it, and
 //! the turn end the interrupt causes is held until Claude Code answers, then delivered
 //! `interrupted`. An interrupt whose choice takes waiting messages back asks Claude Code to drop
@@ -16,7 +16,7 @@ mod held_steers;
 mod steers;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
@@ -25,6 +25,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 pub(crate) use self::foreground_helpers::ClaudeForegroundHelpers;
 use self::held_steers::ClaudeHeldSteers;
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::provider::driver::claude::delivery::requests::ClaudeInboundRequests;
 use crate::provider::driver::claude::delivery::stream::ClaudeSessionStream;
@@ -60,8 +61,9 @@ pub(crate) enum ClaudeInterruptOutcome {
     Stopped,
 }
 
-/// Sends `interrupt`; a process that does not answer within the request deadline is stopped, and
-/// its exit takes the restart path. Fails as the request fails otherwise, a refusal included.
+/// Sends `interrupt`; a process that does not answer within the request deadline, or whose input
+/// took only part of the request's line, is stopped, and its exit takes the restart path. Fails as
+/// the request fails otherwise, a refusal included.
 pub(crate) async fn send_claude_interrupt(
     live: &LiveClaudeSession,
     cancel_queued: bool,
@@ -77,8 +79,9 @@ pub(crate) async fn send_claude_interrupt(
                 .and_then(|response| serde_json::from_str(response.get()).ok())
                 .unwrap_or_default(),
         )),
+        // A cut line leaves the process's input mid-frame, so no later write would read whole.
         Err(ClaudeSessionError::Unanswered {
-            cause: ClaudeUnansweredCause::Deadline,
+            cause: ClaudeUnansweredCause::Deadline | ClaudeUnansweredCause::WriteCut,
             ..
         }) => {
             live.channel.terminate().await;
@@ -269,12 +272,13 @@ impl ClaudeInterventions {
         Ok(response)
     }
 
-    // Moves each helper running in the foreground to the background, one request per helper, so
-    // the interrupt spares it; never the bare request, which would move a running command too,
-    // which the interrupt is meant to end. A refusal is recorded and the interrupt still goes.
+    // Moves each helper running in the foreground to the background, one request per helper, all
+    // sent at once so the interrupt waits one request deadline at most; never the bare request,
+    // which would move a running command too, which the interrupt is meant to end. A refusal is
+    // recorded and the interrupt still goes.
     async fn background_foreground_helpers(&self, live: &LiveClaudeSession) {
         let tool_use_ids = lock(&self.foreground_helpers).tool_use_ids(live.session_id);
-        for tool_use_id in tool_use_ids {
+        let moves = tool_use_ids.into_iter().map(|tool_use_id| async move {
             if let Err(error) = background_claude_task(live, &tool_use_id).await {
                 tracing::warn!(
                     session_id = %live.session_id,
@@ -283,7 +287,8 @@ impl ClaudeInterventions {
                     "a Claude Code helper could not move to the background before an interrupt"
                 );
             }
-        }
+        });
+        futures::future::join_all(moves).await;
     }
 
     fn declares_cancel_queued(&self, live: &LiveClaudeSession) -> bool {
@@ -305,12 +310,7 @@ impl ClaudeInterventions {
         session_id: SessionId,
         receipt: ClaudeInterruptReceipt,
     ) -> Vec<QueueItemId> {
-        let mut prompts = self
-            .writer
-            .start
-            .prompts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        let mut prompts = lock(&self.writer.start.prompts);
         receipt
             .cancelled
             .map(|cancelled| cancelled.0)
@@ -362,10 +362,6 @@ fn no_live_run(run_id: RunId) -> ClaudeSessionError {
         session_id: None,
         run_id: Some(run_id),
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 // The refusal while another run's turn or a command holds the session.
