@@ -51,7 +51,6 @@ pub(crate) fn test_opening_composer() -> ProviderSessionOpeningComposer {
                     tool_servers: None,
                     output_schema: None,
                     provider_account_id: None,
-                    on_callback_tool_call: None,
                     on_mcp_server_status: None,
                 },
                 spawned_version: spawned_build("1.0.0", "/opt/provider/bin"),

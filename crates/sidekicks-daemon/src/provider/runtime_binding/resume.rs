@@ -11,17 +11,14 @@ use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::provider::driver::callback_tool::CallbackToolDispatcher;
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::session_control::ResumeSessionParams;
 use crate::provider::runtime_binding::store::RuntimeBinding;
 
 /// The function legs a resume injects fresh, apart from the stored legs, so leaving out the
-/// dispatcher is a choice at the call.
+/// status sink is a choice at the call.
 #[derive(Clone, Default)]
 pub(crate) struct ResumeFunctionLegs {
-    /// The callback-tool dispatcher.
-    pub(crate) on_callback_tool_call: Option<CallbackToolDispatcher>,
     /// The status sink bound to the resumed leg.
     pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
 }
@@ -81,7 +78,6 @@ pub(crate) fn compose_resume_session_params(
         output_schema: spawn_config.output_schema,
         // Read back as stored, never resolved again.
         provider_account_id: spawn_config.provider_account_id,
-        on_callback_tool_call: function_legs.on_callback_tool_call,
         on_mcp_server_status: function_legs.on_mcp_server_status,
     })
 }

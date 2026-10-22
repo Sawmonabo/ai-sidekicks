@@ -289,7 +289,6 @@ fn create_params(session_id: SessionId) -> CreateSessionParams {
         tool_servers: None,
         output_schema: None,
         provider_account_id: None,
-        on_callback_tool_call: None,
         on_mcp_server_status: None,
     }
 }
@@ -620,7 +619,6 @@ fn resume_params(session_id: SessionId) -> ResumeSessionParams {
         tool_servers: None,
         output_schema: None,
         provider_account_id: None,
-        on_callback_tool_call: None,
         on_mcp_server_status: None,
     }
 }

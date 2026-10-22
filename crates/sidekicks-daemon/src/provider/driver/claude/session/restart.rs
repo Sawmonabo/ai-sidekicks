@@ -565,7 +565,6 @@ fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<ResumeSessionPara
         tool_servers: Some(legs.tool_servers.clone()),
         output_schema: legs.output_schema.clone(),
         provider_account_id: live.admitted_provider_account_id.clone(),
-        on_callback_tool_call: legs.on_callback_tool_call.clone(),
         on_mcp_server_status: legs.on_mcp_server_status.clone(),
     })
 }

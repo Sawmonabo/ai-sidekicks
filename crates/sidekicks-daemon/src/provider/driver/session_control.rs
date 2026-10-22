@@ -30,7 +30,6 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use tokio_util::sync::CancellationToken;
 
 use crate::ipc::domain_error::DomainError;
-use crate::provider::driver::callback_tool::CallbackToolDispatcher;
 use crate::provider::driver::contract::{SessionToolServer, SubagentPolicy};
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::port::permission_ask::ProviderAskRule;
@@ -79,9 +78,6 @@ pub(crate) struct CreateSessionParams {
     /// machine's default for the provider. The spawn path pins the account's credential home, so
     /// the driver only carries it.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
-    /// The daemon's callback-tool dispatcher (gated on `callbackTools`); its presence tells the
-    /// driver the registry is served, and the driver never calls it.
-    pub(crate) on_callback_tool_call: Option<CallbackToolDispatcher>,
     /// The MCP server-status sink, bound to this leg's session and binding at spawn, so a driver
     /// cannot report for another leg and needs no id for the census it reports while opening.
     pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
@@ -124,9 +120,6 @@ pub(crate) struct ResumeSessionParams {
     /// The account read back from the stored spawn record, never resolved again, so a live run's
     /// spend never moves onto an account it was not admitted against.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
-    /// The callback-tool dispatcher, injected again at every spawn; its presence tells the resumed
-    /// leg the registry is served, and the driver never calls it.
-    pub(crate) on_callback_tool_call: Option<CallbackToolDispatcher>,
     /// The status sink, bound to the resumed leg, through which it reports its census again.
     pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
 }

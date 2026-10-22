@@ -439,7 +439,6 @@ impl ProviderSessions {
             })
             .await?;
         let legs = function_legs_for(&binding.id);
-        create_params.on_callback_tool_call = legs.on_callback_tool_call;
         create_params.on_mcp_server_status = legs.on_mcp_server_status;
         let handle = match driver.create_session(create_params).await {
             Ok(handle) => handle,

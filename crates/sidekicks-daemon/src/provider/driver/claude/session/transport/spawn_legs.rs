@@ -33,6 +33,10 @@ pub(crate) struct ClaudeSpawnBoundLegs {
     /// The JSON Schema the final output must meet.
     pub(crate) output_schema: Option<Map<String, Value>>,
     /// Answers each callback-tool call.
+    #[expect(
+        dead_code,
+        reason = "the driver answers each callback-tool call from the session's tool server with it"
+    )]
     pub(crate) on_callback_tool_call: Option<CallbackToolDispatcher>,
     /// Receives each tool server's status.
     pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
