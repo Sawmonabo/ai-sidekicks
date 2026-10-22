@@ -38,6 +38,7 @@ use crate::provider::driver::claude::spawn::account_home::write_claude_home_rete
 use crate::provider::driver::claude::spawn::environment::{
     ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, compose_claude_process_environment,
 };
+use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::contract::StartRunParams;
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::session_control::{SessionToolServer, SubagentPolicy};
@@ -62,8 +63,8 @@ pub(crate) struct ClaudeSpawnContext {
     pub(crate) account_folders: Option<ClaudeAccountFolders>,
     /// Each spelling of the agent-memory folder.
     pub(crate) memory_folders: Vec<PathBuf>,
-    /// The session's advisor model, `None` when off.
-    pub(crate) advisor_model: Option<String>,
+    /// The session's advisor.
+    pub(crate) advisor: ClaudeSessionAdvisor,
     /// The session's own output style, `None` where Claude Code's own setting holds.
     pub(crate) output_style: Option<String>,
 }
@@ -196,7 +197,7 @@ pub(crate) async fn build_claude_spawn_bound_legs(
         credential_deny_paths: credential_policy.deny_paths,
         memory_folders: context.memory_folders,
         spawn_environment,
-        advisor_model: context.advisor_model,
+        advisor: context.advisor,
         output_style: context.output_style,
     })
 }

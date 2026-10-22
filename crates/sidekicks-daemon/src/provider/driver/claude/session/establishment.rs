@@ -86,6 +86,7 @@ use crate::provider::driver::claude::spawn::legs::{
     ClaudeSpawnLegsRequest, bind_claude_callback_tools, build_claude_spawn_binding,
     build_claude_spawn_bound_legs,
 };
+use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::contract::{
     DriverError, SpawnedVersionBindingCarriers, bound_failure_detail,
 };
@@ -679,7 +680,16 @@ impl ClaudeSessionEstablishment {
             settings: Mutex::new(ClaudeLiveSettings {
                 execution_posture: legs.execution_posture.clone(),
                 session_mode,
-                advisor_model: legs.advisor_model.clone(),
+                // An advisor no one picked is the one Claude Code resolved, which the session then
+                // keeps, so a later change to the person's own setting never reaches it.
+                advisor: match &legs.advisor {
+                    ClaudeSessionAdvisor::Unpicked => {
+                        started.settings_readback.resolved_advisor.clone()
+                    }
+                    picked @ (ClaudeSessionAdvisor::Off | ClaudeSessionAdvisor::Model(_)) => {
+                        picked.clone()
+                    }
+                },
                 output_style: legs.output_style.clone(),
                 running_model: legs.model.clone(),
                 attached_advisor: started.settings_readback.attached_advisor.clone(),

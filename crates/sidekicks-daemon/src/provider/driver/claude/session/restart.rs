@@ -36,6 +36,7 @@ use crate::provider::driver::claude::session::process::ClaudeProcessEnd;
 use crate::provider::driver::claude::session::slots::{ClaudeCloseStart, ClaudeSessionSlots};
 use crate::provider::driver::claude::session::state::LiveClaudeSession;
 use crate::provider::driver::claude::session::ultracode::relaunch_claude_options;
+use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::contract::{DriverError, bound_failure_detail};
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
@@ -531,18 +532,25 @@ pub(crate) fn claude_process_exit_of(end: &ClaudeProcessEnd) -> ProcessExit {
 fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<ResumeSessionParams> {
     let settings = lock(&live.settings).clone();
     let legs = &live.spawn_bound_legs;
-    // The advisor and style the session ran with, read where a new session's would be.
-    let row = |row_id: &str, value: Option<String>| {
+    // The advisor and style the session ran with, read where a new session's would be; an advisor
+    // still unpicked is left out, so Claude Code's own settings resolve it again.
+    let row = |row_id: &str, value: Option<&str>| {
         (
             ProviderDeclarationId::new(row_id.to_owned()).expect("a row's id fits the id pattern"),
-            ProviderRowValue::Value(value.and_then(|value| FreeFormText::new(value).ok())),
+            ProviderRowValue::Value(
+                value.and_then(|value| FreeFormText::new(value.to_owned()).ok()),
+            ),
         )
     };
-    let row_values: ProviderRowValues = Record::new(BTreeMap::from([
-        row(CLAUDE_ADVISOR_ROW_ID, settings.advisor_model),
-        row(CLAUDE_OUTPUT_STYLE_ROW_ID, settings.output_style),
-    ]))
-    .expect("the rows' ids are no reserved key");
+    let mut rows = BTreeMap::from([row(
+        CLAUDE_OUTPUT_STYLE_ROW_ID,
+        settings.output_style.as_deref(),
+    )]);
+    if settings.advisor != ClaudeSessionAdvisor::Unpicked {
+        rows.extend([row(CLAUDE_ADVISOR_ROW_ID, settings.advisor.model())]);
+    }
+    let row_values: ProviderRowValues =
+        Record::new(rows).expect("the rows' ids are no reserved key");
     Some(ResumeSessionParams {
         session_id: live.session_id,
         agent_id: live.agent_id,

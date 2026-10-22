@@ -245,7 +245,7 @@ mod tests {
                 ask: Vec::new(),
                 deny: Vec::new(),
             },
-            advisor_model: String::new(),
+            advisor_model: Some(String::new()),
             output_style: None,
             sandbox: None,
         };

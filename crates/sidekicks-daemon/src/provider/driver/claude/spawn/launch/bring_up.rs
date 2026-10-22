@@ -37,6 +37,7 @@ use crate::provider::driver::claude::spawn::arguments::{
 };
 use crate::provider::driver::claude::spawn::launch::initialize_reply::read_claude_initialize_declaration;
 use crate::provider::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
+use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::claude::spawn::settings::{
     ClaudePermissionsRequest, compose_claude_spawn_settings,
 };
@@ -88,6 +89,8 @@ pub(crate) struct ClaudeSettingsReadback {
     pub(crate) cleanup_period_days: Option<f64>,
     /// The advisor Claude Code says it attaches.
     pub(crate) attached_advisor: ClaudeAttachedAdvisor,
+    /// The effective `advisorModel`, `Unpicked` where the reply carries no effective settings.
+    pub(crate) resolved_advisor: ClaudeSessionAdvisor,
     /// Ultracode's state, where the build reports it.
     pub(crate) ultracode: Option<ClaudeUltracodeReading>,
 }
@@ -122,7 +125,7 @@ pub(crate) async fn bring_up_claude_process(
             path_rules: spawn.path_rules,
         },
         legs.execution_posture.as_ref(),
-        legs.advisor_model.as_deref(),
+        &legs.advisor,
         legs.output_style.as_deref(),
     )?;
     let has_managed_mcp_file = has_readable_managed_mcp_file().await;
@@ -208,12 +211,21 @@ struct SettingsReply {
 }
 
 fn read_settings_readback(reply: Option<&RawValue>) -> ClaudeSettingsReadback {
-    let cleanup_period_days = reply
+    let effective = reply
         .and_then(|reply| serde_json::from_str::<SettingsReply>(reply.get()).ok())
-        .and_then(|reply| reply.effective)
+        .and_then(|reply| reply.effective);
+    let cleanup_period_days = effective
+        .as_ref()
         .and_then(|effective| effective.get("cleanupPeriodDays").and_then(Value::as_f64));
+    // An `effective` naming no `advisorModel` resolves to no advisor.
+    let resolved_advisor = effective
+        .as_ref()
+        .map_or(ClaudeSessionAdvisor::Unpicked, |effective| {
+            ClaudeSessionAdvisor::of(effective.get("advisorModel").and_then(Value::as_str))
+        });
     ClaudeSettingsReadback {
         cleanup_period_days,
+        resolved_advisor,
         attached_advisor: read_claude_attached_advisor(reply),
         ultracode: read_claude_ultracode(reply),
     }

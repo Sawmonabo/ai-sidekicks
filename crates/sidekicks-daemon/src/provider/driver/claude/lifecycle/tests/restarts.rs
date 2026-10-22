@@ -11,6 +11,7 @@ use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel
 use crate::provider::driver::claude::session::scripted::daemon_services::PortCall;
 use crate::provider::driver::claude::session::scripted::{binding_id, mint_run_id, settle};
 use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
+use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::session_control::{
     CloseSessionParams, DriverResumeResult, ProviderBuildChange,
 };
@@ -117,6 +118,27 @@ async fn a_build_move_on_a_busy_session_waits_for_its_turn_to_settle() {
         fixture.relaunches.first_reported().await,
         vec![(session_id, true)]
     );
+}
+
+// Killed by a relaunch that leaves the advisor unpicked again, so a later change to the person's
+// own Claude Code setting reaches a running session, and by a start that sends an advisor no one
+// picked.
+#[tokio::test]
+async fn a_relaunch_keeps_the_advisor_claude_code_resolved_at_the_start() {
+    let fixture = DriverFixture::new();
+    let resolved = ClaudeSessionAdvisor::Model("opus".to_owned());
+    fixture.starts.script_resolved_advisor(resolved.clone());
+    fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let first = fixture.next_start().await;
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+
+    DriverFixture::exit(&first);
+    let relaunched = fixture.next_start().await;
+
+    assert_eq!(first.advisor, ClaudeSessionAdvisor::Unpicked);
+    assert_eq!(relaunched.advisor, resolved);
 }
 
 // How a test ends a session's process.

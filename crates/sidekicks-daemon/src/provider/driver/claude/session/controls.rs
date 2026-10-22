@@ -62,7 +62,7 @@ use crate::provider::driver::claude::spawn::launch::installed_build::ClaudeProce
 use crate::provider::driver::claude::spawn::launch::one_turn::{
     ClaudeOneTurnReply, ClaudeOneTurnRequest,
 };
-use crate::provider::driver::claude::spawn::settings::claude_advisor_setting;
+use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::contract::{DriverError, ProviderCommandsSubscription};
 use crate::provider::driver::diagnostics::DriverDiagnosticKind;
 use crate::provider::driver::session_control::{ProviderCommandsListener, SessionCommandAnswer};
@@ -219,7 +219,7 @@ impl ClaudeSessionControls {
                 let (current, attached) = {
                     let settings = lock(&live.settings);
                     (
-                        settings.advisor_model.clone(),
+                        settings.advisor.model().map(str::to_owned),
                         settings.attached_advisor.clone(),
                     )
                 };
@@ -492,7 +492,7 @@ impl ClaudeSessionControls {
         live.channel
             .send_control_request(ClaudeControlRequest::ApplyFlagSettings {
                 settings: ClaudeFlagSettings {
-                    advisor_model: Some(claude_advisor_setting(advisor_model)),
+                    advisor_model: ClaudeSessionAdvisor::of(advisor_model).setting(),
                     ..ClaudeFlagSettings::default()
                 },
             })
@@ -504,7 +504,7 @@ impl ClaudeSessionControls {
         let attached = read_claude_attached_advisor(settings.response.as_deref());
         {
             let mut held = lock(&live.settings);
-            held.advisor_model = advisor_model.map(str::to_owned);
+            held.advisor = ClaudeSessionAdvisor::of(advisor_model);
             held.attached_advisor = attached.clone();
         }
         let attached_advisor_model = match &attached {
@@ -633,7 +633,7 @@ pub(crate) fn one_turn_legs(
     ClaudeSpawnBoundLegs {
         model: claude_full_model_id(&live.initialize, &settings.running_model),
         execution_posture: settings.execution_posture,
-        advisor_model: settings.advisor_model,
+        advisor: settings.advisor,
         output_style: settings.output_style,
         working_directory: working_directory
             .unwrap_or_else(|| live.spawn_bound_legs.working_directory.clone()),

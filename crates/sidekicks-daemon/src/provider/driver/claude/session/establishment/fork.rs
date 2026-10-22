@@ -57,7 +57,7 @@ impl ClaudeSessionEstablishment {
         let legs = ClaudeSpawnBoundLegs {
             execution_posture: settings.execution_posture.clone(),
             model: settings.running_model.clone(),
-            advisor_model: settings.advisor_model.clone(),
+            advisor: settings.advisor.clone(),
             output_style: settings.output_style.clone(),
             ..predecessor.spawn_bound_legs.clone()
         };

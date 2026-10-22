@@ -51,19 +51,22 @@ pub(crate) fn advisor_model_change_statement(
     }
 }
 
-/// The session's own advisor, `None` when it is off or the session never had one. Fails when the
-/// read fails.
+/// The session's own advisor: `None` when the session never had one, `Some(None)` when it is off.
+/// Fails when the read fails.
+#[expect(
+    clippy::option_option,
+    reason = "a session with no advisor of its own differs from one whose advisor is off"
+)]
 pub(crate) fn read_session_advisor_model(
     reader: &Connection,
     session_id: &SessionId,
-) -> rusqlite::Result<Option<String>> {
-    let advisor_model = reader
+) -> rusqlite::Result<Option<Option<String>>> {
+    reader
         .prepare_cached("SELECT advisor_model FROM session_console_state WHERE session_id = ?")?
         .query_row([session_id.text().as_str()], |row| {
             row.get::<_, Option<String>>(0)
         })
-        .optional()?;
-    Ok(advisor_model.flatten())
+        .optional()
 }
 
 /// The statement storing the mode a `session.mode.update` moved the provider to.

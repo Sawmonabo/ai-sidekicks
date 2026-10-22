@@ -27,6 +27,7 @@ use crate::provider::driver::claude::session::transport::declarations::{
 };
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::provider::driver::claude::session::ultracode::ClaudeUltracodeReading;
+use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::reviewer_denial::ReviewerDenialPort;
 use crate::provider::thread_frame_router::{
@@ -127,8 +128,8 @@ pub(crate) struct ClaudeLiveSettings {
     pub(crate) execution_posture: Option<ExecutionPosture>,
     /// Whether the next turns build or plan; a fresh process builds.
     pub(crate) session_mode: SessionMode,
-    /// The advisor model, `None` when off.
-    pub(crate) advisor_model: Option<String>,
+    /// The session's advisor, the one Claude Code resolved at the start where none was picked.
+    pub(crate) advisor: ClaudeSessionAdvisor,
     /// The session's own output style, `None` where Claude Code's own setting holds.
     pub(crate) output_style: Option<String>,
     /// The model the session runs on; a relaunch and a fork pass this one as `--model`.

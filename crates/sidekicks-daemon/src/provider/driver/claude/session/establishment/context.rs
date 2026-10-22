@@ -17,6 +17,7 @@ use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool
 use crate::provider::driver::SessionSpawnContextResolver;
 use crate::provider::driver::claude::spawn::environment::ClaudeAccountFolders;
 use crate::provider::driver::claude::spawn::legs::ClaudeSpawnContext;
+use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::session::console_state::{read_session_advisor_model, read_session_max_steps_per_turn};
 
 /// The id of the Settings row holding the output style new sessions start with.
@@ -53,7 +54,7 @@ pub(crate) enum ClaudeSpawnContextError {
 
 /// The session's own settings a process starts with.
 struct ClaudeStoredSettings {
-    advisor_model: Option<String>,
+    advisor: Option<ClaudeSessionAdvisor>,
     output_style: Option<String>,
 }
 
@@ -87,9 +88,12 @@ pub(crate) async fn resolve_claude_spawn_context(
         // Claude Code finds each folder's memory itself; the daemon names none beside them.
         memory_folders: Vec::new(),
         // The session's own advisor and style, else the ones the app keeps for new sessions.
-        advisor_model: stored
-            .advisor_model
-            .or_else(|| read_claude_row_text(row_values, CLAUDE_ADVISOR_ROW_ID)),
+        advisor: stored.advisor.unwrap_or_else(|| {
+            read_claude_row_choice(row_values, CLAUDE_ADVISOR_ROW_ID)
+                .map_or(ClaudeSessionAdvisor::Unpicked, |choice| {
+                    ClaudeSessionAdvisor::of(choice.as_deref())
+                })
+        }),
         output_style: stored
             .output_style
             .or_else(|| read_claude_row_text(row_values, CLAUDE_OUTPUT_STYLE_ROW_ID)),
@@ -112,7 +116,8 @@ fn read_stored_settings(
     reader: &Connection,
     session_id: &SessionId,
 ) -> Result<ClaudeStoredSettings, ClaudeStoredReadError> {
-    let advisor_model = read_session_advisor_model(reader, session_id)?;
+    let advisor = read_session_advisor_model(reader, session_id)?
+        .map(|advisor_model| ClaudeSessionAdvisor::of(advisor_model.as_deref()));
     let output_style = reader
         .prepare_cached(SELECT_OUTPUT_STYLE_SQL)?
         .query_row(
@@ -125,16 +130,29 @@ fn read_stored_settings(
         .optional()?
         .flatten();
     Ok(ClaudeStoredSettings {
-        advisor_model,
+        advisor,
         output_style,
     })
 }
 
 /// The choice the app keeps for new sessions on the Settings row `row_id`, where one is chosen.
 pub(crate) fn read_claude_row_text(row_values: &ProviderRowValues, row_id: &str) -> Option<String> {
+    read_claude_row_choice(row_values, row_id).flatten()
+}
+
+/// The pick the app made for new sessions on the choice row `row_id`: `None` where it made none,
+/// so Claude Code's own setting holds, and `Some(None)` for the row's none.
+#[expect(
+    clippy::option_option,
+    reason = "a row the app never set differs from one set to its none"
+)]
+pub(crate) fn read_claude_row_choice(
+    row_values: &ProviderRowValues,
+    row_id: &str,
+) -> Option<Option<String>> {
     let id = ProviderDeclarationId::new(row_id.to_owned()).expect("a row's id fits the id pattern");
     match row_values.as_map().get(&id)? {
-        ProviderRowValue::Value(value) => value.as_ref().map(|text| text.as_str().to_owned()),
+        ProviderRowValue::Value(value) => Some(value.as_ref().map(|text| text.as_str().to_owned())),
         ProviderRowValue::Places(_) => None,
     }
 }

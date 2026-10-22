@@ -10,6 +10,7 @@ use sidekicks_contracts::session::id::SessionId;
 
 use crate::policy::execution_posture_service::CredentialDenyPath;
 use crate::provider::driver::callback_tool::CallbackToolDispatcher;
+use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::session_control::{SessionToolServer, SubagentPolicy};
 
@@ -46,8 +47,8 @@ pub(crate) struct ClaudeSpawnBoundLegs {
     pub(crate) memory_folders: Vec<PathBuf>,
     /// The process's whole environment.
     pub(crate) spawn_environment: Vec<(String, String)>,
-    /// The session's advisor model, `None` when off.
-    pub(crate) advisor_model: Option<String>,
+    /// The session's advisor.
+    pub(crate) advisor: ClaudeSessionAdvisor,
     /// The session's own output style, `None` where Claude Code's own setting holds.
     pub(crate) output_style: Option<String>,
 }

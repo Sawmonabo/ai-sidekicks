@@ -31,6 +31,7 @@ use crate::provider::driver::claude::spawn::launch::installed_build::{
 use crate::provider::driver::claude::spawn::launch::one_turn::{
     ClaudeOneTurnReply, ClaudeOneTurnRequest,
 };
+use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult};
 use crate::provider::runtime_binding::test_store::spawned_build;
 use crate::queue::delivery::ProviderProcessIdentity;
@@ -44,6 +45,8 @@ pub(crate) struct ScriptedStartRecord {
     pub(crate) conversation: ClaudeConversationStart,
     /// Where its frames, requests and exit go.
     pub(crate) listener: Arc<dyn ClaudeProcessListener>,
+    /// The advisor it starts with.
+    pub(crate) advisor: ClaudeSessionAdvisor,
 }
 
 /// One one-turn process the driver asked for.
@@ -61,6 +64,7 @@ pub(crate) struct ScriptedOneTurnRecord {
 struct ScriptedStartTables {
     sessions: VecDeque<Result<Arc<ScriptedChannel>, String>>,
     initializes: VecDeque<ClaudeInitializeDeclaration>,
+    resolved_advisors: VecDeque<ClaudeSessionAdvisor>,
     session_holds: VecDeque<oneshot::Receiver<()>>,
     catalogs: VecDeque<Value>,
     catalog_environments: Vec<Vec<(String, String)>>,
@@ -94,6 +98,12 @@ impl ScriptedStarts {
     /// declaration.
     pub(crate) fn script_initialize(&self, initialize: ClaudeInitializeDeclaration) {
         self.lock().initializes.push_back(initialize);
+    }
+
+    /// Scripts the next session start's settings to read back `advisor` as the one its settings
+    /// resolve, in place of no effective settings.
+    pub(crate) fn script_resolved_advisor(&self, advisor: ClaudeSessionAdvisor) {
+        self.lock().resolved_advisors.push_back(advisor);
     }
 
     /// Holds the next session start, once recorded, until the returned sender fires or drops.
@@ -160,7 +170,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
         request: ClaudeBringUpRequest<'a>,
     ) -> BoxFuture<'a, Result<ClaudeStartedSession, ClaudeLaunchError>> {
         async move {
-            let (channel, initialize, process_id, hold) = {
+            let (channel, initialize, resolved_advisor, process_id, hold) = {
                 let mut tables = self.lock();
                 let channel = match tables.sessions.pop_front() {
                     Some(Ok(channel)) => channel,
@@ -171,10 +181,15 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 tables.started.push(ScriptedStartRecord {
                     conversation: request.conversation,
                     listener: request.listener,
+                    advisor: request.spawn.legs.advisor.clone(),
                 });
                 (
                     channel,
                     tables.initializes.pop_front().unwrap_or_default(),
+                    tables
+                        .resolved_advisors
+                        .pop_front()
+                        .unwrap_or(ClaudeSessionAdvisor::Unpicked),
                     tables.next_process_id,
                     tables.session_holds.pop_front(),
                 )
@@ -194,6 +209,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 settings_readback: ClaudeSettingsReadback {
                     cleanup_period_days: None,
                     attached_advisor: ClaudeAttachedAdvisor::Unreported,
+                    resolved_advisor,
                     ultracode: None,
                 },
                 spawned_version: spawned_build(SCRIPTED_BUILD_VERSION, "/scripted/claude"),

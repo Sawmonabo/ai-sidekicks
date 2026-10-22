@@ -123,7 +123,8 @@ async fn settings_reads_of_one_build_share_one_figures_process() {
 }
 
 // Killed by an advisor row that holds no value where the person's own Claude Code settings name
-// an advisor, and by one that holds the person's over the app's pick.
+// an advisor, by one that holds the person's over the app's pick, and by the app's `No advisor`
+// pick read as no pick, which shows the person's advisor where new sessions start with none.
 #[tokio::test]
 async fn the_advisor_row_holds_the_apps_pick_else_the_persons_own_advisor() {
     let fixture = DriverFixture::new();
@@ -137,19 +138,23 @@ async fn the_advisor_row_holds_the_apps_pick_else_the_persons_own_advisor() {
     fixture
         .starts
         .script_creation_figures(figures_offering_advisors());
-    let picked = Record::new(
-        [(
-            ProviderDeclarationId::new("advisor".to_owned()).expect("the row id fits"),
-            ProviderRowValue::Value(Some(
-                ProviderValueText::new("sonnet".to_owned()).expect("the pick fits"),
-            )),
-        )]
-        .into(),
-    )
-    .expect("one row is a record");
+    let pick =
+        |model: Option<&str>| {
+            Record::new(
+                [(
+                    ProviderDeclarationId::new("advisor".to_owned()).expect("the row id fits"),
+                    ProviderRowValue::Value(model.map(|model| {
+                        ProviderValueText::new(model.to_owned()).expect("the pick fits")
+                    })),
+                )]
+                .into(),
+            )
+            .expect("one row is a record")
+        };
 
     let persons = fixture.driver.read_rows(Record::default()).await;
-    let apps = fixture.driver.read_rows(picked).await;
+    let apps = fixture.driver.read_rows(pick(Some("sonnet"))).await;
+    let none = fixture.driver.read_rows(pick(None)).await;
 
     assert_eq!(
         advisor_value(&persons.expect("the rows read")).as_deref(),
@@ -159,4 +164,5 @@ async fn the_advisor_row_holds_the_apps_pick_else_the_persons_own_advisor() {
         advisor_value(&apps.expect("the rows read")).as_deref(),
         Some("sonnet")
     );
+    assert_eq!(advisor_value(&none.expect("the rows read")), None);
 }

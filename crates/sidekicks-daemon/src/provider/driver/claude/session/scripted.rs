@@ -65,6 +65,7 @@ use crate::provider::driver::claude::session::transport::inbound::{
     ClaudeControlFrameReader, ClaudeInboundRequestEvent,
 };
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::test_registry::test_driver_services;
 use crate::provider::thread_frame_router::ThreadFrameRouter;
 use crate::provider::usage_delta_accountant::UsageDeltaAccountant;
@@ -131,7 +132,7 @@ pub(crate) fn scripted_live_session(
             credential_deny_paths: Vec::new(),
             memory_folders: Vec::new(),
             spawn_environment: Vec::new(),
-            advisor_model: None,
+            advisor: ClaudeSessionAdvisor::Unpicked,
             output_style: None,
         },
         initialize: ClaudeInitializeDeclaration::default(),
@@ -141,7 +142,7 @@ pub(crate) fn scripted_live_session(
         settings: Mutex::new(ClaudeLiveSettings {
             execution_posture: Some(execution_posture),
             session_mode: SessionMode::Build,
-            advisor_model: None,
+            advisor: ClaudeSessionAdvisor::Unpicked,
             output_style: None,
             running_model: "opus".to_owned(),
             attached_advisor: ClaudeAttachedAdvisor::Unreported,

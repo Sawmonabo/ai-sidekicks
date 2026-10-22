@@ -13,7 +13,7 @@ use crate::provider::driver::claude::session::answered_commands::{
     ClaudeAdvisorChoices, ClaudeCommandChoices, ClaudeOutputStyleDescriptions,
 };
 use crate::provider::driver::claude::session::establishment::context::{
-    CLAUDE_ADVISOR_ROW_ID, CLAUDE_OUTPUT_STYLE_ROW_ID, read_claude_row_text,
+    CLAUDE_ADVISOR_ROW_ID, CLAUDE_OUTPUT_STYLE_ROW_ID, read_claude_row_choice, read_claude_row_text,
 };
 use crate::text_cut::cut_to_code_points;
 
@@ -44,7 +44,8 @@ pub(crate) fn compose_claude_rows(
 ) -> Vec<ProviderRow> {
     let output_style =
         read_claude_row_text(app_values, CLAUDE_OUTPUT_STYLE_ROW_ID).or(person_output_style);
-    let advisor = read_claude_row_text(app_values, CLAUDE_ADVISOR_ROW_ID).or(person_advisor_model);
+    let advisor =
+        read_claude_row_choice(app_values, CLAUDE_ADVISOR_ROW_ID).unwrap_or(person_advisor_model);
     let offers = match offers {
         Ok(offers) => offers,
         Err(unread) => {
