@@ -364,7 +364,7 @@ impl EndingGuard<'_> {
             // takes this one's place, and its own guard clears it once it lands.
             let mut pending = self.entry.previous.clone();
             while let Some(write) = pending.clone().filter(|write| write.landed.initialized()) {
-                pending = write.previous.clone();
+                pending.clone_from(&write.previous);
             }
             match pending {
                 Some(write) => {

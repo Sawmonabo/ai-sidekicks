@@ -633,12 +633,23 @@ CREATE TABLE approval_resolutions (
                                               -- its provider did not keep (Spec-010 §Interfaces And Contracts)
                            CHECK(remembered_scope_kind IS NULL OR remembered_scope_kind IN ('session', 'project')),
   remembered_scope_pattern TEXT,              -- the derived subject of that rule, nullable
+  asked_scope_kind         TEXT               -- 'session' | 'project' when the answer asked for a rule, written with the
+                                              -- answer, so a resend under the same client resolution id records that rule
+                                              -- and no other; rebuilt from approval.approved / approval.rejected's
+                                              -- rememberedScope; NULL for a one-time answer
+                           CHECK(asked_scope_kind IS NULL OR asked_scope_kind IN ('session', 'project')),
+  asked_scope_pattern      TEXT,              -- the derived subject of the rule asked for, nullable
   edited_action            TEXT,              -- the command or path as the person corrected it on the card, which is what
                                               -- runs (approval.approved.editedAction); NULL for an answer that changed
                                               -- nothing and for every decline
+  decline_reason           TEXT,              -- the words the person typed on a decline, which go back to the agent
+                                              -- (approval.rejected.declineReason); NULL for a decline without words and
+                                              -- for every approval
   resolved_at              TEXT NOT NULL,
   CHECK((remembered_scope_kind IS NULL) = (remembered_scope_pattern IS NULL)), -- a rule names its subject
-  CHECK(edited_action IS NULL OR decision = 'approved')
+  CHECK((asked_scope_kind IS NULL) = (asked_scope_pattern IS NULL)),           -- a rule asked for names its subject
+  CHECK(edited_action IS NULL OR decision = 'approved'),
+  CHECK(decline_reason IS NULL OR decision = 'rejected')
 ) STRICT;
 
 -- Owner: Plan-009

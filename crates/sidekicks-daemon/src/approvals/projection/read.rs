@@ -125,8 +125,10 @@ fn projection_row_of(
                 effective_scope,
                 remembered_scope,
                 resolved_at,
+                asked_scope: _,
                 client_resolution_id: _,
                 edited_action: _,
+                decline_reason: _,
             }),
         ) => ApprovalProjectionRow::Approved {
             id,
@@ -155,8 +157,10 @@ fn projection_row_of(
                 effective_scope,
                 remembered_scope,
                 resolved_at,
+                asked_scope: _,
                 client_resolution_id: _,
                 edited_action: _,
+                decline_reason: _,
             }),
         ) => ApprovalProjectionRow::Rejected {
             id,

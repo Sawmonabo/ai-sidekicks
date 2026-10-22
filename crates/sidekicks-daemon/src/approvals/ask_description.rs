@@ -12,7 +12,7 @@
 //!   standing allow, and no rule in force answers it: it always reaches the card. So does an ask
 //!   the provider's own safety check flagged.
 //! - A change to one file names its path, as does a read; a change to several files names none.
-//! - A host names itself, a tool its name; a plan and input to a running command take no rule.
+//! - A host names itself, a tool its name; input to a running command takes no rule.
 //!
 //! A command's line is read once per ask, on the ask's one reader, and that reading is handed to
 //! each function here; the `-c` and `eval` strings they reread come from the reader's own keep.
@@ -22,9 +22,11 @@ use std::borrow::Cow;
 use sidekicks_contracts::approval::{ApprovalCategory, ApprovalScope, RememberedScopeKind};
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::wire::text::{NonEmptyText, TextError, is_ecmascript_whitespace};
+use tokio::task::JoinError;
 
 use crate::approvals::request_create::ApprovalResourceDescriptor;
 use crate::policy::destructive_git::{read_git_subcommand, runs_destructive_git};
+use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::policy::shell_commands::{ShellCommand, ShellLineReader, ShellLineReading, WordText};
 use crate::provider::port::permission_ask::{ProviderAskAction, ProviderPermissionAsk};
 use crate::text_cut::cut_to_code_points;
@@ -86,7 +88,7 @@ pub(crate) fn describe_provider_ask(
             standing_allow_offered,
             project_scope_offered: standing_allow_offered
                 && ask.rule_scopes.contains(&RememberedScopeKind::Project),
-            editable: is_editable(action),
+            editable: action.corrected_subject().is_some(),
             action: Some(action.clone()),
             tool_name: Some(tool_name),
             // A prompt with no text is no prompt.
@@ -109,9 +111,9 @@ pub(crate) fn may_allow_stand(
     may_allow_stand_on(ask, category, subject.as_deref())
 }
 
-/// The subject a standing rule on `action` names, or `None` for an action no rule may name: a
-/// plan, input to a running command, a change to several files, or a line that is not one plain
-/// command read whole. `reading` is as [`describe_provider_ask`] takes it.
+/// The subject a standing rule on `action` names, or `None` for an action no rule may name: input
+/// to a running command, a change to several files, or a line that is not one plain command read
+/// whole. `reading` is as [`describe_provider_ask`] takes it.
 pub(crate) fn derive_rule_subject(
     reader: &mut ShellLineReader,
     reading: Option<&ShellLineReading>,
@@ -135,6 +137,23 @@ pub(crate) fn derive_rule_subject(
         ProviderAskAction::Tool { tool_name } => Some(tool_name.clone()),
         ProviderAskAction::CommandInput { .. } => None,
     }
+}
+
+/// Reads `action`'s command line once, on its own reader under the daemon-wide `shell_lines`
+/// bound, and answers what `work` makes of the reader and that reading, `None` for an action that
+/// runs no command. Fails when `work` panics.
+pub(crate) async fn read_command_line<T: Send + 'static>(
+    shell_lines: &ShellLineReadingBound,
+    action: &ProviderAskAction,
+    work: impl FnOnce(&mut ShellLineReader, Option<&ShellLineReading>) -> T + Send + 'static,
+) -> Result<T, JoinError> {
+    let line = action.command_line().map(str::to_owned);
+    shell_lines
+        .read(line.as_ref().map_or(0, String::len), move |reader| {
+            let reading = line.map(|line| reader.read(&line));
+            work(reader, reading.as_deref())
+        })
+        .await
 }
 
 fn may_allow_stand_on(
@@ -212,17 +231,6 @@ fn target_text_of(action: &ProviderAskAction) -> Cow<'_, str> {
         ProviderAskAction::FileRead { path } => Cow::Borrowed(path),
         ProviderAskAction::Network { host } => Cow::Borrowed(host),
         ProviderAskAction::Tool { tool_name } => Cow::Borrowed(tool_name),
-    }
-}
-
-// A command or a path may be corrected before it is approved; nothing else may.
-fn is_editable(action: &ProviderAskAction) -> bool {
-    match action {
-        ProviderAskAction::Command { .. } | ProviderAskAction::FileRead { .. } => true,
-        ProviderAskAction::FileChange { paths } => paths.len() == 1,
-        ProviderAskAction::CommandInput { .. }
-        | ProviderAskAction::Network { .. }
-        | ProviderAskAction::Tool { .. } => false,
     }
 }
 

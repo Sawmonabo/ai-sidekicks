@@ -64,11 +64,12 @@ pub(crate) enum CallbackToolApprovalOutcome {
 
 /// The approval pipeline's evaluation, which the daemon's start binds to the composed check.
 pub(crate) trait CallbackToolApprovalSeam: Send + Sync {
-    /// Adjudicates `invocation`, whose arguments a policy may read. An error when it could not
-    /// adjudicate, which the host answers `denied`.
+    /// Adjudicates `invocation`, whose arguments a policy may read, made by `provider`'s process.
+    /// An error when it could not adjudicate, which the host answers `denied`.
     fn evaluate<'a>(
         &'a self,
         invocation: &'a CallbackToolInvocation,
+        provider: &'a ProviderId,
     ) -> BoxFuture<'a, Result<CallbackToolApprovalOutcome, CallbackToolPortError>>;
 }
 
@@ -517,13 +518,17 @@ impl CallbackToolHost {
                     .to_owned(),
             )),
             (Some(_), Err((refusal, detail))) => Err((refusal, detail.to_owned())),
-            (Some(seam), Ok(())) => seam.evaluate(&invocation).await.map_err(|error| {
-                let detail = format!(
-                    "the approval seam failed before adjudicating; refusing rather than \
-                     completing without adjudication ({error})"
-                );
-                (Refusal::NoSeam, detail)
-            }),
+            (Some(seam), Ok(())) => {
+                seam.evaluate(&invocation, &token.0.provider)
+                    .await
+                    .map_err(|error| {
+                        let detail = format!(
+                            "the approval seam failed before adjudicating; refusing rather than \
+                             completing without adjudication ({error})"
+                        );
+                        (Refusal::NoSeam, detail)
+                    })
+            }
         };
         let outcome = match adjudication {
             Ok(outcome) => outcome,

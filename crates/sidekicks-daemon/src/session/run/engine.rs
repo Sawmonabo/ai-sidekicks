@@ -496,7 +496,6 @@ impl RunEngine {
     /// interrupt a stop of the run could not hand is handed again, and once the provider reports
     /// the run back to `running` from a wait, a pause or `pausing`, the interrupt of every limit it
     /// owes, each failure returned beside the run as the change left it.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn apply_provider_state_change(
         self: &Arc<Self>,
         change: RunStateChange,

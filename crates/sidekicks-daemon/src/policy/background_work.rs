@@ -13,13 +13,6 @@ use crate::provider::driver::{BackgroundWork, PROVIDERS, ProviderDescriptor};
 /// work, or `None` when it starts none. The `-c` and `eval` strings its shells run are reread on
 /// `reader` and judged only when read whole; a line not read whole refuses nothing, since what the
 /// parser could not read is no ground for a refusal.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the permission check and each provider's pre-tool hook refuse with it"
-    )
-)]
 pub(crate) fn refuse_background_work(
     reader: &mut ShellLineReader,
     reading: &ShellLineReading,

@@ -131,6 +131,7 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     mcp_transports: &[McpTransport::Stdio, McpTransport::Http, McpTransport::Sse],
     mcp_config_members: &[],
     skill_name_max_length: None,
+    callback_tools_asked: true,
     background_work: Some(BackgroundWork {
         // Background sessions and their supervisor, a restart of them, and every form that serves
         // or runs a session from elsewhere: Remote Control, a self-hosted runner, the gateway.

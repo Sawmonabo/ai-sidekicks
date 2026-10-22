@@ -59,8 +59,8 @@ pub struct ApprovalRequestedPayload {
 }
 
 /// The `approval.approved` and `approval.rejected` payload: the answer, the device it came from,
-/// the id the answering client minted, and on an approval the command or path as the person
-/// corrected it.
+/// the id the answering client minted, on an approval the command or path as the person corrected
+/// it, and on a decline the words the person gave.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ApprovalResolvedPayload {
@@ -80,6 +80,23 @@ pub struct ApprovalResolvedPayload {
     pub device_id: DeviceId,
     /// The id the answering client minted.
     pub client_resolution_id: ClientUuid,
+    /// The rule the person asked to keep with the answer, so a rebuild and a resend record the
+    /// rule asked for even when its own event was never written.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "RememberedScope")]
+    pub remembered_scope: Option<RememberedScope>,
+    /// The `why not` words, which go back to the agent; only on `approval.rejected`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "NonEmptyText")]
+    pub decline_reason: Option<NonEmptyText>,
     /// The corrected command or path, which is what runs; only on `approval.approved`.
     #[serde(
         default,

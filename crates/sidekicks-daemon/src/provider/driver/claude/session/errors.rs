@@ -370,6 +370,7 @@ mod tests {
             | DriverError::ExecutableUnresolvable(_)
             | DriverError::ModelCatalogUnreadable(_)
             | DriverError::ProviderAxisInvalid(_)
+            | DriverError::RuleNotKept(_)
             | DriverError::Internal(_) => None,
         }
     }
