@@ -50,6 +50,7 @@ use crate::provider::driver::claude::delivery::system::{
 use crate::provider::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
 use crate::provider::driver::claude::event_normalizer::resolve_claude_frame_emission_route;
 use crate::provider::driver::claude::hooks::pause::ClaudeRunPauses;
+use crate::provider::driver::claude::rate_limit_windows::read_claude_quota_windows;
 use crate::provider::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::provider::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::provider::driver::claude::session::arrivals::{
@@ -59,6 +60,8 @@ use crate::provider::driver::claude::spent_retries_signal::classify_claude_spent
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics, emit_driver_diagnostic,
 };
+use crate::provider::port::registration::PortRegistration;
+use crate::provider::port::usage_sink::UsageSink;
 use crate::provider::record_readers::read_non_empty_string;
 use crate::provider::thread_frame_router::ThreadFrameRoute;
 use crate::session::run::engine::RunMarker;
@@ -88,6 +91,8 @@ pub(crate) struct ClaudeStreamDependencies {
     pub(crate) reviewer: Arc<ClaudeReviewerCapture>,
     /// The queue's report that a handed message was taken.
     pub(crate) message_taken: ClaudeMessageTaken,
+    /// Where the account's quota windows go once the usage record is registered.
+    pub(crate) usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
 }
 
 /// What a frame left for the session's task to do beyond its deliveries.
@@ -360,6 +365,17 @@ impl ClaudeDeliveryStream {
             self.read_command_lifecycle(session, &members);
             return after;
         }
+        // The account's quota, whichever turn it came on.
+        if frame_kind == "rate_limit_event" {
+            if let Some(sink) = self.dependencies.usage.port() {
+                sink.record_quota_windows(
+                    DESCRIPTOR.provider_id(),
+                    session.provider_account_id.clone(),
+                    read_claude_quota_windows(&members),
+                );
+            }
+            return after;
+        }
         // The reader released the turn as it read a turn-ending `result`, so that frame ends the
         // turn the stream opened; any other frame belongs to the run that held the turn as it was
         // read, the reader being ahead of this task.
@@ -446,7 +462,8 @@ impl ClaudeDeliveryStream {
                 self.send_marker(session, &lead, marker, Some(frame_kind))
                     .await;
             }
-            "system/api_retry" => {
+            // Claude Code maps its `api_error` onto the retry announcement.
+            "system/api_retry" | "system/api_error" => {
                 if classify_claude_spent_retries(&Value::Object(members)).is_some() {
                     session.lock().is_retries_spent = true;
                 }

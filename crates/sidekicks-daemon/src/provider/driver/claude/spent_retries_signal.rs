@@ -1,7 +1,8 @@
-//! Reads Claude Code's `api_retry` frame for the end of its own retry ladder. Claude Code retries a
-//! rate limit or an overload itself; when the final announced retry fails too, the turn ends with
-//! the provider not answering. That is the spent-retries cause, never a spent plan allowance: a
-//! plan limit is not retried, so no retry frame announces one.
+//! Reads Claude Code's `api_retry` frame, or `api_error`, which Claude Code maps onto it, for the end
+//! of its own retry ladder. Claude Code retries a rate limit or an overload itself; when the final
+//! announced retry fails too, the turn ends with the provider not answering. That is the
+//! spent-retries cause, never a spent plan allowance: a plan limit is not retried, so no retry frame
+//! announces one.
 
 use serde_json::Value;
 use sidekicks_contracts::provider::driver::usage_limit::{
@@ -20,7 +21,10 @@ pub(crate) fn classify_claude_spent_retries(frame: &Value) -> Option<ProviderSpe
     let frame = frame.as_object()?;
     // `error_status` is never read: a bare `429` says nothing the typed member does not.
     if frame.get("type").and_then(Value::as_str) != Some("system")
-        || frame.get("subtype").and_then(Value::as_str) != Some("api_retry")
+        || !matches!(
+            frame.get("subtype").and_then(Value::as_str),
+            Some("api_retry" | "api_error")
+        )
         || !frame
             .get("error")
             .and_then(Value::as_str)

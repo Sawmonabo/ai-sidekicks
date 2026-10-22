@@ -313,6 +313,7 @@ impl ClaudeDriver {
                     listener.message_taken(session_id, message_id, run_id);
                 }
             }),
+            usage: Arc::clone(&ports.usage),
         }));
         let goals = Arc::new(ClaudeGoalCommands::default());
         let cuts = Arc::new(ClaudeConversationCuts {

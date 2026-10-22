@@ -67,6 +67,7 @@ pub(crate) mod inbox_address;
 mod intervention;
 mod lifecycle;
 mod output_speed;
+mod rate_limit_windows;
 mod run;
 mod session;
 mod settings_rows;

@@ -12,7 +12,9 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::artifacts::id::ArtifactId;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -41,7 +43,7 @@ use crate::provider::port::permission_ask::{
 };
 use crate::provider::port::repository_reader::{RepositoryReader, RepositoryReading};
 use crate::provider::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
-use crate::provider::port::usage_sink::UsageSink;
+use crate::provider::port::usage_sink::{ProviderQuotaWindow, UsageSink};
 use crate::provider::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
 
 /// What reached the approval ports, in order.
@@ -141,18 +143,26 @@ pub(crate) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<Recor
         .expect("the intake registers once");
 }
 
-/// A usage record that keeps each metered delta and answers one set of sums as every thread's
-/// already reported ones.
+/// A usage record that keeps each metered delta and each set of quota windows, and answers one set
+/// of sums as every thread's already reported ones.
 #[derive(Default)]
 pub(crate) struct RecordingUsage {
     reported: Mutex<UsageAxisCounts>,
     metered: Mutex<Vec<(SessionId, MeteredUsageDelta)>>,
+    quota_windows: Mutex<Vec<(Option<ProviderAccountId>, Vec<ProviderQuotaWindow>)>>,
 }
 
 impl RecordingUsage {
     /// Answers `reported` as the sums already reported under every thread.
     pub(crate) fn report_prior(&self, reported: UsageAxisCounts) {
         *lock(&self.reported) = reported;
+    }
+
+    /// Every set of quota windows taken so far, with its account, in order.
+    pub(crate) fn quota_windows(
+        &self,
+    ) -> Vec<(Option<ProviderAccountId>, Vec<ProviderQuotaWindow>)> {
+        lock(&self.quota_windows).clone()
     }
 
     /// Every delta metered so far, with its session, in order.
@@ -172,6 +182,15 @@ impl UsageSink for RecordingUsage {
         _thread_id: &str,
     ) -> Result<UsageAxisCounts, Box<dyn Error + Send + Sync>> {
         Ok(*lock(&self.reported))
+    }
+
+    fn record_quota_windows(
+        &self,
+        _provider: ProviderId,
+        provider_account_id: Option<ProviderAccountId>,
+        windows: Vec<ProviderQuotaWindow>,
+    ) {
+        lock(&self.quota_windows).push((provider_account_id, windows));
     }
 }
 

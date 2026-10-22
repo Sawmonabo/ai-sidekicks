@@ -27,7 +27,8 @@ use tokio::runtime::Handle;
 
 use self::channel::ScriptedChannel;
 use self::daemon_services::{
-    RecordingPorts, ScriptedAttachments, register_scripted_ports, test_callback_tool_binding,
+    RecordingPorts, RecordingUsage, ScriptedAttachments, register_scripted_ports,
+    test_callback_tool_binding,
 };
 use self::run_engine::RecordingRunEngine;
 use self::starts::ScriptedStarts;
@@ -173,6 +174,8 @@ pub(crate) struct ScriptedSession {
     pub(crate) ports: Arc<RecordingPorts>,
     /// The staged files.
     pub(crate) attachments: Arc<ScriptedAttachments>,
+    /// The usage record.
+    pub(crate) usage: Arc<RecordingUsage>,
     /// The live session.
     pub(crate) live: Arc<LiveClaudeSession>,
     /// Its stream.
@@ -207,6 +210,12 @@ impl ScriptedSession {
             ..test_driver_services()
         };
         register_scripted_ports(&services.ports, &ports);
+        let usage = Arc::new(RecordingUsage::default());
+        services
+            .ports
+            .usage
+            .register(usage.clone())
+            .expect("the usage record registers once");
         let engine_port: Arc<dyn ClaudeRunEngine> = engine.clone();
         let driver =
             ClaudeDriver::with_engine(&services, Arc::new(ScriptedStarts::default()), &engine_port)
@@ -262,6 +271,7 @@ impl ScriptedSession {
             engine,
             ports,
             attachments,
+            usage,
             live,
             stream,
             start: parts.run_start.clone(),
