@@ -441,7 +441,8 @@ pub(crate) struct ProviderAccountFolders {
     pub(crate) credential_store_folder: PathBuf,
 }
 
-/// Resolves where a session's provider process runs, wired by the daemon.
+/// Resolves where a session's provider process runs, and an account's folders before any session
+/// runs on it, wired by the daemon.
 pub(crate) trait SessionSpawnContextResolver: Send + Sync {
     /// The context `session_id` runs in on `provider_account_id`'s account, or on the person's own
     /// sign-in when `None`. Fails when the session or its folders cannot be read.
@@ -450,6 +451,19 @@ pub(crate) trait SessionSpawnContextResolver: Send + Sync {
         session_id: SessionId,
         provider_account_id: Option<ProviderAccountId>,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn Error + Send + Sync>>>;
+
+    /// The folders of `provider_account_id`'s account where the app manages its home, `None`
+    /// where it does not; read with no session, before one exists. Fails when the account or its
+    /// folders cannot be read.
+    #[expect(
+        dead_code,
+        reason = "a new session's starting level and a model list with no session read the \
+                  account's folders through it"
+    )]
+    fn resolve_account_folders(
+        &self,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<ProviderAccountFolders>, Box<dyn Error + Send + Sync>>>;
 }
 
 /// One registered provider: its descriptor and the function that builds its driver from the shared

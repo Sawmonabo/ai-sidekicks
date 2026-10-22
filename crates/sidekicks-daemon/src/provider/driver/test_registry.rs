@@ -33,7 +33,7 @@ use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::driver::ports::DriverPorts;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::{
-    DriverServices, PROVIDERS, ProviderRegistration, SessionSpawnContext,
+    DriverServices, PROVIDERS, ProviderAccountFolders, ProviderRegistration, SessionSpawnContext,
     SessionSpawnContextResolver,
 };
 use crate::provider::process_registry::ProviderProcessRegistry;
@@ -47,13 +47,14 @@ const TEST_POOL_STATEMENT_CAPACITY: usize = 16;
 /// The most line bytes the test bound lets the shell-line reader parse at once.
 const TEST_SHELL_LINE_LIMIT: usize = 1 << 20;
 
-/// What a test that resolves no spawn context or attachment, or rebinds no binding, answers: the
-/// daemon's part that serves it is not built in that test.
+/// What a test that resolves no spawn context, account folders or attachment, or rebinds no
+/// binding, answers: the daemon's part that serves it is not built in that test.
 #[derive(Debug, thiserror::Error)]
 #[error("the test serves no {0}")]
 struct NotServedInTest(&'static str);
 
-/// A spawn-context resolver, attachment resolver and binding rebinder that serve nothing.
+/// A spawn-context and account-folder resolver, attachment resolver and binding rebinder that
+/// serve nothing.
 struct NothingServed;
 
 impl SessionSpawnContextResolver for NothingServed {
@@ -63,6 +64,13 @@ impl SessionSpawnContextResolver for NothingServed {
         _provider_account_id: Option<ProviderAccountId>,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn Error + Send + Sync>>> {
         async { Err(NotServedInTest("spawn context").into()) }.boxed()
+    }
+
+    fn resolve_account_folders(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<ProviderAccountFolders>, Box<dyn Error + Send + Sync>>> {
+        async { Err(NotServedInTest("account folders").into()) }.boxed()
     }
 }
 

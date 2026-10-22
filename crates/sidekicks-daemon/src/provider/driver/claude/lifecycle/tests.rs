@@ -55,7 +55,9 @@ use crate::provider::driver::session_control::{
     StartReviewParams, StartingLevelParams,
 };
 use crate::provider::driver::test_registry::test_driver_services;
-use crate::provider::driver::{DriverServices, SessionSpawnContext, SessionSpawnContextResolver};
+use crate::provider::driver::{
+    DriverServices, ProviderAccountFolders, SessionSpawnContext, SessionSpawnContextResolver,
+};
 use crate::session::run::state_change::RunStateEntry;
 
 /// The statements the fixture's read pool caches.
@@ -69,7 +71,7 @@ const START_WAIT: Duration = Duration::from_secs(20);
 /// Longer than every restart's wait, so a restart that would come has come.
 const RESTART_WAITS_PASSED: Duration = Duration::from_secs(5);
 
-// Every session runs in one folder, on the person's own home.
+// Every session runs in one folder, and every account on the person's own home.
 struct FolderContexts(PathBuf);
 
 impl SessionSpawnContextResolver for FolderContexts {
@@ -89,6 +91,16 @@ impl SessionSpawnContextResolver for FolderContexts {
             })
         }
         .boxed()
+    }
+
+    fn resolve_account_folders(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<
+        '_,
+        Result<Option<ProviderAccountFolders>, Box<dyn std::error::Error + Send + Sync>>,
+    > {
+        async { Ok(None) }.boxed()
     }
 }
 
