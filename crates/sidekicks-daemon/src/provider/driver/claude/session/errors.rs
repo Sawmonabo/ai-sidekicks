@@ -4,7 +4,8 @@
 use std::error::Error;
 use std::io;
 
-use serde_json::json;
+use serde_json::{Value, json};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::run::id::RunId;
@@ -19,7 +20,8 @@ use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use crate::provider::driver::error_causes::{
-    RequestUnanswered, UNSPECIFIED_PROVIDER_FAILURE_DETAIL, provider_failure_refusal,
+    ProviderAxis, ProviderAxisInvalid, RequestUnanswered, UNSPECIFIED_PROVIDER_FAILURE_DETAIL,
+    provider_failure_refusal,
 };
 use crate::provider::driver::registry::provider_capability_refused;
 
@@ -206,6 +208,17 @@ pub(crate) enum ClaudeSessionError {
         /// Claude Code's words.
         provider_error: String,
     },
+    /// Claude Code refused the session's model at the start's `set_model`: its build does not
+    /// offer it.
+    #[error("Claude Code does not offer the model {model}: {provider_error}")]
+    ModelNotOffered {
+        /// The session's lead, whose binding names the model.
+        agent_id: AgentId,
+        /// The model as the session asked for it.
+        model: String,
+        /// Claude Code's words.
+        provider_error: String,
+    },
     /// A process already holds the session's slot.
     #[error("a Claude session already holds this session's slot ({holder_state:?})")]
     SessionAlreadyLive {
@@ -224,6 +237,7 @@ impl ClaudeSessionError {
             | Self::InputUnwritable(_)
             | Self::Unanswered { .. }
             | Self::ControlRequestRefused { .. }
+            | Self::ModelNotOffered { .. }
             | Self::SessionAlreadyLive { .. } => RecoveryCondition::RecoveryNeeded,
         }
     }
@@ -236,7 +250,8 @@ impl From<ClaudeSessionError> for DriverError {
     /// its deadline and `provider.unavailable` otherwise; a refused `cancel_async_message`,
     /// `mcp_set_servers` or `rewind_conversation` means the build lacks it, answered
     /// `provider.capability.unsupported` on the steer, tool-server or rollback flag with Claude
-    /// Code's words; every other refusal and a held slot are internal failures.
+    /// Code's words; a model refused at the start answers `agent.providerAxisInvalid` naming the
+    /// agent and the model; every other refusal and a held slot are internal failures.
     fn from(error: ClaudeSessionError) -> Self {
         let provider = DESCRIPTOR.provider_id();
         match &error {
@@ -286,6 +301,13 @@ impl From<ClaudeSessionError> for DriverError {
                 }
                 None => Self::Internal(Box::new(error)),
             },
+            ClaudeSessionError::ModelNotOffered {
+                agent_id, model, ..
+            } => Self::ProviderAxisInvalid(ProviderAxisInvalid {
+                agent_id: *agent_id,
+                axis: ProviderAxis::ModelId,
+                value: Value::String(model.clone()),
+            }),
             ClaudeSessionError::SessionAlreadyLive { .. } => Self::Internal(Box::new(error)),
         }
     }
@@ -343,28 +365,24 @@ mod tests {
     use rstest::rstest;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 
-    use super::{
-        ClaudeControlSubtype, ClaudeSessionError, ClaudeUnansweredCause, RequestUnanswered,
-    };
+    use sidekicks_contracts::agent::definition::AgentId;
+
+    use super::{ClaudeControlSubtype, ClaudeSessionError, ClaudeUnansweredCause};
+    use crate::ipc::registry::HandlerError;
     use crate::provider::driver::contract::DriverError;
 
-    // The refusal's code a driver error answers with, `None` for a failure that is no refusal.
-    fn refusal_code(error: &DriverError) -> Option<RefusalCode> {
-        match error {
-            DriverError::Refused(refusal)
-            | DriverError::Unanswered(RequestUnanswered { refusal }) => Some(refusal.code),
-            DriverError::SteerTurnEnded(_)
-            | DriverError::CapabilityProbe(_)
-            | DriverError::ExecutableUnresolvable(_)
-            | DriverError::ModelCatalogUnreadable(_)
-            | DriverError::ProviderAxisInvalid(_)
-            | DriverError::Internal(_) => None,
+    // The refusal's code a driver error answers a call with, `None` for a failure that is no refusal.
+    fn refusal_code(error: DriverError) -> Option<RefusalCode> {
+        match HandlerError::from(error) {
+            HandlerError::Refused(refusal) => Some(refusal.code),
+            HandlerError::Internal(_) | HandlerError::Canceled => None,
         }
     }
 
     // Killed by mapping a deadline to `provider.unavailable`, an exit or a cut write to
     // `provider.timeout`, an unanswered request to a plain refusal, a refused `set_model` to a
-    // missing capability, or a refused rewind to an internal failure.
+    // missing capability, a model the start's `set_model` refused to an internal failure, or a
+    // refused rewind to an internal failure.
     #[rstest]
     #[case::deadline(
         ClaudeSessionError::Unanswered {
@@ -406,6 +424,15 @@ mod tests {
         false,
         None
     )]
+    #[case::model_not_offered(
+        ClaudeSessionError::ModelNotOffered {
+            agent_id: AgentId::new("0190f3a2-7b4c-7d1e-8f00-000000000002").expect("an agent id"),
+            model: "claude-retired".to_owned(),
+            provider_error: "model not offered".to_owned(),
+        },
+        false,
+        Some(RefusalCode::AgentProviderAxisInvalid)
+    )]
     #[case::refused_sign_in(
         ClaudeSessionError::AuthenticationRequired { detail: "signed out".to_owned() },
         false,
@@ -422,6 +449,6 @@ mod tests {
             matches!(driver_error, DriverError::Unanswered(_)),
             is_unanswered
         );
-        assert_eq!(refusal_code(&driver_error), code);
+        assert_eq!(refusal_code(driver_error), code);
     }
 }

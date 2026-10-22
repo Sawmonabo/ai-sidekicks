@@ -99,13 +99,6 @@ pub(crate) enum DriverError {
     #[error(transparent)]
     ModelCatalogUnreadable(ModelCatalogUnreadable),
     /// A provider axis the request set holds a value the provider does not offer now.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "a driver's live catalog check at a session's start refuses an axis with it"
-        )
-    )]
     #[error(transparent)]
     ProviderAxisInvalid(ProviderAxisInvalid),
     /// The driver or its provider failed.

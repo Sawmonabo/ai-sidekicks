@@ -65,14 +65,6 @@ pub(crate) struct ClaudeInitializeDeclaration {
 impl ClaudeInitializeDeclaration {
     /// The offered model `model` names: compared lowercase, with a window suffix such as `-1m`
     /// read as `[1m]` and never dropped, first against each `value`, then against each full id.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session start's model check, the one-turn process and the model's \
-                      display name match the session's model through it"
-        )
-    )]
     pub(crate) fn offered_model(&self, model: &str) -> Option<&ClaudeOfferedModel> {
         let model = canonical_model_id(model);
         self.models

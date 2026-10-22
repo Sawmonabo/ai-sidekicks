@@ -4,6 +4,7 @@
 //! speed and a planning session's Plan onto it, and either installs it as the session's live
 //! process, with its stream, routing and task, or ends it; nothing is left half adopted.
 
+mod checks;
 pub(crate) mod context;
 pub(crate) mod figures;
 mod fork;
@@ -43,7 +44,6 @@ use crate::provider::driver::claude::delivery::stream::{
 use crate::provider::driver::claude::frame_routing::ClaudeFrameRouting;
 use crate::provider::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::provider::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
-use crate::provider::driver::claude::output_speed::apply_claude_output_speed;
 use crate::provider::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::provider::driver::claude::run::start::claude_session_unavailable;
@@ -60,23 +60,14 @@ use crate::provider::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
 use crate::provider::driver::claude::session::ignored_settings::find_ignored_setting_notice;
-use crate::provider::driver::claude::session::permission_level::{
-    can_run_claude_level, permission_level_of, read_claude_sandbox_support,
-};
 use crate::provider::driver::claude::session::permissions::read_claude_session_rules;
 use crate::provider::driver::claude::session::slots::{ClaudeSessionSlots, ClaudeSlotClaim};
 use crate::provider::driver::claude::session::state::{
     CLAUDE_THREAD_FRAME_ROUTER_CONFIG, ClaudeHeldCommandChoices, ClaudeLiveSettings,
     ClaudeSessionRoutingBand, ClaudeSpawnBinding, ClaudeUsageEstablishment, LiveClaudeSession,
 };
-use crate::provider::driver::claude::session::transport::control::{
-    ClaudeControlRequest, ClaudePermissionMode,
-};
-use crate::provider::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
-use crate::provider::driver::claude::session::ultracode::{
-    ClaudeUltracodeReading, apply_claude_ultracode, requested_claude_ultracode,
-};
+use crate::provider::driver::claude::session::ultracode::requested_claude_ultracode;
 use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::provider::driver::claude::spawn::environment::claude_config_folder;
 use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
@@ -637,8 +628,8 @@ impl ClaudeSessionEstablishment {
             .check_started(
                 &started,
                 &legs,
-                session_mode,
-                output_speed.as_deref(),
+                agent_id,
+                (session_mode, output_speed.as_deref()),
                 (model_check, ultracode),
             )
             .await;
@@ -687,74 +678,6 @@ impl ClaudeSessionEstablishment {
         }
         self.adopt(&live, stream, receiver, &started);
         Ok(started.spawned_version)
-    }
-
-    // The checks a started process passes before it is adopted, the output speed it took, and
-    // Ultracode's state once the value asked for is set.
-    async fn check_started(
-        &self,
-        started: &ClaudeStartedSession,
-        legs: &ClaudeSpawnBoundLegs,
-        session_mode: SessionMode,
-        output_speed: Option<&str>,
-        (model_check, ultracode): (ClaudeModelCheck, Option<bool>),
-    ) -> Result<(Option<String>, Option<ClaudeUltracodeReading>), ClaudeEstablishmentError> {
-        let session_id = legs.session_id;
-        let channel = &*started.channel;
-        if model_check == ClaudeModelCheck::Checked
-            && !offers_model(&started.initialize, &legs.model)
-        {
-            // An unlisted model may still run; Claude Code's own check of it decides.
-            channel
-                .send_control_request(ClaudeControlRequest::SetModel {
-                    model: legs.model.clone(),
-                })
-                .await?;
-        }
-        if let Some(posture) = &legs.execution_posture {
-            let can_run_sandbox = read_claude_sandbox_support(
-                &self.sources.spawner,
-                &legs.spawn_environment,
-                &legs.working_directory,
-                Some(session_id),
-            )
-            .await;
-            let level = permission_level_of(posture);
-            if !can_run_claude_level(
-                level,
-                &legs.model,
-                &started.initialize.auto_mode_models,
-                can_run_sandbox,
-            ) {
-                return Err(ClaudeSessionError::Unavailable {
-                    reason: ClaudeSessionUnavailableReason::PermissionLevelUnavailable,
-                    detail: Some(format!("Level {}.", <&str>::from(level))),
-                    session_id: Some(session_id),
-                    run_id: None,
-                }
-                .into());
-            }
-        }
-        // A fresh process holds no flag setting until it is told again.
-        let applied = match output_speed {
-            Some(level) => apply_claude_output_speed(channel, session_id, level)
-                .await?
-                .map(str::to_owned),
-            None => None,
-        };
-        // A process starts at its level's own mode, so only Plan is carried.
-        if session_mode == SessionMode::Plan {
-            channel
-                .send_control_request(ClaudeControlRequest::SetPermissionMode {
-                    mode: ClaudePermissionMode::Plan,
-                })
-                .await?;
-        }
-        let ultracode = match ultracode {
-            Some(is_on) => apply_claude_ultracode(channel, is_on).await?,
-            None => None,
-        };
-        Ok((applied, ultracode))
     }
 
     // The adopted process's stream, task and notices.
@@ -845,14 +768,6 @@ impl ClaudeSessionEstablishment {
             .processes
             .remove_exited(live.session_id, started.identity);
     }
-}
-
-// Whether `initialize` lists `model`, by the value Claude Code takes or the full id it resolves.
-fn offers_model(initialize: &ClaudeInitializeDeclaration, model: &str) -> bool {
-    initialize
-        .models
-        .iter()
-        .any(|offered| offered.value == model || offered.resolved_model.as_deref() == Some(model))
 }
 
 // The conversation file `handle` names in the Claude Code home `spawn_environment` reads.
