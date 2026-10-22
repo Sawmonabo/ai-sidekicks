@@ -198,7 +198,7 @@ impl ClaudeDriver {
                 &params.rule,
                 &ClaudeProjectRuleRemoval {
                     project_folder: &claude_project_folder(project_folder, repository.as_ref()),
-                    managed_settings: managed_settings_folder.as_deref(),
+                    managed_settings_folder: managed_settings_folder.as_deref(),
                     config_folder: &config_folder,
                     home_folder: &self.sources.home_folder,
                 },
