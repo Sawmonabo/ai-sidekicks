@@ -23,15 +23,26 @@ pub(crate) struct TextToken {
     pub(crate) end: u32,
 }
 
+/// The places of a text's tokens a query's phrase can reach across a page's edge: the longest
+/// phrase a 4,096-code-point find query holds, one character a token and one between each, is
+/// 2,048 tokens, and a phrase across an edge keeps at least one of them on each side.
+pub(crate) const EDGE_PLACES: u32 = 2_047;
+
 /// Splits `text` into folded tokens in order. A token starts at a letter or a digit and runs
 /// through letters, digits and combining marks, so a decomposed accent stays inside its word. A
 /// token whose folded form is longer than Tantivy indexes is dropped, as Tantivy would drop it,
 /// keeping its place.
+pub(crate) fn tokenize(text: &str) -> Vec<TextToken> {
+    tokenize_with_places(text).0
+}
+
+/// `tokenize`, with the text's place count: its tokens' places, a dropped token's included, so a
+/// dropped token at the text's end still holds its place.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "a character is one or two UTF-16 code units, read for every character of the text"
 )]
-pub(crate) fn tokenize(text: &str) -> Vec<TextToken> {
+pub(crate) fn tokenize_with_places(text: &str) -> (Vec<TextToken>, u32) {
     let mut tokens = Vec::new();
     let mut position = 0u32;
     let mut offset = 0u32;
@@ -59,7 +70,7 @@ pub(crate) fn tokenize(text: &str) -> Vec<TextToken> {
     if let Some((folded, start)) = open {
         close_token(&mut tokens, &mut position, folded, start, offset);
     }
-    tokens
+    (tokens, position)
 }
 
 /// Where a page of a long text ends so no token is cut in two: the start of the token the text
@@ -76,6 +87,30 @@ pub fn find_page_end(text: &str) -> usize {
         }
     }
     text.len()
+}
+
+/// Where the stretch of `text` holding its last 2,047 token places begins, as a byte offset: the
+/// start of the 2,047th token from the end, or 0 when the text holds fewer. A query's phrase across
+/// the text's end reaches back no further, so a page read after `text` is marked with that stretch
+/// before it.
+pub fn find_tail_start(text: &str) -> usize {
+    let mut places = 0;
+    // The earliest letter or digit of the run of token characters being read back through.
+    let mut run_start: Option<usize> = None;
+    for (offset, character) in text.char_indices().rev() {
+        let group = character.general_category_group();
+        if is_token_start(group) {
+            run_start = Some(offset);
+        } else if !matches!(group, GeneralCategoryGroup::Mark)
+            && let Some(start) = run_start.take()
+        {
+            places += 1;
+            if places == EDGE_PLACES {
+                return start;
+            }
+        }
+    }
+    0
 }
 
 // Whether a character of `group` starts a token: a letter or a digit.

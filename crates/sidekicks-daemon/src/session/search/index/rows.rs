@@ -1,25 +1,27 @@
 //! The text the search index holds for each source row, read from the database as it is now: a
 //! settled message's text, a tool call's name and arguments, a session's title, a group's name and
-//! a tag, with a tag's fold and its session's last activity beside it. A body longer than a page is
-//! read a frame at a time into pages, each its own index document. The outbox applier, the rebuild
-//! and the hit reader all read rows here, so a hit's line is marked on the same pages the index
-//! saw. A log row belongs to its session through the session's directory row; a log row of a
-//! session with none, which only the daemon's own sentinel session lacks, is no index row, and
-//! neither is a row in a range its session skipped past as damaged or one whose payload damage left
-//! unreadable.
+//! a tag, with a tag's fold and its session's last activity beside it. A row's stored body is read
+//! only when its text is wanted, a frame at a time into pages, so no more than a page of it is held
+//! at once. The outbox applier, the rebuild and the hit reader all read rows here, so a hit's line
+//! is marked on the same pages the index saw. A log row belongs to its session through the
+//! session's directory row; a log row of a session with none, which only the daemon's own sentinel
+//! session lacks, is no index row, and neither is a row in a range its session skipped past as
+//! damaged or one whose payload damage left unreadable.
 
 use std::collections::HashMap;
-use std::mem;
+use std::ops::ControlFlow;
 use std::sync::LazyLock;
+use std::{fmt, io, mem};
 
+use rusqlite::types::Type;
 use rusqlite::{Connection, Row, named_params};
 use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_search::index::{IndexRow, IndexRowKind, IndexRowTag, find_page_end};
+use sidekicks_search::index::{IndexRowKind, IndexRowTag, find_page_end};
 
 use crate::database::sql_list::sql_list_of;
 use crate::database::stored_column::{optional_text_column, rowid_column};
 use crate::events::content::codec::{
-    StoredBodyPlace, stored_body_encoding_sql, stored_body_length_sql,
+    BodyStreamError, StoredBodyPlace, stored_body_encoding_sql, stored_body_length_sql,
 };
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 use crate::session::search::index::columns::{index_key_sql, index_row_kind_of, source_rowid_of};
@@ -81,9 +83,12 @@ pub(crate) struct SourceRow {
     pub(crate) kind: IndexRowKind,
     /// The session the row belongs to; for a group's name, the group.
     pub(crate) owner_key: u64,
-    /// The row's text as the database holds it now, in pages: one for a row up to a page long,
-    /// else one per stored frame, each ending before the word it would cut.
-    pub(crate) pages: Vec<String>,
+    /// The row's text as the database holds it now before its stored body, the body's separator
+    /// included: all of its text when it has no body.
+    pub(crate) text: String,
+    /// Where a log row's stored body sits, read only through [`IndexRowReader::for_each_page`];
+    /// `None` on a row without one.
+    pub(crate) body: Option<StoredBodyPlace>,
     /// A log row's id and position in its session's log; `None` on a title, group or tag.
     pub(crate) log_row: Option<LogRowPosition>,
     /// A tag row's fold and its session's last activity; `None` on every other row.
@@ -91,11 +96,29 @@ pub(crate) struct SourceRow {
 }
 
 impl SourceRow {
-    /// The row's text length in UTF-8 bytes, every page counted.
+    /// The row's text length in UTF-8 bytes, its body's as its payload states it.
     pub(crate) fn text_len(&self) -> usize {
-        self.pages.iter().map(String::len).sum()
+        let body_len = self
+            .body
+            .as_ref()
+            .and_then(|body| body.content_length)
+            .map_or(0, |length| usize::try_from(length).unwrap_or(usize::MAX));
+        self.text.len().saturating_add(body_len)
     }
 }
+
+// What the page reader hands the stored body's stream to stop it once a page's reader has what it
+// came for; it never leaves the reader.
+#[derive(Debug)]
+struct PagesStopped;
+
+impl fmt::Display for PagesStopped {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("the page reader stopped the body's stream")
+    }
+}
+
+impl std::error::Error for PagesStopped {}
 
 /// A log row's event id and its sequence in its session's log.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,8 +145,8 @@ static EVENT_TEXT_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// A log row's body, which the read decodes a frame at a time after its text: an agent's reply, or
-// a tool's arguments after a space; the separator, then where the body is stored, as
+// A log row's body, which a page read decodes a frame at a time after its text: an agent's reply,
+// or a tool's arguments after a space; the separator, then where the body is stored, as
 // `StoredBodyPlace` reads it: the row's rowid when it holds a body, its encoding and its length.
 static EVENT_BODY_SQL: LazyLock<String> = LazyLock::new(|| {
     let agent_message = SessionEventType::AgentMessageSent.as_str();
@@ -276,7 +299,7 @@ impl<'connection> IndexRowReader<'connection> {
                 .reader
                 .prepare_cached(&row_sql(kind, RowChoice::Keys))?;
             let read = statement.query_map(named_params! { "@rowids": rowids }, |row| {
-                source_row_of(self.reader, kind, row)
+                source_row_of(kind, row)
             })?;
             for row in read {
                 let row = row?;
@@ -307,7 +330,7 @@ impl<'connection> IndexRowReader<'connection> {
             .prepare_cached(&row_sql(kind, RowChoice::Between))?;
         let read = statement.query_map(
             named_params! { "@after_rowid": after_rowid, "@through_rowid": through_rowid },
-            |row| source_row_of(self.reader, kind, row),
+            |row| source_row_of(kind, row),
         )?;
         for row in read {
             let row = row?;
@@ -323,59 +346,70 @@ impl<'connection> IndexRowReader<'connection> {
         }
         Ok(rows)
     }
+
+    /// Hands `row`'s text to `each` a page at a time, in order, so no more than a page of its body
+    /// is held at once: its text before the body with the body's first frame, then each later
+    /// frame, each page ending before the word it would cut and the next beginning with that word.
+    /// Stops once `each` breaks, answering what it broke with; `None` once every page was handed.
+    /// Fails with SQLite's error when the body's read is refused, and with rusqlite's conversion
+    /// error on the body's column, keeping why, when the body is damaged.
+    pub(crate) fn for_each_page<Stop>(
+        &self,
+        row: &SourceRow,
+        mut each: impl FnMut(String) -> ControlFlow<Stop>,
+    ) -> rusqlite::Result<Option<Stop>> {
+        let mut page = row.text.clone();
+        let Some(body) = &row.body else {
+            return Ok(each(page).break_value());
+        };
+        let mut stopped = None;
+        let mut is_frame_held = false;
+        let streamed = body.stream(self.reader, |frame| {
+            // A frame after the first starts a page: the held one ends before the word it would
+            // cut, and that word begins the next, so a word on a frame's edge stays one token.
+            if is_frame_held {
+                let cut_word = page.split_off(find_page_end(&page));
+                if let ControlFlow::Break(stop) = each(mem::replace(&mut page, cut_word)) {
+                    stopped = Some(stop);
+                    return Err(io::Error::other(PagesStopped));
+                }
+            }
+            page.push_str(frame);
+            is_frame_held = true;
+            Ok(())
+        });
+        match streamed {
+            Ok(()) => Ok(each(page).break_value()),
+            Err(BodyStreamError::Read(error)) => Err(error),
+            Err(BodyStreamError::Write(_)) if stopped.is_some() => Ok(stopped),
+            Err(failure @ (BodyStreamError::Damaged(_) | BodyStreamError::Write(_))) => {
+                Err(rusqlite::Error::FromSqlConversionFailure(
+                    BODY_COLUMN + 1,
+                    Type::Blob,
+                    Box::new(failure),
+                ))
+            }
+        }
+    }
 }
 
-/// The row as the index takes it: one index row per page, all under the row's key.
-pub(crate) fn index_rows_of(row: SourceRow) -> impl Iterator<Item = IndexRow> {
-    let SourceRow {
-        key,
-        kind,
-        owner_key,
-        pages,
-        tag,
-        ..
-    } = row;
-    pages.into_iter().map(move |text| IndexRow {
-        key,
-        kind,
-        owner_key,
-        text,
-        tag: tag.clone(),
-    })
-}
-
-// A row read on `connection`, its body streamed from the same connection a frame at a time.
-fn source_row_of(
-    connection: &Connection,
-    kind: IndexRowKind,
-    row: &Row<'_>,
-) -> rusqlite::Result<SourceRow> {
+// A row read from its columns: its body's place, not its body, which is read only when wanted.
+fn source_row_of(kind: IndexRowKind, row: &Row<'_>) -> rusqlite::Result<SourceRow> {
     let event_id: Option<String> = row.get(3)?;
     let sequence: Option<i64> = row.get(4)?;
     let tag_fold: Option<String> = row.get(5)?;
     let session_last_activity_ms = optional_text_column(row, 6, |text| last_activity_ms(&text))?;
-    let mut page: String = row.get(2)?;
-    let mut pages = Vec::new();
-    if let Some(body) = StoredBodyPlace::read(row, BODY_COLUMN + 1)? {
-        page.push_str(row.get_ref(BODY_COLUMN)?.as_str()?);
-        // A frame after the first starts a page: the held one ends before the word it would cut,
-        // and that word begins the next, so a word on a frame's edge stays one token.
-        let mut is_frame_held = false;
-        body.stream_column(connection, BODY_COLUMN + 1, |frame| {
-            if is_frame_held {
-                let cut_word = page.split_off(find_page_end(&page));
-                pages.push(mem::replace(&mut page, cut_word));
-            }
-            page.push_str(frame);
-            is_frame_held = true;
-        })?;
+    let mut text: String = row.get(2)?;
+    let body = StoredBodyPlace::read(row, BODY_COLUMN + 1)?;
+    if body.is_some() {
+        text.push_str(row.get_ref(BODY_COLUMN)?.as_str()?);
     }
-    pages.push(page);
     Ok(SourceRow {
         key: rowid_column(row, 0)?,
         kind,
         owner_key: rowid_column(row, 1)?,
-        pages,
+        text,
+        body,
         log_row: event_id
             .zip(sequence)
             .map(|(event_id, sequence)| LogRowPosition { event_id, sequence }),
@@ -398,13 +432,28 @@ fn last_activity_ms(text: &str) -> Result<u64, jiff::Error> {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::ControlFlow;
+
     use serde_json::json;
     use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
     use sidekicks_search::index::IndexRowKind;
 
-    use super::{IndexRowReader, empty_index_batch_room};
+    use super::{IndexRowReader, SourceRow, empty_index_batch_room};
     use crate::session::directory::test_rows::insert_session_row;
     use crate::transcript::test_log::TranscriptTestLog;
+
+    // Every page of `row`'s text, in order.
+    fn pages_of(rows: &IndexRowReader<'_>, row: &SourceRow) -> Vec<String> {
+        let mut pages = Vec::new();
+        let stopped = rows
+            .for_each_page(row, |page| {
+                pages.push(page);
+                ControlFlow::<()>::Continue(())
+            })
+            .expect("the pages read");
+        assert!(stopped.is_none(), "every page is handed");
+        pages
+    }
 
     // A reply and a tool call's arguments past 1 KiB are stored compressed, and the index takes
     // their decoded text whole, a word at their end among it. Killed by indexing the stored bytes
@@ -432,12 +481,13 @@ mod tests {
         );
 
         let reader = log.reader();
+        let rows = IndexRowReader::new(&reader);
         let mut room = empty_index_batch_room();
-        let texts: Vec<String> = IndexRowReader::new(&reader)
+        let texts: Vec<String> = rows
             .read_rows_between(IndexRowKind::Event, 0, i64::MAX, &mut room, |_| true)
             .expect("the rows read")
-            .into_iter()
-            .map(|row| row.pages.concat())
+            .iter()
+            .map(|row| pages_of(&rows, row).concat())
             .collect();
         assert_eq!(texts, [reply, format!("edit {arguments}")]);
     }
@@ -457,22 +507,20 @@ mod tests {
         log.reply("m1", None, &reply);
 
         let reader = log.reader();
+        let rows = IndexRowReader::new(&reader);
         let mut room = empty_index_batch_room();
-        let rows = IndexRowReader::new(&reader)
+        let read = rows
             .read_rows_between(IndexRowKind::Event, 0, i64::MAX, &mut room, |_| true)
             .expect("the rows read");
-        let [row] = rows.as_slice() else {
-            panic!("one row reads, not {}", rows.len());
+        let [row] = read.as_slice() else {
+            panic!("one row reads, not {}", read.len());
         };
-        assert_eq!(row.pages.len(), 3);
-        assert_eq!(row.pages.concat(), reply);
-        let pages_with_word: Vec<bool> = row
-            .pages
-            .iter()
-            .map(|page| page.contains("quokka"))
-            .collect();
+        let pages = pages_of(&rows, row);
+        assert_eq!(pages.len(), 3);
+        assert_eq!(pages.concat(), reply);
+        let pages_with_word: Vec<bool> = pages.iter().map(|page| page.contains("quokka")).collect();
         assert_eq!(pages_with_word, [false, false, true]);
-        for page in &row.pages[..2] {
+        for page in &pages[..2] {
             assert!(page.ends_with(' '), "a page ends inside a word");
         }
     }

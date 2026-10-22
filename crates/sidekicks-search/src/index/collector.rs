@@ -1,5 +1,6 @@
 //! Sessions ranked by their best matching row, and each session's hits, scored with FTS5's BM25 on
-//! a version's live counts.
+//! a version's live counts. A row longer than a page is scored as one row on its own path first,
+//! and the main passes skip its pages and edge documents.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -11,6 +12,7 @@ use tantivy::{DocId, DocSet, Score, SegmentReader, TERMINATED, Term};
 use crate::index::cursor::{
     CursorPurpose, GatedCursors, PhraseCursor, RowMatch, RowsAsked, all_on, open_cursors,
 };
+use crate::index::long_row::matches::{LongRowMatch, matching_long_rows};
 use crate::index::membership::GroupMembership;
 use crate::index::phrase::Phrase;
 use crate::index::schema::{IndexFields, Owner, owner_of, owner_value};
@@ -86,6 +88,25 @@ impl PreparedQuery {
 
     fn score(&self, frequencies: &[u32], length: u64) -> f64 {
         row_score(&self.idfs, frequencies, length, self.average_length)
+    }
+
+    // The live rows longer than a page the query matches whose owner `within` holds, when given,
+    // each with its score as one row.
+    fn scored_long_rows(
+        &self,
+        version: &IndexVersion,
+        within: Option<&SessionSet>,
+    ) -> tantivy::Result<Vec<(LongRowMatch, f64)>> {
+        let matches = matching_long_rows(version, &self.phrases, |row| {
+            within.is_none_or(|set| set.holds_owner(row.owner))
+        })?;
+        Ok(matches
+            .into_iter()
+            .map(|found| {
+                let score = self.score(&found.frequencies, found.row.length);
+                (found, score)
+            })
+            .collect())
     }
 }
 
@@ -270,9 +291,9 @@ fn owner_docs_below(
     Ok(Some(docs))
 }
 
-// Visits every live row of segment `ordinal` that matches every phrase, with its exact score. With
-// `within`, a row's owner is checked before the row is scored, and the walk starts from the set's
-// own rows when they are fewer than the rarest phrase's.
+// Visits every live whole row of segment `ordinal` that matches every phrase, with its exact score.
+// With `within`, a row's owner is checked before the row is scored, and the walk starts from the
+// set's own rows when they are fewer than the rarest phrase's.
 fn visit_matches_in(
     version: &IndexVersion,
     ordinal: usize,
@@ -303,7 +324,7 @@ fn visit_matches_in(
             docs.len() as u64,
         )?;
         for doc in docs {
-            if !is_alive(doc) {
+            if !is_alive(doc) || columns.piece.get_val(doc) != 0 {
                 continue;
             }
             match gated.at(doc)? {
@@ -337,7 +358,7 @@ fn visit_matches_in(
     let mut doc = cursors[lead].doc();
     'rows: while doc != TERMINATED {
         let owner_allowed = within.is_none_or(|set| set.holds_owner(columns.owner.get_val(doc)));
-        if !is_alive(doc) || !owner_allowed {
+        if !is_alive(doc) || !owner_allowed || columns.piece.get_val(doc) != 0 {
             doc = cursors[lead].advance();
             continue;
         }
@@ -360,7 +381,7 @@ fn visit_matches_in(
 }
 
 /// Every matching session in rank order, with each one's hits best first, from one pass over
-/// every matching row; a row of several pages is one hit, at its best page.
+/// every matching row; a row longer than a page is one hit, scored as one row.
 pub(crate) struct ScoredSessions {
     /// The matching sessions' keys, best first.
     pub(crate) order: Vec<u64>,
@@ -375,39 +396,43 @@ pub(crate) fn score_every_session(
     within: Option<&SessionSet>,
 ) -> tantivy::Result<ScoredSessions> {
     let mut best: HashMap<u64, RankKey> = HashMap::new();
-    // Each session's hit rows by key, each at its best page.
+    // Each session's hit rows by key.
     let mut rows: HashMap<u64, HashMap<u64, RankKey>> = HashMap::new();
-    for ordinal in 0..version.segments.len() {
-        let mut credit_row = |columns: &SegmentColumns, doc: DocId, score: f64| {
-            let row_key = columns.key.get_val(doc);
-            credit_sessions(
-                &version.membership,
-                columns.owner.get_val(doc),
-                |session, place| {
-                    if within.is_some_and(|set| !set.holds_session(session)) {
-                        return;
-                    }
-                    let key = RankKey {
-                        score,
-                        row_key,
-                        member_place: place,
-                    };
-                    best.entry(session)
-                        .and_modify(|held| *held = (*held).min(key))
-                        .or_insert(key);
-                    let row_key_rank = RankKey {
-                        member_place: 0,
-                        ..key
-                    };
-                    rows.entry(session)
-                        .or_default()
-                        .entry(row_key)
-                        .and_modify(|held| *held = (*held).min(row_key_rank))
-                        .or_insert(row_key_rank);
+    let mut credit_row = |owner: u64, row_key: u64, score: f64| {
+        credit_sessions(&version.membership, owner, |session, place| {
+            if within.is_some_and(|set| !set.holds_session(session)) {
+                return;
+            }
+            let key = RankKey {
+                score,
+                row_key,
+                member_place: place,
+            };
+            best.entry(session)
+                .and_modify(|held| *held = (*held).min(key))
+                .or_insert(key);
+            rows.entry(session).or_default().insert(
+                row_key,
+                RankKey {
+                    member_place: 0,
+                    ..key
                 },
             );
-        };
-        visit_matches_in(version, ordinal, query, within, &mut credit_row)?;
+        });
+    };
+    for (found, score) in query.scored_long_rows(version, within)? {
+        credit_row(found.row.owner, found.key, score);
+    }
+    for ordinal in 0..version.segments.len() {
+        visit_matches_in(
+            version,
+            ordinal,
+            query,
+            within,
+            &mut |columns: &SegmentColumns, doc: DocId, score: f64| {
+                credit_row(columns.owner.get_val(doc), columns.key.get_val(doc), score);
+            },
+        )?;
     }
     let mut order: Vec<(RankKey, u64)> = best
         .into_iter()
@@ -426,6 +451,31 @@ pub(crate) fn score_every_session(
         order: order.into_iter().map(|(_, session)| session).collect(),
         hits,
     })
+}
+
+/// Every matching row's score by key, a row longer than a page scored once as one row, for a test
+/// that compares a long row's score with the same text's as one short row.
+#[cfg(test)]
+pub(crate) fn row_scores(
+    version: &IndexVersion,
+    query: &PreparedQuery,
+) -> tantivy::Result<HashMap<u64, f64>> {
+    let mut scores: HashMap<u64, f64> = HashMap::new();
+    for (found, score) in query.scored_long_rows(version, None)? {
+        scores.insert(found.key, score);
+    }
+    for ordinal in 0..version.segments.len() {
+        visit_matches_in(
+            version,
+            ordinal,
+            query,
+            None,
+            &mut |columns: &SegmentColumns, doc: DocId, score: f64| {
+                scores.insert(columns.key.get_val(doc), score);
+            },
+        )?;
+    }
+    Ok(scores)
 }
 
 // The best k sessions with each one's best row, in rank order.
@@ -530,6 +580,21 @@ pub(crate) fn top_sessions(
         None => None,
     };
     let mut top = TopSessions::new(k);
+    // The long rows first, so the cutoff the block-max pass starts from holds them.
+    for (found, score) in query.scored_long_rows(version, within)? {
+        credit_sessions(&version.membership, found.row.owner, |session, place| {
+            if within.is_none_or(|set| set.holds_session(session)) {
+                top.offer(
+                    session,
+                    RankKey {
+                        score,
+                        row_key: found.key,
+                        member_place: place,
+                    },
+                );
+            }
+        });
+    }
     for (ordinal, segment) in version.searcher.segment_readers().iter().enumerate() {
         // Each cursor is sought at most at the rows of the driver's term, or the phrase's own.
         let asked = match &pruning {
@@ -564,6 +629,7 @@ pub(crate) fn top_sessions(
             let cutoff = top.cutoff();
             if within.is_none_or(|set| set.holds_owner(columns.owner.get_val(doc)))
                 && alive.is_none_or(|alive| alive.is_alive(doc))
+                && columns.piece.get_val(doc) == 0
                 && all_on(cursors, doc)
             {
                 frequencies_into(cursors, &mut frequencies);

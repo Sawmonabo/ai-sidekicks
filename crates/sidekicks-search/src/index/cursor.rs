@@ -355,6 +355,32 @@ impl PhraseCursor {
         }
     }
 
+    /// The phrase's occurrences in the current row that cover both place `boundary - 1` and place
+    /// `boundary`, each by its first place, into `starts`. One token covers no two places, so a
+    /// one-token phrase has none. The cursor must be opened for `CursorPurpose::Mark`.
+    pub(crate) fn starts_across(&mut self, boundary: u32, starts: &mut Vec<u32>) {
+        starts.clear();
+        if let PhraseCursor::Sequence(sequence) = self {
+            let width = u32::try_from(sequence.parts.len())
+                .expect("a typed word has far fewer tokens than 2^32");
+            starts.extend(
+                sequence
+                    .starts
+                    .iter()
+                    .filter(|start| **start < boundary && **start + width > boundary),
+            );
+        }
+    }
+
+    /// How many tokens the phrase covers from each of `starts`: one, or a typed word's token count.
+    pub(crate) fn width(&self) -> u32 {
+        match self {
+            PhraseCursor::Token(_) => 1,
+            PhraseCursor::Sequence(sequence) => u32::try_from(sequence.parts.len())
+                .expect("a typed word has far fewer tokens than 2^32"),
+        }
+    }
+
     /// The rows the cursor can visit at most, counted with deleted rows.
     pub(crate) fn cost(&self) -> u64 {
         match self {

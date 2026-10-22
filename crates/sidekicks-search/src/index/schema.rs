@@ -5,7 +5,8 @@
 //! prefixes, each token's start is indexed with the next token's, so the rows where two tokens sit
 //! in order are one term's. A tag row also holds its tag's fold in the tag field, cut at each `/`
 //! so a `tag:` term finds the tags nested under it, and its session's last activity, which orders
-//! a search by tag alone.
+//! a search by tag alone. A row longer than a page is one document per page and one edge document
+//! per page boundary, each marked as such and placed in the row.
 
 use std::iter::Peekable;
 use std::str::Split;
@@ -17,7 +18,7 @@ use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 use tantivy::{Index, TantivyDocument, Term};
 
 use crate::index::IndexRowKind;
-use crate::index::tokenizer::{TextToken, prefix_of, tokenize};
+use crate::index::tokenizer::{prefix_of, tokenize};
 
 /// The longest prefix with a field of its own; a longer prefix merges the whole-word terms it
 /// begins.
@@ -46,6 +47,32 @@ const TAG_LEVEL_SEPARATOR: char = '/';
 /// The kind code an `event` row carries in the kind column.
 pub(crate) const EVENT_KIND: u64 = 0;
 
+/// The piece code a page of a row longer than a page carries; a whole row carries none, so its
+/// piece column reads 0.
+pub(crate) const PAGE_PIECE: u64 = 1;
+
+/// The piece code an edge document of a row longer than a page carries.
+pub(crate) const EDGE_PIECE: u64 = 2;
+
+/// Which piece of a row longer than a page a document is, with where it sits in the row, counted in
+/// token places from the row's first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RowPiece {
+    /// A page, its first place at `place`.
+    Page {
+        /// The row's place of the page's first place.
+        place: u32,
+    },
+    /// The places around a page boundary, its first at `place`; the boundary falls before the
+    /// row's place `boundary`.
+    Edge {
+        /// The row's place of the document's first place.
+        place: u32,
+        /// The row's place of the first place after the boundary.
+        boundary: u32,
+    },
+}
+
 /// The index's fields. The index stores no text: every field is indexed or a column.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct IndexFields {
@@ -70,6 +97,13 @@ pub(crate) struct IndexFields {
     pub(crate) tag: Field,
     /// A tag row's session's last activity, in milliseconds since the Unix epoch.
     pub(crate) activity: Field,
+    /// The piece code of a page or an edge document of a row longer than a page, indexed so a
+    /// segment's pieces are found by term; none on a whole row.
+    pub(crate) piece: Field,
+    /// A page's or an edge document's first place in its row.
+    pub(crate) place: Field,
+    /// An edge document's boundary: the row's place of the first place after it.
+    pub(crate) boundary: Field,
 }
 
 /// The index's schema and its fields.
@@ -106,6 +140,9 @@ pub(crate) fn index_schema() -> (Schema, IndexFields) {
         TextOptions::default().set_indexing_options(tag_indexing),
     );
     let activity = builder.add_u64_field("activity", NumericOptions::default().set_fast());
+    let piece = builder.add_u64_field("piece", NumericOptions::default().set_indexed().set_fast());
+    let place = builder.add_u64_field("place", NumericOptions::default().set_fast());
+    let boundary = builder.add_u64_field("boundary", NumericOptions::default().set_fast());
     (
         builder.build(),
         IndexFields {
@@ -118,6 +155,9 @@ pub(crate) fn index_schema() -> (Schema, IndexFields) {
             length,
             tag,
             activity,
+            piece,
+            place,
+            boundary,
         },
     )
 }
@@ -178,6 +218,15 @@ pub(crate) fn owner_of(value: u64) -> Owner {
     }
 }
 
+/// The owner of a row of `kind` whose owner key is `owner_key`: a group's for a group's name, a
+/// session's for every other row.
+pub(crate) fn owner_of_row(kind: IndexRowKind, owner_key: u64) -> Owner {
+    match kind {
+        IndexRowKind::Group => Owner::Group(owner_key),
+        IndexRowKind::Event | IndexRowKind::Title | IndexRowKind::Tag => Owner::Session(owner_key),
+    }
+}
+
 fn kind_code(kind: IndexRowKind) -> u64 {
     match kind {
         IndexRowKind::Event => EVENT_KIND,
@@ -212,28 +261,33 @@ pub(crate) fn tag_term(fields: &IndexFields, fold: &str) -> Term {
     Term::from_field_text(fields.tag, fold)
 }
 
-/// One row as a document: its folded tokens in the text field, their prefixes and pairs in the
-/// prefix and pair fields, and its key, owner, kind and length as columns; a tag row's fold and its
-/// session's last activity besides.
+/// What a document holds besides its tokens: its row's key, kind and owner.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct DocumentRow {
+    /// The row's key.
+    pub(crate) key: u64,
+    /// What the row holds.
+    pub(crate) kind: IndexRowKind,
+    /// Whose rows it is.
+    pub(crate) owner: Owner,
+}
+
+/// One whole row as a document: its folded tokens in the text field, their prefixes and pairs in
+/// the prefix and pair fields, and its key, owner, kind and length as columns; a tag row's fold and
+/// its session's last activity besides.
 pub(crate) fn row_document(
     fields: &IndexFields,
-    key: u64,
-    kind: IndexRowKind,
-    owner: Owner,
+    row: DocumentRow,
     text: &str,
     tag: Option<(&str, u64)>,
 ) -> TantivyDocument {
     let tokens = tokenize(text);
-    let joined = joined_tokens(&tokens);
-    let mut document = TantivyDocument::default();
-    document.add_text(fields.text, &joined);
-    for field in fields.prefixes.into_iter().chain([fields.pair]) {
-        document.add_text(field, &joined);
-    }
-    document.add_u64(fields.key, key);
-    document.add_u64(fields.owner, owner_value(owner));
-    document.add_u64(fields.kind, kind_code(kind));
-    document.add_u64(fields.length, tokens.len() as u64 + 1);
+    let joined = joined_tokens(
+        tokens
+            .iter()
+            .map(|token| (token.position, token.folded.as_str())),
+    );
+    let mut document = tokens_document(fields, row, &joined, tokens.len());
     if let Some((fold, activity)) = tag {
         document.add_text(fields.tag, fold);
         document.add_u64(fields.activity, activity);
@@ -241,17 +295,61 @@ pub(crate) fn row_document(
     document
 }
 
-// The folded tokens in place order, joined by the separator, a dropped token's place left empty
-// between them: the n-th piece is the token at place n.
-fn joined_tokens(tokens: &[TextToken]) -> String {
+/// A page or an edge document of a row longer than a page, from its tokens as `joined_tokens`
+/// joins them, `token_count` of them, marked with its piece and placed in its row.
+pub(crate) fn piece_document(
+    fields: &IndexFields,
+    row: DocumentRow,
+    joined: &str,
+    token_count: usize,
+    piece: RowPiece,
+) -> TantivyDocument {
+    let mut document = tokens_document(fields, row, joined, token_count);
+    match piece {
+        RowPiece::Page { place } => {
+            document.add_u64(fields.piece, PAGE_PIECE);
+            document.add_u64(fields.place, u64::from(place));
+        }
+        RowPiece::Edge { place, boundary } => {
+            document.add_u64(fields.piece, EDGE_PIECE);
+            document.add_u64(fields.place, u64::from(place));
+            document.add_u64(fields.boundary, u64::from(boundary));
+        }
+    }
+    document
+}
+
+// A document of `token_count` tokens joined as `joined`: the tokens in every text field, then the
+// row's key, owner, kind and length.
+fn tokens_document(
+    fields: &IndexFields,
+    row: DocumentRow,
+    joined: &str,
+    token_count: usize,
+) -> TantivyDocument {
+    let mut document = TantivyDocument::default();
+    document.add_text(fields.text, joined);
+    for field in fields.prefixes.into_iter().chain([fields.pair]) {
+        document.add_text(field, joined);
+    }
+    document.add_u64(fields.key, row.key);
+    document.add_u64(fields.owner, owner_value(row.owner));
+    document.add_u64(fields.kind, kind_code(row.kind));
+    document.add_u64(fields.length, token_count as u64 + 1);
+    document
+}
+
+/// Folded tokens, each with its place, joined in place order by the separator, an empty place left
+/// empty between them: the n-th piece is the token at place n.
+pub(crate) fn joined_tokens<'a>(tokens: impl IntoIterator<Item = (u32, &'a str)>) -> String {
     let mut joined = String::new();
     let mut place = 0;
-    for token in tokens {
-        while place < token.position {
+    for (position, folded) in tokens {
+        while place < position {
             joined.push(TOKEN_SEPARATOR);
             place += 1;
         }
-        joined.push_str(&token.folded);
+        joined.push_str(folded);
     }
     joined
 }

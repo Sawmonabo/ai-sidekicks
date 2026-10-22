@@ -22,10 +22,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::helper_mode::child::{HelperModeChildError, HelperModeEnd, run_helper_mode_child};
+use crate::session::search::index::batch_builder::IndexBatchBuilder;
 use crate::session::search::index::build_mode::SEARCH_INDEX_BUILD_MODE;
 use crate::session::search::index::columns::source_rowid_of;
 use crate::session::search::index::rows::{
-    INDEX_BATCH_ROW_LIMIT, IndexRowReader, SourceRow, empty_index_batch_room, index_rows_of,
+    INDEX_BATCH_ROW_LIMIT, INDEX_BATCH_TEXT_LIMIT, IndexRowReader, SourceRow,
+    empty_index_batch_room,
 };
 
 // The indexing arena, at its budget's ceiling: the larger the arena, the fewer segments a batch
@@ -262,8 +264,8 @@ pub(crate) fn build_search_index(
     flush_folder(parent).map_err(SearchIndexBuildError::Place)
 }
 
-// Applies every batch, then merges until nothing is left to merge, so the daemon opens an index
-// with none of the build's merging left to do.
+// Applies every batch, a row too long for one over several, then merges until nothing is left to
+// merge, so the daemon opens an index with none of the build's merging left to do.
 fn fill_and_merge(
     index: &SearchIndex,
     rows: &IndexRowReader<'_>,
@@ -288,13 +290,13 @@ fn fill_and_merge(
         if batch_rows.is_empty() {
             break;
         }
-        index.apply(&IndexBatch {
-            last_outbox_id,
-            rows: batch_rows.into_iter().flat_map(index_rows_of).collect(),
-            removed_keys: Vec::new(),
-            removed_owners: Vec::new(),
-            group_members: Vec::new(),
-        })?;
+        let mut builder = IndexBatchBuilder::new(INDEX_BATCH_TEXT_LIMIT);
+        for row in batch_rows {
+            builder.add_row(rows, row, last_outbox_id, &mut |batch: &IndexBatch| {
+                index.apply(batch).map_err(SearchIndexBuildStepError::from)
+            })?;
+        }
+        index.apply(&builder.finish(last_outbox_id))?;
     }
     while index.merge_segments()? {}
     Ok(())
@@ -402,13 +404,7 @@ pub(crate) fn close_after_failure<Failure>(
 pub(crate) fn make_index_at(folder: &Path, last_outbox_id: u64) {
     let index = SearchIndex::open(folder, SEARCH_INDEX_OPTIONS).expect("a fresh index opens");
     index
-        .apply(&IndexBatch {
-            last_outbox_id,
-            rows: Vec::new(),
-            removed_keys: Vec::new(),
-            removed_owners: Vec::new(),
-            group_members: Vec::new(),
-        })
+        .apply(&IndexBatchBuilder::new(INDEX_BATCH_TEXT_LIMIT).finish(last_outbox_id))
         .expect("the batch applies");
     index.close().expect("the index closes");
 }

@@ -1,10 +1,13 @@
 //! The line each hit shows, read from the database by the hit's key: the row's text as it is now,
-//! marked where the search matches it on the first of its pages that holds a match. The index stores no text, so a hit whose row is gone since
-//! the index saw it is passed over, and one whose text changed is marked on its current text, or
-//! passed over once that text no longer holds a match. A search with words marks them as the index
-//! finds them; a search by tags alone marks each tag's levels the queried tag names.
+//! read a page at a time with the tail of the page before, marked where the search first matches
+//! it. The index stores no text, so a hit whose row is gone since the index saw it is passed over,
+//! and one whose text changed is marked on its current text, or passed over once that text no
+//! longer holds a match. A search with words marks them as the index finds them; a search by tags
+//! alone marks each tag's levels the queried tag names.
 
-use sidekicks_search::index::{MatchRange, SearchQuery, mark_matches};
+use std::ops::ControlFlow;
+
+use sidekicks_search::index::{MatchRange, SearchQuery, find_tail_start, mark_matches};
 
 use crate::session::search::index::rows::{IndexRowReader, LogRowPosition, SourceRow};
 use crate::session::search::marked_line::{MarkedLine, cut_marked_line};
@@ -109,11 +112,20 @@ impl<'connection> HitLineReader<'connection> {
                     let Some(row) = rows.get(key) else {
                         continue;
                     };
-                    let marked = row.pages.iter().find_map(|page| {
-                        let ranges = marker(row, page);
-                        let (first, later) = ranges.split_first()?;
-                        Some(cut_marked_line(page, *first, later, self.line_max_length))
-                    });
+                    // Each page is marked after the tail of the one before, so a match across their
+                    // edge is marked; the first page with a match ends the read.
+                    let mut tail = String::new();
+                    let marked = self.rows.for_each_page(row, |page| {
+                        let mut text = std::mem::take(&mut tail);
+                        text.push_str(&page);
+                        let ranges = marker(row, &text);
+                        if let Some((first, later)) = ranges.split_first() {
+                            let line = cut_marked_line(&text, *first, later, self.line_max_length);
+                            return ControlFlow::Break(line);
+                        }
+                        tail = text.split_off(find_tail_start(&text));
+                        ControlFlow::Continue(())
+                    })?;
                     if let Some(marked) = marked {
                         // The rows read serve every list's chunk, so each line takes its own copy.
                         reads[place].lines.push(HitLine {

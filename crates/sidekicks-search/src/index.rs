@@ -9,6 +9,7 @@ mod cursor;
 mod directory;
 mod engine;
 mod find;
+mod long_row;
 mod membership;
 mod merge_policy;
 mod phrase;
@@ -25,7 +26,8 @@ use tantivy::TantivyError;
 
 pub use self::engine::SearchIndex;
 pub use self::find::mark_matches;
-pub use self::tokenizer::find_page_end;
+pub use self::long_row::documents::{LongRowDocument, LongRowDocuments};
+pub use self::tokenizer::{find_page_end, find_tail_start};
 pub use self::view::HeldSearch;
 
 /// Why the index failed a call.
@@ -62,20 +64,19 @@ pub enum IndexRowKind {
     Tag,
 }
 
-/// One row handed to the index, with its text as the database holds it now; a row longer than a
-/// page of text is handed as one `IndexRow` per page, each indexed as its own document.
+/// One row handed to the index whole, with its text as the database holds it now, as one
+/// document; a row longer than a page of text is handed as its `LongRowDocuments` instead.
 #[derive(Clone, Debug)]
 pub struct IndexRow {
-    /// The row's key: its source row's rowid times four plus its kind's slot. Every page of one row
-    /// carries it, so no two rows share it; a hit on any page is the row's hit.
+    /// The row's key: its source row's rowid times four plus its kind's slot, so no two rows share
+    /// it.
     pub key: u64,
     /// What the row holds, which sets its key's slot and whom it counts toward.
     pub kind: IndexRowKind,
     /// The session key the row belongs to; for a `Group` row, the group key whose name it is. A
     /// rowid, so below 2^63.
     pub owner_key: u64,
-    /// The row's text as the database holds it, or one page of it; the index keeps its tokens,
-    /// never the text.
+    /// The row's text as the database holds it; the index keeps its tokens, never the text.
     pub text: String,
     /// What a `Tag` row carries besides its text; no other row carries it.
     pub tag: Option<IndexRowTag>,
@@ -105,9 +106,15 @@ pub struct RemovedOwner {
 pub struct IndexBatch {
     /// The highest outbox id the batch carries; the commit records it.
     pub last_outbox_id: u64,
-    /// Rows to index, every page of a row in this one batch; a row already indexed under the same
-    /// key is replaced, all its pages at once.
+    /// Rows to index whole; a row already indexed under the same key is replaced.
     pub rows: Vec<IndexRow>,
+    /// The documents of rows longer than a page, each row's in order; a row already indexed under
+    /// the same key is replaced, its old documents deleted before its first one here.
+    pub long_row_documents: Vec<LongRowDocument>,
+    /// The key of a row an earlier batch began: its documents here follow the ones that batch
+    /// added, so nothing is deleted under it. A batch records the outbox id before such a row until
+    /// the one holding its last documents.
+    pub continued_key: Option<u64>,
     /// Keys of rows to remove; a key the index does not hold is passed over.
     pub removed_keys: Vec<u64>,
     /// Owners whose every row leaves the index, the files that held them rewritten by the merges.

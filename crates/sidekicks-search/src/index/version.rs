@@ -1,5 +1,6 @@
 //! One published view of the index: Tantivy's searcher over one commit, the live counts that keep
-//! scores exact with deleted rows still on disk, and the group members of the same commit.
+//! scores exact with deleted rows still on disk and a row longer than a page counted once, and the
+//! group members of the same commit.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -9,6 +10,8 @@ use tantivy::index::SegmentId;
 use tantivy::{DocId, Opstamp, Searcher, SegmentReader, TERMINATED};
 
 use crate::index::cursor::{CursorPurpose, RowsAsked, open_phrase_cursor};
+use crate::index::long_row::matches::phrase_long_row_counts;
+use crate::index::long_row::rows::LongRows;
 use crate::index::membership::GroupMembership;
 use crate::index::phrase::Phrase;
 use crate::index::schema::IndexFields;
@@ -51,6 +54,15 @@ pub(crate) struct SegmentColumns {
     pub(crate) length: Arc<dyn ColumnValues<u64>>,
     /// A tag row's session's last activity; 0 on every other row.
     pub(crate) activity: Arc<dyn ColumnValues<u64>>,
+    /// Each document's piece code: a page's or an edge document's of a row longer than a page, 0
+    /// on a whole row.
+    pub(crate) piece: Arc<dyn ColumnValues<u64>>,
+    /// A page's or an edge document's first place in its row.
+    pub(crate) place: Arc<dyn ColumnValues<u64>>,
+    /// An edge document's boundary: the row's place of the first place after it.
+    pub(crate) boundary: Arc<dyn ColumnValues<u64>>,
+    /// The documents that are pages or edge documents, deleted ones included, ascending.
+    pub(crate) piece_documents: Vec<DocId>,
     /// Every row's length summed, deleted rows included. Tantivy's own token total is an estimate
     /// once a merge has expunged deleted rows, so the live total is summed from the length column.
     total_length: u64,
@@ -61,12 +73,20 @@ impl SegmentColumns {
         let columns = segment.fast_fields();
         let length = columns.u64("length")?.first_or_default_col(0);
         let total_length = (0..segment.max_doc()).map(|doc| length.get_val(doc)).sum();
+        let piece = columns.u64("piece")?.first_or_default_col(0);
+        let piece_documents = (0..segment.max_doc())
+            .filter(|doc| piece.get_val(*doc) != 0)
+            .collect();
         Ok(SegmentColumns {
             key: columns.u64("key")?.first_or_default_col(0),
             owner: columns.u64("owner")?.first_or_default_col(0),
             kind: columns.u64("kind")?.first_or_default_col(0),
             length,
             activity: columns.u64("activity")?.first_or_default_col(0),
+            piece,
+            place: columns.u64("place")?.first_or_default_col(0),
+            boundary: columns.u64("boundary")?.first_or_default_col(0),
+            piece_documents,
             total_length,
         })
     }
@@ -118,10 +138,13 @@ pub(crate) struct IndexVersion {
     pub(crate) fields: IndexFields,
     /// What this view knows of each of the searcher's segments, in the searcher's order.
     pub(crate) segments: Vec<SegmentFacts>,
-    /// N: the rows not deleted.
+    /// N: the rows not deleted, a row longer than a page counted once.
     pub(crate) live_rows: u64,
-    /// The live rows' lengths summed; the average length is this over `live_rows`.
+    /// The live rows' lengths summed, a row longer than a page's as one row's; the average length
+    /// is this over `live_rows`.
     pub(crate) live_tokens: u64,
+    /// The live rows longer than a page.
+    pub(crate) long_rows: Arc<LongRows>,
     /// The group members of the same commit.
     pub(crate) membership: Arc<GroupMembership>,
     /// The outbox id the commit under this view records.
@@ -163,12 +186,21 @@ impl IndexVersion {
                 matches: carried.map_or_else(Arc::default, |facts| facts.matches.clone()),
             });
         }
+        let long_rows = LongRows::collect(
+            searcher
+                .segment_readers()
+                .iter()
+                .zip(segments.iter().map(|facts| facts.columns.as_ref())),
+        );
+        live_rows -= long_rows.extra_documents;
+        live_tokens -= long_rows.extra_length;
         Ok(IndexVersion {
             searcher,
             fields,
             segments,
             live_rows,
             live_tokens,
+            long_rows: Arc::new(long_rows),
             membership,
             last_applied_outbox_id,
             phrase_rows: PhraseCounts::default(),
@@ -183,6 +215,7 @@ impl IndexVersion {
             segments: self.segments.clone(),
             live_rows: self.live_rows,
             live_tokens: self.live_tokens,
+            long_rows: self.long_rows.clone(),
             membership,
             last_applied_outbox_id: self.last_applied_outbox_id,
             phrase_rows: PhraseCounts::default(),
@@ -204,8 +237,9 @@ impl IndexVersion {
         self.live_tokens as f64 / self.live_rows as f64
     }
 
-    /// n: how many live rows `phrase` matches, counted once per view. Fails when Tantivy fails a
-    /// read.
+    /// n: how many live rows `phrase` matches, counted once per view, a row longer than a page
+    /// once when the phrase matches on one of its pages or across one of its page boundaries.
+    /// Fails when Tantivy fails a read.
     pub(crate) fn phrase_rows(&self, phrase: &Phrase) -> tantivy::Result<u64> {
         if let Some(rows) = self.phrase_rows.get(phrase) {
             return Ok(rows);
@@ -214,6 +248,10 @@ impl IndexVersion {
         for (segment, facts) in self.searcher.segment_readers().iter().zip(&self.segments) {
             rows += self.phrase_rows_in(segment, facts, phrase)?;
         }
+        // The live documents the phrase matches count each long row's pieces; they give way to the
+        // long rows it matches.
+        let long = phrase_long_row_counts(self, phrase)?;
+        rows = rows - long.matched_documents + long.matched_rows;
         self.phrase_rows.insert(phrase, rows);
         Ok(rows)
     }

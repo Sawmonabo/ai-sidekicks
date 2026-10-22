@@ -22,14 +22,13 @@ use crate::index::find;
 use crate::index::membership::GroupMembership;
 use crate::index::merge_policy::{CappedMergePolicy, SEGMENT_ROW_CAP};
 use crate::index::schema::{
-    IndexFields, Owner, index_schema, key_term, owner_of, owner_term, owner_value,
-    register_tokenizers, row_document,
+    DocumentRow, IndexFields, Owner, index_schema, key_term, owner_of, owner_of_row, owner_term,
+    owner_value, piece_document, register_tokenizers, row_document,
 };
 use crate::index::version::IndexVersion;
 use crate::index::view::HeldSearch;
 use crate::index::{
-    GroupMembers, IndexBatch, IndexRowKind, SearchIndexError, SearchIndexOptions, SearchQuery,
-    SessionFind,
+    GroupMembers, IndexBatch, SearchIndexError, SearchIndexOptions, SearchQuery, SessionFind,
 };
 
 // One indexing thread, so a rebuild or a batch leaves the machine's other cores free.
@@ -265,9 +264,10 @@ impl SearchIndex {
 
     // Removals first, then rows: a row in the batch is as the database holds it now. A row whose
     // key is above its slot's highest was never added, so it is added without a delete; any other
-    // row replaces whatever its key holds, deleted once before its first page so its later pages
-    // stay. The segments of a removed owner, a purged session or a deleted group, are noted for
-    // rewriting, so its words leave the index's files however few its rows.
+    // row replaces whatever its key holds, deleted once before its first document so its later
+    // ones stay, and a row an earlier batch began is not deleted at all. The segments of a removed
+    // owner, a purged session or a deleted group, are noted for rewriting, so its words leave the
+    // index's files however few its rows.
     fn stage(
         &self,
         writer: &mut IndexWriter,
@@ -299,28 +299,44 @@ impl SearchIndex {
                 .iter()
                 .any(|segment| segment.segment_id() == *noted)
         });
-        let mut staged_keys = HashSet::new();
-        for row in &batch.rows {
-            let highest = &mut highest_row_keys[key_slot(row.key)];
-            if staged_keys.insert(row.key) {
-                if row.key <= *highest {
-                    writer.delete_term(key_term(&self.fields, row.key));
+        let mut staged_keys: HashSet<u64> = batch.continued_key.into_iter().collect();
+        let mut make_room = |key: u64| {
+            let highest = &mut highest_row_keys[key_slot(key)];
+            if staged_keys.insert(key) {
+                if key <= *highest {
+                    writer.delete_term(key_term(&self.fields, key));
                 } else {
-                    *highest = row.key;
+                    *highest = key;
                 }
             }
-            let owner = match row.kind {
-                IndexRowKind::Group => Owner::Group(row.owner_key),
-                IndexRowKind::Event | IndexRowKind::Title | IndexRowKind::Tag => {
-                    Owner::Session(row.owner_key)
-                }
-            };
+        };
+        for row in &batch.rows {
+            make_room(row.key);
             let tag = row
                 .tag
                 .as_ref()
                 .map(|tag| (tag.fold.as_str(), tag.session_last_activity_ms));
-            let document = row_document(&self.fields, row.key, row.kind, owner, &row.text, tag);
-            writer.add_document(document)?;
+            let document_row = DocumentRow {
+                key: row.key,
+                kind: row.kind,
+                owner: owner_of_row(row.kind, row.owner_key),
+            };
+            writer.add_document(row_document(&self.fields, document_row, &row.text, tag))?;
+        }
+        for long_row in &batch.long_row_documents {
+            make_room(long_row.key);
+            let document_row = DocumentRow {
+                key: long_row.key,
+                kind: long_row.kind,
+                owner: owner_of_row(long_row.kind, long_row.owner_key),
+            };
+            writer.add_document(piece_document(
+                &self.fields,
+                document_row,
+                &long_row.joined,
+                long_row.token_count,
+                long_row.piece,
+            ))?;
         }
         commit_with_payload(writer, committed)
     }
