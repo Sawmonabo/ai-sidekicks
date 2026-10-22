@@ -325,7 +325,7 @@ impl ClaudeSessionControls {
         let opening = ClaudeDaemonTurnOpening::Text {
             text: OutboundText {
                 text: compose_review_command(target),
-                origin: OutboundTextOrigin::DriverCommand,
+                origin: OutboundTextOrigin::HumanText,
             },
             message_id: mint_uuid_v7().to_string(),
             attachment_blocks: Vec::new(),

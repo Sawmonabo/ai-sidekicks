@@ -3,6 +3,7 @@
 //! of its conversations, and the messages its process took.
 
 use std::error::Error;
+use std::sync::Arc;
 
 use futures::future::join_all;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -98,8 +99,8 @@ impl ClaudeDriver {
     }
 
     /// Closes the session: a restart waiting for it, its controls and its reviewer's blocks go,
-    /// then its process is disposed of, after any transition in flight settles; a session with
-    /// no process needs nothing.
+    /// then its process is disposed of, after any transition in flight settles, and the `Allow
+    /// once` presses its bindings held are let go; a session with no process needs nothing.
     pub(crate) async fn close_session(
         &self,
         params: CloseSessionParams,
@@ -112,6 +113,7 @@ impl ClaudeDriver {
         parts.session_controls.forget_session(session_id).await;
         parts.reviewer.forget_session(session_id);
         loop {
+            let live = parts.slots().live_session(session_id);
             match parts.slots().begin_close(session_id) {
                 ClaudeCloseStart::Empty => return Ok(()),
                 ClaudeCloseStart::Wait(settled) => {
@@ -126,6 +128,13 @@ impl ClaudeDriver {
                     self.pending_compactions
                         .release_binding(&session_id.to_string());
                     close.channel().close().await;
+                    // Only the process this close disposes of, never one that replaced it.
+                    if let (Some(live), Some(reviewer_denials)) = (
+                        live.filter(|live| Arc::ptr_eq(&live.channel, close.channel())),
+                        self.sources.ports.reviewer_denials.port(),
+                    ) {
+                        live.release_served_presses(&**reviewer_denials);
+                    }
                     close.finish();
                     return Ok(());
                 }
