@@ -21,7 +21,7 @@
 //!   session rule the daemon keeps and honors alone: no provider holds it, so its record, the
 //!   rule it replaces and its revoke reach no provider, and no provider is handed it.
 
-pub(crate) mod driver_reads;
+mod driver_reads;
 pub(crate) mod session_end;
 
 use std::path::PathBuf;

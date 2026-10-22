@@ -73,7 +73,7 @@ impl From<ApprovalListReadError> for HandlerError {
 /// daemon, answered as an internal error. Fails the start when one is already registered.
 #[expect(
     dead_code,
-    reason = "the daemon's start registers the approval methods through it"
+    reason = "the daemon's start registers the approval methods"
 )]
 pub(crate) fn register_approval_methods(
     registry: &mut MethodRegistryBuilder,

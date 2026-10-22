@@ -13,8 +13,8 @@ use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::session::id::SessionId;
 
 use super::{
-    APPROVAL_RULES_STATEMENT_CAPACITY, ApprovalRules, SELECT_RULES_IN_FORCE_SQL, provider_rule_of,
-    query_rule_rows, rule_over,
+    APPROVAL_RULES_STATEMENT_CAPACITY, ApprovalRuleError, ApprovalRules, SELECT_RULES_IN_FORCE_SQL,
+    provider_rule_of, query_rule_rows, rule_over,
 };
 use crate::approvals::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
 use crate::approvals::service::tests::{ApprovalFixture, from_json};
@@ -129,12 +129,12 @@ async fn a_rule_remembered_in_a_skipped_range_is_not_in_force() {
 // A revoke of a project rule whose provider failed: before the record, out of a project's rule
 // file, it is refused `approval.rule.notKept` naming the rule and the rule stays in force; after
 // the record, handing a session its rules again, it is a fault and the rule is revoked. Killed by
-// answering the rule-file failure as a fault, as a provider's error raw.
+// answering the rule-file failure as the provider's raw error.
 #[rstest]
 #[case::rule_file_kept(true)]
 #[case::hand_out_failed(false)]
 #[tokio::test]
-async fn a_revoke_answers_notkept_only_while_the_rule_file_keeps_it(
+async fn a_revoke_answers_not_kept_only_while_the_rule_file_keeps_it(
     #[case] fails_in_rule_file: bool,
 ) {
     let approvals = ApprovalFixture::without_holds().await;
@@ -253,4 +253,35 @@ async fn a_revoke_answers_notkept_only_while_the_rule_file_keeps_it(
             panic!("the revoke answered {other:?}")
         }
     }
+}
+
+// A list of the rules of a session with no row is refused `session.notFound`, and a held session
+// lists its rules, none yet. Killed by dropping the existence read from `list`, which answers the
+// unknown session with no rules.
+#[tokio::test]
+async fn a_rule_list_of_an_unknown_session_is_refused() {
+    let approvals = ApprovalFixture::without_holds().await;
+    let rules = ApprovalRules::new(
+        Arc::new(DatabaseReadPool::new(
+            approvals.database.path(),
+            APPROVAL_RULES_STATEMENT_CAPACITY,
+        )),
+        Arc::clone(&approvals.events),
+        MachineId::new("machine".to_owned()).expect("the id is short"),
+        Box::new(|_params| async { Ok(()) }.boxed()),
+        Arc::new(ShellLineReadingBound::new(1024)),
+    );
+
+    let refused = rules.list(test_session_id()).await;
+    assert!(
+        matches!(&refused, Err(ApprovalRuleError::Refused(refusal))
+            if refusal.code == RefusalCode::SessionNotFound),
+        "an unknown session is refused: {refused:?}"
+    );
+
+    let listed = rules
+        .list(approvals.session_id)
+        .await
+        .expect("a held session's rules are listed");
+    assert!(listed.rules.is_empty(), "{listed:?}");
 }
