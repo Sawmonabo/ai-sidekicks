@@ -503,10 +503,6 @@ impl ReviewerDenials {
     /// every later press until the process it went to has ended. A caller awaits a press to its
     /// end and never drops it mid-send; the method layer cancels through its token, not by
     /// dropping the future.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the approval.denial.override handler calls it")
-    )]
     pub(crate) async fn override_denial(
         &self,
         request: &ApprovalDenialOverrideRequest,

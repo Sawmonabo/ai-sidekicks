@@ -102,15 +102,15 @@ pub(crate) enum PermissionAskError {
 }
 
 impl From<PermissionAskError> for HandlerError {
-    /// A refusal answers by its code, a driver's failure as drivers answer; the rest are faults
-    /// in the daemon.
+    /// A refusal answers by its code, a service's, a rule's or a driver's failure as each answers;
+    /// the rest are faults in the daemon.
     fn from(error: PermissionAskError) -> Self {
         match error {
             PermissionAskError::Refused(refusal) => Self::Refused(refusal),
             PermissionAskError::Service(service) => Self::from(service),
+            PermissionAskError::Rule(rule) => Self::from(rule),
             PermissionAskError::Driver(driver) => Self::from(driver),
             fault @ (PermissionAskError::Check(_)
-            | PermissionAskError::Rule(_)
             | PermissionAskError::Read(_)
             | PermissionAskError::Pool(_)
             | PermissionAskError::NoProvider { .. }
