@@ -1,14 +1,35 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
+use futures::FutureExt as _;
+use rstest::rstest;
 use serde_json::json;
+use sidekicks_contracts::approval::{
+    ApprovalCategory, ApprovalResolveRequest, RememberedRuleSense, RememberedScopeKind,
+};
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::session::id::SessionId;
 
-use super::{SELECT_RULES_IN_FORCE_SQL, provider_rule_of, query_rule_rows, rule_over};
+use super::{
+    APPROVAL_RULES_STATEMENT_CAPACITY, ApprovalRules, SELECT_RULES_IN_FORCE_SQL, provider_rule_of,
+    query_rule_rows, rule_over,
+};
+use crate::approvals::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
+use crate::approvals::service::tests::{ApprovalFixture, from_json};
+use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
-use crate::provider::port::permission_ask::ProviderAskActionKind;
+use crate::ipc::domain_error::DomainError;
+use crate::ipc::registry::HandlerError;
+use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
+use crate::provider::driver::contract::DriverError;
+use crate::provider::port::permission_ask::{
+    ProviderAnswerRule, ProviderAskActionKind, ProviderAskRule,
+};
+use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // Appends the event `event` describes to the session's log and answers its sequence.
@@ -103,4 +124,133 @@ async fn a_rule_remembered_in_a_skipped_range_is_not_in_force() {
             .collect::<Vec<_>>(),
         vec!["cargo test".to_owned()]
     );
+}
+
+// A revoke of a project rule whose provider failed: before the record, out of a project's rule
+// file, it is refused `approval.rule.notKept` naming the rule and the rule stays in force; after
+// the record, handing a session its rules again, it is a fault and the rule is revoked. Killed by
+// answering the rule-file failure as a fault, as a provider's error raw.
+#[rstest]
+#[case::rule_file_kept(true)]
+#[case::hand_out_failed(false)]
+#[tokio::test]
+async fn a_revoke_answers_notkept_only_while_the_rule_file_keeps_it(
+    #[case] fails_in_rule_file: bool,
+) {
+    let approvals = ApprovalFixture::without_holds().await;
+    let session = approvals.session_id.text();
+    let [project, mount] = project_and_mount_rows("mount", None);
+    approvals.execute(&format!(
+        "UPDATE sessions SET shape = 'project'; {project}; {mount};
+         INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, state,
+           created_at, updated_at)
+         VALUES ('workspace', '{}', 'mount', 'provisionedWorktree', '/repos/app/worktree',
+           'ready', '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}');",
+        session.as_str()
+    ));
+    let is_failing = Arc::new(AtomicBool::new(false));
+    let failing = Arc::clone(&is_failing);
+    let rules = ApprovalRules::new(
+        Arc::new(DatabaseReadPool::new(
+            approvals.database.path(),
+            APPROVAL_RULES_STATEMENT_CAPACITY,
+        )),
+        Arc::clone(&approvals.events),
+        MachineId::new("machine".to_owned()).expect("the id is short"),
+        Box::new(move |params| {
+            let is_rule_file = params.project_folder.is_some();
+            let fails = failing.load(Ordering::SeqCst) && is_rule_file == fails_in_rule_file;
+            async move {
+                if fails {
+                    Err(DriverError::Internal("the provider could not write".into()))
+                } else {
+                    Ok(())
+                }
+            }
+            .boxed()
+        }),
+        Arc::new(ShellLineReadingBound::new(1024)),
+    );
+    let card = approvals
+        .service
+        .create(
+            ApprovalRequestCreateRequest {
+                session_id: approvals.session_id,
+                run_id: approvals.run_id,
+                requested_by: from_json(json!("agent")),
+                category: ApprovalCategory::ToolExecution,
+                scope: from_json(json!("npm test")),
+                resource_descriptor: from_json(json!({
+                    "subject": "npm test",
+                    "standingAllowOffered": true,
+                    "projectScopeOffered": true,
+                    "editable": false,
+                    "action": { "kind": "command", "command": "npm test" },
+                })),
+            },
+            ApprovalRequestOrigin {
+                ask_id: Some(from_json(json!(mint_uuid_v7()))),
+                tool_call_id: None,
+            },
+        )
+        .await
+        .expect("the rule's card is raised");
+    let answer: ApprovalResolveRequest = from_json(json!({
+        "decision": "approved",
+        "approvalRequestId": card.approval_request_id,
+        "clientResolutionId": mint_uuid_v7().to_string(),
+        "rememberedScope": { "kind": "project", "pattern": "npm test", "sense": "allow" },
+    }));
+    let resolved = approvals
+        .service
+        .resolve(&answer, from_json(json!("device-1")))
+        .await
+        .expect("the rule's card is answered");
+    let made = ProviderAnswerRule {
+        rule: ProviderAskRule {
+            kind: RememberedScopeKind::Project,
+            sense: RememberedRuleSense::Allow,
+            action: ProviderAskActionKind::Command,
+            subject: "npm test".to_owned(),
+        },
+        project_folders: Vec::new(),
+    };
+    rules
+        .record(&resolved.request, &made)
+        .await
+        .expect("the provider kept the rule");
+    let rule_id = rules
+        .list(approvals.session_id)
+        .await
+        .expect("the rules read")
+        .rules[0]
+        .rule_id;
+
+    is_failing.store(true, Ordering::SeqCst);
+    let failure = rules
+        .revoke(rule_id)
+        .await
+        .expect_err("the provider's failure fails the revoke");
+    let in_force = rules
+        .list(approvals.session_id)
+        .await
+        .expect("the rules read")
+        .rules;
+
+    match HandlerError::from(failure) {
+        HandlerError::Refused(DomainError { code, detail, .. }) if fails_in_rule_file => {
+            assert_eq!(code, RefusalCode::ApprovalRuleNotKept);
+            assert_eq!(
+                detail.and_then(|detail| detail.get("ruleId").cloned()),
+                Some(json!(rule_id))
+            );
+            assert_eq!(in_force.len(), 1, "the rule still applies: {in_force:?}");
+        }
+        HandlerError::Internal(_) if !fails_in_rule_file => {
+            assert!(in_force.is_empty(), "the revoke was recorded: {in_force:?}");
+        }
+        other @ (HandlerError::Refused(_) | HandlerError::Internal(_) | HandlerError::Canceled) => {
+            panic!("the revoke answered {other:?}")
+        }
+    }
 }

@@ -22,6 +22,9 @@ use crate::ipc::registry::{
 use crate::session::directory::lookups::session_exists;
 use crate::session::not_found::session_not_found;
 
+#[cfg(test)]
+mod tests;
+
 /// The statements `approval.list` prepares on a read connection: whether the session exists, and
 /// its asks.
 #[cfg_attr(
