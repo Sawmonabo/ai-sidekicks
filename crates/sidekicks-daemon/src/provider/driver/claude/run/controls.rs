@@ -357,9 +357,10 @@ impl ClaudeRunControls {
             }
             Some(ClaudeRunRoute::Lead { .. }) | None => {}
         }
+        // The person's `Allow once` writes it, so it carries the human origin.
         let text = OutboundText {
             text: sentence,
-            origin: OutboundTextOrigin::SystemNarration,
+            origin: OutboundTextOrigin::HumanText,
         };
         let message_uuid = mint_uuid_v7().to_string();
         let Some(lead) = self.start.routes.lead_run_on(params.session_id) else {
@@ -451,7 +452,8 @@ mod tests {
     use crate::provider::driver::run_control::OverrideDenialParams;
 
     // Killed by attributing a helper's block to the lead run, and by writing the `Allow once` for
-    // it into the lead's turn instead of handing it to the helper.
+    // it into the lead's turn instead of handing it to the helper; and by writing the lead's
+    // `Allow once` without the human origin, or marked as the daemon's own words.
     #[tokio::test(start_paused = true)]
     async fn a_helpers_block_and_its_allow_once_stay_the_helpers() {
         let session = ScriptedSession::new();
@@ -515,5 +517,25 @@ mod tests {
             ClaudeHookAnswer::AddContext { context, .. }
                 if context.contains("Permission granted for: Bash(rm -rf build)")
         ));
+
+        session
+            .controls
+            .override_denial(&OverrideDenialParams {
+                session_id: session.session_id,
+                run_id: lead,
+                provider_denial: serde_json::value::to_raw_value(&json!({
+                    "tool_name": "Bash",
+                    "tool_input": tool_input,
+                    "tool_use_id": "call-2",
+                }))
+                .expect("a denial serializes"),
+            })
+            .await
+            .expect("the override reaches the lead's turn");
+
+        let frames = session.channel.user_frames();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0]["origin"], json!({"kind": "human"}));
+        assert_eq!(frames[0].get("client_composed"), None);
     }
 }
