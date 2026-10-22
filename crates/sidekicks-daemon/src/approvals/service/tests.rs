@@ -356,8 +356,6 @@ enum SecondAnswer {
     SameIdOtherDecision,
     /// Another scope under the first answer's id.
     SameIdOtherScope,
-    /// A correction under the first answer's id, which had none.
-    SameIdOtherEdit,
     /// Other words under the id of a first answer that declined with words.
     SameIdOtherWords,
     /// Any answer once the run's end canceled the card.
@@ -367,12 +365,12 @@ enum SecondAnswer {
 }
 
 // One answer settles a card: the same answer sent again is answered with what was saved and
-// records nothing; any other, under another id or under the same id with another decision, scope,
-// correction or decline words, is refused; a canceled card takes no answer; a session refusing the
-// write is answered by its own code. Killed by dropping the replay's compare, or its compare of the
-// decision, the effective scope, the correction or the decline words, and by dropping the session
-// refusal's mapping; the read's pending check and the write's pending guard each settle a replay
-// alone.
+// records nothing; any other, under another id or under the same id with another decision, scope
+// or decline words, is refused (another correction under the same id is the intake test's case);
+// a canceled card takes no answer; a session refusing the write is answered by its own code.
+// Killed by dropping the replay's compare, or its compare of the decision, the effective scope or
+// the decline words, and by dropping the session refusal's mapping; the read's pending check and
+// the write's pending guard each settle a replay alone.
 #[rstest]
 #[case::replay(SecondAnswer::Replay, None)]
 #[case::another(SecondAnswer::Another, Some(RefusalCode::ApprovalAlreadyResolved))]
@@ -382,10 +380,6 @@ enum SecondAnswer {
 )]
 #[case::same_id_other_scope(
     SecondAnswer::SameIdOtherScope,
-    Some(RefusalCode::ApprovalAlreadyResolved)
-)]
-#[case::same_id_other_edit(
-    SecondAnswer::SameIdOtherEdit,
     Some(RefusalCode::ApprovalAlreadyResolved)
 )]
 #[case::same_id_other_words(
@@ -413,7 +407,6 @@ async fn one_answer_settles_a_card(
         | SecondAnswer::Another
         | SecondAnswer::SameIdOtherDecision
         | SecondAnswer::SameIdOtherScope
-        | SecondAnswer::SameIdOtherEdit
         | SecondAnswer::AfterCancel
         | SecondAnswer::SessionRefusing => {
             answer(&card, ApprovalDecision::Approved, &first_id, json!({}))
@@ -436,7 +429,6 @@ async fn one_answer_settles_a_card(
         | SecondAnswer::Another
         | SecondAnswer::SameIdOtherDecision
         | SecondAnswer::SameIdOtherScope
-        | SecondAnswer::SameIdOtherEdit
         | SecondAnswer::SameIdOtherWords => {
             let resolved = fixture
                 .service
@@ -457,12 +449,6 @@ async fn one_answer_settles_a_card(
             ApprovalDecision::Approved,
             &first_id,
             json!({ "effectiveScope": "Read" }),
-        ),
-        SecondAnswer::SameIdOtherEdit => answer(
-            &card,
-            ApprovalDecision::Approved,
-            &first_id,
-            json!({ "editedAction": "git push --dry-run" }),
         ),
         SecondAnswer::SameIdOtherWords => answer(
             &card,

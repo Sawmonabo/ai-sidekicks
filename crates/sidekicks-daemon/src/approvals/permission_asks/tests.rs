@@ -352,9 +352,11 @@ async fn a_resend_hands_an_answer_only_where_no_hand_reached_the_provider() {
 }
 
 // A resend that finds its ask still waiting, the first answer's hand stopped at its project rule's
-// folder read, hands the stored answer: one under the same id with a correction the first never
-// carried is refused and hands nothing, and the same answer sent again hands the stored one.
-// Killed by comparing a resend without its correction.
+// folder read (the table renamed away stands in for that read failing), hands the stored answer:
+// one under the same id with a correction the first never carried is refused and hands nothing,
+// and the same answer sent again hands the stored one. Killed by comparing a resend without its
+// correction, and by a failed claim that lets go of the held ask, or marks it handed, before the
+// folder read.
 #[tokio::test]
 async fn a_resend_that_finds_its_ask_waiting_hands_the_stored_answer() {
     let fixture = AsksFixture::new().await;

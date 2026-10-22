@@ -327,13 +327,12 @@ impl PermissionAsks {
     /// records its rule at once. What is handed is the stored answer, its correction, its decline's
     /// words and its rule, never a resend's. The same answer sent again hands it again only where
     /// no earlier hand reached, or may have reached, the provider, and records a daemon card's rule
-    /// whose record failed. Fails with the approval
-    /// service's refusals; `approval.requestCanceled`, the answer not recorded and the card
-    /// withdrawn, for a provider's pending card whose ask is no longer held;
-    /// `approval.rule.notKept` when the call was answered but its provider could not keep the rule,
-    /// which is then not recorded;
-    /// [`PermissionAskError::RuleWithoutAction`] for a daemon card that names no action for its
-    /// rule; and as reaching the provider or recording the rule fails, the answer kept.
+    /// whose record failed. Fails with the approval service's refusals; `approval.requestCanceled`,
+    /// the answer not recorded and the card withdrawn, for a provider's pending card whose ask is
+    /// no longer held; `approval.rule.notKept` when the call was answered but its provider could
+    /// not keep the rule, which is then not recorded; [`PermissionAskError::RuleWithoutAction`] for
+    /// a daemon card that names no action for its rule; and as reaching the provider or recording
+    /// the rule fails, the answer kept.
     pub(crate) async fn resolve(
         &self,
         request: &ApprovalResolveRequest,
