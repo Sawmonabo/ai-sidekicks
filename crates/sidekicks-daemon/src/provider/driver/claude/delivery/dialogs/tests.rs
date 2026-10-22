@@ -117,7 +117,6 @@ fn dialog(kind: &str, payload: &str) -> ClaudeUserDialog {
     ClaudeUserDialog {
         dialog_kind: Some(kind.to_owned()),
         payload: Some(RawValue::from_string(payload.to_owned()).expect("a JSON payload")),
-        tool_use_id: None,
     }
 }
 

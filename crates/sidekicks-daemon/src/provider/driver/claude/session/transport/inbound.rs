@@ -112,10 +112,6 @@ pub(crate) struct ClaudeUserDialog {
     /// What the choice shows, relayed as sent.
     #[serde(default)]
     pub(crate) payload: Option<Box<RawValue>>,
-    /// The tool call the choice is about, where it is about one.
-    #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(dead_code, reason = "the Claude driver's stream reader reads it")]
-    pub(crate) tool_use_id: Option<String>,
 }
 
 /// The members of an `mcp_message` request.
@@ -396,7 +392,11 @@ mod tests {
     fn a_request_whose_input_nests_deep_reads_whole() {
         let input = format!("{}{}", "[".repeat(INPUT_DEPTH), "]".repeat(INPUT_DEPTH));
         let frame = format!(
-            r#"{{"type":"control_request","request_id":"7","request":{{"subtype":"can_use_tool","tool_name":"Bash","input":{input}}}}}"#
+            concat!(
+                r#"{{"type":"control_request","request_id":"7","#,
+                r#""request":{{"subtype":"can_use_tool","tool_name":"Bash","input":{input}}}}}"#
+            ),
+            input = input
         );
         let mut reader = ClaudeControlFrameReader::new(None, "session".to_owned());
 

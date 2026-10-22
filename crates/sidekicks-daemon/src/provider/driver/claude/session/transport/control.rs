@@ -63,7 +63,10 @@ pub(crate) enum ClaudeControlRequest {
         thinking_display: ClaudeThinkingDisplay,
     },
     /// Installs the session's tool-server routes, replacing the set.
-    #[expect(dead_code, reason = "the Claude driver's tool-server routes send it")]
+    #[expect(
+        dead_code,
+        reason = "setting the session's tool servers at start and after each resume sends it"
+    )]
     McpSetServers {
         /// Each route by its server name.
         servers: BTreeMap<String, ClaudeToolServerEntry>,
@@ -71,7 +74,7 @@ pub(crate) enum ClaudeControlRequest {
     /// Delivers one MCP JSON-RPC message from a tool server the daemon hosts in-process.
     #[expect(
         dead_code,
-        reason = "the Claude driver's in-process tool servers send it"
+        reason = "the tool-server front relays each in-process server's own messages in it"
     )]
     McpMessage {
         /// The server, as `initialize` or `mcp_set_servers` named it.
@@ -311,13 +314,19 @@ pub(crate) struct ClaudeAgentDefinition {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum ClaudeToolServerEntry {
     /// Reached over HTTP at `url`.
-    #[expect(dead_code, reason = "the Claude driver's tool-server routes name it")]
+    #[expect(
+        dead_code,
+        reason = "setting the session's tool servers names an HTTP server with it"
+    )]
     Http {
         /// The route's address.
         url: String,
     },
     /// Hosted in-process, its messages carried by `mcp_message`.
-    #[expect(dead_code, reason = "the Claude driver's tool-server routes name it")]
+    #[expect(
+        dead_code,
+        reason = "setting the session's tool servers names an in-process server with it"
+    )]
     Sdk {
         /// The server's name.
         name: String,
@@ -338,7 +347,10 @@ pub(crate) enum ClaudeTitleSource {
 pub(crate) struct ClaudeInterruptReceipt {
     /// The messages that survive the interrupt, by uuid.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(dead_code, reason = "the Claude driver's interrupt reads it")]
+    #[expect(
+        dead_code,
+        reason = "the plain interrupt reads the messages that survive it from the receipt"
+    )]
     pub(crate) still_queued: Option<LenientList<String>>,
     /// The messages the interrupt dropped, by uuid; sent only for `cancel_queued`.
     #[serde(default, deserialize_with = "read_lenient")]

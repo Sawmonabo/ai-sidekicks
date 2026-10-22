@@ -419,7 +419,7 @@ impl ClaudeRunRoutes {
         not(test),
         expect(
             dead_code,
-            reason = "the Claude driver's staged-changes review binds its run so"
+            reason = "the staged review binds its run so; the driver's start_review reaches it"
         )
     )]
     pub(crate) fn bind_apart_run(&self, run_id: RunId, stop: ClaudeApartRunStop) {
@@ -431,7 +431,7 @@ impl ClaudeRunRoutes {
         not(test),
         expect(
             dead_code,
-            reason = "the Claude driver's staged-changes review drops its run so"
+            reason = "the staged review drops its run so; the driver's start_review reaches it"
         )
     )]
     pub(crate) fn forget_apart_run(&self, run_id: RunId) {

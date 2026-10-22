@@ -58,7 +58,7 @@ impl ClaudeGoalCommands {
         not(test),
         expect(
             dead_code,
-            reason = "the Claude driver's session goal sends the command through it"
+            reason = "the session goal handler reaches it through the driver's set_session_goal"
         )
     )]
     pub(crate) async fn send(

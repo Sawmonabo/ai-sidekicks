@@ -104,24 +104,13 @@ pub(crate) enum ClaudePictureMediaType {
     Webp,
 }
 
-/// When a running turn reads a message: at once, at its next step, or after it ends.
+/// The priority a person's `Send now` is written with; every other message carries none, which
+/// Claude Code reads at the running turn's next step.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ClaudeMessagePriority {
     /// At once, stopping what the turn is doing.
     Now,
-    /// At the turn's next step.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's message writes queue each message with it"
-    )]
-    Next,
-    /// Once the turn ends.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's message writes queue each message with it"
-    )]
-    Later,
 }
 
 /// The user message for one piece of provider-bound text, its words unchanged, followed by its

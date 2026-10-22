@@ -370,9 +370,9 @@ impl ClaudeRunControls {
     /// Moves the foreground work one tool call started (a command, a helper) to the background
     /// and answers whether any moved: `false` when the call matched no foreground work. Fails
     /// `NoLiveSession` and as the request fails, refused where background tasks are turned off.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the agent's command and helper background act")
+    #[expect(
+        dead_code,
+        reason = "the `agent.command.background` handler moves foreground work through it"
     )]
     pub(crate) async fn background_task(
         &self,

@@ -69,7 +69,7 @@ impl ClaudeConversationCuts {
         not(test),
         expect(
             dead_code,
-            reason = "the Claude driver's undo cuts the conversation through it"
+            reason = "the undo handler reaches it through the driver's rewind_conversation"
         )
     )]
     pub(crate) async fn rewind(
