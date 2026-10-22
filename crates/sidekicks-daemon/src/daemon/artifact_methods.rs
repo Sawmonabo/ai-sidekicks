@@ -20,6 +20,9 @@ use crate::artifacts::attachment_resolver::ArtifactAttachmentResolver;
 use crate::artifacts::ingest::service::ArtifactIngestService;
 use crate::artifacts::payload_store::PayloadStore;
 use crate::artifacts::publish::ArtifactPublishService;
+use crate::daemon::scheduler::budget::{
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
+};
 use crate::daemon::scheduler::{
     JobCondition, ScheduleError, ScheduledJobHandle, ScheduledJobOutcome, Scheduler,
 };
@@ -38,6 +41,13 @@ const ARTIFACTS_FOLDER_NAME: &str = "artifacts";
 // How often the reaper looks for streams past their lifetime and spools gone unwritten: often
 // enough that a stream is ended within minutes of its six-hour lifetime.
 const INGEST_REAPER_INTERVAL: Duration = Duration::from_mins(10);
+
+// A reaper pass's processor budget, the reap's and the orphan sweep's work together.
+const INGEST_REAPER_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
+    figure: Duration::from_millis(200),
+    per: 10_000,
+    unit: WorkUnit::ArtifactsExamined,
+}]);
 
 /// What the artifact store is built from.
 pub(crate) struct ArtifactMethodsDeps {
@@ -97,9 +107,8 @@ impl ArtifactMethods {
         )
     }
 
-    // One reaper pass: the ingest's reap, then the orphan sweep, which runs whether the reap
-    // failed or not. Fails with the reap's failure, the sweep's written to the service log beside
-    // it, or the sweep's alone.
+    // One reaper pass, metered against its processor budget: the ingest's reap, then the orphan
+    // sweep, which runs whether the reap failed or not.
     fn reaper_pass(
         &self,
     ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static
@@ -107,30 +116,46 @@ impl ArtifactMethods {
         let ingest = Arc::clone(&self.ingest);
         let payloads = Arc::clone(&self.payloads);
         let reads = Arc::clone(&self.reads);
-        move |_stop| {
-            let ingest = Arc::clone(&ingest);
-            let payloads = Arc::clone(&payloads);
-            let reads = Arc::clone(&reads);
-            async move {
-                let reaped = ingest.reap().await;
-                let swept = payloads.sweep_orphans(&reads).await;
-                match (reaped, swept) {
-                    (Ok(()), Ok(())) => Ok(()),
-                    (Ok(()), Err(sweep_failure)) => Err(sweep_failure.into()),
-                    (Err(reap_failure), swept) => {
-                        if let Err(sweep_failure) = swept {
-                            tracing::warn!(
-                                error = &sweep_failure as &(dyn std::error::Error + 'static),
-                                "The orphan sweep failed beside the ingest reaper"
-                            );
-                        }
-                        Err(reap_failure.into())
-                    }
-                }
-            }
-            .boxed()
-        }
+        metered_job(
+            INGEST_REAPER_BUDGET,
+            Box::new(move |_stop, meter| {
+                let ingest = Arc::clone(&ingest);
+                let payloads = Arc::clone(&payloads);
+                let reads = Arc::clone(&reads);
+                async move { run_reaper_pass(&ingest, &payloads, &reads, &meter).await }.boxed()
+            }),
+        )
     }
+}
+
+// One metered reaper pass: its workload is the artifacts the reap and the sweep examined, none
+// when there were none. Fails with the reap's failure, the sweep's written to the service log
+// beside it, or the sweep's alone.
+async fn run_reaper_pass(
+    ingest: &ArtifactIngestService,
+    payloads: &PayloadStore,
+    reads: &DatabaseReadPool,
+    meter: &ProcessorMeter,
+) -> MeteredJobOutcome {
+    let reaped = ingest.reap(meter).await;
+    let swept = payloads.sweep_orphans(reads, meter).await;
+    let examined = match (reaped, swept) {
+        (Ok(reaped), Ok(swept)) => reaped.saturating_add(swept),
+        (Ok(_), Err(sweep_failure)) => return Err(sweep_failure.into()),
+        (Err(reap_failure), swept) => {
+            if let Err(sweep_failure) = swept {
+                tracing::warn!(
+                    error = &sweep_failure as &(dyn std::error::Error + 'static),
+                    "The orphan sweep failed beside the ingest reaper"
+                );
+            }
+            return Err(reap_failure.into());
+        }
+    };
+    if examined == 0 {
+        return Ok(None);
+    }
+    Ok(Some(JobWorkload::of(WorkUnit::ArtifactsExamined, examined)))
 }
 
 /// Builds the artifact store and registers its calls on `registry`. Fails when the payload folder

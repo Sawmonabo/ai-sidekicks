@@ -39,10 +39,6 @@ pub(crate) enum WorkUnit {
     /// Files an expiry deleted.
     FilesDeleted,
     /// Artifacts the ingest reaper or the orphan sweep examined.
-    #[expect(
-        dead_code,
-        reason = "the ingest reaper's and the orphan sweep's registrations"
-    )]
     ArtifactsExamined,
     /// Bytes of the crash dump a report was built from.
     DumpBytes,

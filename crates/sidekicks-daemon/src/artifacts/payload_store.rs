@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::OptionalExtension as _;
 
 use crate::artifacts::refusals::ArtifactError;
+use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::{MissingEntry as _, is_missing_entry};
@@ -190,8 +191,9 @@ impl PayloadStore {
 
     /// Reclaims every stored payload no reference names, as
     /// [`PayloadStore::reclaim_unreferenced`] does, for bytes a crash left behind: run at the
-    /// daemon's start and on the ingest reaper's cadence. Fails when the store's folder cannot be
-    /// listed or the referenced keys read.
+    /// daemon's start and on the ingest reaper's cadence, its listing charged to `meter`. Answers
+    /// the payloads it examined, each one stored. Fails when the store's folder cannot be listed or
+    /// the referenced keys read.
     #[cfg_attr(
         not(test),
         expect(
@@ -202,9 +204,11 @@ impl PayloadStore {
     pub(crate) async fn sweep_orphans(
         &self,
         reads: &DatabaseReadPool,
-    ) -> Result<(), PayloadReclaimError> {
+        meter: &ProcessorMeter,
+    ) -> Result<u64, PayloadReclaimError> {
         let algorithm_folder = self.objects_folder.join(CONTENT_HASH_ALGORITHM);
-        let stored = tokio::task::spawn_blocking(move || list_stored(&algorithm_folder))
+        let stored = meter
+            .run_blocking(move || list_stored(&algorithm_folder))
             .await
             .map_err(io::Error::other)??;
         let referenced = reads
@@ -216,12 +220,13 @@ impl PayloadStore {
                     .map_err(PayloadReclaimError::from)
             })
             .await?;
+        let examined = u64::try_from(stored.len()).expect("a payload count fits in u64");
         // Each is read again under its key, since an admit may reference it after the list.
         let orphans = stored
             .into_iter()
             .filter(|content_hash| !referenced.contains(content_hash.as_str()));
         self.reclaim_unreferenced(reads, orphans).await;
-        Ok(())
+        Ok(examined)
     }
 
     // Removes the payload once, under its key, no reference names it.
@@ -319,6 +324,7 @@ mod tests {
     use super::{ContentHash, PayloadStore};
     use crate::artifacts::refusals::ArtifactError;
     use crate::artifacts::test_store::{ArtifactTestStore, write_payload_reference};
+    use crate::daemon::scheduler::budget::ProcessorMeter;
 
     fn content_hash_of(bytes: &[u8]) -> ContentHash {
         ContentHash::of_sha256(&Sha256::digest(bytes))
@@ -401,6 +407,14 @@ mod tests {
             store.payloads.object_path_of(&admitted).exists(),
             "bytes an admit referenced under their key stay"
         );
+        // The sweep counts each payload it examined, the two kept ones that it does not remove.
+        // Killed by a count of the payloads removed in place of those examined.
+        let examined = store
+            .payloads
+            .sweep_orphans(&store.reads, &ProcessorMeter::default())
+            .await
+            .expect("the sweep ends cleanly");
+        assert_eq!(examined, 2);
     }
 
     #[tokio::test]
