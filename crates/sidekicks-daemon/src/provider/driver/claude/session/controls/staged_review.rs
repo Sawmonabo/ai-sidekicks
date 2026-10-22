@@ -234,8 +234,9 @@ impl ClaudeSessionControls {
         let legs = one_turn_legs(live, Some(worktree.folder().to_path_buf()));
         let turn = self
             .run_one_turn(
-                live,
                 &legs,
+                live.admitted_provider_account_id.clone(),
+                None,
                 None,
                 compose_review_command(SessionReviewTarget::Staged),
                 stop.clone(),

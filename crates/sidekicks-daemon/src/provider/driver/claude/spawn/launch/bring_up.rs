@@ -17,13 +17,15 @@ use crate::provider::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, read_claude_attached_advisor,
 };
 use crate::provider::driver::claude::session::errors::ClaudeSessionError;
-use crate::provider::driver::claude::session::permission_level::permission_level_of;
+use crate::provider::driver::claude::session::permission_level::{
+    claude_permission_mode_for, permission_level_of,
+};
 use crate::provider::driver::claude::session::process::{
     ClaudeCodeProcess, ClaudeProcessLaunch, ClaudeProcessListener, ClaudeTurnHolds,
 };
 use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::provider::driver::claude::session::transport::control::{
-    ClaudeControlRequest, ClaudeThinkingDisplay,
+    ClaudeControlRequest, ClaudePermissionMode, ClaudeThinkingDisplay,
 };
 use crate::provider::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
@@ -101,12 +103,14 @@ pub(crate) struct ClaudeBroughtUp {
 }
 
 /// Brings one session process up on `executable`, the build resolved at this spawn, so a relaunch
-/// runs whatever the command names now. Fails with the settings' composition error, the start's
+/// runs whatever the command names now, in `permission_mode` where given and else its level's own
+/// mode. Fails with the settings' composition error, the start's
 /// error, or a request's failure or refusal, the process then terminated.
 pub(crate) async fn bring_up_claude_process(
     launcher: &ClaudeProcessLauncher,
     executable: &ResolvedProviderExecutable,
     request: ClaudeBringUpRequest<'_>,
+    permission_mode: Option<ClaudePermissionMode>,
 ) -> Result<ClaudeBroughtUp, ClaudeLaunchError> {
     let spawn = request.spawn;
     let legs = spawn.legs;
@@ -124,7 +128,9 @@ pub(crate) async fn bring_up_claude_process(
     let has_managed_mcp_file = has_readable_managed_mcp_file().await;
     let arguments = compose_claude_arguments(&ClaudeArgumentsRequest {
         model: &legs.model,
-        level: legs.execution_posture.as_ref().map(permission_level_of),
+        permission_mode: permission_mode.unwrap_or_else(|| {
+            claude_permission_mode_for(legs.execution_posture.as_ref().map(permission_level_of))
+        }),
         settings: &settings,
         output_schema: legs.output_schema.as_ref(),
         is_helper_tool_withheld: matches!(legs.subagent_policy, Some(SubagentPolicy::Disabled {})),

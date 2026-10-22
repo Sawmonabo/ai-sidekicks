@@ -19,6 +19,8 @@ use crate::provider::driver::claude::session::tool_server_calls::{
     ClaudeToolServerCallContext, ClaudeToolServerCalls,
 };
 use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::provider::driver::claude::session::transport::control::ClaudePermissionMode;
+use crate::provider::driver::claude::session::transport::declarations::ClaudeCumulativeUsageObservation;
 use crate::provider::driver::claude::session::transport::inbound::{
     ClaudeInboundRequest, ClaudeInboundRequestBody, ClaudeInboundRequestEvent,
 };
@@ -47,6 +49,8 @@ pub(crate) struct ClaudeOneTurnRequest<'a> {
     pub(crate) spawn: ClaudeSessionSpawn<'a>,
     /// The conversation copied; `None` starts from an empty one.
     pub(crate) resume_handle: Option<String>,
+    /// The mode the turn runs in in place of its level's own; `None` keeps the level's.
+    pub(crate) permission_mode: Option<ClaudePermissionMode>,
     /// The one message.
     pub(crate) text: OutboundText,
     /// Ends the turn and its process at once when cancelled.
@@ -71,6 +75,8 @@ pub(crate) struct ClaudeOneTurnReply {
     pub(crate) provider_message_id: Option<String>,
     /// The turn's last refusal, as Claude Code reads a turn.
     pub(crate) refusal: Option<RunFailureCause>,
+    /// The cumulative usage the `result` reports, where it carries any.
+    pub(crate) usage: Option<ClaudeCumulativeUsageObservation>,
 }
 
 // The members of a lead `result` frame the reply reads.
@@ -108,6 +114,7 @@ pub(crate) async fn run_claude_one_turn(
             listener,
             turn_holds: None,
         },
+        request.permission_mode,
     )
     .await?;
     let process = brought_up.process;
@@ -222,6 +229,7 @@ fn read_reply(
         text,
         provider_message_id: reading.provider_message_id,
         refusal: reading.refusal,
+        usage: frame.observation.cumulative_usage.clone(),
     })
 }
 

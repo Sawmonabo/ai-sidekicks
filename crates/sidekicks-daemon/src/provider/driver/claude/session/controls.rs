@@ -6,10 +6,13 @@
 mod staged_review;
 
 use std::collections::HashMap;
+use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use futures::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::value::RawValue;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
 use sidekicks_contracts::session::controls::events::{
     SessionNotice, SessionNoticePostedPayload, SessionSideQuestionAnsweredPayload,
@@ -28,6 +31,8 @@ use sidekicks_platforms::PathRules;
 use tokio_util::sync::CancellationToken;
 
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
+use crate::provider::callback_tools::spawn_binding::CallbackToolSpawnBinding;
+use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::run::start::{
     ClaudeDaemonTurnOpening, ClaudeRunStart, claude_session_unavailable,
 };
@@ -49,6 +54,9 @@ use crate::provider::driver::claude::session::state::LiveClaudeSession;
 use crate::provider::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeFlagSettings, ClaudePermissionMode,
 };
+use crate::provider::driver::claude::session::transport::declarations::{
+    ClaudeCumulativeUsageObservation, ClaudeInitializeDeclaration,
+};
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::provider::driver::claude::spawn::launch::bring_up::ClaudeSessionSpawn;
@@ -64,6 +72,10 @@ use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::provider::port::in_process_tool_servers::InProcessToolServers;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::session_rules::SessionRulePort;
+use crate::provider::port::usage_sink::UsageSink;
+use crate::provider::usage_delta_accountant::{
+    CumulativeUsageReading, ThreadBaseEstablishment, UsageDeltaAccountant,
+};
 use crate::session::run::inbound::rows::SessionScopedRow;
 use crate::session::run::inbound::{InboundDelivery, InboundOutcome};
 
@@ -99,6 +111,20 @@ pub(crate) struct ClaudeSessionControls {
     in_process_tool_servers: Arc<PortRegistration<Arc<dyn InProcessToolServers>>>,
     read_commands: ClaudeCommandListReader,
     tables: Arc<Mutex<ClaudeControlTables>>,
+}
+
+/// The copy a side question runs on: the legs at the session's full model id, the account, the
+/// conversation copied, and for a session at rest the callback-tool installation its legs made,
+/// undone once the turn ends.
+pub(crate) struct ClaudeSideQuestionCopy {
+    /// The legs the copy starts on.
+    pub(crate) legs: ClaudeSpawnBoundLegs,
+    /// The account it runs on; `None` on the person's own home.
+    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The conversation copied, whose emitted usage the copy's is metered less.
+    pub(crate) parent_provider_session_id: String,
+    /// The installation the legs of a session at rest made; `None` on a live session's own legs.
+    pub(crate) callback_tools: Option<CallbackToolSpawnBinding>,
 }
 
 // A `get_settings` reply's `effective` member, of which only the output style is read.
@@ -222,27 +248,22 @@ impl ClaudeSessionControls {
         Ok(SessionCommandAnswer::Answered { line })
     }
 
-    /// Asks `question` on a copy of the conversation in a one-turn process on the session's full
-    /// model id, which keeps nothing; returns at once, its answer appended as a row when it comes
+    /// Asks `question` on the copy of the conversation `copy` composes, in a one-turn process in
+    /// plan mode that keeps nothing; returns at once. Its answer is appended as a row when it
+    /// comes, its usage metered on the session through `usage` less the copied conversation's own,
     /// and a refusal or failure recorded.
     pub(crate) fn ask_side_question(
         self: &Arc<Self>,
-        live: &Arc<LiveClaudeSession>,
+        session_id: SessionId,
         side_question_id: SideQuestionId,
         question: String,
+        copy: BoxFuture<'static, Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>>>,
+        usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
     ) {
-        let (controls, live) = (Arc::clone(self), Arc::clone(live));
+        let controls = Arc::clone(self);
         tokio::spawn(async move {
-            let session_id = live.session_id;
-            let legs = one_turn_legs(&live, None);
             let reply = controls
-                .run_one_turn(
-                    &live,
-                    &legs,
-                    Some(live.provider_session_id.clone()),
-                    question.clone(),
-                    CancellationToken::new(),
-                )
+                .run_side_question(copy, question.clone(), &usage)
                 .await;
             let answered = match reply {
                 Ok(reply) => side_question_row(session_id, side_question_id, question, reply),
@@ -509,16 +530,50 @@ impl ClaudeSessionControls {
         Ok(attached)
     }
 
-    // Runs one unkept turn on `legs` with the session's rules, the words given as the daemon's.
+    // The side question's one turn on its copy, the copy's callback tools undone once it ends,
+    // and its usage metered whether or not the model answered.
+    async fn run_side_question(
+        &self,
+        copy: BoxFuture<'static, Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>>>,
+        question: String,
+        usage: &PortRegistration<Arc<dyn UsageSink>>,
+    ) -> Result<ClaudeOneTurnReply, Box<dyn Error + Send + Sync>> {
+        let copy = copy.await?;
+        let reply = self
+            .run_one_turn(
+                &copy.legs,
+                copy.provider_account_id.clone(),
+                Some(copy.parent_provider_session_id.clone()),
+                Some(ClaudePermissionMode::Plan),
+                question,
+                CancellationToken::new(),
+            )
+            .await;
+        if let Some(callback_tools) = copy.callback_tools {
+            callback_tools.rollback();
+        }
+        let reply = reply?;
+        meter_side_question(
+            usage,
+            copy.legs.session_id,
+            &copy.parent_provider_session_id,
+            reply.usage.as_ref(),
+        );
+        Ok(reply)
+    }
+
+    // Runs one unkept turn on `legs` with the session's rules, the words given as the daemon's,
+    // in `permission_mode` where given and else the level's own.
     async fn run_one_turn(
         &self,
-        live: &LiveClaudeSession,
         legs: &ClaudeSpawnBoundLegs,
+        provider_account_id: Option<ProviderAccountId>,
         resume_handle: Option<String>,
+        permission_mode: Option<ClaudePermissionMode>,
         text: String,
         stop: CancellationToken,
     ) -> Result<ClaudeOneTurnReply, ClaudeLaunchError> {
-        let session_rules = read_claude_session_rules(&self.session_rules, live.session_id)
+        let session_rules = read_claude_session_rules(&self.session_rules, legs.session_id)
             .await
             .map_err(|error| ClaudeLaunchError::Build(DriverError::Internal(error)))?;
         let in_process_servers = self.in_process_tool_servers.port();
@@ -526,13 +581,14 @@ impl ClaudeSessionControls {
             .run_one_turn(ClaudeOneTurnRequest {
                 spawn: ClaudeSessionSpawn {
                     legs,
-                    provider_account_id: live.admitted_provider_account_id.clone(),
+                    provider_account_id,
                     session_rules: &session_rules,
                     step_bound: None,
                     in_process_servers,
                     path_rules: PathRules::NATIVE,
                 },
                 resume_handle,
+                permission_mode,
                 text: OutboundText {
                     text,
                     origin: OutboundTextOrigin::DriverCommand,
@@ -577,8 +633,6 @@ impl ClaudeSessionControls {
     }
 }
 
-// The session's legs on its full model id, level, advisor and style now, in `working_directory`
-// where one is given, for a one-turn process that runs the very model the session does.
 /// The legs a one-turn process of `live`'s session starts on: its own, at the level, advisor and
 /// style it runs with now, on the full id of the model it runs, in `working_directory` where one is
 /// given.
@@ -587,21 +641,69 @@ pub(crate) fn one_turn_legs(
     working_directory: Option<std::path::PathBuf>,
 ) -> ClaudeSpawnBoundLegs {
     let settings = lock(&live.settings).clone();
-    let model = live
-        .initialize
-        .models
-        .iter()
-        .find(|offered| offered.value == settings.running_model)
-        .and_then(|offered| offered.resolved_model.clone())
-        .unwrap_or(settings.running_model);
     ClaudeSpawnBoundLegs {
-        model,
+        model: claude_full_model_id(&live.initialize, &settings.running_model),
         execution_posture: settings.execution_posture,
         advisor_model: settings.advisor_model,
         output_style: settings.output_style,
         working_directory: working_directory
             .unwrap_or_else(|| live.spawn_bound_legs.working_directory.clone()),
         ..live.spawn_bound_legs.clone()
+    }
+}
+
+/// The full id of `model` as `declaration` offers it, since plan mode runs an alias as another
+/// model; `model` as given where the build offers it under no full id.
+pub(crate) fn claude_full_model_id(
+    declaration: &ClaudeInitializeDeclaration,
+    model: &str,
+) -> String {
+    declaration
+        .offered_model(model)
+        .and_then(|offered| offered.resolved_model.clone())
+        .unwrap_or_else(|| model.to_owned())
+}
+
+// The copy's usage on the session less what the copied conversation already reported: the copy
+// meters as a resumed thread of its own whose base is the conversation's emitted sums. With no
+// usage record registered it goes nowhere; a base that cannot be read is recorded and nothing is
+// metered, since the copy's whole figure would count the conversation again.
+fn meter_side_question(
+    usage: &PortRegistration<Arc<dyn UsageSink>>,
+    session_id: SessionId,
+    parent_provider_session_id: &str,
+    observed: Option<&ClaudeCumulativeUsageObservation>,
+) {
+    let (Some(observed), Some(sink)) = (observed, usage.port()) else {
+        return;
+    };
+    let base = match sink.read_prior_emitted(session_id, parent_provider_session_id) {
+        Ok(base) => base,
+        Err(error) => {
+            record_unheard_claude_failure(
+                DriverDiagnosticKind::UsageResumeBaseUnavailable,
+                session_id,
+                "the side question's usage base",
+                &*error,
+            );
+            return;
+        }
+    };
+    let thread_id = mint_uuid_v7().to_string();
+    let mut accountant = UsageDeltaAccountant::new(DESCRIPTOR.provider_id());
+    accountant.establish_thread(
+        thread_id.clone(),
+        ThreadBaseEstablishment::Resume {
+            prior_emitted_cumulative: base,
+        },
+    );
+    if let Some(metered) = accountant.meter_reading(CumulativeUsageReading {
+        thread_id,
+        named_turn_id: None,
+        cumulative: observed.cumulative,
+        declared_per_turn: observed.declared_per_turn,
+    }) {
+        sink.record_metered(session_id, metered);
     }
 }
 
@@ -632,9 +734,7 @@ fn side_question_row(
 // full id, else the model as given.
 fn display_name_of(live: &LiveClaudeSession, model: &str) -> String {
     live.initialize
-        .models
-        .iter()
-        .find(|offered| offered.value == model || offered.resolved_model.as_deref() == Some(model))
+        .offered_model(model)
         .and_then(|offered| offered.display_name.clone())
         .unwrap_or_else(|| model.to_owned())
 }

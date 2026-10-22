@@ -166,7 +166,8 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
             let environment = request.spawn.legs.spawn_environment.clone();
             let executable =
                 Self::resolve(&self.command_search, &self.home_folder, environment).await?;
-            let brought_up = bring_up_claude_process(&self.launcher, &executable, request).await?;
+            let brought_up =
+                bring_up_claude_process(&self.launcher, &executable, request, None).await?;
             let process = brought_up.process;
             let handshake_process = Arc::clone(&process);
             let version = read_spawned_version(

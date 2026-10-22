@@ -4,9 +4,7 @@
 //! on it: the daemon's servers ride Claude Code's in-process route, named at `initialize`.
 
 use serde_json::{Map, Value};
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
 
-use crate::provider::driver::claude::session::permission_level::claude_permission_mode_for;
 use crate::provider::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::provider::driver::claude::spawn::settings::ClaudeSpawnSettings;
 
@@ -55,8 +53,8 @@ pub(crate) enum ClaudeConversationStart {
 pub(crate) struct ClaudeArgumentsRequest<'a> {
     /// The session's model.
     pub(crate) model: &'a str,
-    /// The session's level, `None` where it names none.
-    pub(crate) level: Option<PermissionLevel>,
+    /// The mode the process runs in, as `--permission-mode` names it.
+    pub(crate) permission_mode: ClaudePermissionMode,
     /// The `--settings` document.
     pub(crate) settings: &'a ClaudeSpawnSettings,
     /// The session's output schema.
@@ -93,9 +91,7 @@ pub(crate) fn compose_claude_arguments(request: &ClaudeArgumentsRequest<'_>) -> 
     ]
     .map(str::to_owned)
     .into();
-    arguments.push(write_permission_mode(claude_permission_mode_for(
-        request.level,
-    )));
+    arguments.push(write_permission_mode(request.permission_mode));
     arguments.push("--model".to_owned());
     arguments.push(request.model.to_owned());
     arguments.push("--settings".to_owned());
@@ -181,7 +177,9 @@ mod tests {
     use rstest::rstest;
 
     use super::{ClaudeArgumentsRequest, ClaudeConversationStart, compose_claude_arguments};
-    use crate::provider::driver::claude::session::transport::control::ClaudePermissionsDocument;
+    use crate::provider::driver::claude::session::transport::control::{
+        ClaudePermissionMode, ClaudePermissionsDocument,
+    };
     use crate::provider::driver::claude::spawn::settings::{
         AgentViewOff, CLAUDE_CLEANUP_PERIOD_DAYS, ClaudeSpawnSettings,
     };
@@ -252,7 +250,7 @@ mod tests {
         };
         let request = ClaudeArgumentsRequest {
             model: "opus",
-            level: None,
+            permission_mode: ClaudePermissionMode::Default,
             settings: &settings,
             output_schema: None,
             is_helper_tool_withheld: false,

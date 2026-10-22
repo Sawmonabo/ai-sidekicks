@@ -4,8 +4,11 @@
 //! a screen follows, and each session's inbox address.
 
 use std::collections::HashSet;
+use std::error::Error;
 use std::sync::Arc;
 
+use futures::FutureExt;
+use futures::future::ready;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::provider::declaration::{
     ObservedProviderOptions, ProviderRow, ProviderSessionOption,
@@ -23,9 +26,14 @@ use crate::provider::driver::claude::inbox_address::{
     ClaudeSessionInboxAddresser, PlaceInboxEnvironment,
 };
 use crate::provider::driver::claude::session::answered_commands::read_claude_command_choices;
+use crate::provider::driver::claude::session::controls::{
+    ClaudeSideQuestionCopy, claude_full_model_id, one_turn_legs,
+};
 use crate::provider::driver::claude::session::errors::{
     ClaudeSessionError, record_unheard_claude_failure,
 };
+use crate::provider::driver::claude::session::establishment::ClaudeSpawnSources;
+use crate::provider::driver::claude::session::establishment::context::resolve_claude_spawn_context;
 use crate::provider::driver::claude::session::ignored_settings::MANAGED_SETTINGS_FILE;
 use crate::provider::driver::claude::session::permission_level::{
     ClaudeStartingLevelSources, can_run_claude_level, list_claude_modes,
@@ -37,6 +45,7 @@ use crate::provider::driver::claude::session::permissions::{
 };
 use crate::provider::driver::claude::session::settings_file::read_claude_settings_file;
 use crate::provider::driver::claude::session::transport::readings::ClaudeSessionFolderReadRequest;
+use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::provider::driver::claude::session::ultracode::{
     claude_session_options, observe_claude_options,
 };
@@ -46,14 +55,19 @@ use crate::provider::driver::claude::spawn::environment::{
 };
 use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::provider::driver::claude::spawn::launch::initialize_reply::read_claude_initialize_declaration;
+use crate::provider::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
+use crate::provider::driver::claude::spawn::legs::{
+    ClaudeSpawnLegServices, ClaudeSpawnLegsRequest, build_claude_spawn_bound_legs,
+};
 use crate::provider::driver::contract::ProviderCommandsSubscription;
 use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult, ListModelsParams};
 use crate::provider::driver::diagnostics::DriverDiagnosticKind;
 use crate::provider::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, DriverAuthProbeResult,
-    DriverAuthProbeStatus, ProviderCommandsListener, RevokeRuleParams, SessionCommandAnswer,
-    StartReviewParams, StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
-    UpdatePermissionLevelParams, UpdateSessionModeParams, build_auth_probe_result,
+    DriverAuthProbeStatus, ProviderCommandsListener, ResumeSessionParams, RevokeRuleParams,
+    SessionCommandAnswer, StartReviewParams, StartingLevel, StartingLevelParams,
+    SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
+    build_auth_probe_result,
 };
 use crate::provider::port::session_inbox_address::SessionInboxAddresser;
 
@@ -368,16 +382,40 @@ impl ClaudeDriver {
             .await?)
     }
 
-    /// Asks a side question on a copy of the live conversation; resolves once it is asked.
+    /// Asks a side question on a copy of the conversation: the live process's own, else the one
+    /// the session's resume material names; resolves once it is asked. Fails `NoLiveSession` for a
+    /// session at rest asked with no resume material.
     pub(crate) fn ask_side_question(
         &self,
         params: AskSideQuestionParams,
     ) -> Result<(), DriverError> {
         let parts = self.parts()?;
-        let live = parts.run_start.live_session(params.session_id)?;
-        parts
-            .session_controls
-            .ask_side_question(&live, params.side_question_id, params.question);
+        let session_id = params.session_id;
+        let copy = match parts.run_start.live_session(session_id) {
+            Ok(live) => ready(Ok(ClaudeSideQuestionCopy {
+                legs: one_turn_legs(&live, None),
+                provider_account_id: live.admitted_provider_account_id.clone(),
+                parent_provider_session_id: live.provider_session_id.clone(),
+                callback_tools: None,
+            }))
+            .boxed(),
+            Err(no_live_session) => match params.resume {
+                Some(resume) => compose_resting_side_question_copy(
+                    Arc::clone(&self.sources),
+                    Arc::clone(&self.starts),
+                    resume,
+                )
+                .boxed(),
+                None => return Err(no_live_session.into()),
+            },
+        };
+        parts.session_controls.ask_side_question(
+            session_id,
+            params.side_question_id,
+            params.question,
+            copy,
+            Arc::clone(&self.sources.ports.usage),
+        );
         Ok(())
     }
 
@@ -430,4 +468,68 @@ impl ClaudeDriver {
             }),
         )))
     }
+}
+
+// The copy of a session at rest, from its resume material: the legs a resume starts with, with no
+// callback tools and on the full id of its model, which the build's catalog resolves since no
+// process of the session declared it. Fails as the context, the legs or the catalog cannot be read.
+async fn compose_resting_side_question_copy(
+    sources: Arc<ClaudeSpawnSources>,
+    starts: Arc<dyn ClaudeProcessStarts>,
+    resume: ResumeSessionParams,
+) -> Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>> {
+    let context = resolve_claude_spawn_context(
+        &*sources.spawn_contexts,
+        &sources.pool,
+        resume.session_id,
+        resume.provider_account_id.clone(),
+        &resume.row_values,
+    )
+    .await?;
+    let host = sources.ports.callback_tool_host.require_port()?;
+    let data_folder = sources.data_folder.to_string_lossy();
+    let (legs, callback_tools) = build_claude_spawn_bound_legs(
+        ClaudeSpawnLegsRequest {
+            session_id: resume.session_id,
+            model: resume.model.as_str().to_owned(),
+            execution_posture: resume.execution_posture,
+            callback_tools: None,
+            subagent_policy: resume.subagent_policy,
+            tool_servers: resume.tool_servers,
+            output_schema: None,
+            on_mcp_server_status: None,
+            provider_account_id: resume.provider_account_id.clone(),
+            context,
+        },
+        &ClaudeSpawnLegServices {
+            posture_service: &sources.execution_postures,
+            callback_tool_host: host,
+            is_in_process_route_registered: sources.ports.in_process_tool_servers.port().is_some(),
+            data_folder: &data_folder,
+            base_environment: &sources.base_environment,
+            reserved_names: &sources.reserved_names,
+            path_rules: PathRules::NATIVE,
+        },
+    )
+    .await?;
+    let catalog = match starts
+        .read_model_catalog(legs.spawn_environment.clone())
+        .await
+    {
+        Ok(catalog) => catalog,
+        Err(error) => {
+            callback_tools.rollback();
+            return Err(error.into());
+        }
+    };
+    let declaration = read_claude_initialize_declaration(catalog.initialize.as_deref());
+    Ok(ClaudeSideQuestionCopy {
+        legs: ClaudeSpawnBoundLegs {
+            model: claude_full_model_id(&declaration, &legs.model),
+            ..legs
+        },
+        provider_account_id: resume.provider_account_id,
+        parent_provider_session_id: resume.resume_handle,
+        callback_tools: Some(callback_tools),
+    })
 }

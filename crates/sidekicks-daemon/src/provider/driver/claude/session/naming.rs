@@ -212,6 +212,7 @@ async fn run_naming_turn(
                 path_rules: PathRules::NATIVE,
             },
             resume_handle: None,
+            permission_mode: None,
             text,
             stop: cancel.clone(),
         })
