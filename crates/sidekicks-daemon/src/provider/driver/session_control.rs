@@ -297,7 +297,7 @@ pub(crate) struct UpdateSessionModeParams {
 /// Params of `ask_side_question`: a question asked on a throwaway copy of the conversation,
 /// leaving the session's own conversation and permissions as they were. Its answer is appended as
 /// `session.sideQuestion.answered` under `side_question_id`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone)]
 pub(crate) struct AskSideQuestionParams {
     /// The session.
     pub(crate) session_id: SessionId,
@@ -305,6 +305,9 @@ pub(crate) struct AskSideQuestionParams {
     pub(crate) side_question_id: SideQuestionId,
     /// The question.
     pub(crate) question: String,
+    /// The session's resume material when it has no live process, composed as a resume's is, which
+    /// the copy is forked from; `None` while a process runs it.
+    pub(crate) resume: Option<ResumeSessionParams>,
 }
 
 /// Params of `start_review`: the provider's own review of `target`, bracketed by the
