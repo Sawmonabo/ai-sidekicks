@@ -41,9 +41,7 @@ use crate::provider::driver::claude::session::answered_commands::{
     ClaudeAnsweredCommand, ClaudeAttachedAdvisor, ClaudeCommandOutcome, answer_claude_advisor,
     answer_claude_output_style, read_claude_answered_command, read_claude_attached_advisor,
 };
-use crate::provider::driver::claude::session::arrivals::{
-    ClaudeDeliveryPlace, deliver_in_current_place,
-};
+use crate::provider::driver::claude::session::arrivals::deliver_in_session_order;
 use crate::provider::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
@@ -599,21 +597,20 @@ impl ClaudeSessionControls {
             .await
     }
 
-    // Delivers in order with the session's rows: in place on its task, else through its queue,
-    // else, with no process left to order it, straight to the run engine.
+    // Delivers in order with the session's rows: in place on its own task, else through its
+    // queue, else, with no process left to order it, straight to the run engine.
     async fn deliver(
         &self,
         session_id: SessionId,
         delivery: InboundDelivery<'static>,
     ) -> Option<InboundOutcome> {
-        let engine = &*self.run_start.engine;
-        if ClaudeDeliveryPlace::current().is_some() {
-            return deliver_in_current_place(engine, delivery).await;
-        }
-        match self.run_start.streams.get(session_id) {
-            Some(stream) => stream.arrivals().dispatch(delivery).await,
-            None => engine.deliver(None, None, delivery).await,
-        }
+        deliver_in_session_order(
+            &*self.run_start.engine,
+            &self.run_start.streams,
+            session_id,
+            delivery,
+        )
+        .await
     }
 
     async fn post_notice(&self, session_id: SessionId, notice: SessionNotice) {

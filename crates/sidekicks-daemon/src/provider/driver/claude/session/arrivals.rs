@@ -113,26 +113,10 @@ pub(crate) struct ClaudeDeliveryPlace {
 }
 
 impl ClaudeDeliveryPlace {
-    /// The session task the code running now is on; `None` off every session's task.
-    pub(crate) fn current() -> Option<Self> {
-        CLAUDE_DELIVERY_PLACE.try_with(Clone::clone).ok()
-    }
-
     // Runs `work` on this session's task, so the deliveries it makes for the session go in place.
     async fn scope<Output>(self, work: impl Future<Output = Output>) -> Output {
         CLAUDE_DELIVERY_PLACE.scope(self, work).await
     }
-}
-
-/// Delivers `delivery` on the session task the code running now is on, or straight to `engine`
-/// off every session's task.
-pub(crate) fn deliver_in_current_place<'engine>(
-    engine: &'engine dyn ClaudeRunEngine,
-    delivery: InboundDelivery<'static>,
-) -> BoxFuture<'engine, Option<InboundOutcome>> {
-    let provider_account_id =
-        ClaudeDeliveryPlace::current().and_then(|place| place.provider_account_id);
-    engine.deliver(provider_account_id, None, delivery)
 }
 
 /// Delivers `delivery` in `session_id`'s order among its process's frames: in place on the
@@ -145,7 +129,7 @@ pub(crate) fn deliver_in_session_order<'engine>(
     session_id: SessionId,
     delivery: InboundDelivery<'static>,
 ) -> BoxFuture<'engine, Option<InboundOutcome>> {
-    if let Some(place) = ClaudeDeliveryPlace::current()
+    if let Ok(place) = CLAUDE_DELIVERY_PLACE.try_with(Clone::clone)
         && place.session_id == session_id
     {
         return engine.deliver(place.provider_account_id, None, delivery);
