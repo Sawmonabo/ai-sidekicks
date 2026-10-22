@@ -21,9 +21,9 @@
 //!   session rule the daemon keeps and honors alone: no provider holds it, so its record, the
 //!   rule it replaces and its revoke reach no provider, and no provider is handed it.
 
+pub(crate) mod driver_reads;
 pub(crate) mod session_end;
 
-use std::error::Error;
 use std::path::PathBuf;
 use std::slice;
 use std::sync::{Arc, LazyLock};
@@ -47,8 +47,9 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use tokio::task::JoinError;
 
-use crate::approvals::ask_description::{derive_rule_subject, read_command_line};
-use crate::approvals::refusals::{approval_rule_already_revoked, approval_rule_not_found};
+use crate::approvals::refusals::{
+    approval_rule_already_revoked, approval_rule_not_found, approval_rule_revoke_not_kept,
+};
 use crate::approvals::store::{StoredApprovalRequest, remembered_scope_statement};
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
@@ -69,7 +70,6 @@ use crate::provider::driver::session_control::RevokeRuleParams;
 use crate::provider::port::permission_ask::{
     ProviderAnswerRule, ProviderAskAction, ProviderAskActionKind, ProviderAskRule,
 };
-use crate::provider::port::session_rules::SessionRulePort;
 use crate::session::directory::lookups::{session_exists, session_project_sql};
 use crate::session::not_found::session_not_found;
 use crate::workspace::schema::MountOrigin;
@@ -86,7 +86,8 @@ pub(crate) type RevokeAtProvider =
 /// Why a rule could not be read, recorded or revoked.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ApprovalRuleError {
-    /// `session.notFound`, `approval.rule.notFound` or `approval.rule.alreadyRevoked`.
+    /// `session.notFound`, `approval.rule.notFound`, `approval.rule.alreadyRevoked`, or
+    /// `approval.rule.notKept` for a revoke whose rule stayed in a project's rule file.
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// SQLite refused a read, or a stored column does not read as its type.
@@ -232,17 +233,6 @@ static SELECT_RULES_IN_FORCE_SQL: LazyLock<String> = LazyLock::new(|| {
         *RULE_SOURCE_SQL,
         <&'static str>::from(RememberedScopeKind::Project),
         *NOT_REVOKED_SQL
-    )
-});
-
-// The rules made in a session and revoked since, oldest first.
-static SELECT_REVOKED_IN_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT {RULE_SELECT_LIST_SQL} {}
-    AND remembered.session_id = @session_id
-    AND NOT {}
-  ORDER BY remembered.occurred_at, remembered.sequence",
-        *RULE_SOURCE_SQL, *NOT_REVOKED_SQL
     )
 });
 
@@ -463,9 +453,11 @@ impl ApprovalRules {
     }
 
     /// Revokes one rule where its provider keeps it, then records the revoke; a rule the daemon
-    /// keeps alone is only recorded revoked. Fails with
-    /// `approval.rule.notFound` for a rule never made and `approval.rule.alreadyRevoked` for one
-    /// no longer in force, and with what the provider's revoke fails with, the rule left in force.
+    /// keeps alone is only recorded revoked. Refuses `approval.rule.notFound` for a rule never
+    /// made, `approval.rule.alreadyRevoked` for one no longer in force, and
+    /// `approval.rule.notKept` when a provider could not take a project rule out of a rule file,
+    /// the rule left in force and nothing recorded. Fails with [`ApprovalRuleError::Provider`]
+    /// when a provider could not read a session's rules again once the revoke was recorded.
     pub(crate) async fn revoke(
         &self,
         rule_id: RememberedRuleId,
@@ -482,7 +474,20 @@ impl ApprovalRules {
         }
         let rule = provider_rule_of(&row);
         self.remove_from_project_files(&hold, row.session_id, &rule)
-            .await?;
+            .await
+            .map_err(|failure| match failure {
+                ApprovalRuleError::Provider(cause) => {
+                    approval_rule_revoke_not_kept(rule_id, cause).into()
+                }
+                unchanged @ (ApprovalRuleError::Refused(_)
+                | ApprovalRuleError::Database(_)
+                | ApprovalRuleError::Pool(_)
+                | ApprovalRuleError::EmptySubject
+                | ApprovalRuleError::Draft(_)
+                | ApprovalRuleError::Append(_)
+                | ApprovalRuleError::LineReading(_)
+                | ApprovalRuleError::NotRecorded(_)) => unchanged,
+            })?;
         let payload = revoked_payload(&row, InvalidationTrigger::Explicit, None);
         let revoked_at = self.record_revoked(&hold, payload).await?;
         if !row.is_daemon_kept {
@@ -710,66 +715,6 @@ impl ApprovalRules {
                 Ok::<_, ApprovalRuleError>(read(connection)?)
             })
             .await
-    }
-}
-
-impl SessionRulePort for ApprovalRules {
-    fn read_session_rules(
-        &self,
-        session_id: SessionId,
-    ) -> BoxFuture<'_, Result<Vec<ProviderAskRule>, Box<dyn Error + Send + Sync>>> {
-        Box::pin(async move {
-            let in_force = self
-                .read_rule_rows(&SELECT_RULES_IN_FORCE_SQL, session_id)
-                .await?;
-            Ok(in_force
-                .iter()
-                .filter(|row| !row.is_daemon_kept)
-                .map(provider_rule_of)
-                .collect())
-        })
-    }
-
-    fn find_revoked_rule(
-        &self,
-        session_id: SessionId,
-        action: ProviderAskAction,
-    ) -> BoxFuture<'_, Result<Option<ProviderAskRule>, Box<dyn Error + Send + Sync>>> {
-        Box::pin(async move {
-            let kind = ProviderAskActionKind::from(&action);
-            let read_action = action.clone();
-            let subject = read_command_line(&self.shell_lines, &action, move |reader, reading| {
-                derive_rule_subject(reader, reading, &read_action)
-            })
-            .await
-            .map_err(ApprovalRuleError::from)?;
-            let Some(subject) = subject else {
-                return Ok(None);
-            };
-            let (in_force, revoked) = self
-                .read(move |connection| {
-                    // One snapshot, so a rule revoked between the two reads is seen once.
-                    let snapshot = connection.unchecked_transaction()?;
-                    let in_force =
-                        query_rule_rows(&snapshot, &SELECT_RULES_IN_FORCE_SQL, session_id)?;
-                    let revoked =
-                        query_rule_rows(&snapshot, &SELECT_REVOKED_IN_SESSION_SQL, session_id)?;
-                    snapshot.commit()?;
-                    // The providers hold none of the rules the daemon keeps alone.
-                    let provider_kept = |rows: Vec<RuleRow>| -> Vec<RuleRow> {
-                        rows.into_iter().filter(|row| !row.is_daemon_kept).collect()
-                    };
-                    Ok((provider_kept(in_force), provider_kept(revoked)))
-                })
-                .await?;
-            if rule_over(&in_force, kind, &subject).is_some() {
-                return Ok(None);
-            }
-            Ok(revoked
-                .iter()
-                .map(provider_rule_of)
-                .find(|rule| rule.action == kind && rule.subject == subject))
-        })
     }
 }
 
