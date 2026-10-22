@@ -80,13 +80,10 @@ pub(crate) async fn resolve_claude_spawn_context(
         working_directory: context.working_directory,
         every_project_rows: context.every_project_rows,
         project_rows: context.project_rows,
-        account_folders: context.account_folders.map(|folders| ClaudeAccountFolders {
-            config_folder: folders.configuration_folder.to_string_lossy().into_owned(),
-            credential_store_folder: folders
-                .credential_store_folder
-                .to_string_lossy()
-                .into_owned(),
-        }),
+        account_folders: context
+            .account_folders
+            .as_ref()
+            .map(ClaudeAccountFolders::from),
         // Claude Code finds each folder's memory itself; the daemon names none beside them.
         memory_folders: Vec::new(),
         // The session's own advisor and style, else the ones the app keeps for new sessions.

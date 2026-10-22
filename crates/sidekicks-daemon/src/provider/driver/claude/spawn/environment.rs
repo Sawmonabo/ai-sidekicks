@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::PathRules;
 
+use crate::provider::driver::ProviderAccountFolders;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::spawn_environment::{
     ProviderEnvironmentRequest, SessionEnvironment, SpawnEnvironmentError,
@@ -27,6 +28,18 @@ pub(crate) struct ClaudeAccountFolders {
     pub(crate) config_folder: String,
     /// The account's credential store.
     pub(crate) credential_store_folder: String,
+}
+
+impl From<&ProviderAccountFolders> for ClaudeAccountFolders {
+    fn from(folders: &ProviderAccountFolders) -> Self {
+        Self {
+            config_folder: folders.configuration_folder.to_string_lossy().into_owned(),
+            credential_store_folder: folders
+                .credential_store_folder
+                .to_string_lossy()
+                .into_owned(),
+        }
+    }
 }
 
 /// What one Claude Code process's environment is built from.

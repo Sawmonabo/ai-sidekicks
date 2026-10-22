@@ -209,13 +209,9 @@ impl ClaudeDriver {
     ) -> Result<Vec<(String, String)>, DriverError> {
         let sources = &self.sources;
         let data_folder = sources.data_folder.to_string_lossy();
-        let account_folders = account.as_ref().map(|(folders, _)| ClaudeAccountFolders {
-            config_folder: folders.configuration_folder.to_string_lossy().into_owned(),
-            credential_store_folder: folders
-                .credential_store_folder
-                .to_string_lossy()
-                .into_owned(),
-        });
+        let account_folders = account
+            .as_ref()
+            .map(|(folders, _)| ClaudeAccountFolders::from(folders));
         compose_claude_process_environment(
             ClaudeProcessEnvironmentRequest {
                 session: SessionEnvironment {
