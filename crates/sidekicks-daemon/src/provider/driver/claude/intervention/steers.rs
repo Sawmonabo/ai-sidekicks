@@ -178,7 +178,6 @@ impl ClaudeSteerWriter {
         let stream = start.streams.get(session_id);
         if settle_claude_choice(
             &self.dialogs,
-            stream.as_deref(),
             live,
             steer.run_id,
             ClaudeChoiceSettling::QueuedMessage,

@@ -18,7 +18,6 @@ use crate::provider::driver::claude::delivery::dialogs::{
 };
 use crate::provider::driver::claude::delivery::requests::ClaudeInboundRequests;
 use crate::provider::driver::claude::delivery::reviewer::compose_claude_override_sentence;
-use crate::provider::driver::claude::delivery::stream::ClaudeSessionStream;
 use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
 use crate::provider::driver::claude::hooks::callbacks::answer_claude_request;
 use crate::provider::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
@@ -30,7 +29,6 @@ use crate::provider::driver::claude::run::routes::ClaudeRunRoute;
 use crate::provider::driver::claude::run::start::{
     ClaudeDaemonTurnOpening, ClaudeRunStart, claude_session_unavailable,
 };
-use crate::provider::driver::claude::session::arrivals::ClaudeDeliveryPlace;
 use crate::provider::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason,
 };
@@ -78,12 +76,11 @@ pub(crate) enum ClaudeChoiceSettling {
     QueuedMessage,
 }
 
-/// Settles the choice `run_id` is held on before an interrupt or a message goes, off the session's
-/// task, so what the settlement delivers keeps its place among the session's frames; answers
-/// whether that ended the run. Fails as the dialogs' cancel fails.
+/// Settles the choice `run_id` is held on before an interrupt or a message goes; what the
+/// settlement delivers keeps its place among the session's frames. Answers whether that ended the
+/// run. Fails as the dialogs' cancel fails.
 pub(crate) async fn settle_claude_choice(
     dialogs: &ClaudeProviderDialogs<ClaudeStreamDialogPorts>,
-    stream: Option<&ClaudeSessionStream>,
     live: &LiveClaudeSession,
     run_id: RunId,
     settling: ClaudeChoiceSettling,
@@ -95,21 +92,11 @@ pub(crate) async fn settle_claude_choice(
         .running_model
         .clone();
     let session = claude_dialog_session(live, &running_model);
-    let settle = async {
-        match settling {
-            ClaudeChoiceSettling::Interrupt => dialogs.settle_for_interrupt(&session, run_id).await,
-            ClaudeChoiceSettling::QueuedMessage => {
-                dialogs.settle_for_queued_message(&session, run_id).await
-            }
+    match settling {
+        ClaudeChoiceSettling::Interrupt => dialogs.settle_for_interrupt(&session, run_id).await,
+        ClaudeChoiceSettling::QueuedMessage => {
+            dialogs.settle_for_queued_message(&session, run_id).await
         }
-    };
-    match stream {
-        Some(stream) => {
-            ClaudeDeliveryPlace::Queue(stream.arrivals().clone())
-                .scope(settle)
-                .await
-        }
-        None => settle.await,
     }
 }
 
@@ -142,7 +129,6 @@ impl ClaudeRunControls {
         let stream = self.start.streams.get(live.session_id);
         if settle_claude_choice(
             &self.dialogs,
-            stream.as_deref(),
             &live,
             run_id,
             ClaudeChoiceSettling::Interrupt,

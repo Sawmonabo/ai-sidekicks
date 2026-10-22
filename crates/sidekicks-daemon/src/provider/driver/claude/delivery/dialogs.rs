@@ -69,9 +69,13 @@ type WireHandle = FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>;
 /// What the dialogs deliver through and report a run the daemon ended to.
 #[cfg_attr(test, mockall::automock)]
 pub(crate) trait ClaudeDialogPorts: Send + Sync {
-    /// Hands one delivery to the run engine at once, before the returned future is first polled,
-    /// and answers its outcome, `None` once a refusal is logged.
-    fn deliver(&self, delivery: InboundDelivery<'static>) -> BoxFuture<'_, Option<InboundOutcome>>;
+    /// Hands one delivery for `session_id` over in the session's order, before the returned future
+    /// is first polled, and answers its outcome, `None` once a refusal is logged.
+    fn deliver(
+        &self,
+        session_id: SessionId,
+        delivery: InboundDelivery<'static>,
+    ) -> BoxFuture<'_, Option<InboundOutcome>>;
 
     /// The ids of the events the open turn's messages with these wire uuids were written as.
     fn event_ids_for_messages(
@@ -279,6 +283,7 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
                         .then_some(retracted_message_ids),
                 };
                 self.send_requested(
+                    held.session_id,
                     &held.run,
                     UnstampedRow::AgentRunRefusalChoiceRequested(requested),
                 )
@@ -298,9 +303,10 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
                     currency: payload.currency.as_deref().and_then(read_wire_handle),
                     fallback_model: find_switch_model(session.offered_models),
                 };
-                let run = held.run.clone();
+                let (session_id, run) = (held.session_id, held.run.clone());
                 self.hold(held);
                 self.send_requested(
+                    session_id,
                     &run,
                     UnstampedRow::AgentRunUsageCreditsChoiceRequested(requested),
                 )
@@ -417,10 +423,10 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
             }
             ClaudeDialogKind::UsageCredits => {
                 self.ports
-                    .deliver(credits_resolved(
-                        &held,
-                        RunUsageCreditsChoiceUnanswered::Interrupted,
-                    ))
+                    .deliver(
+                        held.session_id,
+                        credits_resolved(&held, RunUsageCreditsChoiceUnanswered::Interrupted),
+                    )
                     .await;
                 Ok(false)
             }
@@ -599,18 +605,24 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
     }
 
     // The requested row, then the run's move to wait for the person, in that order.
-    async fn send_requested(&self, run: &ClaudeBoundRun, row: UnstampedRow) {
-        let requested = self.ports.deliver(InboundDelivery::UnstampedRow {
-            binding: unattributed(run),
-            row,
-        });
-        let moved = self.ports.deliver(run_move(
-            run,
-            RunStateChange {
-                expected_state: Some(RunState::Running),
-                ..RunStateChange::new(run.run_id, RunStateEntry::WaitingForInput)
+    async fn send_requested(&self, session_id: SessionId, run: &ClaudeBoundRun, row: UnstampedRow) {
+        let requested = self.ports.deliver(
+            session_id,
+            InboundDelivery::UnstampedRow {
+                binding: unattributed(run),
+                row,
             },
-        ));
+        );
+        let moved = self.ports.deliver(
+            session_id,
+            run_move(
+                run,
+                RunStateChange {
+                    expected_state: Some(RunState::Running),
+                    ..RunStateChange::new(run.run_id, RunStateEntry::WaitingForInput)
+                },
+            ),
+        );
         futures::join!(requested, moved);
     }
 
@@ -618,22 +630,25 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
         match held.kind {
             ClaudeDialogKind::Refusal => self.record_refusal_end(held, true).await,
             ClaudeDialogKind::UsageCredits => {
-                let resolved = self.ports.deliver(credits_resolved(
-                    held,
-                    RunUsageCreditsChoiceUnanswered::Unanswered,
-                ));
-                let moved = self.ports.deliver(run_move(
-                    &held.run,
-                    RunStateChange {
-                        expected_state: Some(RunState::WaitingForInput),
-                        ..RunStateChange::new(
-                            held.run.run_id,
-                            RunStateEntry::Running {
-                                execution_posture: None,
-                            },
-                        )
-                    },
-                ));
+                let resolved = self.ports.deliver(
+                    held.session_id,
+                    credits_resolved(held, RunUsageCreditsChoiceUnanswered::Unanswered),
+                );
+                let moved = self.ports.deliver(
+                    held.session_id,
+                    run_move(
+                        &held.run,
+                        RunStateChange {
+                            expected_state: Some(RunState::WaitingForInput),
+                            ..RunStateChange::new(
+                                held.run.run_id,
+                                RunStateEntry::Running {
+                                    execution_posture: None,
+                                },
+                            )
+                        },
+                    ),
+                );
                 futures::join!(resolved, moved);
             }
         }
@@ -646,41 +661,47 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
         let run_id = held.run.run_id;
         self.ports.mark_daemon_ended(run_id, false);
         let settled = was_shown.then(|| {
-            self.ports.deliver(InboundDelivery::UnstampedRow {
-                binding: unattributed(&held.run),
-                row: UnstampedRow::AgentRunRefusalChoiceResolved(
-                    AgentRunRefusalChoiceResolvedPayload {
-                        session_id: held.session_id,
-                        run_id,
-                        choice: RunRefusalChoiceSettlement::Canceled(
-                            RunRefusalChoiceCanceled::Value,
-                        ),
-                        device_id: None,
-                    },
-                ),
-            })
+            self.ports.deliver(
+                held.session_id,
+                InboundDelivery::UnstampedRow {
+                    binding: unattributed(&held.run),
+                    row: UnstampedRow::AgentRunRefusalChoiceResolved(
+                        AgentRunRefusalChoiceResolvedPayload {
+                            session_id: held.session_id,
+                            run_id,
+                            choice: RunRefusalChoiceSettlement::Canceled(
+                                RunRefusalChoiceCanceled::Value,
+                            ),
+                            device_id: None,
+                        },
+                    ),
+                },
+            )
         });
-        let ended = self.ports.deliver(run_move(
-            &held.run,
-            RunStateChange {
-                failure_category: Some(RunFailureCategory::Refused),
-                ..RunStateChange::new(
-                    run_id,
-                    RunStateEntry::Failed {
-                        intended_close: None,
-                        failure_cause: Some(RunFailureCause::Refused {
-                            origin: RunRefusedOrigin::Provider,
-                            model: held.refused_model.clone(),
-                            sentence: held.sentence.clone(),
-                            explanation: None,
-                            safety_category: held.safety_category.clone(),
-                        }),
-                        provider_failure_detail: None,
-                        process_exit: None,
-                    },
-                )
-            },
-        ));
+        let ended = self.ports.deliver(
+            held.session_id,
+            run_move(
+                &held.run,
+                RunStateChange {
+                    failure_category: Some(RunFailureCategory::Refused),
+                    ..RunStateChange::new(
+                        run_id,
+                        RunStateEntry::Failed {
+                            intended_close: None,
+                            failure_cause: Some(RunFailureCause::Refused {
+                                origin: RunRefusedOrigin::Provider,
+                                model: held.refused_model.clone(),
+                                sentence: held.sentence.clone(),
+                                explanation: None,
+                                safety_category: held.safety_category.clone(),
+                            }),
+                            provider_failure_detail: None,
+                            process_exit: None,
+                        },
+                    )
+                },
+            ),
+        );
         let (_settled, outcome) = futures::join!(
             async move {
                 if let Some(settled) = settled {

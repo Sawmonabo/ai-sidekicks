@@ -19,8 +19,10 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
 use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
-use crate::provider::driver::claude::delivery::stream::ClaudeSessionStream;
 use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeDaemonEndSettlement;
+use crate::provider::driver::claude::delivery::stream::{
+    ClaudeSessionStream, ClaudeSessionStreams,
+};
 use crate::provider::driver::claude::frame_routing::{ClaudeFrameRouting, ClaudeRoutedObservation};
 use crate::provider::driver::claude::run::routes::ClaudeBoundRun;
 use crate::provider::driver::claude::session::process::{
@@ -99,42 +101,56 @@ pub(crate) enum ClaudeOwnDelivery {
     },
 }
 
-/// Where a delivery made by the code running now goes: dispatched at once on the session's own
-/// task, or queued onto the session's task from anywhere else.
+/// The session task the code running now is on, where a delivery for that session is dispatched
+/// in place.
 #[derive(Clone)]
-pub(crate) enum ClaudeDeliveryPlace {
-    /// The code runs on the session's task, so a delivery is dispatched in place.
-    SessionTask {
-        /// The account the session's process runs on; `None` on the machine's own home.
-        provider_account_id: Option<ProviderAccountId>,
-    },
-    /// The code runs off the session's task, so a delivery is queued to it.
-    Queue(ClaudeArrivalSender),
+pub(crate) struct ClaudeDeliveryPlace {
+    /// The session whose task it is.
+    session_id: SessionId,
+    /// The account the session's process runs on; `None` on the machine's own home.
+    provider_account_id: Option<ProviderAccountId>,
 }
 
 impl ClaudeDeliveryPlace {
-    /// The place the code running now delivers to; `None` outside any session's place.
+    /// The session task the code running now is on; `None` off every session's task.
     pub(crate) fn current() -> Option<Self> {
         CLAUDE_DELIVERY_PLACE.try_with(Clone::clone).ok()
     }
 
-    /// Runs `work` with this place, so the deliveries it makes go there.
-    pub(crate) async fn scope<Output>(self, work: impl Future<Output = Output>) -> Output {
+    // Runs `work` on this session's task, so the deliveries it makes for the session go in place.
+    async fn scope<Output>(self, work: impl Future<Output = Output>) -> Output {
         CLAUDE_DELIVERY_PLACE.scope(self, work).await
     }
 }
 
-/// Delivers `delivery` where the code running now is: in place on a session's task, queued to it
-/// from a scope off it, or straight to `engine` outside any session's place.
+/// Delivers `delivery` on the session task the code running now is on, or straight to `engine`
+/// off every session's task.
 pub(crate) fn deliver_in_current_place<'engine>(
     engine: &'engine dyn ClaudeRunEngine,
     delivery: InboundDelivery<'static>,
 ) -> BoxFuture<'engine, Option<InboundOutcome>> {
-    match ClaudeDeliveryPlace::current() {
-        Some(ClaudeDeliveryPlace::Queue(arrivals)) => arrivals.dispatch(delivery).boxed(),
-        Some(ClaudeDeliveryPlace::SessionTask {
-            provider_account_id,
-        }) => engine.deliver(provider_account_id, None, delivery),
+    let provider_account_id =
+        ClaudeDeliveryPlace::current().and_then(|place| place.provider_account_id);
+    engine.deliver(provider_account_id, None, delivery)
+}
+
+/// Delivers `delivery` in `session_id`'s order among its process's frames: in place on the
+/// session's own task, queued onto that task from anywhere else, and straight to `engine` only
+/// when the session has no stream left to order it. The delivery is handed over before the
+/// returned future is first polled, which answers its outcome.
+pub(crate) fn deliver_in_session_order<'engine>(
+    engine: &'engine dyn ClaudeRunEngine,
+    streams: &ClaudeSessionStreams,
+    session_id: SessionId,
+    delivery: InboundDelivery<'static>,
+) -> BoxFuture<'engine, Option<InboundOutcome>> {
+    if let Some(place) = ClaudeDeliveryPlace::current()
+        && place.session_id == session_id
+    {
+        return engine.deliver(place.provider_account_id, None, delivery);
+    }
+    match streams.get(session_id) {
+        Some(stream) => stream.arrivals().dispatch(delivery).boxed(),
         None => engine.deliver(None, None, delivery),
     }
 }
@@ -150,6 +166,7 @@ pub(crate) struct ClaudeArrivalSender {
 /// The receiving half, which the session's task drains.
 #[derive(Debug)]
 pub(crate) struct ClaudeArrivalReceiver {
+    session_id: SessionId,
     receiver: mpsc::UnboundedReceiver<ClaudeSessionArrival>,
     depth: Arc<QueueDepth>,
 }
@@ -176,7 +193,11 @@ pub(crate) fn claude_session_arrivals(
             sender,
             depth: Arc::clone(&depth),
         },
-        ClaudeArrivalReceiver { receiver, depth },
+        ClaudeArrivalReceiver {
+            session_id,
+            receiver,
+            depth,
+        },
     )
 }
 
@@ -256,7 +277,8 @@ pub(crate) async fn drain_claude_session_arrivals(
     handler: &mut impl ClaudeSessionArrivalHandler,
     provider_account_id: Option<ProviderAccountId>,
 ) {
-    let place = ClaudeDeliveryPlace::SessionTask {
+    let place = ClaudeDeliveryPlace {
+        session_id: receiver.session_id,
         provider_account_id,
     };
     loop {

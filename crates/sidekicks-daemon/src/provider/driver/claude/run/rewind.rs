@@ -78,7 +78,6 @@ impl ClaudeConversationCuts {
         if let Some(lead) = self.routes.lead_run_on(live.session_id) {
             settle_claude_choice(
                 &self.dialogs,
-                self.streams.get(live.session_id).as_deref(),
                 live,
                 lead.run_id,
                 ClaudeChoiceSettling::Interrupt,

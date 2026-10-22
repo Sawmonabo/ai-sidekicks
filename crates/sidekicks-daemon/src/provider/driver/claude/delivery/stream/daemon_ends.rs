@@ -22,7 +22,7 @@ use crate::provider::driver::claude::delivery::run_readings::{
 use crate::provider::driver::claude::delivery::turn_end::ClaudeTurnEnd;
 use crate::provider::driver::claude::run::routes::{ClaudeRunRoute, ClaudeRunRoutes};
 use crate::provider::driver::claude::session::arrivals::{
-    ClaudeOwnDelivery, ClaudeSessionArrival, deliver_in_current_place,
+    ClaudeOwnDelivery, ClaudeSessionArrival, deliver_in_session_order,
 };
 use crate::session::run::engine::turns::TurnOutcome;
 use crate::session::run::inbound::{InboundDelivery, InboundOutcome};
@@ -269,9 +269,8 @@ impl ClaudeDeliveryStream {
     }
 }
 
-/// The ports the session's dialogs deliver through: on the session's own task a delivery goes to
-/// the run engine at once, and from anywhere else it is queued to the task; the daemon-end marks
-/// and settlements are the stream's.
+/// The ports the session's dialogs deliver through, each delivery in its session's order; the
+/// daemon-end marks and settlements are the stream's.
 pub(crate) struct ClaudeStreamDialogPorts {
     engine: Arc<dyn ClaudeRunEngine>,
     routes: Arc<ClaudeRunRoutes>,
@@ -302,8 +301,12 @@ impl ClaudeStreamDialogPorts {
 }
 
 impl ClaudeDialogPorts for ClaudeStreamDialogPorts {
-    fn deliver(&self, delivery: InboundDelivery<'static>) -> BoxFuture<'_, Option<InboundOutcome>> {
-        deliver_in_current_place(&*self.engine, delivery)
+    fn deliver(
+        &self,
+        session_id: SessionId,
+        delivery: InboundDelivery<'static>,
+    ) -> BoxFuture<'_, Option<InboundOutcome>> {
+        deliver_in_session_order(&*self.engine, &self.streams, session_id, delivery)
     }
 
     fn event_ids_for_messages(

@@ -207,7 +207,6 @@ impl ClaudeInterventions {
         let stream = self.writer.start.streams.get(session_id);
         if settle_claude_choice(
             &self.writer.dialogs,
-            stream.as_deref(),
             &live,
             run_id,
             ClaudeChoiceSettling::Interrupt,
