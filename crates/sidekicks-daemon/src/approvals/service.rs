@@ -8,12 +8,13 @@
 //! - The first answer from any device settles an ask. The same answer sent again, under the same
 //!   client resolution id, is answered with what was saved; any other is refused.
 //! - Whoever raised a card waits on a wait armed before the card's write and settled in process by
-//!   the write that settles the card, so a decline's words, which no record keeps, reach them.
+//!   the write that settles the card, so a decline's words reach them as the card settles.
 //! - Each write that changes a run's open asks has the run's hold reconciled once it commits.
 //! - An approval marks the session's working folder stale once it commits, since work the person
 //!   has not seen may land there; a decline and a cancel mark nothing.
 //! - An approval that corrected the command or path records the corrected words with the answer,
-//!   and the provider ask that carries them out takes the correction once, in a guarded write.
+//!   and the provider ask that carries them out takes the correction once, in a guarded write. A
+//!   decline records the person's words with the answer, so a resend hands its provider the same.
 
 pub(crate) mod session_sweep;
 

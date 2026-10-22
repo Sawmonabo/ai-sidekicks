@@ -619,9 +619,9 @@ fn an_answer_that_does_not_fit_names_the_first_check_it_breaks(
     );
 }
 
-// Whoever raised a card hears a decline's words, which no record keeps, and a run's end settles
-// every wait on the run's cards, one whose row a rebuild dropped among them. Killed by dropping
-// `decline_reason` and by settling a run's waits by the rows it read.
+// Whoever raised a card hears a decline's words, and a run's end settles every wait on the run's
+// cards, one whose row a rebuild dropped among them. Killed by dropping `decline_reason` and by
+// settling a run's waits by the rows it read.
 #[tokio::test]
 async fn a_raised_card_hears_how_it_settled() {
     let fixture = ApprovalFixture::without_holds().await;
