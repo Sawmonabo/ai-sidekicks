@@ -7,7 +7,9 @@
 
 pub(crate) mod daemon_ends;
 mod helper_runs;
+mod rows;
 mod run_end;
+mod taken_messages;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -17,7 +19,6 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::ModelRerouteScope;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::events::{
@@ -41,9 +42,7 @@ use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::provider::driver::claude::delivery::run_readings::{
     ClaudeMessageKey, ClaudeRowDelivery, ClaudeStreamSession,
 };
-use crate::provider::driver::claude::delivery::streamed_blocks::{
-    ClaudeStreamedPiece, ClaudeStreamedRun,
-};
+use crate::provider::driver::claude::delivery::streamed_blocks::ClaudeStreamedRun;
 use crate::provider::driver::claude::delivery::system::{
     read_claude_assistant_refusal, read_claude_model_reroute, read_claude_provider_status,
     read_claude_refusal_without_fallback, read_claude_warning, read_claude_worker_shutdown_reason,
@@ -60,12 +59,11 @@ use crate::provider::driver::claude::spent_retries_signal::classify_claude_spent
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics, emit_driver_diagnostic,
 };
-use crate::provider::driver::reorder_buffer::ReorderBufferedEvent;
 use crate::provider::record_readers::read_non_empty_string;
 use crate::provider::thread_frame_router::ThreadFrameRoute;
 use crate::session::run::engine::RunMarker;
 use crate::session::run::inbound::rows::LateAppendableRow;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery, InboundOutcome};
+use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
 
 use daemon_ends::ClaudeStreamDialogPorts;
@@ -550,44 +548,6 @@ impl ClaudeDeliveryStream {
         readings.turn = None;
     }
 
-    // A message Claude Code took off its input reports taken under the run it was written for; one
-    // it dropped settles with no report.
-    fn read_command_lifecycle(&self, session: &ClaudeSessionStream, members: &Map<String, Value>) {
-        let (Some(uuid), Some(state)) = (
-            read_non_empty_string(members, "command_uuid"),
-            read_non_empty_string(members, "state"),
-        ) else {
-            return;
-        };
-        match state {
-            "started" => self.report_taken(session, uuid),
-            // Claude Code's terminal drops: `discarded` for a message still queued as the
-            // session ends, `refused` on the same drop path's other arm, and `cancelled` for one
-            // an interrupt sent with `cancel_queued` took back.
-            "discarded" | "refused" | "cancelled" => {
-                session.unmark_now_steer(uuid);
-                session
-                    .lock_prompts()
-                    .record_dropped(session.session_id, uuid);
-            }
-            _ => {}
-        }
-    }
-
-    fn report_taken(&self, session: &ClaudeSessionStream, uuid: &str) {
-        let lead = self
-            .dependencies
-            .routes
-            .lead_run_on(session.session_id)
-            .map(|lead| lead.run_id);
-        let taken_by = session
-            .lock_prompts()
-            .record_taken(session.session_id, uuid, lead);
-        if let Some(run_id) = taken_by {
-            (self.dependencies.message_taken)(session.session_id, uuid, run_id);
-        }
-    }
-
     async fn mark_initialized(
         &self,
         session: &ClaudeSessionStream,
@@ -716,118 +676,6 @@ impl ClaudeDeliveryStream {
             self.report_taken(session, uuid);
         }
         self.admit_rows(session, rows, "user").await;
-    }
-
-    // Admits rows through the reorder buffer and sends what it releases.
-    async fn admit_rows(
-        &self,
-        session: &ClaudeSessionStream,
-        rows: Vec<ReorderBufferedEvent<ClaudeRowDelivery>>,
-        wire: &str,
-    ) {
-        for row in rows {
-            let released = session.lock().buffer.admit(row, Instant::now());
-            self.send_rows(session, released, Some(wire)).await;
-        }
-    }
-
-    // Sends streamed pieces as rows of the block they were streamed in.
-    async fn send_pieces(
-        &self,
-        session: &ClaudeSessionStream,
-        binding_id: &RuntimeBindingId,
-        pieces: Vec<ClaudeStreamedPiece>,
-    ) {
-        let rows = pieces
-            .into_iter()
-            .map(|piece| {
-                ClaudeRowDelivery::of_message(
-                    binding_id,
-                    piece.row,
-                    Some(ClaudeMessageKey::Block(piece.block_key)),
-                )
-            })
-            .collect();
-        self.admit_rows(session, rows, "stream_event").await;
-    }
-
-    // Sends rows the buffer released, keeping the event each row of a message or block was
-    // written as.
-    async fn send_rows(
-        &self,
-        session: &ClaudeSessionStream,
-        rows: Vec<ClaudeRowDelivery>,
-        wire: Option<&str>,
-    ) {
-        for row in rows {
-            let ClaudeRowDelivery {
-                binding_id,
-                operation,
-                row,
-                body,
-                message_key,
-            } = row;
-            let outcome = self
-                .send(
-                    session,
-                    row.into_inbound(binding_id, operation.as_ref(), body),
-                    wire,
-                )
-                .await;
-            if let (Some(key), Some(event_id)) = (
-                message_key,
-                outcome.as_ref().and_then(InboundOutcome::event_id),
-            ) {
-                session
-                    .lock()
-                    .event_ids_by_message_key
-                    .entry(key)
-                    .or_default()
-                    .push(event_id.clone());
-            }
-        }
-    }
-
-    async fn send_row(
-        &self,
-        session: &ClaudeSessionStream,
-        lead: &ClaudeBoundRun,
-        row: LateAppendableRow,
-        wire: &str,
-    ) {
-        let delivery = InboundDelivery::SessionRow {
-            binding: bound(lead),
-            row,
-            content: None,
-        };
-        self.send(session, delivery, Some(wire)).await;
-    }
-
-    async fn send_marker(
-        &self,
-        session: &ClaudeSessionStream,
-        lead: &ClaudeBoundRun,
-        marker: RunMarker,
-        wire: Option<&str>,
-    ) {
-        let delivery = InboundDelivery::RunMarker {
-            binding: bound(lead),
-            marker,
-        };
-        self.send(session, delivery, wire).await;
-    }
-
-    // Hands one delivery to the run engine and waits for its outcome.
-    async fn send(
-        &self,
-        session: &ClaudeSessionStream,
-        delivery: InboundDelivery<'_>,
-        wire: Option<&str>,
-    ) -> Option<InboundOutcome> {
-        self.dependencies
-            .engine
-            .deliver(session.provider_account_id.clone(), wire, delivery)
-            .await
     }
 }
 

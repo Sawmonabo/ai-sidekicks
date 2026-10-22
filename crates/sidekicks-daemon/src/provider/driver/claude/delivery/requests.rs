@@ -7,11 +7,11 @@
 //! session's open asks, which a `Send now` row waits out.
 
 pub(crate) mod answers;
+mod pending;
 
-use std::collections::HashMap;
 use std::error::Error;
 use std::io;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
@@ -23,6 +23,9 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use tokio::sync::oneshot;
+
+use self::pending::{HeldRequest, PendingRequest, RequestTables};
+use crate::mutex_lock::lock;
 
 use crate::error_description::describe_error;
 use crate::provider::driver::claude::DESCRIPTOR;
@@ -83,44 +86,6 @@ use answers::{
 
 // The decision reason of an ask an ask rule sent to the host.
 const CLAUDE_RULE_DECISION: &str = "rule";
-
-// What a pending request holds the person's answer for.
-#[derive(Clone, Debug)]
-enum HeldRequest {
-    Ask(ClaudeHeldAsk),
-    Question(ClaudeHeldQuestion),
-}
-
-impl HeldRequest {
-    fn kind(&self) -> &'static str {
-        match self {
-            Self::Ask(_) => "permissionAsk",
-            Self::Question(_) => "question",
-        }
-    }
-}
-
-// A request recorded before it is attributed, so a withdrawal that comes first finds it; `admission`
-// tells this recording from a later one under the same id, and `is_handed_on` says its service
-// has it, so a withdrawal is handed on too.
-struct PendingRequest {
-    held: HeldRequest,
-    admission: u64,
-    is_handed_on: bool,
-}
-
-// One session's pending requests, and the waiters told when the last one closes.
-#[derive(Default)]
-struct SessionRequests {
-    pending: HashMap<String, PendingRequest>,
-    on_closed: Vec<oneshot::Sender<()>>,
-}
-
-#[derive(Default)]
-struct RequestTables {
-    by_session: HashMap<SessionId, SessionRequests>,
-    next_admission: u64,
-}
 
 /// What the requests attribute, hand on and answer through.
 pub(crate) struct ClaudeInboundRequestsDependencies {
@@ -284,9 +249,7 @@ impl ClaudeInboundRequests {
     ) -> Result<(), ClaudeRequestAnswerError> {
         let held = self
             .lock()
-            .by_session
-            .get(&live.session_id)
-            .and_then(|requests| requests.pending.get(request_id))
+            .held(live.session_id, request_id)
             .map(|pending| pending.held.clone())
             .ok_or_else(|| ClaudeRequestAnswerError::NotHeld {
                 request_id: request_id.to_owned(),
@@ -324,12 +287,12 @@ impl ClaudeInboundRequests {
                 delivery: ClaudeWriteDelivery::Indeterminate,
                 cause,
             } => {
-                self.close(live.session_id, request_id);
+                self.lock().close(live.session_id, request_id);
                 live.channel.terminate().await;
                 return Err(ClaudeRequestAnswerError::WriteCut(cause));
             }
         }
-        self.close(live.session_id, request_id);
+        self.lock().close(live.session_id, request_id);
         let Some(made_rule) = made_rule else {
             return Ok(());
         };
@@ -346,25 +309,15 @@ impl ClaudeInboundRequests {
     /// Whether the session holds an ask or a question open, and a receiver told once the last one
     /// closes; the receiver fails when the session's process ends first. `None` when none is open.
     pub(crate) fn wait_asks_closed(&self, session_id: SessionId) -> Option<oneshot::Receiver<()>> {
-        let mut tables = self.lock();
-        let requests = tables.by_session.get_mut(&session_id)?;
-        if requests.pending.is_empty() {
-            return None;
-        }
-        let (sender, receiver) = oneshot::channel();
-        requests.on_closed.push(sender);
-        Some(receiver)
+        self.lock().wait_closed(session_id)
     }
 
     /// Forgets the requests of a session whose process is gone; each one a service holds is
     /// withdrawn there, since nothing can answer it any more, and every waiter on its open asks
     /// is let go unanswered.
     pub(crate) fn forget_session(&self, session_id: SessionId) {
-        let requests = self.lock().by_session.remove(&session_id);
-        for (request_id, pending) in requests
-            .map(|requests| requests.pending)
-            .unwrap_or_default()
-        {
+        let requests = self.lock().take_session(session_id);
+        for (request_id, pending) in requests {
             self.hand_on_withdrawal(session_id, request_id, &pending);
         }
     }
@@ -374,7 +327,8 @@ impl ClaudeInboundRequests {
     // handed on yet is only dropped, so it never reaches its service.
     async fn withdraw(&self, session: &ClaudeRequestSession<'_>, request_id: &str) {
         let session_id = session.stream.session_id();
-        match self.close(session_id, request_id) {
+        let closed = self.lock().close(session_id, request_id);
+        match closed {
             Some(pending) => self.hand_on_withdrawal(session_id, request_id.to_owned(), &pending),
             None => {
                 self.dependencies
@@ -661,25 +615,7 @@ impl ClaudeInboundRequests {
     ) -> Option<&'static str> {
         let session_id = session.stream.session_id();
         let kind = held.kind();
-        let admission = {
-            let mut tables = self.lock();
-            tables.next_admission += 1;
-            let admission = tables.next_admission;
-            tables
-                .by_session
-                .entry(session_id)
-                .or_default()
-                .pending
-                .insert(
-                    request_id.to_owned(),
-                    PendingRequest {
-                        held,
-                        admission,
-                        is_handed_on: false,
-                    },
-                );
-            admission
-        };
+        let admission = self.lock().record(session_id, request_id, held);
         let delivery = InboundDelivery::PermissionAsk {
             binding: DeliveryBinding {
                 binding_id: run.binding_id.clone(),
@@ -700,17 +636,14 @@ impl ClaudeInboundRequests {
             .await;
         let is_admitted = outcome == Some(InboundOutcome::AskAdmitted);
         let mut tables = self.lock();
-        let requests = tables.by_session.get_mut(&session_id)?;
-        let pending = requests
-            .pending
-            .get_mut(request_id)
-            .filter(|pending| pending.admission == admission)?;
         if is_admitted {
-            pending.is_handed_on = true;
-            return Some(kind);
+            return tables
+                .mark_handed_on(session_id, request_id, admission)
+                .then_some(kind);
         }
-        drop(tables);
-        self.close(session_id, request_id);
+        if tables.is_pending(session_id, request_id, admission) {
+            tables.close(session_id, request_id);
+        }
         None
     }
 
@@ -726,22 +659,8 @@ impl ClaudeInboundRequests {
         .await;
     }
 
-    // Takes a request out of the session's open asks, telling every waiter once the last closes.
-    fn close(&self, session_id: SessionId, request_id: &str) -> Option<PendingRequest> {
-        let mut tables = self.lock();
-        let requests = tables.by_session.get_mut(&session_id)?;
-        let closed = requests.pending.remove(request_id)?;
-        if requests.pending.is_empty() {
-            for waiter in requests.on_closed.drain(..) {
-                // A waiter that stopped waiting needs no word.
-                waiter.send(()).unwrap_or(());
-            }
-        }
-        Some(closed)
-    }
-
     fn lock(&self) -> MutexGuard<'_, RequestTables> {
-        self.tables.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.tables)
     }
 }
 
