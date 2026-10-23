@@ -8,7 +8,7 @@
 
 use std::io::{self, BufRead, BufReader, Read as _};
 use std::mem;
-use std::ops::ControlFlow;
+use std::ops::{ControlFlow, Range};
 use std::string::FromUtf8Error;
 
 use rusqlite::blob::Blob;
@@ -18,7 +18,7 @@ use sidekicks_contracts::event::declared_variants::{
     CONTENT_ENCODING_PAYLOAD_KEY, CONTENT_LENGTH_PAYLOAD_KEY, ContentEncoding,
 };
 use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
-use zstd::bulk::{Compressor, Decompressor};
+use zstd::bulk::Compressor;
 use zstd::stream::read::Decoder;
 use zstd::zstd_safe::zstd_sys::ZSTD_ErrorCode;
 use zstd::zstd_safe::{self, CParameter, DCtx};
@@ -153,6 +153,7 @@ pub(crate) fn decode_body(
         None => stored,
         Some(ContentEncoding::Zstd) => {
             let stated = content_length.ok_or(BodyDecodeError::NoLength)?;
+            walk_frames(&stored, stated, |_, _| {})?;
             let capacity =
                 usize::try_from(stated).map_err(|_overflow| BodyDecodeError::Length {
                     stated,
@@ -200,52 +201,83 @@ pub(crate) fn decode_body_stretch(
         });
     };
     let stated = content_length.ok_or(BodyDecodeError::NoLength)?;
-    let mut rest = stored.as_slice();
-    let mut frame_start: u64 = 0;
-    let mut covered: Option<(u64, usize, usize)> = None;
-    let mut stream_offset = 0;
-    while !rest.is_empty() {
-        let frame_bytes = zstd_safe::find_frame_compressed_size(rest)
-            .map_err(|code| stream_fault(StreamFault::Zstd(code)))?;
-        let frame_text = frame_text_bytes(rest)?;
-        let frame_end = frame_start + frame_text;
-        if frame_end > from as u64 && frame_start < to as u64 {
-            let (start, first, _) = covered.unwrap_or((frame_start, stream_offset, 0));
-            covered = Some((start, first, stream_offset + frame_bytes));
+    // The covered frames' start in the text, their stored bytes and their text's length.
+    let mut covered: Option<(u64, Range<usize>, usize)> = None;
+    walk_frames(&stored, stated, |text, frame| {
+        if text.end > from as u64 && text.start < to as u64 {
+            let frame_text = usize::try_from(text.end - text.start)
+                .expect("a frame holds at most a page of text");
+            match &mut covered {
+                None => covered = Some((text.start, frame, frame_text)),
+                Some((_, frames, covered_text)) => {
+                    frames.end = frame.end;
+                    *covered_text += frame_text;
+                }
+            }
         }
-        stream_offset += frame_bytes;
-        frame_start = frame_end;
-        rest = rest
-            .get(frame_bytes..)
-            .ok_or_else(|| stream_fault(StreamFault::FramePastEnd))?;
-    }
-    if frame_start != stated {
-        return Err(BodyDecodeError::Length {
-            stated,
-            decoded: frame_start,
-        });
-    }
-    let Some((start, first, last)) = covered else {
+    })?;
+    let Some((start, frames, capacity)) = covered else {
         return Ok(DecodedStretch {
             start: usize::try_from(stated).unwrap_or(usize::MAX),
             text: String::new(),
         });
     };
-    let frames = &stored[first..last];
-    let capacity =
-        Decompressor::upper_bound(frames).ok_or_else(|| stream_fault(StreamFault::NoUpperBound))?;
-    let decoded = decompress_frames(frames, capacity)?;
+    let decoded = decompress_frames(&stored[frames], capacity)?;
     Ok(DecodedStretch {
         start: usize::try_from(start).expect("a stretch held in memory starts within usize"),
         text: String::from_utf8(decoded).map_err(BodyDecodeError::Utf8)?,
     })
 }
 
-// The text of the whole zstd frames `frames`, at most `capacity` bytes or what their headers record
-// if less, decoded through a context made for the call. Fails with `OutOfMemory` when the context
-// or the text's buffer cannot be had, and as the damage it is when zstd refuses the frames.
+// Walks the zstd frames of `stored` by their headers alone, before any is decoded, handing `each`
+// each frame's stretch of the text and of the stored bytes. Fails as the damage it is on a frame
+// whose header records no size or more than a page of text, or that runs past the stored bytes,
+// and on frames whose text is not `stated` bytes in all, so a reader reserves room only for the
+// text the frames hold.
+fn walk_frames(
+    stored: &[u8],
+    stated: u64,
+    mut each: impl FnMut(Range<u64>, Range<usize>),
+) -> Result<(), BodyDecodeError> {
+    let mut rest = stored;
+    let mut text_start: u64 = 0;
+    let mut stream_offset = 0;
+    while !rest.is_empty() {
+        let frame_bytes = zstd_safe::find_frame_compressed_size(rest)
+            .map_err(|code| stream_fault(StreamFault::Zstd(code)))?;
+        let frame_text = frame_text_bytes(rest)?;
+        if frame_text > FRAME_TEXT_MAX_BYTES as u64 {
+            return Err(stream_fault(StreamFault::FrameOverPage));
+        }
+        let text_end = text_start
+            .checked_add(frame_text)
+            .ok_or(BodyDecodeError::Length {
+                stated,
+                decoded: u64::MAX,
+            })?;
+        rest = rest
+            .get(frame_bytes..)
+            .ok_or_else(|| stream_fault(StreamFault::FramePastEnd))?;
+        each(
+            text_start..text_end,
+            stream_offset..stream_offset + frame_bytes,
+        );
+        stream_offset += frame_bytes;
+        text_start = text_end;
+    }
+    if text_start != stated {
+        return Err(BodyDecodeError::Length {
+            stated,
+            decoded: text_start,
+        });
+    }
+    Ok(())
+}
+
+// The text of the whole zstd frames `frames`, whose headers record `capacity` bytes, decoded
+// through a context made for the call. Fails with `OutOfMemory` when the context or the text's
+// buffer cannot be had, and as the damage it is when zstd refuses the frames.
 fn decompress_frames(frames: &[u8], capacity: usize) -> Result<Vec<u8>, BodyDecodeError> {
-    let capacity = Decompressor::upper_bound(frames).map_or(capacity, |bound| bound.min(capacity));
     let mut context = DCtx::try_create().ok_or(BodyDecodeError::OutOfMemory)?;
     let mut decoded = Vec::new();
     decoded
@@ -275,8 +307,6 @@ enum StreamFault {
     FrameOverPage,
     // A frame whose stated size runs past the stored bytes.
     FramePastEnd,
-    // Frames whose decoded size zstd cannot bound.
-    NoUpperBound,
 }
 
 // A frame walk's fault, as the stream fault it is.
@@ -286,7 +316,6 @@ fn stream_fault(fault: StreamFault) -> BodyDecodeError {
         StreamFault::NoDecodedSize => "the frame records no decoded size",
         StreamFault::FrameOverPage => "the frame decodes to more than a page of text",
         StreamFault::FramePastEnd => "the frame runs past the stored bytes",
-        StreamFault::NoUpperBound => "the frames' decoded size has no bound",
     };
     BodyDecodeError::Stream(io::Error::new(io::ErrorKind::InvalidData, name))
 }

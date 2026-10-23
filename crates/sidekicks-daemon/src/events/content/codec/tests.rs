@@ -10,7 +10,7 @@ use zstd::zstd_safe;
 
 use super::{
     BodyDecodeError, BodyEncoder, BodyStreamError, StoredBody, StoredBodyPlace, decode_body,
-    decode_body_stretch, stored_body_place_sql, stream_frames,
+    decode_body_stretch, decode_failure, stored_body_place_sql, stream_frames,
 };
 use crate::transcript::test_log::TranscriptTestLog;
 
@@ -144,6 +144,53 @@ fn a_body_that_does_not_match_its_payload_is_refused() {
     assert!(
         matches!(refused, Err(BodyDecodeError::Stream(_))),
         "{refused:?}"
+    );
+}
+
+// One zstd frame of no text whose header states `size` bytes of it: the magic number, a descriptor
+// flagging a single segment and an 8-byte size, the size, and one empty last block.
+fn frame_stating(size: u64) -> Vec<u8> {
+    let mut frame = vec![0x28, 0xb5, 0x2f, 0xfd, 0b1110_0000];
+    frame.extend_from_slice(&size.to_le_bytes());
+    frame.extend_from_slice(&[1, 0, 0]);
+    frame
+}
+
+// A body whose frame header states far more text than memory holds, and its payload the same, is
+// damage refused before any room is reserved, never a failed read for want of memory; zstd running
+// out of memory is the failed read SQLite names out of memory. The largest size a header states is
+// two below 2^64, zstd marking an unknown size with 2^64 - 1. Killed by reserving room by the
+// stated or recorded size before the frames are walked, and by reading zstd's lack of memory as a
+// damaged column.
+#[rstest]
+#[case::frame_stating_the_most_it_can(
+    decode_body(
+        frame_stating(u64::MAX - 2),
+        Some(ContentEncoding::Zstd),
+        Some(u64::MAX - 2)
+    )
+    .expect_err("the body is refused"),
+    false
+)]
+#[case::out_of_memory(BodyDecodeError::OutOfMemory, true)]
+fn a_body_that_does_not_decode_is_damage_unless_memory_ran_out(
+    #[case] failure: BodyDecodeError,
+    #[case] is_out_of_memory: bool,
+) {
+    let read_error = decode_failure(2, failure);
+
+    let is_no_memory = matches!(
+        &read_error,
+        rusqlite::Error::SqliteFailure(error, _) if error.code == rusqlite::ErrorCode::OutOfMemory
+    );
+    assert_eq!(is_no_memory, is_out_of_memory, "{read_error:?}");
+    assert_eq!(
+        matches!(
+            read_error,
+            rusqlite::Error::FromSqlConversionFailure(2, _, _)
+        ),
+        !is_out_of_memory,
+        "{read_error:?}"
     );
 }
 
