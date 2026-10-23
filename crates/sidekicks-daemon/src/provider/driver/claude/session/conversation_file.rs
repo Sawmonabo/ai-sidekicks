@@ -23,7 +23,7 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
 use crate::missing_entry::MissingEntry;
 use crate::provider::driver::claude::session::plan_files::{ClaudePlan, find_claude_plan_files};
-use crate::provider::driver::claude::session::process::stdout::CLAUDE_OUTPUT_LINE_MAX_BYTES;
+use crate::provider::driver::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
 use crate::provider::driver::claude::session::rules::{
     ClaudeProjectFolder, resolve_claude_local_settings_file,
 };
@@ -547,7 +547,7 @@ mod tests {
         ClaudeConversation, ClaudeConversationFolders, ClaudeConversationOutline,
         delete_claude_conversations, find_claude_taken_messages, read_claude_conversation_outline,
     };
-    use crate::provider::driver::claude::session::process::stdout::CLAUDE_OUTPUT_LINE_MAX_BYTES;
+    use crate::provider::driver::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
     use crate::provider::driver::claude::session::rules::{ClaudeProjectFolder, ClaudeRepository};
 
     const SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000001";

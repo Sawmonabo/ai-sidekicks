@@ -4,7 +4,7 @@
 //! control table and the input, then reaches the session's listener last, after every frame.
 
 mod stdin;
-pub(crate) mod stdout;
+mod stdout;
 
 use std::error::Error;
 use std::io;
@@ -52,6 +52,7 @@ use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::queue::delivery::ProviderProcessIdentity;
 
 use stdin::ClaudeInputWriter;
+pub(crate) use stdout::CLAUDE_OUTPUT_LINE_MAX_BYTES;
 use stdout::ClaudeOutputReader;
 
 /// How long a process asked to stop has before it is killed.
