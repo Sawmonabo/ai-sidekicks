@@ -27,6 +27,7 @@ use crate::provider::driver::codex::session::state::{
 };
 use crate::provider::driver::codex::token_usage::read_codex_token_usage;
 use crate::provider::driver::codex::transport::connection::read_codex_object;
+use crate::provider::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -39,9 +40,6 @@ use crate::provider::usage_delta_accountant::{
     CumulativeUsageReading, MeteredUsageDelta, ThreadBaseEstablishment, UsageAxisCounts,
     UsageDeltaAccountant, WindowTelemetry, derive_window_telemetry,
 };
-
-/// The turn statuses that end a turn; `inProgress` and any other word do not.
-const CODEX_TERMINAL_TURN_STATUSES: [&str; 3] = ["completed", "interrupted", "failed"];
 
 /// One notification as the frame router sees it, kept whole so a held frame can be delivered once
 /// its conversation registers.
@@ -476,11 +474,13 @@ struct CompletedTurnStatus {
     status: Option<String>,
 }
 
-// Whether a `turn/completed` carries a status that ends its turn.
+// Whether a `turn/completed` carries a status that ends its turn; a word Codex does not send does
+// not.
 fn is_terminal_turn(params: &RawValue) -> bool {
     read_codex_object::<CompletedTurnFrame>(params.get())
         .and_then(|frame| frame.turn?.status)
-        .is_some_and(|status| CODEX_TERMINAL_TURN_STATUSES.contains(&status.as_str()))
+        .and_then(|status| CodexTurnStatus::read(&status))
+        .is_some_and(CodexTurnStatus::is_terminal)
 }
 
 // Reports one routing diagnostic about the session.

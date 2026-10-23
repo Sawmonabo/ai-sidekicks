@@ -48,21 +48,34 @@ static BLANK_TURN_ERROR_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_
 /// The turn statuses Codex sends, read from its open string; any other word reads as none, which
 /// a settled turn reports and fails its run on.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum CodexTurnStatus {
+pub(super) enum CodexTurnStatus {
+    /// The turn ran to its end.
     Completed,
+    /// The turn was stopped.
     Interrupted,
+    /// The turn failed.
     Failed,
+    /// The turn still runs.
     InProgress,
 }
 
 impl CodexTurnStatus {
-    fn read(status: &str) -> Option<Self> {
+    /// The status `status` names, `None` for a word Codex does not send.
+    pub(super) fn read(status: &str) -> Option<Self> {
         match status {
             "completed" => Some(Self::Completed),
             "interrupted" => Some(Self::Interrupted),
             "failed" => Some(Self::Failed),
             "inProgress" => Some(Self::InProgress),
             _ => None,
+        }
+    }
+
+    /// Whether the status ends its turn: every one but `inProgress`.
+    pub(super) fn is_terminal(self) -> bool {
+        match self {
+            Self::Completed | Self::Interrupted | Self::Failed => true,
+            Self::InProgress => false,
         }
     }
 }
