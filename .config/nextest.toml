@@ -4,6 +4,12 @@
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 2 }
 
+# A measurement, a live-provider test or an endurance test runs as long as it needs, never ended:
+# each is ignored, run on demand with `--run-ignored only`, from a module named for its kind.
+[[profile.default.overrides]]
+filter = "test(/::(measurements|live_provider)::/) | test(/endurance/)"
+slow-timeout = "60s"
+
 # Every failure is reported in one run.
 [profile.ci]
 fail-fast = false
