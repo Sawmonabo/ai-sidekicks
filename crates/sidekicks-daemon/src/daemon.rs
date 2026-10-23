@@ -19,6 +19,7 @@ pub(crate) mod machine;
 pub(crate) mod own_root;
 pub(crate) mod panic_hook;
 pub(crate) mod process_tree_usage;
+pub(crate) mod release_version;
 pub(crate) mod repairing_socket;
 pub(crate) mod retention_methods;
 pub(crate) mod run_folder;
