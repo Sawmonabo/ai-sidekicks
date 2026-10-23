@@ -181,8 +181,7 @@ strum.workspace = true
 subtle.workspace = true
 sysinfo.workspace = true
 tar.workspace = true
-# The test database file of the `test-support` feature.
-tempfile = { workspace = true, optional = true }
+tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
@@ -222,7 +221,6 @@ sidekicks-platforms = { workspace = true, features = ["test-support"] }
 # The screen copy drawn without a shell, for the screen listener's answer tests.
 sidekicks-terminal = { workspace = true, features = ["test-support"] }
 standardwebhooks.workspace = true
-tempfile.workspace = true
 # The paused clock the clone progress gate's and the stream batcher's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 x-wing.workspace = true
@@ -240,7 +238,7 @@ zstd.workspace = true
 [features]
 # Helpers the integration tests use: a database file with the daemon's schema and the session
 # rows other tables build on.
-test-support = ["dep:tempfile"]
+test-support = []
 
 [lints]
 workspace = true

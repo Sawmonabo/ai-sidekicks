@@ -11,7 +11,7 @@
 
 use std::error::Error;
 use std::fs;
-use std::io::{self, Write as _};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
@@ -350,17 +350,31 @@ fn read_or_make_key(data_folder: &Path) -> io::Result<[u8; REPORT_KEY_LENGTH]> {
     let mut key = [0_u8; REPORT_KEY_LENGTH];
     getrandom::fill(&mut key).map_err(io::Error::other)?;
     sidekicks_platforms::create_private_folder(data_folder)?;
-    match create_new_file(&path, REPORT_FILE_MODE) {
-        Ok(mut file) => {
-            file.write_all(&key)?;
-            file.sync_all()?;
-            Ok(key)
-        }
+    make_key(data_folder, key, <fs::File as Write>::write_all)
+}
+
+// Makes `key` the install's key unless another pass made one first, and answers the key that
+// stands. `write` fills a temporary file that takes the key's name only once written and flushed,
+// so a failed write leaves no key file.
+fn make_key(
+    data_folder: &Path,
+    key: [u8; REPORT_KEY_LENGTH],
+    write: impl FnOnce(&mut fs::File, &[u8]) -> io::Result<()>,
+) -> io::Result<[u8; REPORT_KEY_LENGTH]> {
+    let mut temporary = tempfile::Builder::new()
+        .prefix(REPORT_KEY_FILE_NAME)
+        .suffix(".tmp")
+        .make_in(data_folder, |path| create_new_file(path, REPORT_FILE_MODE))?;
+    write(temporary.as_file_mut(), &key)?;
+    temporary.as_file().sync_all()?;
+    // A failed link hands the temporary file back, and dropping it removes it.
+    match temporary.persist_noclobber(data_folder.join(REPORT_KEY_FILE_NAME)) {
+        Ok(_key_file) => Ok(key),
         // Another pass made it first.
-        Err(failure) if failure.kind() == io::ErrorKind::AlreadyExists => {
+        Err(failure) if failure.error.kind() == io::ErrorKind::AlreadyExists => {
             read_or_make_key(data_folder)
         }
-        Err(failure) => Err(failure),
+        Err(failure) => Err(failure.error),
     }
 }
 
@@ -497,14 +511,19 @@ fn platform_name(os: Os) -> String {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::io::{self, Write as _};
     use std::path::{Path, PathBuf};
     use std::process::Command;
     use std::sync::Arc;
 
+    use rstest::rstest;
     use sidekicks_contracts::machine::settings::MachineSettingsChange;
     use tokio_util::sync::CancellationToken;
 
-    use super::{CrashReportDeps, REPORT_KEY_FILE_NAME, build_crash_reports, read_crash_reports};
+    use super::{
+        CrashReportDeps, REPORT_KEY_FILE_NAME, REPORT_KEY_LENGTH, build_crash_reports, make_key,
+        read_crash_reports,
+    };
     use crate::daemon::crash::monitor::{
         CRASH_DUMPS_FOLDER_NAME, PANIC_RECORD_SUFFIX, attach_crash_handler, connect_crash_monitor,
         crash_monitor_socket_path, serve_crash_monitor,
@@ -718,6 +737,44 @@ mod tests {
             read_crash_reports(&data_folder).expect("the reports read"),
             Vec::new()
         );
+    }
+
+    // The write a pass makes: the whole key.
+    fn write_whole(file: &mut fs::File, key: &[u8]) -> io::Result<()> {
+        file.write_all(key)
+    }
+
+    // A write the disk refuses partway: half the key, then a failure.
+    fn write_half_then_fail(file: &mut fs::File, key: &[u8]) -> io::Result<()> {
+        file.write_all(&key[..key.len() / 2])?;
+        Err(io::Error::from(io::ErrorKind::StorageFull))
+    }
+
+    // A key another pass made first stands, and a write that fails partway leaves neither a key
+    // file nor a temporary one, so a later pass makes a whole key rather than reading a short one
+    // as damaged. Killed by writing the key at its own name, and by replacing a key that stands.
+    #[rstest]
+    #[case::another_pass_made_it_first(Some([1; REPORT_KEY_LENGTH]), write_whole)]
+    #[case::the_write_fails(None, write_half_then_fail)]
+    fn a_key_file_is_made_whole_or_not_at_all(
+        #[case] standing: Option<[u8; REPORT_KEY_LENGTH]>,
+        #[case] write: fn(&mut fs::File, &[u8]) -> io::Result<()>,
+    ) {
+        let data_folder = tempfile::tempdir().expect("the test makes a temporary folder");
+        let key_path = data_folder.path().join(REPORT_KEY_FILE_NAME);
+        if let Some(standing) = standing {
+            fs::write(&key_path, standing).expect("the standing key is written");
+        }
+
+        let made = make_key(data_folder.path(), [2; REPORT_KEY_LENGTH], write);
+
+        assert_eq!(made.ok(), standing);
+        let names: Vec<_> = fs::read_dir(data_folder.path())
+            .expect("the data folder lists")
+            .map(|entry| entry.expect("an entry").file_name())
+            .collect();
+        assert_eq!(names.len(), usize::from(standing.is_some()), "{names:?}");
+        assert_eq!(fs::read(&key_path).ok(), standing.map(Vec::from));
     }
 
     // The panic records the hook wrote into the crash reports folder.

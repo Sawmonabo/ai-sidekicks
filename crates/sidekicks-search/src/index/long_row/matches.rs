@@ -242,9 +242,10 @@ enum CursorChoice {
 }
 
 // Walks the live documents of the long rows `keeps` keeps, handed each whole row or `None` for a
-// row not yet whole, whose piece code `wants`, segment by segment in document order, calling `visit` with the row's key, where the document sits, each
-// phrase's cursor in the segment (`None` where the segment holds none of its rows) and whether
-// each one matches the document, wherever at least one does.
+// row not yet whole, whose piece code `wants`, segment by segment in document order, calling
+// `visit` with the row's key, where the document sits, each phrase's cursor in the segment (`None`
+// where the segment holds none of its rows) and whether each one matches the document, wherever
+// at least one does.
 fn walk_documents(
     version: &IndexVersion,
     phrases: &[Phrase],
