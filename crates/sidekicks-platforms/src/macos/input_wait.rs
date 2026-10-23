@@ -5,6 +5,7 @@
 
 use std::io::{self, ErrorKind};
 use std::process::{Command, Output, Stdio};
+use std::sync::OnceLock;
 
 use libc::{c_int, c_void};
 use nix::errno::Errno;
@@ -30,6 +31,12 @@ const PIPE_WANTR: c_int = 0x0008;
 
 // The descriptor `PROC_PIDFDKQUEUE_EXTINFO` reads the process's work-queue kqueue through.
 const WORK_QUEUE_KQUEUE: c_int = -1;
+
+// The node every process opens its controlling terminal through, whatever that terminal is.
+const CONTROLLING_TERMINAL_PATH: &str = "/dev/tty";
+
+// The device number of `/dev/tty`'s node, read once.
+static CONTROLLING_TERMINAL_NODE: OnceLock<u32> = OnceLock::new();
 
 // Apple's sampler, which reads a process of the same user through the task-read right its own
 // signature grants it, and how long and how often it samples.
@@ -287,10 +294,12 @@ fn refusal_survey(error: io::Error) -> io::Result<ProcessSurvey> {
     }
 }
 
-// The descriptors of process `pid` that bear on a wait on `terminal`.
+// The descriptors of process `pid` that bear on a wait on `terminal`: one open on the terminal's
+// device, or on `/dev/tty` while the terminal is the process's controlling one.
 fn read_descriptors(pid: c_int, terminal: &InputTerminal) -> io::Result<ProcessDescriptors> {
     let listed: Vec<libc::proc_fdinfo> = read_pid_list(pid, libc::PROC_PIDLISTFDS)?;
     let mut descriptors = ProcessDescriptors::default();
+    let mut is_controlling_terminal = None;
     for entry in listed {
         let descriptor = entry.proc_fd;
         match c_int::try_from(entry.proc_fdtype).unwrap_or(-1) {
@@ -302,10 +311,21 @@ fn read_descriptors(pid: c_int, terminal: &InputTerminal) -> io::Result<ProcessD
                 let stat = &info.pvi.vi_stat;
                 let is_character_device =
                     libc::mode_t::from(stat.vst_mode) & libc::S_IFMT == libc::S_IFCHR;
-                if is_character_device
-                    && u64::from(stat.vst_rdev) == terminal.device.0
-                    && info.pfi.fi_openflags & FREAD != 0
-                {
+                if !is_character_device || info.pfi.fi_openflags & FREAD == 0 {
+                    continue;
+                }
+                let is_terminal = if u64::from(stat.vst_rdev) == terminal.device.0 {
+                    true
+                } else if stat.vst_rdev == controlling_terminal_node()? {
+                    if is_controlling_terminal.is_none() {
+                        is_controlling_terminal =
+                            Some(read_controlling_terminal(pid)? == terminal.device.0);
+                    }
+                    is_controlling_terminal == Some(true)
+                } else {
+                    false
+                };
+                if is_terminal {
                     descriptors.terminal_reads.push(descriptor);
                 }
             }
@@ -325,6 +345,43 @@ fn read_descriptors(pid: c_int, terminal: &InputTerminal) -> io::Result<ProcessD
         }
     }
     Ok(descriptors)
+}
+
+// The device number of `/dev/tty`'s node, which names no terminal itself.
+fn controlling_terminal_node() -> io::Result<u32> {
+    if let Some(device) = CONTROLLING_TERMINAL_NODE.get() {
+        return Ok(*device);
+    }
+    let device = nix::sys::stat::stat(CONTROLLING_TERMINAL_PATH).map_err(io::Error::from)?;
+    let device = u32::try_from(device.st_rdev).map_err(io::Error::other)?;
+    Ok(*CONTROLLING_TERMINAL_NODE.get_or_init(|| device))
+}
+
+// The device number of process `pid`'s controlling terminal, which no terminal's device matches
+// when it has none.
+fn read_controlling_terminal(pid: c_int) -> io::Result<u64> {
+    // SAFETY: `proc_bsdinfo` is a C struct of integers and characters, for which all zero bytes
+    // are valid.
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let length = c_int::try_from(size_of::<libc::proc_bsdinfo>()).map_err(io::Error::other)?;
+    // SAFETY: the pointer names a live `proc_bsdinfo` of `length` bytes, the struct this flavor
+    // fills, and nothing else reads it until the call returns.
+    let written = read_libproc_count(|| unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            (&raw mut info).cast(),
+            length,
+        )
+    })?;
+    if written != size_of::<libc::proc_bsdinfo>() {
+        return Err(io::Error::new(
+            ErrorKind::InvalidData,
+            format!("process {pid}'s information was cut short"),
+        ));
+    }
+    Ok(u64::from(info.e_tdev))
 }
 
 // Whether a thread of process `pid` is running now.

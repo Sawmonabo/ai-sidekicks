@@ -62,7 +62,8 @@ mod tests {
     // Fails when a thread's run state is taken as a wait (`sleep 30` and the shell after `read -t`
     // wait in the kernel too), when echo is read as off only with canonical input on (`vim` turns
     // both off), when echo off alone reads as a password prompt (`stty -echo -icanon`), or when a
-    // read on the terminal, a `kevent` on a read knote or a `select` on Linux is missed.
+    // read on the terminal, a `kevent` on a read knote or a `select` on Linux is missed, or a read
+    // through `/dev/tty` is not taken for one on the terminal.
     #[rstest]
     #[case::node_readline(
         "node -e \"require('readline').createInterface({input: process.stdin, \
@@ -87,6 +88,13 @@ mod tests {
          select.select([sys.stdin], [], [])\"",
         "ready",
         reading(IS_SELECT_SEEN, Echo::On)
+    )]
+    // Its standard streams are away from the terminal, so `/dev/tty` is its only way to it.
+    #[case::controlling_terminal_reader(
+        "exec python3 -c \"import os; terminal = os.open('/dev/tty', os.O_RDWR); \
+         os.write(terminal, b'ready\\n'); os.read(terminal, 1)\" < /dev/null > /dev/null 2>&1",
+        "ready",
+        reading(true, Echo::On)
     )]
     #[case::hidden_read(
         "echo ready; exec /bin/bash -c 'read -s line'",
