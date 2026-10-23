@@ -135,10 +135,12 @@ impl ClaudeDriver {
                     if let Some(stream) = parts.establishment.streams.get(session_id) {
                         stream.signal_intended_close();
                     }
-                    let routes = &parts.establishment.routes;
-                    let runs = routes.bound_runs_on(session_id);
                     let session = close.session();
                     close.close_channel().await;
+                    // Read once the session's task has ended, so a turn Claude Code started by
+                    // itself while the close drained it is ended too.
+                    let routes = &parts.establishment.routes;
+                    let runs = routes.bound_runs_on(session_id);
                     // Routes once the channel is closed, so a frame read before it still reaches
                     // its run, and no later interrupt aims at a run of the dead process.
                     routes.retire_run_routes(session_id);

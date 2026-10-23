@@ -110,16 +110,12 @@ impl RecordingRunEngine {
 
     /// Holds the next ask's admission until the returned sender fires or drops.
     pub(crate) fn hold_next_ask(&self) -> oneshot::Sender<()> {
-        let (release, held) = oneshot::channel();
-        lock(&self.ask_holds).push_back(held);
-        release
+        hold_next(&self.ask_holds)
     }
 
     /// Holds the next turn's opening until the returned sender fires or drops.
     pub(crate) fn hold_next_turn_start(&self) -> oneshot::Sender<()> {
-        let (release, held) = oneshot::channel();
-        lock(&self.turn_start_holds).push_back(held);
-        release
+        hold_next(&self.turn_start_holds)
     }
 
     /// Makes every later daemon turn's start fail before any run exists.
@@ -263,11 +259,13 @@ impl ClaudeRunEngine for RecordingRunEngine {
     }
 }
 
-/// A run engine that hands every call to `inner`, holding the outcome of the next delivery until
-/// the sender `hold_next_delivery` returned fires or drops, so the session's task waits on it.
+/// A run engine that hands every call to `inner`, holding the outcome of the next delivery, or the
+/// start of the next daemon turn, until the sender its hold returned fires or drops, so the
+/// session's task waits on it.
 pub(crate) struct HeldDeliveryEngine {
     inner: Arc<dyn ClaudeRunEngine>,
     delivery_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
+    daemon_turn_start_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
 }
 
 impl HeldDeliveryEngine {
@@ -276,15 +274,27 @@ impl HeldDeliveryEngine {
         Self {
             inner,
             delivery_holds: Mutex::default(),
+            daemon_turn_start_holds: Mutex::default(),
         }
     }
 
     /// Holds the next delivery's outcome until the returned sender fires or drops.
     pub(crate) fn hold_next_delivery(&self) -> oneshot::Sender<()> {
-        let (release, held) = oneshot::channel();
-        lock(&self.delivery_holds).push_back(held);
-        release
+        hold_next(&self.delivery_holds)
     }
+
+    /// Holds the next daemon turn's start, before `inner` opens its run, until the returned sender
+    /// fires or drops.
+    pub(crate) fn hold_next_daemon_turn_start(&self) -> oneshot::Sender<()> {
+        hold_next(&self.daemon_turn_start_holds)
+    }
+}
+
+// Queues a hold on the next call that takes one from `holds`.
+fn hold_next(holds: &Mutex<VecDeque<oneshot::Receiver<()>>>) -> oneshot::Sender<()> {
+    let (release, held) = oneshot::channel();
+    lock(holds).push_back(held);
+    release
 }
 
 impl ClaudeRunEngine for HeldDeliveryEngine {
@@ -341,7 +351,14 @@ impl ClaudeRunEngine for HeldDeliveryEngine {
         &self,
         request: DaemonTurnStartRequest,
     ) -> BoxFuture<'_, Result<RunId, RunEngineError>> {
-        self.inner.start_daemon_turn(request)
+        let hold = lock(&self.daemon_turn_start_holds).pop_front();
+        async move {
+            if let Some(hold) = hold {
+                hold.await.unwrap_or(());
+            }
+            self.inner.start_daemon_turn(request).await
+        }
+        .boxed()
     }
 
     fn end_turn_on_process_exit(

@@ -485,3 +485,79 @@ async fn the_frames_read_before_the_close_ended_the_process_end_their_run_as_int
     );
     assert_eq!(reply_count(&fixture, run_id), 1);
 }
+
+// Killed by reading the close's run list before its channel closes (the `bound_runs_on` read in
+// `close_session` moved back before `close_channel()`): a turn Claude Code started by itself while
+// the close drained the session's task would be left running once its process exited.
+#[tokio::test(start_paused = true)]
+async fn a_turn_claude_code_started_while_the_close_drained_ends_as_intended() {
+    let fixture = ScriptedDriver::new();
+    let session_id = mint_session_id();
+    let engine = Arc::new(HeldDeliveryEngine::new(fixture.engine.clone()));
+    let claude = Arc::new(
+        ClaudeDriver::with_engine(
+            &fixture.services,
+            fixture.starts.clone(),
+            &(Arc::clone(&engine) as Arc<dyn ClaudeRunEngine>),
+        )
+        .expect("the driver composes"),
+    );
+    let driver: Arc<dyn ProviderDriver> = claude.clone();
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    driver
+        .create_session(create_params(session_id))
+        .await
+        .expect("the session opens");
+    let start = fixture.next_start().await;
+    let release_start = engine.hold_next_daemon_turn_start();
+    let routes = &claude.composed_parts().expect("composed").run_start.routes;
+    hand_scripted_frame(
+        &*start.listener,
+        routes,
+        session_id,
+        &json!({"type": "system", "subtype": "init", "session_id": SCRIPTED_PROVIDER_SESSION_ID}),
+    );
+    settle().await;
+
+    let close = tokio::spawn({
+        let driver = Arc::clone(&driver);
+        async move {
+            driver
+                .close_session(CloseSessionParams { session_id })
+                .await
+        }
+    });
+    settle().await;
+    drop(release_start);
+    close
+        .await
+        .expect("the close task ends")
+        .expect("the session closes");
+    settle().await;
+
+    let calls = fixture.engine.calls();
+    let self_started = calls
+        .iter()
+        .find_map(|call| match call {
+            EngineCall::StartDaemonTurn(run_id) => Some(*run_id),
+            EngineCall::Deliver(_)
+            | EngineCall::StartTurn(_)
+            | EngineCall::CountStep(_)
+            | EngineCall::RecordTurnEnd(..)
+            | EngineCall::EndTurnOnProcessExit(_)
+            | EngineCall::EndTurnOnClose(_) => None,
+        })
+        .expect("the self-started turn's run opened");
+    let ends: Vec<_> = calls
+        .into_iter()
+        .filter(|call| {
+            matches!(
+                call,
+                EngineCall::EndTurnOnClose(_) | EngineCall::EndTurnOnProcessExit(_)
+            )
+        })
+        .collect();
+    assert_eq!(ends, [EngineCall::EndTurnOnClose(self_started)]);
+}
