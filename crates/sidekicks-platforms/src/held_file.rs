@@ -19,12 +19,10 @@ use crate::{entry_identity, open_file_identity};
 // the instant between its create and its lock.
 const HELD_CREATE_ATTEMPTS: usize = 8;
 
-/// Makes a file through `create`, which makes a new file under a fresh name at each call and
-/// answers it with that name, then locks it and checks the name still names it, so a sweep that
-/// removed the file in the instant before the lock costs a fresh name rather than a file written
-/// with no name. The file stays locked until it is closed or unlocked. Fails when a create, the
-/// lock or the check fails, or when every try lost its name; a failure removes the file it made,
-/// the removal's own failure kept beside it.
+/// Makes a file through `create` (a new file under a fresh name at each call), locks it until it
+/// is closed and checks the name still names it, trying a fresh name when a sweep removed the file
+/// in the instant before the lock. Fails when a create, the lock or the check fails, or every try
+/// lost its name, removing the file it made and keeping the removal's own failure beside it.
 pub fn create_held_file<Name: AsRef<Path>>(
     mut create: impl FnMut() -> io::Result<(File, Name)>,
 ) -> Result<(File, Name), AtomicWriteError> {
@@ -103,9 +101,10 @@ fn lost_names_failure() -> io::Error {
     io::Error::other("every name the file was made under was removed before it was locked")
 }
 
-/// Removes the file at `path` unless another handle holds it locked, and answers whether one did,
-/// so the file was kept; a file already gone was not held. Fails with the open's, the lock's or the
-/// removal's error.
+/// Removes the file at `path` unless another handle holds it locked, removing the name while its
+/// own lock is still held, so a writer whose lock waited on it finds its name gone; answers whether
+/// another handle held it (a file already gone was not held). Fails with the open's, the lock's or
+/// the removal's error.
 pub fn remove_unless_held(path: &Path) -> io::Result<bool> {
     let file = match File::open(path) {
         Ok(file) => file,
@@ -117,8 +116,7 @@ pub fn remove_unless_held(path: &Path) -> io::Result<bool> {
         Err(TryLockError::WouldBlock) => return Ok(true),
         Err(TryLockError::Error(failure)) => return Err(failure),
     }
-    // The name goes while this lock is still held: a writer whose lock waited on it then finds its
-    // name gone, where one that locked between a release and the removal would lose its file.
+    // A writer that locked between a release here and the removal would lose its file.
     match fs::remove_file(path) {
         Err(failure) if failure.kind() != io::ErrorKind::NotFound => return Err(failure),
         _removed => {}

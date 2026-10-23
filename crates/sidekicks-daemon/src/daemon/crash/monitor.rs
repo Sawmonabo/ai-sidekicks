@@ -318,10 +318,10 @@ struct DumpWriter {
 }
 
 impl ServerHandler for DumpWriter {
+    /// Makes the dump's file, held locked until the dump is finished and the file closed, with its
+    /// name checked after the lock, which closes the instant between create and lock where a crash
+    /// pass could remove it.
     fn create_minidump_file(&self) -> Result<(File, PathBuf), io::Error> {
-        // Held locked until the dump is finished and the file closed after `on_minidump_created`,
-        // so a crash pass that meets the file meanwhile leaves it; the check after the lock closes
-        // the instant between the create and the lock, where a pass could remove the file.
         let created = create_held_file(|| {
             let path = self.dumps_folder.join(format!(
                 "{}.{DUMP_EXTENSION}{DUMP_IN_PROGRESS_SUFFIX}",
