@@ -437,7 +437,7 @@ pub(crate) fn panic_record_path(dump_path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::fs::{self, TryLockError};
     use std::io;
     use std::sync::Mutex;
     use std::sync::mpsc::sync_channel;
@@ -452,10 +452,11 @@ mod tests {
         send_within,
     };
 
-    // A dump whose write fails, as a full disk fails it, and one whose finish fails after its
-    // panic record was written, the finished name taken by a folder, leave neither the partial
-    // dump nor the record. Killed by a failed write that keeps its partial dump, and by a failed
-    // finish that keeps the dump or the record it wrote.
+    // A dump is held locked while it is written, so a crash pass leaves it. A dump whose write
+    // fails, as a full disk fails it, and one whose finish fails after its panic record was
+    // written, the finished name taken by a folder, leave neither the partial dump nor the record.
+    // Killed by the dump's lock dropped, by a failed write that keeps its partial dump, and by a
+    // failed finish that keeps the dump or the record it wrote.
     #[rstest]
     #[case::write_fails(false)]
     #[case::finish_fails(true)]
@@ -469,6 +470,9 @@ mod tests {
         let (file, path) = writer
             .create_minidump_file()
             .expect("the dump's file is made");
+        let probe = fs::File::open(&path).expect("the dump's file opens");
+        assert!(matches!(probe.try_lock(), Err(TryLockError::WouldBlock)));
+        drop(probe);
         let finished = path.with_extension("");
         let written = if is_written {
             fs::create_dir_all(finished.join("inside")).expect("the finished name is taken");
