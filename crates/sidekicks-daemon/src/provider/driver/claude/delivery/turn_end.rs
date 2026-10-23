@@ -19,6 +19,9 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::wire::{BoolLiteral, True};
 use strum::EnumString;
 
+use crate::provider::driver::claude::event_normalizer::{
+    ClaudeWireFrameKind, compose_claude_wire_frame_kind,
+};
 use crate::provider::driver::claude::turn_evidence::classify_claude_turn_evidence;
 use crate::provider::driver::contract::bound_failure_detail;
 use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
@@ -185,6 +188,13 @@ pub(crate) fn compose_claude_turn_end(
     {
         return interrupted(None, TurnOutcome::Interrupted(None), true);
     }
+    // A `result` of a subtype the census does not list still ends its turn, as a failure that
+    // names the subtype, so a turn's end never vanishes.
+    let unlisted_subtype =
+        match ClaudeWireFrameKind::read(&compose_claude_wire_frame_kind("result", subtype)) {
+            Some(ClaudeWireFrameKind::ResultUnlisted { subtype }) => Some(subtype),
+            _ => None,
+        };
     let is_too_long = terminal_reason.is_some_and(ClaudeTerminalReason::is_too_long);
     let (mut change, outcome, is_failed) = match marks.refusal {
         Some(refusal) => (
@@ -195,7 +205,7 @@ pub(crate) fn compose_claude_turn_end(
             TurnOutcome::Failed(None),
             true,
         ),
-        None if is_declared_failure(frame) => {
+        None if unlisted_subtype.is_some() || is_declared_failure(frame) => {
             let cause = if is_too_long {
                 marks
                     .newest_message_id
@@ -213,8 +223,12 @@ pub(crate) fn compose_claude_turn_end(
                         origin: ProviderFailureOrigin::Value,
                     })
             };
+            let words = describe_turn_failure(members);
             let detail = bound_failure_detail(
-                &describe_turn_failure(members),
+                &match unlisted_subtype {
+                    Some(subtype) if words != subtype => format!("{subtype}: {words}"),
+                    Some(_) | None => words,
+                },
                 UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
             );
             (

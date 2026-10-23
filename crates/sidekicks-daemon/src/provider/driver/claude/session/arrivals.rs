@@ -24,6 +24,7 @@ use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeDaemon
 use crate::provider::driver::claude::delivery::stream::{
     ClaudeSessionStream, ClaudeSessionStreams,
 };
+use crate::provider::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::provider::driver::claude::frame_routing::{ClaudeFrameRouting, ClaudeRoutedObservation};
 use crate::provider::driver::claude::run::routes::ClaudeBoundRun;
 use crate::provider::driver::claude::session::process::{
@@ -361,7 +362,7 @@ impl ClaudeProcessListener for ClaudeSessionListener {
             )
         };
         let is_lead_result = frame.observation.subagent_id.is_none()
-            && frame.observation.frame_kind.split('/').next() == Some("result");
+            && is_claude_result_frame_kind(&frame.observation.frame_kind);
         let decided = lock(&self.turn_ending).take();
         let is_turn_ending =
             is_lead_result && decided.unwrap_or_else(|| self.stream.is_turn_ending(&frame.text));

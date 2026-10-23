@@ -16,6 +16,7 @@ use tokio::sync::watch;
 use tokio_util::codec::{AnyDelimiterCodec, AnyDelimiterCodecError, FramedRead};
 
 use crate::provider::driver::claude::DESCRIPTOR;
+use crate::provider::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::provider::driver::claude::session::control_requests::{
     ClaudeControlRequests, ClaudeControlSettlement,
 };
@@ -160,7 +161,7 @@ impl ClaudeOutputReader {
         let Some(turn_holds) = &self.turn_holds else {
             return;
         };
-        if frame.observation.frame_kind.split('/').next() == Some("result")
+        if is_claude_result_frame_kind(&frame.observation.frame_kind)
             && frame.observation.subagent_id.is_none()
             && self.listener.is_turn_ending(frame)
         {

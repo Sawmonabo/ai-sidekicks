@@ -40,6 +40,7 @@ use crate::git::worktree::staged_changes::StagedChangesWorktrees;
 use crate::mutex_lock::lock;
 use crate::provider::driver::claude::delivery::requests::ClaudeInboundRequests;
 use crate::provider::driver::claude::delivery::stream::ClaudeSessionStream;
+use crate::provider::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::provider::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::provider::driver::claude::intervention::{ClaudeForegroundHelpers, ClaudeInterventions};
 use crate::provider::driver::claude::lifecycle::ClaudeSessionParts;
@@ -344,7 +345,7 @@ pub(crate) fn hand_scripted_frame(
         .expect("a test frame is an object")
         .into_observation();
     let frame = ClaudeStreamFrame { text, observation };
-    if frame.observation.frame_kind.split('/').next() == Some("result")
+    if is_claude_result_frame_kind(&frame.observation.frame_kind)
         && frame.observation.subagent_id.is_none()
         && listener.is_turn_ending(&frame)
     {

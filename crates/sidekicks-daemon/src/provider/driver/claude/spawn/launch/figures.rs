@@ -10,6 +10,7 @@ use serde_json::Value;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio::time::Instant;
 
+use crate::provider::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::provider::driver::claude::session::errors::ClaudeSessionError;
 use crate::provider::driver::claude::session::process::ClaudeCodeProcess;
 use crate::provider::driver::claude::session::reply_reserve::{
@@ -318,7 +319,7 @@ async fn read_command_reply(
             .and_then(|stamp| stamp.get("kind").and_then(Value::as_str).map(str::to_owned))
             .filter(|kind| !kind.is_empty());
         outcome = stamped.or(outcome);
-        if frame.observation.frame_kind.split('/').next() == Some("result")
+        if is_claude_result_frame_kind(&frame.observation.frame_kind)
             && frame.observation.subagent_id.is_none()
         {
             let result = serde_json::from_str(&frame.text).unwrap_or(Value::Null);

@@ -13,6 +13,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio::sync::oneshot;
 
 use crate::mutex_lock::lock;
+use crate::provider::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::provider::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::provider::driver::claude::run::start::{ClaudeDaemonTurnOpening, ClaudeRunStart};
 use crate::provider::driver::claude::session::state::LiveClaudeSession;
@@ -117,7 +118,7 @@ impl ClaudeGoalCommands {
     pub(crate) fn observe_lead_frame(&self, session_id: SessionId, frame_kind: &str, text: &str) {
         let reply = if frame_kind == CLAUDE_COMMAND_OUTPUT_FRAME_KIND {
             ClaudeGoalReply::Applied
-        } else if frame_kind.split('/').next() == Some("result") {
+        } else if is_claude_result_frame_kind(frame_kind) {
             let frame = serde_json::from_str::<ResultFrame>(text).unwrap_or_default();
             if frame.is_error == Some(true) {
                 ClaudeGoalReply::Refused

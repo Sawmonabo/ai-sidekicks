@@ -31,6 +31,7 @@ use tokio_util::sync::CancellationToken;
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
 use crate::mutex_lock::lock;
 use crate::provider::driver::claude::DESCRIPTOR;
+use crate::provider::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::provider::driver::claude::run::start::{
     ClaudeDaemonTurnOpening, ClaudeRunStart, claude_session_unavailable,
 };
@@ -395,7 +396,7 @@ impl ClaudeSessionControls {
             }
             return;
         }
-        if frame_kind.split('/').next() == Some("result") {
+        if is_claude_result_frame_kind(frame_kind) {
             self.finish_review(session_id).await;
         }
     }

@@ -487,3 +487,34 @@ async fn an_unlisted_frame_family_is_quarantined_once_and_adds_nothing() {
     );
     assert_eq!(session.engine.calls(), []);
 }
+
+// Killed by quarantining a `result` whose subtype the census does not list (its arm read as an
+// unlisted kind): the run would stay running with nothing holding the turn; by ending it
+// completed or twice; and by reporting it on every such frame.
+#[tokio::test(start_paused = true)]
+async fn a_result_of_an_unlisted_subtype_fails_its_run_once_and_is_reported_once() {
+    let session = ScriptedSession::new().await;
+    let run_id = session.hold_lead_turn("lead");
+    let recorded = RecordedEvents::default();
+    let recording = recorded.record_until_dropped();
+
+    session.frame(&init());
+    session.frame(&result(&json!({"subtype": "error_unlisted"})));
+    settle().await;
+    drop(recording);
+
+    let moves = moves_of(&session, run_id);
+    assert!(
+        matches!(
+            moves.as_slice(),
+            [RunStateEntry::Failed { provider_failure_detail: Some(detail), .. }]
+                if detail.as_str().contains("error_unlisted")
+        ),
+        "{moves:?}"
+    );
+    assert!(!session.start.routes.is_turn_held(session.session_id));
+    assert_eq!(
+        recorded.field_on("driver.normalize.unmappedWireKind", "raw_wire_type"),
+        ["result/error_unlisted"]
+    );
+}

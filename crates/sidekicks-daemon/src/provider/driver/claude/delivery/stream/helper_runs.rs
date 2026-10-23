@@ -8,7 +8,9 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::run::subagent::SubagentLifecyclePayload;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use super::{ClaudeDeliveryStream, ClaudeSessionStream, bound, record_unheld};
+use super::{
+    ClaudeDeliveryStream, ClaudeSessionStream, UNHELD_FRAME_REASON, bound, record_unmapped,
+};
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::delivery::system::read_claude_helper_end;
 use crate::provider::driver::claude::run::routes::{
@@ -33,7 +35,11 @@ impl ClaudeDeliveryStream {
         let lead = lead_at_read.or_else(|| routes.lead_run_on(session.session_id));
         let is_lead_turn = lead.is_some();
         let Some(lead) = lead.or_else(|| self.helper_parent_run(session, &emission)) else {
-            record_unheld(session, lifecycle_wire_type(emission.event_type));
+            record_unmapped(
+                session,
+                lifecycle_wire_type(emission.event_type),
+                UNHELD_FRAME_REASON,
+            );
             return;
         };
         // A helper's start can be its turn's first frame, which opens the turn before its rows; a

@@ -15,6 +15,7 @@ use crate::provider::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::provider::driver::claude::delivery::system::{
     read_claude_assistant_refusal, read_claude_refusal_without_fallback,
 };
+use crate::provider::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::provider::driver::claude::hooks::callbacks::answer_claude_request;
 use crate::provider::driver::claude::session::process::{ClaudeCodeProcess, ClaudeStreamFrame};
 use crate::provider::driver::claude::session::tool_server_calls::{
@@ -135,7 +136,7 @@ pub(crate) async fn run_claude_one_turn(
                     if frame.observation.subagent_id.is_some() {
                         continue;
                     }
-                    if frame.observation.frame_kind.split('/').next() == Some("result") {
+                    if is_claude_result_frame_kind(&frame.observation.frame_kind) {
                         return read_reply(&frame, reading);
                     }
                     read_lead_frame(&frame, &mut reading);

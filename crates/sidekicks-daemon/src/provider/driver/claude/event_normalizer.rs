@@ -4,22 +4,23 @@
 //!
 //! Left out of the census, so the router quarantines and reports them instead of a guessed row:
 //! `queued_notification` (daemon-to-CLI, so anomalous inbound), `prompt_suggestion`, and the
-//! `set_effort`, `rewind` and `compact` control subtypes.
+//! `set_effort`, `rewind` and `compact` control subtypes. A `result` of a subtype the census does
+//! not list is no such kind: it still ends its turn, as a failure, and is reported once.
 
 use std::borrow::Cow;
 use std::str::FromStr;
 
 use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::event::registry::SessionEventType;
-use strum::{EnumString, IntoStaticStr, VariantArray};
+use strum::EnumString;
 
 use crate::provider::thread_frame_router::{
     ChildThreadAnnouncement, ThreadFrameFamilyClass, ThreadScopedFrameCapability,
 };
 
 /// The pinned inbound frame-kind census: the frame `type` joined to its subtype by `/`, read from
-/// and written as that text.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, EnumString, IntoStaticStr, VariantArray)]
+/// that text, and a `result` whose subtype the census does not list.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, EnumString)]
 pub(crate) enum ClaudeWireFrameKind {
     /// `system/init`.
     #[strum(serialize = "system/init")]
@@ -127,6 +128,12 @@ pub(crate) enum ClaudeWireFrameKind {
     /// `result/error_max_structured_output_retries`.
     #[strum(serialize = "result/error_max_structured_output_retries")]
     ResultErrorMaxStructuredOutputRetries,
+    /// A `result` whose subtype the census does not list: it still ends its turn, as a failure.
+    #[strum(disabled)]
+    ResultUnlisted {
+        /// The subtype as Claude Code sent it.
+        subtype: String,
+    },
     /// `control_request/can_use_tool`.
     #[strum(serialize = "control_request/can_use_tool")]
     ControlRequestCanUseTool,
@@ -184,8 +191,33 @@ pub(crate) enum ClaudeWireFrameKind {
 }
 
 impl ClaudeWireFrameKind {
+    /// Reads `frame_kind`: a census kind, or a `result` of a subtype the census does not list;
+    /// `None` for any other unlisted kind, which the router quarantines.
+    pub(crate) fn read(frame_kind: &str) -> Option<Self> {
+        Self::from_str(frame_kind).ok().or_else(|| {
+            frame_kind
+                .strip_prefix("result/")
+                .map(|subtype| Self::ResultUnlisted {
+                    subtype: subtype.to_owned(),
+                })
+        })
+    }
+
+    /// Whether the kind is a `result`, its subtype listed or not.
+    pub(crate) const fn is_result(&self) -> bool {
+        matches!(
+            self,
+            Self::ResultSuccess
+                | Self::ResultErrorMaxTurns
+                | Self::ResultErrorMaxBudgetUsd
+                | Self::ResultErrorDuringExecution
+                | Self::ResultErrorMaxStructuredOutputRetries
+                | Self::ResultUnlisted { .. }
+        )
+    }
+
     // The family the thread-frame router reads the kind as.
-    fn routing_family(self) -> ThreadFrameFamilyClass {
+    fn routing_family(&self) -> ThreadFrameFamilyClass {
         match self {
             // Connection- and account-scoped, the control channel included (connection-level
             // both ways).
@@ -229,6 +261,7 @@ impl ClaudeWireFrameKind {
             | Self::ResultErrorMaxBudgetUsd
             | Self::ResultErrorDuringExecution
             | Self::ResultErrorMaxStructuredOutputRetries
+            | Self::ResultUnlisted { .. }
             | Self::SystemHookStarted
             | Self::SystemHookProgress
             | Self::SystemHookResponse
@@ -374,12 +407,16 @@ pub(crate) fn classify_claude_frame_family_for_routing(
     kind_class
 }
 
-// A census kind's family; an unlisted kind is `Unknown`.
+// A census kind's family; an unlisted kind is `Unknown`, but for a `result`.
 fn classify_claude_frame_kind_for_routing(frame_kind: &str) -> ThreadFrameFamilyClass {
-    ClaudeWireFrameKind::from_str(frame_kind).map_or(
-        ThreadFrameFamilyClass::Unknown,
-        ClaudeWireFrameKind::routing_family,
-    )
+    ClaudeWireFrameKind::read(frame_kind).map_or(ThreadFrameFamilyClass::Unknown, |kind| {
+        kind.routing_family()
+    })
+}
+
+/// Whether `frame_kind` is a `result`, its subtype listed or not.
+pub(crate) fn is_claude_result_frame_kind(frame_kind: &str) -> bool {
+    ClaudeWireFrameKind::read(frame_kind).is_some_and(|kind| kind.is_result())
 }
 
 #[cfg(test)]

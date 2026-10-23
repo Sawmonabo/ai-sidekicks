@@ -11,6 +11,7 @@ use serde_json::value::RawValue;
 
 use crate::provider::driver::claude::event_normalizer::{
     ClaudeSubagentLifecycleSignal, ClaudeSubagentSignal, compose_claude_wire_frame_kind,
+    is_claude_result_frame_kind,
 };
 use crate::provider::driver::claude::session::transport::declarations::{
     ClaudeCompactionBoundaryObservation, ClaudeCumulativeUsageObservation,
@@ -141,7 +142,7 @@ impl ClaudeStreamFrameRead {
     pub(crate) fn into_observation(self) -> ClaudeInboundFrameObservation {
         let frame_kind =
             compose_claude_wire_frame_kind(self.frame_type(), self.subtype.as_deref()).into_owned();
-        let cumulative_usage = (self.frame_type() == "result")
+        let cumulative_usage = is_claude_result_frame_kind(&frame_kind)
             .then(|| read_result_usage(self.model_usage.as_deref()))
             .flatten()
             .map(|cumulative| ClaudeCumulativeUsageObservation {

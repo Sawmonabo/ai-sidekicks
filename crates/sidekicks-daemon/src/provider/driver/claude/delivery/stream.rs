@@ -13,7 +13,6 @@ mod taken_messages;
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -349,8 +348,9 @@ impl ClaudeDeliveryStream {
             return after;
         }
         let frame_kind = frame.observation.frame_kind.as_str();
-        // The router quarantined every kind the census leaves out before it came here.
-        let Ok(kind) = ClaudeWireFrameKind::from_str(frame_kind) else {
+        // The router quarantined every kind the census leaves out, but a `result`, before it came
+        // here.
+        let Some(kind) = ClaudeWireFrameKind::read(frame_kind) else {
             return after;
         };
         let Ok(Value::Object(members)) = serde_json::from_str::<Value>(&frame.text) else {
@@ -389,14 +389,15 @@ impl ClaudeDeliveryStream {
             }
             return after;
         }
-        let is_result = matches!(
-            kind,
-            ClaudeWireFrameKind::ResultSuccess
-                | ClaudeWireFrameKind::ResultErrorMaxTurns
-                | ClaudeWireFrameKind::ResultErrorMaxBudgetUsd
-                | ClaudeWireFrameKind::ResultErrorDuringExecution
-                | ClaudeWireFrameKind::ResultErrorMaxStructuredOutputRetries
-        );
+        let is_result = kind.is_result();
+        if let ClaudeWireFrameKind::ResultUnlisted { .. } = kind {
+            record_unmapped(
+                session,
+                frame_kind,
+                "a `result` of a subtype the census does not list ends its turn as a failure \
+                 carrying the subtype",
+            );
+        }
         // The reader released the turn as it read a turn-ending `result`, so that frame ends the
         // turn the stream opened; any other frame belongs to the run that held the turn as it was
         // read, the reader being ahead of this task.
@@ -413,7 +414,7 @@ impl ClaudeDeliveryStream {
         else {
             // A frame of a turn no daemon run holds, such as one Claude Code started itself
             // whose run never opened.
-            record_unheld(session, frame_kind);
+            record_unmapped(session, frame_kind, UNHELD_FRAME_REASON);
             return after;
         };
         self.open_turn(session, &lead).await;
@@ -549,6 +550,7 @@ impl ClaudeDeliveryStream {
             | ClaudeWireFrameKind::ResultErrorMaxBudgetUsd
             | ClaudeWireFrameKind::ResultErrorDuringExecution
             | ClaudeWireFrameKind::ResultErrorMaxStructuredOutputRetries
+            | ClaudeWireFrameKind::ResultUnlisted { .. }
             // A helper's start and moves, read off the frame before it reaches the reader.
             | ClaudeWireFrameKind::SystemTaskStarted
             | ClaudeWireFrameKind::SystemTaskUpdated
@@ -774,17 +776,20 @@ fn is_tool_call(row: &ClaudeMessageRow) -> bool {
     )
 }
 
-// Reports the first frame of each kind no daemon run holds; a kind the build sends every turn
-// would otherwise log on every frame.
-fn record_unheld(session: &ClaudeSessionStream, frame_kind: &str) {
+// Why a frame of a turn no daemon run holds is dropped.
+const UNHELD_FRAME_REASON: &str = "a frame of a turn no daemon run holds has no binding to be \
+                                   attributed on, so it is dropped with this record";
+
+// Reports the first frame of each kind the reader has no row for, a frame no daemon run holds or a
+// `result` of an unlisted subtype; a kind the build sends every turn would otherwise log on every
+// frame.
+fn record_unmapped(session: &ClaudeSessionStream, frame_kind: &str, disposition_reason: &str) {
     lock(&session.diagnostics).report(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
         provider_account_id: session.provider_account_id.clone(),
         kind: DriverDiagnosticKind::UnmappedWireKind,
         raw_wire_type: Some(frame_kind.to_owned()),
-        disposition_reason: "a frame of a turn no daemon run holds has no binding to be \
-                             attributed on, so it is dropped with this record"
-            .to_owned(),
+        disposition_reason: disposition_reason.to_owned(),
         details: Map::from_iter([(
             "sessionId".to_owned(),
             Value::from(session.session_id.to_string()),
