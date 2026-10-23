@@ -6,7 +6,8 @@
 //! `README.txt` a line for each part. Sessions are read a page of bounded text at a time and
 //! written as they are read, and a body too long for a page is written a frame at a time, so
 //! memory stays bounded whatever the store holds. The export writes one line to the service log,
-//! when it begins, naming its folder, which is how an export a restart cut short is found.
+//! when it begins, naming its folder, which is how an export a restart cut short is found. A failed
+//! export removes its folder, so trying again into the same folder starts clean.
 
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -300,6 +301,22 @@ async fn run_export(
             total_bytes: SafeInt::new(total_bytes).expect("an export's bytes are a safe integer"),
         },
         Err(failure) => {
+            let removed = destination.to_path_buf();
+            let removal = match tokio::task::spawn_blocking(move || {
+                sidekicks_platforms::remove_tree(&removed)
+            })
+            .await
+            {
+                Ok(removal) => removal,
+                Err(failure) => Err(io::Error::other(failure)),
+            };
+            if let Err(removal_failure) = removal {
+                tracing::warn!(
+                    folder = %destination.display(),
+                    error = &removal_failure as &(dyn Error + 'static),
+                    "the failed export's folder could not be removed"
+                );
+            }
             let message = describe_error(&failure);
             DataExportProgress::Failed {
                 message: FreeFormText::new(

@@ -407,3 +407,48 @@ async fn an_export_that_panics_frees_its_slot_and_fails() {
         *ended.borrow()
     );
 }
+
+// An export whose file copy the system refuses partway fails and removes its folder, so trying
+// again into the same folder is admitted rather than refused as an existing folder. Killed by a
+// failure that leaves the folder behind.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_failed_export_leaves_no_folder_and_the_same_folder_starts_again() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let log = TranscriptTestLog::new();
+    insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
+    let store_folder = tempfile::tempdir().expect("the store folder is made");
+    let payloads =
+        PayloadStore::new(store_folder.path().join("objects")).expect("the payload store opens");
+    let bytes = b"the file's own bytes";
+    store_file(
+        &log,
+        &payloads,
+        &store_folder.path().join("spooled"),
+        bytes,
+        "notes.txt",
+    )
+    .await;
+    let object = payloads.object_path_of(&ContentHash::of_sha256(&Sha256::digest(bytes)));
+    fs::set_permissions(&object, fs::Permissions::from_mode(0o000)).expect("the object is locked");
+    let exports = exports_of(&log, store_folder.path());
+    let outside = tempfile::tempdir().expect("the person's folder is made");
+    let destination = outside.path().join("sidekicks-export");
+
+    let job_id = exports
+        .start(destination.clone())
+        .expect("the export starts");
+    let ended = wait_until_finished(&exports, job_id).await;
+    assert!(
+        matches!(ended, DataExportProgress::Failed { .. }),
+        "{ended:?}"
+    );
+    assert!(!destination.exists(), "the failed export's folder is gone");
+    let again = exports
+        .start(destination.clone())
+        .expect("the same folder starts again");
+    wait_until_finished(&exports, again).await;
+
+    fs::set_permissions(&object, fs::Permissions::from_mode(0o600)).expect("the object is freed");
+}
