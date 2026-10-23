@@ -43,7 +43,7 @@ use crate::session::run::epochs::{
 };
 use crate::session::run::inbound::absorb::absorb;
 use crate::session::run::inbound::rows::{
-    LateAppendableRow, SessionScopedRow, UnstampedRow, stamp,
+    LateAppendableRow, MachineScopedRow, SessionScopedRow, UnstampedRow, stamp,
 };
 use crate::session::run::read::RunRead;
 use crate::session::run::refusals::RunRefusal;
@@ -135,6 +135,11 @@ pub(crate) enum InboundDelivery<'key> {
         /// The row.
         row: SessionScopedRow,
     },
+    /// A row about the machine, on no binding and in no session.
+    MachineEvent {
+        /// The row.
+        row: MachineScopedRow,
+    },
     /// The provider asked the person's permission.
     PermissionAsk {
         /// Where it arrived.
@@ -171,6 +176,7 @@ impl InboundDelivery<'_> {
             Self::ThinkingUpdate { .. } => "thinkingUpdate",
             Self::SessionNotice { .. } => "sessionNotice",
             Self::SessionEvent { .. } => "sessionEvent",
+            Self::MachineEvent { .. } => "machineEvent",
             Self::PermissionAsk { .. } => "permissionAsk",
             Self::SessionRow { .. } => "sessionRow",
             Self::UnstampedRow { .. } => "unstampedRow",
@@ -493,6 +499,15 @@ impl RunInboundDispatch {
                     ..SessionEventLinkage::default()
                 };
                 return Ok(appended(session_id, event, linkage, None));
+            }
+            InboundDelivery::MachineEvent { row } => {
+                let (session_id, event) = row.into_event();
+                return Ok(appended(
+                    session_id,
+                    event,
+                    SessionEventLinkage::default(),
+                    None,
+                ));
             }
             InboundDelivery::TurnBoundary { binding_id } => {
                 return self.open_turn(&binding_id).map(Attributed::Settled);

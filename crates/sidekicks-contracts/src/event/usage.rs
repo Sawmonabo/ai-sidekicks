@@ -52,7 +52,7 @@ pub fn compose_scoped_limit_id(kind: &str, model_display_name: &str) -> String {
 pub struct UsageTokenCountRecordedPayload {
     /// The session.
     pub session_id: SessionId,
-    /// The run, absent on a turn no session owns.
+    /// The run, absent on a turn no run owns.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -161,7 +161,7 @@ pub struct UsageTokenCountRecordedPayload {
 pub struct UsageCostUpdatedPayload {
     /// The session.
     pub session_id: SessionId,
-    /// The run, absent on a turn no session owns.
+    /// The run, absent on a turn no run owns.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -221,7 +221,7 @@ pub struct UsageCostUpdatedPayload {
 pub struct UsageContextWindowUpdatedPayload {
     /// The session.
     pub session_id: SessionId,
-    /// The run, absent on a turn no session owns.
+    /// The run, absent on a turn no run owns.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

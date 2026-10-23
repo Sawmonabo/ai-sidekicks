@@ -52,6 +52,8 @@ pub(crate) fn dispatch_delivery<'d>(
         InboundDelivery::TurnBoundary { binding_id } => {
             details.insert("bindingId".to_owned(), json!(binding_id.as_str()));
         }
+        // About the machine: no session or binding to name.
+        InboundDelivery::MachineEvent { .. } => {}
         InboundDelivery::RunLifecycle { binding, .. }
         | InboundDelivery::RunContinued { binding, .. }
         | InboundDelivery::ChildRun { binding, .. }

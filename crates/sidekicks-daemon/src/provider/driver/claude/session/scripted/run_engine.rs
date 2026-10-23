@@ -166,7 +166,8 @@ impl ClaudeRunEngine for RecordingRunEngine {
             | InboundDelivery::LiveRunState { .. }
             | InboundDelivery::ThinkingUpdate { .. }
             | InboundDelivery::SessionNotice { .. }
-            | InboundDelivery::SessionEvent { .. } => (InboundOutcome::Published, None),
+            | InboundDelivery::SessionEvent { .. }
+            | InboundDelivery::MachineEvent { .. } => (InboundOutcome::Published, None),
         };
         self.record(EngineCall::Deliver(Box::new(recorded)));
         async move {
@@ -427,6 +428,7 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         }
         InboundDelivery::SessionNotice { .. } => recorded.kind = "sessionNotice",
         InboundDelivery::SessionEvent { .. } => recorded.kind = "sessionEvent",
+        InboundDelivery::MachineEvent { .. } => recorded.kind = "machineEvent",
         InboundDelivery::PermissionAsk { binding } => {
             recorded.kind = "permissionAsk";
             recorded.binding_id = Some(binding.binding_id.clone());
