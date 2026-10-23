@@ -20,7 +20,10 @@ impl ChangeWake {
     /// Wakes when an entry is renamed into `folder`. Fails with the system's error when the folder
     /// cannot be watched.
     pub(crate) fn on_folder_renames(folder: &Path) -> io::Result<Self> {
-        Self::on_path(folder, EventKindMask::CREATE, |kind| {
+        // `CREATE` asks the kernel for `IN_MOVED_TO`, which `notify` hands on as a rename's
+        // `Modify(Name(To))`, so `MODIFY_NAME` must pass its own filter too.
+        let kinds = EventKindMask::CREATE | EventKindMask::MODIFY_NAME;
+        Self::on_path(folder, kinds, |kind| {
             matches!(kind, EventKind::Modify(ModifyKind::Name(RenameMode::To)))
         })
     }
