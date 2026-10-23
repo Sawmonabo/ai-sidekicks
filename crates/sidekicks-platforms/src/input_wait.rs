@@ -43,6 +43,8 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use alacritty_terminal::event::WindowSize;
+    use nix::sys::signal::{Signal, killpg};
+    use nix::unistd::Pid;
     use rstest::rstest;
 
     use super::{InputTerminal, InputWaitReading};
@@ -186,6 +188,83 @@ mod tests {
                 "{script}: {readings:?}"
             );
         }
+    }
+
+    // Fails when the count is read where the program's input is not, as the master on Linux, whose
+    // count is the program's output, or when it does not follow the program's read of the line.
+    #[test]
+    fn queued_input_counts_a_typed_line_until_the_program_reads_it() {
+        let options = terminal_options(
+            "/bin/sh".to_owned(),
+            vec![
+                "-c".to_owned(),
+                "stty -echo; printf ready; kill -STOP $$; read line; printf done; sleep 30"
+                    .to_owned(),
+            ],
+            None,
+            HashMap::new(),
+        );
+        let window_size = WindowSize {
+            num_lines: 24,
+            num_cols: 80,
+            cell_width: 0,
+            cell_height: 0,
+        };
+        let terminal = start_inner_terminal(&options, window_size).expect("the terminal starts");
+        let peer_failure_noted = Once::new();
+        let read_master = || read_terminal_master(&terminal.pty, &peer_failure_noted);
+        let leader = Pid::from_raw(i32::try_from(terminal.pty.child().id()).expect("a process id"));
+        let prompt = read_until_marker(&terminal.pty, "ready", Duration::from_secs(20));
+        let before_typing = prompt.is_ok().then(read_master);
+        // The line stays queued: the program stops itself before its read.
+        let typing = prompt
+            .is_ok()
+            .then(|| terminal.pty.file().write_all(b"hello\n"));
+        // Linux hands the written line to the program's side a step after the write.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut typed = None;
+        while prompt.is_ok() {
+            let reading = read_master();
+            let is_settled = reading.as_ref().map_or(true, |reading| {
+                reading.queued_input_bytes == Some(6) || Instant::now() >= deadline
+            });
+            typed = Some(reading);
+            if is_settled {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        let continued = prompt.is_ok().then(|| killpg(leader, Signal::SIGCONT));
+        let ending = prompt
+            .is_ok()
+            .then(|| read_until_marker(&terminal.pty, "done", Duration::from_secs(20)));
+        let after_reading = ending.as_ref().is_some_and(Result::is_ok).then(read_master);
+        end_inner_terminal(terminal);
+
+        prompt.expect("the command prompts");
+        let before_typing = before_typing
+            .expect("the command prompted")
+            .expect("the master reads");
+        typing
+            .expect("the command prompted")
+            .expect("the line is written");
+        let typed = typed
+            .expect("the master is read after the typing")
+            .expect("the master reads");
+        continued
+            .expect("the command prompted")
+            .expect("the command's group continues");
+        ending
+            .expect("the command prompted")
+            .expect("the command reads its line");
+        let after_reading = after_reading
+            .expect("the command read its line")
+            .expect("the master reads");
+        #[cfg(target_os = "linux")]
+        assert_eq!(before_typing.unread_output_bytes, 0);
+        assert_eq!(before_typing.queued_input_bytes, Some(0));
+        assert_eq!(typed.queued_input_bytes, Some(6));
+        assert_eq!(after_reading.queued_input_bytes, Some(0));
     }
 
     // How a case's terminal echoes.
