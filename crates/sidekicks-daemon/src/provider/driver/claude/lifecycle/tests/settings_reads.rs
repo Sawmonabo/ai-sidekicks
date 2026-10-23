@@ -12,8 +12,8 @@ use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMo
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::record::Record;
 
-use super::DriverFixture;
 use crate::provider::driver::ProviderAccountFolders;
+use crate::provider::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::provider::driver::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeLocalCommandReply, ClaudeReplyReserveReads,
 };
@@ -62,7 +62,7 @@ fn advisor_value(rows: &[ProviderRow]) -> Option<String> {
 #[tokio::test(start_paused = true)]
 async fn a_new_session_starts_at_reviewed_only_on_a_model_that_runs_auto_mode() {
     let account_folder = std::env::temp_dir().join("sidekicks-account");
-    let fixture = DriverFixture::with_account_folders(Some(ProviderAccountFolders {
+    let fixture = ScriptedDriver::with_account_folders(Some(ProviderAccountFolders {
         configuration_folder: account_folder.join("config"),
         credential_store_folder: account_folder.join("credentials"),
     }));
@@ -113,7 +113,7 @@ async fn a_new_session_starts_at_reviewed_only_on_a_model_that_runs_auto_mode() 
 // Killed by starting a process for each Settings read, where reads of one build share one.
 #[tokio::test(start_paused = true)]
 async fn settings_reads_of_one_build_share_one_figures_process() {
-    let fixture = DriverFixture::new();
+    let fixture = ScriptedDriver::new();
     fixture
         .starts
         .script_creation_figures(figures_offering_advisors());
@@ -130,7 +130,7 @@ async fn settings_reads_of_one_build_share_one_figures_process() {
 // pick read as no pick, which shows the person's advisor where new sessions start with none.
 #[tokio::test(start_paused = true)]
 async fn the_advisor_row_holds_the_apps_pick_else_the_persons_own_advisor() {
-    let fixture = DriverFixture::new();
+    let fixture = ScriptedDriver::new();
     let settings = fixture.home.join(".claude");
     std::fs::create_dir_all(&settings).expect("the settings folder is made");
     std::fs::write(

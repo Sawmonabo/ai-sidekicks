@@ -159,7 +159,7 @@ mod tests {
     // turn no run holds, and by leaving a turn whose run could not open running with none.
     #[tokio::test(start_paused = true)]
     async fn a_turn_claude_code_starts_itself_runs_on_its_own_run_or_is_interrupted() {
-        let session = ScriptedSession::new();
+        let session = ScriptedSession::new().await;
         for frame in turn() {
             session.frame(&frame);
         }
@@ -191,7 +191,7 @@ mod tests {
             )]
         );
 
-        let refused = ScriptedSession::new();
+        let refused = ScriptedSession::new().await;
         refused.engine.fail_daemon_turns();
         refused.frame(&turn()[0]);
         settle().await;

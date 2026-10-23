@@ -6,9 +6,10 @@ use std::time::Duration;
 
 use rstest::rstest;
 
-use super::{DriverFixture, RESTART_WAITS_PASSED, resume_params, start_params};
+use super::{RESTART_WAITS_PASSED, resume_params, start_params};
 use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::provider::driver::claude::session::scripted::daemon_services::PortCall;
+use crate::provider::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::provider::driver::claude::session::scripted::{binding_id, mint_run_id, settle};
 use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
@@ -20,21 +21,21 @@ use crate::provider::driver::session_control::{
 // starts nothing.
 #[tokio::test(start_paused = true)]
 async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
-    let fixture = DriverFixture::new();
+    let fixture = ScriptedDriver::new();
     let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
     let mut current = fixture.next_start().await;
     for _ in 0..4 {
         fixture
             .starts
             .script_session(Arc::new(ScriptedChannel::default()));
-        DriverFixture::exit(&current);
+        ScriptedDriver::exit(&current);
         current = fixture.next_start().await;
     }
     fixture
         .starts
         .script_session(Arc::new(ScriptedChannel::default()));
 
-    DriverFixture::exit(&current);
+    ScriptedDriver::exit(&current);
     tokio::time::sleep(RESTART_WAITS_PASSED).await;
 
     assert!(fixture.starts.take_started().is_empty());
@@ -52,16 +53,16 @@ async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
 // fight for the slot and report a failed relaunch over the session the person brought back.
 #[tokio::test(start_paused = true)]
 async fn a_restart_whose_slot_was_taken_during_its_wait_does_nothing() {
-    let fixture = DriverFixture::new();
+    let fixture = ScriptedDriver::new();
     let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
     let first = fixture.next_start().await;
     fixture
         .starts
         .script_session(Arc::new(ScriptedChannel::default()));
-    DriverFixture::exit(&first);
+    ScriptedDriver::exit(&first);
     // The first restart waits nothing; the second waits a second.
     let second = fixture.next_start().await;
-    DriverFixture::exit(&second);
+    ScriptedDriver::exit(&second);
     settle().await;
     let taken_by_resume = Arc::new(ScriptedChannel::default());
     fixture.starts.script_session(Arc::clone(&taken_by_resume));
@@ -84,7 +85,7 @@ async fn a_restart_whose_slot_was_taken_during_its_wait_does_nothing() {
 // and by never moving it once the reply ends.
 #[tokio::test(start_paused = true)]
 async fn a_build_move_on_a_busy_session_waits_for_its_turn_to_settle() {
-    let fixture = DriverFixture::new();
+    let fixture = ScriptedDriver::new();
     let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
     let first = fixture.next_start().await;
     fixture
@@ -130,7 +131,7 @@ async fn a_build_move_on_a_busy_session_waits_for_its_turn_to_settle() {
 async fn a_relaunch_keeps_the_advisor_claude_code_resolved_at_the_start(
     #[case] resolved: ClaudeSessionAdvisor,
 ) {
-    let fixture = DriverFixture::new();
+    let fixture = ScriptedDriver::new();
     fixture.starts.script_resolved_advisor(resolved.clone());
     fixture.create(&Arc::new(ScriptedChannel::default())).await;
     let first = fixture.next_start().await;
@@ -138,7 +139,7 @@ async fn a_relaunch_keeps_the_advisor_claude_code_resolved_at_the_start(
         .starts
         .script_session(Arc::new(ScriptedChannel::default()));
 
-    DriverFixture::exit(&first);
+    ScriptedDriver::exit(&first);
     let relaunched = fixture.next_start().await;
 
     assert_eq!(first.advisor, ClaudeSessionAdvisor::Unpicked);
@@ -166,7 +167,7 @@ enum ProcessEnd {
 async fn a_process_end_lets_go_the_held_presses_of_every_binding_it_served(
     #[case] end: ProcessEnd,
 ) {
-    let fixture = DriverFixture::new();
+    let fixture = ScriptedDriver::new();
     let channel = Arc::new(ScriptedChannel::default());
     let session_id = fixture.create(&channel).await;
     let first = fixture.next_start().await;
@@ -182,7 +183,7 @@ async fn a_process_end_lets_go_the_held_presses_of_every_binding_it_served(
         .script_session(Arc::new(ScriptedChannel::default()));
 
     match end {
-        ProcessEnd::ExitWhileIdle => DriverFixture::exit(&first),
+        ProcessEnd::ExitWhileIdle => ScriptedDriver::exit(&first),
         ProcessEnd::Close => fixture
             .driver
             .close_session(CloseSessionParams { session_id })
@@ -218,5 +219,5 @@ async fn a_process_end_lets_go_the_held_presses_of_every_binding_it_served(
     }
 
     let released = PortCall::PressesReleased(binding_id("lead"));
-    DriverFixture::wait_for(|| fixture.ports.calls().contains(&released)).await;
+    ScriptedDriver::wait_for(|| fixture.ports.calls().contains(&released)).await;
 }

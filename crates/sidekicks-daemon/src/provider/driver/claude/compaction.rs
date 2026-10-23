@@ -155,9 +155,7 @@ mod tests {
 
     use super::compact_claude_context;
     use crate::provider::compaction_wait::PendingCompactionRegistry;
-    use crate::provider::driver::claude::session::scripted::{
-        SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession,
-    };
+    use crate::provider::driver::claude::session::scripted::ScriptedSession;
     use crate::provider::driver::claude::session::transport::{
         declarations::ClaudeHandshakeDeclaration, user_message::ClaudeWriteDelivery,
     };
@@ -170,10 +168,10 @@ mod tests {
             (ClaudeWriteDelivery::Unsent, false),
             (ClaudeWriteDelivery::Indeterminate, true),
         ] {
-            let session = ScriptedSession::new();
+            let session = ScriptedSession::new().await;
             session.start.handshakes.observe_handshake_declaration(
                 session.session_id,
-                SCRIPTED_PROVIDER_SESSION_ID,
+                &session.live.provider_session_id,
                 ClaudeHandshakeDeclaration {
                     slash_commands: vec!["compact".to_owned()],
                     ..ClaudeHandshakeDeclaration::default()

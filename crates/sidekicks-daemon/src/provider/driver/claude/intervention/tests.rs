@@ -69,7 +69,7 @@ fn interrupt(
 fn declare_cancel_queued(session: &ScriptedSession) {
     session.start.handshakes.observe_handshake_declaration(
         session.session_id,
-        SCRIPTED_PROVIDER_SESSION_ID,
+        &session.live.provider_session_id,
         ClaudeHandshakeDeclaration {
             capabilities: vec![CLAUDE_INTERRUPT_CANCEL_QUEUED_CAPABILITY.to_owned()],
             ..ClaudeHandshakeDeclaration::default()
@@ -175,7 +175,7 @@ async fn an_interrupt_sends_and_answers_as_its_choice_and_the_build_allow(
     #[case] expected_response: (InterventionResultStatus, Option<&str>),
     #[case] stops_the_process: bool,
 ) {
-    let session = ScriptedSession::new();
+    let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
     if declares_cancel_queued {
         declare_cancel_queued(&session);
@@ -207,7 +207,7 @@ async fn an_interrupt_sends_and_answers_as_its_choice_and_the_build_allow(
 // Killed by answering the receipt's ids unparsed, keeping one that names no queue item.
 #[tokio::test(start_paused = true)]
 async fn an_interrupt_answers_the_queue_items_claude_code_dropped() {
-    let session = ScriptedSession::new();
+    let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
     declare_cancel_queued(&session);
     let dropped = message_id();
@@ -229,7 +229,7 @@ async fn an_interrupt_answers_the_queue_items_claude_code_dropped() {
 // would move the running command too, and by asking with no helper in the foreground.
 #[tokio::test(start_paused = true)]
 async fn an_interrupt_moves_each_foreground_helper_to_the_background_first() {
-    let with_helpers = ScriptedSession::new();
+    let with_helpers = ScriptedSession::new().await;
     let run_id = with_helpers.hold_lead_turn("lead");
     {
         let mut helpers = with_helpers
@@ -275,7 +275,7 @@ async fn an_interrupt_moves_each_foreground_helper_to_the_background_first() {
     backgrounded.sort_by_key(ToString::to_string);
     assert_eq!(backgrounded, [json!("call-1"), json!("call-2")]);
 
-    let without_helpers = ScriptedSession::new();
+    let without_helpers = ScriptedSession::new().await;
     let run_id = without_helpers.hold_lead_turn("lead");
     apply(
         &without_helpers,
@@ -291,7 +291,7 @@ async fn an_interrupt_moves_each_foreground_helper_to_the_background_first() {
 // it, or by leaving that process running.
 #[tokio::test(start_paused = true)]
 async fn a_helper_move_cut_mid_write_stops_the_process_in_place_of_the_interrupt() {
-    let session = ScriptedSession::new();
+    let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
     let frame = json!({
         "type": "system",
@@ -335,7 +335,7 @@ async fn a_helper_move_cut_mid_write_stops_the_process_in_place_of_the_interrupt
 // later steer with no files overtake one whose files are slow.
 #[tokio::test(start_paused = true)]
 async fn steers_are_written_in_the_order_handed_over() {
-    let session = Arc::new(ScriptedSession::new());
+    let session = Arc::new(ScriptedSession::new().await);
     let run_id = session.hold_lead_turn("lead");
     let (first, second) = (message_id(), message_id());
     let slow_file = session.attachments.slow_file(Duration::from_secs(5));
@@ -373,7 +373,7 @@ async fn steers_are_written_in_the_order_handed_over() {
 // steer `now`.
 #[tokio::test(start_paused = true)]
 async fn a_send_now_is_written_with_the_now_mark_and_a_plain_steer_without_it() {
-    let session = ScriptedSession::new();
+    let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
 
     apply(
@@ -399,7 +399,7 @@ async fn a_send_now_is_written_with_the_now_mark_and_a_plain_steer_without_it() 
 // the waiting messages back answers.
 #[tokio::test(start_paused = true)]
 async fn a_send_now_waits_for_the_open_ask_and_keeps_the_rows_behind_it() {
-    let session = ScriptedSession::new();
+    let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
     let open_ask = json!({
         "subtype": "can_use_tool",
@@ -418,7 +418,8 @@ async fn a_send_now_waits_for_the_open_ask_and_keeps_the_rows_behind_it() {
     assert_eq!(answers_and_messages(&session), []);
 
     session
-        .controls
+        .parts
+        .run_controls
         .respond_to_request(RespondToRequestParams {
             run_id,
             request_id: "ask".to_owned(),
@@ -443,7 +444,7 @@ async fn a_send_now_waits_for_the_open_ask_and_keeps_the_rows_behind_it() {
     };
     assert_eq!(second["uuid"], next.to_string());
 
-    let taken_back = ScriptedSession::new();
+    let taken_back = ScriptedSession::new().await;
     let run_id = taken_back.hold_lead_turn("lead");
     taken_back.request("ask", &open_ask);
     settle().await;
@@ -465,7 +466,7 @@ async fn a_send_now_waits_for_the_open_ask_and_keeps_the_rows_behind_it() {
 // first, so the report would name no write and the steer would be left waiting forever.
 #[tokio::test(start_paused = true)]
 async fn a_steer_taken_before_its_write_returns_is_reported_under_its_run() {
-    let session = Arc::new(ScriptedSession::new());
+    let session = Arc::new(ScriptedSession::new().await);
     let run_id = session.hold_lead_turn("lead");
     let steered = message_id();
     let release_write = session.channel.hold_next_user_write();
@@ -504,7 +505,7 @@ async fn a_steer_taken_before_its_write_returns_is_reported_under_its_run() {
 // queued on the session before a held `Send now` is released would land after the choice's end.
 #[tokio::test(start_paused = true)]
 async fn a_released_send_now_settles_its_runs_choice_behind_the_frames_queued_before_it() {
-    let session = Arc::new(ScriptedSession::new());
+    let session = Arc::new(ScriptedSession::new().await);
     let run_id = session.hold_lead_turn("lead");
     session.request(
         "refusal",
@@ -549,7 +550,8 @@ async fn a_released_send_now_settles_its_runs_choice_behind_the_frames_queued_be
         let session = Arc::clone(&session);
         async move {
             session
-                .controls
+                .parts
+                .run_controls
                 .respond_to_request(RespondToRequestParams {
                     run_id,
                     request_id: "ask".to_owned(),

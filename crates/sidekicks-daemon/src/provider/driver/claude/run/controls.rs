@@ -96,9 +96,7 @@ pub(crate) async fn settle_claude_choice(
     }
 }
 
-/// Interrupt, pause, continue, withdraw, background and answers on live Claude runs; clones share
-/// everything.
-#[derive(Clone)]
+/// Interrupt, pause, continue, withdraw, background and answers on live Claude runs.
 pub(crate) struct ClaudeRunControls {
     /// Starts the session's own runs, and reaches its slots, routes, streams and messages.
     pub(crate) start: ClaudeRunStart,
@@ -418,7 +416,7 @@ mod tests {
     // `Allow once` without the human origin, or marked as the daemon's own words.
     #[tokio::test(start_paused = true)]
     async fn a_helpers_block_and_its_allow_once_stay_the_helpers() {
-        let session = ScriptedSession::new();
+        let session = ScriptedSession::new().await;
         session
             .live
             .settings
@@ -451,7 +449,8 @@ mod tests {
         assert_eq!(session.ports.calls(), [PortCall::Denial(helper)]);
 
         session
-            .controls
+            .parts
+            .run_controls
             .override_denial(&OverrideDenialParams {
                 session_id: session.session_id,
                 run_id: helper,
@@ -481,7 +480,8 @@ mod tests {
         ));
 
         session
-            .controls
+            .parts
+            .run_controls
             .override_denial(&OverrideDenialParams {
                 session_id: session.session_id,
                 run_id: lead,

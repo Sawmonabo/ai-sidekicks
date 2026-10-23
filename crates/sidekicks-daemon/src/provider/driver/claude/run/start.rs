@@ -502,7 +502,7 @@ mod tests {
     // turn for a run that never started.
     #[tokio::test]
     async fn a_picture_past_the_limit_refuses_the_run_in_claude_codes_own_words() {
-        let session = ScriptedSession::new();
+        let session = ScriptedSession::new().await;
         let folder = tempfile::tempdir().expect("the test makes a temporary folder");
         let path = folder.path().join("screen.png");
         // Sparse: its size, which the limit reads, without its bytes.
@@ -540,7 +540,7 @@ mod tests {
     // the interrupt stopped would wait on the task, which is itself waiting on that run's turn.
     #[tokio::test(start_paused = true)]
     async fn a_continued_run_starts_while_the_session_task_is_still_opening_its_last_turn() {
-        let session = ScriptedSession::new();
+        let session = ScriptedSession::new().await;
         let run_id = session.hold_lead_turn("lead");
         session.stream.mark_interrupted(run_id);
         let turn_start = session.engine.hold_next_turn_start();

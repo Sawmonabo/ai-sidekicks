@@ -6,6 +6,7 @@
 
 pub(crate) mod channel;
 pub(crate) mod daemon_services;
+pub(crate) mod driver;
 pub(crate) mod run_engine;
 pub(crate) mod starts;
 
@@ -23,52 +24,43 @@ use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::Spawner;
+use tempfile::TempDir;
 use tokio::runtime::Handle;
 
 use self::channel::ScriptedChannel;
 use self::daemon_services::{
-    RecordingPorts, RecordingUsage, ScriptedAttachments, register_scripted_ports,
-    test_callback_tool_binding,
+    RecordingPorts, RecordingUsage, ScriptedAttachments, test_callback_tool_binding,
 };
+use self::driver::{ScriptedDriver, create_params};
 use self::run_engine::RecordingRunEngine;
-use self::starts::ScriptedStarts;
+use crate::database::writer::test_file::TestDatabase;
 use crate::git::process::{GitLimits, GitRunner};
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
 use crate::mutex_lock::lock;
-use crate::provider::driver::DriverServices;
-use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::delivery::requests::ClaudeInboundRequests;
-use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::provider::driver::claude::delivery::stream::ClaudeSessionStream;
 use crate::provider::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::provider::driver::claude::intervention::{ClaudeForegroundHelpers, ClaudeInterventions};
-use crate::provider::driver::claude::lifecycle::ClaudeDriver;
-use crate::provider::driver::claude::run::controls::ClaudeRunControls;
+use crate::provider::driver::claude::lifecycle::ClaudeSessionParts;
 use crate::provider::driver::claude::run::routes::{ClaudeChildRunRoute, ClaudeRunRoutes};
 use crate::provider::driver::claude::run::start::ClaudeRunStart;
 use crate::provider::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, unreadable_claude_command_choices,
 };
-use crate::provider::driver::claude::session::arrivals::task::ClaudeSessionTask;
-use crate::provider::driver::claude::session::arrivals::{
-    ClaudeSessionListener, claude_session_arrivals, drain_claude_session_arrivals,
-};
 use crate::provider::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
 use crate::provider::driver::claude::session::process::{ClaudeProcessListener, ClaudeStreamFrame};
 use crate::provider::driver::claude::session::state::{
-    CLAUDE_THREAD_FRAME_ROUTER_CONFIG, ClaudeLiveSettings, ClaudeSessionRoutingBand,
-    ClaudeSpawnBinding, ClaudeUsageEstablishment, LiveClaudeSession,
+    ClaudeLiveSettings, ClaudeSpawnBinding, ClaudeUsageEstablishment, LiveClaudeSession,
 };
 use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
+use crate::provider::driver::claude::session::transport::declarations::{
+    ClaudeInitializeDeclaration, ClaudeOfferedModel,
+};
 use crate::provider::driver::claude::session::transport::inbound::{
     ClaudeControlFrameReader, ClaudeInboundRequestEvent,
 };
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::provider::driver::test_registry::test_driver_services;
-use crate::provider::thread_frame_router::ThreadFrameRouter;
-use crate::provider::usage_delta_accountant::UsageDeltaAccountant;
 use crate::queue::delivery::ProviderProcessIdentity;
 
 /// Staged-change worktrees under a scratch folder of their own, on a spawner of their own.
@@ -160,10 +152,10 @@ pub(crate) fn scripted_live_session(
     }
 }
 
-/// One live session on a scripted process, on the driver's own composition over a recording run
-/// engine: frames and requests go through the process listener, the session's queue and its task,
-/// as the reader hands them over. Built inside a Tokio runtime, since the session's task is
-/// spawned.
+/// One live session on a scripted process, opened through the driver's own create over a
+/// recording run engine: frames and requests go through the process listener, the session's queue
+/// and its task, as the reader hands them over. Built inside a Tokio runtime, since the session's
+/// task is spawned.
 pub(crate) struct ScriptedSession {
     /// The session.
     pub(crate) session_id: SessionId,
@@ -181,91 +173,69 @@ pub(crate) struct ScriptedSession {
     pub(crate) live: Arc<LiveClaudeSession>,
     /// Its stream.
     pub(crate) stream: Arc<ClaudeSessionStream>,
+    /// The driver's session pieces.
+    pub(crate) parts: Arc<ClaudeSessionParts>,
     /// The run start.
     pub(crate) start: ClaudeRunStart,
     /// The requests.
     pub(crate) requests: Arc<ClaudeInboundRequests>,
     /// The interventions.
     pub(crate) interventions: Arc<ClaudeInterventions>,
-    /// The run controls.
-    pub(crate) controls: ClaudeRunControls,
     /// The helpers running in the foreground.
     pub(crate) foreground_helpers: Arc<Mutex<ClaudeForegroundHelpers>>,
     /// The words waiting for each helper.
     pub(crate) helper_steers: Arc<Mutex<ClaudeHelperSteers>>,
-    listener: ClaudeSessionListener,
+    listener: Arc<dyn ClaudeProcessListener>,
     control_frames: Mutex<ClaudeControlFrameReader>,
+    // The home, working folder and database the session's start read from.
+    _folder: TempDir,
+    _database: TestDatabase,
 }
 
 impl ScriptedSession {
-    /// A live session whose process answers as scripted, with every approval port registered.
-    pub(crate) fn new() -> Self {
-        let session_id = mint_session_id();
+    /// A live session on `opus` at Ask whose process answers as scripted, with every approval port
+    /// registered.
+    pub(crate) async fn new() -> Self {
+        let ScriptedDriver {
+            driver,
+            starts,
+            engine,
+            ports,
+            usage,
+            attachments,
+            folder,
+            database,
+            ..
+        } = ScriptedDriver::new();
+        // The process offers the session's model, so its start sets none.
+        starts.script_initialize(ClaudeInitializeDeclaration {
+            models: vec![ClaudeOfferedModel {
+                value: "opus".to_owned(),
+                resolved_model: None,
+                display_name: None,
+            }],
+            ..ClaudeInitializeDeclaration::default()
+        });
         let channel = Arc::new(ScriptedChannel::default());
-        let engine = Arc::new(RecordingRunEngine::default());
-        let ports = Arc::new(RecordingPorts::default());
-        let attachments = Arc::new(ScriptedAttachments::default());
-        let services = DriverServices {
-            attachments: attachments.clone(),
-            staged_changes: scripted_staged_changes(),
-            ..test_driver_services()
-        };
-        register_scripted_ports(&services.ports, &ports);
-        let usage = Arc::new(RecordingUsage::default());
-        services
-            .ports
-            .usage
-            .register(usage.clone())
-            .expect("the usage record registers once");
-        let engine_port: Arc<dyn ClaudeRunEngine> = engine.clone();
-        let driver =
-            ClaudeDriver::with_engine(&services, Arc::new(ScriptedStarts::default()), &engine_port)
-                .expect("the session pieces compose");
-        let parts = driver.composed_parts().expect("the pieces are composed");
+        starts.script_session(Arc::clone(&channel));
+        let session_id = mint_session_id();
+        driver
+            .create_session(create_params(session_id))
+            .await
+            .expect("the session opens");
+        let started = starts.take_started().pop().expect("a start was recorded");
+        let parts = Arc::clone(driver.composed_parts().expect("the pieces are composed"));
         let establishment = &parts.establishment;
         let services = &establishment.task_services;
-        let channel_port: Arc<dyn ClaudeProcessChannel> = channel.clone();
-        let live = Arc::new(scripted_live_session(session_id, channel_port));
-        let installed = establishment
+        let live = establishment
             .slots
-            .claim_bring_up(session_id)
-            .expect("a new session's slot is free")
-            .install(Arc::clone(&live));
-        assert!(installed.is_ok(), "a fresh claim installs");
-        let (arrivals, receiver) = claude_session_arrivals(session_id);
-        let stream = Arc::new(ClaudeSessionStream::new(
-            None,
-            None,
-            arrivals.clone(),
-            Arc::clone(&establishment.routes),
-            Arc::clone(&establishment.prompts),
-        ));
-        establishment.streams.insert(Arc::clone(&stream));
-        let mut band = ClaudeSessionRoutingBand {
-            router: ThreadFrameRouter::new(
-                DESCRIPTOR.provider_id(),
-                CLAUDE_THREAD_FRAME_ROUTER_CONFIG,
-            ),
-            accountant: UsageDeltaAccountant::new(DESCRIPTOR.provider_id()),
-        };
-        establishment.routing.bind_session_thread(
-            &mut band,
-            session_id,
-            SCRIPTED_PROVIDER_SESSION_ID,
-            &ClaudeUsageEstablishment::Fresh,
-        );
-        let listener = ClaudeSessionListener::new(
-            SCRIPTED_PROVIDER_SESSION_ID.to_owned(),
-            Arc::new(Mutex::new(band)),
-            Arc::clone(&establishment.routing),
-            Arc::clone(&stream),
-            arrivals,
-        );
-        let mut task =
-            ClaudeSessionTask::new(Arc::clone(services), Arc::clone(&live), Arc::clone(&stream));
-        tokio::spawn(async move {
-            drain_claude_session_arrivals(receiver, &mut task, None).await;
-        });
+            .live_session(session_id)
+            .expect("the created session is live");
+        let stream = establishment
+            .streams
+            .get(session_id)
+            .expect("the created session has a stream");
+        let control_frames = ClaudeControlFrameReader::new(None, live.provider_session_id.clone());
         Self {
             session_id,
             channel,
@@ -278,20 +248,19 @@ impl ScriptedSession {
             start: parts.run_start.clone(),
             requests: Arc::clone(&services.requests),
             interventions: Arc::clone(&parts.interventions),
-            controls: parts.run_controls.clone(),
             foreground_helpers: Arc::clone(&services.foreground_helpers),
             helper_steers: Arc::clone(&services.helper_steers),
-            listener,
-            control_frames: Mutex::new(ClaudeControlFrameReader::new(
-                None,
-                SCRIPTED_PROVIDER_SESSION_ID.to_owned(),
-            )),
+            parts,
+            listener: started.listener,
+            control_frames: Mutex::new(control_frames),
+            _folder: folder,
+            _database: database,
         }
     }
 
     /// Hands the reader's next stream frame over, as the process wrote it.
     pub(crate) fn frame(&self, frame: &Value) {
-        hand_scripted_frame(&self.listener, &self.start.routes, self.session_id, frame);
+        hand_scripted_frame(&*self.listener, &self.start.routes, self.session_id, frame);
     }
 
     /// Hands over a `control_request` the process sent.

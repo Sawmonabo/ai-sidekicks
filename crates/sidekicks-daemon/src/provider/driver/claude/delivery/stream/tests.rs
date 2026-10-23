@@ -70,7 +70,7 @@ fn moves_of(session: &ScriptedSession, run_id: RunId) -> Vec<RunStateEntry> {
 // of their own, and the lead run would never end.
 #[tokio::test(start_paused = true)]
 async fn a_turns_frames_stay_its_runs_after_the_reader_released_its_hold() {
-    let session = ScriptedSession::new();
+    let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
 
     session.frame(&init());
@@ -97,7 +97,7 @@ async fn a_turns_frames_stay_its_runs_after_the_reader_released_its_hold() {
 // rather than at the end of the turn Claude Code starts with the waiting steer.
 #[tokio::test(start_paused = true)]
 async fn a_turn_ending_with_a_steer_still_waiting_writes_its_end_and_moves_no_run() {
-    let session = ScriptedSession::new();
+    let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
     session
         .start
@@ -131,7 +131,7 @@ async fn a_turn_ending_with_a_steer_still_waiting_writes_its_end_and_moves_no_ru
 // and by writing no turn end for it.
 #[tokio::test(start_paused = true)]
 async fn a_turn_ending_after_the_daemon_wrote_the_runs_end_writes_only_the_turn_end() {
-    let session = ScriptedSession::new();
+    let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
     session.stream.lock().mark_daemon_end(run_id, true, false);
 
@@ -165,7 +165,7 @@ async fn a_held_turn_end_is_delivered_as_the_daemons_end_settles(
     #[case] settlement: ClaudeDaemonEndSettlement,
     #[case] delivered: Option<RunStateEntry>,
 ) {
-    let session = ScriptedSession::new();
+    let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
     session.stream.hold_turn_end_for_interrupt(run_id);
 
@@ -188,7 +188,7 @@ async fn a_held_turn_end_is_delivered_as_the_daemons_end_settles(
 // call, and by counting a helper's tool call against the lead's bound.
 #[tokio::test(start_paused = true)]
 async fn a_step_is_one_lead_message_carrying_a_tool_call() {
-    let session = ScriptedSession::new();
+    let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
 
     session.frame(&init());
@@ -228,7 +228,7 @@ async fn a_step_is_one_lead_message_carrying_a_tool_call() {
 // and by never ending the turn its own `result` ends.
 #[tokio::test(start_paused = true)]
 async fn only_the_result_naming_a_now_steer_ends_its_turn() {
-    let session = ScriptedSession::new();
+    let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
     session.stream.mark_now_steer("now-steer");
 
@@ -265,7 +265,7 @@ async fn only_the_result_naming_a_now_steer_ends_its_turn() {
 // such turn would be taken for its first, already settled, and its end dropped.
 #[tokio::test(start_paused = true)]
 async fn each_unnumbered_turn_of_a_run_settles_its_own_end() {
-    let session = ScriptedSession::new();
+    let session = ScriptedSession::new().await;
     session.engine.leave_turns_unnumbered();
     let run_id = session.hold_lead_turn("lead");
     session
@@ -305,7 +305,7 @@ async fn each_unnumbered_turn_of_a_run_settles_its_own_end() {
 async fn a_turn_failing_after_its_last_announced_retry_fails_as_retries_spent(
     #[case] subtype: &str,
 ) {
-    let session = ScriptedSession::new();
+    let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
 
     session.frame(&init());
@@ -342,7 +342,7 @@ async fn a_turn_failing_after_its_last_announced_retry_fails_as_retries_spent(
 // or reset, and by reading the event only while a run holds the session's turn.
 #[tokio::test(start_paused = true)]
 async fn a_rate_limit_event_hands_the_accounts_quota_windows_to_the_usage_record() {
-    let session = ScriptedSession::new();
+    let session = ScriptedSession::new().await;
 
     session.frame(&json!({
         "type": "rate_limit_event",

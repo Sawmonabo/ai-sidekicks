@@ -30,7 +30,7 @@ fn text(text: &str) -> NonEmptyText {
 // keeping a withdrawal of an ask already handed on from the approval pipeline.
 #[tokio::test(start_paused = true)]
 async fn a_withdrawal_reaches_the_approval_pipeline_only_once_the_ask_did() {
-    let session = ScriptedSession::new();
+    let session = ScriptedSession::new().await;
     session.hold_lead_turn("lead");
     let tool_server_calls = ClaudeToolServerCalls::default();
     let request_session = ClaudeRequestSession {
@@ -76,7 +76,7 @@ async fn a_withdrawal_reaches_the_approval_pipeline_only_once_the_ask_did() {
 // several.
 #[tokio::test(start_paused = true)]
 async fn a_questions_answers_are_keyed_by_its_words_with_several_picks_joined() {
-    let session = ScriptedSession::new();
+    let session = ScriptedSession::new().await;
     session.hold_lead_turn("lead");
     session.request(
         "question",

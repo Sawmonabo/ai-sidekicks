@@ -7,10 +7,11 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 
-use super::{DriverFixture, create_params, resume_params};
+use super::resume_params;
 use crate::provider::driver::claude::session::scripted::channel::{
     ScriptedAnswer, ScriptedChannel, ScriptedWrite,
 };
+use crate::provider::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
 use crate::provider::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, hand_scripted_frame, mint_session_id, settle,
 };
@@ -28,7 +29,7 @@ use crate::provider::driver::session_control::{
 // running with no session to close it.
 #[tokio::test(start_paused = true)]
 async fn a_failed_bring_up_frees_its_claim_and_a_close_waits_for_one_in_flight() {
-    let fixture = DriverFixture::new();
+    let fixture = ScriptedDriver::new();
     let session_id = mint_session_id();
     fixture.starts.script_failed_session("the spawn failed");
     assert!(
@@ -87,7 +88,7 @@ async fn a_new_session_switches_to_an_unlisted_model_and_refuses_one_claude_code
     #[case] is_refused: bool,
     #[case] switches: Option<usize>,
 ) {
-    let fixture = DriverFixture::new();
+    let fixture = ScriptedDriver::new();
     let channel = Arc::new(ScriptedChannel::default());
     if is_refused {
         channel.answer("set_model", ScriptedAnswer::Refused);
@@ -140,7 +141,7 @@ async fn a_new_session_switches_to_an_unlisted_model_and_refuses_one_claude_code
 async fn a_resume_starts_at_its_conversations_turn_count_and_fails_on_an_unreadable_file(
     #[case] is_unreadable: bool,
 ) {
-    let fixture = DriverFixture::new();
+    let fixture = ScriptedDriver::new();
     if is_unreadable {
         // A folder where the conversation's file would be is found and cannot be read.
         let file = fixture
@@ -179,7 +180,7 @@ async fn a_resume_starts_at_its_conversations_turn_count_and_fails_on_an_unreada
 // id would read the old process's declaration before its new process declares one.
 #[tokio::test(start_paused = true)]
 async fn a_resumed_conversation_reads_no_handshake_until_its_new_process_declares_one() {
-    let fixture = DriverFixture::new();
+    let fixture = ScriptedDriver::new();
     let session_id = mint_session_id();
     let parts = fixture.driver.composed_parts().expect("composed");
     let (routes, handshakes) = (&parts.run_start.routes, &parts.run_start.handshakes);

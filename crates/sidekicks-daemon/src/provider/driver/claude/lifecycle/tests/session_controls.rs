@@ -13,12 +13,15 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 
-use super::{DriverFixture, create_params, end_turn_of, resume_params, start_params};
+use super::{resume_params, start_params};
 use crate::events::log_service::tests::open_log;
 use crate::policy::execution_posture_service::compose_execution_posture;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::lifecycle::ClaudeDriver;
 use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel;
+use crate::provider::driver::claude::session::scripted::driver::{
+    ScriptedDriver, create_params, end_turn_of,
+};
 use crate::provider::driver::claude::session::scripted::run_engine::EngineCall;
 use crate::provider::driver::claude::session::scripted::starts::ScriptedOneTurnRecord;
 use crate::provider::driver::claude::session::scripted::{
@@ -72,7 +75,7 @@ fn counts(input: u64, output: u64) -> UsageAxisCounts {
 // review would go on to open its worktree and fail instead of ending interrupted.
 #[tokio::test(start_paused = true)]
 async fn a_stop_ends_the_staged_review_apart_from_the_session_process() {
-    let fixture = DriverFixture::new();
+    let fixture = ScriptedDriver::new();
     let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
     let parts = fixture.driver.composed_parts().expect("composed");
     let live = parts
@@ -139,7 +142,7 @@ async fn a_stop_ends_the_staged_review_apart_from_the_session_process() {
 // whole figure, which counts the copied conversation again.
 #[tokio::test(start_paused = true)]
 async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_own_turn() {
-    let fixture = DriverFixture::new();
+    let fixture = ScriptedDriver::new();
     fixture
         .starts
         .script_initialize(ClaudeInitializeDeclaration {
@@ -185,12 +188,12 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
         .driver
         .ask_side_question(ask(live_session, None))
         .expect("the live session's question is asked");
-    DriverFixture::wait_for(|| answered(&fixture) == 1).await;
+    ScriptedDriver::wait_for(|| answered(&fixture) == 1).await;
     fixture
         .driver
         .ask_side_question(ask(resting_session, Some(resume_params(resting_session))))
         .expect("the resting session's question is asked");
-    DriverFixture::wait_for(|| answered(&fixture) == 2).await;
+    ScriptedDriver::wait_for(|| answered(&fixture) == 2).await;
 
     let live_provider_session = fixture
         .driver
@@ -229,7 +232,7 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
 }
 
 // The side questions answered so far.
-fn answered(fixture: &DriverFixture) -> usize {
+fn answered(fixture: &ScriptedDriver) -> usize {
     fixture
         .engine
         .deliveries()
@@ -242,7 +245,7 @@ fn answered(fixture: &DriverFixture) -> usize {
 // dispatch as the driver reaches them through its ports, ends `completed` on the process result.
 #[tokio::test(start_paused = true)]
 async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
-    let fixture = DriverFixture::new();
+    let fixture = ScriptedDriver::new();
     let session_id = mint_session_id();
     let run_id = mint_run_id();
     insert_running_run(&fixture.database, session_id, run_id);
@@ -292,7 +295,8 @@ async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
         .await
         .expect("the run starts");
     end_turn_of(&claude, &start, session_id);
-    DriverFixture::wait_for(|| stored_run_state(&fixture.database, &run_id).0 == "completed").await;
+    ScriptedDriver::wait_for(|| stored_run_state(&fixture.database, &run_id).0 == "completed")
+        .await;
 
     assert_eq!(channel.user_frames().len(), 1);
 }
