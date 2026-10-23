@@ -14,6 +14,7 @@ use crate::provider::driver::methods::{
 };
 use crate::run::id::RunId;
 use crate::run::queue::QueueItemId;
+use crate::turn::ProviderTurnId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::Never;
 use crate::wire::id::ClientUuid;
@@ -310,7 +311,7 @@ pub enum AgentRunInterveneRequest {
         /// recorded outcome.
         client_idempotency_key: ClientUuid,
         /// The provider's id of the turn held.
-        expected_turn_id: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
+        expected_turn_id: ProviderTurnId,
         /// The model the turn is sent again on.
         model: FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>,
     },
@@ -460,7 +461,8 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
 
-    use super::{InterruptInterventionRecord, RunLimit};
+    use super::{AgentRunInterveneRequest, InterruptInterventionRecord, RunLimit};
+    use crate::wire::attachment::parse_received;
 
     /// What reading a stored interrupt record gives: the limit it names, a record with no limit,
     /// or a refusal.
@@ -490,5 +492,33 @@ mod tests {
             Err(_) => RecordRead::Refused,
         };
         assert_eq!(read, expected);
+    }
+
+    // Killed by `ProviderTurnId` reading its text without free-form text's checks, which would
+    // hand the provider a NUL, a blank or an over-long turn id.
+    #[rstest]
+    #[case::a_nul("turn\u{0}1".to_owned())]
+    #[case::a_blank("   ".to_owned())]
+    #[case::past_the_cap("t".repeat(257))]
+    fn a_retry_refuses_a_turn_id_free_form_text_refuses(#[case] expected_turn_id: String) {
+        let retry = |expected_turn_id: &str| {
+            json!({
+                "type": "fasterModelRetry",
+                "targetRunId": "0190f2a0-0000-7000-8000-000000000001",
+                "expectedRunVersion": 3,
+                "clientIdempotencyKey": "0190f2a0-0000-7000-8000-000000000002",
+                "expectedTurnId": expected_turn_id,
+                "model": "gpt-5-mini",
+            })
+            .to_string()
+        };
+        assert!(
+            parse_received::<AgentRunInterveneRequest>(retry(&"t".repeat(256)).as_bytes(), vec![])
+                .is_ok()
+        );
+        assert!(
+            parse_received::<AgentRunInterveneRequest>(retry(&expected_turn_id).as_bytes(), vec![])
+                .is_err()
+        );
     }
 }

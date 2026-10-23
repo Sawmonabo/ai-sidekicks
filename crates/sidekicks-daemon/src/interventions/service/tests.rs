@@ -21,6 +21,7 @@ use sidekicks_contracts::run::intervention::{
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -440,7 +441,7 @@ fn retry(run_id: RunId, version: u64) -> AgentRunInterveneRequest {
         target_run_id: run_id,
         expected_run_version: SafeInt::new(version).expect("a test version"),
         client_idempotency_key: key(KEY),
-        expected_turn_id: FreeFormText::new("turn-1".to_owned()).expect("a test turn"),
+        expected_turn_id: ProviderTurnId::new("turn-1".to_owned()).expect("a test turn"),
         model: FreeFormText::new("fast".to_owned()).expect("a test model"),
     }
 }
