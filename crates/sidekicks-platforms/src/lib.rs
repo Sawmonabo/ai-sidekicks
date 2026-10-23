@@ -6,46 +6,46 @@
 //! every system.
 #![expect(
     unsafe_code,
-    reason = "the terminal's window size, mode read (`tcgetattr`), signal request (`TIOCSIG`), \
-              console, console input count (`GetNumberOfConsoleInputEvents`) and library-search \
-              calls, the shell start's signal and console-handler calls, the parent check \
-              a `Command` child runs in `pre_exec`, a lasting child's `setsid` and `prctl` in \
-              `pre_exec`, the stop of a pinned process (Linux's `pidfd_send_signal`, macOS's \
-              exit filter, descendant list and audit-token signal, Windows' `OpenProcess`, \
-              `GetProcessTimes`, `WaitForSingleObject`, `TerminateProcess` and its job's open, \
-              check and end), a lasting child's start on Windows (`CreateProcessW` with its \
-              attribute list, its job's creation and access list, the handles it inherits and \
-              the wait for its exit), the user-namespace check's `unshare` and map writes, the \
-              boot id's `sysctl`, the Windows host-name, free-room, volume-root \
-              (`GetVolumePathNameW`, `GetDriveTypeW`) and file-information calls, \
-              the Windows replacing rename's `MoveFileExW`, the caller reads (Linux's peer \
-              process descriptor and `pidfd_open`, macOS's audit token, checked process reads \
-              and responsible-process reads), macOS's code-signature checks, the start as its \
-              own responsible process (its thread count, its program's path, its marker's \
-              removal from the environment and the disclaiming exec), the socket pair a shell's \
-              start is confirmed over, macOS's `proc_pid_rusage`, which a process's peak \
-              memory and the measurement tests' footprint share, Windows' `OpenProcess` and \
+    reason = "the terminal's window size, queued-byte count (`FIONREAD`), signal request \
+              (`TIOCSIG`), console, console input count (`GetNumberOfConsoleInputEvents`) and \
+              library-search calls, the shell start's signal and console-handler calls, the \
+              parent check a `Command` child runs in `pre_exec`, a lasting child's `setsid` and \
+              `prctl` in `pre_exec`, the stop of a pinned process (Linux's `pidfd_send_signal`, \
+              macOS's exit filter, descendant list and audit-token signal, Windows' \
+              `OpenProcess`, `GetProcessTimes`, `WaitForSingleObject`, `TerminateProcess` and its \
+              job's open, check and end), a lasting child's start on Windows (`CreateProcessW` \
+              with its attribute list, its job's creation and access list, the handles it \
+              inherits and the wait for its exit), the user-namespace check's `unshare` and map \
+              writes, the boot id's `sysctl`, the Windows host-name, free-room, volume-root \
+              (`GetVolumePathNameW`, `GetDriveTypeW`) and file-information calls, the Windows \
+              replacing rename's `MoveFileExW`, the caller reads (Linux's peer process descriptor \
+              and `pidfd_open`, macOS's audit token, checked process reads and \
+              responsible-process reads), macOS's code-signature checks, the start as its own \
+              responsible process (its thread count, its program's path, its marker's removal \
+              from the environment and the disclaiming exec), the socket pair a shell's start is \
+              confirmed over, macOS's `proc_pid_rusage`, which a process's peak memory and the \
+              measurement tests' footprint share, Windows' `OpenProcess` and \
               `K32GetProcessMemoryInfo`, the available-memory reads (macOS's `mach_host_self` and \
               `host_statistics64`, Windows' `GlobalMemoryStatusEx`), macOS's process list \
               (`proc_listpids`) and environment read (`sysctl` of `KERN_ARGMAX` and \
               `KERN_PROCARGS2`), a released terminal's wait for its program (`waitid`, and its \
-              exit event's registration), mimalloc's `mi_collect`, tree-sitter's \
-              `set_allocator`, and the power notifications and wall-clock timers of macOS and \
-              Windows are C interfaces, and tokio's watch of the Linux timer's and the terminal \
-              poller's descriptors trusts each to stay open while it watches, and the Windows \
-              Ctrl-C ending's `ExitProcess`, the user's locale reads (Windows' \
-              `GetLocaleInfoEx`, macOS's `CFDateFormatterCreateDateFormatFromTemplate`), a \
-              process's user read from its token (`OpenProcess`, `OpenProcessToken`, \
-              `GetTokenInformation`, `EqualSid`, `ConvertSidToStringSidW`), the named pipe's \
-              server read (`GetNamedPipeServerProcessId`), a Windows AF_UNIX socket's peer read \
-              (`WSAIoctl` of `SIO_AF_UNIX_GETPEERPID`) and the mark that lets `async-io` drive \
-              it (`IoSafe`), the run folder's owner and access \
-              list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`), a Windows child's output \
-              read at its exit (`CancelIoEx`, `PeekNamedPipe`), the daemon's process \
-              containment (Windows' kill-on-close job through `CreateJobObjectW`, \
-              `SetInformationJobObject` and `AssignProcessToJobObject`, and Linux's `poll` of its \
-              cgroup's events), the start confirmation's peer checks (`SO_PEERCRED`, and on \
-              Windows `GetNamedPipeClientProcessId`), the Windows stop request's hidden window \
+              exit event's registration), mimalloc's `mi_collect`, tree-sitter's `set_allocator`, \
+              and the power notifications and wall-clock timers of macOS and Windows are C \
+              interfaces, and tokio's watch of the Linux timer's and the terminal poller's \
+              descriptors trusts each to stay open while it watches, and the Windows Ctrl-C \
+              ending's `ExitProcess`, the user's locale reads (Windows' `GetLocaleInfoEx`, \
+              macOS's `CFDateFormatterCreateDateFormatFromTemplate`), a process's user read from \
+              its token (`OpenProcess`, `OpenProcessToken`, `GetTokenInformation`, `EqualSid`, \
+              `ConvertSidToStringSidW`), the named pipe's server read \
+              (`GetNamedPipeServerProcessId`), a Windows AF_UNIX socket's peer read (`WSAIoctl` \
+              of `SIO_AF_UNIX_GETPEERPID`) and the mark that lets `async-io` drive it (`IoSafe`), \
+              the run folder's owner and access list (`GetSecurityInfo`, `GetAce`, \
+              `IsWellKnownSid`), a Windows child's output read at its exit (`CancelIoEx`, \
+              `PeekNamedPipe`), the daemon's process containment (Windows' kill-on-close job \
+              through `CreateJobObjectW`, `SetInformationJobObject` and \
+              `AssignProcessToJobObject`, and Linux's `poll` of its cgroup's events), the start \
+              confirmation's peer checks (`SO_PEERCRED`, and on Windows \
+              `GetNamedPipeClientProcessId`), the Windows stop request's hidden window \
               (`RegisterClassExW`, `CreateWindowExW` and its message loop), Windows' binary \
               standard streams (`_setmode`) and macOS's user temp folder (`confstr`) are C \
               interfaces too"
@@ -289,10 +289,10 @@ pub use posix::system_locale::{system_hour_cycle, system_locale};
 #[cfg(unix)]
 pub use posix::terminal::{
     DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
-    end_process_tree, read_console, read_console_waiting_input, release_terminal,
-    restrict_library_search, run_console_helper, run_terminal_loop, send_console_break,
-    send_signal, terminal_ending_route, terminal_options, terminal_signal_route,
-    write_console_waiting_input,
+    end_process_tree, read_console, read_console_waiting_input, read_terminal_master,
+    release_terminal, restrict_library_search, run_console_helper, run_terminal_loop,
+    send_console_break, send_signal, terminal_ending_route, terminal_options,
+    terminal_signal_route, write_console_waiting_input,
 };
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::terminal::{
@@ -332,7 +332,8 @@ pub use system_locale::LocaleCategory;
 pub use terminal::{AbnormalExit, TestProgram};
 pub use terminal::{
     CONSOLE_WAITING_INPUT_ARGUMENT, ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd,
-    TerminalInputRefusal, TerminalSignal, TerminalSignalRoute, TerminalWake, TerminalWaker,
+    TerminalInputRefusal, TerminalMasterReading, TerminalSignal, TerminalSignalRoute, TerminalWake,
+    TerminalWaker,
 };
 #[cfg(any(test, feature = "test-support"))]
 pub use test_program::pass_through_start;
@@ -446,10 +447,10 @@ pub use windows::system_locale::{system_hour_cycle, system_locale};
 #[cfg(target_os = "windows")]
 pub use windows::terminal::{
     DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
-    end_process_tree, read_console, read_console_waiting_input, release_terminal,
-    restrict_library_search, run_console_helper, run_terminal_loop, send_console_break,
-    send_signal, terminal_ending_route, terminal_options, terminal_signal_route,
-    write_console_waiting_input,
+    end_process_tree, read_console, read_console_waiting_input, read_terminal_master,
+    release_terminal, restrict_library_search, run_console_helper, run_terminal_loop,
+    send_console_break, send_signal, terminal_ending_route, terminal_options,
+    terminal_signal_route, write_console_waiting_input,
 };
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::terminal::{

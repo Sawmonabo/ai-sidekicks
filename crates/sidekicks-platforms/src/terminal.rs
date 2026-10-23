@@ -85,6 +85,21 @@ pub struct ConsoleReading {
     pub is_line_input: bool,
 }
 
+/// What a terminal's master shows of the terminal, read by whoever holds the master: its
+/// foreground process group, what `FIONREAD` counts on the master, and its echo and line settings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerminalMasterReading {
+    /// The terminal's foreground process group, named by its leader's process id.
+    pub foreground_group: u32,
+    /// The bytes `FIONREAD` counts on the master: on macOS the input queued unread for the program,
+    /// on Linux the program's output the master has not read yet.
+    pub queued_bytes: u32,
+    /// Whether the terminal echoes what is typed (`ECHO`).
+    pub is_echo_on: bool,
+    /// Whether the terminal hands input over a line at a time (`ICANON`).
+    pub is_canonical: bool,
+}
+
 /// Wakes a terminal's read loop from any thread; it can be made before the loop runs, and a wake
 /// that comes before the loop waits is kept until it does.
 #[derive(Clone)]

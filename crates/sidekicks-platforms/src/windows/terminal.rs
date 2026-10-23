@@ -42,8 +42,8 @@ use crate::spawner::Spawner;
 use crate::terminal::{AbnormalExit, TestProgram};
 use crate::terminal::{
     CONSOLE_WAITING_INPUT_ARGUMENT, ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd,
-    TerminalInputRefusal, TerminalSignal, TerminalSignalRoute, TerminalWake, TerminalWaker,
-    read_waiting_input_line, waiting_input_line,
+    TerminalInputRefusal, TerminalMasterReading, TerminalSignal, TerminalSignalRoute, TerminalWake,
+    TerminalWaker, read_waiting_input_line, waiting_input_line,
 };
 use crate::windows::child_command::prepare_child_command;
 use crate::windows::known_folder::system_folder;
@@ -209,6 +209,15 @@ pub fn read_console(pid: u32) -> io::Result<ConsoleReading> {
         is_echo_input: mode & ENABLE_ECHO_INPUT != 0,
         is_line_input: mode & ENABLE_LINE_INPUT != 0,
     })
+}
+
+/// Reads a terminal's master, which a `ConPTY` does not expose: the console helper reads the
+/// console's input mode instead. Always fails with `Unsupported`.
+pub fn read_terminal_master(_pty: &Pty) -> io::Result<TerminalMasterReading> {
+    Err(io::Error::new(
+        ErrorKind::Unsupported,
+        "a pseudo console has no master to read",
+    ))
 }
 
 /// Makes the program load libraries only from the system's own folder, so `ConPTY` comes from

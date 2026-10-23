@@ -8,8 +8,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::future::{pending, ready};
 use std::io::{self, ErrorKind, Read, Write};
-use std::mem::MaybeUninit;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::ptr;
@@ -19,7 +18,8 @@ use std::time::{Duration, Instant};
 use alacritty_terminal::tty::{self, ChildEvent, EventedPty, EventedReadWrite, Pty};
 use nix::errno::Errno;
 use nix::sys::signal::{Signal, kill};
-use nix::unistd::Pid;
+use nix::sys::termios::{LocalFlags, SpecialCharacterIndices, Termios, tcgetattr};
+use nix::unistd::{Pid, tcgetpgrp};
 use polling::{Event, Events, PollMode, Poller};
 use tokio::io::Interest;
 use tokio::io::unix::AsyncFd;
@@ -31,8 +31,8 @@ use crate::spawner::Spawner;
 #[cfg(any(test, feature = "test-support"))]
 use crate::terminal::{AbnormalExit, TestProgram};
 use crate::terminal::{
-    ConsoleReading, ProcessTreeEnd, TerminalInputRefusal, TerminalSignal, TerminalSignalRoute,
-    TerminalWake, TerminalWaker,
+    ConsoleReading, ProcessTreeEnd, TerminalInputRefusal, TerminalMasterReading, TerminalSignal,
+    TerminalSignalRoute, TerminalWake, TerminalWaker,
 };
 
 /// How `signal` reaches a shell's program: on macOS and Linux every signal is sent as itself.
@@ -377,32 +377,24 @@ impl TerminalWatch {
     /// input. Fails with the system's error when the settings cannot be read or the signal cannot
     /// be sent.
     pub fn send_signal_key(&self, key: u8) -> io::Result<bool> {
-        let descriptor = self.master.as_raw_fd();
-        let mut settings = MaybeUninit::<libc::termios>::uninit();
-        // SAFETY: the descriptor is the watch's open duplicate of the master, and the pointer names
-        // a live local the call fills on success. Linux hands back the program's side's settings,
-        // and macOS keeps one record for both sides.
-        if unsafe { libc::tcgetattr(descriptor, settings.as_mut_ptr()) } != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: `tcgetattr` succeeded, so it filled the whole struct.
-        let settings = unsafe { settings.assume_init() };
-        if settings.c_lflag & libc::ISIG == 0 {
+        let settings = read_terminal_settings(self.master.as_fd())?;
+        if !settings.local_flags.contains(LocalFlags::ISIG) {
             return Ok(false);
         }
         let bound = [
-            (libc::VINTR, libc::SIGINT),
-            (libc::VQUIT, libc::SIGQUIT),
-            (libc::VSUSP, libc::SIGTSTP),
+            (SpecialCharacterIndices::VINTR, libc::SIGINT),
+            (SpecialCharacterIndices::VQUIT, libc::SIGQUIT),
+            (SpecialCharacterIndices::VSUSP, libc::SIGTSTP),
         ]
         .into_iter()
         .find(|(character, _signal)| {
-            let bound_key = settings.c_cc[*character];
+            let bound_key = settings.control_chars[*character as usize];
             bound_key != libc::_POSIX_VDISABLE && bound_key == key
         });
         let Some((_character, signal)) = bound else {
             return Ok(false);
         };
+        let descriptor = self.master.as_raw_fd();
         // SAFETY: the descriptor is the watch's open duplicate of the master, and `TIOCSIG` takes
         // the signal number itself as its argument.
         if unsafe { libc::ioctl(descriptor, libc::c_ulong::from(libc::TIOCSIG), signal) } != 0 {
@@ -562,6 +554,52 @@ impl TerminalWatch {
             );
         }
     }
+}
+
+// `FIONREAD` on a terminal's master: how many bytes it counts as queued there.
+nix::ioctl_read_bad!(read_queued_byte_count, libc::FIONREAD, libc::c_int);
+
+/// What the master of `pty` shows of its terminal: its foreground process group, what `FIONREAD`
+/// counts there and its echo and line settings, which need no right over the program. Fails with
+/// the system's error when a read is refused, and with `InvalidData` when the terminal has no
+/// foreground group.
+pub fn read_terminal_master(pty: &Pty) -> io::Result<TerminalMasterReading> {
+    let master = pty.file().as_fd();
+    let foreground_group = tcgetpgrp(master).map_err(io::Error::from)?.as_raw();
+    let foreground_group = u32::try_from(foreground_group)
+        .ok()
+        .filter(|group| *group > 0)
+        .ok_or_else(|| {
+            io::Error::new(
+                ErrorKind::InvalidData,
+                format!("the terminal names no foreground group ({foreground_group})"),
+            )
+        })?;
+    let mut queued_bytes: libc::c_int = 0;
+    // SAFETY: the descriptor is the PTY's open master, and the pointer names a live local the call
+    // fills with one integer.
+    unsafe { read_queued_byte_count(master.as_raw_fd(), &raw mut queued_bytes) }
+        .map_err(io::Error::from)?;
+    let queued_bytes = u32::try_from(queued_bytes).map_err(|error| {
+        io::Error::new(
+            ErrorKind::InvalidData,
+            format!("the master counts {queued_bytes} queued bytes: {error}"),
+        )
+    })?;
+    let settings = read_terminal_settings(master)?;
+    Ok(TerminalMasterReading {
+        foreground_group,
+        queued_bytes,
+        is_echo_on: settings.local_flags.contains(LocalFlags::ECHO),
+        is_canonical: settings.local_flags.contains(LocalFlags::ICANON),
+    })
+}
+
+// The settings of the terminal whose master is `master`, the one read the signal key and the
+// master's reading share: Linux hands back the program's side's settings, and macOS keeps one
+// record for both sides.
+fn read_terminal_settings(master: BorrowedFd<'_>) -> io::Result<Termios> {
+    tcgetattr(master).map_err(io::Error::from)
 }
 
 /// Completes when `deadline` passes, and never without one.

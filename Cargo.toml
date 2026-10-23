@@ -79,7 +79,18 @@ keepawake = "0.6.1"
 libc = "0.2.190"
 mach2 = "0.7.0"
 nix.version = "0.31.3"
-nix.features = ["event", "feature", "fs", "hostname", "process", "signal", "time", "user"]
+nix.features = [
+  "event",
+  "feature",
+  "fs",
+  "hostname",
+  "ioctl",
+  "process",
+  "signal",
+  "term",
+  "time",
+  "user"
+]
 objc2-core-foundation = "0.3.2"
 objc2-foundation = { version = "0.3.2", features = ["NSString", "NSURL"] }
 objc2-io-kit = { version = "0.3.2", default-features = false }
