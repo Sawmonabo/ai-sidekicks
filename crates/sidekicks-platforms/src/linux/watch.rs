@@ -1,4 +1,4 @@
-//! The wake a channel folder's watch waits on, as Linux raises it: an inotify watch through
+//! The wake a folder's arrival watch and a file's append watch wait on, as Linux raises it: an inotify watch through
 //! `notify`, `IN_MOVED_TO` on the folder and `IN_MODIFY` on a file, ended by `IN_DELETE_SELF` or
 //! `IN_MOVE_SELF` on either.
 
@@ -59,20 +59,20 @@ impl ChangeWake {
                     );
                     // A failure waits for room, so the reader always sees it.
                     if sender.blocking_send(Err(ended)).is_err() {
-                        tracing::debug!("a channel watch's path ended after its reader ended");
+                        tracing::debug!("a watch's folder or file ended after its reader ended");
                     }
                 }
                 Ok(event) if event.need_rescan() || is_wake(&event.kind) => {
                     // A full channel already holds a wake that covers this change.
                     if let Err(mpsc::error::TrySendError::Closed(_)) = sender.try_send(Ok(())) {
-                        tracing::debug!("a channel watch's change came after its reader ended");
+                        tracing::debug!("a watch's change came after its reader ended");
                     }
                 }
                 Ok(_) => {}
                 Err(error) => {
                     // A failure waits for room, so the reader always sees it.
                     if sender.blocking_send(Err(io::Error::other(error))).is_err() {
-                        tracing::debug!("a channel watch failed after its reader ended");
+                        tracing::debug!("a folder or file watch failed after its reader ended");
                     }
                 }
             },
@@ -94,7 +94,7 @@ impl ChangeWake {
     pub(crate) async fn changed(&mut self) -> io::Result<()> {
         match self.wakes.recv().await {
             Some(wake) => wake,
-            None => Err(io::Error::other("the channel watch ended")),
+            None => Err(io::Error::other("the folder or file watch ended")),
         }
     }
 }

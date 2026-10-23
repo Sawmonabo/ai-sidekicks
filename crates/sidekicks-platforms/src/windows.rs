@@ -3,7 +3,6 @@
 pub(crate) mod allocator;
 pub(crate) mod askpass;
 pub(crate) mod caller_process;
-pub(crate) mod channel_folder_watch;
 pub(crate) mod child_command;
 pub(crate) mod child_tree;
 pub(crate) mod command_argument_limit;
@@ -46,5 +45,6 @@ pub(crate) mod system_locale;
 pub(crate) mod terminal;
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
+pub(crate) mod watch;
 pub(crate) mod wide_text;
 pub(crate) mod xdg_data_folders;

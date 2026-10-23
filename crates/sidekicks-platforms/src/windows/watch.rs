@@ -1,5 +1,5 @@
-//! The wake a channel folder's watch waits on, which Windows does not raise here: the channel
-//! serves a command's wrapper, which runs on macOS and Linux.
+//! The wake a folder's arrival watch and a file's append watch wait on, which Windows does not
+//! raise here: both serve a command's wrapper, which runs on macOS and Linux.
 
 use std::convert::Infallible;
 use std::future::Ready;
@@ -29,6 +29,6 @@ impl ChangeWake {
 fn unwatched() -> io::Error {
     io::Error::new(
         ErrorKind::Unsupported,
-        "Windows watches no channel folder here",
+        "Windows watches no folder or file here",
     )
 }

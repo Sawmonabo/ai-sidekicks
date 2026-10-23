@@ -12,9 +12,10 @@ use nix::sys::stat::fstat;
 use crate::terminal::{InnerTerminal, TerminalDevice};
 
 /// Opens a terminal of `window_size` and starts the program `options` names in it, a session leader
-/// whose controlling terminal it is, with `alacritty_terminal`'s environment entries added to the
-/// inherited one. Blocks; fails with the system's error when the terminal cannot be opened or read
-/// or the program cannot be started.
+/// whose controlling terminal it is. `alacritty_terminal` adds `USER` and `HOME`, read from this
+/// process's own, and `ALACRITTY_WINDOW_ID` and `WINDOWID`, which `options` can change but not
+/// remove, so the program removes those two at its own start. Blocks; fails with the system's
+/// error when the terminal cannot be opened or read or the program cannot be started.
 pub fn start_inner_terminal(
     options: &Options,
     window_size: WindowSize,

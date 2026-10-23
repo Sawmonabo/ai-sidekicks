@@ -1,6 +1,6 @@
-//! The watches a command's channel needs: the records renamed into its folder, and the bytes
-//! appended to a file the command writes. Each platform's module supplies the wake a change
-//! raises; the folder's listing and the file's reads are shared.
+//! A folder's arrival watch, which hands back the records renamed into it, and a file's append
+//! watch, which hands back the bytes appended to it. Each platform's module supplies the wake a
+//! change raises; the folder's listing and the file's reads are shared.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -12,11 +12,11 @@ use tokio::io::AsyncReadExt;
 
 use crate::atomic_replace::TEMPORARY_FILE_SUFFIX;
 #[cfg(target_os = "linux")]
-use crate::linux::channel_folder_watch::ChangeWake;
+use crate::linux::watch::ChangeWake;
 #[cfg(target_os = "macos")]
-use crate::macos::channel_folder_watch::ChangeWake;
+use crate::macos::watch::ChangeWake;
 #[cfg(target_os = "windows")]
-use crate::windows::channel_folder_watch::ChangeWake;
+use crate::windows::watch::ChangeWake;
 
 // The most bytes one read of an appended file hands back, so a burst of output is read in bounded
 // pieces.
@@ -44,17 +44,18 @@ impl FolderArrivalWatch {
         })
     }
 
-    /// The paths of the records that arrived since the last call, waiting until one does; a name
-    /// ending in the temporary suffix a record is written under is never one. Fails with the
+    /// The paths of the records that arrived since the last call in name order, waiting until one
+    /// does; a name ending in the temporary suffix a record is written under is never one. Fails with the
     /// system's error when the folder cannot be listed or the watch fails, and with `NotFound` once
     /// the folder is removed or renamed away.
     pub async fn next_arrivals(&mut self) -> io::Result<Vec<PathBuf>> {
         loop {
             let names = list_names(&self.folder).await?;
-            let arrivals: Vec<PathBuf> = names
+            let mut arrivals: Vec<PathBuf> = names
                 .difference(&self.known)
                 .map(|name| self.folder.join(name))
                 .collect();
+            arrivals.sort();
             self.known = names;
             if !arrivals.is_empty() {
                 return Ok(arrivals);
@@ -152,7 +153,7 @@ mod tests {
     // Fails when a write to a temporary name is taken for a record, or a rename into the folder
     // does not wake the waiting watch.
     #[tokio::test]
-    async fn channel_folder_watch_sees_a_rename_and_not_a_temporary_write() {
+    async fn folder_arrival_watch_sees_a_rename_and_not_a_temporary_write() {
         let folder = tempfile::tempdir().expect("a scratch folder");
         let mut watch = FolderArrivalWatch::watch(folder.path())
             .await
@@ -186,7 +187,7 @@ mod tests {
     // Fails when the folder's watch goes on waiting after the folder is renamed away, since no
     // record can arrive in it any more.
     #[tokio::test]
-    async fn channel_folder_watch_fails_once_its_folder_is_renamed_away() {
+    async fn folder_arrival_watch_fails_once_its_folder_is_renamed_away() {
         let parent = tempfile::tempdir().expect("a scratch folder");
         let folder = parent.path().join("channel");
         fs::create_dir(&folder).expect("the folder is made");
@@ -208,7 +209,7 @@ mod tests {
     // Fails when the bytes written before the watch are skipped, an append does not wake the
     // waiting watch, or a byte is handed back twice.
     #[tokio::test]
-    async fn channel_folder_watch_hands_back_each_appended_byte_once() {
+    async fn file_append_watch_hands_back_each_appended_byte_once() {
         let folder = tempfile::tempdir().expect("a scratch folder");
         let path = folder.path().join("output");
         let mut writer = fs::File::create(&path).expect("the file is made");
@@ -242,7 +243,7 @@ mod tests {
     // Fails when a file cut shorter than what was read goes on being read from the old offset,
     // which skips the bytes written at its new start.
     #[tokio::test]
-    async fn channel_folder_watch_fails_once_its_file_is_truncated() {
+    async fn file_append_watch_fails_once_its_file_is_truncated() {
         let folder = tempfile::tempdir().expect("a scratch folder");
         let path = folder.path().join("output");
         let mut writer = fs::File::create(&path).expect("the file is made");

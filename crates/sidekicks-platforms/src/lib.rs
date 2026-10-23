@@ -32,7 +32,7 @@
               terminal's wait for its program (`waitid`, and its exit event's registration), \
               mimalloc's `mi_collect`, tree-sitter's `set_allocator`, and the power notifications \
               and wall-clock timers of macOS and Windows are C interfaces, and tokio's watch of \
-              the Linux timer's, the terminal poller's and macOS's channel watch queue's \
+              the Linux timer's, the terminal poller's and macOS's folder and file watch queue's \
               descriptors trusts each to stay open while it watches, and the Windows Ctrl-C \
               ending's `ExitProcess`, the user's locale reads (Windows' `GetLocaleInfoEx`, \
               macOS's `CFDateFormatterCreateDateFormatFromTemplate`), a process's user read from \
@@ -59,7 +59,6 @@ mod atomic_replace;
 mod base_environment;
 mod bash_start;
 mod caller_process;
-mod channel_folder_watch;
 mod child_command;
 mod child_tree;
 mod code_signature;
@@ -110,6 +109,7 @@ mod tool_memory_cap;
 mod user_namespace;
 mod wake_watch;
 mod wall_clock;
+mod watch;
 #[cfg(target_os = "windows")]
 mod windows;
 mod wsl;
@@ -120,7 +120,6 @@ pub use bash_start::{BashStart, BashStartInput, start_bash};
 #[cfg(not(target_os = "macos"))]
 pub use caller_process::read_responsible_process;
 pub use caller_process::{ParentProcess, ResponsibleProcess};
-pub use channel_folder_watch::{FileAppendWatch, FolderArrivalWatch};
 #[cfg(not(target_os = "linux"))]
 pub use child_command::leave_daemon_scope;
 pub use child_command::{ChildEnd, ChildExit, read_child_exit};
@@ -366,6 +365,7 @@ pub use tool_memory_cap::TOOL_MEMORY_CAP_ENFORCEABLE;
 pub use user_namespace::can_create_user_namespace;
 pub use wake_watch::WakeWatchError;
 pub use wall_clock::{WallClock, WallClockWait};
+pub use watch::{FileAppendWatch, FolderArrivalWatch};
 #[cfg(target_os = "windows")]
 pub use windows::allocator::{
     GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,

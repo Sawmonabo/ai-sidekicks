@@ -8,10 +8,11 @@ use std::process::{Command, Output, Stdio};
 use std::sync::OnceLock;
 
 use libc::{c_int, c_void};
-use nix::errno::Errno;
 
 use crate::input_wait::{InputTerminal, InputWaitReading};
-use crate::macos::processes::list_group_process_ids;
+use crate::macos::processes::{
+    list_group_process_ids, read_counted_list, read_libproc_count, read_pid_list,
+};
 use crate::posix::process::id::system_process_id;
 
 // `<sys/proc_info.h>`'s flavors and flags `libc` does not bind, and the private ones Apple's own
@@ -114,9 +115,6 @@ struct KeventExtinfo {
     _kqext_sfflags: c_int,
     _kqext_reserved: [u64; 2],
 }
-
-// The entries a list's first read makes room for, doubled while the list does not fit.
-const LIST_START_LENGTH: usize = 64;
 
 unsafe extern "C" {
     // libproc's reader of a work-loop kqueue, which its public header does not declare.
@@ -521,57 +519,6 @@ fn gone_as_empty<T>(list: io::Result<Vec<T>>) -> io::Result<Vec<T>> {
     }
 }
 
-// The list `proc_pidinfo` answers in bytes for `flavor` of process `pid`, in entries of `T`.
-fn read_pid_list<T>(pid: c_int, flavor: c_int) -> io::Result<Vec<T>> {
-    read_list(ListLength::Bytes, |buffer, length| {
-        // SAFETY: the buffer is live and `length` bytes long, sized for whole entries, and nothing
-        // else reads it until the call returns.
-        unsafe { libc::proc_pidinfo(pid, flavor, 0, buffer, length) }
-    })
-}
-
-// A list whose call answers how many entries the kernel holds, which may be more than it wrote.
-fn read_counted_list<T>(call: impl FnMut(*mut c_void, c_int) -> c_int) -> io::Result<Vec<T>> {
-    read_list(ListLength::Count, call)
-}
-
-// What a list call's answer counts.
-#[derive(Clone, Copy)]
-enum ListLength {
-    // The bytes it wrote, a full buffer meaning more may be left.
-    Bytes,
-    // The entries the kernel holds, written up to the buffer's room.
-    Count,
-}
-
-// The entries of type `T` a libproc list call writes into a buffer it is given, the buffer grown
-// until the whole list fits.
-fn read_list<T>(
-    length_kind: ListLength,
-    mut call: impl FnMut(*mut c_void, c_int) -> c_int,
-) -> io::Result<Vec<T>> {
-    let mut capacity = LIST_START_LENGTH;
-    loop {
-        let mut entries = Vec::<T>::with_capacity(capacity);
-        let length = c_int::try_from(capacity * size_of::<T>()).map_err(io::Error::other)?;
-        let answered = read_libproc_count(|| call(entries.as_mut_ptr().cast(), length))?;
-        let (written, is_whole) = match length_kind {
-            ListLength::Bytes => (
-                answered / size_of::<T>(),
-                answered < capacity * size_of::<T>(),
-            ),
-            ListLength::Count => (answered, answered <= capacity),
-        };
-        if is_whole {
-            // SAFETY: the call wrote `written` whole entries from the buffer's start, within its
-            // capacity.
-            unsafe { entries.set_len(written) };
-            return Ok(entries);
-        }
-        capacity = written.max(capacity).saturating_mul(2);
-    }
-}
-
 // What `proc_pidfdinfo` answers for `flavor` of descriptor `descriptor` of process `pid`; `None`
 // when the descriptor was closed since its listing.
 fn read_fd_info<T>(pid: c_int, descriptor: c_int, flavor: c_int) -> io::Result<Option<T>> {
@@ -590,20 +537,6 @@ fn read_fd_info<T>(pid: c_int, descriptor: c_int, flavor: c_int) -> io::Result<O
         Ok(_) => Ok(None),
         Err(error) if error.raw_os_error() == Some(libc::EBADF) => Ok(None),
         Err(error) => Err(error),
-    }
-}
-
-// Runs a libproc call answering a count, which answers 0 both when it fails and when it found
-// nothing, so `errno`, cleared first, tells the two apart.
-fn read_libproc_count(call: impl FnOnce() -> c_int) -> io::Result<usize> {
-    Errno::clear();
-    let count = call();
-    match usize::try_from(count) {
-        Ok(count) if count > 0 => Ok(count),
-        _ => match Errno::last_raw() {
-            0 => Ok(0),
-            code => Err(io::Error::from_raw_os_error(code)),
-        },
     }
 }
 

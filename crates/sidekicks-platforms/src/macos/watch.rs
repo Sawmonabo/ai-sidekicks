@@ -1,4 +1,4 @@
-//! The wake a channel folder's watch waits on, as macOS raises it: a kqueue vnode filter on the
+//! The wake a folder's arrival watch and a file's append watch wait on, as macOS raises it: a kqueue vnode filter on the
 //! folder or the file, whose queue tokio's reactor waits on without a thread of its own.
 
 use std::fs::{File, OpenOptions};

@@ -38,7 +38,7 @@ mod tests {
     use std::io::ErrorKind;
     use std::process::Command;
 
-    use crate::read_command_argument_limit;
+    use crate::{read_command_argument_limit, read_descriptor_path};
 
     // The bound macOS's and Linux's modules read is never under an argument a program can start
     // with.
@@ -52,5 +52,14 @@ mod tests {
             .expect_err("the program does not start");
 
         assert_eq!(refusal.kind(), ErrorKind::ArgumentListTooLong);
+    }
+
+    // Fails when a descriptor that names no file, as a pipe's, reads back as a path, as Linux's
+    // name for it (`pipe:[<inode>]`) would.
+    #[test]
+    fn a_pipe_s_descriptor_path_is_refused() {
+        let (reader, _writer) = std::io::pipe().expect("a pipe is made");
+
+        assert!(read_descriptor_path(&reader).is_err());
     }
 }

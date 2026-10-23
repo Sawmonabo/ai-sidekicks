@@ -21,7 +21,8 @@ static ARGUMENT_BYTES: OnceLock<usize> = OnceLock::new();
 /// The arguments and environment process `process_id` started with, bytes that are not UTF-8 read
 /// lossily; `None` when the system refuses the process (it ended, or another user runs it). Its
 /// own programs show their arguments and no environment. Blocks on the read; fails with the
-/// system's error on any other refusal.
+/// system's error on any other refusal, and with `InvalidData` when the answer is cut short before
+/// its last argument.
 pub fn read_process_start(process_id: u32) -> io::Result<Option<ProcessStart>> {
     let Ok(pid) = system_process_id(process_id) else {
         return Ok(None);
@@ -68,7 +69,8 @@ pub fn read_process_start(process_id: u32) -> io::Result<Option<ProcessStart>> {
 /// The environment process `process_id` started with, one `NAME=value` entry each, bytes that are
 /// not UTF-8 read lossily; `None` when the system refuses the process (it ended, or another user
 /// runs it) or shows no environment, as it shows none for its own programs. Blocks on the read;
-/// fails with the system's error on any other refusal.
+/// fails with the system's error on any other refusal, and with `InvalidData` when the answer is
+/// cut short before its last argument.
 pub fn read_process_environment(process_id: u32) -> io::Result<Option<Vec<String>>> {
     Ok(read_process_start(process_id)?
         .map(|start| start.environment)
