@@ -6,6 +6,7 @@
 
 use jiff::Timestamp;
 use serde_json::{Map, Value};
+use sidekicks_contracts::event::usage::compose_scoped_limit_id;
 
 use crate::provider::port::usage_sink::ProviderQuotaWindow;
 
@@ -52,7 +53,7 @@ fn read_window(
         "five_hour" => ("session".to_owned(), SESSION_WINDOW_MINUTES),
         "seven_day" => ("weekly_all".to_owned(), WEEKLY_WINDOW_MINUTES),
         "seven_day_overage_included" => (
-            format!("weekly_scoped:{}", scoped_model?),
+            compose_scoped_limit_id("weekly_scoped", scoped_model?),
             WEEKLY_WINDOW_MINUTES,
         ),
         _ => return None,

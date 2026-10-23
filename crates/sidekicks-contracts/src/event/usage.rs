@@ -34,6 +34,13 @@ ts_constants! {
     pub const DEFAULT_RATE_LIMIT_ID: &str = "default";
 }
 
+/// The `limitId` of an account limit scoped to one model: the limit's kind, a colon, then the
+/// model's display name, as in `weekly_scoped:Opus`, so every reader of one window keys it alike.
+#[must_use]
+pub fn compose_scoped_limit_id(kind: &str, model_display_name: &str) -> String {
+    format!("{kind}:{model_display_name}")
+}
+
 /// The `usage.tokenCount.recorded` payload: one turn's own token figures, never a running total, so
 /// a run's or a session's total is the sum of its rows. A count is absent when the provider
 /// reported none, never zero. The account is the one the turn was charged to, read from the run's
