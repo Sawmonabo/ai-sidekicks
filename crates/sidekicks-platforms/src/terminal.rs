@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use alacritty_terminal::tty::Pty;
 use polling::Poller;
 
 /// How long a helper program the terminals start (`taskkill.exe`, the console helper) may run, and
@@ -98,6 +99,21 @@ pub struct TerminalMasterReading {
     pub is_echo_on: bool,
     /// Whether the terminal hands input over a line at a time (`ICANON`).
     pub is_canonical: bool,
+}
+
+/// The device number of a terminal's program side, which tells a descriptor open on that terminal
+/// from every other, whatever path opened it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TerminalDevice(pub u64);
+
+/// A terminal a command runs in as its own session's leader, the terminal its controlling one: the
+/// open PTY, whose master reads the command's output and takes its input, and the device number
+/// of its program side.
+pub struct InnerTerminal {
+    /// The open PTY, with the command it started.
+    pub pty: Pty,
+    /// The device number of the PTY's program side.
+    pub device: TerminalDevice,
 }
 
 /// Wakes a terminal's read loop from any thread; it can be made before the loop runs, and a wake

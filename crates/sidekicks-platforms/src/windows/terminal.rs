@@ -41,9 +41,9 @@ use crate::spawner::Spawner;
 #[cfg(any(test, feature = "test-support"))]
 use crate::terminal::{AbnormalExit, TestProgram};
 use crate::terminal::{
-    CONSOLE_WAITING_INPUT_ARGUMENT, ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd,
-    TerminalInputRefusal, TerminalMasterReading, TerminalSignal, TerminalSignalRoute, TerminalWake,
-    TerminalWaker, read_waiting_input_line, waiting_input_line,
+    CONSOLE_WAITING_INPUT_ARGUMENT, ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, InnerTerminal,
+    ProcessTreeEnd, TerminalInputRefusal, TerminalMasterReading, TerminalSignal,
+    TerminalSignalRoute, TerminalWake, TerminalWaker, read_waiting_input_line, waiting_input_line,
 };
 use crate::windows::child_command::prepare_child_command;
 use crate::windows::known_folder::system_folder;
@@ -217,6 +217,18 @@ pub fn read_terminal_master(_pty: &Pty) -> io::Result<TerminalMasterReading> {
     Err(io::Error::new(
         ErrorKind::Unsupported,
         "a pseudo console has no master to read",
+    ))
+}
+
+/// Starts a command as the leader of a terminal of its own, which a `ConPTY` does not make: it has
+/// no session or controlling terminal. Always fails with `Unsupported`.
+pub fn start_inner_terminal(
+    _options: &tty::Options,
+    _window_size: WindowSize,
+) -> io::Result<InnerTerminal> {
+    Err(io::Error::new(
+        ErrorKind::Unsupported,
+        "a pseudo console makes no session for its command",
     ))
 }
 

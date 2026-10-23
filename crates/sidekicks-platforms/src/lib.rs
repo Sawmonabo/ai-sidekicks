@@ -248,6 +248,8 @@ pub use posix::file_system::{
     CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, remove_tree, rename_replacing,
 };
 #[cfg(unix)]
+pub use posix::inner_terminal::start_inner_terminal;
+#[cfg(unix)]
 pub use posix::login_shell::{login_shell, name_as_login_shell};
 #[cfg(unix)]
 pub use posix::null_device::NULL_DEVICE_PATH;
@@ -331,9 +333,9 @@ pub use system_locale::LocaleCategory;
 #[cfg(any(test, feature = "test-support"))]
 pub use terminal::{AbnormalExit, TestProgram};
 pub use terminal::{
-    CONSOLE_WAITING_INPUT_ARGUMENT, ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd,
-    TerminalInputRefusal, TerminalMasterReading, TerminalSignal, TerminalSignalRoute, TerminalWake,
-    TerminalWaker,
+    CONSOLE_WAITING_INPUT_ARGUMENT, ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, InnerTerminal,
+    ProcessTreeEnd, TerminalDevice, TerminalInputRefusal, TerminalMasterReading, TerminalSignal,
+    TerminalSignalRoute, TerminalWake, TerminalWaker,
 };
 #[cfg(any(test, feature = "test-support"))]
 pub use test_program::pass_through_start;
@@ -444,6 +446,8 @@ pub use windows::socket::unix_domain::{UnixDomainStream, connect_unix_domain_soc
 pub use windows::stop_request::StopRequest;
 #[cfg(target_os = "windows")]
 pub use windows::system_locale::{system_hour_cycle, system_locale};
+#[cfg(target_os = "windows")]
+pub use windows::terminal::start_inner_terminal;
 #[cfg(target_os = "windows")]
 pub use windows::terminal::{
     DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
