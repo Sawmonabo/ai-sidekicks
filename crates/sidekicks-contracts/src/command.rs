@@ -143,7 +143,7 @@ pub struct AgentCommandStopRequest {
 pub struct AgentCommandStopResponse {
     /// The command.
     pub command_id: CommandId,
-    /// Always true.
+    /// True once the provider acknowledged the stop.
     pub stopped: True,
 }
 
@@ -224,24 +224,23 @@ fn add_write_carries_something_rule(schema: &mut schemars::Schema) {
     );
 }
 
-/// How a command ended: it finished, it failed, or the person stopped it.
+/// How a command ended: it finished, it failed or the provider stopped it, or the person stopped
+/// it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum CommandEnding {
     /// It finished.
     Finished,
-    /// It failed.
+    /// It failed, or the provider stopped it.
     Failed,
     /// The person stopped it.
     EndedByPerson,
 }
 
 with_machine_content_descriptor! {
-    /// The `agent.command.ended` payload: one command's ending. `exitCode` is the process's own
-    /// when it has one; `durationMs` is how long it ran, so the row reads its duration after a
-    /// reload. A provider's summary of a command it stopped, as at Claude Code's own time limit, is
-    /// the event's body, kept apart from the payload and only on a `failed` ending. It takes the
-    /// epoch stamp.
+    /// The `agent.command.ended` payload: one command's ending, which takes the epoch stamp. A
+    /// provider's summary of a command it stopped itself is the event's body, only on a `failed`
+    /// ending.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -326,10 +325,10 @@ methods! {
             result: AgentCommandBackgroundResponse,
             refusals: [
                 SessionNotFound,
-                ProviderUnavailable,
-                ProviderTimeout,
                 ProviderCapabilityUnsupported,
                 AgentCommandNotInForeground,
+                ProviderUnavailable,
+                ProviderTimeout,
             ],
         },
         /// Writes input to a command, ends its input, or both.
@@ -339,9 +338,9 @@ methods! {
             result: NullPayload,
             refusals: [
                 SessionNotFound,
+                AgentCommandTakesNoInput,
                 ProviderUnavailable,
                 ProviderTimeout,
-                AgentCommandTakesNoInput,
             ],
         },
     ];
