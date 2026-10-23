@@ -86,12 +86,53 @@ pub struct SessionEventCompactedPayload {
     pub removed_sessions: BoundedVec<SessionEventCompactedRemovedSession, 1, { usize::MAX }>,
 }
 
+/// A payload whose events may carry a body kept apart from it: one declared through
+/// `with_machine_content_descriptor!`, or a union of such payloads.
+pub(crate) trait MachineContentDescriptor {}
+
+/// Refuses a cut mark on a payload that reports no body length.
+pub(crate) fn truncation_reports_its_length(is_truncated: bool, has_length: bool) -> garde::Result {
+    if is_truncated && !has_length {
+        Err(garde::Error::new("a cut body reports its length"))
+    } else {
+        Ok(())
+    }
+}
+
+/// The schema twin of [`truncation_reports_its_length`], merged into the payload's own
+/// `dependentRequired` so the epoch stamp's pairs stay beside it.
+pub(crate) fn add_truncation_length_rule(schema: &mut schemars::Schema) {
+    let rule = serde_json::json!([CONTENT_LENGTH_PAYLOAD_KEY]);
+    match schema
+        .get_mut("dependentRequired")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        Some(dependent_required) => {
+            dependent_required.insert(CONTENT_TRUNCATED_PAYLOAD_KEY.to_owned(), rule);
+        }
+        None => {
+            schema.insert(
+                "dependentRequired".into(),
+                serde_json::json!({ CONTENT_TRUNCATED_PAYLOAD_KEY: rule }),
+            );
+        }
+    }
+}
+
 /// Declares a body-bearing payload: the struct as written, followed by the two members the append
-/// path owns, `contentLength` and `contentTruncated`, each optional because a row may have no body.
-/// The struct's attributes come with it and include `#[garde(allow_unvalidated)]`.
+/// path owns, `contentLength` and `contentTruncated`, each optional because a row may have no body,
+/// and the cut mark only beside a length. The struct's attributes come with it and include
+/// `#[garde(allow_unvalidated)]`.
 macro_rules! with_machine_content_descriptor {
     ($(#[$meta:meta])* pub struct $name:ident { $($members:tt)* }) => {
         $(#[$meta])*
+        #[garde(custom(|payload: &Self, (): &()| {
+            $crate::event::declared_variants::truncation_reports_its_length(
+                payload.content_truncated.is_some(),
+                payload.content_length.is_some(),
+            )
+        }))]
+        #[schemars(transform = $crate::event::declared_variants::add_truncation_length_rule)]
         pub struct $name {
             $($members)*
             /// The stored body's UTF-8 byte length before any cut.
@@ -111,6 +152,8 @@ macro_rules! with_machine_content_descriptor {
             #[schemars(with = "crate::wire::True")]
             pub content_truncated: Option<$crate::wire::True>,
         }
+
+        impl $crate::event::declared_variants::MachineContentDescriptor for $name {}
     };
 }
 
@@ -257,6 +300,9 @@ pub enum AgentOutputPayload {
     /// A voice call's spoken answer.
     Voice(#[garde(dive)] VoiceAgentOutputPayload),
 }
+
+/// Both arms are declared with the content members.
+impl MachineContentDescriptor for AgentOutputPayload {}
 
 with_machine_content_descriptor! {
     /// The payload of `agent.toolCall.invoked`, `agent.toolCall.completed` and

@@ -423,4 +423,19 @@ mod tests {
             assert!(with_body.validate().is_err(), "{ending}");
         }
     }
+
+    // Killed by `truncation_reports_its_length` answering `Ok` for a cut mark with no length.
+    #[test]
+    fn a_cut_body_reports_its_length() {
+        let mut cut = ended("failed", None);
+        cut["contentTruncated"] = json!(true);
+        let without_length: AgentCommandEndedPayload =
+            serde_json::from_value(cut.clone()).expect("the shape reads");
+        assert!(without_length.validate().is_err());
+
+        cut["contentLength"] = json!(300_000);
+        let with_length: AgentCommandEndedPayload =
+            serde_json::from_value(cut).expect("the shape reads");
+        assert!(with_length.validate().is_ok());
+    }
 }
