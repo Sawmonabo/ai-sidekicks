@@ -405,16 +405,12 @@ async fn skip_to_next_line(reader: &mut BufReader<tokio::fs::File>) -> io::Resul
         if buffered.is_empty() {
             return Ok(());
         }
-        match memchr::memchr(b'\n', buffered) {
-            Some(newline) => {
-                reader.consume(newline + 1);
-                return Ok(());
-            }
-            None => {
-                let length = buffered.len();
-                reader.consume(length);
-            }
+        if let Some(newline) = memchr::memchr(b'\n', buffered) {
+            reader.consume(newline + 1);
+            return Ok(());
         }
+        let length = buffered.len();
+        reader.consume(length);
     }
 }
 
@@ -544,6 +540,7 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
+    use serde_json::json;
     use sidekicks_platforms::PathRules;
 
     use super::{
@@ -596,8 +593,9 @@ mod tests {
         fs::write(
             &file,
             format!(
-                "{{\"type\":\"user\",\"uuid\":\"too-long\",\"message\":{{\"content\":\"{padding}\"}}}}\n\
-                 {{\"type\":\"user\",\"uuid\":\"kept\",\"message\":{{\"content\":\"steer\"}}}}\n"
+                "{}\n{}\n",
+                json!({"type": "user", "uuid": "too-long", "message": {"content": padding}}),
+                json!({"type": "user", "uuid": "kept", "message": {"content": "steer"}}),
             ),
         )
         .expect("the conversation is written");
