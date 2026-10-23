@@ -33,7 +33,8 @@ pub struct FolderArrivalWatch {
 
 impl FolderArrivalWatch {
     /// Watches `folder`; the records it already holds are not arrivals. Fails with the system's
-    /// error when the folder cannot be opened, watched or listed, and with `Unsupported` on Windows.
+    /// error when the folder cannot be opened, watched or listed, and with `Unsupported` on
+    /// Windows.
     pub async fn watch(folder: &Path) -> io::Result<Self> {
         let wake = ChangeWake::on_folder_renames(folder)?;
         let known = list_names(folder).await?;
@@ -45,9 +46,9 @@ impl FolderArrivalWatch {
     }
 
     /// The paths of the records that arrived since the last call in name order, waiting until one
-    /// does; a name ending in the temporary suffix a record is written under is never one. Fails with the
-    /// system's error when the folder cannot be listed or the watch fails, and with `NotFound` once
-    /// the folder is removed or renamed away.
+    /// does; a name ending in the temporary suffix a record is written under is never one. Fails
+    /// with the system's error when the folder cannot be listed or the watch fails, and with
+    /// `NotFound` once the folder is removed or renamed away.
     pub async fn next_arrivals(&mut self) -> io::Result<Vec<PathBuf>> {
         loop {
             let names = list_names(&self.folder).await?;

@@ -119,7 +119,8 @@ pub struct TerminalDevice(pub u64);
 
 /// A terminal a command runs in as its own session's leader, the terminal its controlling one: the
 /// open PTY, whose master reads the command's output and takes its input, and the device number
-/// of its program side.
+/// of its program side. Dropping it sends the leader SIGHUP and waits for it to exit, so a leader
+/// that ignores SIGHUP hangs the drop: its owner ends the command's group first.
 pub struct InnerTerminal {
     /// The open PTY, with the command it started.
     pub pty: Pty,

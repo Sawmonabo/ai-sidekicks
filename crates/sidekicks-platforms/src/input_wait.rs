@@ -37,6 +37,7 @@ pub struct InputWaitReading {
 #[cfg(all(test, unix))]
 mod tests {
     use std::collections::HashMap;
+    use std::io::Write;
     use std::thread;
     use std::time::{Duration, Instant};
 
@@ -50,7 +51,8 @@ mod tests {
     use crate::posix::terminal::{read_terminal_master, terminal_options};
     use crate::read_input_wait;
 
-    // How long after its prompt a waiting command must read as waiting.
+    // How long after its prompt a waiting command must read as waiting, and how long a command
+    // that waits on nothing keeps reading as not waiting.
     const WAIT_BOUND: Duration = Duration::from_millis(500);
 
     // How long a command that waits on nothing settles before it is read.
@@ -59,34 +61,48 @@ mod tests {
     // Whether a `select` reader is seen: Linux reads its descriptor set, macOS cannot.
     const IS_SELECT_SEEN: bool = cfg!(target_os = "linux");
 
-    // Fails when a thread's run state is taken as a wait (`sleep 30` and the shell after `read -t`
-    // wait in the kernel too), when echo is read as off only with canonical input on (`vim` turns
-    // both off), when echo off alone reads as a password prompt (`stty -echo -icanon`), or when a
-    // read on the terminal, a `kevent` on a read knote or a `select` on Linux is missed, or a read
-    // through `/dev/tty` is not taken for one on the terminal.
+    // Fails when a thread's run state is taken as a wait (`sleep 30` and the shell waiting on it
+    // after `read -t` wait in the kernel too), when input typed ahead does not rule a wait out,
+    // when echo is read as off only with canonical input on (`vim` turns both off), when echo off
+    // alone reads as a password prompt (`stty -echo -icanon`), or when a read on the terminal, a
+    // `kevent` on a read knote, a `select` on Linux or a read through `/dev/tty` is missed.
     #[rstest]
     #[case::node_readline(
         "node -e \"require('readline').createInterface({input: process.stdin, \
          output: process.stdout}).question('ready> ', () => {})\"",
         "ready>",
+        "",
         reading(true, Echo::Off)
     )]
-    #[case::cat("echo ready; exec cat", "ready", reading(true, Echo::On))]
+    #[case::cat("echo ready; exec cat", "ready", "", reading(true, Echo::On))]
+    // It reads a named pipe while its standard input is the terminal, so on macOS only the line
+    // typed ahead and left unread tells its read is not the terminal's.
+    #[case::typed_ahead_elsewhere_reader(
+        "pipe=$(mktemp -u); mkfifo \"$pipe\"; exec python3 -c \"import os, sys; \
+         pipe = os.open(sys.argv[1], os.O_RDWR); os.unlink(sys.argv[1]); \
+         print('ready', flush=True); os.read(pipe, 1)\" \"$pipe\"",
+        "ready",
+        "a line\n",
+        reading(false, Echo::On)
+    )]
     #[case::raw_cat(
         "stty -echo -icanon; echo ready; exec cat",
         "ready",
+        "",
         reading(true, Echo::Off)
     )]
     #[case::read_with_time_limit(
-        "read -t 1 line; echo ready; exec sleep 30",
+        "read -t 1 line; echo ready; sleep 30",
         "ready",
+        "",
         reading(false, Echo::On)
     )]
-    #[case::sleep("echo ready; exec sleep 30", "ready", reading(false, Echo::On))]
+    #[case::sleep("echo ready; exec sleep 30", "ready", "", reading(false, Echo::On))]
     #[case::python_select(
         "exec python3 -c \"import select, sys; print('ready', flush=True); \
          select.select([sys.stdin], [], [])\"",
         "ready",
+        "",
         reading(IS_SELECT_SEEN, Echo::On)
     )]
     // Its standard streams are away from the terminal, so `/dev/tty` is its only way to it.
@@ -94,17 +110,20 @@ mod tests {
         "exec python3 -c \"import os; terminal = os.open('/dev/tty', os.O_RDWR); \
          os.write(terminal, b'ready\\n'); os.read(terminal, 1)\" < /dev/null > /dev/null 2>&1",
         "ready",
+        "",
         reading(true, Echo::On)
     )]
     #[case::hidden_read(
         "echo ready; exec /bin/bash -c 'read -s line'",
         "ready",
+        "",
         reading(true, Echo::OffAtPasswordPrompt)
     )]
-    #[case::vim("exec vim -u NONE -N -n", "~", reading(IS_SELECT_SEEN, Echo::Off))]
+    #[case::vim("exec vim -u NONE -N -n", "~", "", reading(IS_SELECT_SEEN, Echo::Off))]
     fn input_wait_reads_each_kind_of_reader(
         #[case] script: &str,
         #[case] marker: &str,
+        #[case] typed: &str,
         #[case] expected: InputWaitReading,
     ) {
         let options = terminal_options(
@@ -121,7 +140,9 @@ mod tests {
         };
         let terminal = start_inner_terminal(&options, window_size).expect("the terminal starts");
         let prompt = read_until_marker(&terminal.pty, marker, Duration::from_secs(20));
-        let prompted = Instant::now();
+        let typing = prompt
+            .is_ok()
+            .then(|| terminal.pty.file().write_all(typed.as_bytes()));
         if prompt.is_ok() && !expected.is_waiting {
             thread::sleep(SETTLE);
         }
@@ -131,19 +152,38 @@ mod tests {
                 master: read_terminal_master(&terminal.pty)?,
             })
         };
-        let mut reading = prompt.is_ok().then(read);
-        while prompted.elapsed() < WAIT_BOUND
-            && reading
+        // A waiting command is read until it reads as waiting; one that waits on nothing is read
+        // across the whole bound, and must never read as waiting.
+        let window_start = Instant::now();
+        let mut readings = Vec::new();
+        while prompt.is_ok() {
+            let reading = read();
+            let is_settled = reading
                 .as_ref()
-                .is_some_and(|reading| reading.as_ref().is_ok_and(|read| *read != expected))
-        {
-            reading = Some(read());
+                .map_or(true, |reading| expected.is_waiting && *reading == expected);
+            readings.push(reading);
+            if is_settled || window_start.elapsed() >= WAIT_BOUND {
+                break;
+            }
         }
         end_inner_terminal(terminal);
 
         prompt.expect("the command prompts");
-        let reading = reading.expect("the wait was read").expect("the wait reads");
-        assert_eq!(reading, expected, "{script}");
+        typing
+            .expect("the command prompted")
+            .expect("the typed input is written");
+        let readings = readings
+            .into_iter()
+            .collect::<std::io::Result<Vec<_>>>()
+            .expect("the wait reads");
+        if expected.is_waiting {
+            assert_eq!(readings.last(), Some(&expected), "{script}");
+        } else {
+            assert!(
+                readings.iter().all(|reading| *reading == expected),
+                "{script}: {readings:?}"
+            );
+        }
     }
 
     // How a case's terminal echoes.

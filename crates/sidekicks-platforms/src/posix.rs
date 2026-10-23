@@ -35,10 +35,11 @@ pub(crate) mod xdg_data_folders;
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
     use std::io::ErrorKind;
     use std::process::Command;
 
-    use crate::{read_command_argument_limit, read_descriptor_path};
+    use crate::{read_command_argument_limit, read_descriptor_path, real_path};
 
     // The bound macOS's and Linux's modules read is never under an argument a program can start
     // with.
@@ -52,6 +53,18 @@ mod tests {
             .expect_err("the program does not start");
 
         assert_eq!(refusal.kind(), ErrorKind::ArgumentListTooLong);
+    }
+
+    // Fails when the path is read from anything but the open descriptor, or cut at its end.
+    #[test]
+    fn descriptor_path_round_trips_an_open_file() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let path = folder.path().join("standard output");
+        let file = File::create(&path).expect("the file is made");
+
+        let read = read_descriptor_path(&file).expect("the path reads");
+
+        assert_eq!(read, real_path(&path).expect("the file's real path"));
     }
 
     // Fails when a descriptor that names no file, as a pipe's, reads back as a path, as Linux's

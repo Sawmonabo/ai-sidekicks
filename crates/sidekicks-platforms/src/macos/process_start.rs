@@ -58,7 +58,7 @@ pub fn read_process_start(process_id: u32) -> io::Result<Option<ProcessStart>> {
         };
     }
     buffer.truncate(length);
-    process_start_in(&buffer).map(Some).ok_or_else(|| {
+    parse_process_start(&buffer).map(Some).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             format!("process {process_id}'s start was cut short"),
@@ -105,7 +105,7 @@ fn read_argument_bytes() -> io::Result<usize> {
 // entry, each ended by a zero byte, and the environment by an empty entry; `None` when the answer
 // is cut short before its last argument. Only the padding is skipped, so an empty first argument
 // is still counted.
-fn process_start_in(answer: &[u8]) -> Option<ProcessStart> {
+fn parse_process_start(answer: &[u8]) -> Option<ProcessStart> {
     let (count_bytes, strings) = answer.split_at_checked(ARGUMENT_COUNT_BYTES)?;
     let argument_count = libc::c_int::from_ne_bytes(count_bytes.try_into().ok()?);
     let argument_count = usize::try_from(argument_count).ok()?;
@@ -128,7 +128,7 @@ fn process_start_in(answer: &[u8]) -> Option<ProcessStart> {
 
 #[cfg(test)]
 mod tests {
-    use super::process_start_in;
+    use super::parse_process_start;
     use crate::process_start::ProcessStart;
 
     // Fails when the padding after the executable's path is skipped as a run of empty entries,
@@ -149,7 +149,7 @@ mod tests {
         });
 
         // A path whose end falls between boundaries, and one whose end falls on one.
-        assert_eq!(process_start_in(&answer(b"/bin/a")), expected);
-        assert_eq!(process_start_in(&answer(b"/bin/ab")), expected);
+        assert_eq!(parse_process_start(&answer(b"/bin/a")), expected);
+        assert_eq!(parse_process_start(&answer(b"/bin/ab")), expected);
     }
 }

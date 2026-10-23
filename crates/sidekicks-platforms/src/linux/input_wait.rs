@@ -98,9 +98,9 @@ pub fn may_wait_for_input(terminal: &InputTerminal) -> io::Result<bool> {
 }
 
 // What one process of the group shows.
-struct ProcessRead {
+struct ProcessReading {
     process_id: u32,
-    threads: Vec<ThreadRead>,
+    threads: Vec<ThreadReading>,
     // Whether the kernel refused its descriptors, so its threads' calls cannot be read either.
     is_refused: bool,
     // The descriptors open for reading on the terminal.
@@ -113,7 +113,7 @@ struct ProcessRead {
 }
 
 // One thread of a process.
-struct ThreadRead {
+struct ThreadReading {
     thread_id: u32,
     // The state letter of its `stat`.
     state: char,
@@ -196,7 +196,10 @@ fn list_thread_ids(process_id: u32) -> io::Result<Vec<u32>> {
 }
 
 // What `member` shows of its threads and descriptors; `None` when it ended.
-fn read_process(member: &GroupMember, device: TerminalDevice) -> io::Result<Option<ProcessRead>> {
+fn read_process(
+    member: &GroupMember,
+    device: TerminalDevice,
+) -> io::Result<Option<ProcessReading>> {
     let process_id = member.process_id;
     let mut threads = Vec::new();
     for &thread_id in &member.thread_ids {
@@ -204,9 +207,9 @@ fn read_process(member: &GroupMember, device: TerminalDevice) -> io::Result<Opti
             continue;
         };
         let state = state.chars().next().unwrap_or('?');
-        threads.push(ThreadRead { thread_id, state });
+        threads.push(ThreadReading { thread_id, state });
     }
-    let mut process = ProcessRead {
+    let mut process = ProcessReading {
         process_id,
         threads,
         is_refused: false,
@@ -266,14 +269,14 @@ fn is_terminal_descriptor(
     device: TerminalDevice,
 ) -> bool {
     if target == "/dev/tty" {
-        return controlling_terminal == Some(old_device_encoding(device));
+        return controlling_terminal == Some(encode_old_device(device));
     }
     fs::metadata(path)
         .is_ok_and(|metadata| metadata.file_type().is_char_device() && metadata.rdev() == device.0)
 }
 
 // A device number in the old encoding `stat`'s `tty_nr` field writes it in.
-fn old_device_encoding(device: TerminalDevice) -> i64 {
+fn encode_old_device(device: TerminalDevice) -> i64 {
     let major = i64::from(libc::major(device.0));
     let minor = i64::from(libc::minor(device.0));
     (minor & 0xff) | (major << 8) | ((minor & !0xff) << 12)
@@ -298,8 +301,8 @@ fn is_open_for_reading(process_id: u32, descriptor: i32) -> io::Result<bool> {
 
 // Where `thread` of `process` waits.
 fn thread_wait(
-    process: &ProcessRead,
-    thread: &ThreadRead,
+    process: &ProcessReading,
+    thread: &ThreadReading,
     terminal: &InputTerminal,
 ) -> io::Result<ThreadWait> {
     let call = match read_process_file(
@@ -335,9 +338,11 @@ fn thread_wait(
     let [first, second, ..] = arguments.as_slice() else {
         return Ok(ThreadWait::Elsewhere);
     };
-    let is_on_terminal = match system_call(number) {
-        Some(SystemCall::Read) => process.terminal_reads.contains(&descriptor_of(*first)),
-        Some(SystemCall::EpollWait) => epoll_set_waits_on_terminal(process, descriptor_of(*first))?,
+    let is_on_terminal = match read_system_call(number) {
+        Some(SystemCall::Read) => process.terminal_reads.contains(&read_descriptor(*first)),
+        Some(SystemCall::EpollWait) => {
+            epoll_set_waits_on_terminal(process, read_descriptor(*first))?
+        }
         Some(SystemCall::Select) => select_reads_terminal(process, *first, *second)?,
         Some(SystemCall::Poll) => poll_reads_terminal(process, *first, *second)?,
         None => false,
@@ -363,7 +368,7 @@ enum SystemCall {
 
 // The kind of system call `number` is on this processor; `restart_syscall` and every other call
 // read as none, since a resumed `poll` shows no descriptor set.
-fn system_call(number: libc::c_long) -> Option<SystemCall> {
+fn read_system_call(number: libc::c_long) -> Option<SystemCall> {
     match number {
         libc::SYS_read | libc::SYS_readv | libc::SYS_pread64 => Some(SystemCall::Read),
         libc::SYS_epoll_pwait | libc::SYS_epoll_pwait2 => Some(SystemCall::EpollWait),
@@ -380,13 +385,13 @@ fn system_call(number: libc::c_long) -> Option<SystemCall> {
 }
 
 // A system call argument as the descriptor it names; one past `i32` names none.
-fn descriptor_of(argument: u64) -> i32 {
+fn read_descriptor(argument: u64) -> i32 {
     i32::try_from(argument).unwrap_or(-1)
 }
 
 // Whether epoll set `epoll_set` of `process` waits for input on one of its descriptors of the
 // terminal, as the set's `fdinfo` lists its targets.
-fn epoll_set_waits_on_terminal(process: &ProcessRead, epoll_set: i32) -> io::Result<bool> {
+fn epoll_set_waits_on_terminal(process: &ProcessReading, epoll_set: i32) -> io::Result<bool> {
     if !process.epoll_sets.contains(&epoll_set) {
         return Ok(false);
     }
@@ -411,7 +416,7 @@ fn epoll_set_waits_on_terminal(process: &ProcessRead, epoll_set: i32) -> io::Res
 // `process`'s memory holds one of its descriptors of the terminal. The set is read only up to the
 // highest such descriptor, so the call's own count never sizes the read.
 fn select_reads_terminal(
-    process: &ProcessRead,
+    process: &ProcessReading,
     descriptor_count: u64,
     read_set: u64,
 ) -> io::Result<bool> {
@@ -447,7 +452,7 @@ fn select_reads_terminal(
 
 // Whether a `poll` over the `count` `pollfd` entries at `entries` in `process`'s memory waits for
 // input on one of its descriptors of the terminal, among its first `POLL_ENTRY_LIMIT` entries.
-fn poll_reads_terminal(process: &ProcessRead, entries: u64, count: u64) -> io::Result<bool> {
+fn poll_reads_terminal(process: &ProcessReading, entries: u64, count: u64) -> io::Result<bool> {
     // `struct pollfd`: a 32-bit descriptor, then 16-bit requested and returned events.
     const ENTRY_BYTES: usize = 8;
     // The kernel reads the count as an `unsigned int`, from the register's low 32 bits.
@@ -501,8 +506,8 @@ fn read_memory(process_id: u32, address: u64, bytes: &mut [u8]) -> io::Result<bo
 // there and the master holds no unread output, so it is no writer; or in an epoll wait on a set
 // holding the terminal for input.
 fn wait_channel_wait(
-    process: &ProcessRead,
-    thread: &ThreadRead,
+    process: &ProcessReading,
+    thread: &ThreadReading,
     terminal: &InputTerminal,
 ) -> io::Result<ThreadWait> {
     let Some(channel) = read_process_file(
@@ -571,7 +576,7 @@ fn is_gone(error: &io::Error) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProcessRead, select_reads_terminal};
+    use super::{ProcessReading, select_reads_terminal};
     use crate::posix::memory::page_bytes;
 
     // The terminal's descriptor the set marks, the last bit of the set's first byte.
@@ -603,7 +608,7 @@ mod tests {
             set.write(1 << TERMINAL_DESCRIPTOR);
             set
         };
-        let process = ProcessRead {
+        let process = ProcessReading {
             process_id: std::process::id(),
             threads: Vec::new(),
             is_refused: false,

@@ -38,23 +38,3 @@ pub fn read_descriptor_path(descriptor: impl AsFd) -> io::Result<PathBuf> {
     }
     Ok(path)
 }
-
-#[cfg(test)]
-mod tests {
-    use std::fs::File;
-
-    use super::read_descriptor_path;
-    use crate::real_path;
-
-    // Fails when the path is read from anything but the open descriptor.
-    #[test]
-    fn descriptor_path_round_trips_an_open_file() {
-        let folder = tempfile::tempdir().expect("a scratch folder");
-        let path = folder.path().join("standard output");
-        let file = File::create(&path).expect("the file is made");
-
-        let read = read_descriptor_path(&file).expect("the path reads");
-
-        assert_eq!(read, real_path(&path).expect("the file's real path"));
-    }
-}

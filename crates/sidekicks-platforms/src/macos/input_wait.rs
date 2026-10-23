@@ -271,11 +271,11 @@ fn survey_process(process_id: u32, terminal: &InputTerminal) -> io::Result<Proce
     let pid = system_process_id(process_id)?.get();
     let descriptors = match read_descriptors(pid, terminal) {
         Ok(descriptors) => descriptors,
-        Err(error) => return refusal_survey(error),
+        Err(error) => return survey_refusal(error),
     };
     let is_running = match is_any_thread_running(pid) {
         Ok(is_running) => is_running,
-        Err(error) => return refusal_survey(error),
+        Err(error) => return survey_refusal(error),
     };
     Ok(ProcessSurvey::Read {
         descriptors,
@@ -284,7 +284,7 @@ fn survey_process(process_id: u32, terminal: &InputTerminal) -> io::Result<Proce
 }
 
 // A read's failure as what it says of the process: gone, refused, or a failure to surface.
-fn refusal_survey(error: io::Error) -> io::Result<ProcessSurvey> {
+fn survey_refusal(error: io::Error) -> io::Result<ProcessSurvey> {
     match error.raw_os_error() {
         Some(libc::ESRCH) => Ok(ProcessSurvey::Gone),
         Some(libc::EPERM | libc::EACCES) => Ok(ProcessSurvey::Refused),
@@ -483,7 +483,7 @@ fn holds_terminal_read_knote(pid: c_int, descriptors: &ProcessDescriptors) -> io
             // nothing else reads it until the call returns.
             unsafe { libc::proc_pidfdinfo(pid, kqueue, PROC_PIDFDKQUEUE_EXTINFO, buffer, length) }
         });
-        if gone_as_empty(knotes)?.iter().any(is_terminal_read) {
+        if read_gone_as_empty(knotes)?.iter().any(is_terminal_read) {
             return Ok(true);
         }
     }
@@ -492,7 +492,7 @@ fn holds_terminal_read_knote(pid: c_int, descriptors: &ProcessDescriptors) -> io
         // reads it until the call returns.
         unsafe { libc::proc_pidinfo(pid, PROC_PIDLISTDYNKQUEUES, 0, buffer, length) }
     });
-    let work_loops = gone_as_empty(work_loops)?;
+    let work_loops = read_gone_as_empty(work_loops)?;
     for work_loop in work_loops {
         let knotes = read_counted_list::<KeventExtinfo>(|buffer, length| {
             // SAFETY: the buffer is live and `length` bytes long, sized for whole knotes, and
@@ -501,7 +501,7 @@ fn holds_terminal_read_knote(pid: c_int, descriptors: &ProcessDescriptors) -> io
                 proc_piddynkqueueinfo(pid, PROC_PIDDYNKQUEUE_EXTINFO, work_loop, buffer, length)
             }
         });
-        if gone_as_empty(knotes)?.iter().any(is_terminal_read) {
+        if read_gone_as_empty(knotes)?.iter().any(is_terminal_read) {
             return Ok(true);
         }
     }
@@ -510,7 +510,7 @@ fn holds_terminal_read_knote(pid: c_int, descriptors: &ProcessDescriptors) -> io
 
 // A list of a kqueue or a process, none when the kqueue closed or the process ended since its
 // listing.
-fn gone_as_empty<T>(list: io::Result<Vec<T>>) -> io::Result<Vec<T>> {
+fn read_gone_as_empty<T>(list: io::Result<Vec<T>>) -> io::Result<Vec<T>> {
     match list {
         Err(error) if matches!(error.raw_os_error(), Some(libc::EBADF | libc::ESRCH)) => {
             Ok(Vec::new())
@@ -561,14 +561,14 @@ fn sample_innermost_calls(process_id: u32) -> io::Result<Option<Vec<Vec<String>>
         }
         return Err(program_failure("sample", &process_id.to_string(), &output));
     }
-    innermost_calls_in(&String::from_utf8_lossy(&output.stdout)).map(Some)
+    read_innermost_calls(&String::from_utf8_lossy(&output.stdout)).map(Some)
 }
 
 // Whether process `pid` has ended, as [`survey_process`] reads an ended process.
 fn is_gone(pid: c_int) -> io::Result<bool> {
     match read_pid_list::<u64>(pid, PROC_PIDLISTTHREADS) {
         Ok(_threads) => Ok(false),
-        Err(error) => Ok(matches!(refusal_survey(error)?, ProcessSurvey::Gone)),
+        Err(error) => Ok(matches!(survey_refusal(error)?, ProcessSurvey::Gone)),
     }
 }
 
@@ -583,7 +583,7 @@ fn program_failure(program: &str, processes: &str, output: &Output) -> io::Error
 
 // The innermost calls of each thread of a `sample` report's call graph: the frames no deeper frame
 // follows in the thread's tree. Fails with `InvalidData` when the report has no call graph.
-fn innermost_calls_in(report: &str) -> io::Result<Vec<Vec<String>>> {
+fn read_innermost_calls(report: &str) -> io::Result<Vec<Vec<String>>> {
     let mut threads: Vec<Vec<String>> = Vec::new();
     let mut frames: Vec<(usize, String)> = Vec::new();
     let finish_thread = |frames: &mut Vec<(usize, String)>, threads: &mut Vec<Vec<String>>| {
@@ -634,10 +634,10 @@ fn innermost_calls_in(report: &str) -> io::Result<Vec<Vec<String>>> {
 
 #[cfg(test)]
 mod tests {
-    use super::innermost_calls_in;
+    use super::read_innermost_calls;
 
-    // Fails when a frame some deeper frame follows is taken as innermost, or one thread's frames
-    // run into the next thread's.
+    // Fails when a frame some deeper frame follows is taken as innermost, a frame its sibling at
+    // the same depth follows is not, or one thread's frames run into the next thread's.
     #[test]
     fn a_sample_report_s_innermost_calls_are_read_per_thread() {
         let report = "Analysis of sampling cat (pid 1) every 10 milliseconds\n\
@@ -650,16 +650,21 @@ mod tests {
             + 6 thread_start  (in libsystem_pthread.dylib) + 8  [0x4]\n    \
             + ! 4 work  (in cat) + 1  [0x5]\n    \
             + ! : 4 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x6]\n    \
-            + ! 2 kevent  (in libsystem_kernel.dylib) + 8  [0x7]\n\n\
+            + ! 2 kevent  (in libsystem_kernel.dylib) + 8  [0x7]\n    \
+            10 Thread_3\n    \
+            + 10 main  (in cat) + 1  [0x8]\n    \
+            +   6 read  (in libsystem_kernel.dylib) + 8  [0x9]\n    \
+            +   4 kevent  (in libsystem_kernel.dylib) + 8  [0xa]\n\n\
             Total number in stack (recursive counted multiple, when >=5):\n";
 
-        let threads = innermost_calls_in(report).expect("the report has a call graph");
+        let threads = read_innermost_calls(report).expect("the report has a call graph");
 
         assert_eq!(
             threads,
             vec![
                 vec!["read".to_owned()],
                 vec!["__psynch_cvwait".to_owned(), "kevent".to_owned()],
+                vec!["read".to_owned(), "kevent".to_owned()],
             ]
         );
     }
@@ -671,6 +676,6 @@ mod tests {
         let report = "Analysis of sampling cat (pid 1) every 10 milliseconds\n\
             Process:         cat [1]\n";
 
-        assert!(innermost_calls_in(report).is_err());
+        assert!(read_innermost_calls(report).is_err());
     }
 }

@@ -1,5 +1,6 @@
-//! The wake a folder's arrival watch and a file's append watch wait on, as macOS raises it: a kqueue vnode filter on the
-//! folder or the file, whose queue tokio's reactor waits on without a thread of its own.
+//! The wake a folder's arrival watch and a file's append watch wait on, as macOS raises it: a
+//! kqueue vnode filter on the folder or the file, whose queue tokio's reactor waits on without a
+//! thread of its own.
 
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -15,8 +16,8 @@ use tokio::io::unix::AsyncFd;
 // holds all that a watched file raised.
 const DRAINED_EVENTS: usize = 4;
 
-// The changes that end a watch: the watched folder or file removed, renamed away, or its file system
-// unmounted.
+// The changes that end a watch: the watched folder or file removed, renamed away, or its file
+// system unmounted.
 const ENDING_CHANGES: FilterFlag = FilterFlag::NOTE_DELETE
     .union(FilterFlag::NOTE_RENAME)
     .union(FilterFlag::NOTE_REVOKE);
@@ -78,9 +79,9 @@ impl ChangeWake {
         queue
             .kevent(&[filter], &mut [], None)
             .map_err(io::Error::from)?;
-        // SAFETY: the queue's descriptor stays open for as long as the `AsyncFd` owns the queue, and
-        // `as_raw_fd` answers that one descriptor every time. Readable alone, since a kqueue takes
-        // no write filter.
+        // SAFETY: the queue's descriptor stays open for as long as the `AsyncFd` owns the queue,
+        // and `as_raw_fd` answers that one descriptor every time. Readable alone, since a kqueue
+        // takes no write filter.
         let queue =
             unsafe { AsyncFd::register_with_interest(WatchQueue(queue), Interest::READABLE) }
                 .map_err(io::Error::from)?;

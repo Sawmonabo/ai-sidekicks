@@ -1,6 +1,6 @@
-//! The wake a folder's arrival watch and a file's append watch wait on, as Linux raises it: an inotify watch through
-//! `notify`, `IN_MOVED_TO` on the folder and `IN_MODIFY` on a file, ended by `IN_DELETE_SELF` or
-//! `IN_MOVE_SELF` on either.
+//! The wake a folder's arrival watch and a file's append watch wait on, as Linux raises it: an
+//! inotify watch through `notify`, `IN_MOVED_TO` on the folder and `IN_MODIFY` on a file, ended by
+//! `IN_DELETE_SELF` or `IN_MOVE_SELF` on either.
 
 use std::io::{self, ErrorKind};
 use std::path::Path;
