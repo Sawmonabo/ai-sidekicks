@@ -3,8 +3,8 @@
 //! reader's threads wait through Apple's `sample`, since macOS copies a thread's wait reason out to
 //! no other process. A thread's run state only rules a wait out; it never shows one.
 
-use std::io;
-use std::process::{Command, Stdio};
+use std::io::{self, ErrorKind};
+use std::process::{Command, Output, Stdio};
 
 use libc::{c_int, c_void};
 use nix::errno::Errno;
@@ -37,8 +37,10 @@ const SAMPLE_PROGRAM: &str = "/usr/bin/sample";
 const SAMPLE_SECONDS: &str = "0.1";
 const SAMPLE_INTERVAL_MILLISECONDS: &str = "10";
 
-// The process state reader that runs as root, which shows a process of another user.
+// The process state reader that runs as root, which shows a process of another user, and the
+// status it exits with when a process it was asked for is missing.
 const PS_PROGRAM: &str = "/bin/ps";
+const PS_ANY_MISSING_STATUS: i32 = 1;
 
 // The calls a thread blocked reading a descriptor shows innermost.
 const READ_CALLS: [&str; 3] = ["read", "__read_nocancel", "readv"];
@@ -125,9 +127,11 @@ unsafe extern "C" {
 /// for reading, whose thread waits when its innermost call is a read and the process holds no
 /// socket and no pipe a reader sleeps on, or a `kevent` and the process holds a read knote on the
 /// terminal. A group macOS refuses to show, as `sudo`'s, waits when the terminal has canonical
-/// input on and echo off, nothing is queued and `ps` shows no member running. Blocks for about a
-/// tenth of a second per reader sampled; fails with the system's error when a read or `sample` is
-/// refused for a process this user may read.
+/// input on and echo off, nothing is queued and `ps` shows a member left and none running. A reader
+/// that ends before `sample` reads it does not wait. Blocks for about a tenth of a second per
+/// reader sampled; fails with the system's error when a read is refused for a process this user may
+/// read, with `sample`'s or `ps`'s own error text when either fails on a process still there, and
+/// with `InvalidData` when `sample`'s report has no call graph.
 pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading> {
     let survey = survey_group(terminal)?;
     let is_waiting = match &survey.wait {
@@ -246,7 +250,7 @@ fn survey_group(terminal: &InputTerminal) -> io::Result<GroupSurvey> {
     let is_password_wait = !refused.is_empty()
         && terminal.master.is_canonical
         && !terminal.master.is_echo_on
-        && !is_any_running_by_ps(&refused)?;
+        && is_any_running_by_ps(&refused)? == Some(false);
     Ok(GroupSurvey {
         accepts_input: is_password_wait,
         wait: if is_password_wait {
@@ -354,8 +358,9 @@ fn is_any_thread_running(pid: c_int) -> io::Result<bool> {
     Ok(false)
 }
 
-// Whether `ps`, which runs as root, shows any of `process_ids` running.
-fn is_any_running_by_ps(process_ids: &[u32]) -> io::Result<bool> {
+// Whether `ps`, which runs as root, shows any of `process_ids` running; `None` when it shows none
+// of them, since every one ended. `ps` exits 1 when any is missing and still lists the rest.
+fn is_any_running_by_ps(process_ids: &[u32]) -> io::Result<Option<bool>> {
     let listed = process_ids
         .iter()
         .map(u32::to_string)
@@ -364,16 +369,28 @@ fn is_any_running_by_ps(process_ids: &[u32]) -> io::Result<bool> {
     let output = Command::new(PS_PROGRAM)
         .args(["-o", "stat=", "-p", &listed])
         .stdin(Stdio::null())
-        .stderr(Stdio::null())
         .output()?;
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .any(|state| state.trim_start().starts_with('R')))
+    let states = String::from_utf8_lossy(&output.stdout);
+    match output.status.code() {
+        Some(0 | PS_ANY_MISSING_STATUS) => {}
+        _ => return Err(program_failure("ps", &listed, &output)),
+    }
+    if states.trim().is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(
+        states
+            .lines()
+            .any(|state| state.trim_start().starts_with('R')),
+    ))
 }
 
-// Whether a thread of `reader` waits on the terminal, read through `sample`.
+// Whether a thread of `reader` waits on the terminal, read through `sample`; a reader that ended
+// before `sample` read it waits on nothing.
 fn reader_waits(reader: &Reader) -> io::Result<bool> {
-    let innermost_calls = sample_innermost_calls(reader.process_id)?;
+    let Some(innermost_calls) = sample_innermost_calls(reader.process_id)? else {
+        return Ok(false);
+    };
     let is_read_wait = innermost_calls
         .iter()
         .any(|calls| calls.iter().all(|call| READ_CALLS.contains(&call.as_str())));
@@ -531,8 +548,9 @@ fn read_libproc_count(call: impl FnOnce() -> c_int) -> io::Result<usize> {
     }
 }
 
-// The innermost calls of each thread of process `process_id`, as one `sample` shows them.
-fn sample_innermost_calls(process_id: u32) -> io::Result<Vec<Vec<String>>> {
+// The innermost calls of each thread of process `process_id`, as one `sample` shows them; `None`
+// when `sample` fails because the process ended.
+fn sample_innermost_calls(process_id: u32) -> io::Result<Option<Vec<Vec<String>>>> {
     let output = Command::new(SAMPLE_PROGRAM)
         .args([
             &process_id.to_string(),
@@ -543,20 +561,37 @@ fn sample_innermost_calls(process_id: u32) -> io::Result<Vec<Vec<String>>> {
             "/dev/stdout",
         ])
         .stdin(Stdio::null())
-        .stderr(Stdio::null())
         .output()?;
     if !output.status.success() {
-        return Err(io::Error::other(format!(
-            "sample could not read process {process_id} ({})",
-            output.status
-        )));
+        let pid = system_process_id(process_id)?.get();
+        if is_gone(pid)? {
+            return Ok(None);
+        }
+        return Err(program_failure("sample", &process_id.to_string(), &output));
     }
-    Ok(innermost_calls_in(&String::from_utf8_lossy(&output.stdout)))
+    innermost_calls_in(&String::from_utf8_lossy(&output.stdout)).map(Some)
+}
+
+// Whether process `pid` has ended, as [`survey_process`] reads an ended process.
+fn is_gone(pid: c_int) -> io::Result<bool> {
+    match read_pid_list::<u64>(pid, PROC_PIDLISTTHREADS) {
+        Ok(_threads) => Ok(false),
+        Err(error) => Ok(matches!(refusal_survey(error)?, ProcessSurvey::Gone)),
+    }
+}
+
+// A program's failure on `processes`, with its status and the error text it wrote.
+fn program_failure(program: &str, processes: &str, output: &Output) -> io::Error {
+    io::Error::other(format!(
+        "{program} could not read process {processes} ({}): {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr).trim()
+    ))
 }
 
 // The innermost calls of each thread of a `sample` report's call graph: the frames no deeper frame
-// follows in the thread's tree.
-fn innermost_calls_in(report: &str) -> Vec<Vec<String>> {
+// follows in the thread's tree. Fails with `InvalidData` when the report has no call graph.
+fn innermost_calls_in(report: &str) -> io::Result<Vec<Vec<String>>> {
     let mut threads: Vec<Vec<String>> = Vec::new();
     let mut frames: Vec<(usize, String)> = Vec::new();
     let finish_thread = |frames: &mut Vec<(usize, String)>, threads: &mut Vec<Vec<String>>| {
@@ -577,7 +612,10 @@ fn innermost_calls_in(report: &str) -> Vec<Vec<String>> {
         frames.clear();
     };
     let Some((_before, call_graph)) = report.split_once("Call graph:") else {
-        return threads;
+        return Err(io::Error::new(
+            ErrorKind::InvalidData,
+            "sample's report has no call graph",
+        ));
     };
     // The first line is the rest of the heading's own line.
     for line in call_graph.lines().skip(1) {
@@ -599,7 +637,7 @@ fn innermost_calls_in(report: &str) -> Vec<Vec<String>> {
         frames.push((depth, name.trim().to_owned()));
     }
     finish_thread(&mut frames, &mut threads);
-    threads
+    Ok(threads)
 }
 
 #[cfg(test)]
@@ -623,7 +661,7 @@ mod tests {
             + ! 2 kevent  (in libsystem_kernel.dylib) + 8  [0x7]\n\n\
             Total number in stack (recursive counted multiple, when >=5):\n";
 
-        let threads = innermost_calls_in(report);
+        let threads = innermost_calls_in(report).expect("the report has a call graph");
 
         assert_eq!(
             threads,
@@ -632,5 +670,15 @@ mod tests {
                 vec!["__psynch_cvwait".to_owned(), "kevent".to_owned()],
             ]
         );
+    }
+
+    // Fails when a report with no call graph reads as threads waiting on nothing rather than as a
+    // failure.
+    #[test]
+    fn a_sample_report_without_a_call_graph_is_refused() {
+        let report = "Analysis of sampling cat (pid 1) every 10 milliseconds\n\
+            Process:         cat [1]\n";
+
+        assert!(innermost_calls_in(report).is_err());
     }
 }
