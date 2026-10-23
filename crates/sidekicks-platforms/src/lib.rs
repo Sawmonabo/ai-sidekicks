@@ -47,8 +47,9 @@
               confirmation's peer checks (`SO_PEERCRED`, and on Windows \
               `GetNamedPipeClientProcessId`), the Windows stop request's hidden window \
               (`RegisterClassExW`, `CreateWindowExW` and its message loop), Windows' binary \
-              standard streams (`_setmode`) and macOS's user temp folder (`confstr`) are C \
-              interfaces too"
+              standard streams (`_setmode`), macOS's input-wait reads (`proc_pidinfo`'s thread \
+              and work-loop lists, `proc_pidfdinfo`, `proc_piddynkqueueinfo`) and macOS's user \
+              temp folder (`confstr`) are C interfaces too"
 )]
 
 mod atomic_replace;
@@ -66,6 +67,7 @@ mod file_watch;
 #[cfg(any(test, feature = "test-support"))]
 mod footprint;
 mod hidden_entry;
+mod input_wait;
 mod keep_awake;
 mod lasting_child;
 #[cfg(target_os = "linux")]
@@ -135,6 +137,7 @@ pub use file_watch::{WATCHES_TREES, inotify_watch_ceiling};
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
 pub use hidden_entry::is_hidden_entry;
+pub use input_wait::{InputTerminal, InputWaitReading};
 pub use keep_awake::{KeepAwakeHold, KeepAwakePurpose, KeepAwakeRefused};
 pub use lasting_child::{LastingChild, LastingCommand};
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
@@ -144,6 +147,8 @@ pub use linux::SHELL_FOLDER_PROBES;
 pub use linux::caller_process::{
     read_parent_process, read_peer_process, read_peer_process as unix_domain_peer_process,
 };
+#[cfg(target_os = "linux")]
+pub use linux::input_wait::{may_wait_for_input, read_input_wait};
 #[cfg(target_os = "linux")]
 pub use linux::memory::{
     available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
@@ -176,6 +181,8 @@ pub use macos::caller_process::{
 };
 #[cfg(target_os = "macos")]
 pub use macos::code_signature::DesktopClientRequirement;
+#[cfg(target_os = "macos")]
+pub use macos::input_wait::{may_wait_for_input, read_input_wait};
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::memory::process_footprint;
 #[cfg(target_os = "macos")]
@@ -388,6 +395,8 @@ pub use windows::file_system::{
 pub use windows::file_system::{
     CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, remove_tree, rename_replacing,
 };
+#[cfg(target_os = "windows")]
+pub use windows::input_wait::{may_wait_for_input, read_input_wait};
 #[cfg(target_os = "windows")]
 pub use windows::lasting_child::spawn_lasting_child;
 #[cfg(target_os = "windows")]
