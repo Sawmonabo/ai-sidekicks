@@ -308,6 +308,7 @@ mod recorded_events {
     use std::sync::{Arc, Mutex};
 
     use tracing::field::{Field, Visit};
+    use tracing::subscriber::DefaultGuard;
     use tracing::{Event, Subscriber};
     use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
@@ -318,8 +319,14 @@ mod recorded_events {
     impl RecordedEvents {
         /// Runs `test` with this recorder as the thread's subscriber.
         pub(crate) fn record_during(&self, test: impl FnOnce()) {
-            let subscriber = tracing_subscriber::registry().with(self.clone());
-            tracing::subscriber::with_default(subscriber, test);
+            let _recording = self.record_until_dropped();
+            test();
+        }
+
+        /// Makes this recorder the thread's subscriber until the guard drops, so the tasks of a
+        /// current-thread runtime record across awaits.
+        pub(crate) fn record_until_dropped(&self) -> DefaultGuard {
+            tracing::subscriber::set_default(tracing_subscriber::registry().with(self.clone()))
         }
 
         /// The counter of each diagnostic recorded, in order.

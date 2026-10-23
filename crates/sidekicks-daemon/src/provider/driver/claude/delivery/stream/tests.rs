@@ -434,6 +434,27 @@ async fn each_api_retry_frame_writes_one_retried_request_with_its_cause_wait_and
     );
 }
 
+// Killed by reporting every frame no daemon run holds (`record_unheld` logging past its
+// once-reported set): a kind the build sends on every turn would log once per frame.
+#[tokio::test(start_paused = true)]
+async fn a_frame_no_run_holds_is_reported_once_per_kind_and_adds_nothing() {
+    let session = ScriptedSession::new().await;
+    let recorded = RecordedEvents::default();
+    let recording = recorded.record_until_dropped();
+
+    // Only a turn's `system/init` opens a run of the session's own; any other frame stays unheld.
+    session.frame(&tool_call("message-1", "call-1", None));
+    session.frame(&tool_call("message-2", "call-2", None));
+    settle().await;
+    drop(recording);
+
+    assert_eq!(
+        recorded.field_on("driver.normalize.unmappedWireKind", "raw_wire_type"),
+        ["assistant"]
+    );
+    assert_eq!(session.engine.calls(), []);
+}
+
 // Killed by a router that reads an unlisted family as connection-scoped, by a reader that writes
 // a quarantined frame onto the run holding the turn, and by reporting every frame of the family.
 #[tokio::test(start_paused = true)]
