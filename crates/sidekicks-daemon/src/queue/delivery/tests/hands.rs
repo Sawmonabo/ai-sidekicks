@@ -9,8 +9,9 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use rstest::rstest;
-use sidekicks_contracts::run::queue::QueueItemId;
+use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
@@ -25,6 +26,37 @@ use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::run_control::RunToolBoundary;
 use crate::queue::delivery::{DeliveryError, InterruptHoldRelease};
 use crate::queue::store::{QueueItemRecord, RecordedQueueItemState};
+
+// A handed message its provider refused reads not delivered with the hook's words, and its hand is
+// let go, so a retry sends it again. Killed by keeping the hand.
+#[tokio::test]
+async fn a_handed_message_refused_reads_not_delivered_with_its_words_and_lets_its_hand_go() {
+    let mut driver = driver_handing(HANDS_AT_ONCE);
+    let steers = count_steers(&mut driver);
+    let fixture = fixture(driver).await;
+    let item = insert_item(&fixture).await;
+    hand(&fixture).await;
+    settle(&fixture).await;
+    let reason = QueueItemNotDeliveredReason::RefusedByHook {
+        words: FreeFormText::new("No secrets in prompts".to_owned()).expect("the hook's words"),
+    };
+
+    fixture
+        .delivery
+        .refuse_handed(fixture.session_id, item.id.text().as_str(), reason.clone());
+    settle(&fixture).await;
+    let next = insert_item(&fixture).await;
+    hand(&fixture).await;
+    settle(&fixture).await;
+
+    assert_eq!(
+        stored_item(&fixture, item.id).state,
+        RecordedQueueItemState::NotDelivered { reason }
+    );
+    assert!(!fixture.delivery.is_handed(&item.id));
+    assert!(fixture.delivery.is_handed(&next.id));
+    assert_eq!(steers.load(Ordering::SeqCst), 2);
+}
 
 // Killed by a hand that joins the chain from a task of its own: a gate joined as soon as the
 // hand's call returns then runs ahead of the hand.

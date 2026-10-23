@@ -295,7 +295,7 @@ async fn each_write_raises_its_queue_once_and_moves_the_order_only_when_no_event
             .expect("the test removes the first message"),
         QueueWrite::LateAdmission => {
             let not_delivered = QueueItemOutcome::NotDelivered {
-                reason: QueueItemNotDeliveredReason::Failed,
+                reason: QueueItemNotDeliveredReason::Failed {},
             };
             fixture
                 .recorder

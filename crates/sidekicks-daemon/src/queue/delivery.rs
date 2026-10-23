@@ -836,7 +836,7 @@ impl QueueDelivery {
     // Records `item` not delivered, its delivery failed.
     async fn record_failed(&self, item: &QueueItemRecord) -> Result<(), DeliveryError> {
         let outcome = QueueItemOutcome::NotDelivered {
-            reason: QueueItemNotDeliveredReason::Failed,
+            reason: QueueItemNotDeliveredReason::Failed {},
         };
         self.shared
             .deps

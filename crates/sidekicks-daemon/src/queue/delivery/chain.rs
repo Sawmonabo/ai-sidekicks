@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use futures::future::join_all;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::QueueItemId;
+use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -21,7 +21,7 @@ use crate::provider::driver::contract::{DriverError, ProviderDriver};
 use crate::queue::delivery::state::{DeliveryState, HandRoute};
 use crate::queue::delivery::withdraw::{LateWithdraw, WithdrawJob};
 use crate::queue::delivery::{DeliveryError, QueueDelivery, steer_of};
-use crate::queue::store::{QueueItemRecord, RecordedQueueItemState};
+use crate::queue::store::{QueueItemOutcome, QueueItemRecord, RecordedQueueItemState};
 
 /// One session's jobs in push order, and the run a `Hand` or `ToolBoundary` job is inside its
 /// driver call for.
@@ -73,6 +73,13 @@ pub(super) enum ChainJob {
         /// The run whose turn took it.
         run_id: RunId,
     },
+    /// Settles a handed message the provider refused after the hand.
+    Refused {
+        /// The message.
+        item_id: QueueItemId,
+        /// Why it was not delivered.
+        reason: QueueItemNotDeliveredReason,
+    },
     /// Settles a withdraw the provider answered past the deadline; boxed, since the message it
     /// carries outweighs every other job.
     LateWithdraw(Box<LateWithdraw>),
@@ -87,6 +94,29 @@ pub(super) enum ChainJob {
 }
 
 impl QueueDelivery {
+    /// Settles a message the daemon handed `session_id`'s provider and the provider then refused,
+    /// on the session's chain: it reads not delivered for `reason` and its hand is let go, so a
+    /// retry sends it again. `message_id` is the provider's own; one that is no queue item id, or
+    /// names a message not handed, is dropped.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex driver's delivery of a steer the person's prompt hook refused"
+        )
+    )]
+    pub(crate) fn refuse_handed(
+        &self,
+        session_id: SessionId,
+        message_id: &str,
+        reason: QueueItemNotDeliveredReason,
+    ) {
+        let Ok(item_id) = QueueItemId::new(message_id) else {
+            return;
+        };
+        self.push(session_id, ChainJob::Refused { item_id, reason });
+    }
+
     /// Pushes `job` onto the chain of `session_id` in `state`, the caller's own hold on the
     /// delivery's mutex, and starts the chain's drain when it had none.
     pub(super) fn push_job(&self, state: &mut DeliveryState, session_id: SessionId, job: ChainJob) {
@@ -161,6 +191,10 @@ impl QueueDelivery {
             ChainJob::Withdraw(job) => self.withdraw_all(session_id, job).await,
             ChainJob::MessageTaken { item_id, run_id } => {
                 let settled = self.settle_taken(session_id, item_id, run_id).await;
+                log_job_failure(session_id, item_id, settled);
+            }
+            ChainJob::Refused { item_id, reason } => {
+                let settled = self.settle_refused(item_id, reason).await;
                 log_job_failure(session_id, item_id, settled);
             }
             ChainJob::LateWithdraw(late) => {
@@ -317,6 +351,34 @@ impl QueueDelivery {
             Some(run) if !run.state.is_terminal() => self.record_failed(item).await,
             Some(_) | None => Ok(()),
         }
+    }
+
+    // A handed message the provider refused: still waiting, it reads not delivered for `reason`;
+    // the hand goes once the write lands or fails, so no hand in between sends it again.
+    async fn settle_refused(
+        &self,
+        item_id: QueueItemId,
+        reason: QueueItemNotDeliveredReason,
+    ) -> Result<(), DeliveryError> {
+        if self.lock_state().hand_of(&item_id).is_none() {
+            return Ok(());
+        }
+        let recorded = match self.read_item(item_id).await? {
+            Some(item) if item.state == RecordedQueueItemState::Queued => self
+                .shared
+                .deps
+                .recorder
+                .record_outcome(
+                    &item,
+                    QueueItemOutcome::NotDelivered { reason },
+                    &WireInstant::now(),
+                )
+                .await
+                .map_err(DeliveryError::from),
+            Some(_) | None => Ok(()),
+        };
+        self.forget_hand(item_id);
+        recorded
     }
 
     // A message the provider recorded as taken by `run_id`. One the driver handed is admitted

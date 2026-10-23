@@ -84,10 +84,15 @@ interface AgentQueueItemListResponse {
   items: QueueItemSummary[];
 }
 
-// Why a message the daemon accepted was never delivered: the run it waited for waited at the memory
-// gate past the daemon's own delivery timeout to start (`timedOut`), or its delivery failed
-// outright (`failed`). Either way it can be sent again.
-type QueueItemNotDeliveredReason = "timedOut" | "failed";
+// Why a message the daemon accepted was never delivered, tagged on `kind`: the run it waited for
+// waited at the memory gate past the daemon's own delivery timeout to start (`timedOut`), its
+// delivery failed outright (`failed`), or, handed to the provider, the person's own
+// `UserPromptSubmit` hook refused it (`refusedByHook`, with the hook's own words, which the red
+// `Not delivered · Retry` row shows under it). Either way it can be sent again.
+type QueueItemNotDeliveredReason =
+  | { kind: "timedOut" }
+  | { kind: "failed" }
+  | { kind: "refusedByHook"; words: string };
 
 // One queued message, as a pending row draws it.
 interface QueueItemSummary {

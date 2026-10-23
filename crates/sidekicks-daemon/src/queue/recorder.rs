@@ -523,7 +523,7 @@ pub(crate) fn outcome_draft_of(
                 session_id: item.session_id,
                 queue_item_id: item.id,
                 state: AgentQueueItemNotDeliveredState::Value,
-                not_delivered_reason: *reason,
+                not_delivered_reason: reason.clone(),
             })
         }
     };

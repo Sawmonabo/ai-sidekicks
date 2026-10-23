@@ -69,7 +69,7 @@ async fn a_withdraw_past_its_deadline_reads_not_delivered_and_reaches_no_driver(
     assert_eq!(
         stored_item(&fixture, item.id).state,
         RecordedQueueItemState::NotDelivered {
-            reason: QueueItemNotDeliveredReason::Failed
+            reason: QueueItemNotDeliveredReason::Failed {}
         }
     );
     assert!(is_handed, "a message not given back stays handed");

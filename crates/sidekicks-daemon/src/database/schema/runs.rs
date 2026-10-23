@@ -5,7 +5,7 @@
 //! command from running twice across a restart.
 
 use sidekicks_contracts::run::intervention::{InterventionState, InterventionType};
-use sidekicks_contracts::run::queue::{QueueItemNotDeliveredReason, QueueItemState};
+use sidekicks_contracts::run::queue::{QueueItemNotDeliveredKind, QueueItemState};
 use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
 
@@ -21,7 +21,8 @@ pub(super) fn runs_schema_sql() -> String {
     let queue_states = sql_list_of_every::<QueueItemState>();
     let queued = <&'static str>::from(QueueItemState::Queued);
     let not_delivered = <&'static str>::from(QueueItemState::NotDelivered);
-    let not_delivered_reasons = sql_list_of_every::<QueueItemNotDeliveredReason>();
+    let not_delivered_reasons = sql_list_of_every::<QueueItemNotDeliveredKind>();
+    let refused_by_hook = <&'static str>::from(QueueItemNotDeliveredKind::RefusedByHook);
     let intervention_types = sql_list_of_every::<InterventionType>();
     let intervention_states = sql_list_of_every::<InterventionState>();
     let requested = <&'static str>::from(InterventionState::Requested);
@@ -49,9 +50,11 @@ CREATE TABLE queue_items (
   id                     TEXT PRIMARY KEY,
   session_id             TEXT NOT NULL,
   state                  TEXT NOT NULL DEFAULT '{queued}' CHECK(state IN ({queue_states})),
-  -- Why a not-delivered item was not delivered: it waited past the daemon's delivery timeout, or
-  -- its delivery failed outright.
+  -- Why a not-delivered item was not delivered: it waited past the daemon's delivery timeout, its
+  -- delivery failed outright, or the person's own prompt hook refused it once handed.
   not_delivered_reason   TEXT CHECK(not_delivered_reason IN ({not_delivered_reasons})),
+  -- The hook's own words, present exactly on an item the person's prompt hook refused.
+  not_delivered_words    TEXT,
   payload                TEXT NOT NULL DEFAULT '{{}}', -- JSON
   -- The run the item is delivered into; NULL on an orchestration-authored item, which is admitted
   -- as a new run.
@@ -72,6 +75,7 @@ CREATE TABLE queue_items (
   created_at             TEXT NOT NULL,
   updated_at             TEXT NOT NULL,
   CHECK((state = '{not_delivered}') = (not_delivered_reason IS NOT NULL)),
+  CHECK((not_delivered_reason IS '{refused_by_hook}') = (not_delivered_words IS NOT NULL)),
   -- SQLite treats each NULL as distinct, so only sends dedupe.
   UNIQUE (session_id, client_idempotency_key)
 ) STRICT;

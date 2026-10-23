@@ -95,7 +95,7 @@ impl QueueAdmission {
                 return Err(QueueError::ContinueTakenOver { run_id });
             }
             if current.as_ref().is_some_and(is_waiting) {
-                self.record_not_delivered(&opening, QueueItemNotDeliveredReason::Failed)
+                self.record_not_delivered(&opening, QueueItemNotDeliveredReason::Failed {})
                     .await?;
             }
             return Err(error);
@@ -153,7 +153,7 @@ impl QueueAdmission {
         self.release(run_id);
         let hold = self.deps.session_lock.hold_session(session_id).await;
         let marked = self
-            .mark_waiting_undelivered(&hold, run_id, QueueItemNotDeliveredReason::Failed)
+            .mark_waiting_undelivered(&hold, run_id, QueueItemNotDeliveredReason::Failed {})
             .await;
         if let Err(mark) = marked {
             log_failure(
@@ -212,8 +212,12 @@ impl QueueAdmission {
             Placed::Released => Ok(false),
             Placed::TimedOut => {
                 let hold = self.deps.session_lock.hold_session(session_id).await;
-                self.mark_waiting_undelivered(&hold, run_id, QueueItemNotDeliveredReason::TimedOut)
-                    .await?;
+                self.mark_waiting_undelivered(
+                    &hold,
+                    run_id,
+                    QueueItemNotDeliveredReason::TimedOut {},
+                )
+                .await?;
                 Ok(false)
             }
         }

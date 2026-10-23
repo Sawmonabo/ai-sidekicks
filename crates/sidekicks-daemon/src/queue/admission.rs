@@ -413,7 +413,7 @@ impl QueueAdmission {
             Placed::TimedOut => {
                 let hold = self.deps.session_lock.hold_session(session_id).await;
                 return self
-                    .end_undelivered(&hold, run_id, QueueItemNotDeliveredReason::TimedOut)
+                    .end_undelivered(&hold, run_id, QueueItemNotDeliveredReason::TimedOut {})
                     .await;
             }
         }
@@ -474,7 +474,7 @@ impl QueueAdmission {
                     .as_ref()
                     .is_some_and(is_waiting)
             {
-                self.record_not_delivered(&opening, QueueItemNotDeliveredReason::Failed)
+                self.record_not_delivered(&opening, QueueItemNotDeliveredReason::Failed {})
                     .await?;
             }
             return Err(start_error.into());
@@ -515,7 +515,12 @@ impl QueueAdmission {
         let detail = bound_failure_detail(&describe_error(&error), START_FAILED_FALLBACK.clone());
         let hold = self.deps.session_lock.hold_session(session_id).await;
         let ended = self
-            .end_waiting_undelivered(&hold, run_id, QueueItemNotDeliveredReason::Failed, detail)
+            .end_waiting_undelivered(
+                &hold,
+                run_id,
+                QueueItemNotDeliveredReason::Failed {},
+                detail,
+            )
             .await;
         if let Err(end_error) = ended {
             log_failure(
@@ -581,7 +586,7 @@ impl QueueAdmission {
     ) -> Result<(), QueueError> {
         for item in self.read_waiting(run_id).await? {
             if item.child_handle.is_none() {
-                self.record_not_delivered(&item, reason).await?;
+                self.record_not_delivered(&item, reason.clone()).await?;
             }
         }
         Ok(())
@@ -610,7 +615,12 @@ impl QueueAdmission {
             .read_waiting(run_id)
             .await?
             .into_iter()
-            .map(|item| (item, QueueItemOutcome::NotDelivered { reason }))
+            .map(|item| {
+                let outcome = QueueItemOutcome::NotDelivered {
+                    reason: reason.clone(),
+                };
+                (item, outcome)
+            })
             .collect();
         self.end_queued_run(hold, run_id, outcomes, detail).await
     }
