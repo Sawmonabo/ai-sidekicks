@@ -4,10 +4,15 @@
 //! `rate_limit_info` names its windows in `unifiedWindows`, each a utilization share and a reset
 //! time in seconds; a build without that member names one window by `rateLimitType`.
 
+use std::collections::HashMap;
+use std::sync::Mutex;
+
 use jiff::Timestamp;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::compose_scoped_limit_id;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
+use crate::mutex_lock::lock;
 use crate::provider::port::usage_sink::ProviderQuotaWindow;
 
 /// The five-hour window's length in minutes.
@@ -16,15 +21,34 @@ const SESSION_WINDOW_MINUTES: i64 = 300;
 /// A weekly window's length in minutes.
 const WEEKLY_WINDOW_MINUTES: i64 = 10_080;
 
-/// The quota windows of one `rate_limit_event`'s members; a window with no utilization, or one
-/// Claude Code names that is no account limit, is left out. The window over one model takes
-/// `scoped_model`, the display name the account's latest limits read named, and is left out before
-/// any read named one, since a guessed name would make a window no later read matches. `members`
-/// is untrusted provider output.
+/// The model display name each account's latest limits read named for its weekly window over one
+/// model, which every process on the account reads its events' windows by.
+#[derive(Default)]
+pub(crate) struct ClaudeUsageProbeModels(Mutex<HashMap<ProviderAccountId, String>>);
+
+impl ClaudeUsageProbeModels {
+    /// Keeps `display_name` as the model `account`'s latest limits read named.
+    pub(crate) fn note(&self, account: ProviderAccountId, display_name: String) {
+        lock(&self.0).insert(account, display_name);
+    }
+
+    fn model_of(&self, account: Option<&ProviderAccountId>) -> Option<String> {
+        lock(&self.0).get(account?).cloned()
+    }
+}
+
+/// The quota windows of one `rate_limit_event`'s members, sent on `account`; a window with no
+/// utilization, or one Claude Code names that is no account limit, is left out. The window over one
+/// model takes the display name `account`'s latest limits read named, and is left out before any
+/// read named one, or on no account, since a guessed name would make a window no later read
+/// matches. `members` is untrusted provider output.
 pub(crate) fn read_claude_quota_windows(
     members: &Map<String, Value>,
-    scoped_model: Option<&str>,
+    probe_models: &ClaudeUsageProbeModels,
+    account: Option<&ProviderAccountId>,
 ) -> Vec<ProviderQuotaWindow> {
+    let scoped_model = probe_models.model_of(account);
+    let scoped_model = scoped_model.as_deref();
     let Some(info) = members.get("rate_limit_info").and_then(Value::as_object) else {
         return Vec::new();
     };
@@ -77,35 +101,59 @@ fn read_window(
 mod tests {
     use rstest::rstest;
     use serde_json::json;
+    use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
-    use super::read_claude_quota_windows;
+    use super::{ClaudeUsageProbeModels, read_claude_quota_windows};
+
+    // The account the test's events come on, and another one.
+    const ACCOUNT: &str = "account-1";
+    const OTHER_ACCOUNT: &str = "account-2";
+
+    fn account(id: &str) -> ProviderAccountId {
+        ProviderAccountId::new(id.to_owned()).expect("an account id")
+    }
 
     // Killed by a window keeping Claude Code's own name, by a wrong length, by a scoped window
-    // named before any limits read named its model, and by reading a window that is no account
-    // limit.
+    // named before any limits read named its model, by one named for another account's read or on
+    // a session with no account (the read keyed by anything but the session's account), and by
+    // reading a window that is no account limit.
     #[rstest]
-    #[case::five_hour("five_hour", None, Some(("session", 300)))]
-    #[case::seven_day("seven_day", None, Some(("weekly_all", 10_080)))]
+    #[case::five_hour("five_hour", None, Some(ACCOUNT), Some(("session", 300)))]
+    #[case::seven_day("seven_day", None, Some(ACCOUNT), Some(("weekly_all", 10_080)))]
     #[case::scoped(
         "seven_day_overage_included",
-        Some("Opus"),
+        Some(ACCOUNT),
+        Some(ACCOUNT),
         Some(("weekly_scoped:Opus", 10_080))
     )]
-    #[case::scoped_before_any_read("seven_day_overage_included", None, None)]
-    #[case::per_model_key("seven_day_opus", Some("Opus"), None)]
-    #[case::overage("overage", Some("Opus"), None)]
+    #[case::scoped_before_any_read("seven_day_overage_included", None, Some(ACCOUNT), None)]
+    #[case::scoped_read_on_another_account(
+        "seven_day_overage_included",
+        Some(OTHER_ACCOUNT),
+        Some(ACCOUNT),
+        None
+    )]
+    #[case::scoped_with_no_account("seven_day_overage_included", Some(ACCOUNT), None, None)]
+    #[case::per_model_key("seven_day_opus", Some(ACCOUNT), Some(ACCOUNT), None)]
+    #[case::overage("overage", Some(ACCOUNT), Some(ACCOUNT), None)]
     fn each_event_window_reads_as_its_account_limit(
         #[case] name: &str,
-        #[case] scoped_model: Option<&str>,
+        #[case] probed_account: Option<&str>,
+        #[case] session_account: Option<&str>,
         #[case] expected: Option<(&str, i64)>,
     ) {
         let members = json!({
             "rate_limit_info": {"unifiedWindows": {name: {"utilization": 0.5}}},
         });
+        let probe_models = ClaudeUsageProbeModels::default();
+        if let Some(probed_account) = probed_account {
+            probe_models.note(account(probed_account), "Opus".to_owned());
+        }
 
         let windows = read_claude_quota_windows(
             members.as_object().expect("the members are an object"),
-            scoped_model,
+            &probe_models,
+            session_account.map(account).as_ref(),
         );
 
         let read: Vec<(&str, i64)> = windows

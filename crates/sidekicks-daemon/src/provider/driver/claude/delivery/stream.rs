@@ -52,7 +52,9 @@ use crate::provider::driver::claude::delivery::system::{
 use crate::provider::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
 use crate::provider::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::provider::driver::claude::hooks::pause::ClaudeRunPauses;
-use crate::provider::driver::claude::rate_limit_windows::read_claude_quota_windows;
+use crate::provider::driver::claude::rate_limit_windows::{
+    ClaudeUsageProbeModels, read_claude_quota_windows,
+};
 use crate::provider::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::provider::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::provider::driver::claude::session::arrivals::{
@@ -93,6 +95,8 @@ pub(crate) struct ClaudeStreamDependencies {
     pub(crate) message_taken: ClaudeMessageTaken,
     /// Where the account's quota windows go once the usage record is registered.
     pub(crate) usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
+    /// The model each account's latest limits read named for its weekly window over one model.
+    pub(crate) usage_probe_models: Arc<ClaudeUsageProbeModels>,
 }
 
 /// What a frame left for the session's task to do beyond its deliveries.
@@ -224,16 +228,6 @@ impl ClaudeSessionStream {
     /// Marks a close the daemon asked for, so the turn end it provokes carries it.
     pub(crate) fn signal_intended_close(&self) {
         self.lock().gate.signal_intended_close();
-    }
-
-    /// Keeps the model display name the account's latest `get_usage` read named in its
-    /// `model_scoped`, which a later event's weekly window over one model is named for.
-    #[expect(
-        dead_code,
-        reason = "the account's limits read names the model its scoped weekly window covers"
-    )]
-    pub(crate) fn note_usage_probe_model(&self, display_name: String) {
-        self.lock().usage_probe_model = Some(display_name);
     }
 
     /// The permission mode the process last reported it runs in, if any.
@@ -383,11 +377,14 @@ impl ClaudeDeliveryStream {
         // The account's quota, whichever turn it came on.
         if kind == ClaudeWireFrameKind::RateLimitEvent {
             if let Some(sink) = self.dependencies.usage.port() {
-                let scoped_model = session.lock().usage_probe_model.clone();
                 sink.record_quota_windows(
                     DESCRIPTOR.provider_id(),
                     session.provider_account_id.clone(),
-                    read_claude_quota_windows(&members, scoped_model.as_deref()),
+                    read_claude_quota_windows(
+                        &members,
+                        &self.dependencies.usage_probe_models,
+                        session.provider_account_id.as_ref(),
+                    ),
                 );
             }
             return after;

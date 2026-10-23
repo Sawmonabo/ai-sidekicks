@@ -45,6 +45,7 @@ use crate::provider::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::provider::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::provider::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::provider::driver::claude::intervention::{ClaudeForegroundHelpers, ClaudeInterventions};
+use crate::provider::driver::claude::rate_limit_windows::ClaudeUsageProbeModels;
 use crate::provider::driver::claude::run::controls::ClaudeRunControls;
 use crate::provider::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::provider::driver::claude::run::rewind::ClaudeConversationCuts;
@@ -83,6 +84,7 @@ pub(crate) struct ClaudeDriver {
     staged_changes: StagedChangesWorktrees,
     pending_compactions: PendingCompactionRegistry,
     shell_lines: Arc<ShellLineReadingBound>,
+    usage_probe_models: Arc<ClaudeUsageProbeModels>,
     parts: OnceLock<Arc<ClaudeSessionParts>>,
 }
 
@@ -148,6 +150,7 @@ impl ClaudeDriver {
             staged_changes: services.staged_changes.clone(),
             pending_compactions: services.pending_compactions.clone(),
             shell_lines: Arc::clone(&services.shell_lines),
+            usage_probe_models: Arc::default(),
             parts: OnceLock::new(),
         }
     }
@@ -183,6 +186,17 @@ impl ClaudeDriver {
         // Two first calls may both compose; the one set first is kept, and the other, which
         // started nothing, is dropped.
         Ok(self.parts.get_or_init(|| composed))
+    }
+
+    /// Keeps the model display name `account`'s latest `get_usage` read named in its
+    /// `model_scoped`, which a later event's weekly window over one model on that account is named
+    /// for.
+    #[expect(
+        dead_code,
+        reason = "the account's limits read names the model its scoped weekly window covers"
+    )]
+    pub(crate) fn note_usage_probe_model(&self, account: ProviderAccountId, display_name: String) {
+        self.usage_probe_models.note(account, display_name);
     }
 
     /// The session pieces once composed; `None` before any session call composed them, when no
@@ -309,6 +323,7 @@ impl ClaudeDriver {
                 }
             }),
             usage: Arc::clone(&ports.usage),
+            usage_probe_models: Arc::clone(&self.usage_probe_models),
         }));
         let goals = Arc::new(ClaudeGoalCommands::default());
         let cuts = Arc::new(ClaudeConversationCuts {
