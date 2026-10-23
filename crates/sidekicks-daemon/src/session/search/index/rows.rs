@@ -469,9 +469,11 @@ mod tests {
     }
 
     // A reply of three frames is read as three pages holding every byte, its last word on the last
-    // page only, and no page ends inside a word: the 6-byte words do not divide a frame. Killed by
-    // reading the body whole as one page, by a cut before the first frame (an empty first page)
-    // and by ending a page at its frame's edge, which cuts a word in two.
+    // page only, and no page ends inside a word: the 6-byte words do not divide a frame. A reader
+    // that stops at the first page is handed that page alone and answers its stop. Killed by
+    // reading the body whole as one page, by a cut before the first frame (an empty first page),
+    // by ending a page at its frame's edge, which cuts a word in two, and by a stop the stream
+    // reads past.
     #[test]
     fn a_long_body_is_read_as_pages_that_end_between_words() {
         let log = TranscriptTestLog::new();
@@ -499,5 +501,14 @@ mod tests {
         for page in &pages[..2] {
             assert!(page.ends_with(' '), "a page ends inside a word");
         }
+        let mut calls = 0;
+        let stopped = rows
+            .for_each_page(row, |_page| {
+                calls += 1;
+                ControlFlow::Break(calls)
+            })
+            .expect("the first page reads");
+        assert_eq!(stopped, Some(1));
+        assert_eq!(calls, 1);
     }
 }
