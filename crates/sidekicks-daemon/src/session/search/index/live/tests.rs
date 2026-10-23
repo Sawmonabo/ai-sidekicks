@@ -72,34 +72,6 @@ async fn index_behind_its_database(
 }
 
 #[tokio::test]
-async fn the_start_reports_the_newest_commit_before_it_applies_what_waits() {
-    let database = TestDatabase::new();
-    let services = TestDaemonServices::open(&database).await;
-    let folder = tempfile::tempdir().expect("the test makes a temporary folder");
-    let (shared, open, highest_id_given) =
-        index_behind_its_database(&database, &services, folder.path(), 3).await;
-    let (deletes, _applied) = watch::channel(None);
-
-    catch_up(&shared, &open, &deletes, &Notify::new())
-        .await
-        .expect("the index catches up");
-
-    assert!(
-        open.applier.floor_position() > 0,
-        "the delete logged a floor the applier reads"
-    );
-    assert_eq!(
-        *deletes.borrow(),
-        Some(AppliedOutbox {
-            last_outbox_id: highest_id_given,
-            kept_floor_position: open.applier.floor_position(),
-        }),
-        "the last rows reported are the newest applied, with the applier's floor kept"
-    );
-    open.index.close().expect("the index closes");
-}
-
-#[tokio::test]
 async fn a_delete_during_a_first_page_s_read_keeps_the_floor_it_reads_from() {
     let database = TestDatabase::new();
     let services = TestDaemonServices::open(&database).await;
@@ -134,7 +106,8 @@ async fn a_delete_during_a_first_page_s_read_keeps_the_floor_it_reads_from() {
 
 // A restart finds the outbox rows of its index's newest commit still there, the run before it cut
 // off before its delete, and maybe rows its index never applied: the first are deleted, the others
-// applied, then deleted once the index has them.
+// applied, then deleted once the index has them. The last rows reported for deletion are the
+// newest applied, with the applier's floor, which a delete past one session moved, kept.
 #[rstest]
 #[case::nothing_waits(1)]
 #[case::rows_wait(3)]
@@ -153,6 +126,14 @@ async fn a_restart_deletes_what_its_index_holds_and_applies_what_it_does_not(
     catch_up(&shared, &open, &deletes, &Notify::new())
         .await
         .expect("the index catches up");
+    assert_eq!(open.applier.floor_position() > 0, session_count > 1);
+    assert_eq!(
+        *deletes.borrow(),
+        Some(AppliedOutbox {
+            last_outbox_id: highest_id_given,
+            kept_floor_position: open.applier.floor_position(),
+        })
+    );
     drop(deletes);
     deleting.await.expect("the deletes end");
 
