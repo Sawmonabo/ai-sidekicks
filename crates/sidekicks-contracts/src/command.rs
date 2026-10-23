@@ -136,7 +136,7 @@ pub struct AgentCommandStopRequest {
     pub command_id: CommandId,
 }
 
-/// The command was stopped.
+/// The provider acknowledged the command's stop.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -317,21 +317,32 @@ methods! {
             mutating: true,
             params: AgentCommandStopRequest,
             result: AgentCommandStopResponse,
-            refusals: [SessionNotFound],
+            refusals: [SessionNotFound, ProviderUnavailable, ProviderTimeout],
         },
         /// Moves a command the agent waits on to the background.
         AgentCommandBackground = mutation "agent.command.background" {
             mutating: true,
             params: AgentCommandBackgroundRequest,
             result: AgentCommandBackgroundResponse,
-            refusals: [SessionNotFound, ProviderCapabilityUnsupported, AgentCommandNotInForeground],
+            refusals: [
+                SessionNotFound,
+                ProviderUnavailable,
+                ProviderTimeout,
+                ProviderCapabilityUnsupported,
+                AgentCommandNotInForeground,
+            ],
         },
         /// Writes input to a command, ends its input, or both.
         AgentCommandWrite = mutation "agent.command.write" {
             mutating: true,
             params: AgentCommandWriteRequest,
             result: NullPayload,
-            refusals: [SessionNotFound, AgentCommandTakesNoInput],
+            refusals: [
+                SessionNotFound,
+                ProviderUnavailable,
+                ProviderTimeout,
+                AgentCommandTakesNoInput,
+            ],
         },
     ];
 }
