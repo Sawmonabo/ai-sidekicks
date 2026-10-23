@@ -243,6 +243,9 @@ pub(crate) enum ClaudeSessionSlot {
     Closing {
         /// The disposal.
         settled: ClaudeSlotSettled,
+        /// The process's channel until it closes, whose frames read meanwhile still reach the
+        /// session, so a `result` read during the close ends its turn; `None` once it closed.
+        reading: Option<Arc<dyn ClaudeProcessChannel>>,
     },
     /// The disposal failed, so the process still lives and this is the only handle on it, kept
     /// with the bindings it served until a later close disposes of it.

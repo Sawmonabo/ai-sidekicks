@@ -3,6 +3,7 @@
 
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -367,5 +368,57 @@ async fn a_close_ends_the_run_in_flight_interrupted_as_intended() {
     assert_eq!(
         terminal_events(&fixture, run_id),
         [("agent.run.interrupted".to_owned(), Some(true))]
+    );
+}
+
+// Killed by a closing slot that drops the frames its process wrote before the channel closed
+// (`binds_channel` refusing every `Closing` slot): the run would end interrupted by the close
+// instead of on its own `result`, and by a second end the close adds to a run already ended.
+#[tokio::test(start_paused = true)]
+async fn a_result_read_during_the_close_ends_its_run_as_intended() {
+    let fixture = ScriptedDriver::new();
+    let session_id = mint_session_id();
+    let run_id = mint_run_id();
+    let claude = driver_on_the_daemons_engine(&fixture, session_id, run_id).await;
+    let driver: Arc<dyn ProviderDriver> = claude.clone();
+    let channel = Arc::new(ScriptedChannel::default());
+    fixture.starts.script_session(Arc::clone(&channel));
+    driver
+        .create_session(create_params(session_id))
+        .await
+        .expect("the session opens");
+    let start = fixture.next_start().await;
+    driver
+        .start_run(start_params(session_id, run_id))
+        .await
+        .expect("the run starts");
+    let release_close = channel.hold_next_close();
+
+    let close = tokio::spawn({
+        let driver = Arc::clone(&driver);
+        async move {
+            driver
+                .close_session(CloseSessionParams { session_id })
+                .await
+        }
+    });
+    settle().await;
+    end_turn_of(&claude, &start, session_id);
+    tokio::time::timeout(
+        Duration::from_secs(1),
+        ScriptedDriver::wait_for(|| stored_run_state(&fixture.database, &run_id).0 == "completed"),
+    )
+    .await
+    .expect("the run ends on its own result while the close waits");
+    drop(release_close);
+    close
+        .await
+        .expect("the close task ends")
+        .expect("the session closes");
+    settle().await;
+
+    assert_eq!(
+        terminal_events(&fixture, run_id),
+        [("agent.run.completed".to_owned(), Some(true))]
     );
 }

@@ -383,7 +383,7 @@ impl ClaudeSessionRestarts {
             .ended_conversations
             .insert(session_id, ended_conversation_of(live));
         self.routes.retire_run_routes(session_id);
-        close.session().channel.close().await;
+        close.close_channel().await;
         close.finish();
         live.release_served_presses(&self.ports.reviewer_denials);
         if let Some(process_gone) = self.ports.process_gone.port() {

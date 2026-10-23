@@ -129,20 +129,22 @@ impl ClaudeDriver {
                     settled.wait().await;
                 }
                 ClaudeCloseStart::Closing(close) => {
-                    // Marked first, so a `result` the close provokes ends its turn as intended.
+                    // Marked first, so a `result` read before the channel closes ends its turn
+                    // as the daemon's intended close.
                     if let Some(stream) = parts.establishment.streams.get(session_id) {
                         stream.signal_intended_close();
                     }
                     let routes = &parts.establishment.routes;
                     let runs = routes.bound_runs_on(session_id);
-                    // Routes first, so no later interrupt aims at a run of the dying process.
+                    let session = close.session();
+                    close.close_channel().await;
+                    // Routes once the channel is closed, so a frame read before it still reaches
+                    // its run, and no later interrupt aims at a run of the dead process.
                     routes.retire_run_routes(session_id);
                     routes.forget_session_bindings(session_id);
                     lock(&parts.establishment.prompts).forget_session(session_id);
                     self.pending_compactions
                         .release_binding(&session_id.to_string());
-                    let session = close.session();
-                    session.channel.close().await;
                     for run in &runs {
                         if let Err(error) =
                             parts.run_start.engine.end_turn_on_close(run.run_id).await

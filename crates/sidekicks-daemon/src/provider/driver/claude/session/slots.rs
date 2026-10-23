@@ -93,8 +93,9 @@ impl ClaudeSessionSlots {
         lock(&self.table).by_session.contains_key(&session_id)
     }
 
-    /// Whether `channel` still writes this session's transcript: its live process, or a rewind's
-    /// predecessor while the fork comes up. A process the slot no longer binds acts on nothing.
+    /// Whether `channel` still writes this session's transcript: its live process, a rewind's
+    /// predecessor while the fork comes up, or a closing process until its channel closes. A
+    /// process the slot no longer binds acts on nothing.
     pub(crate) fn binds_channel(
         &self,
         session_id: SessionId,
@@ -108,11 +109,15 @@ impl ClaudeSessionSlots {
                     ..
                 },
             ) => Arc::ptr_eq(&session.channel, channel),
+            Some(ClaudeSessionSlot::Closing {
+                reading: Some(reading),
+                ..
+            }) => Arc::ptr_eq(reading, channel),
             Some(
                 ClaudeSessionSlot::Establishing {
                     predecessor: None, ..
                 }
-                | ClaudeSessionSlot::Closing { .. }
+                | ClaudeSessionSlot::Closing { reading: None, .. }
                 | ClaudeSessionSlot::Quarantined { .. },
             )
             | None => false,
@@ -165,7 +170,7 @@ impl ClaudeSessionSlots {
             None => return ClaudeCloseStart::Empty,
             Some(
                 ClaudeSessionSlot::Establishing { settled, .. }
-                | ClaudeSessionSlot::Closing { settled },
+                | ClaudeSessionSlot::Closing { settled, .. },
             ) => return ClaudeCloseStart::Wait(Arc::clone(settled)),
             Some(
                 ClaudeSessionSlot::Live { session } | ClaudeSessionSlot::Quarantined { session },
@@ -176,6 +181,7 @@ impl ClaudeSessionSlots {
             session_id,
             ClaudeSessionSlot::Closing {
                 settled: Arc::clone(&settled),
+                reading: Some(Arc::clone(&session.channel)),
             },
         );
         ClaudeCloseStart::Closing(ClaudeSlotClose {
@@ -326,6 +332,18 @@ impl ClaudeSlotClose {
         &self.session
     }
 
+    /// Closes the process's channel, then stops taking its frames: one read before it closed
+    /// still reaches the session.
+    pub(crate) async fn close_channel(&self) {
+        self.session.channel.close().await;
+        if let Some(ClaudeSessionSlot::Closing { settled, reading }) =
+            lock(&self.table).by_session.get_mut(&self.session_id)
+            && Arc::ptr_eq(settled, &self.settled)
+        {
+            *reading = None;
+        }
+    }
+
     /// Empties the slot once the process is disposed of.
     pub(crate) fn finish(mut self) {
         self.is_disposed = true;
@@ -338,7 +356,7 @@ impl Drop for ClaudeSlotClose {
             let mut table = lock(&self.table);
             let is_own = matches!(
                 table.by_session.get(&self.session_id),
-                Some(ClaudeSessionSlot::Closing { settled }) if Arc::ptr_eq(settled, &self.settled)
+                Some(ClaudeSessionSlot::Closing { settled, .. }) if Arc::ptr_eq(settled, &self.settled)
             );
             if is_own {
                 if self.is_disposed {
