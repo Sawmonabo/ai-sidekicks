@@ -7,7 +7,8 @@
 #![expect(
     unsafe_code,
     reason = "the terminal's window size, queued-byte counts (`FIONREAD`, on Linux on the \
-              program's side `TIOCGPTPEER` opens), signal request (`TIOCSIG`), console, console input count (`GetNumberOfConsoleInputEvents`) and \
+              program's side `TIOCGPTPEER` opens), signal request (`TIOCSIG`), console, console \
+              input count (`GetNumberOfConsoleInputEvents`) and \
               library-search calls, the shell start's signal and console-handler calls, the \
               parent check a `Command` child runs in `pre_exec`, a lasting child's `setsid` and \
               `prctl` in `pre_exec`, the stop of a pinned process (Linux's `pidfd_send_signal`, \
