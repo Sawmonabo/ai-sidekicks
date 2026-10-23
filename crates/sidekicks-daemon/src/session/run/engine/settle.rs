@@ -21,6 +21,7 @@ use sidekicks_contracts::run::events::{TurnEndCause, TurnEndOrigin};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -167,6 +168,35 @@ impl RunEngine {
         run_id: RunId,
         process_exit: ProcessExit,
     ) -> Result<(), RunEngineError> {
+        self.end_turns_on_process_end(
+            run_id,
+            RunProcessEnd::Exited(&process_exit),
+            "ending the turns of a run and its provider's subagents on their process's exit",
+        )
+        .await
+    }
+
+    /// Ends the turns a provider process left when the daemon closed its session, as
+    /// [`Self::end_turn_on_process_exit`] ends them, except that a live run settles by its stops,
+    /// else ends interrupted, its end marked as the daemon's intended close, and an open turn no
+    /// limit cut ends interrupted.
+    pub(crate) async fn end_turn_on_close(&self, run_id: RunId) -> Result<(), RunEngineError> {
+        self.end_turns_on_process_end(
+            run_id,
+            RunProcessEnd::Closed,
+            "ending the turns of a run and its provider's subagents as their session closed",
+        )
+        .await
+    }
+
+    // Ends `run_id` and each run its provider dispatched beneath it that is unsettled, each in its
+    // own write, as `end` decides; every run is ended before the failures return, together.
+    async fn end_turns_on_process_end(
+        &self,
+        run_id: RunId,
+        end: RunProcessEnd<'_>,
+        what: &'static str,
+    ) -> Result<(), RunEngineError> {
         let subagents = self
             .pool
             .read(ReadLength::Short, move |reader| {
@@ -177,28 +207,31 @@ impl RunEngine {
             .await?;
         let mut outcomes = Vec::with_capacity(1 + subagents.len());
         for ended_run_id in iter::once(run_id).chain(subagents) {
-            outcomes.push(self.fail_on_process_exit(ended_run_id, &process_exit).await);
+            outcomes.push(self.end_on_process_end(ended_run_id, end).await);
         }
-        settled(
-            outcomes,
-            "ending the turns of a run and its provider's subagents on their process's exit",
-        )
+        settled(outcomes, what)
     }
 
-    /// One run's end when its provider process exited. A live run settles as a restart settles
-    /// it by its stops, else fails with the exit: its newest open turn's end rides that write and
-    /// every older one is written before it, each pending interrupt applied in it, refused once an
-    /// interrupt it did not read is pending, which reads the run again and decides once more. A
-    /// run resting, ended or queued keeps its state and its rows, its open turns ended on their
-    /// own. A turn a limit cut, by the engine's cut or a row of the log, ends interrupted with
-    /// that limit, every other `agent.turn.failed` with the exit. Fails as the reads fail and as
+    /// One run's end when its provider process ended. A live run settles as a restart settles it
+    /// by its stops, else fails with the exit or, on a close, ends interrupted: its newest open
+    /// turn's end rides that write and every older one is written before it, each pending
+    /// interrupt applied in it, refused once an interrupt it did not read is pending, which reads
+    /// the run again and decides once more. A run resting, ended or queued keeps its state and its
+    /// rows, its open turns ended on their own. A turn a limit cut, by the engine's cut or a row of
+    /// the log, ends interrupted with that limit, every other `agent.turn.failed` with the exit, or
+    /// `agent.turn.interrupted` on a close. Fails as the reads fail and as
     /// [`RunEngine::transition`] does, the second refusal returned.
-    async fn fail_on_process_exit(
+    async fn end_on_process_end(
         &self,
         run_id: RunId,
-        process_exit: &ProcessExit,
+        end: RunProcessEnd<'_>,
     ) -> Result<(), RunEngineError> {
-        let uncut_end = TurnOutcome::Failed(Some(TurnEndCause::ProcessExit));
+        let (uncut_end, intended_close) = match end {
+            RunProcessEnd::Exited(_) => {
+                (TurnOutcome::Failed(Some(TurnEndCause::ProcessExit)), None)
+            }
+            RunProcessEnd::Closed => (TurnOutcome::Interrupted(None), Some(True::default())),
+        };
         let mut is_read_again = false;
         loop {
             let run = self.require_run(run_id).await?;
@@ -223,17 +256,27 @@ impl RunEngine {
             let change = settlement_change(
                 run_id,
                 settlement_by_stops(&pending_interrupts, owed_limit),
-                || RunStateChange {
-                    failure_category: Some(RunFailureCategory::ProviderFailure),
-                    ..RunStateChange::new(
+                intended_close,
+                || match end {
+                    RunProcessEnd::Exited(process_exit) => RunStateChange {
+                        failure_category: Some(RunFailureCategory::ProviderFailure),
+                        ..RunStateChange::new(
+                            run_id,
+                            RunStateEntry::Failed {
+                                intended_close: None,
+                                failure_cause: None,
+                                provider_failure_detail: None,
+                                process_exit: Some(process_exit.clone()),
+                            },
+                        )
+                    },
+                    RunProcessEnd::Closed => RunStateChange::new(
                         run_id,
-                        RunStateEntry::Failed {
-                            intended_close: None,
-                            failure_cause: None,
-                            provider_failure_detail: None,
-                            process_exit: Some(process_exit.clone()),
+                        RunStateEntry::Interrupted {
+                            intended_close,
+                            trigger: None,
                         },
-                    )
+                    ),
                 },
             );
             let mut companions =
@@ -296,22 +339,23 @@ impl RunEngine {
             return Ok(run.run.clone());
         };
         let run_id = run.run_id;
-        let change = settlement_change(run_id, Some(decision.settlement), || RunStateChange {
-            failure_category: Some(RunFailureCategory::ProviderFailure),
-            recovery_condition: Some(RecoveryCondition::RecoveryNeeded),
-            ..RunStateChange::new(
-                run_id,
-                RunStateEntry::Failed {
-                    intended_close: None,
-                    failure_cause: None,
-                    provider_failure_detail: Some(bound_failure_detail(
-                        failure_detail,
-                        RESTART_FAILURE_FALLBACK.clone(),
-                    )),
-                    process_exit: None,
-                },
-            )
-        });
+        let change =
+            settlement_change(run_id, Some(decision.settlement), None, || RunStateChange {
+                failure_category: Some(RunFailureCategory::ProviderFailure),
+                recovery_condition: Some(RecoveryCondition::RecoveryNeeded),
+                ..RunStateChange::new(
+                    run_id,
+                    RunStateEntry::Failed {
+                        intended_close: None,
+                        failure_cause: None,
+                        provider_failure_detail: Some(bound_failure_detail(
+                            failure_detail,
+                            RESTART_FAILURE_FALLBACK.clone(),
+                        )),
+                        process_exit: None,
+                    },
+                )
+            });
         // Every pending interrupt the settle read is applied by this end, and one that arrived
         // since refuses it.
         let mut companions =
@@ -403,25 +447,34 @@ impl RunEngine {
     }
 }
 
-// The change that ends `run_id` as `settlement` decides; `None` or a `failed` settlement takes
-// `failed_change`.
+// How a run's provider process ended under it: on its own, or closed by the daemon with its
+// session.
+#[derive(Clone, Copy)]
+enum RunProcessEnd<'exit> {
+    Exited(&'exit ProcessExit),
+    Closed,
+}
+
+// The change that ends `run_id` as `settlement` decides, an interrupted or stopped end carrying
+// `intended_close`; `None` or a `failed` settlement takes `failed_change`.
 fn settlement_change(
     run_id: RunId,
     settlement: Option<RestartSettlement>,
+    intended_close: Option<True>,
     failed_change: impl FnOnce() -> RunStateChange,
 ) -> RunStateChange {
     match settlement {
         Some(RestartSettlement::Interrupted { trigger }) => RunStateChange::new(
             run_id,
             RunStateEntry::Interrupted {
-                intended_close: None,
+                intended_close,
                 trigger,
             },
         ),
         Some(RestartSettlement::Stopped { trigger }) => RunStateChange::new(
             run_id,
             RunStateEntry::Stopped {
-                intended_close: None,
+                intended_close,
                 trigger: Some(trigger),
             },
         ),

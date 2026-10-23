@@ -59,6 +59,8 @@ pub(crate) enum EngineCall {
     StartDaemonTurn(RunId),
     /// A run's turn ended on its process's exit.
     EndTurnOnProcessExit(RunId),
+    /// A run's turn ended as its session closed.
+    EndTurnOnClose(RunId),
 }
 
 /// A run engine that records each call and answers as the real one would on success: every ask is
@@ -89,7 +91,8 @@ impl RecordingRunEngine {
                 | EngineCall::CountStep(_)
                 | EngineCall::RecordTurnEnd(..)
                 | EngineCall::StartDaemonTurn(_)
-                | EngineCall::EndTurnOnProcessExit(_) => None,
+                | EngineCall::EndTurnOnProcessExit(_)
+                | EngineCall::EndTurnOnClose(_) => None,
             })
             .collect()
     }
@@ -248,6 +251,11 @@ impl ClaudeRunEngine for RecordingRunEngine {
         _process_exit: ProcessExit,
     ) -> BoxFuture<'_, Result<(), RunEngineError>> {
         self.record(EngineCall::EndTurnOnProcessExit(run_id));
+        async { Ok(()) }.boxed()
+    }
+
+    fn end_turn_on_close(&self, run_id: RunId) -> BoxFuture<'_, Result<(), RunEngineError>> {
+        self.record(EngineCall::EndTurnOnClose(run_id));
         async { Ok(()) }.boxed()
     }
 }

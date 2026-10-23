@@ -13,6 +13,7 @@ use super::{ClaudeDriver, internal};
 use crate::mutex_lock::lock;
 use crate::provider::driver::claude::delivery::requests::answers::claude_project_folder;
 use crate::provider::driver::claude::session::conversation_file::find_claude_taken_messages;
+use crate::provider::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::provider::driver::claude::session::establishment::conversation_file_of;
 use crate::provider::driver::claude::session::naming::{
     name_claude_session, tell_claude_session_name,
@@ -24,6 +25,7 @@ use crate::provider::driver::claude::session::restart::ClaudeEndedConversation;
 use crate::provider::driver::claude::session::slots::ClaudeCloseStart;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::provider::driver::diagnostics::DriverDiagnosticKind;
 use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::provider::driver::run_control::{FindTakenMessagesParams, TakenMessages};
 use crate::provider::driver::session_control::{
@@ -106,8 +108,9 @@ impl ClaudeDriver {
     }
 
     /// Closes the session: a restart waiting for it, its controls and its reviewer's blocks go,
-    /// then its process is disposed of, after any transition in flight settles, and the `Allow
-    /// once` presses its bindings held are let go; a session with no process needs nothing.
+    /// then its process is disposed of, after any transition in flight settles, each run it still
+    /// held ends as the daemon's intended close, and the `Allow once` presses its bindings held
+    /// are let go; a session with no process needs nothing.
     pub(crate) async fn close_session(
         &self,
         params: CloseSessionParams,
@@ -126,7 +129,12 @@ impl ClaudeDriver {
                     settled.wait().await;
                 }
                 ClaudeCloseStart::Closing(close) => {
+                    // Marked first, so a `result` the close provokes ends its turn as intended.
+                    if let Some(stream) = parts.establishment.streams.get(session_id) {
+                        stream.signal_intended_close();
+                    }
                     let routes = &parts.establishment.routes;
+                    let runs = routes.bound_runs_on(session_id);
                     // Routes first, so no later interrupt aims at a run of the dying process.
                     routes.retire_run_routes(session_id);
                     routes.forget_session_bindings(session_id);
@@ -135,6 +143,18 @@ impl ClaudeDriver {
                         .release_binding(&session_id.to_string());
                     let session = close.session();
                     session.channel.close().await;
+                    for run in &runs {
+                        if let Err(error) =
+                            parts.run_start.engine.end_turn_on_close(run.run_id).await
+                        {
+                            record_unheard_claude_failure(
+                                DriverDiagnosticKind::ProcessReportFailed,
+                                session_id,
+                                "the run end of a closed session",
+                                &error,
+                            );
+                        }
+                    }
                     session.release_served_presses(&self.sources.ports.reviewer_denials);
                     close.finish();
                     return Ok(());

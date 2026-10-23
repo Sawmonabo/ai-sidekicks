@@ -343,17 +343,10 @@ pub(crate) enum ClaudeTitleSource {
     Host,
 }
 
-/// An `interrupt`'s receipt: the messages still queued behind the stopped turn, and, where the
-/// interrupt dropped them, the ones it dropped; read leniently, a member of another shape as none.
+/// An `interrupt`'s receipt: the messages the interrupt dropped, where it dropped them; read
+/// leniently, a member of another shape as none.
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct ClaudeInterruptReceipt {
-    /// The messages that survive the interrupt, by uuid.
-    #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(
-        dead_code,
-        reason = "the plain interrupt reads the messages that survive it from the receipt"
-    )]
-    pub(crate) still_queued: Option<LenientList<String>>,
     /// The messages the interrupt dropped, by uuid; sent only for `cancel_queued`.
     #[serde(default, deserialize_with = "read_lenient")]
     pub(crate) cancelled: Option<LenientList<String>>,

@@ -1,6 +1,7 @@
 //! The run engine as the Claude Code driver reaches it: each delivery handed to the inbound
 //! dispatch at once, a turn opened and numbered, a step counted, a turn's end that moves no run,
-//! a settled output speed, and a turn the daemon starts itself.
+//! a settled output speed, a turn the daemon starts itself, and the turns a process left as it
+//! exited or its session closed.
 
 use std::sync::Arc;
 
@@ -69,6 +70,9 @@ pub(crate) trait ClaudeRunEngine: Send + Sync {
         run_id: RunId,
         process_exit: ProcessExit,
     ) -> BoxFuture<'_, Result<(), RunEngineError>>;
+
+    /// Ends `run_id`'s turn, and the helpers beneath it, as the daemon closed its session.
+    fn end_turn_on_close(&self, run_id: RunId) -> BoxFuture<'_, Result<(), RunEngineError>>;
 }
 
 /// The daemon's run engine and its inbound dispatch.
@@ -152,5 +156,9 @@ impl ClaudeRunEngine for RunEngineDelivery {
         self.engine
             .end_turn_on_process_exit(run_id, process_exit)
             .boxed()
+    }
+
+    fn end_turn_on_close(&self, run_id: RunId) -> BoxFuture<'_, Result<(), RunEngineError>> {
+        self.engine.end_turn_on_close(run_id).boxed()
     }
 }
