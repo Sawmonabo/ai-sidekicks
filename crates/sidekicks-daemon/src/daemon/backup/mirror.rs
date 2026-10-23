@@ -22,6 +22,7 @@ use sidekicks_platforms::{
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
+use crate::cleanup_failures::CleanupFailures;
 use crate::missing_entry::{MissingEntry as _, is_missing_entry};
 
 /// The mirror's folder inside the backups folder; it holds no manifest, so no reader takes it
@@ -310,7 +311,8 @@ fn copy_changed(
                 remove_tree(&copy).map_err(at(&copy))?;
             }
         }
-        copy_file(entry.path(), &copy, modified).map_err(at(&copy))?;
+        copy_file(entry.path(), &copy, modified, |from, to| fs::copy(from, to))
+            .map_err(at(&copy))?;
         report.copied_files += 1;
         report.copied_bytes += metadata.len();
     }
@@ -360,20 +362,38 @@ pub(crate) fn probe_time_precision(folder: &Path) -> io::Result<Duration> {
     Ok(precision)
 }
 
-// Copies `source` beside `copy`, with `modified` as its modification time, flushes it and renames
-// it over the copy.
-fn copy_file(source: &Path, copy: &Path, modified: SystemTime) -> io::Result<()> {
+// Copies `source` beside `copy` through `copy_bytes`, with `modified` as its modification time,
+// flushes it and renames it over the copy. A failed step removes the file beside the copy, a failed
+// removal kept beside the step's failure, so a full disk is not kept full until the next run.
+fn copy_file(
+    source: &Path,
+    copy: &Path,
+    modified: SystemTime,
+    copy_bytes: impl FnOnce(&Path, &Path) -> io::Result<u64>,
+) -> io::Result<()> {
     let mut in_progress = copy.as_os_str().to_owned();
     in_progress.push(COPY_IN_PROGRESS_SUFFIX);
     let in_progress = PathBuf::from(in_progress);
     fs::remove_file(&in_progress).none_if_missing()?;
-    fs::copy(source, &in_progress)?;
-    File::options()
-        .write(true)
-        .open(&in_progress)?
-        .set_modified(modified)?;
-    flush_file(&in_progress)?;
-    rename_replacing(&in_progress, copy)
+    let placed = copy_bytes(source, &in_progress)
+        .and_then(|_bytes| {
+            File::options()
+                .write(true)
+                .open(&in_progress)?
+                .set_modified(modified)
+        })
+        .and_then(|()| flush_file(&in_progress))
+        .and_then(|()| rename_replacing(&in_progress, copy));
+    let Err(failure) = placed else {
+        return Ok(());
+    };
+    match fs::remove_file(&in_progress).none_if_missing() {
+        Ok(_removed) => Err(failure),
+        Err(removal) => Err(io::Error::new(
+            failure.kind(),
+            CleanupFailures::new(failure, vec![removal], "the mirror's copy"),
+        )),
+    }
 }
 
 // Deletes each copy under `copy_root` whose source under `source` is gone or is no longer of its
@@ -435,6 +455,7 @@ fn remove_gone(
 #[cfg(test)]
 mod tests {
     use std::fs::{self, File};
+    use std::io;
     use std::path::Path;
     use std::time::Duration;
 
@@ -442,7 +463,7 @@ mod tests {
     use serde_json::json;
     use tokio_util::sync::CancellationToken;
 
-    use super::{MirrorReport, MirrorRoot, mirror_roots};
+    use super::{COPY_IN_PROGRESS_SUFFIX, MirrorReport, MirrorRoot, copy_file, mirror_roots};
 
     fn modified(path: &Path) -> std::time::SystemTime {
         fs::metadata(path)
@@ -538,5 +559,29 @@ mod tests {
             root.place(Path::new("/home/other")),
             Path::new("/home/other/.agent/notes.md")
         );
+    }
+
+    // A copy the disk refuses partway leaves neither the file beside the copy nor the copy, so a
+    // full disk is not kept full until the next run. Killed by a failed copy that keeps its file.
+    #[test]
+    fn a_copy_that_fails_partway_leaves_no_file_beside_the_copy() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let source = scratch.path().join("source.md");
+        fs::write(&source, b"the source's bytes").expect("written");
+        let copy = scratch.path().join("copy.md");
+        let copy_half_then_fail = |from: &Path, to: &Path| -> io::Result<u64> {
+            let bytes = fs::read(from)?;
+            fs::write(to, &bytes[..bytes.len() / 2])?;
+            Err(io::Error::from(io::ErrorKind::StorageFull))
+        };
+
+        let failure = copy_file(&source, &copy, modified(&source), copy_half_then_fail)
+            .expect_err("the copy fails");
+
+        assert_eq!(failure.kind(), io::ErrorKind::StorageFull);
+        let mut in_progress = copy.as_os_str().to_owned();
+        in_progress.push(COPY_IN_PROGRESS_SUFFIX);
+        assert!(!Path::new(&in_progress).exists());
+        assert!(!copy.exists());
     }
 }
