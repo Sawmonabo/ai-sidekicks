@@ -1,3 +1,5 @@
+use std::io;
+
 use rstest::rstest;
 use rusqlite::params;
 use sidekicks_contracts::session::id::SessionId;
@@ -9,9 +11,12 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::{MalformedStoredEventFault, SessionEventReads, SessionLogReadError, body_read_error};
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::events::content::codec::{BodyDecodeError, BodyStreamError};
+use crate::events::content::codec::{
+    BodyDecodeError, BodyStreamError, ZSTD_OUT_OF_MEMORY, stream_read_failure,
+};
 use crate::transcript::test_log::TranscriptTestLog;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use zstd::zstd_safe;
 
 const WELL_FORMED_INSTANT: &str = "2026-10-14T09:00:00.000Z";
 
@@ -172,12 +177,18 @@ fn a_hydrated_page_stays_within_its_text() {
     assert_eq!(sequences(&page), [last]);
 }
 
-// A body zstd had no memory to decode is a failed read, so a projection rebuild never marks a
+// A body zstd had no memory to decode is a failed read, whether its context could not be made, a
+// whole-body decode ran out or zstd's stream ran out midway, so a projection rebuild never marks a
 // healthy session unreadable over it; a body that does not read back as stated is the malformed
-// row it is. Killed by reading the decoder's failure as a damaged row.
+// row it is. Killed by reading any of the three as a damaged row.
 #[rstest]
-#[case::no_decoder(BodyStreamError::NoDecoder, true)]
-#[case::damaged(BodyStreamError::Damaged(BodyDecodeError::NoLength), false)]
+#[case::no_context(BodyStreamError::OutOfMemory, true)]
+#[case::whole_body_out_of_memory(BodyStreamError::from(BodyDecodeError::OutOfMemory), true)]
+#[case::stream_out_of_memory(
+    stream_read_failure(io::Error::other(zstd_safe::get_error_name(ZSTD_OUT_OF_MEMORY))),
+    true
+)]
+#[case::damaged(BodyStreamError::from(BodyDecodeError::NoLength), false)]
 fn a_body_that_cannot_be_read_is_a_failed_read_or_a_malformed_row(
     #[case] error: BodyStreamError,
     #[case] is_failed_read: bool,

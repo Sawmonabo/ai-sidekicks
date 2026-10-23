@@ -27,7 +27,7 @@ use sidekicks_contracts::wire::record::RecordKey;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::events::content::codec::{
-    BodyStreamError, StoredBodyPlace, no_decoder_read_failure, stored_body_place_sql,
+    BodyStreamError, StoredBodyPlace, out_of_memory_read_failure, stored_body_place_sql,
 };
 use crate::events::content::read::{
     StoredEventContentRow, hydrate_stored_event, joined_content_length,
@@ -764,7 +764,7 @@ impl StoredEventRow {
 fn body_read_error(envelope: &EventEnvelope, error: BodyStreamError) -> SessionLogReadError {
     match error {
         BodyStreamError::Read(error) => SessionLogReadError::Database(error),
-        BodyStreamError::NoDecoder => SessionLogReadError::Database(no_decoder_read_failure()),
+        BodyStreamError::OutOfMemory => SessionLogReadError::Database(out_of_memory_read_failure()),
         damaged @ (BodyStreamError::Damaged(_) | BodyStreamError::Write(_)) => {
             malformed_body(envelope, damaged).into()
         }

@@ -20,6 +20,7 @@ use sidekicks_contracts::event::declared_variants::{
 use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
 use zstd::bulk::{Compressor, Decompressor};
 use zstd::stream::read::Decoder;
+use zstd::zstd_safe::zstd_sys::ZSTD_ErrorCode;
 use zstd::zstd_safe::{self, CParameter, DCtx};
 
 use crate::database::schema::SESSION_EVENTS_TABLE;
@@ -111,7 +112,8 @@ impl BodyEncoder {
     }
 }
 
-/// Why a stored body does not read back as the text its payload describes; the row is damaged.
+/// Why a stored body does not read back as the text its payload describes: the row is damaged,
+/// unless zstd ran out of memory decoding it.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum BodyDecodeError {
     /// The body decodes to another length than its payload states.
@@ -133,11 +135,15 @@ pub(crate) enum BodyDecodeError {
     /// The decoded bytes are not UTF-8.
     #[error("the stored body is not UTF-8")]
     Utf8(#[source] FromUtf8Error),
+    /// zstd had no memory to make or feed a decoding context; the row is not at fault.
+    #[error("zstd ran out of memory decoding the stored body")]
+    OutOfMemory,
 }
 
 /// The text of a stored body: `stored`, encoded as `encoding`, whose payload states
-/// `content_length`. Fails when it does not decode to exactly that many bytes of UTF-8; a body
-/// stored as it is and stating no length is taken as it is.
+/// `content_length`. Fails when it does not decode to exactly that many bytes of UTF-8, or with
+/// [`BodyDecodeError::OutOfMemory`] when zstd runs out of memory; a body stored as it is and
+/// stating no length is taken as it is.
 pub(crate) fn decode_body(
     stored: Vec<u8>,
     encoding: Option<ContentEncoding>,
@@ -152,9 +158,7 @@ pub(crate) fn decode_body(
                     stated,
                     decoded: u64::MAX,
                 })?;
-            Decompressor::new()
-                .and_then(|mut decompressor| decompressor.decompress(&stored, capacity))
-                .map_err(BodyDecodeError::Stream)?
+            decompress_frames(&stored, capacity)?
         }
     };
     let decoded_length = decoded.len() as u64;
@@ -230,14 +234,35 @@ pub(crate) fn decode_body_stretch(
     let frames = &stored[first..last];
     let capacity =
         Decompressor::upper_bound(frames).ok_or_else(|| stream_fault(StreamFault::NoUpperBound))?;
-    let decoded = Decompressor::new()
-        .and_then(|mut decompressor| decompressor.decompress(frames, capacity))
-        .map_err(BodyDecodeError::Stream)?;
+    let decoded = decompress_frames(frames, capacity)?;
     Ok(DecodedStretch {
         start: usize::try_from(start).expect("a stretch held in memory starts within usize"),
         text: String::from_utf8(decoded).map_err(BodyDecodeError::Utf8)?,
     })
 }
+
+// The text of the whole zstd frames `frames`, at most `capacity` bytes or what their headers record
+// if less, decoded through a context made for the call. Fails with `OutOfMemory` when the context
+// or the text's buffer cannot be had, and as the damage it is when zstd refuses the frames.
+fn decompress_frames(frames: &[u8], capacity: usize) -> Result<Vec<u8>, BodyDecodeError> {
+    let capacity = Decompressor::upper_bound(frames).map_or(capacity, |bound| bound.min(capacity));
+    let mut context = DCtx::try_create().ok_or(BodyDecodeError::OutOfMemory)?;
+    let mut decoded = Vec::new();
+    decoded
+        .try_reserve_exact(capacity)
+        .map_err(|_no_room| BodyDecodeError::OutOfMemory)?;
+    context
+        .decompress(&mut decoded, frames)
+        .map_err(|code| match code {
+            ZSTD_OUT_OF_MEMORY => BodyDecodeError::OutOfMemory,
+            refused => stream_fault(StreamFault::Zstd(refused)),
+        })?;
+    Ok(decoded)
+}
+
+/// The code a zstd call answers when it could not allocate.
+pub(in crate::events) const ZSTD_OUT_OF_MEMORY: usize =
+    (ZSTD_ErrorCode::ZSTD_error_memory_allocation as usize).wrapping_neg();
 
 // What a frame walk met that no whole frame of a stored body holds.
 #[derive(Clone, Copy)]
@@ -266,11 +291,18 @@ fn stream_fault(fault: StreamFault) -> BodyDecodeError {
     BodyDecodeError::Stream(io::Error::new(io::ErrorKind::InvalidData, name))
 }
 
-// A failed read of a stored body's stream: SQLite's own refusal of the column as that, anything
-// else as the damage it is.
-fn stream_read_failure(error: io::Error) -> BodyStreamError {
+/// A failed read of a stored body's stream: SQLite's own refusal of the column as that, running
+/// out of memory as that, whether the system or zstd says so (the zstd crate carries zstd's own
+/// error by its name), and anything else as the damage it is.
+pub(in crate::events) fn stream_read_failure(error: io::Error) -> BodyStreamError {
     match error.downcast::<rusqlite::Error>() {
         Ok(refused) => BodyStreamError::Read(refused),
+        Err(no_memory)
+            if no_memory.kind() == io::ErrorKind::OutOfMemory
+                || no_memory.to_string() == zstd_safe::get_error_name(ZSTD_OUT_OF_MEMORY) =>
+        {
+            BodyStreamError::OutOfMemory
+        }
         Err(damage) => BodyDecodeError::Stream(damage).into(),
     }
 }
@@ -288,24 +320,36 @@ fn frame_text_bytes(stored: &[u8]) -> Result<u64, BodyDecodeError> {
 pub(crate) enum BodyStreamError {
     /// The body does not read back as the text its payload describes; the row is damaged.
     #[error(transparent)]
-    Damaged(#[from] BodyDecodeError),
+    Damaged(BodyDecodeError),
     /// SQLite refused to open or read the stored column.
     #[error("the stored body could not be read")]
     Read(#[from] rusqlite::Error),
     /// The reader refused a frame's text.
     #[error("a stored body's text could not be written")]
     Write(#[source] io::Error),
-    /// zstd had no memory to make a decoding context; the row is not at fault.
-    #[error("zstd could not make a decoding context")]
-    NoDecoder,
+    /// zstd had no memory to make or feed a decoding context; the row is not at fault.
+    #[error("zstd ran out of memory decoding the stored body")]
+    OutOfMemory,
+}
+
+impl From<BodyDecodeError> for BodyStreamError {
+    fn from(error: BodyDecodeError) -> Self {
+        match error {
+            BodyDecodeError::OutOfMemory => Self::OutOfMemory,
+            damage @ (BodyDecodeError::Length { .. }
+            | BodyDecodeError::NoLength
+            | BodyDecodeError::Stream(_)
+            | BodyDecodeError::Utf8(_)) => Self::Damaged(damage),
+        }
+    }
 }
 
 /// The read failure a body zstd had no memory to decode is, as SQLite names running out of
 /// memory, so a caller reads it as a failed read and never as a damaged row.
-pub(crate) fn no_decoder_read_failure() -> rusqlite::Error {
+pub(crate) fn out_of_memory_read_failure() -> rusqlite::Error {
     rusqlite::Error::SqliteFailure(
         rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_NOMEM),
-        Some(BodyStreamError::NoDecoder.to_string()),
+        Some(BodyStreamError::OutOfMemory.to_string()),
     )
 }
 
@@ -357,8 +401,9 @@ impl StoredBodyPlace {
         }))
     }
 
-    /// The body's whole text, read on `connection`. Fails with [`BodyStreamError::Damaged`] as
-    /// [`decode_body`] does, and with [`BodyStreamError::Read`] when SQLite refuses the column.
+    /// The body's whole text, read on `connection`. Fails with [`BodyStreamError::Damaged`] or
+    /// [`BodyStreamError::OutOfMemory`] as [`decode_body`] does, and with
+    /// [`BodyStreamError::Read`] when SQLite refuses the column.
     pub(crate) fn decode(&self, connection: &Connection) -> Result<String, BodyStreamError> {
         let blob = self.open(connection)?;
         Ok(decode_body(
@@ -405,7 +450,7 @@ impl StoredBodyPlace {
         self.stream(connection, |frame| Ok(each(frame)))
             .map_err(|error| match error {
                 BodyStreamError::Read(error) => error,
-                BodyStreamError::NoDecoder => no_decoder_read_failure(),
+                BodyStreamError::OutOfMemory => out_of_memory_read_failure(),
                 other @ (BodyStreamError::Damaged(_) | BodyStreamError::Write(_)) => {
                     rusqlite::Error::FromSqlConversionFailure(index, Type::Blob, Box::new(other))
                 }
@@ -434,7 +479,7 @@ fn stream_frames<Stop>(
     stated: u64,
     mut each: impl FnMut(&str) -> io::Result<ControlFlow<Stop>>,
 ) -> Result<ControlFlow<Stop>, BodyStreamError> {
-    let mut context: DCtx<'static> = DCtx::try_create().ok_or(BodyStreamError::NoDecoder)?;
+    let mut context: DCtx<'static> = DCtx::try_create().ok_or(BodyStreamError::OutOfMemory)?;
     let mut header = [0; FRAME_HEADER_MAX_BYTES];
     let mut text = Vec::new();
     let mut decoded: u64 = 0;
@@ -578,9 +623,18 @@ fn stated_length_column(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<
         .transpose()
 }
 
-/// A body that does not decode, as the read's conversion failure on its column.
+/// A body that does not decode, as the read's conversion failure on its column; zstd out of memory
+/// as the failed read it is.
 fn decode_failure(index: usize, error: BodyDecodeError) -> rusqlite::Error {
-    rusqlite::Error::FromSqlConversionFailure(index, Type::Blob, Box::new(error))
+    match error {
+        BodyDecodeError::OutOfMemory => out_of_memory_read_failure(),
+        damage @ (BodyDecodeError::Length { .. }
+        | BodyDecodeError::NoLength
+        | BodyDecodeError::Stream(_)
+        | BodyDecodeError::Utf8(_)) => {
+            rusqlite::Error::FromSqlConversionFailure(index, Type::Blob, Box::new(damage))
+        }
+    }
 }
 
 #[cfg(test)]
