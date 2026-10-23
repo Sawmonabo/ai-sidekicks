@@ -1,13 +1,14 @@
-//! The diagnostic-log expiry: each pass deletes whole every diagnostic file last written longer
-//! ago than the bound, so a file is kept as long as its newest line is young enough. It covers the
+//! The diagnostic-log expiry: each pass deletes whole every diagnostic file last written longer ago
+//! than the bound, so a file is kept as long as its newest line is young enough. It covers the
 //! daemon's service log files and each provider service's log and kept tail in `logs/`, every
 //! diagnostic bucket, the crash dumps and crash reports, and the provider diagnostic folders in
 //! each account home, and asks each account home's driver to expire what its provider keeps there
-//! beyond those folders. A file still being written, the one the service log holds open or a
-//! running provider service's log, is never deleted, and a running service's log past its cap is
-//! cut instead. A file in `logs/` that is no diagnostic log is never touched, and no folder is
-//! removed. A file that cannot be read, cut or deleted is told in the service log and the pass goes
-//! on. Each pass is metered against its processor budget.
+//! beyond those folders. A file still being written, the one the service log holds open, a running
+//! provider service's log or a partial crash dump, which the crash pass removes itself once no
+//! monitor holds it, is never deleted, and a running service's log past its cap is cut instead. A
+//! file in `logs/` that is no diagnostic log is never touched, and no folder is removed. A file
+//! that cannot be read, cut or deleted is told in the service log and the pass goes on. Each pass
+//! is metered against its processor budget.
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -22,7 +23,7 @@ use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
 use crate::daemon::configuration::ConfigurationStore;
-use crate::daemon::crash::monitor::CRASH_DUMPS_FOLDER_NAME;
+use crate::daemon::crash::monitor::{CRASH_DUMPS_FOLDER_NAME, is_partial_dump_name};
 use crate::daemon::scheduler::ScheduledJobOutcome;
 use crate::daemon::scheduler::budget::{
     BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
@@ -130,8 +131,8 @@ async fn run_expiry(deps: Arc<DiagnosticExpiryDeps>, meter: ProcessorMeter) -> M
         .filter_map(|file| file.file_name().map(ToOwned::to_owned))
         .collect();
     let logs_folder = service_log_folder(&deps.data_folder);
+    let dumps_folder = deps.data_folder.join(CRASH_DUMPS_FOLDER_NAME);
     let mut folders = diagnostic_bucket_folders(&deps.data_folder).to_vec();
-    folders.push(deps.data_folder.join(CRASH_DUMPS_FOLDER_NAME));
     folders.push(deps.data_folder.join(CRASH_REPORTS_FOLDER_NAME));
     let mut driven_homes: Vec<(Arc<dyn ProviderDriver>, PathBuf)> = Vec::new();
     match read_account_homes(&deps.reads, &meter).await {
@@ -162,8 +163,10 @@ async fn run_expiry(deps: Arc<DiagnosticExpiryDeps>, meter: ProcessorMeter) -> M
             let live_logs =
                 expire_diagnostic_logs(&logs_folder, &live_file_names, cutoff, &mut count);
             for folder in &folders {
-                expire_folder(folder, cutoff, &mut count);
+                expire_folder(folder, cutoff, &mut count, |_name| false);
             }
+            // A partial dump is the crash pass's: it removes one no monitor holds, under its lock.
+            expire_folder(&dumps_folder, cutoff, &mut count, is_partial_dump_name);
             for (driver, home) in &driven_homes {
                 match driver.expire_account_home_diagnostics(home, cutoff) {
                     Ok(rows_deleted) => count.rows_deleted += rows_deleted,
@@ -271,10 +274,15 @@ fn delete_if_written_before(path: &Path, cutoff: SystemTime) -> io::Result<bool>
     Ok(false)
 }
 
-// Deletes every plain file anywhere under `folder` last written before `cutoff`, following no link
-// and removing no folder. A missing folder or file is skipped, and any other failure is written to
-// the service log.
-fn expire_folder(folder: &Path, cutoff: SystemTime, count: &mut ExpiryCount) {
+// Deletes every plain file anywhere under `folder` last written before `cutoff`, except one whose
+// name `is_owned_elsewhere` takes, following no link and removing no folder. A missing folder or
+// file is skipped, and any other failure is written to the service log.
+fn expire_folder(
+    folder: &Path,
+    cutoff: SystemTime,
+    count: &mut ExpiryCount,
+    is_owned_elsewhere: impl Fn(&str) -> bool,
+) {
     for entry in WalkDir::new(folder).follow_root_links(false) {
         let entry = match entry {
             Ok(entry) => entry,
@@ -291,7 +299,9 @@ fn expire_folder(folder: &Path, cutoff: SystemTime, count: &mut ExpiryCount) {
             }
         };
         count.examined += 1;
-        if !entry.file_type().is_file() {
+        if !entry.file_type().is_file()
+            || entry.file_name().to_str().is_some_and(&is_owned_elsewhere)
+        {
             continue;
         }
         let path = entry.path();
@@ -355,11 +365,11 @@ mod tests {
     // A pass deletes whole every diagnostic file past the bound and keeps a newer one of each kind:
     // the service log, each bucket, the crash dumps and reports, and every folder each provider's
     // descriptor names in its account home, where a session's file of the same age stays; a file in
-    // `logs/` that is no log stays too; and each account home's driver is asked once to expire what
-    // its provider keeps there, with the bound's cutoff. Killed by a per-session folder in a
-    // descriptor's list, by a bucket or crash folder left out of the pass, by the account homes
-    // left unread, by the driver never asked or asked about another home, and by a cutoff off the
-    // bound.
+    // `logs/` that is no log stays too, and so does a partial dump, the crash pass's; and each
+    // account home's driver is asked once to expire what its provider keeps there, with the bound's
+    // cutoff. Killed by a per-session folder in a descriptor's list, by a bucket or crash folder
+    // left out of the pass, by a partial dump expired, by the account homes left unread, by the
+    // driver never asked or asked about another home, and by a cutoff off the bound.
     #[tokio::test]
     async fn a_pass_deletes_every_diagnostic_past_the_bound_and_no_session_file() {
         let database = TestDatabase::new();
@@ -381,7 +391,10 @@ mod tests {
             data.join(CRASH_DUMPS_FOLDER_NAME).join("crash.dmp"),
             data.join(CRASH_REPORTS_FOLDER_NAME).join("crash.json"),
         ];
-        let mut kept_old = vec![logs.join("notes.txt")];
+        let mut kept_old = vec![
+            logs.join("notes.txt"),
+            data.join(CRASH_DUMPS_FOLDER_NAME).join("crash.dmp.partial"),
+        ];
         let mut kept_new = vec![logs.join("service-2026-10-20T00-00-00-000.log")];
         for bucket in diagnostic_bucket_folders(data) {
             expired.push(bucket.join("2026-10-01.ndjson"));

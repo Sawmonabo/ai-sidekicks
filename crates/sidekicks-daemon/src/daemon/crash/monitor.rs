@@ -58,6 +58,14 @@ const PANIC_RECORD_MAX_BYTES: usize = 60 * 1024;
 /// The suffix of a dump being written.
 pub(crate) const DUMP_IN_PROGRESS_SUFFIX: &str = ".partial";
 
+/// Whether `file_name` names a dump while it is being written, `<stem>.dmp.partial`.
+pub(crate) fn is_partial_dump_name(file_name: &str) -> bool {
+    file_name
+        .strip_suffix(DUMP_IN_PROGRESS_SUFFIX)
+        .and_then(|name| name.strip_suffix(DUMP_EXTENSION))
+        .is_some_and(|stem| stem.ends_with('.'))
+}
+
 // How long the service tries to reach a monitor that is still starting, and how often.
 const CONNECT_BOUND: Duration = Duration::from_secs(10);
 const CONNECT_RETRY_INTERVAL: Duration = Duration::from_millis(100);

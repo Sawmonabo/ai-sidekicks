@@ -46,7 +46,7 @@ use walkdir::WalkDir;
 use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::crash::monitor::{
     CRASH_DUMPS_FOLDER_NAME, DUMP_EXTENSION, DUMP_IN_PROGRESS_SUFFIX, PANIC_RECORD_SUFFIX,
-    PanicRecord, panic_record_path,
+    PanicRecord, is_partial_dump_name, panic_record_path,
 };
 use crate::daemon::machine::settings::file::MachineSettingsFile;
 use crate::daemon::panic_hook::{PANIC_RECORD_FILE_EXTENSION, PANIC_RECORD_FILE_PREFIX};
@@ -380,7 +380,7 @@ pub(super) fn remove_monitor_leftovers(folder: &Path) -> Vec<io::Error> {
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        if name.ends_with(DUMP_IN_PROGRESS_SUFFIX) {
+        if is_partial_dump_name(name) {
             match remove_unless_held(&path) {
                 Ok(is_held) => {
                     held.insert(name.to_owned(), is_held);
