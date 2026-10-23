@@ -65,9 +65,10 @@ fn discriminate_tagged_arms(schema: &mut Schema) {
     let Some(tag) = tagged_union(arms, |arm| arm).map(|union| union.tag) else {
         return;
     };
-    schema
-        .ensure_object()
-        .insert("discriminator".into(), json!({ "propertyName": tag }));
+    let object = schema.ensure_object();
+    object.insert("discriminator".into(), json!({ "propertyName": tag }));
+    // Every arm is an object, and Ajv's strict mode states that beside the discriminator.
+    object.insert("type".into(), "object".into());
 }
 
 /// A union whose arms an object's tag tells apart: the tag's name and each arm's word, in arm

@@ -254,7 +254,7 @@ with_machine_content_descriptor! {
     }))]
     #[schemars(extend(
         "dependentRequired" = epoch_stamp_dependent_required(),
-        "if" = { "required": ["contentLength"] },
+        "if" = { "properties": { "contentLength": true }, "required": ["contentLength"] },
         "then" = { "properties": { "ending": { "const": "failed" } } },
     ))]
     pub struct AgentCommandEndedPayload {
