@@ -18,6 +18,7 @@ use crate::provider::driver::SessionSpawnContextResolver;
 use crate::provider::driver::claude::spawn::environment::ClaudeAccountFolders;
 use crate::provider::driver::claude::spawn::legs::ClaudeSpawnContext;
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::provider::port::session_advisor_store::ClaudeSessionAdvisorStore;
 use crate::session::console_state::{read_session_advisor_model, read_session_max_steps_per_turn};
 
 /// The id of the Settings row holding the output style new sessions start with.
@@ -110,6 +111,29 @@ pub(crate) async fn read_claude_step_bound(
         read_session_max_steps_per_turn(reader, &session_id).map_err(ClaudeStoredReadError::from)
     })
     .await
+}
+
+/// Keeps the advisor Claude Code resolved at a start no one picked one for as the session's own,
+/// so every later start runs with it; nothing where `picked` is a pick, the reply named none or the
+/// store is not registered yet. Fails when the store's write fails.
+pub(crate) async fn record_claude_resolved_advisor(
+    store: Option<&Arc<dyn ClaudeSessionAdvisorStore>>,
+    session_id: SessionId,
+    picked: &ClaudeSessionAdvisor,
+    resolved: &ClaudeSessionAdvisor,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    match (picked, resolved, store) {
+        (
+            ClaudeSessionAdvisor::Unpicked,
+            ClaudeSessionAdvisor::Off | ClaudeSessionAdvisor::Model(_),
+            Some(store),
+        ) => {
+            store
+                .record_resolved(session_id, resolved.model().map(str::to_owned))
+                .await
+        }
+        _ => Ok(()),
+    }
 }
 
 fn read_stored_settings(

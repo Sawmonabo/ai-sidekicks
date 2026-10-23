@@ -5,17 +5,25 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rstest::rstest;
+use sidekicks_contracts::machine::settings::ProviderRowValue;
+use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, ProviderValueText};
+use sidekicks_contracts::wire::record::Record;
 
 use super::{RESTART_WAITS_PASSED, resume_params, start_params};
+use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use crate::provider::driver::claude::session::establishment::context::CLAUDE_ADVISOR_ROW_ID;
 use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::provider::driver::claude::session::scripted::daemon_services::PortCall;
-use crate::provider::driver::claude::session::scripted::driver::ScriptedDriver;
-use crate::provider::driver::claude::session::scripted::{binding_id, mint_run_id, settle};
+use crate::provider::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
+use crate::provider::driver::claude::session::scripted::{
+    binding_id, mint_run_id, mint_session_id, settle,
+};
 use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::session_control::{
-    CloseSessionParams, DriverResumeResult, ProviderBuildChange,
+    CloseSessionParams, DriverResumeResult, ProviderBuildChange, ResumeSessionParams,
 };
+use crate::session::directory::test_rows::insert_session_row;
 
 // Killed by restarting past a full crash window: the fifth exit inside it reports the loop and
 // starts nothing.
@@ -123,27 +131,79 @@ async fn a_build_move_on_a_busy_session_waits_for_its_turn_to_settle() {
 
 // Killed by a relaunch that leaves the advisor unpicked again, so a later change to the person's
 // own Claude Code setting reaches a running session, by an advisor resolved to none read back as
-// no pick, and by a start that sends an advisor no one picked.
+// no pick, by a start that sends an advisor no one picked, and by a first start that keeps no
+// record of what Claude Code resolved, so a resume after the app's pick changed starts with it.
 #[rstest]
 #[case::model(ClaudeSessionAdvisor::Model("opus".to_owned()))]
 #[case::off(ClaudeSessionAdvisor::Off)]
 #[tokio::test(start_paused = true)]
-async fn a_relaunch_keeps_the_advisor_claude_code_resolved_at_the_start(
+async fn a_later_start_keeps_the_advisor_claude_code_resolved_at_the_first_start(
     #[case] resolved: ClaudeSessionAdvisor,
 ) {
     let fixture = ScriptedDriver::new();
+    let writer = DatabaseWriter::open(fixture.database.opener(), DatabaseWriterOptions::default())
+        .await
+        .expect("the writer opens");
+    fixture
+        .services
+        .ports
+        .session_advisors
+        .register(Arc::new(writer))
+        .expect("the advisor store registers once");
+    let session_id = mint_session_id();
+    insert_session_row(
+        &fixture.database.reader(),
+        session_id.text().as_str(),
+        None,
+        None,
+    );
     fixture.starts.script_resolved_advisor(resolved.clone());
-    fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    fixture
+        .driver
+        .create_session(create_params(session_id))
+        .await
+        .expect("the session opens");
     let first = fixture.next_start().await;
     fixture
         .starts
         .script_session(Arc::new(ScriptedChannel::default()));
-
     ScriptedDriver::exit(&first);
     let relaunched = fixture.next_start().await;
+    fixture
+        .driver
+        .close_session(CloseSessionParams { session_id })
+        .await
+        .expect("the close succeeds");
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+
+    fixture
+        .driver
+        .resume_session(ResumeSessionParams {
+            row_values: Record::new(
+                [(
+                    ProviderDeclarationId::new(CLAUDE_ADVISOR_ROW_ID.to_owned())
+                        .expect("the row id fits"),
+                    ProviderRowValue::Value(Some(
+                        ProviderValueText::new("sonnet".to_owned()).expect("the pick fits"),
+                    )),
+                )]
+                .into(),
+            )
+            .expect("one row is a record"),
+            ..resume_params(session_id)
+        })
+        .await
+        .expect("the resume answers");
+    let resumed = fixture.next_start().await;
 
     assert_eq!(first.advisor, ClaudeSessionAdvisor::Unpicked);
     assert_eq!(relaunched.advisor, resolved);
+    assert_eq!(resumed.advisor, resolved);
 }
 
 // How a test ends a session's process.

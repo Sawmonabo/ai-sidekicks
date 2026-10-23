@@ -21,6 +21,7 @@ use crate::provider::port::question::QuestionPort;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::repository_reader::RepositoryReader;
 use crate::provider::port::reviewer_denial::ReviewerDenialPort;
+use crate::provider::port::session_advisor_store::ClaudeSessionAdvisorStore;
 use crate::provider::port::session_rules::SessionRulePort;
 use crate::provider::port::tool_server_route::ToolServerRoute;
 use crate::provider::port::usage_sink::UsageSink;
@@ -94,6 +95,8 @@ pub(crate) struct DriverPorts {
     pub(crate) plans: Arc<PortRegistration<Arc<dyn PlanPort>>>,
     /// The approval pipeline's intake of reviewer blocks, and its release of held presses.
     pub(crate) reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
+    /// The record of the advisor Claude Code resolved for a session no one picked one for.
+    pub(crate) session_advisors: Arc<PortRegistration<Arc<dyn ClaudeSessionAdvisorStore>>>,
     /// The rules in force on each session.
     pub(crate) session_rules: Arc<PortRegistration<Arc<dyn SessionRulePort>>>,
     /// The places the daemon runs sessions in, which each session's inbox address is composed for.
@@ -132,6 +135,7 @@ impl DriverPorts {
             questions: Arc::new(PortRegistration::new("questions")),
             plans: Arc::new(PortRegistration::new("plans")),
             reviewer_denials: Arc::new(PortRegistration::new("reviewer denials")),
+            session_advisors: Arc::new(PortRegistration::new("session advisors")),
             session_rules: Arc::new(PortRegistration::new("session rules")),
             session_places: Arc::new(PortRegistration::new("session places")),
             in_process_tool_servers: Arc::new(PortRegistration::new("in-process tool servers")),

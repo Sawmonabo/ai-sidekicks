@@ -31,7 +31,10 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_platforms::{PathRules, Spawner};
 
-use self::context::{ClaudeSpawnContextError, ClaudeStoredReadError, read_claude_step_bound};
+use self::context::{
+    ClaudeSpawnContextError, ClaudeStoredReadError, read_claude_step_bound,
+    record_claude_resolved_advisor,
+};
 use self::figures::ClaudeHeldFigures;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::events::canonicalizer::CanonicalizationRefusal;
@@ -127,6 +130,9 @@ pub(crate) enum ClaudeEstablishmentError {
     /// The session's standing rules could not be read.
     #[error("the session's standing rules could not be read")]
     SessionRules(#[source] Box<dyn Error + Send + Sync>),
+    /// The advisor Claude Code resolved could not be kept as the session's own.
+    #[error("the session's resolved advisor could not be kept")]
+    AdvisorRecord(#[source] Box<dyn Error + Send + Sync>),
     /// The output schema has no canonical form to bind.
     #[error("the session's output schema has no canonical form")]
     OutputSchema(#[from] CanonicalizationRefusal),
@@ -162,6 +168,7 @@ impl ClaudeEstablishmentError {
             | Self::Legs(_)
             | Self::StepBound(_)
             | Self::SessionRules(_)
+            | Self::AdvisorRecord(_)
             | Self::OutputSchema(_)
             | Self::Port(_)
             | Self::Rebind(_)
@@ -181,6 +188,7 @@ impl From<ClaudeEstablishmentError> for DriverError {
             | ClaudeEstablishmentError::Legs(_)
             | ClaudeEstablishmentError::StepBound(_)
             | ClaudeEstablishmentError::SessionRules(_)
+            | ClaudeEstablishmentError::AdvisorRecord(_)
             | ClaudeEstablishmentError::OutputSchema(_)
             | ClaudeEstablishmentError::Port(_)
             | ClaudeEstablishmentError::Rebind(_)
@@ -667,6 +675,18 @@ impl ClaudeSessionEstablishment {
                 return Err(error);
             }
         };
+        if let Err(error) = record_claude_resolved_advisor(
+            sources.ports.session_advisors.port(),
+            session_id,
+            &legs.advisor,
+            &started.settings_readback.resolved_advisor,
+        )
+        .await
+        {
+            self.end_unadopted(&started, session_id, callback_tools)
+                .await;
+            return Err(ClaudeEstablishmentError::AdvisorRecord(error));
+        }
         let live = Arc::new(LiveClaudeSession {
             session_id,
             agent_id,
