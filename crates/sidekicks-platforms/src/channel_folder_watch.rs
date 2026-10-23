@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 use std::ffi::OsString;
-use std::io;
+use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use tokio::fs::File;
@@ -46,7 +46,8 @@ impl FolderArrivalWatch {
 
     /// The paths of the records that arrived since the last call, waiting until one does; a name
     /// ending in the temporary suffix a record is written under is never one. Fails with the
-    /// system's error when the folder cannot be listed or the watch fails.
+    /// system's error when the folder cannot be listed or the watch fails, and with `NotFound` once
+    /// the folder is removed or renamed away.
     pub async fn next_arrivals(&mut self) -> io::Result<Vec<PathBuf>> {
         loop {
             let names = list_names(&self.folder).await?;
@@ -66,6 +67,8 @@ impl FolderArrivalWatch {
 /// A watch on a file a command writes, handing back each byte appended to it once, from its start.
 pub struct FileAppendWatch {
     file: File,
+    // The bytes handed back so far, which the file's length never falls under while only appended.
+    offset: u64,
     wake: ChangeWake,
 }
 
@@ -75,16 +78,33 @@ impl FileAppendWatch {
     pub async fn watch(path: &Path) -> io::Result<Self> {
         let wake = ChangeWake::on_file_appends(path)?;
         let file = File::open(path).await?;
-        Ok(Self { file, wake })
+        Ok(Self {
+            file,
+            offset: 0,
+            wake,
+        })
     }
 
     /// The bytes appended since the last call, at most 64 KiB, waiting until there are some. Fails
-    /// with the system's error when the file cannot be read or the watch fails.
+    /// with the system's error when the file cannot be read or the watch fails, with
+    /// `InvalidData` once the file is shorter than the bytes already handed back, as a truncated
+    /// file is, and with `NotFound` once the file is removed or renamed away.
     pub async fn next_appended(&mut self) -> io::Result<Vec<u8>> {
         let mut buffer = vec![0_u8; APPEND_READ_LIMIT];
         loop {
+            let length = self.file.metadata().await?.len();
+            if length < self.offset {
+                return Err(io::Error::new(
+                    ErrorKind::InvalidData,
+                    format!(
+                        "the watched file holds {length} bytes, fewer than the {} already read",
+                        self.offset
+                    ),
+                ));
+            }
             let count = self.file.read(&mut buffer).await?;
             if count > 0 {
+                self.offset += u64::try_from(count).map_err(io::Error::other)?;
                 buffer.truncate(count);
                 return Ok(buffer);
             }
@@ -112,7 +132,7 @@ async fn list_names(folder: &Path) -> io::Result<HashSet<OsString>> {
 #[cfg(all(test, unix))]
 mod tests {
     use std::fs;
-    use std::io::Write;
+    use std::io::{ErrorKind, Seek, Write};
     use std::time::Duration;
 
     use tokio::time::{sleep, timeout};
@@ -163,6 +183,28 @@ mod tests {
         );
     }
 
+    // Fails when the folder's watch goes on waiting after the folder is renamed away, since no
+    // record can arrive in it any more.
+    #[tokio::test]
+    async fn channel_folder_watch_fails_once_its_folder_is_renamed_away() {
+        let parent = tempfile::tempdir().expect("a scratch folder");
+        let folder = parent.path().join("channel");
+        fs::create_dir(&folder).expect("the folder is made");
+        let mut watch = FolderArrivalWatch::watch(&folder)
+            .await
+            .expect("the folder is watched");
+
+        let (arrivals, ()) = tokio::join!(timeout(SEEN_WITHIN, watch.next_arrivals()), async {
+            sleep(CHANGE_DELAY).await;
+            fs::rename(&folder, parent.path().join("moved")).expect("the folder is renamed");
+        });
+
+        let failure = arrivals
+            .expect("the rename is seen in time")
+            .expect_err("the watch fails");
+        assert_eq!(failure.kind(), ErrorKind::NotFound);
+    }
+
     // Fails when the bytes written before the watch are skipped, an append does not wake the
     // waiting watch, or a byte is handed back twice.
     #[tokio::test]
@@ -195,5 +237,37 @@ mod tests {
                 .expect("the file reads"),
             b"second"
         );
+    }
+
+    // Fails when a file cut shorter than what was read goes on being read from the old offset,
+    // which skips the bytes written at its new start.
+    #[tokio::test]
+    async fn channel_folder_watch_fails_once_its_file_is_truncated() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let path = folder.path().join("output");
+        let mut writer = fs::File::create(&path).expect("the file is made");
+        writer
+            .write_all(b"first ")
+            .expect("the first bytes are written");
+        let mut watch = FileAppendWatch::watch(&path)
+            .await
+            .expect("the file is watched");
+        let first = timeout(SEEN_WITHIN, watch.next_appended()).await;
+
+        let (after_truncation, ()) =
+            tokio::join!(timeout(SEEN_WITHIN, watch.next_appended()), async {
+                sleep(CHANGE_DELAY).await;
+                writer.set_len(0).expect("the file is truncated");
+                writer.rewind().expect("the writer goes back to the start");
+                writer.write_all(b"x").expect("a new first byte is written");
+            });
+
+        first
+            .expect("the first bytes in time")
+            .expect("the file reads");
+        let failure = after_truncation
+            .expect("the truncation is seen in time")
+            .expect_err("the watch fails");
+        assert_eq!(failure.kind(), ErrorKind::InvalidData);
     }
 }
