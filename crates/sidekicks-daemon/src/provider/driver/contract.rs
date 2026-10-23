@@ -466,13 +466,15 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// `cutoff`, beyond the descriptor's folders, which the expiry deletes itself, and answers the
     /// rows it deleted; blocking. Does nothing unless the provider keeps more; fails when that
     /// store cannot be read or written.
+    #[expect(
+        unused_variables,
+        reason = "the default expires nothing; the generated mock reads both"
+    )]
     fn expire_account_home_diagnostics(
         &self,
         home: &Path,
         cutoff: SystemTime,
     ) -> Result<u64, Box<dyn Error + Send + Sync>> {
-        // Read by name: the generated mock uses every parameter, so `_home` would warn there.
-        let _ = (home, cutoff);
         Ok(0)
     }
 }
