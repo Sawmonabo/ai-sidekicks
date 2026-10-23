@@ -70,7 +70,7 @@ fn counts(input: u64, output: u64) -> UsageAxisCounts {
 
 // Killed by a stop that does not reach the review's run apart from the session's process: the
 // review would go on to open its worktree and fail instead of ending interrupted.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_stop_ends_the_staged_review_apart_from_the_session_process() {
     let fixture = DriverFixture::new();
     let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
@@ -137,7 +137,7 @@ async fn a_stop_ends_the_staged_review_apart_from_the_session_process() {
 // Killed by running a side question in the session's own posture instead of plan mode, on the
 // alias instead of its full id, by refusing one on a session at rest, and by metering the copy's
 // whole figure, which counts the copied conversation again.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_own_turn() {
     let fixture = DriverFixture::new();
     fixture
@@ -240,7 +240,7 @@ fn answered(fixture: &DriverFixture) -> usize {
 
 // A run started through the driver interface, on the daemon's own run engine and inbound
 // dispatch as the driver reaches them through its ports, ends `completed` on the process result.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
     let fixture = DriverFixture::new();
     let session_id = mint_session_id();

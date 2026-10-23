@@ -18,7 +18,7 @@ use crate::provider::driver::session_control::{
 
 // Killed by restarting past a full crash window: the fifth exit inside it reports the loop and
 // starts nothing.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
     let fixture = DriverFixture::new();
     let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
@@ -50,7 +50,7 @@ async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
 
 // Killed by a waited restart that resumes a session a create or resume took meanwhile: it would
 // fight for the slot and report a failed relaunch over the session the person brought back.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_restart_whose_slot_was_taken_during_its_wait_does_nothing() {
     let fixture = DriverFixture::new();
     let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
@@ -82,7 +82,7 @@ async fn a_restart_whose_slot_was_taken_during_its_wait_does_nothing() {
 
 // Killed by moving a busy session to the new build at once, which would end its running reply,
 // and by never moving it once the reply ends.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_build_move_on_a_busy_session_waits_for_its_turn_to_settle() {
     let fixture = DriverFixture::new();
     let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
@@ -126,7 +126,7 @@ async fn a_build_move_on_a_busy_session_waits_for_its_turn_to_settle() {
 #[rstest]
 #[case::model(ClaudeSessionAdvisor::Model("opus".to_owned()))]
 #[case::off(ClaudeSessionAdvisor::Off)]
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_relaunch_keeps_the_advisor_claude_code_resolved_at_the_start(
     #[case] resolved: ClaudeSessionAdvisor,
 ) {
@@ -162,7 +162,7 @@ enum ProcessEnd {
 #[case::close(ProcessEnd::Close)]
 #[case::close_of_quarantined(ProcessEnd::CloseOfQuarantined)]
 #[case::build_move(ProcessEnd::BuildMove)]
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_process_end_lets_go_the_held_presses_of_every_binding_it_served(
     #[case] end: ProcessEnd,
 ) {

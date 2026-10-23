@@ -59,7 +59,7 @@ fn advisor_value(rows: &[ProviderRow]) -> Option<String> {
 // Killed by offering Reviewed whatever the model's catalog says, or on a catalog that could not be
 // read: a person's `auto` starts at Reviewed only on a model Claude Code runs auto mode on; and by
 // reading an app-managed account's catalog on the person's own home.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_new_session_starts_at_reviewed_only_on_a_model_that_runs_auto_mode() {
     let account_folder = std::env::temp_dir().join("sidekicks-account");
     let fixture = DriverFixture::with_account_folders(Some(ProviderAccountFolders {
@@ -111,7 +111,7 @@ async fn a_new_session_starts_at_reviewed_only_on_a_model_that_runs_auto_mode() 
 }
 
 // Killed by starting a process for each Settings read, where reads of one build share one.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn settings_reads_of_one_build_share_one_figures_process() {
     let fixture = DriverFixture::new();
     fixture
@@ -128,7 +128,7 @@ async fn settings_reads_of_one_build_share_one_figures_process() {
 // Killed by an advisor row that holds no value where the person's own Claude Code settings name
 // an advisor, by one that holds the person's over the app's pick, and by the app's `No advisor`
 // pick read as no pick, which shows the person's advisor where new sessions start with none.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn the_advisor_row_holds_the_apps_pick_else_the_persons_own_advisor() {
     let fixture = DriverFixture::new();
     let settings = fixture.home.join(".claude");

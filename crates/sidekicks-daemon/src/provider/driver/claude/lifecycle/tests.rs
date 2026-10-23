@@ -57,11 +57,6 @@ mod settings_reads;
 /// The statements the fixture's read pool caches.
 const POOL_STATEMENT_CAPACITY: usize = 16;
 
-/// The longest a test waits for a start the driver should make. The tests run on the real clock:
-/// a start checks the credential paths on the spawner thread under a deadline, which a paused
-/// clock would pass at once.
-const START_WAIT: Duration = Duration::from_secs(20);
-
 /// Longer than every restart's wait, so a restart that would come has come.
 const RESTART_WAITS_PASSED: Duration = Duration::from_secs(5);
 
@@ -117,19 +112,14 @@ impl RecordedRelaunches {
 
     // The relaunches once the first is reported, which comes after the process it started.
     async fn first_reported(&self) -> Vec<(SessionId, bool)> {
-        let reported = async {
-            loop {
-                let next = self.reported.notified();
-                let taken = self.taken();
-                if !taken.is_empty() {
-                    return taken;
-                }
-                next.await;
+        loop {
+            let next = self.reported.notified();
+            let taken = self.taken();
+            if !taken.is_empty() {
+                return taken;
             }
-        };
-        tokio::time::timeout(START_WAIT, reported)
-            .await
-            .expect("the driver reports the relaunch")
+            next.await;
+        }
     }
 }
 
@@ -231,16 +221,11 @@ impl DriverFixture {
         }
     }
 
-    // Waits until `is_reached` answers true, failing the test after the start wait.
+    // Waits until `is_reached` answers true.
     async fn wait_for(is_reached: impl Fn() -> bool) {
-        let reached = async {
-            while !is_reached() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        };
-        tokio::time::timeout(START_WAIT, reached)
-            .await
-            .expect("the driver reaches the awaited state");
+        while !is_reached() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     }
 
     // Opens a session on `channel`.
@@ -256,9 +241,7 @@ impl DriverFixture {
 
     // The next session start.
     async fn next_start(&self) -> ScriptedStartRecord {
-        tokio::time::timeout(START_WAIT, self.starts.wait_for_starts(1))
-            .await
-            .expect("the driver starts a process");
+        self.starts.wait_for_starts(1).await;
         self.starts
             .take_started()
             .pop()

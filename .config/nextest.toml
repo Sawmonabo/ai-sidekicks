@@ -1,5 +1,9 @@
 # No profile retries a failed test: a retry hides a flaky one.
 
+# A test still running after two minutes is ended, so a hung one fails rather than holding the run.
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 2 }
+
 # Every failure is reported in one run.
 [profile.ci]
 fail-fast = false

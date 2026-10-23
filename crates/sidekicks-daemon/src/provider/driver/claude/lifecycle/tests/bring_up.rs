@@ -7,7 +7,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 
-use super::{DriverFixture, START_WAIT, create_params, resume_params};
+use super::{DriverFixture, create_params, resume_params};
 use crate::provider::driver::claude::session::scripted::channel::{
     ScriptedAnswer, ScriptedChannel, ScriptedWrite,
 };
@@ -26,7 +26,7 @@ use crate::provider::driver::session_control::{
 // Killed by a failed bring-up leaving its claim behind, which refuses the next create, and by a
 // close that finds a bring-up in flight returning before it settles, which leaves its process
 // running with no session to close it.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_failed_bring_up_frees_its_claim_and_a_close_waits_for_one_in_flight() {
     let fixture = DriverFixture::new();
     let session_id = mint_session_id();
@@ -44,9 +44,7 @@ async fn a_failed_bring_up_frees_its_claim_and_a_close_waits_for_one_in_flight()
     let driver = Arc::clone(&fixture.driver);
     let create =
         tokio::spawn(async move { driver.create_session(create_params(session_id)).await });
-    tokio::time::timeout(START_WAIT, fixture.starts.wait_for_starts(1))
-        .await
-        .expect("the second create starts a process");
+    fixture.starts.wait_for_starts(1).await;
     let driver = Arc::clone(&fixture.driver);
     let close = tokio::spawn(async move {
         driver
@@ -82,7 +80,7 @@ async fn a_failed_bring_up_frees_its_claim_and_a_close_waits_for_one_in_flight()
 )]
 #[case::larger_window_unlisted("claude-opus-4-6[1m]", "claude-opus-4-6", false, Some(1))]
 #[case::unlisted_and_refused("claude-opus-4-6[1m]", "claude-opus-4-6", true, None)]
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_new_session_switches_to_an_unlisted_model_and_refuses_one_claude_code_rejects(
     #[case] model: &str,
     #[case] listed: &str,
@@ -138,7 +136,7 @@ async fn a_new_session_switches_to_an_unlisted_model_and_refuses_one_claude_code
 #[rstest]
 #[case::no_file_yet(false)]
 #[case::unreadable_file(true)]
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_resume_starts_at_its_conversations_turn_count_and_fails_on_an_unreadable_file(
     #[case] is_unreadable: bool,
 ) {
@@ -179,7 +177,7 @@ async fn a_resume_starts_at_its_conversations_turn_count_and_fails_on_an_unreada
 
 // Killed by keeping a process's handshake past its end: a resume that reuses the conversation's
 // id would read the old process's declaration before its new process declares one.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_resumed_conversation_reads_no_handshake_until_its_new_process_declares_one() {
     let fixture = DriverFixture::new();
     let session_id = mint_session_id();
