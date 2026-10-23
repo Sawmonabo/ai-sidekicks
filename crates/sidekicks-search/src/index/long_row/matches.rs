@@ -54,8 +54,9 @@ pub(crate) fn matching_long_rows(
         version,
         phrases,
         CursorChoice::ForCounts,
+        // A terminal document holds no text, so no phrase matches it.
         |code| code != 0,
-        &keeps,
+        |row| row.is_some_and(&keeps),
         |key, placed, cursors, on| {
             for (index, cursor) in cursors.iter_mut().enumerate() {
                 let Some(cursor) = cursor.as_mut().filter(|_| on[index]) else {
@@ -97,6 +98,8 @@ pub(crate) fn phrase_long_row_counts(
     let mut matched_documents = 0;
     let mut rows = HashSet::new();
     let mut starts = Vec::new();
+    // A row not yet whole is walked too: the documents of it that a phrase matches leave n, and it
+    // adds no row.
     walk_documents(
         version,
         std::slice::from_ref(phrase),
@@ -105,6 +108,9 @@ pub(crate) fn phrase_long_row_counts(
         |_| true,
         |key, placed, cursors, _| {
             matched_documents += 1;
+            if !version.long_rows.rows.contains_key(&key) {
+                return;
+            }
             let Some(cursor) = cursors[0].as_mut() else {
                 return;
             };
@@ -136,7 +142,8 @@ pub(crate) fn long_row_match_counts(
     session_key: u64,
 ) -> tantivy::Result<Vec<(u64, u32)>> {
     let owner = owner_value(Owner::Session(session_key));
-    let keeps = |row: &LongRow| row.owner == owner && row.kind == EVENT_KIND;
+    let keeps =
+        |row: Option<&LongRow>| row.is_some_and(|row| row.owner == owner && row.kind == EVENT_KIND);
     let mut matched: HashMap<u64, Vec<bool>> = HashMap::new();
     let mut note_match = |key: u64, index: usize| {
         matched
@@ -234,8 +241,8 @@ enum CursorChoice {
     ForPositions,
 }
 
-// Walks the live documents of the long rows `keeps` keeps whose piece code `wants`, segment by
-// segment in document order, calling `visit` with the row's key, where the document sits, each
+// Walks the live documents of the long rows `keeps` keeps, handed each whole row or `None` for a
+// row not yet whole, whose piece code `wants`, segment by segment in document order, calling `visit` with the row's key, where the document sits, each
 // phrase's cursor in the segment (`None` where the segment holds none of its rows) and whether
 // each one matches the document, wherever at least one does.
 fn walk_documents(
@@ -243,7 +250,7 @@ fn walk_documents(
     phrases: &[Phrase],
     choice: CursorChoice,
     wants: impl Fn(u64) -> bool,
-    keeps: impl Fn(&LongRow) -> bool,
+    keeps: impl Fn(Option<&LongRow>) -> bool,
     mut visit: impl FnMut(u64, Placed, &mut [Option<PhraseCursor>], &[bool]),
 ) -> tantivy::Result<()> {
     let long_rows = &version.long_rows;
@@ -255,7 +262,7 @@ fn walk_documents(
             .iter()
             .copied()
             .filter(|(doc, key)| {
-                wants(columns.piece.get_val(*doc)) && long_rows.rows.get(key).is_some_and(&keeps)
+                wants(columns.piece.get_val(*doc)) && keeps(long_rows.rows.get(key))
             })
             .collect();
         if documents.is_empty() {

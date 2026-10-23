@@ -1,5 +1,6 @@
 //! Fills the batches handed to the index row by row, a row's text read a page at a time: a row of
-//! one page goes whole, a longer one as its pages and its edge documents. Each page is charged to
+//! one page goes whole, a longer one as its pages, its edge documents and its terminal document,
+//! which a search waits for before it sees the row. Each page is charged to
 //! the batch's text bound, and a long row that fills it hands the batch so far to the index and
 //! goes on in the next, so a batch holds about the bound and one page, and a row of any length
 //! one page and the tail its edges keep.
@@ -155,10 +156,12 @@ mod tests {
 
     // A reply of three pages, `zebra` on the first and `alpha beta` across the edge of the second
     // and third, applied under a bound of one page and a byte, goes in two batches: the first holds
-    // two pages and records the outbox id before the row, the second continues the row's key. It
+    // two pages and records the outbox id before the row, the second continues the row's key. While
+    // only the first is applied the row is found by nothing; once the batch holding its end is, it
     // reads back as one row: found once, counted as its whole text, its hit line marked across the
-    // edge. Killed by deleting the key before the continued pages (the first page is lost), by
-    // recording the batch's own last id for the first batch, and by a hit read without the tail.
+    // edge. Killed by admitting a row before its terminal document, by deleting the key before the
+    // continued pages (the first page is lost), by recording the batch's own last id for the first
+    // batch, and by a hit read without the tail.
     #[test]
     fn a_long_row_applied_over_two_batches_reads_back_as_one_row() {
         let log = TranscriptTestLog::new();
@@ -200,6 +203,14 @@ mod tests {
             .expect("the row's first batch applies");
         assert_eq!(flushed, [(OUTBOX_ID_BEFORE_ROW, None)]);
         assert_eq!(index.last_applied_outbox_id(), OUTBOX_ID_BEFORE_ROW);
+        let first_page_find = index
+            .find_in_session(session_key, &words(&["zebra"]))
+            .expect("the find reads");
+        assert!(
+            first_page_find.row_keys.is_empty(),
+            "{:?}",
+            first_page_find.row_keys
+        );
         let last = builder.finish(LAST_OUTBOX_ID);
         assert_eq!(last.continued_key, Some(key));
         index.apply(&last).expect("the row's last batch applies");

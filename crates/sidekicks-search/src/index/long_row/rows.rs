@@ -1,11 +1,13 @@
 //! The live rows longer than a page in one version: each one's documents across segments, its
 //! owner and its length, and what they change in the version's totals so each counts as one row.
+//! A row whose terminal document is not live yet is still being indexed: it counts in no total
+//! and matches no query, so a search never sees part of a row.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use tantivy::{DocId, SegmentReader};
 
-use crate::index::schema::EDGE_PIECE;
+use crate::index::schema::{EDGE_PIECE, TERMINAL_PIECE};
 use crate::index::version::SegmentColumns;
 
 /// One live row longer than a page.
@@ -30,15 +32,17 @@ pub(crate) struct SegmentLongRowDocuments {
 /// Every live row longer than a page in one version, and its documents in each segment.
 #[derive(Debug, Default)]
 pub(crate) struct LongRows {
-    /// The rows by key.
+    /// The whole rows by key: those whose terminal document is live.
     pub(crate) rows: HashMap<u64, LongRow>,
-    /// Each segment's live documents of those rows, in the version's segment order.
+    /// Each segment's live documents of rows longer than a page, whole or not, in the version's
+    /// segment order.
     pub(crate) segments: Vec<SegmentLongRowDocuments>,
-    /// The live documents beyond one per row: every edge document and every page but one per row,
-    /// which N leaves out.
+    /// The live documents beyond one per whole row: every edge and terminal document, every page
+    /// but one per whole row and every page of a row not yet whole, which N leaves out.
     pub(crate) extra_documents: u64,
-    /// What the live documents' summed lengths hold beyond the rows' own: every edge document's
-    /// length and one per page beyond a row's first.
+    /// What the live documents' summed lengths hold beyond the whole rows' own: every edge
+    /// document's length, one per page beyond a row's first, and a row's own length while it is
+    /// not yet whole.
     pub(crate) extra_length: u64,
 }
 
@@ -49,6 +53,7 @@ impl LongRows {
     ) -> LongRows {
         let mut long_rows = LongRows::default();
         let mut pages: HashMap<u64, u64> = HashMap::new();
+        let mut whole: HashSet<u64> = HashSet::new();
         for (segment, columns) in segments {
             let alive = segment.alive_bitset();
             let mut documents = Vec::new();
@@ -60,9 +65,17 @@ impl LongRows {
                 let length = columns.length.get_val(*doc);
                 documents.push((*doc, key));
                 long_rows.extra_documents += 1;
-                if columns.piece.get_val(*doc) == EDGE_PIECE {
-                    long_rows.extra_length += length;
-                    continue;
+                match columns.piece.get_val(*doc) {
+                    EDGE_PIECE => {
+                        long_rows.extra_length += length;
+                        continue;
+                    }
+                    // Its length is 0, so it adds to no length.
+                    TERMINAL_PIECE => {
+                        whole.insert(key);
+                        continue;
+                    }
+                    _ => {}
                 }
                 *pages.entry(key).or_default() += 1;
                 long_rows
@@ -79,6 +92,13 @@ impl LongRows {
                 .segments
                 .push(SegmentLongRowDocuments { documents });
         }
+        long_rows.rows.retain(|key, row| {
+            let is_whole = whole.contains(key);
+            if !is_whole {
+                long_rows.extra_length += row.length;
+            }
+            is_whole
+        });
         long_rows.extra_documents -= long_rows.rows.len() as u64;
         long_rows.extra_length += pages.values().map(|count| count - 1).sum::<u64>();
         long_rows

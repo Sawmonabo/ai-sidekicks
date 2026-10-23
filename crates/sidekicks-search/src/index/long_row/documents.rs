@@ -1,6 +1,7 @@
 //! A row longer than a page cut into its documents as its pages arrive: each page its own document,
-//! and each page boundary one edge document holding the places on either side that a query's phrase
-//! can span, so a phrase across the boundary matches there.
+//! each page boundary one edge document holding the places on either side that a query's phrase
+//! can span, so a phrase across the boundary matches there, and a terminal document last, so a
+//! search sees the row only once all of it is indexed.
 
 use std::collections::VecDeque;
 
@@ -8,8 +9,8 @@ use crate::index::IndexRowKind;
 use crate::index::schema::{RowPiece, joined_tokens};
 use crate::index::tokenizer::{EDGE_PLACES, tokenize_with_places};
 
-/// One document of a row longer than a page, as the index takes it: a page or an edge document,
-/// its tokens already folded.
+/// One document of a row longer than a page, as the index takes it: a page, an edge or the
+/// terminal document, its tokens already folded.
 #[derive(Clone, Debug)]
 pub struct LongRowDocument {
     /// The row's key, which every document of the row carries.
@@ -109,11 +110,12 @@ impl LongRowDocuments {
     }
 
     /// Ends the row: hands `emit` each edge document still open, holding what places the row has
-    /// after its boundary.
+    /// after its boundary, then the row's terminal document.
     pub fn finish(mut self, emit: &mut impl FnMut(LongRowDocument)) {
         while let Some((first, boundary)) = self.open_edges.pop_front() {
             self.emit_edge(first, boundary, emit);
         }
+        emit(self.document(RowPiece::Terminal, String::new(), 0));
     }
 
     // The edge from `first` with its boundary at `boundary`, through the edge's reach after it,

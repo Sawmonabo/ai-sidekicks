@@ -54,14 +54,14 @@ pub(crate) struct SegmentColumns {
     pub(crate) length: Arc<dyn ColumnValues<u64>>,
     /// A tag row's session's last activity; 0 on every other row.
     pub(crate) activity: Arc<dyn ColumnValues<u64>>,
-    /// Each document's piece code: a page's or an edge document's of a row longer than a page, 0
-    /// on a whole row.
+    /// Each document's piece code: a page's, an edge's or the terminal document's of a row longer
+    /// than a page, 0 on a whole row.
     pub(crate) piece: Arc<dyn ColumnValues<u64>>,
     /// A page's or an edge document's first place in its row.
     pub(crate) place: Arc<dyn ColumnValues<u64>>,
     /// An edge document's boundary: the row's place of the first place after it.
     pub(crate) boundary: Arc<dyn ColumnValues<u64>>,
-    /// The documents that are pages or edge documents, deleted ones included, ascending.
+    /// The documents that are pieces of rows longer than a page, deleted ones included, ascending.
     pub(crate) piece_documents: Vec<DocId>,
     /// Every row's length summed, deleted rows included. Tantivy's own token total is an estimate
     /// once a merge has expunged deleted rows, so the live total is summed from the length column.

@@ -5,8 +5,9 @@
 //! prefixes, each token's start is indexed with the next token's, so the rows where two tokens sit
 //! in order are one term's. A tag row also holds its tag's fold in the tag field, cut at each `/`
 //! so a `tag:` term finds the tags nested under it, and its session's last activity, which orders
-//! a search by tag alone. A row longer than a page is one document per page and one edge document
-//! per page boundary, each marked as such and placed in the row.
+//! a search by tag alone. A row longer than a page is one document per page, one edge document per
+//! page boundary and one terminal document after its last page, each marked as such and placed in
+//! the row.
 
 use std::iter::Peekable;
 use std::str::Split;
@@ -54,6 +55,10 @@ pub(crate) const PAGE_PIECE: u64 = 1;
 /// The piece code an edge document of a row longer than a page carries.
 pub(crate) const EDGE_PIECE: u64 = 2;
 
+/// The piece code the terminal document of a row longer than a page carries: it holds no text and
+/// lands with or after the row's last page, so a row counts only once it is whole.
+pub(crate) const TERMINAL_PIECE: u64 = 3;
+
 /// Which piece of a row longer than a page a document is, with where it sits in the row, counted in
 /// token places from the row's first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,6 +76,8 @@ pub(crate) enum RowPiece {
         /// The row's place of the first place after the boundary.
         boundary: u32,
     },
+    /// The row's end, after its last page: no text and a length of 0.
+    Terminal,
 }
 
 /// The index's fields. The index stores no text: every field is indexed or a column.
@@ -97,8 +104,8 @@ pub(crate) struct IndexFields {
     pub(crate) tag: Field,
     /// A tag row's session's last activity, in milliseconds since the Unix epoch.
     pub(crate) activity: Field,
-    /// The piece code of a page or an edge document of a row longer than a page, indexed so a
-    /// segment's pieces are found by term; none on a whole row.
+    /// The piece code of a page, an edge or the terminal document of a row longer than a page,
+    /// indexed so a segment's pieces are found by term; none on a whole row.
     pub(crate) piece: Field,
     /// A page's or an edge document's first place in its row.
     pub(crate) place: Field,
@@ -295,8 +302,8 @@ pub(crate) fn row_document(
     document
 }
 
-/// A page or an edge document of a row longer than a page, from its tokens as `joined_tokens`
-/// joins them, `token_count` of them, marked with its piece and placed in its row.
+/// A page, an edge or the terminal document of a row longer than a page, from its tokens as
+/// `joined_tokens` joins them, `token_count` of them, marked with its piece and placed in its row.
 pub(crate) fn piece_document(
     fields: &IndexFields,
     row: DocumentRow,
@@ -304,7 +311,12 @@ pub(crate) fn piece_document(
     token_count: usize,
     piece: RowPiece,
 ) -> TantivyDocument {
-    let mut document = tokens_document(fields, row, joined, token_count);
+    let mut document = match piece {
+        RowPiece::Terminal => columns_document(fields, row, 0),
+        RowPiece::Page { .. } | RowPiece::Edge { .. } => {
+            tokens_document(fields, row, joined, token_count)
+        }
+    };
     match piece {
         RowPiece::Page { place } => {
             document.add_u64(fields.piece, PAGE_PIECE);
@@ -315,6 +327,7 @@ pub(crate) fn piece_document(
             document.add_u64(fields.place, u64::from(place));
             document.add_u64(fields.boundary, u64::from(boundary));
         }
+        RowPiece::Terminal => document.add_u64(fields.piece, TERMINAL_PIECE),
     }
     document
 }
@@ -327,15 +340,21 @@ fn tokens_document(
     joined: &str,
     token_count: usize,
 ) -> TantivyDocument {
-    let mut document = TantivyDocument::default();
+    let mut document = columns_document(fields, row, token_count as u64 + 1);
     document.add_text(fields.text, joined);
     for field in fields.prefixes.into_iter().chain([fields.pair]) {
         document.add_text(field, joined);
     }
+    document
+}
+
+// A document of no text holding the row's key, owner, kind and `length`.
+fn columns_document(fields: &IndexFields, row: DocumentRow, length: u64) -> TantivyDocument {
+    let mut document = TantivyDocument::default();
     document.add_u64(fields.key, row.key);
     document.add_u64(fields.owner, owner_value(row.owner));
     document.add_u64(fields.kind, kind_code(row.kind));
-    document.add_u64(fields.length, token_count as u64 + 1);
+    document.add_u64(fields.length, length);
     document
 }
 
