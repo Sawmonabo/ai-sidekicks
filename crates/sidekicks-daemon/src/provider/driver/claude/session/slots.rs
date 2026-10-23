@@ -356,7 +356,8 @@ impl Drop for ClaudeSlotClose {
             let mut table = lock(&self.table);
             let is_own = matches!(
                 table.by_session.get(&self.session_id),
-                Some(ClaudeSessionSlot::Closing { settled, .. }) if Arc::ptr_eq(settled, &self.settled)
+                Some(ClaudeSessionSlot::Closing { settled, .. })
+                    if Arc::ptr_eq(settled, &self.settled)
             );
             if is_own {
                 if self.is_disposed {
