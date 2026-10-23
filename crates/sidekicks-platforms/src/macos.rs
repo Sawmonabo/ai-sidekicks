@@ -2,15 +2,16 @@
 //! memory map, a local connection's caller pinned with its responsible process and its code
 //! signature, the start as its own responsible process and the daemon's confirmation of a shell's
 //! start, the bound on a program's argument, a process's memory and the machine's available memory,
-//! one user's processes and the arguments and environment a process started with, whether a
-//! terminal's program waits for input, the machine's wakes from sleep, whether it runs on AC power,
-//! a wall-clock timer, the login keychain, the Region setting's locale and hour cycle and the
-//! shells the live test opens on a folder.
+//! one user's processes and the arguments and environment a process started with, an open
+//! descriptor's path, whether a terminal's program waits for input, the machine's wakes from sleep,
+//! whether it runs on AC power, a wall-clock timer, the login keychain, the Region setting's locale
+//! and hour cycle and the shells the live test opens on a folder.
 
 pub(crate) mod bash_start;
 pub(crate) mod caller_process;
 pub(crate) mod code_signature;
 pub(crate) mod credential_store;
+pub(crate) mod descriptor_path;
 pub(crate) mod input_wait;
 pub(crate) mod memory;
 pub(crate) mod pinned_process;

@@ -28,14 +28,15 @@
               `K32GetProcessMemoryInfo`, the available-memory reads (macOS's `mach_host_self` and \
               `host_statistics64`, Windows' `GlobalMemoryStatusEx`), macOS's process list \
               (`proc_listpids`) and process start read (`sysctl` of `KERN_ARGMAX` and \
-              `KERN_PROCARGS2`), a released terminal's wait for its program (`waitid`, and its \
-              exit event's registration), mimalloc's `mi_collect`, tree-sitter's `set_allocator`, \
-              and the power notifications and wall-clock timers of macOS and Windows are C \
-              interfaces, and tokio's watch of the Linux timer's and the terminal poller's \
-              descriptors trusts each to stay open while it watches, and the Windows Ctrl-C \
-              ending's `ExitProcess`, the user's locale reads (Windows' `GetLocaleInfoEx`, \
-              macOS's `CFDateFormatterCreateDateFormatFromTemplate`), a process's user read from \
-              its token (`OpenProcess`, `OpenProcessToken`, `GetTokenInformation`, `EqualSid`, \
+              `KERN_PROCARGS2`), its descriptor path read (`fcntl` of `F_GETPATH`), a released \
+              terminal's wait for its program (`waitid`, and its exit event's registration), \
+              mimalloc's `mi_collect`, tree-sitter's `set_allocator`, and the power notifications \
+              and wall-clock timers of macOS and Windows are C interfaces, and tokio's watch of \
+              the Linux timer's and the terminal poller's descriptors trusts each to stay open \
+              while it watches, and the Windows Ctrl-C ending's `ExitProcess`, the user's locale \
+              reads (Windows' `GetLocaleInfoEx`, macOS's \
+              `CFDateFormatterCreateDateFormatFromTemplate`), a process's user read from its \
+              token (`OpenProcess`, `OpenProcessToken`, `GetTokenInformation`, `EqualSid`, \
               `ConvertSidToStringSidW`), the named pipe's server read \
               (`GetNamedPipeServerProcessId`), a Windows AF_UNIX socket's peer read (`WSAIoctl` \
               of `SIO_AF_UNIX_GETPEERPID`) and the mark that lets `async-io` drive it (`IoSafe`), \
@@ -149,6 +150,8 @@ pub use linux::caller_process::{
     read_parent_process, read_peer_process, read_peer_process as unix_domain_peer_process,
 };
 #[cfg(target_os = "linux")]
+pub use linux::descriptor_path::read_descriptor_path;
+#[cfg(target_os = "linux")]
 pub use linux::input_wait::{may_wait_for_input, read_input_wait};
 #[cfg(target_os = "linux")]
 pub use linux::memory::{
@@ -184,6 +187,8 @@ pub use macos::caller_process::{
 };
 #[cfg(target_os = "macos")]
 pub use macos::code_signature::DesktopClientRequirement;
+#[cfg(target_os = "macos")]
+pub use macos::descriptor_path::read_descriptor_path;
 #[cfg(target_os = "macos")]
 pub use macos::input_wait::{may_wait_for_input, read_input_wait};
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
@@ -376,6 +381,8 @@ pub use windows::child_command::{
 pub use windows::command_argument_limit::read_command_argument_limit;
 #[cfg(target_os = "windows")]
 pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
+#[cfg(target_os = "windows")]
+pub use windows::descriptor_path::read_descriptor_path;
 #[cfg(target_os = "windows")]
 pub use windows::disk::{
     FlushFailure, SHOULD_MEMORY_MAP_READS, flush_file, flush_folder, flush_open_file,

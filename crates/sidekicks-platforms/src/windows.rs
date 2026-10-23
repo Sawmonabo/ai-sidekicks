@@ -8,6 +8,7 @@ pub(crate) mod child_tree;
 pub(crate) mod command_argument_limit;
 pub(crate) mod credential_store;
 pub(crate) mod ctrl_c;
+pub(crate) mod descriptor_path;
 pub(crate) mod disk;
 pub(crate) mod entry_identity;
 pub(crate) mod error_codes;
