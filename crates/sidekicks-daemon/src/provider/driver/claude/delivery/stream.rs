@@ -48,7 +48,6 @@ use crate::provider::driver::claude::delivery::system::{
     read_claude_refusal_without_fallback, read_claude_warning, read_claude_worker_shutdown_reason,
 };
 use crate::provider::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
-use crate::provider::driver::claude::event_normalizer::resolve_claude_frame_emission_route;
 use crate::provider::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::provider::driver::claude::rate_limit_windows::read_claude_quota_windows;
 use crate::provider::driver::claude::run::prompts::ClaudeSentPrompts;
@@ -514,15 +513,9 @@ impl ClaudeDeliveryStream {
             "user" => self.user(session, &lead, &frame.text, &members).await,
             // A helper's start and moves are read off the frame before it reaches the reader.
             "system/task_started" | "system/task_updated" => {}
-            // A kind this reader reads nothing from goes through the census, which logs one
-            // outside it once on the connection, so no frame vanishes unrecorded.
-            _ => {
-                resolve_claude_frame_emission_route(
-                    frame_kind,
-                    session.provider_account_id.clone(),
-                    &mut lock(&session.diagnostics),
-                );
-            }
+            // Every kind reaching here is a census kind this reader reads nothing from; the router
+            // quarantined an unlisted one before it came.
+            _ => {}
         }
         after
     }

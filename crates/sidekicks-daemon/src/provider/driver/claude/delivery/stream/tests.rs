@@ -9,6 +9,7 @@ use crate::provider::driver::claude::session::scripted::run_engine::EngineCall;
 use crate::provider::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
 };
+use crate::provider::driver::diagnostics::RecordedEvents;
 use crate::provider::port::usage_sink::ProviderQuotaWindow;
 use crate::session::run::engine::turns::TurnOutcome;
 use crate::session::run::state_change::RunStateEntry;
@@ -381,4 +382,27 @@ async fn a_rate_limit_event_hands_the_accounts_quota_windows_to_the_usage_record
             ]
         )]
     );
+}
+
+// Killed by a router that reads an unlisted family as connection-scoped, and by a reader that
+// writes a quarantined frame onto the run holding the turn.
+#[tokio::test(start_paused = true)]
+async fn a_frame_of_an_unlisted_family_is_quarantined_and_adds_nothing() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    let unlisted = json!({
+        "type": "system",
+        "subtype": "brand_new",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+    });
+
+    let recorded = RecordedEvents::default();
+    recorded.record_during(|| session.frame(&unlisted));
+    settle().await;
+
+    assert_eq!(
+        recorded.field_on("driver.threadRouter.quarantined", "raw_wire_type"),
+        ["system/brand_new"]
+    );
+    assert_eq!(session.engine.calls(), []);
 }
