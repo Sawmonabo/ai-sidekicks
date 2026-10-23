@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use serde_json::{Map, json};
 use sidekicks_contracts::approval::ApprovalResolveRequest;
+use sidekicks_contracts::event::declared_variants::ToolCallId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -79,7 +80,7 @@ impl SeamFixture {
         CallbackToolInvocation {
             tool_name: FreeFormText::new(tool.to_owned()).expect("a short tool name"),
             arguments: Map::new(),
-            tool_call_id: FreeFormText::new(mint_uuid_v7().to_string()).expect("a short id"),
+            tool_call_id: ToolCallId::new(mint_uuid_v7().to_string()).expect("a short id"),
             session_id: self.asks.check.approvals.session_id,
             run_id: self.asks.check.approvals.run_id,
         }

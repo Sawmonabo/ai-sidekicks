@@ -9,6 +9,7 @@ use serde_json::{Map, Value};
 
 use crate::event::declared_variants::{
     CONTENT_LENGTH_PAYLOAD_KEY, CONTENT_PAYLOAD_PLAINTEXT_MAX, CONTENT_TRUNCATED_PAYLOAD_KEY,
+    ToolCallId,
 };
 use crate::event::envelope::{HydratedContentUnavailableReason, HydratedSessionEventContent};
 use crate::event::version::EVENT_FIELD_MAX_LEN;
@@ -471,7 +472,7 @@ pub struct TranscriptPatchListRequest {
     /// The session.
     pub session_id: SessionId,
     /// The tool call.
-    pub tool_call_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    pub tool_call_id: ToolCallId,
     /// Where the part starts; the first file's start when absent.
     #[serde(
         default,

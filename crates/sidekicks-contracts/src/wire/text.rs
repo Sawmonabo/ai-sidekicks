@@ -494,6 +494,11 @@ macro_rules! branded_free_form_text {
             pub fn as_str(&self) -> &str {
                 self.0.as_str()
             }
+
+            /// The checked text, consuming the value.
+            pub fn into_string(self) -> String {
+                self.0.into_string()
+            }
         }
 
         impl AsRef<str> for $name {

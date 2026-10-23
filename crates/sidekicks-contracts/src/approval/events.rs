@@ -9,14 +9,14 @@ use crate::approval::{
     ApprovalCategory, ApprovalRequestId, ApprovalScope, InvalidationTrigger, RememberedRuleId,
     RememberedScope, ReviewerDenialId,
 };
-use crate::event::version::EVENT_FIELD_MAX_LEN;
+use crate::event::declared_variants::ToolCallId;
 use crate::machine::id::MachineId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
 use crate::wire::id::ClientUuid;
 use crate::wire::record::JsonRecord;
-use crate::wire::text::{FreeFormText, NonEmptyText};
+use crate::wire::text::NonEmptyText;
 
 /// The `approval.requested` payload. `askId` is present when the request is a provider's
 /// permission ask: the daemon's own durable id for the ask, so an answer reaches the right ask
@@ -54,8 +54,8 @@ pub struct ApprovalRequestedPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<EVENT_FIELD_MAX_LEN>")]
-    pub tool_call_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+    #[schemars(with = "ToolCallId")]
+    pub tool_call_id: Option<ToolCallId>,
 }
 
 /// The `approval.approved` and `approval.rejected` payload: the answer, the device it came from,

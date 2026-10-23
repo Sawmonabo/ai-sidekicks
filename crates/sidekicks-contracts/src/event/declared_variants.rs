@@ -14,6 +14,7 @@ use crate::event::envelope::{
 };
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::machine::id::MachineId;
+use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::transcript::row::TranscriptOmittedPatch;
@@ -22,7 +23,7 @@ use crate::voice::MessageOrigin;
 use crate::wire::Never;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
-use crate::wire::text::FreeFormText;
+use crate::wire::text::{FreeFormText, branded_free_form_text};
 
 ts_constants! {
     /// The payload key carrying the body's UTF-8 byte length before any cut, so a cut row still
@@ -36,6 +37,11 @@ ts_constants! {
     /// file patches is the one exception: each file is stored in parts of at most this many code
     /// points, so every patch reads back whole.
     pub const CONTENT_PAYLOAD_PLAINTEXT_MAX: usize = 262_144;
+}
+
+branded_free_form_text! {
+    /// A provider's id of one tool call.
+    pub struct ToolCallId(PROVIDER_WIRE_HANDLE_MAX_LEN);
 }
 
 /// Refuses a deleted range that ends before it starts.
@@ -326,8 +332,8 @@ with_machine_content_descriptor! {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "FreeFormText<EVENT_FIELD_MAX_LEN>")]
-        pub tool_call_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+        #[schemars(with = "ToolCallId")]
+        pub tool_call_id: Option<ToolCallId>,
         /// How long the call took, in milliseconds.
         #[serde(
             default,
@@ -377,6 +383,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<SessionEventCompactedRemovedSession>(),
         Definition::read::<SessionEventCompactedPayload>().checked(),
+        Definition::read::<ToolCallId>(),
         Definition::read::<ProviderBlock>(),
         Definition::read::<RunAgentOutputPayload>(),
         Definition::read::<VoiceAgentOutputPayload>(),

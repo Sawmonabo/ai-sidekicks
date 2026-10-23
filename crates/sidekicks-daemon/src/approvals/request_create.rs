@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::approval::{ApprovalCategory, ApprovalScope};
-use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::event::declared_variants::ToolCallId;
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -101,5 +101,5 @@ pub(crate) struct ApprovalRequestOrigin {
     /// The daemon's own id of the provider ask.
     pub(crate) ask_id: Option<NonEmptyText>,
     /// The tool call the ask holds.
-    pub(crate) tool_call_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+    pub(crate) tool_call_id: Option<ToolCallId>,
 }

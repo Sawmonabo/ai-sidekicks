@@ -5,8 +5,10 @@
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::event::declared_variants::ToolCallId;
 use sidekicks_contracts::event::declared_variants::{RunAgentOutputPayload, ToolActivityPayload};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -96,7 +98,7 @@ impl CodexRowDelivery {
     pub(crate) fn invoked_tool_call_id(&self) -> Option<&str> {
         match &self.row {
             CodexRow::Late(LateAppendableRow::AgentToolCallInvoked(payload)) => {
-                payload.tool_call_id.as_ref().map(FreeFormText::as_str)
+                payload.tool_call_id.as_ref().map(ToolCallId::as_str)
             }
             CodexRow::Late(_) | CodexRow::Thinking(_) => None,
         }
@@ -317,7 +319,12 @@ fn tool_activity(
         session_id: run.session_id,
         run_id: run.run_id,
         tool_name: event_text(read_tool_name(item))?,
-        tool_call_id: Some(event_text(tool_call_id)?),
+        tool_call_id: Some(
+            ToolCallId::new(
+                cut_to_code_points(tool_call_id, PROVIDER_WIRE_HANDLE_MAX_LEN).to_owned(),
+            )
+            .ok()?,
+        ),
         duration_ms: duration_ms.and_then(SafeInt::new),
         omitted_patches: omitted_patches.and_then(BoundedVec::new),
         content_length: None,

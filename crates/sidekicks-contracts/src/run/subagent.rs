@@ -3,6 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::event::declared_variants::ToolCallId;
 use crate::event::envelope::{
     SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
 };
@@ -37,8 +38,8 @@ pub struct SubagentLifecyclePayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
-    pub parent_tool_call_id: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    #[schemars(with = "ToolCallId")]
+    pub parent_tool_call_id: Option<ToolCallId>,
     /// The execution epoch a late row is attributed to; comes with `source_position`.
     #[serde(
         default,
