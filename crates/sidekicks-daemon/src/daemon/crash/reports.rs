@@ -5,7 +5,9 @@
 //! file name, each credential scrubbed and each id hashed with a key this install keeps, so a
 //! forwarded report names no folder, no secret and no id anyone could confirm. A dump still being
 //! written, the monitor's or Crashpad's in its `new` folder, is passed over. A dump that does not
-//! build is named in the service log and deleted. While `Keep crash reports` is off, no report is
+//! build is named in the service log and deleted. What a failed write of the monitor's left, a
+//! partial dump or a panic record without its dump, is deleted by every pass: the monitor exits
+//! after one dump, so no pass meets one it is still writing. While `Keep crash reports` is off, no report is
 //! built and every dump, report and panic record goes. Each pass is metered against its processor
 //! budget.
 
@@ -36,7 +38,8 @@ use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
 use crate::daemon::crash::monitor::{
-    CRASH_DUMPS_FOLDER_NAME, DUMP_EXTENSION, PanicRecord, panic_record_path,
+    CRASH_DUMPS_FOLDER_NAME, DUMP_EXTENSION, DUMP_IN_PROGRESS_SUFFIX, PANIC_RECORD_SUFFIX,
+    PanicRecord, panic_record_path,
 };
 use crate::daemon::machine::settings::file::MachineSettingsFile;
 use crate::daemon::panic_hook::{PANIC_RECORD_FILE_EXTENSION, PANIC_RECORD_FILE_PREFIX};
@@ -178,7 +181,10 @@ pub(crate) async fn build_crash_reports(
     let reports_folder = deps.data_folder.join(CRASH_REPORTS_FOLDER_NAME);
     let listed_folder = dumps_folder.clone();
     let dumps = meter
-        .run_blocking(move || list_finished_dumps(&listed_folder))
+        .run_blocking(move || {
+            remove_monitor_leftovers(&listed_folder)?;
+            list_finished_dumps(&listed_folder)
+        })
         .await??;
     let mut pass = CrashReportPass::default();
     if !is_kept {
@@ -303,6 +309,30 @@ fn list_finished_dumps(folder: &Path) -> io::Result<Vec<(PathBuf, u64)>> {
         }
     }
     Ok(dumps)
+}
+
+// Deletes what a failed write of the monitor left in the dumps folder `folder`: each partial dump,
+// and each panic record whose dump is not there.
+fn remove_monitor_leftovers(folder: &Path) -> io::Result<()> {
+    let Some(entries) = fs::read_dir(folder).none_if_missing()? else {
+        return Ok(());
+    };
+    for entry in entries {
+        let path = entry?.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let is_leftover = match name.strip_suffix(PANIC_RECORD_SUFFIX) {
+            Some(stem) => !folder
+                .join(format!("{stem}.{DUMP_EXTENSION}"))
+                .try_exists()?,
+            None => name.ends_with(DUMP_IN_PROGRESS_SUFFIX),
+        };
+        if is_leftover {
+            fs::remove_file(&path).none_if_missing()?;
+        }
+    }
+    Ok(())
 }
 
 // Deletes the dump at `dump` and the panic record beside it.
@@ -525,8 +555,9 @@ mod tests {
         read_crash_reports,
     };
     use crate::daemon::crash::monitor::{
-        CRASH_DUMPS_FOLDER_NAME, PANIC_RECORD_SUFFIX, attach_crash_handler, connect_crash_monitor,
-        crash_monitor_socket_path, serve_crash_monitor,
+        CRASH_DUMPS_FOLDER_NAME, DUMP_EXTENSION, DUMP_IN_PROGRESS_SUFFIX, PANIC_RECORD_SUFFIX,
+        attach_crash_handler, connect_crash_monitor, crash_monitor_socket_path,
+        serve_crash_monitor,
     };
     use crate::daemon::machine::settings::file::MachineSettingsFile;
     use crate::daemon::panic_hook::{install_panic_hook, send_panics_to_monitor};
@@ -737,6 +768,46 @@ mod tests {
             read_crash_reports(&data_folder).expect("the reports read"),
             Vec::new()
         );
+    }
+
+    // What a failed write of the monitor left, a partial dump and a panic record whose dump is not
+    // there, is deleted by a pass whether reports are kept or not. Killed by a pass that reads only
+    // finished dumps, and by a sweep left out of either branch.
+    #[rstest]
+    #[case::reports_kept(true)]
+    #[case::reports_off(false)]
+    #[tokio::test]
+    async fn a_pass_deletes_what_a_failed_dump_left(#[case] is_kept: bool) {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let data_folder = scratch.path().to_path_buf();
+        let dumps = data_folder.join(CRASH_DUMPS_FOLDER_NAME);
+        fs::create_dir_all(&dumps).expect("the dumps folder is made");
+        let partial = format!("left.{DUMP_EXTENSION}{DUMP_IN_PROGRESS_SUFFIX}");
+        fs::write(dumps.join(partial), b"part of a dump").expect("written");
+        fs::write(dumps.join(format!("orphan{PANIC_RECORD_SUFFIX}")), b"{}").expect("written");
+        let settings = Arc::new(MachineSettingsFile::new(
+            data_folder.join("machine-settings.json"),
+        ));
+        settings
+            .update(MachineSettingsChange::KeepCrashReports(is_kept))
+            .await
+            .expect("the switch is set");
+        let deps = CrashReportDeps {
+            data_folder,
+            settings,
+            app_version: "0.1.0".to_owned(),
+            service_version: "0.1.0".to_owned(),
+        };
+
+        build_crash_reports(&deps, &CancellationToken::new(), &ProcessorMeter::default())
+            .await
+            .expect("the pass runs");
+
+        let left: Vec<_> = fs::read_dir(&dumps)
+            .expect("the dumps list")
+            .map(|entry| entry.expect("an entry").file_name())
+            .collect();
+        assert_eq!(left, Vec::<std::ffi::OsString>::new());
     }
 
     // The write a pass makes: the whole key.

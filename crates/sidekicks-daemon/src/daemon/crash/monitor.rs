@@ -25,6 +25,7 @@ use sidekicks_platforms::{
     replace_file_atomically,
 };
 
+use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::data_folder::data_folder;
 use crate::missing_entry::MissingEntry as _;
 
@@ -51,8 +52,8 @@ const PANIC_RECORD_SEND_BOUND: Duration = Duration::from_secs(2);
 // system the channel runs on.
 const PANIC_RECORD_MAX_BYTES: usize = 60 * 1024;
 
-// The suffix of a dump being written.
-const DUMP_IN_PROGRESS_SUFFIX: &str = ".partial";
+/// The suffix of a dump being written.
+pub(crate) const DUMP_IN_PROGRESS_SUFFIX: &str = ".partial";
 
 // How long the service tries to reach a monitor that is still starting, and how often.
 const CONNECT_BOUND: Duration = Duration::from_secs(10);
@@ -175,6 +176,7 @@ pub(crate) fn serve_crash_monitor(
     let handler = DumpWriter {
         dumps_folder: dumps_folder.to_path_buf(),
         panic: Mutex::new(None),
+        writing: Mutex::new(None),
     };
     server
         .run(Box::new(handler), &AtomicBool::new(false), None)
@@ -300,6 +302,8 @@ fn socket_name(socket_path: &Path) -> Result<&str, CrashMonitorError> {
 struct DumpWriter {
     dumps_folder: PathBuf,
     panic: Mutex<Option<Vec<u8>>>,
+    // The dump being written, removed when its write fails.
+    writing: Mutex<Option<PathBuf>>,
 }
 
 impl ServerHandler for DumpWriter {
@@ -308,20 +312,34 @@ impl ServerHandler for DumpWriter {
             "{}.{DUMP_EXTENSION}{DUMP_IN_PROGRESS_SUFFIX}",
             mint_uuid_v7()
         ));
-        Ok((
-            sidekicks_platforms::create_new_file(&path, CRASH_FILE_MODE)?,
-            path,
-        ))
+        let file = sidekicks_platforms::create_new_file(&path, CRASH_FILE_MODE)?;
+        *self.writing.lock().unwrap_or_else(PoisonError::into_inner) = Some(path.clone());
+        Ok((file, path))
     }
 
     fn on_minidump_created(&self, result: Result<MinidumpBinary, minidumper::Error>) -> LoopAction {
         match result {
             Ok(dump) => {
                 if let Err(failure) = self.finish_dump(&dump) {
-                    write_line(&format!("The crash dump could not be finished: {failure}"));
+                    write_line(&format!("the crash dump could not be finished: {failure}"));
                 }
             }
-            Err(failure) => write_line(&format!("The crash dump could not be written: {failure}")),
+            Err(failure) => {
+                let writing = self
+                    .writing
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take();
+                let removal_failures = writing
+                    .into_iter()
+                    .filter_map(|path| remove_leftover(&path));
+                let failure = CleanupFailures::new(
+                    failure,
+                    removal_failures.collect(),
+                    "the crash dump's write",
+                );
+                write_line(&format!("the crash dump could not be written: {failure}"));
+            }
         }
         LoopAction::Exit
     }
@@ -343,9 +361,12 @@ impl ServerHandler for DumpWriter {
 
 impl DumpWriter {
     // Flushes the dump, writes the panic record beside it, and renames the dump into place; a dump
-    // that cannot be finished is removed.
-    fn finish_dump(&self, dump: &MinidumpBinary) -> io::Result<()> {
+    // that cannot be finished is removed with the record written for it, a failed removal kept
+    // beside the cause.
+    fn finish_dump(&self, dump: &MinidumpBinary) -> Result<(), CleanupFailures<io::Error>> {
         let finished = dump.path.with_extension("");
+        let record_path = panic_record_path(&finished);
+        let mut is_record_written = false;
         let placed = dump
             .file
             .sync_all()
@@ -356,21 +377,36 @@ impl DumpWriter {
                     .unwrap_or_else(PoisonError::into_inner)
                     .take();
                 match panic {
-                    Some(record) => replace_file_atomically(
-                        &panic_record_path(&finished),
-                        &record,
-                        CRASH_FILE_MODE,
-                    )
-                    .map_err(io::Error::other),
+                    Some(record) => {
+                        replace_file_atomically(&record_path, &record, CRASH_FILE_MODE)
+                            .map_err(io::Error::other)?;
+                        is_record_written = true;
+                        Ok(())
+                    }
                     None => Ok(()),
                 }
             })
             .and_then(|()| rename_replacing(&dump.path, &finished));
-        if placed.is_err() {
-            std::fs::remove_file(&dump.path).none_if_missing()?;
-        }
-        placed
+        let Err(failure) = placed else {
+            return Ok(());
+        };
+        let leftovers = [
+            Some(dump.path.as_path()),
+            is_record_written.then_some(&*record_path),
+        ];
+        let removal_failures = leftovers.into_iter().flatten().filter_map(remove_leftover);
+        Err(CleanupFailures::new(
+            failure,
+            removal_failures.collect(),
+            "the crash dump's finish",
+        ))
     }
+}
+
+// Removes a file a failed dump left, answering the removal's failure; one already gone is no
+// failure.
+fn remove_leftover(path: &Path) -> Option<io::Error> {
+    std::fs::remove_file(path).none_if_missing().err()
 }
 
 /// The panic record's path beside the dump at `dump_path`.
