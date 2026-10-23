@@ -234,7 +234,7 @@ pub use posix::disk::{
     volume_free_bytes,
 };
 #[cfg(unix)]
-pub use posix::entry_identity::entry_identity;
+pub use posix::entry_identity::{entry_identity, open_file_identity};
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::error_codes::is_illegal_byte_sequence;
 #[cfg(unix)]
@@ -376,7 +376,7 @@ pub use windows::disk::{
     is_on_network_file_system, read_exact_at, volume_free_bytes, windows_drive_mounts,
 };
 #[cfg(target_os = "windows")]
-pub use windows::entry_identity::entry_identity;
+pub use windows::entry_identity::{entry_identity, open_file_identity};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::error_codes::is_illegal_byte_sequence;
 #[cfg(target_os = "windows")]

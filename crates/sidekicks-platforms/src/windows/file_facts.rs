@@ -9,13 +9,12 @@ use std::path::Path;
 use std::time::SystemTime;
 
 use windows_sys::Win32::Storage::FileSystem::{
-    FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_ID_INFO, FILE_READ_ATTRIBUTES,
-    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_STANDARD_INFO, FileBasicInfo,
-    FileIdInfo, FileStandardInfo,
+    FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_STANDARD_INFO, FileBasicInfo, FileStandardInfo,
 };
 
-use crate::entry_identity::EntryIdentity;
 use crate::file_facts::FileFacts;
+use crate::windows::entry_identity::open_file_identity;
 use crate::windows::file_information::read_information;
 
 // The 100-nanosecond intervals between 1601-01-01, where a `FILETIME` counts from, and the Unix
@@ -32,14 +31,11 @@ pub fn file_facts(path: &Path) -> io::Result<FileFacts> {
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
         .open(path)?;
-    let identity: FILE_ID_INFO = read_information(&opened, FileIdInfo)?;
+    let identity = open_file_identity(&opened)?;
     let times: FILE_BASIC_INFO = read_information(&opened, FileBasicInfo)?;
     let standard: FILE_STANDARD_INFO = read_information(&opened, FileStandardInfo)?;
     Ok(FileFacts {
-        identity: EntryIdentity {
-            volume: identity.VolumeSerialNumber,
-            file: u128::from_le_bytes(identity.FileId.Identifier),
-        },
+        identity,
         size: u64::try_from(standard.EndOfFile).map_err(io::Error::other)?,
         modified: nanoseconds(times.LastWriteTime),
         changed: nanoseconds(times.ChangeTime),
