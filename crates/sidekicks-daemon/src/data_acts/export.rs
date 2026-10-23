@@ -240,7 +240,7 @@ impl DataExports {
                 stop: stop.clone(),
             },
         );
-        tracing::info!(folder = %destination.display(), "An export began");
+        tracing::info!(folder = %destination.display(), "an export began");
         let deps = Arc::clone(&self.deps);
         let running = RunningExport {
             jobs: Arc::clone(&self.jobs),

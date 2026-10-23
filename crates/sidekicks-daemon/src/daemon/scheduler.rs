@@ -552,7 +552,7 @@ impl SchedulerShared {
                 tracing::warn!(
                     job = due.name,
                     error = &*failure as &(dyn Error + 'static),
-                    "A scheduled job failed"
+                    "a scheduled job failed"
                 );
             }
             self.arm_again(due);
