@@ -7,7 +7,7 @@ use std::time::Duration;
 use rstest::rstest;
 use rusqlite::Connection;
 use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
-use sidekicks_search::index::{SearchIndex, SearchQuery};
+use sidekicks_search::index::{IndexRowKind, SearchIndex, SearchQuery};
 use tokio::sync::{Notify, watch};
 use tokio::time::{Instant, timeout, timeout_at};
 use tracing::field::{Field, Visit};
@@ -20,6 +20,7 @@ use crate::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
 use crate::database::writer::test_file::TestDatabase;
 use crate::session::directory::test_rows::insert_session_row;
 use crate::session::search::index::applier::SearchIndexApplier;
+use crate::session::search::index::columns::index_key_of;
 use crate::session::search::index::outbox::{AppliedOutbox, OutboxReader, delete_applied_outbox};
 use crate::session::search::index::rebuild::{
     SearchIndexOpening, make_index_at, open_search_index,
@@ -307,11 +308,13 @@ enum ReplyDamage {
     Frame,
 }
 
-// A reply damaged in its payload's encoding or length, or in its stored body's second frame, is no
-// index row: the apply passes over it and applies the reply after it, so the damaged reply's words
-// find nothing and the next reply's do. Killed by a damaged row that fails the apply as a refused
-// read does, whether the row's read or its body's fails, and by a length of another type read as a
-// refused read.
+// A reply damaged in its payload's encoding or length, or in the fourth of its five stored frames,
+// is no index row: the apply passes over it, logging it once, leaves no document under its key,
+// the pages before the damage included, and applies the reply after it, so the next reply's words
+// find it. Killed by a damaged row that fails the apply as a refused read does, whether the row's
+// read or its body's fails, by a length of another type read as a refused read, and by the damaged
+// row's pages kept in the batch. Its log is the process's own, which nextest runs it in, so the
+// blocking pool's lines reach it.
 #[rstest]
 #[case::encoding(ReplyDamage::Encoding)]
 #[case::length(ReplyDamage::Length)]
@@ -320,6 +323,9 @@ enum ReplyDamage {
 async fn an_apply_passes_over_a_damaged_row_and_applies_the_rows_after_it(
     #[case] damage: ReplyDamage,
 ) {
+    let (damage_logs, _, damage_log_count) = MessageWaker::new("search_index_row_damaged");
+    tracing::subscriber::set_global_default(tracing_subscriber::registry().with(damage_logs))
+        .expect("the test's process logs to it alone");
     let log = TranscriptTestLog::new();
     let services = TestDaemonServices::open(&log.database).await;
     let folder = tempfile::tempdir().expect("the test makes a temporary folder");
@@ -334,13 +340,25 @@ async fn an_apply_passes_over_a_damaged_row_and_applies_the_rows_after_it(
         )
         .expect("the session's key reads");
     let session_key = u64::try_from(session_rowid).expect("a rowid is positive");
-    let damaged_reply = format!("zebra {}", "words ".repeat(2 * PAGE_MAX_BYTES / 6));
+    let damaged_reply = format!("zebra {}", "words ".repeat(4 * PAGE_MAX_BYTES / 6));
     let (damaged, _) = log.reply("m1", None, &damaged_reply);
     match damage {
         ReplyDamage::Encoding => log.set_payload_text(damaged, "$.contentEncoding", "zstdx"),
         ReplyDamage::Length => log.set_payload_text(damaged, "$.contentLength", "many"),
-        ReplyDamage::Frame => log.damage_frame(damaged, 1),
+        ReplyDamage::Frame => log.damage_frame(damaged, 3),
     }
+    let damaged_rowid: i64 = log
+        .writer
+        .query_row(
+            "SELECT rowid FROM session_events WHERE sequence = ?1",
+            [damaged],
+            |row| row.get(0),
+        )
+        .expect("the damaged reply's rowid reads");
+    let damaged_key = index_key_of(
+        u64::try_from(damaged_rowid).expect("a rowid is positive"),
+        IndexRowKind::Event,
+    );
     log.reply("m2", None, "quokka");
 
     open.applier
@@ -359,7 +377,14 @@ async fn an_apply_passes_over_a_damaged_row_and_applies_the_rows_after_it(
             .row_keys
             .len()
     };
+    assert_eq!(
+        open.index
+            .documents_under_key(damaged_key)
+            .expect("the index reads"),
+        0
+    );
     assert_eq!(rows_found("zebra"), 0);
     assert_eq!(rows_found("quokka"), 1);
+    assert_eq!(damage_log_count.load(Ordering::SeqCst), 1);
     open.index.close().expect("the index closes");
 }

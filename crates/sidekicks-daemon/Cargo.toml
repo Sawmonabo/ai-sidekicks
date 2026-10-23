@@ -218,6 +218,8 @@ rstest.workspace = true
 sidekicks-daemon = { path = ".", features = ["test-support"] }
 # A file whose removal the system refuses, for the clone's failed-removal test.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
+# The documents an index holds under a row's key, for the search apply's damaged-row test.
+sidekicks-search = { workspace = true, features = ["index", "test-support"] }
 # The screen copy drawn without a shell, for the screen listener's answer tests.
 sidekicks-terminal = { workspace = true, features = ["test-support"] }
 standardwebhooks.workspace = true

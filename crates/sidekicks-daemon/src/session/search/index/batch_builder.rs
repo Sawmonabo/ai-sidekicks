@@ -292,4 +292,56 @@ mod tests {
         assert!(line.marked.line.contains("alpha beta"), "{:?}", line.marked);
         assert_eq!(line.marked.match_ranges.len(), 2, "{:?}", line.marked);
     }
+
+    // A long row whose sixth stored frame is damaged, added after a long row of two pages under a
+    // bound of two and a half pages, hands the batch so far over at its second page and is then
+    // passed over in the batch that continues it: the pages that batch holds of it go with the
+    // text they charged, all of them, though the batch holds fewer documents than were held before
+    // the row, and its key is removed, taking out the pages handed over. Killed by keeping the
+    // continued batch's pages, by cutting it back to the count before the row, by keeping the
+    // text they charged, and by leaving the key in the index.
+    #[test]
+    fn a_row_damaged_after_its_batch_was_handed_over_leaves_nothing_in_the_next() {
+        let log = TranscriptTestLog::new();
+        insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
+        log.reply("m1", None, &"alpha ".repeat(PAGE_MAX_BYTES / 5));
+        let (damaged, _) = log.reply("m2", None, &"words ".repeat(PAGE_MAX_BYTES));
+        log.damage_frame(damaged, 5);
+        let reader = log.reader();
+        let rows = IndexRowReader::new(&reader);
+        let mut room = empty_index_batch_room();
+        let [earlier, read] = rows
+            .read_rows_between(IndexRowKind::Event, 0, i64::MAX, &mut room, |_| true)
+            .expect("the rows read")
+            .try_into()
+            .expect("two rows read");
+        let damaged_key = read.key();
+
+        let mut flushed = Vec::new();
+        let mut flush = |batch: &IndexBatch| {
+            flushed.push((batch.continued_key, batch.long_row_documents.len()));
+            Ok::<(), rusqlite::Error>(())
+        };
+        let mut builder = IndexBatchBuilder::new(5 * PAGE_MAX_BYTES / 2);
+        builder
+            .add_row(&rows, earlier, OUTBOX_ID_BEFORE_ROW, &mut flush)
+            .expect("the earlier row is added");
+        let documents_before = builder.batch.long_row_documents.len();
+        builder
+            .add_row(&rows, read, LAST_OUTBOX_ID, &mut flush)
+            .expect("the damaged row is passed over");
+
+        let [(None, flushed_documents)] = flushed.as_slice() else {
+            panic!("one batch is handed over, not {flushed:?}");
+        };
+        assert!(*flushed_documents > documents_before);
+        assert_eq!(builder.batch.continued_key, Some(damaged_key));
+        assert!(
+            builder.batch.long_row_documents.is_empty(),
+            "{} documents are left, {documents_before} were held before the row",
+            builder.batch.long_row_documents.len()
+        );
+        assert_eq!(builder.text_bytes, 0);
+        assert_eq!(builder.batch.removed_keys, [damaged_key]);
+    }
 }

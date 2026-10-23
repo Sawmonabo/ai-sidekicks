@@ -52,6 +52,8 @@ index = [
 ]
 # The index's budget measurements, compiled into the tests only when asked for.
 measurements = ["index"]
+# What another crate's tests read of an index: the documents left under a row's key.
+test-support = ["index"]
 
 [lints]
 workspace = true

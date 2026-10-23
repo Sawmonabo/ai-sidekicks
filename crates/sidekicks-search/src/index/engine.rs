@@ -180,6 +180,20 @@ impl SearchIndex {
         self.current_version().last_applied_outbox_id
     }
 
+    /// The documents under the row key `key` that a search opened now sees, for a test that checks
+    /// a row left none behind. Fails when Tantivy fails to read a segment.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn documents_under_key(&self, key: u64) -> Result<usize, SearchIndexError> {
+        let version = self.current_version();
+        let query = tantivy::query::TermQuery::new(
+            key_term(&version.fields, key),
+            tantivy::schema::IndexRecordOption::Basic,
+        );
+        Ok(version
+            .searcher
+            .search(&query, &tantivy::collector::Count)?)
+    }
+
     /// The version searches open on now.
     pub(crate) fn current_version(&self) -> Arc<IndexVersion> {
         self.version
