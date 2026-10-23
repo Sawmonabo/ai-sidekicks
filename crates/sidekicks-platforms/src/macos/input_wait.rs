@@ -241,7 +241,7 @@ fn survey_group(terminal: &InputTerminal) -> io::Result<GroupSurvey> {
         }
     }
     let accepts_input = !readers.is_empty();
-    if is_running || terminal.master.queued_bytes > 0 {
+    if is_running || terminal.master.queued_input_bytes != Some(0) {
         return Ok(GroupSurvey {
             accepts_input,
             wait: GroupWait::RuledOut,

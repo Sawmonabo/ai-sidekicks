@@ -108,6 +108,7 @@ pub(crate) fn end_inner_terminal(terminal: InnerTerminal) {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::Once;
     use std::time::Duration;
 
     use alacritty_terminal::event::WindowSize;
@@ -144,7 +145,7 @@ mod tests {
             let path = output.split("path:").nth(1)?.split(':').next()?;
             Some(stat(path).map(|status| status.st_rdev))
         });
-        let reading = read_terminal_master(&terminal.pty);
+        let reading = read_terminal_master(&terminal.pty, &Once::new());
         let child_id = terminal.pty.child().id();
         let device_read = terminal.device;
         end_inner_terminal(terminal);

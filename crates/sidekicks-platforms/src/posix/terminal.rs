@@ -12,7 +12,7 @@ use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::ptr;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 use std::time::{Duration, Instant};
 
 use alacritty_terminal::tty::{self, ChildEvent, EventedPty, EventedReadWrite, Pty};
@@ -24,6 +24,8 @@ use polling::{Event, Events, PollMode, Poller};
 use tokio::io::Interest;
 use tokio::io::unix::AsyncFd;
 
+#[cfg(target_os = "linux")]
+use crate::linux::input_wait::read_queued_input_bytes;
 use crate::posix::process::exit::wait_for_exit;
 use crate::posix::process::group::signal_group;
 use crate::posix::process::id::system_process_id;
@@ -556,14 +558,44 @@ impl TerminalWatch {
     }
 }
 
-// `FIONREAD` on a terminal's master: how many bytes it counts as queued there.
+// `FIONREAD`, which Linux also names `TIOCINQ`: the bytes a terminal's descriptor counts as
+// queued.
 nix::ioctl_read_bad!(read_queued_byte_count, libc::FIONREAD, libc::c_int);
 
-/// What the master of `pty` shows of its terminal: its session and foreground process group, what
-/// `FIONREAD` counts there and its echo and line settings, which need no right over the program.
-/// Fails with the system's error when a read is refused, and with `InvalidData` when the terminal
-/// has no session or no foreground group.
-pub fn read_terminal_master(pty: &Pty) -> io::Result<TerminalMasterReading> {
+/// The bytes `FIONREAD` counts on `descriptor`, a terminal's master or its program's side. Fails
+/// with the system's error when the read is refused.
+pub(crate) fn read_queued_bytes(descriptor: BorrowedFd<'_>) -> io::Result<u32> {
+    let mut queued_bytes: libc::c_int = 0;
+    // SAFETY: the descriptor is open for the call, and the pointer names a live local the call
+    // fills with one integer.
+    unsafe { read_queued_byte_count(descriptor.as_raw_fd(), &raw mut queued_bytes) }
+        .map_err(io::Error::from)?;
+    u32::try_from(queued_bytes).map_err(|error| {
+        io::Error::new(
+            ErrorKind::InvalidData,
+            format!("the terminal counts {queued_bytes} queued bytes: {error}"),
+        )
+    })
+}
+
+/// What the master of `pty` shows of its terminal: its session and foreground process group, the
+/// input queued for its program, on Linux the output queued for the master, and its echo and line
+/// settings, which need no right over the program. On Linux the input is counted on the program's
+/// side, opened from the master for that count alone; when it cannot be, the count is absent and
+/// the failure is logged once for `peer_failure_noted`, which the holder keeps one of per terminal.
+/// Fails with the system's error when a read of the master is refused, and with `InvalidData` when
+/// the terminal has no session or no foreground group.
+#[cfg_attr(
+    not(target_os = "linux"),
+    expect(
+        unused_variables,
+        reason = "macOS counts the program's input on the master, which cannot fail on its own"
+    )
+)]
+pub fn read_terminal_master(
+    pty: &Pty,
+    peer_failure_noted: &Once,
+) -> io::Result<TerminalMasterReading> {
     let master = pty.file().as_fd();
     let session_leader = process_group_id(
         "session",
@@ -573,22 +605,31 @@ pub fn read_terminal_master(pty: &Pty) -> io::Result<TerminalMasterReading> {
         "foreground group",
         tcgetpgrp(master).map_err(io::Error::from)?.as_raw(),
     )?;
-    let mut queued_bytes: libc::c_int = 0;
-    // SAFETY: the descriptor is the PTY's open master, and the pointer names a live local the call
-    // fills with one integer.
-    unsafe { read_queued_byte_count(master.as_raw_fd(), &raw mut queued_bytes) }
-        .map_err(io::Error::from)?;
-    let queued_bytes = u32::try_from(queued_bytes).map_err(|error| {
-        io::Error::new(
-            ErrorKind::InvalidData,
-            format!("the master counts {queued_bytes} queued bytes: {error}"),
-        )
-    })?;
+    let master_queued_bytes = read_queued_bytes(master)?;
     let settings = read_terminal_settings(master)?;
+    // macOS keeps one record for both sides, so the master counts the program's unread input.
+    #[cfg(not(target_os = "linux"))]
+    let queued_input_bytes = Some(master_queued_bytes);
+    #[cfg(target_os = "linux")]
+    let queued_input_bytes = match read_queued_input_bytes(master) {
+        Ok(queued_bytes) => Some(queued_bytes),
+        Err(error) => {
+            peer_failure_noted.call_once(|| {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "a terminal's program side could not be opened to count its input, so its \
+                     commands read as not waiting"
+                );
+            });
+            None
+        }
+    };
     Ok(TerminalMasterReading {
         session_leader,
         foreground_group,
-        queued_bytes,
+        queued_input_bytes,
+        #[cfg(target_os = "linux")]
+        unread_output_bytes: master_queued_bytes,
         is_echo_on: settings.local_flags.contains(LocalFlags::ECHO),
         is_canonical: settings.local_flags.contains(LocalFlags::ICANON),
     })

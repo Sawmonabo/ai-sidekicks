@@ -38,6 +38,7 @@ pub struct InputWaitReading {
 mod tests {
     use std::collections::HashMap;
     use std::io::Write;
+    use std::sync::Once;
     use std::thread;
     use std::time::{Duration, Instant};
 
@@ -146,10 +147,11 @@ mod tests {
         if prompt.is_ok() && !expected.is_waiting {
             thread::sleep(SETTLE);
         }
+        let peer_failure_noted = Once::new();
         let read = || {
             read_input_wait(&InputTerminal {
                 device: terminal.device,
-                master: read_terminal_master(&terminal.pty)?,
+                master: read_terminal_master(&terminal.pty, &peer_failure_noted)?,
             })
         };
         // A waiting command is read until it reads as waiting; one that waits on nothing is read

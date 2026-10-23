@@ -12,6 +12,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 use std::ptr;
+use std::sync::Once;
 use std::time::Instant;
 
 use alacritty_terminal::event::{OnResize, WindowSize};
@@ -213,7 +214,10 @@ pub fn read_console(pid: u32) -> io::Result<ConsoleReading> {
 
 /// Reads a terminal's master, which a `ConPTY` does not expose: the console helper reads the
 /// console's input mode instead. Always fails with `Unsupported`.
-pub fn read_terminal_master(_pty: &Pty) -> io::Result<TerminalMasterReading> {
+pub fn read_terminal_master(
+    _pty: &Pty,
+    _peer_failure_noted: &Once,
+) -> io::Result<TerminalMasterReading> {
     Err(io::Error::new(
         ErrorKind::Unsupported,
         "a pseudo console has no master to read",

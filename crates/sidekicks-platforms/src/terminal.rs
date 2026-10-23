@@ -87,17 +87,22 @@ pub struct ConsoleReading {
 }
 
 /// What a terminal's master shows of the terminal, read by whoever holds the master: its session
-/// and foreground process group, what `FIONREAD` counts on the master, and its echo and line
-/// settings.
+/// and foreground process group, the input queued for its program, on Linux the output queued for
+/// the master, and its echo and line settings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TerminalMasterReading {
     /// The terminal's session, named by its leader's process id: the command the terminal started.
     pub session_leader: u32,
     /// The terminal's foreground process group, named by its leader's process id.
     pub foreground_group: u32,
-    /// The bytes `FIONREAD` counts on the master: on macOS the input queued unread for the program,
-    /// on Linux the program's output the master has not read yet.
-    pub queued_bytes: u32,
+    /// The input the program can read now, whole lines only in canonical mode; a pending
+    /// end-of-file counts on macOS and not on Linux. Absent only on Linux, when the program's side
+    /// could not be opened to count it.
+    pub queued_input_bytes: Option<u32>,
+    /// The program's output the master has not read yet (`FIONREAD` on the master), which Linux
+    /// alone counts apart from the program's input.
+    #[cfg(target_os = "linux")]
+    pub unread_output_bytes: u32,
     /// Whether the terminal echoes what is typed (`ECHO`).
     pub is_echo_on: bool,
     /// Whether the terminal hands input over a line at a time (`ICANON`).

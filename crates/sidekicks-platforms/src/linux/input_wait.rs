@@ -6,12 +6,14 @@
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, ErrorKind};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::os::unix::fs::{FileExt, FileTypeExt, MetadataExt};
 use std::sync::Once;
 
 use crate::input_wait::{InputTerminal, InputWaitReading};
 use crate::linux::pinned_process::GROUP_FIELD;
 use crate::linux::{read_process_file, read_process_stat_fields};
+use crate::posix::terminal::read_queued_bytes;
 use crate::terminal::TerminalDevice;
 
 // The fields of a `stat` file, numbered as proc(5) numbers them, that hold a process's or a
@@ -41,9 +43,10 @@ const EPOLL_WAIT_CHANNEL: &str = "do_epoll_wait";
 static WEAKER_READING_NOTED: Once = Once::new();
 
 /// Whether the terminal's foreground group waits on `terminal`'s input, takes input, and has echo
-/// off: no thread of the group runs, and a thread is blocked in `read`, `readv` or `pread64` on the
-/// terminal, in an epoll wait on a set holding the terminal for input, or in `select`, `pselect6`,
-/// `poll` or `ppoll` with the terminal in its read set. The group is read among the descendants of
+/// off: nothing is queued on the terminal (an absent count reads as not waiting), no thread of the
+/// group runs, and a thread is blocked in `read`, `readv` or `pread64` on the terminal, in an epoll
+/// wait on a set holding the terminal for input, or in `select`, `pselect6`, `poll` or `ppoll` with
+/// the terminal in its read set. The group is read among the descendants of
 /// the terminal's session leader. Where Yama refuses those reads, a thread sleeping where the line
 /// discipline or an epoll wait sleeps counts instead; a program whose descriptors or calls the
 /// daemon may not read, as `sudo`, waits when the terminal is set as a password prompt and a member
@@ -83,12 +86,30 @@ pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading>
     }
     let is_password_wait =
         is_refused && is_any_refused_sleeping && terminal.master.is_password_prompt();
+    // An absent count is not known to be empty, so the command reads as not waiting.
+    let is_nothing_queued = terminal.master.queued_input_bytes == Some(0);
     Ok(InputWaitReading {
-        is_waiting: !is_running && (is_waiting || is_password_wait),
+        is_waiting: is_nothing_queued && !is_running && (is_waiting || is_password_wait),
         accepts_input: accepts_input || is_password_wait,
         is_echo_off: !terminal.master.is_echo_on,
         is_password_prompt: terminal.master.is_password_prompt(),
     })
+}
+
+// `TIOCGPTPEER`: opens a terminal's program side from its master, with the open flags given.
+nix::ioctl_write_int_bad!(open_terminal_peer, libc::TIOCGPTPEER);
+
+/// The input a terminal's program can read now (`TIOCINQ`), counted on the program's side, which is
+/// opened from `master` for this count alone and closed before the return, so the daemon never
+/// keeps the terminal open past its program. Fails with the system's error when that side cannot be
+/// opened, as on a terminal set exclusive, or counted.
+pub(crate) fn read_queued_input_bytes(master: BorrowedFd<'_>) -> io::Result<u32> {
+    let flags = libc::O_RDONLY | libc::O_NOCTTY | libc::O_CLOEXEC;
+    // SAFETY: the descriptor is the terminal's open master, and the flags are passed by value.
+    let peer = unsafe { open_terminal_peer(master.as_raw_fd(), flags) }.map_err(io::Error::from)?;
+    // SAFETY: the call returned a new descriptor that nothing else owns.
+    let peer = unsafe { OwnedFd::from_raw_fd(peer) };
+    read_queued_bytes(peer.as_fd())
 }
 
 /// Whether the terminal's foreground group may wait on `terminal`'s input, which on Linux is the
@@ -524,7 +545,7 @@ fn wait_channel_wait(
     } else if channel == TERMINAL_WAIT_CHANNEL {
         !process.terminal_reads.is_empty()
             && !process.holds_other_wait_source
-            && terminal.master.queued_bytes == 0
+            && terminal.master.unread_output_bytes == 0
     } else if channel == EPOLL_WAIT_CHANNEL {
         let mut is_on_terminal = false;
         for epoll_set in &process.epoll_sets {
