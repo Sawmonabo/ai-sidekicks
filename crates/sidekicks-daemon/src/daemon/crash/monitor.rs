@@ -22,7 +22,7 @@ use minidumper::{Client, LoopAction, MinidumpBinary, Server, ServerHandler, Sock
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::{
-    SocketPathRefused, check_socket_path, create_held_file, create_private_folder,
+    LeftoverSweep, SocketPathRefused, check_socket_path, create_held_file, create_private_folder,
     rename_replacing, replace_file_atomically,
 };
 
@@ -412,8 +412,13 @@ impl DumpWriter {
                     .take();
                 match panic {
                     Some(record) => {
-                        replace_file_atomically(&record_path, &record, CRASH_FILE_MODE)
-                            .map_err(io::Error::other)?;
+                        replace_file_atomically(
+                            &record_path,
+                            &record,
+                            CRASH_FILE_MODE,
+                            LeftoverSweep::Swept,
+                        )
+                        .map_err(io::Error::other)?;
                         is_record_written = true;
                         Ok(())
                     }

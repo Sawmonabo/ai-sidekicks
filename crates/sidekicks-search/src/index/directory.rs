@@ -142,8 +142,13 @@ impl Directory for FolderDirectory {
     // not after, so the folder is synced once more here: a commit that has returned survives a
     // crash of the system. The mode is the one Tantivy's own atomic write gives.
     fn atomic_write(&self, path: &Path, data: &[u8]) -> io::Result<()> {
-        sidekicks_platforms::replace_file_atomically(&self.root.join(path), data, 0o600)
-            .map_err(|error| io::Error::new(error.failure.kind(), error))?;
+        sidekicks_platforms::replace_file_atomically(
+            &self.root.join(path),
+            data,
+            0o600,
+            sidekicks_platforms::LeftoverSweep::Unswept,
+        )
+        .map_err(|error| io::Error::new(error.failure.kind(), error))?;
         if path == Path::new(COMMIT_FILE) {
             self.sync_directory()?;
         }

@@ -37,7 +37,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_platforms::{
-    atomic_write_target_of, create_file_atomically, remove_atomic_write_leftovers,
+    LeftoverSweep, atomic_write_target_of, create_file_atomically, remove_atomic_write_leftovers,
     remove_unless_held, replace_file_atomically,
 };
 use tokio_util::sync::CancellationToken;
@@ -251,8 +251,13 @@ pub(crate) async fn build_crash_reports(
                     let removed = meter
                         .run_blocking(move || {
                             sidekicks_platforms::create_private_folder(&reports)?;
-                            replace_file_atomically(&report_path, &bytes, REPORT_FILE_MODE)
-                                .map_err(io::Error::other)?;
+                            replace_file_atomically(
+                                &report_path,
+                                &bytes,
+                                REPORT_FILE_MODE,
+                                LeftoverSweep::Swept,
+                            )
+                            .map_err(io::Error::other)?;
                             Ok::<_, io::Error>(remove_dump(&dump))
                         })
                         .await??;
@@ -528,6 +533,7 @@ fn make_key(
         &data_folder.join(REPORT_KEY_FILE_NAME),
         &key,
         REPORT_FILE_MODE,
+        LeftoverSweep::Swept,
     ) {
         Ok(()) => Ok(key),
         // Another pass made it first.

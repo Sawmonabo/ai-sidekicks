@@ -112,7 +112,7 @@ mod windows;
 mod wsl;
 
 pub use atomic_write::{
-    AtomicWriteError, atomic_write_target_of, create_file_atomically,
+    AtomicWriteError, LeftoverSweep, atomic_write_target_of, create_file_atomically,
     remove_atomic_write_leftovers, replace_file_atomically,
 };
 pub use base_environment::{BaseEnvironmentSource, base_environment_source};

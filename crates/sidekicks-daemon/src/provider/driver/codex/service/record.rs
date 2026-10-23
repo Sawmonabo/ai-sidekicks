@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use sidekicks_platforms::{
-    ProcessRecord, create_private_folder, real_path, replace_file_atomically,
+    LeftoverSweep, ProcessRecord, create_private_folder, real_path, replace_file_atomically,
 };
 
 use crate::provider::service_log::provider_home_key;
@@ -207,8 +207,13 @@ impl LockedServiceRecord {
     /// with the replace's error.
     pub(crate) fn write(&self, record: &LastingServiceRecord) -> io::Result<()> {
         let text = serde_json::to_vec(record).expect("a process record writes as JSON");
-        replace_file_atomically(&self.file.record, &text, RECORD_FILE_MODE)
-            .map_err(io::Error::other)
+        replace_file_atomically(
+            &self.file.record,
+            &text,
+            RECORD_FILE_MODE,
+            LeftoverSweep::Unswept,
+        )
+        .map_err(io::Error::other)
     }
 
     /// Removes the record, for a service that has ended; a missing record is already gone.

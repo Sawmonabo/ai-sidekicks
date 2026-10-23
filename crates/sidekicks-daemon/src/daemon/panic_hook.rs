@@ -13,7 +13,7 @@ use std::sync::{Arc, OnceLock};
 
 use flexi_logger::writers::ArcFileLogWriter;
 use jiff::Timestamp;
-use sidekicks_platforms::{create_private_folder, replace_file_atomically};
+use sidekicks_platforms::{LeftoverSweep, create_private_folder, replace_file_atomically};
 
 use crate::daemon::crash::monitor::{PanicRecord, send_panic_record};
 use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
@@ -135,6 +135,12 @@ fn write_crash_record(folder: &Path, report: &str) -> std::io::Result<()> {
         Timestamp::now().strftime("%Y-%m-%dT%H-%M-%S-%3fZ"),
         CRASH_RECORD_COUNT.fetch_add(1, Ordering::Relaxed)
     ));
-    replace_file_atomically(&record, report.as_bytes(), CRASH_RECORD_MODE)
-        .map_err(std::io::Error::other)
+    // The crash pass sweeps the folder's leftovers.
+    replace_file_atomically(
+        &record,
+        report.as_bytes(),
+        CRASH_RECORD_MODE,
+        LeftoverSweep::Swept,
+    )
+    .map_err(std::io::Error::other)
 }
