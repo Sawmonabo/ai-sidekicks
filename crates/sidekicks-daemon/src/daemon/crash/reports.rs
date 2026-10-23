@@ -1,16 +1,15 @@
 //! The crash report builder: each finished dump in the crash dumps folder, the service's and the
 //! app's alike, becomes a report of the crashing thread's stack as module file names and offsets,
-//! with no symbols read, then the dump is deleted, so the dump never outlives its report. A
-//! panic's message and place join the report built from its crash, each path in them cut to its
-//! file name, each credential scrubbed and each id hashed with a key this install keeps, so a
-//! forwarded report names no folder, no secret and no id anyone could confirm. A dump still being
-//! written, the monitor's or Crashpad's in its `new` folder, is passed over. A dump that does not
-//! build is named in the service log and deleted. What a failed write of the monitor's left, a
-//! partial dump or a panic record without its dump, is deleted by every pass, and so is a key's
-//! temporary file a process ended mid-write left: the monitor exits after one dump and only a pass
-//! writes the key, so no pass meets either still being written. While `Keep crash reports` is off, no report is
-//! built and every dump, report and panic record goes. Each pass is metered against its processor
-//! budget.
+//! with no symbols read, then the dump is deleted, so the dump never outlives its report. A panic's
+//! message and place join the report built from its crash, each path in them cut to its file name,
+//! each credential scrubbed and each id hashed with a key this install keeps, so a forwarded report
+//! names no folder, no secret and no id anyone could confirm. A dump still being written, the
+//! monitor's or Crashpad's in its `new` folder, is passed over. A dump that does not build is named
+//! in the service log and deleted. Every pass also deletes what a write cut short left: a partial
+//! dump or a panic record without its dump in the dumps folder, and a temporary file of the key; it
+//! takes each for a leftover, since the monitor exits after its one dump. While
+//! `Keep crash reports` is off, no report is built and every dump, report and panic record goes.
+//! Each pass is metered against its processor budget.
 
 use std::error::Error;
 use std::fs;

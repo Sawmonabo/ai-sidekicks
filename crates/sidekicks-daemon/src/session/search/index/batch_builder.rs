@@ -60,7 +60,8 @@ impl IndexBatchBuilder {
         // A page is held until the next arrives, so a row of one page goes whole.
         let mut held: Option<String> = None;
         let mut long_row: Option<LongRowDocuments> = None;
-        let documents_before = self.batch.long_row_documents.len();
+        let (documents_before, text_bytes_before) =
+            (self.batch.long_row_documents.len(), self.text_bytes);
         let paged = rows.for_each_page(&row, |page| {
             let Some(earlier) = held.replace(page) else {
                 return ControlFlow::Continue(());
@@ -81,12 +82,14 @@ impl IndexBatchBuilder {
                     error = &damage as &(dyn Error + 'static),
                     "search_index_row_damaged"
                 );
-                // The row's pages this batch holds go, and its key takes out any an earlier
-                // batch committed.
+                // The row's pages this batch holds go with the text they charged, and its key takes
+                // out any an earlier batch committed.
                 if self.batch.continued_key == Some(row.key) {
                     self.batch.long_row_documents.clear();
+                    self.text_bytes = 0;
                 } else {
                     self.batch.long_row_documents.truncate(documents_before);
+                    self.text_bytes = text_bytes_before;
                 }
                 self.batch.removed_keys.push(row.key);
                 return Ok(());
