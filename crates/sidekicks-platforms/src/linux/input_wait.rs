@@ -11,7 +11,7 @@ use std::os::unix::fs::{FileExt, FileTypeExt, MetadataExt};
 use std::sync::Once;
 
 use crate::input_wait::{InputTerminal, InputWaitReading};
-use crate::linux::pinned_process::GROUP_FIELD;
+use crate::linux::pinned_process::{GROUP_FIELD, SESSION_FIELD};
 use crate::linux::{read_process_file, read_process_stat_fields};
 use crate::posix::terminal::read_queued_bytes;
 use crate::terminal::TerminalDevice;
@@ -43,16 +43,16 @@ const EPOLL_WAIT_CHANNEL: &str = "do_epoll_wait";
 static WEAKER_READING_NOTED: Once = Once::new();
 
 /// Whether the terminal's foreground group waits on `terminal`'s input, takes input, and has echo
-/// off: nothing is queued on the terminal (an absent count reads as not waiting), no thread of the
-/// group runs, and a thread is blocked in `read`, `readv` or `pread64` on the terminal, in an epoll
-/// wait on a set holding the terminal for input, or in `select`, `pselect6`, `poll` or `ppoll` with
-/// the terminal in its read set. The group is read among the descendants of
-/// the terminal's session leader. Where Yama refuses those reads, a thread sleeping where the line
-/// discipline or an epoll wait sleeps counts instead; a program whose descriptors or calls the
-/// daemon may not read, as `sudo`, waits when the terminal is set as a password prompt and a member
-/// sleeps. A process or thread that ends during the reads is left out. Blocks on the reads; fails
-/// with the system's error when `/proc` refuses a read this user may make.
+/// off, read from `/proc`; a process or thread that ends during the reads is left out. Fails with
+/// the system's error when `/proc` refuses a read this user may make.
 pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading> {
+    // A wait needs nothing queued on the terminal (an absent count reads as not waiting), no thread
+    // of the group running, and a thread blocked in `read`, `readv` or `pread64` on the terminal,
+    // in an epoll wait on a set holding the terminal for input, or in `select`, `pselect6`, `poll`
+    // or `ppoll` with the terminal in its read set. Where Yama refuses those reads, a thread
+    // sleeping where the line discipline or an epoll wait sleeps counts instead; a program whose
+    // descriptors or calls the daemon may not read, as `sudo`, waits when the terminal is set as a
+    // password prompt and a member sleeps.
     let mut accepts_input = false;
     let mut is_running = false;
     let mut is_waiting = false;
@@ -158,36 +158,61 @@ struct GroupMember {
     controlling_terminal: Option<i64>,
 }
 
-// The processes in group `group_id` among session leader `leader` and its descendants, each
-// process's `stat`, threads and children read once; a process that ended during the walk is left
-// out, and so are the children of one whose children the kernel refuses to list.
+// What a process the group walk reaches must show before it and its descendants are walked.
+#[derive(Clone, Copy)]
+enum WalkStart {
+    // The session leader, or a descendant of a process walked.
+    Descendant,
+    // A child of this process, which as a child subreaper takes in the orphans of every session.
+    OwnChild,
+    // The foreground group's own leader, which may have left the session leader's tree.
+    GroupLeader,
+}
+
+// The processes in group `group_id` among session leader `leader`'s descendants, this process's
+// own children in that session and theirs, and the group's leader with its descendants when it is
+// in the group but outside both; each process's `stat`, threads and children read once. A process
+// that ended during the walk is left out, and so are the children of one whose children the kernel
+// refuses to list. A `children` listing that races an exiting sibling drops a member for one
+// check, and an orphan a nearer subreaper took in or a process that left the session is missed;
+// the walk's cost grows with this process's direct children.
 fn list_group_members(leader: u32, group_id: u32) -> io::Result<Vec<GroupMember>> {
+    let own_id = std::process::id();
+    // A stack, so the leader's tree is walked first and the group's leader last.
+    let mut pending = vec![(group_id, WalkStart::GroupLeader)];
+    pending.extend(
+        list_children(own_id, &list_thread_ids(own_id)?)?
+            .into_iter()
+            .map(|child| (child, WalkStart::OwnChild)),
+    );
+    pending.push((leader, WalkStart::Descendant));
     let mut members = Vec::new();
-    let mut pending = vec![leader];
     let mut seen = HashSet::new();
-    while let Some(process_id) = pending.pop() {
+    while let Some((process_id, start)) = pending.pop() {
         if !seen.insert(process_id) {
             continue;
         }
-        let Some([group, terminal]) =
-            read_process_stat_fields(process_id, [GROUP_FIELD, TERMINAL_FIELD])?
+        let Some([group, session, terminal]) =
+            read_process_stat_fields(process_id, [GROUP_FIELD, SESSION_FIELD, TERMINAL_FIELD])?
         else {
             continue;
         };
-        let thread_ids = list_thread_ids(process_id)?;
-        for thread_id in &thread_ids {
-            match read_process_file(process_id, &format!("task/{thread_id}/children")) {
-                Ok(Some(children)) => pending.extend(
-                    String::from_utf8_lossy(&children)
-                        .split_whitespace()
-                        .filter_map(|child| child.parse::<u32>().ok()),
-                ),
-                Ok(None) => {}
-                Err(error) if is_refusal(&error) => {}
-                Err(error) => return Err(error),
-            }
+        let is_member = group.parse() == Ok(group_id);
+        let is_walked = match start {
+            WalkStart::Descendant => true,
+            WalkStart::OwnChild => session.parse() == Ok(leader),
+            WalkStart::GroupLeader => is_member,
+        };
+        if !is_walked {
+            continue;
         }
-        if group.parse() == Ok(group_id) {
+        let thread_ids = list_thread_ids(process_id)?;
+        pending.extend(
+            list_children(process_id, &thread_ids)?
+                .into_iter()
+                .map(|child| (child, WalkStart::Descendant)),
+        );
+        if is_member {
             members.push(GroupMember {
                 process_id,
                 thread_ids,
@@ -196,6 +221,25 @@ fn list_group_members(leader: u32, group_id: u32) -> io::Result<Vec<GroupMember>
         }
     }
     Ok(members)
+}
+
+// The children of process `process_id`, listed by each of its threads `thread_ids`; none for a
+// thread that ended or whose children the kernel refuses to list.
+fn list_children(process_id: u32, thread_ids: &[u32]) -> io::Result<Vec<u32>> {
+    let mut children = Vec::new();
+    for thread_id in thread_ids {
+        match read_process_file(process_id, &format!("task/{thread_id}/children")) {
+            Ok(Some(listed)) => children.extend(
+                String::from_utf8_lossy(&listed)
+                    .split_whitespace()
+                    .filter_map(|child| child.parse::<u32>().ok()),
+            ),
+            Ok(None) => {}
+            Err(error) if is_refusal(&error) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(children)
 }
 
 // The ids of process `process_id`'s threads, none when it ended.

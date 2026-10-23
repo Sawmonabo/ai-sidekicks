@@ -80,7 +80,8 @@ mod tests {
     // when echo is read as off only with canonical input on (`vim` turns both off), when echo off
     // alone reads as a password prompt (`stty -echo -icanon`), when a read on the terminal, a
     // `kevent` on a read knote, a `select` or a read through `/dev/tty` is missed, or when a
-    // `select` in a process holding a socket reads as a wait on the terminal.
+    // `select` in a process holding a socket reads as a wait on the terminal, or when an orphan
+    // reader outside the session leader's tree is missed.
     #[rstest]
     #[case::node_readline(
         "node -e \"require('readline').createInterface({input: process.stdin, \
@@ -143,6 +144,14 @@ mod tests {
         "",
         reading(Wait::OnTerminal, Echo::On)
     )]
+    // Its parent subshell exits, so it is an orphan outside the session leader's tree; on Linux
+    // the test takes it in as a child subreaper, as the daemon does.
+    #[case::orphan_reader(
+        "( python3 -c \"print('ready', flush=True); input()\" < /dev/tty & ); exec sleep 600",
+        "ready",
+        "",
+        reading(Wait::OnTerminal, Echo::On)
+    )]
     #[case::hidden_read(
         "echo ready; exec /bin/bash -c 'read -s line'",
         "ready",
@@ -156,6 +165,8 @@ mod tests {
         #[case] typed: &str,
         #[case] expected: InputWaitReading,
     ) {
+        #[cfg(target_os = "linux")]
+        nix::sys::prctl::set_child_subreaper(true).expect("the test takes in orphans");
         // The command's own folder, which holds what it makes and goes with the test.
         let folder = tempfile::tempdir().expect("a scratch folder");
         let options = terminal_options(
