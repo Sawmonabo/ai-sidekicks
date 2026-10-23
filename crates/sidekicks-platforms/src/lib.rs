@@ -141,7 +141,7 @@ pub use file_facts::FileFacts;
 pub use file_watch::{WATCHES_TREES, inotify_watch_ceiling};
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
-pub use held_file::remove_unless_held;
+pub use held_file::{create_held_file, is_name_lost, remove_unless_held};
 pub use hidden_entry::is_hidden_entry;
 pub use keep_awake::{KeepAwakeHold, KeepAwakePurpose, KeepAwakeRefused};
 pub use lasting_child::{LastingChild, LastingCommand};

@@ -15,7 +15,7 @@ use crate::{create_new_file, flush_open_file, rename_replacing};
 #[derive(Debug, thiserror::Error)]
 #[error("{failure}{}", removal_note(.removal_failure.as_ref()))]
 pub struct AtomicWriteError {
-    /// Making, writing, flushing, renaming or linking the temporary file failed.
+    /// Making, locking, writing, flushing, renaming or linking the temporary file failed.
     #[source]
     pub failure: io::Error,
     /// Removing the temporary file after that failure failed too.

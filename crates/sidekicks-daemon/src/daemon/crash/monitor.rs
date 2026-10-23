@@ -22,8 +22,8 @@ use minidumper::{Client, LoopAction, MinidumpBinary, Server, ServerHandler, Sock
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::{
-    SocketPathRefused, check_socket_path, create_private_folder, rename_replacing,
-    replace_file_atomically,
+    SocketPathRefused, check_socket_path, create_held_file, create_private_folder,
+    rename_replacing, replace_file_atomically,
 };
 
 use crate::cleanup_failures::CleanupFailures;
@@ -311,21 +311,28 @@ struct DumpWriter {
 
 impl ServerHandler for DumpWriter {
     fn create_minidump_file(&self) -> Result<(File, PathBuf), io::Error> {
-        let path = self.dumps_folder.join(format!(
-            "{}.{DUMP_EXTENSION}{DUMP_IN_PROGRESS_SUFFIX}",
-            mint_uuid_v7()
-        ));
-        let file = sidekicks_platforms::create_new_file(&path, CRASH_FILE_MODE)?;
-        // Held until the dump is finished and the file closed after `on_minidump_created`, so a
-        // crash pass that meets the file meanwhile leaves it.
-        if let Err(failure) = file.lock() {
-            drop(file);
-            let removal_failures = remove_leftover(&path).into_iter().collect();
-            return Err(io::Error::new(
-                failure.kind(),
-                CleanupFailures::new(failure, removal_failures, "the crash dump's lock"),
+        // Held locked until the dump is finished and the file closed after `on_minidump_created`,
+        // so a crash pass that meets the file meanwhile leaves it; the check after the lock closes
+        // the instant between the create and the lock, where a pass could remove the file.
+        let created = create_held_file(|| {
+            let path = self.dumps_folder.join(format!(
+                "{}.{DUMP_EXTENSION}{DUMP_IN_PROGRESS_SUFFIX}",
+                mint_uuid_v7()
             ));
-        }
+            let file = sidekicks_platforms::create_new_file(&path, CRASH_FILE_MODE)?;
+            Ok((file, path))
+        });
+        let (file, path) = match created {
+            Ok(created) => created,
+            Err(failure) => {
+                // The monitor has no log, so minidumper's own report of the failure reaches no one.
+                write_error_line(&format!(
+                    "the crash dump's file could not be made: {}",
+                    describe_error(&failure)
+                ));
+                return Err(io::Error::new(failure.failure.kind(), failure));
+            }
+        };
         *self.writing.lock().unwrap_or_else(PoisonError::into_inner) = Some(path.clone());
         Ok((file, path))
     }
@@ -447,10 +454,44 @@ mod tests {
     use minidumper::{LoopAction, MinidumpBinary, ServerHandler};
     use rstest::rstest;
 
+    use sidekicks_platforms::{create_new_file, entry_identity, is_name_lost, open_file_identity};
+
     use super::{
-        DumpWriter, PANIC_RECORD_MAX_BYTES, PanicRecord, PanicRecordSendError, panic_record_bytes,
-        send_within,
+        CRASH_FILE_MODE, DumpWriter, PANIC_RECORD_MAX_BYTES, PanicRecord, PanicRecordSendError,
+        panic_record_bytes, send_within,
     };
+    use crate::daemon::crash::reports::remove_monitor_leftovers;
+
+    // A crash pass that removes a partial dump in the instant between its create and its lock
+    // leaves the lock holding a file with no name, which the check answers lost; the monitor's
+    // create answers a dump file its name still names, held locked. Killed by a check that always
+    // answers "still named".
+    #[test]
+    fn a_dump_file_a_crash_pass_took_before_its_lock_is_lost() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let taken = scratch.path().join("taken.dmp.partial");
+        let file = create_new_file(&taken, CRASH_FILE_MODE).expect("the dump's file is made");
+        assert!(remove_monitor_leftovers(scratch.path()).is_empty());
+        file.lock().expect("the dump's file locks");
+
+        assert!(is_name_lost(&taken, &file).expect("the check answers"));
+
+        drop(file);
+        let writer = DumpWriter {
+            dumps_folder: scratch.path().to_path_buf(),
+            panic: Mutex::new(None),
+            writing: Mutex::new(None),
+        };
+        let (file, path) = writer
+            .create_minidump_file()
+            .expect("the dump's file is made");
+        assert_eq!(
+            entry_identity(&path).expect("the name reads").identity,
+            open_file_identity(&file).expect("the file reads")
+        );
+        let probe = fs::File::open(&path).expect("the dump's file opens");
+        assert!(matches!(probe.try_lock(), Err(TryLockError::WouldBlock)));
+    }
 
     // A dump is held locked while it is written, so a crash pass leaves it. A dump whose write
     // fails, as a full disk fails it, and one whose finish fails after its panic record was
