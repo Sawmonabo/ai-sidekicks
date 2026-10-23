@@ -20,8 +20,16 @@ use sidekicks_contracts::event::registry::SessionEventType;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum NormalizedEventKind {
     /// The provider's own init report at a run's start.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     Init,
     /// A piece of the agent's reply text.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     TextDelta,
     /// A tool call's start.
     ToolStart,
@@ -34,64 +42,164 @@ pub(crate) enum NormalizedEventKind {
     /// A provider's permission ask that reaches a person.
     ApprovalRequest,
     /// How a permission ask was answered.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     ApprovalResolved,
     /// A structured question to the person.
     UserInputRequest,
     /// The answer to a structured question.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     UserInputResolved,
     /// The provider's retry-or-edit choice on a refused turn that names a fallback model.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     RefusalChoiceRequest,
     /// The provider's switch-or-credits choice when a turn needs usage credits.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     UsageCreditsChoiceRequest,
     /// The provider's coarse status.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     SessionStatus,
     /// A token usage reading.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     TokenUsage,
     /// A run's failure.
     Error,
     /// A snapshot of the turn's task list.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     TodoUpdate,
     /// A task created in the turn's task list.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     TaskCreate,
     /// A task in the turn's task list changed.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     TaskUpdate,
     /// A generic notice for the person.
     Notification,
     /// A transient retry of a provider call.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     ApiRetry,
     /// The provider compacted its context window.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     CompactBoundary,
     /// An account's quota snapshot.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     RateLimits,
     /// The provider moved the run to another model.
     ModelRerouted,
     /// The session or thread was renamed.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     ThreadRenamed,
     /// A streamed content block opened.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     ContentBlockStart,
     /// A streamed content block closed.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     ContentBlockStop,
     /// A background task ended, with its fuller completion.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     BackgroundTaskTerminal,
     /// A background task's notice that is not a lifecycle step.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     BackgroundTaskNotification,
     /// A detached child's ending notice, carried into the parent's next turn.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     SubagentNotification,
     /// A subagent's lifecycle or a child thread's status.
     SubagentStatus,
     /// A command's exit.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     CommandExit,
     /// Input written to a backgrounded terminal.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     TerminalInteraction,
     /// The provider's echo of a message the app sent.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     UserText,
     /// A file diff.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     Diff,
     /// A command's output.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     CommandOutput,
     /// The agent's thinking.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     Thinking,
     /// A plan proposal.
+    #[expect(
+        dead_code,
+        reason = "the Codex normalizer and a later provider's reader map their wire onto it"
+    )]
     ProposedPlan,
 }
 
