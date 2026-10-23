@@ -47,8 +47,8 @@ pub(crate) struct ClaudeOutputReader {
     pub(crate) turn_holds: Option<ClaudeTurnHolds>,
     /// How many start-up hooks are running, which `initialize`'s wait does not count.
     pub(crate) startup_hooks: watch::Sender<usize>,
-    /// Asks the process to end when a line passes the ceiling; gone once the process's handle
-    /// dropped, which kills it.
+    /// Asks the process to end when a line passes the ceiling or the output fails to read; gone
+    /// once the process's handle dropped, which kills it.
     pub(crate) ends: Weak<ClaudeChildEnds>,
     /// The lines that were no frame, reported once per process.
     pub(crate) unmapped_lines: OnceReportedDiagnostics,
@@ -60,7 +60,7 @@ pub(crate) struct ClaudeOutputReader {
 
 impl ClaudeOutputReader {
     /// Reads `output` to its end, or until a line passes the ceiling, which records the
-    /// diagnostic and asks the process to stop.
+    /// diagnostic, or the output fails to read, which logs it; either asks the process to stop.
     pub(crate) async fn read<Output: AsyncRead + Unpin>(mut self, output: Output) {
         let codec = AnyDelimiterCodec::new_with_max_length(
             b"\n".to_vec(),
@@ -84,11 +84,18 @@ impl ClaudeOutputReader {
                     }
                     return;
                 }
+                // A process whose output cannot be read sends the session nothing more, so it is
+                // ended rather than left running with its turn open.
                 Err(AnyDelimiterCodecError::Io(error)) => {
-                    tracing::debug!(
+                    tracing::warn!(
+                        provider_session_id = self.provider_session_id.as_str(),
                         error = &error as &(dyn std::error::Error + 'static),
-                        "the Claude Code process's output could not be read further"
+                        "the Claude Code process's output could not be read further, so the \
+                         process was ended"
                     );
+                    if let Some(ends) = self.ends.upgrade() {
+                        ends.ask(ChildEnd::Stop);
+                    }
                     return;
                 }
             }
@@ -202,11 +209,14 @@ impl ClaudeOutputReader {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+    use std::pin::Pin;
     use std::sync::{Arc, Mutex, Weak};
+    use std::task::{Context, Poll};
     use std::time::Duration;
 
     use sidekicks_platforms::ChildEnd;
-    use tokio::io::AsyncWriteExt;
+    use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
     use tokio::sync::watch;
 
     use super::{CLAUDE_OUTPUT_LINE_MAX_BYTES, ClaudeOutputReader};
@@ -350,6 +360,37 @@ mod tests {
             recorded.counters(),
             vec!["driver.process.frameOversized".to_owned()]
         );
+        assert_eq!(*ends.borrow(), Some(ChildEnd::Stop));
+    }
+
+    // An output whose every read fails, as a broken pipe's does.
+    struct UnreadableOutput;
+
+    impl AsyncRead for UnreadableOutput {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _context: &mut Context<'_>,
+            _buffer: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            Poll::Ready(Err(io::Error::other("the pipe broke")))
+        }
+    }
+
+    // Killed by a read error that only logs and returns (the `Io` arm leaving out the stop): the
+    // process would keep running while its session receives nothing more.
+    #[tokio::test]
+    async fn an_output_read_error_ends_the_process() {
+        let (ends_sender, ends) = watch::channel(None);
+        let ends_sender = Arc::new(ClaudeChildEnds(ends_sender));
+
+        reader(
+            ClaudeControlRequests::new(Arc::new(|_request_id: &str| {})),
+            Arc::new(HeldFrames::default()),
+            Arc::downgrade(&ends_sender),
+        )
+        .read(UnreadableOutput)
+        .await;
+
         assert_eq!(*ends.borrow(), Some(ChildEnd::Stop));
     }
 }
