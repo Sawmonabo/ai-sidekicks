@@ -28,7 +28,7 @@ use crate::provider::driver::claude::intervention::{
 };
 use crate::provider::driver::claude::run::routes::ClaudeRunRoute;
 use crate::provider::driver::claude::run::start::{
-    ClaudeDaemonTurnOpening, ClaudeRunStart, claude_session_unavailable,
+    ClaudeDaemonTurnOpening, ClaudeRunStart, claude_attachment_failure, claude_session_unavailable,
 };
 use crate::provider::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason,
@@ -158,7 +158,8 @@ impl ClaudeRunControls {
     /// path; the lead's waiting messages go as user messages with their files, the first starting
     /// its next turn when its last one ended on the pause. Fails `NoLiveSession`,
     /// `SessionTurnInFlight` while another turn holds the session, as the files' read fails before
-    /// anything is sent, and as a write fails.
+    /// anything is sent, with the run's refusal for a lead's picture Claude Code refuses, and as a
+    /// write fails.
     pub(crate) async fn resume_run(&self, params: ResumeRunParams) -> Result<(), DriverError> {
         let live = self.start.live_session(params.session_id)?;
         let session_id = params.session_id;
@@ -199,7 +200,7 @@ impl ClaudeRunControls {
             compose_claude_attachment_blocks(attachments, &session_id, &message.attachments)
         }))
         .await
-        .map_err(|error| DriverError::Internal(Box::new(error)))?;
+        .map_err(|error| claude_attachment_failure(&live, error))?;
         // The run holds the session's turn again, so the turn its messages start ends on its
         // route; while another run or a command holds it, the messages would land in that turn.
         let is_lead = self

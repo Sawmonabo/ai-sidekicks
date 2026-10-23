@@ -25,7 +25,7 @@ use crate::provider::driver::claude::session::transport::user_message::{
 
 /// Claude Code's default per-picture limit on an image block's base64 text, which it checks before
 /// a request and Anthropic's API enforces as its 5 MB per-image limit.
-const CLAUDE_PICTURE_BASE64_LIMIT: u64 = 5_242_880;
+pub(crate) const CLAUDE_PICTURE_BASE64_LIMIT: u64 = 5_242_880;
 
 /// Why a message's files could not be composed into Claude Code's blocks.
 #[derive(Debug, thiserror::Error)]
@@ -56,8 +56,9 @@ pub(crate) enum ClaudeAttachmentError {
 }
 
 impl ClaudeAttachmentError {
-    /// Claude Code's own refusal of a picture past its limit, the sentence a refused run or steer
-    /// carries; `None` for files that could not be bound or read, the daemon's own failure.
+    /// Claude Code's own refusal of a picture past its limit, the sentence a run refused at its
+    /// start or as it continues carries; `None` for files that could not be bound or read, the
+    /// daemon's own failure.
     pub(crate) fn picture_refusal(&self) -> Option<String> {
         matches!(self, Self::PictureTooLarge { .. }).then(|| self.to_string())
     }

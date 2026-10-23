@@ -262,6 +262,17 @@ pub(crate) trait ProviderDriver: Send + Sync {
         true
     }
 
+    /// The largest picture the provider takes, as the bytes of its base64 text, which the staging
+    /// of a message's files checks each picture against: a fixed fact of the driver, like
+    /// [`message_handing`](Self::message_handing); `None` where the provider sets no limit.
+    #[expect(
+        dead_code,
+        reason = "the staging of a message's files refuses a picture past the provider's limit"
+    )]
+    fn picture_base64_size_limit(&self) -> Option<u64> {
+        None
+    }
+
     /// Whether a run started on `session_id` now brings a provider process up, which the memory
     /// gate weighs before the start; `false` when one already serves the session.
     fn starts_process(&self, session_id: SessionId) -> BoxFuture<'_, bool>;

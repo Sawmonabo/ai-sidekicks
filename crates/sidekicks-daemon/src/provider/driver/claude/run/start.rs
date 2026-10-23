@@ -437,10 +437,10 @@ pub(crate) fn claude_session_unavailable(
     }
 }
 
-// The failure a message's files that cannot be composed answer: a picture Claude Code refuses is
-// the run's refusal, naming the full id of the model the session runs; files that cannot be bound
-// or read, or a model id no refusal can carry, are internal.
-fn claude_attachment_failure(
+/// The failure a message's files that cannot be composed answer: a picture Claude Code refuses is
+/// the run's refusal, naming the full id of the model the session runs; files that cannot be bound
+/// or read, or a model id no refusal can carry, are internal.
+pub(crate) fn claude_attachment_failure(
     live: &LiveClaudeSession,
     error: ClaudeAttachmentError,
 ) -> DriverError {
@@ -456,11 +456,12 @@ fn claude_attachment_failure(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use serde_json::json;
     use sidekicks_contracts::agent::definition::AgentId;
     use sidekicks_contracts::artifacts::id::ArtifactId;
     use sidekicks_contracts::run::id::RunId;
-    use sidekicks_contracts::run::queue::QueueItemId;
+    use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -468,6 +469,7 @@ mod tests {
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, mint_run_id, settle,
     };
     use crate::provider::driver::contract::{DriverError, RunOpening, StartRunParams};
+    use crate::provider::driver::run_control::{ResumeRunParams, WaitingMessage};
 
     // The opening of `run_id` on `session`'s lead binding, carrying `attachments`.
     fn opening_params(
@@ -497,11 +499,16 @@ mod tests {
         }
     }
 
-    // Killed by answering a picture past Claude Code's limit as an internal failure, by dropping
-    // Claude Code's own words or the session's model from the refusal, or by holding the session's
-    // turn for a run that never started.
+    // Killed by answering a picture past Claude Code's limit as an internal failure, at a run's
+    // start or as it continues, by dropping Claude Code's own words or the session's model from
+    // the refusal, or by holding the session's turn for a run that never started.
+    #[rstest]
+    #[case::start(true)]
+    #[case::resume(false)]
     #[tokio::test]
-    async fn a_picture_past_the_limit_refuses_the_run_in_claude_codes_own_words() {
+    async fn a_picture_past_the_limit_refuses_the_run_in_claude_codes_own_words(
+        #[case] is_start: bool,
+    ) {
         let session = ScriptedSession::new().await;
         let folder = tempfile::tempdir().expect("the test makes a temporary folder");
         let path = folder.path().join("screen.png");
@@ -512,10 +519,29 @@ mod tests {
         let picture = session.attachments.picture(path);
         let run_id = mint_run_id();
 
-        let refused = session
-            .start
-            .start_run(&opening_params(&session, run_id, vec![picture]))
-            .await;
+        let refused = if is_start {
+            session
+                .start
+                .start_run(&opening_params(&session, run_id, vec![picture]))
+                .await
+        } else {
+            session
+                .parts
+                .run_controls
+                .resume_run(ResumeRunParams {
+                    session_id: session.session_id,
+                    run_id,
+                    messages: vec![WaitingMessage {
+                        id: QueueItemId::new(&mint_uuid_v7().to_string())
+                            .expect("a minted UUID is an item id"),
+                        content: MessageContent::new("go on".to_owned())
+                            .expect("the words are a message"),
+                        attachments: vec![picture],
+                        skills: Vec::new(),
+                    }],
+                })
+                .await
+        };
 
         let Err(DriverError::RunRefused(refusal)) = refused else {
             panic!("a picture past the limit refuses the run, not {refused:?}");

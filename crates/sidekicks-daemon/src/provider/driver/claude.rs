@@ -22,6 +22,7 @@ use sidekicks_platforms::{
     WindowsSystemFolder,
 };
 
+use crate::provider::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::provider::driver::claude::lifecycle::ClaudeDriver;
 use crate::provider::driver::contract::{
     ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
@@ -324,6 +325,10 @@ impl ProviderDriver for ClaudeDriver {
         false
     }
 
+    fn picture_base64_size_limit(&self) -> Option<u64> {
+        Some(CLAUDE_PICTURE_BASE64_LIMIT)
+    }
+
     fn starts_process(&self, session_id: SessionId) -> BoxFuture<'_, bool> {
         ready(self.starts_process(session_id)).boxed()
     }
@@ -545,6 +550,7 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 
+    use crate::provider::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
     use crate::provider::driver::claude::lifecycle::ClaudeDriver;
     use crate::provider::driver::contract::ProviderDriver;
     use crate::provider::driver::run_control::PickedSkill;
