@@ -8,10 +8,10 @@
 //! in the service log and deleted. Every pass also deletes what a write cut short left: a partial
 //! dump no monitor holds locked while writing it, a panic record with neither its dump nor such a
 //! partial dump in the dumps folder, a panic record's temporary file whose partial dump no monitor
-//! holds, and a temporary file of the key or of a report. A file the pass cannot remove is named
-//! beside the pass's result and the pass runs on. While `Keep crash reports` is off, no report is
-//! built and every dump, report and panic record goes. Each pass is metered against its processor
-//! budget.
+//! holds, and a temporary file of the key, of a report or of a panic hook's record that no write
+//! holds. A file the pass cannot remove is named beside the pass's result and the pass runs on.
+//! While `Keep crash reports` is off, no report is built and every dump, report and panic record
+//! goes. Each pass is metered against its processor budget.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -204,11 +204,9 @@ pub(crate) async fn build_crash_reports(
             failures.extend(remove_atomic_write_leftovers(&key_folder, |target| {
                 target == REPORT_KEY_FILE_NAME
             }));
-            // A pass is the only writer of reports, and passes never overlap.
-            failures.extend(remove_atomic_write_leftovers(&swept_reports, |target| {
-                Path::new(target)
-                    .extension()
-                    .is_some_and(|extension| extension == REPORT_EXTENSION)
+            // Reports' and the panic hook's records' alike; a live write holds its own locked.
+            failures.extend(remove_atomic_write_leftovers(&swept_reports, |_target| {
+                true
             }));
             list_finished_dumps(&listed_folder).map(|dumps| (dumps, failures))
         })

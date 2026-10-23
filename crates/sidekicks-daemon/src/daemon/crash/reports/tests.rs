@@ -229,16 +229,16 @@ async fn crashes_become_stripped_reports_and_none_while_off() {
 }
 
 // What a failed write of the monitor left, a partial dump, a panic record whose dump is not there
-// and a panic record's temporary file whose partial dump no monitor holds, and a key's or a
-// report's temporary file a process ended mid-write left, are deleted by a pass whether reports
-// are kept or not; a partial dump a monitor holds locked, and the panic record and its temporary
-// file written beside it, stay. A file that cannot be removed, a folder in a partial dump's place
-// or in a finished dump's panic record's or, with reports off, a report's, is answered beside the
-// pass, which runs on: it still deletes the other finished dumps, and with reports off every other
-// report. Killed by a pass that reads
-// only finished dumps, by a temporary file kept or taken while its dump is held, by a sweep left
-// out of either branch, by a held dump or its record taken for a leftover, and by a removal
-// failure that stops the pass or goes unanswered.
+// and a panic record's temporary file whose partial dump no monitor holds, and a key's, a report's
+// or a panic hook record's temporary file a process ended mid-write left, are deleted by a pass
+// whether reports are kept or not; a partial dump a monitor holds locked, and the panic record and
+// its temporary file written beside it, stay. A file that cannot be removed, a folder in a partial
+// dump's place or in a finished dump's panic record's or, with reports off, a report's, is answered
+// beside the pass, which runs on: it still deletes the other finished dumps, and with reports off
+// every other report. Killed by a pass that reads only finished dumps, by a temporary file kept or
+// taken while its dump is held, by a sweep left out of either branch or kept to reports, by a held
+// dump or its record taken for a leftover, and by a removal failure that stops the pass or goes
+// unanswered.
 #[rstest]
 #[case::reports_kept(true)]
 #[case::reports_off(false)]
@@ -272,6 +272,7 @@ async fn a_pass_deletes_what_a_failed_dump_left(#[case] is_kept: bool) {
     fs::write(&key_leftover, b"part of a key").expect("written");
     let report_leftover = reports.join("old.json.a1b2c3.tmp");
     fs::write(&report_leftover, b"part of a report").expect("written");
+    fs::write(reports.join("panic-1.txt.a1b2c3.tmp"), b"part of a record").expect("written");
     fs::write(reports.join("old.json"), b"{}").expect("written");
     fs::create_dir_all(reports.join("stuck.json/inside")).expect("the stuck report folder is made");
     let settings = Arc::new(MachineSettingsFile::new(

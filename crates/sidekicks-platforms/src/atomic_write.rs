@@ -1,15 +1,18 @@
 //! Writes a file so that a crash at any moment leaves it whole or as it was, never half written: a
 //! temporary file beside it is written and flushed to disk, then renamed over the target, or linked
-//! to the target's name only where no file stands there. Flushing the folder, which makes the
-//! rename or link itself durable, is the caller's.
+//! to the target's name only where no file stands there. The temporary file is held locked from its
+//! creation until it takes the target's name, so a sweep of leftovers never takes a live write's.
+//! Flushing the folder, which makes the rename or link itself durable, is the caller's.
 
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::Path;
 
-use tempfile::TempPath;
+use tempfile::{NamedTempFile, TempPath};
 
-use crate::{create_new_file, flush_open_file, rename_replacing};
+use crate::{
+    create_held_file, create_new_file, flush_open_file, remove_unless_held, rename_replacing,
+};
 
 /// Why a crash-safe write failed; the target keeps its old contents, or stays absent.
 #[derive(Debug, thiserror::Error)]
@@ -31,12 +34,16 @@ pub fn replace_file_atomically(
     contents: &[u8],
     mode: u32,
 ) -> Result<(), AtomicWriteError> {
-    let mut temporary_path = write_temporary(target, contents, mode, <File as Write>::write_all)?;
+    let (file, mut temporary_path) =
+        write_temporary(target, contents, mode, <File as Write>::write_all)?;
     if let Err(failure) = rename_replacing(&temporary_path, target) {
+        drop(file);
         return Err(remove_temporary_after(failure, temporary_path));
     }
-    // The temporary name is the target's now, so nothing is left to remove.
+    // The temporary name is the target's now, so nothing is left to remove; the lock goes with the
+    // handle.
     temporary_path.disable_cleanup(true);
+    drop(file);
     Ok(())
 }
 
@@ -52,10 +59,9 @@ pub fn create_file_atomically(
 }
 
 /// Removes every temporary file a write left in `folder` to a target whose file name `is_target`
-/// takes, as a process ended mid-write leaves one, running on past a removal that fails. It takes
-/// a live write's temporary file too, so it runs only while no write to such a target does.
-/// Blocks; answers the folder's listing failure or each removal's, none once every leftover is
-/// gone.
+/// takes, as a process ended mid-write leaves one, running on past a removal that fails. A live
+/// write holds its temporary file locked, and the sweep keeps every file held so. Blocks; answers
+/// the folder's listing failure or each removal's, none once every leftover is gone.
 pub fn remove_atomic_write_leftovers(
     folder: &Path,
     is_target: impl Fn(&str) -> bool,
@@ -79,10 +85,7 @@ pub fn remove_atomic_write_leftovers(
             .to_str()
             .and_then(atomic_write_target_of)
             .is_some_and(&is_target);
-        if is_leftover
-            && let Err(failure) = fs::remove_file(entry.path())
-            && failure.kind() != io::ErrorKind::NotFound
-        {
+        if is_leftover && let Err(failure) = remove_unless_held(&entry.path()) {
             failures.push(failure);
         }
     }
@@ -106,10 +109,10 @@ fn create_file_atomically_through(
     mode: u32,
     write: impl FnOnce(&mut File, &[u8]) -> io::Result<()>,
 ) -> Result<(), AtomicWriteError> {
-    let temporary_path = write_temporary(target, contents, mode, write)?;
-    temporary_path
-        .persist_noclobber(target)
-        .map_err(|refused| remove_temporary_after(refused.error, refused.path))
+    let (file, temporary_path) = write_temporary(target, contents, mode, write)?;
+    let linked = temporary_path.persist_noclobber(target);
+    drop(file);
+    linked.map_err(|refused| remove_temporary_after(refused.error, refused.path))
 }
 
 // The folder a write to `target` makes its temporary file in, and the file's name up to its random
@@ -125,29 +128,28 @@ fn temporary_place(target: &Path) -> (&Path, String) {
 }
 
 // A temporary file beside `target` filled with `contents` by `write` and flushed to disk, its
-// handle closed; a failure removes it.
+// handle still open and locked; a failure removes it.
 fn write_temporary(
     target: &Path,
     contents: &[u8],
     mode: u32,
     write: impl FnOnce(&mut File, &[u8]) -> io::Result<()>,
-) -> Result<TempPath, AtomicWriteError> {
+) -> Result<(File, TempPath), AtomicWriteError> {
     let (folder, prefix) = temporary_place(target);
-    let mut temporary = tempfile::Builder::new()
-        .prefix(&prefix)
-        .suffix(TEMPORARY_SUFFIX)
-        .make_in(folder, |path| create_new_file(path, mode))
-        .map_err(|failure| AtomicWriteError {
-            failure,
-            removal_failure: None,
-        })?;
-    let written = write(temporary.as_file_mut(), contents)
-        .and_then(|()| flush_open_file(temporary.as_file()));
-    // The handle closes here, before any removal, which Windows needs to remove the file.
-    let temporary_path = temporary.into_temp_path();
-    match written {
-        Ok(()) => Ok(temporary_path),
-        Err(failure) => Err(remove_temporary_after(failure, temporary_path)),
+    let mut names = tempfile::Builder::new();
+    names.prefix(&prefix).suffix(TEMPORARY_SUFFIX);
+    let (mut file, temporary_path) = create_held_file(|| {
+        names
+            .make_in(folder, |path| create_new_file(path, mode))
+            .map(NamedTempFile::into_parts)
+    })?;
+    match write(&mut file, contents).and_then(|()| flush_open_file(&file)) {
+        Ok(()) => Ok((file, temporary_path)),
+        Err(failure) => {
+            // The handle closes before the removal, which Windows needs to remove the file.
+            drop(file);
+            Err(remove_temporary_after(failure, temporary_path))
+        }
     }
 }
 
@@ -250,18 +252,23 @@ mod tests {
         assert_eq!(fs::read(&target).ok().as_deref(), standing);
     }
 
-    // The temporary files a write to a target left are removed, and nothing else beside them.
-    // Killed by a sweep that misses a leftover or removes another file.
+    // The temporary files a write to a target left are removed, and nothing else beside them: not
+    // another target's, and not one a live write holds locked. Killed by a sweep that misses a
+    // leftover, removes another file, or removes a held one.
     #[test]
     fn the_leftovers_of_a_write_are_removed_and_nothing_else() {
         let scratch = tempfile::tempdir().expect("a scratch folder");
         for name in [
             "target.key",
             "target.key.a1b2c3.tmp",
+            "target.key.d4e5f6.tmp",
             "other.key.a1b2c3.tmp",
         ] {
             fs::write(scratch.path().join(name), b"bytes").expect("written");
         }
+        let live_write = File::open(scratch.path().join("target.key.d4e5f6.tmp"))
+            .expect("the live write's temporary file opens");
+        live_write.lock().expect("the live write locks its file");
 
         let failures = remove_atomic_write_leftovers(scratch.path(), |name| name == "target.key");
 
@@ -272,6 +279,13 @@ mod tests {
             .map(|entry| entry.expect("an entry reads").file_name())
             .collect();
         entries.sort();
-        assert_eq!(entries, ["other.key.a1b2c3.tmp", "target.key"]);
+        assert_eq!(
+            entries,
+            [
+                "other.key.a1b2c3.tmp",
+                "target.key",
+                "target.key.d4e5f6.tmp"
+            ]
+        );
     }
 }
