@@ -245,6 +245,17 @@ impl TranscriptTestLog {
             )
             .expect("the damaged body is written");
     }
+
+    /// Sets the payload value at the JSON `path` of the row at `sequence` to the text `value`, as a
+    /// damaged payload that still parses holds it.
+    pub(crate) fn set_payload_text(&self, sequence: i64, path: &str, value: &str) {
+        self.writer
+            .execute(
+                "UPDATE session_events SET payload = json_set(payload, ?1, ?2) WHERE sequence = ?3",
+                rusqlite::params![path, value, sequence],
+            )
+            .expect("the payload is written");
+    }
 }
 
 /// `value` as the wire writes it, its byte members as their placeholders, beside its attachments.

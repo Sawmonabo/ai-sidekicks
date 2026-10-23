@@ -296,11 +296,30 @@ async fn a_failed_apply_keeps_the_last_commit_served_and_is_tried_again_after_it
     open.index.close().expect("the index closes");
 }
 
-// A reply whose stored body is damaged in its second frame is no index row: the apply passes over
-// it and applies the reply after it, so the damaged reply's words find nothing and the next
-// reply's do. Killed by a damaged body that fails the apply as a refused read does.
+// How a test damages a stored reply's row.
+#[derive(Clone, Copy)]
+enum ReplyDamage {
+    // Its payload names an encoding no build writes.
+    Encoding,
+    // Its payload states its length as text.
+    Length,
+    // Its stored body fails a frame's checksum.
+    Frame,
+}
+
+// A reply damaged in its payload's encoding or length, or in its stored body's second frame, is no
+// index row: the apply passes over it and applies the reply after it, so the damaged reply's words
+// find nothing and the next reply's do. Killed by a damaged row that fails the apply as a refused
+// read does, whether the row's read or its body's fails, and by a length of another type read as a
+// refused read.
+#[rstest]
+#[case::encoding(ReplyDamage::Encoding)]
+#[case::length(ReplyDamage::Length)]
+#[case::frame(ReplyDamage::Frame)]
 #[tokio::test]
-async fn an_apply_passes_over_a_damaged_body_and_applies_the_rows_after_it() {
+async fn an_apply_passes_over_a_damaged_row_and_applies_the_rows_after_it(
+    #[case] damage: ReplyDamage,
+) {
     let log = TranscriptTestLog::new();
     let services = TestDaemonServices::open(&log.database).await;
     let folder = tempfile::tempdir().expect("the test makes a temporary folder");
@@ -317,7 +336,11 @@ async fn an_apply_passes_over_a_damaged_body_and_applies_the_rows_after_it() {
     let session_key = u64::try_from(session_rowid).expect("a rowid is positive");
     let damaged_reply = format!("zebra {}", "words ".repeat(2 * PAGE_MAX_BYTES / 6));
     let (damaged, _) = log.reply("m1", None, &damaged_reply);
-    log.damage_frame(damaged, 1);
+    match damage {
+        ReplyDamage::Encoding => log.set_payload_text(damaged, "$.contentEncoding", "zstdx"),
+        ReplyDamage::Length => log.set_payload_text(damaged, "$.contentLength", "many"),
+        ReplyDamage::Frame => log.damage_frame(damaged, 1),
+    }
     log.reply("m2", None, "quokka");
 
     open.applier

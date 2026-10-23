@@ -26,7 +26,7 @@ use crate::session::search::index::batch_builder::IndexBatchBuilder;
 use crate::session::search::index::build_mode::SEARCH_INDEX_BUILD_MODE;
 use crate::session::search::index::columns::source_rowid_of;
 use crate::session::search::index::rows::{
-    INDEX_BATCH_ROW_LIMIT, INDEX_BATCH_TEXT_LIMIT, IndexRowReader, SourceRow,
+    INDEX_BATCH_ROW_LIMIT, INDEX_BATCH_TEXT_LIMIT, IndexRowReader, SourceRowRead,
     empty_index_batch_room,
 };
 
@@ -314,7 +314,7 @@ fn read_next_batch(
     rows: &IndexRowReader<'_>,
     log_reading: &mut KindReading,
     other_readings: &mut [KindReading],
-) -> rusqlite::Result<Vec<SourceRow>> {
+) -> rusqlite::Result<Vec<SourceRowRead>> {
     let mut room = empty_index_batch_room();
     let other_rows_at_most = |log_rowid: u64| -> u64 {
         other_readings
@@ -335,7 +335,7 @@ fn read_next_batch(
         |row| {
             let rows_left = INDEX_BATCH_ROW_LIMIT - log_rows_taken;
             let fits = rows_left == INDEX_BATCH_ROW_LIMIT
-                || (rows_left - 1) as u64 >= other_rows_at_most(source_rowid_of(row.key));
+                || (rows_left - 1) as u64 >= other_rows_at_most(source_rowid_of(row.key()));
             if fits {
                 log_rows_taken += 1;
             }
@@ -343,7 +343,7 @@ fn read_next_batch(
         },
     )?;
     read_on(log_reading, &log_rows);
-    let last_log_rowid = log_rows.last().map(|row| source_rowid_of(row.key));
+    let last_log_rowid = log_rows.last().map(|row| source_rowid_of(row.key()));
     let mut batch_rows = log_rows;
     for reading in other_readings.iter_mut() {
         let through_rowid = match last_log_rowid {
@@ -372,9 +372,9 @@ fn through_rowid_of(reading: &KindReading, log_reading: &KindReading, log_rowid:
 }
 
 // Moves `reading` past the last of `kind_rows`.
-fn read_on(reading: &mut KindReading, kind_rows: &[SourceRow]) {
+fn read_on(reading: &mut KindReading, kind_rows: &[SourceRowRead]) {
     if let Some(last_row) = kind_rows.last() {
-        reading.after_rowid = source_rowid_of(last_row.key);
+        reading.after_rowid = source_rowid_of(last_row.key());
     }
 }
 

@@ -113,8 +113,8 @@ static APPLIED_ROWS_DELETE_SQL: LazyLock<String> = LazyLock::new(|| {
 const ROWS_READ_AT_ONCE: usize = 32;
 
 /// Reads the outbox on one connection, with the index rows and the rowid floor log it names read
-/// on the same one. A stored value that does not read as its type fails the read with rusqlite's
-/// error, keeping why.
+/// on the same one. An outbox or floor log value that does not read as its type fails the read with
+/// rusqlite's error, keeping why; an index row damaged so is passed over.
 pub(crate) struct OutboxReader<'connection> {
     /// The connection the outbox is read on.
     reader: &'connection Connection,
@@ -244,9 +244,9 @@ impl<'connection> OutboxReader<'connection> {
             let mut current_rows = self.rows.read_rows(keys.iter().map(|(key, _)| *key))?;
             for (key, before_entry) in keys {
                 match current_rows.remove(&key) {
-                    Some(row) => {
-                        room.text_bytes = room.text_bytes.saturating_sub(row.text_len());
-                        builder.add_row(&self.rows, row, before_entry, flush)?;
+                    Some(read) => {
+                        room.text_bytes = room.text_bytes.saturating_sub(read.text_len());
+                        builder.add_row(&self.rows, read, before_entry, flush)?;
                     }
                     None => builder.batch.removed_keys.push(key),
                 }

@@ -12,7 +12,7 @@ use std::ops::ControlFlow;
 use std::string::FromUtf8Error;
 
 use rusqlite::blob::Blob;
-use rusqlite::types::Type;
+use rusqlite::types::{FromSqlError, Type, Value};
 use rusqlite::{Connection, MAIN_DB, Row};
 use sidekicks_contracts::event::declared_variants::{
     CONTENT_ENCODING_PAYLOAD_KEY, CONTENT_LENGTH_PAYLOAD_KEY, ContentEncoding,
@@ -24,7 +24,7 @@ use zstd::zstd_safe::zstd_sys::ZSTD_ErrorCode;
 use zstd::zstd_safe::{self, CParameter, DCtx};
 
 use crate::database::schema::SESSION_EVENTS_TABLE;
-use crate::database::stored_column::{closed_word, optional_text_column};
+use crate::database::stored_column::closed_word;
 
 /// The smallest body stored compressed, in UTF-8 bytes.
 const COMPRESSED_FROM_BYTES: usize = 1024;
@@ -353,18 +353,6 @@ pub(crate) fn out_of_memory_read_failure() -> rusqlite::Error {
     )
 }
 
-/// Whether `error` is the conversion error [`StoredBodyPlace::stream_column`] fails with on a
-/// damaged body, as against a read SQLite refused.
-pub(crate) fn is_damaged_body_column(error: &rusqlite::Error) -> bool {
-    let rusqlite::Error::FromSqlConversionFailure(_, _, cause) = error else {
-        return false;
-    };
-    matches!(
-        cause.downcast_ref::<BodyStreamError>(),
-        Some(BodyStreamError::Damaged(_))
-    )
-}
-
 /// Where a stored body sits before it is read: its row and what its payload states, read back by
 /// [`StoredBodyPlace::read`] from the columns [`stored_body_place_sql`] selects.
 #[derive(Clone, Debug)]
@@ -396,7 +384,7 @@ impl StoredBodyPlace {
         };
         Ok(Some(Self {
             rowid,
-            encoding: optional_text_column(row, index + 1, closed_word::<ContentEncoding>)?,
+            encoding: stated_encoding_column(row, index + 1)?,
             content_length: stated_length_column(row, index + 2)?,
         }))
     }
@@ -566,11 +554,12 @@ pub(crate) struct StoredBodyColumns {
 
 impl StoredBodyColumns {
     /// Reads the three columns from `index` on. Fails with rusqlite's conversion error on an
-    /// encoding no build writes or a negative length.
+    /// encoding no build writes, a length that is negative or not an integer, or either of another
+    /// type.
     pub(crate) fn read(row: &Row<'_>, index: usize) -> rusqlite::Result<Self> {
         Ok(Self {
             stored: row.get(index)?,
-            encoding: optional_text_column(row, index + 1, closed_word::<ContentEncoding>)?,
+            encoding: stated_encoding_column(row, index + 1)?,
             content_length: stated_length_column(row, index + 2)?,
         })
     }
@@ -610,17 +599,40 @@ impl StoredBodyColumns {
     }
 }
 
-// The length a payload states, read from `index`; a negative one fails with rusqlite's conversion
-// error.
+// The encoding a payload names, read from `index`; text naming no encoding, or a value of another
+// type, fails with rusqlite's conversion error, as the damage it is.
+fn stated_encoding_column(
+    row: &Row<'_>,
+    index: usize,
+) -> rusqlite::Result<Option<ContentEncoding>> {
+    match row.get::<_, Value>(index)? {
+        Value::Null => Ok(None),
+        Value::Text(word) => closed_word(word).map(Some).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(error))
+        }),
+        other => Err(wrong_type_failure(index, &other)),
+    }
+}
+
+// The length a payload states, read from `index`; a negative one, or a value of another type than
+// an integer, fails with rusqlite's conversion error, as the damage it is.
 fn stated_length_column(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<u64>> {
-    let content_length: Option<i64> = row.get(index)?;
-    content_length
-        .map(|length| {
-            u64::try_from(length).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(index, Type::Integer, Box::new(error))
-            })
-        })
-        .transpose()
+    match row.get::<_, Value>(index)? {
+        Value::Null => Ok(None),
+        Value::Integer(length) => u64::try_from(length).map(Some).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(index, Type::Integer, Box::new(error))
+        }),
+        other => Err(wrong_type_failure(index, &other)),
+    }
+}
+
+// A payload value of a type no writer stores there, as rusqlite's conversion error on its column.
+fn wrong_type_failure(index: usize, value: &Value) -> rusqlite::Error {
+    rusqlite::Error::FromSqlConversionFailure(
+        index,
+        value.data_type(),
+        Box::new(FromSqlError::InvalidType),
+    )
 }
 
 /// A body that does not decode, as the read's conversion failure on its column; zstd out of memory

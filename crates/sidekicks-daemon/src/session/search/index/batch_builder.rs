@@ -3,15 +3,17 @@
 //! which a search waits for before it sees the row. Each page is charged to the batch's text
 //! bound, and a long row that fills it hands the batch so far to the index and goes on in the next,
 //! so a batch holds about the bound and one page, and a row of any length one page and the tail its
-//! edges keep. A row whose stored body is damaged is no index row: it is logged and passed over.
+//! edges keep. A row damaged in a value of its own, its stored body among them, is no index row:
+//! it is logged and passed over.
 
 use std::error::Error;
 use std::ops::ControlFlow;
 
 use sidekicks_search::index::{IndexBatch, IndexRow, LongRowDocuments};
 
-use crate::events::content::codec::is_damaged_body_column;
-use crate::session::search::index::rows::{IndexRowReader, SourceRow};
+use crate::session::search::index::rows::{
+    DamagedSourceRow, IndexRowReader, PageReadError, SourceRowRead,
+};
 
 /// One batch being filled, with the text bound its pages are charged to.
 pub(crate) struct IndexBatchBuilder {
@@ -42,21 +44,32 @@ impl IndexBatchBuilder {
         }
     }
 
-    /// Adds `row`, its text read through `rows` a page at a time. Once its pages fill the text
-    /// bound before its end, the batch so far goes to `flush` recording `applied_through`, the
+    /// Adds `read`'s row, its text read through `rows` a page at a time. Once its pages fill the
+    /// text bound before its end, the batch so far goes to `flush` recording `applied_through`, the
     /// outbox id before the row's entry, and the row goes on in a new batch that continues its key.
-    /// A row whose stored body does not decode is logged and taken out of the index instead.
-    /// Fails as the row's read is refused or `flush` fails.
+    /// A row read damaged, or whose stored body does not decode, is logged and taken out of the
+    /// index instead. Fails as the row's read is refused or `flush` fails.
     pub(crate) fn add_row<Failure>(
         &mut self,
         rows: &IndexRowReader<'_>,
-        row: SourceRow,
+        read: SourceRowRead,
         applied_through: u64,
         flush: &mut impl FnMut(&IndexBatch) -> Result<(), Failure>,
     ) -> Result<(), Failure>
     where
         Failure: From<rusqlite::Error>,
     {
+        let row = match read {
+            SourceRowRead::Whole(row) => row,
+            SourceRowRead::Damaged(damaged) => {
+                self.pass_over(
+                    damaged,
+                    self.batch.long_row_documents.len(),
+                    self.text_bytes,
+                );
+                return Ok(());
+            }
+        };
         // A page is held until the next arrives, so a row of one page goes whole.
         let mut held: Option<String> = None;
         let mut long_row: Option<LongRowDocuments> = None;
@@ -75,26 +88,11 @@ impl IndexBatchBuilder {
         });
         let stopped = match paged {
             Ok(stopped) => stopped,
-            Err(damage) if is_damaged_body_column(&damage) => {
-                tracing::warn!(
-                    session_key = row.owner_key,
-                    sequence = row.log_row.as_ref().map(|log_row| log_row.sequence),
-                    error = &damage as &(dyn Error + 'static),
-                    "search_index_row_damaged"
-                );
-                // The row's pages this batch holds go with the text they charged, and its key takes
-                // out any an earlier batch committed.
-                if self.batch.continued_key == Some(row.key) {
-                    self.batch.long_row_documents.clear();
-                    self.text_bytes = 0;
-                } else {
-                    self.batch.long_row_documents.truncate(documents_before);
-                    self.text_bytes = text_bytes_before;
-                }
-                self.batch.removed_keys.push(row.key);
+            Err(PageReadError::Damaged(damaged)) => {
+                self.pass_over(damaged, documents_before, text_bytes_before);
                 return Ok(());
             }
-            Err(refused) => return Err(refused.into()),
+            Err(PageReadError::Refused(refused)) => return Err(refused.into()),
         };
         if let Some(failure) = stopped {
             return Err(failure);
@@ -121,6 +119,31 @@ impl IndexBatchBuilder {
     pub(crate) fn finish(mut self, last_outbox_id: u64) -> IndexBatch {
         self.batch.last_outbox_id = last_outbox_id;
         self.batch
+    }
+
+    // Passes over a damaged row: it is logged, the documents this batch holds of it past
+    // `documents_before` go with the text they charged, all of them when the batch continues the
+    // row, and its key takes out any an earlier batch committed.
+    fn pass_over(
+        &mut self,
+        damaged: DamagedSourceRow,
+        documents_before: usize,
+        text_bytes_before: usize,
+    ) {
+        tracing::warn!(
+            session_key = damaged.owner_key,
+            sequence = damaged.sequence,
+            error = &damaged.damage as &(dyn Error + 'static),
+            "search_index_row_damaged"
+        );
+        if self.batch.continued_key == Some(damaged.key) {
+            self.batch.long_row_documents.clear();
+            self.text_bytes = 0;
+        } else {
+            self.batch.long_row_documents.truncate(documents_before);
+            self.text_bytes = text_bytes_before;
+        }
+        self.batch.removed_keys.push(damaged.key);
     }
 
     // Adds a long row's page and the edge documents it completes, charged to the bound; past it,
@@ -159,7 +182,9 @@ mod tests {
     use crate::session::directory::test_rows::insert_session_row;
     use crate::session::search::hits::HitLineReader;
     use crate::session::search::index::applier::SearchIndexApplyError;
-    use crate::session::search::index::rows::{IndexRowReader, empty_index_batch_room};
+    use crate::session::search::index::rows::{
+        IndexRowReader, SourceRowRead, empty_index_batch_room,
+    };
     use crate::transcript::test_log::TranscriptTestLog;
 
     const OUTBOX_ID_BEFORE_ROW: u64 = 7;
@@ -204,11 +229,14 @@ mod tests {
         let reader = log.reader();
         let rows = IndexRowReader::new(&reader);
         let mut room = empty_index_batch_room();
-        let [row] = rows
+        let [read] = rows
             .read_rows_between(IndexRowKind::Event, 0, i64::MAX, &mut room, |_| true)
             .expect("the row reads")
             .try_into()
             .expect("one row reads");
+        let SourceRowRead::Whole(row) = &read else {
+            panic!("the row reads whole, not {read:?}");
+        };
         let (key, session_key) = (row.key, row.owner_key);
         let scratch = tempfile::tempdir().expect("a scratch folder");
         let options = SearchIndexOptions {
@@ -221,7 +249,7 @@ mod tests {
         builder
             .add_row(
                 &rows,
-                row,
+                read,
                 OUTBOX_ID_BEFORE_ROW,
                 &mut |batch: &IndexBatch| {
                     flushed.push((batch.last_outbox_id, batch.continued_key));

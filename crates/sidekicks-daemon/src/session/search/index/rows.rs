@@ -6,7 +6,9 @@
 //! is marked on the same pages the index saw. A log row belongs to its session through the
 //! session's directory row; a log row of a session with none, which only the daemon's own sentinel
 //! session lacks, is no index row, and neither is a row in a range its session skipped past as
-//! damaged or one whose payload or stored body damage left unreadable.
+//! damaged. A row a value of which does not read as its type, such as its payload's body encoding
+//! or length or its stored body, is no index row either: a read hands it back damaged, so every
+//! reader passes it over alike, and only SQLite's refusal of a read fails it.
 
 use std::collections::HashMap;
 use std::mem;
@@ -113,6 +115,76 @@ pub(crate) struct LogRowPosition {
     pub(crate) event_id: String,
     /// The event's sequence in its session's log.
     pub(crate) sequence: i64,
+}
+
+/// A source row as a read finds it: whole, or damaged in a value of its own.
+#[derive(Debug)]
+pub(crate) enum SourceRowRead {
+    /// Every value of the row read as its type.
+    Whole(SourceRow),
+    /// A value of the row did not read as its type.
+    Damaged(DamagedSourceRow),
+}
+
+impl SourceRowRead {
+    /// The row's index key.
+    pub(crate) fn key(&self) -> u64 {
+        match self {
+            Self::Whole(row) => row.key,
+            Self::Damaged(damaged) => damaged.key,
+        }
+    }
+
+    /// The text the row charges to a batch's bound, in UTF-8 bytes: none for a damaged row.
+    pub(crate) fn text_len(&self) -> usize {
+        match self {
+            Self::Whole(row) => row.text_len(),
+            Self::Damaged(_) => 0,
+        }
+    }
+}
+
+/// A source row a value of which does not read as its type: its payload's body encoding or length,
+/// its stored body or another column. It is no index row. Only rusqlite's conversion error makes
+/// one; SQLite's own refusal of a read stays a failed read.
+#[derive(Debug)]
+pub(crate) struct DamagedSourceRow {
+    /// The row's index key.
+    pub(crate) key: u64,
+    /// The session the row belongs to; for a group's name, the group.
+    pub(crate) owner_key: u64,
+    /// A log row's sequence in its session's log; `None` on a title, group or tag.
+    pub(crate) sequence: Option<i64>,
+    /// The conversion error the value failed with, keeping why.
+    pub(crate) damage: rusqlite::Error,
+}
+
+/// Why [`IndexRowReader::for_each_page`] did not hand over every page of a row.
+#[derive(Debug)]
+pub(crate) enum PageReadError {
+    /// The row's stored body is damaged.
+    Damaged(DamagedSourceRow),
+    /// SQLite refused the body's read.
+    Refused(rusqlite::Error),
+}
+
+// `error` as the damage of the row it was read from when it is rusqlite's conversion error, which a
+// value that does not read as its type fails with; any other error is SQLite's refusal, handed back.
+fn damage_of(
+    error: rusqlite::Error,
+    key: u64,
+    owner_key: u64,
+    sequence: Option<i64>,
+) -> Result<DamagedSourceRow, rusqlite::Error> {
+    match error {
+        damage @ rusqlite::Error::FromSqlConversionFailure(..) => Ok(DamagedSourceRow {
+            key,
+            owner_key,
+            sequence,
+            damage,
+        }),
+        refused => Err(refused),
+    }
 }
 
 // A log row's text before its body: a person's words, nothing before an agent's reply, or a tool's
@@ -237,8 +309,8 @@ fn row_sql(kind: IndexRowKind, choice: RowChoice) -> String {
     }
 }
 
-/// Reads index rows from their source tables on one connection. A stored value that does not
-/// read as its type fails the read with rusqlite's error, keeping why.
+/// Reads index rows from their source tables on one connection. A row a value of which does not
+/// read as its type is handed back damaged; SQLite's refusal fails the read with its error.
 pub(crate) struct IndexRowReader<'connection> {
     /// The connection the rows are read on.
     reader: &'connection Connection,
@@ -259,12 +331,12 @@ impl<'connection> IndexRowReader<'connection> {
         Ok(highest.unwrap_or(0))
     }
 
-    /// The rows at these keys as the database holds them now, by key. A key whose row is gone, or
-    /// no longer holds text, has none.
+    /// The rows at these keys as the database holds them now, each whole or damaged, by key. A key
+    /// whose row is gone, or no longer holds text, has none.
     pub(crate) fn read_rows(
         &self,
         keys: impl IntoIterator<Item = u64>,
-    ) -> rusqlite::Result<HashMap<u64, SourceRow>> {
+    ) -> rusqlite::Result<HashMap<u64, SourceRowRead>> {
         let mut rowids_by_kind: Vec<(IndexRowKind, Vec<u64>)> = Vec::new();
         for key in keys {
             let kind = index_row_kind_of(key);
@@ -289,24 +361,24 @@ impl<'connection> IndexRowReader<'connection> {
             })?;
             for row in read {
                 let row = row?;
-                rows.insert(row.key, row);
+                rows.insert(row.key(), row);
             }
         }
         Ok(rows)
     }
 
     /// The `kind` rows past the source rowid `after_rowid` through `through_rowid`, in rowid
-    /// order, each taken out of `room`, up to the first that `fits` refuses: none once the room
-    /// holds no row or no text, and the row whose text passes the room's is the last. None once
-    /// every row in the range has been read.
+    /// order, each whole or damaged and taken out of `room`, up to the first that `fits` refuses:
+    /// none once the room holds no row or no text, and the row whose text passes the room's is the
+    /// last. None once every row in the range has been read.
     pub(crate) fn read_rows_between(
         &self,
         kind: IndexRowKind,
         after_rowid: i64,
         through_rowid: i64,
         room: &mut IndexBatchRoom,
-        mut fits: impl FnMut(&SourceRow) -> bool,
-    ) -> rusqlite::Result<Vec<SourceRow>> {
+        mut fits: impl FnMut(&SourceRowRead) -> bool,
+    ) -> rusqlite::Result<Vec<SourceRowRead>> {
         let mut rows = Vec::new();
         if room.is_full() {
             return Ok(rows);
@@ -337,31 +409,39 @@ impl<'connection> IndexRowReader<'connection> {
     /// is held at once: its text before the body with the body's first frame, then each later
     /// frame, each page ending before the word it would cut and the next beginning with that word.
     /// Stops once `each` breaks, answering what it broke with; `None` once every page was handed.
-    /// Fails with SQLite's error when the body's read is refused, and with rusqlite's conversion
-    /// error on the body's column, keeping why, when the body is damaged.
+    /// Fails with [`PageReadError::Damaged`] when the body is damaged, after handing the pages
+    /// before the damage, and with [`PageReadError::Refused`] when SQLite refuses the body's read.
     pub(crate) fn for_each_page<Stop>(
         &self,
         row: &SourceRow,
         mut each: impl FnMut(String) -> ControlFlow<Stop>,
-    ) -> rusqlite::Result<Option<Stop>> {
+    ) -> Result<Option<Stop>, PageReadError> {
         let mut page = row.text.clone();
         let Some(body) = &row.body else {
             return Ok(each(page).break_value());
         };
         let mut is_frame_held = false;
-        let streamed = body.stream_column(self.reader, BODY_COLUMN + 1, |frame| {
-            // A frame after the first starts a page: the held one ends before the word it would
-            // cut, and that word begins the next, so a word on a frame's edge stays one token.
-            if is_frame_held {
-                let cut_word = page.split_off(find_page_end(&page));
-                if let ControlFlow::Break(stop) = each(mem::replace(&mut page, cut_word)) {
-                    return ControlFlow::Break(stop);
+        let streamed = body
+            .stream_column(self.reader, BODY_COLUMN + 1, |frame| {
+                // A frame after the first starts a page: the held one ends before the word it would
+                // cut, and that word begins the next, so a word on a frame's edge stays one token.
+                if is_frame_held {
+                    let cut_word = page.split_off(find_page_end(&page));
+                    if let ControlFlow::Break(stop) = each(mem::replace(&mut page, cut_word)) {
+                        return ControlFlow::Break(stop);
+                    }
                 }
-            }
-            page.push_str(frame);
-            is_frame_held = true;
-            ControlFlow::Continue(())
-        })?;
+                page.push_str(frame);
+                is_frame_held = true;
+                ControlFlow::Continue(())
+            })
+            .map_err(|error| {
+                let sequence = row.log_row.as_ref().map(|log_row| log_row.sequence);
+                match damage_of(error, row.key, row.owner_key, sequence) {
+                    Ok(damaged) => PageReadError::Damaged(damaged),
+                    Err(refused) => PageReadError::Refused(refused),
+                }
+            })?;
         match streamed {
             ControlFlow::Break(stop) => Ok(Some(stop)),
             ControlFlow::Continue(()) => Ok(each(page).break_value()),
@@ -370,9 +450,27 @@ impl<'connection> IndexRowReader<'connection> {
 }
 
 // A row read from its columns: its body's place, not its body, which is read only when wanted.
-fn source_row_of(kind: IndexRowKind, row: &Row<'_>) -> rusqlite::Result<SourceRow> {
-    let event_id: Option<String> = row.get(3)?;
+// Its key, owner and sequence are read first, so a later value that does not read as its type
+// hands the row back damaged.
+fn source_row_of(kind: IndexRowKind, row: &Row<'_>) -> rusqlite::Result<SourceRowRead> {
+    let key = rowid_column(row, 0)?;
+    let owner_key = rowid_column(row, 1)?;
     let sequence: Option<i64> = row.get(4)?;
+    match whole_source_row_of(kind, row, key, owner_key, sequence) {
+        Ok(whole) => Ok(SourceRowRead::Whole(whole)),
+        Err(error) => damage_of(error, key, owner_key, sequence).map(SourceRowRead::Damaged),
+    }
+}
+
+// The rest of a row's values, after its key, owner and sequence.
+fn whole_source_row_of(
+    kind: IndexRowKind,
+    row: &Row<'_>,
+    key: u64,
+    owner_key: u64,
+    sequence: Option<i64>,
+) -> rusqlite::Result<SourceRow> {
+    let event_id: Option<String> = row.get(3)?;
     let tag_fold: Option<String> = row.get(5)?;
     let session_last_activity_ms = optional_text_column(row, 6, |text| last_activity_ms(&text))?;
     let mut text: String = row.get(2)?;
@@ -381,9 +479,9 @@ fn source_row_of(kind: IndexRowKind, row: &Row<'_>) -> rusqlite::Result<SourceRo
         text.push_str(row.get_ref(BODY_COLUMN)?.as_str()?);
     }
     Ok(SourceRow {
-        key: rowid_column(row, 0)?,
+        key,
         kind,
-        owner_key: rowid_column(row, 1)?,
+        owner_key,
         text,
         body,
         log_row: event_id
@@ -414,12 +512,13 @@ mod tests {
     use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
     use sidekicks_search::index::IndexRowKind;
 
-    use super::{IndexRowReader, SourceRow, empty_index_batch_room};
+    use super::{IndexRowReader, SourceRow, SourceRowRead, empty_index_batch_room};
     use crate::session::directory::test_rows::insert_session_row;
     use crate::transcript::test_log::TranscriptTestLog;
 
-    // Every page of `row`'s text, in order.
-    fn pages_of(rows: &IndexRowReader<'_>, row: &SourceRow) -> Vec<String> {
+    // Every page of the whole row `read`'s text, in order.
+    fn pages_of(rows: &IndexRowReader<'_>, read: &SourceRowRead) -> Vec<String> {
+        let row = whole(read);
         let mut pages = Vec::new();
         let stopped = rows
             .for_each_page(row, |page| {
@@ -429,6 +528,13 @@ mod tests {
             .expect("the pages read");
         assert!(stopped.is_none(), "every page is handed");
         pages
+    }
+
+    fn whole(read: &SourceRowRead) -> &SourceRow {
+        let SourceRowRead::Whole(row) = read else {
+            panic!("the row reads whole, not {read:?}");
+        };
+        row
     }
 
     // A reply and a tool call's arguments past 1 KiB are stored compressed, and the index takes
@@ -503,7 +609,7 @@ mod tests {
         }
         let mut calls = 0;
         let stopped = rows
-            .for_each_page(row, |_page| {
+            .for_each_page(whole(row), |_page| {
                 calls += 1;
                 ControlFlow::Break(calls)
             })
