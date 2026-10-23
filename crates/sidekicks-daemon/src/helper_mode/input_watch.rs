@@ -3,12 +3,13 @@
 //! input when it stops waiting for the work.
 
 use std::error::Error;
-use std::io::{self, Write as _};
+use std::io;
 use std::process::ExitCode;
 use std::sync::mpsc;
 use std::thread;
 
 use crate::error_description::describe_error;
+use crate::helper_mode::error_output::write_error_line;
 
 // What ended the mode first: its work, or the end of standard input.
 enum ModeEnd<Failure> {
@@ -52,7 +53,6 @@ where
 // Writes `failure` and its causes to standard error, whose tail the daemon keeps, and answers the
 // failed exit; when the write fails, the exit code alone tells the daemon.
 fn exit_with_failure(failure: &(dyn Error + 'static)) -> ExitCode {
-    match writeln!(io::stderr().lock(), "{}", describe_error(failure)) {
-        Ok(()) | Err(_) => ExitCode::FAILURE,
-    }
+    write_error_line(&describe_error(failure));
+    ExitCode::FAILURE
 }

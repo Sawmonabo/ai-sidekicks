@@ -8,7 +8,7 @@
 
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{self, Write as _};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::AtomicBool;
@@ -29,6 +29,7 @@ use sidekicks_platforms::{
 use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::data_folder::data_folder;
 use crate::error_description::describe_error;
+use crate::helper_mode::error_output::write_error_line;
 use crate::missing_entry::MissingEntry as _;
 
 /// The word the daemon's own program is started with to run the crash monitor; the socket's path
@@ -141,18 +142,18 @@ pub(crate) fn crash_monitor_socket_path(run_folder: &Path, daemon_pid: u32) -> P
 /// when it cannot serve.
 pub fn run_crash_monitor(arguments: &[OsString]) -> ExitCode {
     let [socket_path] = arguments else {
-        write_line("The crash monitor is started with its socket's path");
+        write_error_line("The crash monitor is started with its socket's path");
         return ExitCode::FAILURE;
     };
     let Some(home) = std::env::home_dir() else {
-        write_line("The crash monitor cannot find the home folder");
+        write_error_line("The crash monitor cannot find the home folder");
         return ExitCode::FAILURE;
     };
     let dumps_folder = data_folder(&home).join(CRASH_DUMPS_FOLDER_NAME);
     match serve_crash_monitor(Path::new(socket_path), &dumps_folder) {
         Ok(()) => ExitCode::SUCCESS,
         Err(failure) => {
-            write_line(&format!(
+            write_error_line(&format!(
                 "The crash monitor stopped: {}",
                 describe_error(&failure)
             ));
@@ -333,7 +334,7 @@ impl ServerHandler for DumpWriter {
         match result {
             Ok(dump) => {
                 if let Err(failure) = self.finish_dump(&dump) {
-                    write_line(&format!(
+                    write_error_line(&format!(
                         "the crash dump could not be finished: {}",
                         describe_error(&failure)
                     ));
@@ -353,7 +354,7 @@ impl ServerHandler for DumpWriter {
                     removal_failures.collect(),
                     "the crash dump's write",
                 );
-                write_line(&format!(
+                write_error_line(&format!(
                     "the crash dump could not be written: {}",
                     describe_error(&failure)
                 ));
@@ -432,13 +433,6 @@ pub(crate) fn panic_record_path(dump_path: &Path) -> PathBuf {
     let mut path = dump_path.with_extension("").into_os_string();
     path.push(PANIC_RECORD_SUFFIX);
     PathBuf::from(path)
-}
-
-fn write_line(line: &str) {
-    // Nothing is left to report a failed write to; the exit status still says it failed.
-    if let Err(error) = writeln!(io::stderr().lock(), "{line}") {
-        drop(error);
-    }
 }
 
 #[cfg(test)]

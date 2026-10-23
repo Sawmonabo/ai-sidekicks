@@ -1,11 +1,20 @@
-//! The tail of a child's error output, which the child's failure carries in its message.
+//! A helper mode's error output: the line the mode writes there, and the tail of it the daemon
+//! keeps, which the child's failure carries in its message.
 
-use std::io;
+use std::io::{self, Write as _};
 
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 // How many bytes one read of the error output takes.
 const ERROR_OUTPUT_READ_BYTES: usize = 8 * 1024;
+
+/// Writes `line` to the mode's standard error. A failed write is dropped: nothing is left to tell,
+/// and the mode's exit status still says it failed.
+pub(crate) fn write_error_line(line: &str) {
+    if let Err(error) = writeln!(io::stderr().lock(), "{line}") {
+        drop(error);
+    }
+}
 
 /// The last `kept_bytes` of `stream`, read to its end, decoded lossily once, starting on a whole
 /// character and trimmed of white space at either end. Fails with the read's error.

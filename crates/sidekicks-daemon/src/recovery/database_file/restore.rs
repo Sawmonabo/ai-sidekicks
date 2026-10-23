@@ -11,7 +11,7 @@
 
 use std::ffi::OsString;
 use std::fs::{self, File};
-use std::io::{self, Read as _, Write as _};
+use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -43,6 +43,7 @@ use crate::events::log_service::{
 use crate::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope};
 use crate::events::session::followers::SessionEventFollowers;
 use crate::events::session::version::SESSION_EVENT_VERSION;
+use crate::helper_mode::error_output::write_error_line;
 use crate::missing_entry::MissingEntry as _;
 use crate::recovery::database_file::copy::copy_file_replacing;
 use crate::recovery::database_file::newest_backup::{BackupManifestError, read_backup_manifest};
@@ -157,13 +158,13 @@ pub(crate) enum RestoreError {
 /// Exits 0 once the restore is recorded, 1 with its step on standard error when it fails.
 pub fn run_database_restore(arguments: &[OsString]) -> ExitCode {
     let [backup_folder] = arguments else {
-        write_line("The restore is started with the backup's folder");
+        write_error_line("The restore is started with the backup's folder");
         return ExitCode::FAILURE;
     };
     match restore_from_home(Path::new(backup_folder)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(failure) => {
-            write_line(&format!("The restore failed: {}", describe_error(&failure)));
+            write_error_line(&format!("The restore failed: {}", describe_error(&failure)));
             ExitCode::FAILURE
         }
     }
@@ -428,13 +429,6 @@ async fn record_restore(store: &Path, event: SessionEvent) -> Result<(), Restore
     appended.map_err(|failure| RestoreError::Record(Box::new(failure)))?;
     closed.map_err(|failure| RestoreError::Close(Box::new(failure)))?;
     Ok(())
-}
-
-fn write_line(line: &str) {
-    // Nothing is left to report a failed write to; the exit status still says it failed.
-    if let Err(error) = writeln!(io::stderr().lock(), "{line}") {
-        drop(error);
-    }
 }
 
 #[cfg(test)]
