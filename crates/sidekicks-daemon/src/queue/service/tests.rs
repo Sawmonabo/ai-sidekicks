@@ -33,7 +33,7 @@ use tempfile::TempDir;
 use super::{EMPTIED_RUN_DETAIL, RunQueue, RunQueueDeps};
 use crate::admission::memory_gate::{MemoryGate, MemoryGateFigures};
 use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
+use crate::database::writer::test_file::{TestDatabase, insert_lead, test_session_id};
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::events::session::read::DamagedFromSequenceReader;
 use crate::ipc::domain_error::DomainError;
@@ -229,7 +229,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
     insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
-    insert_lead(&database, session_id);
+    insert_lead(&database, session_id, PROVIDERS[0].id);
     let queue = queue_over(&database, &log, &home, driver);
     Fixture {
         database,
@@ -299,30 +299,6 @@ fn queue_over(
         followers: Arc::clone(&log.followers),
         read_damaged_from_sequence,
     })
-}
-
-/// Writes the session's creation, its lead bound to the table's first provider.
-fn insert_lead(database: &TestDatabase, session_id: SessionId) {
-    database
-        .reader()
-        .execute(
-            "INSERT INTO session_events
-               (id, session_id, sequence, occurred_at, monotonic_ns, category, type, payload)
-             VALUES (?1, ?2, 0, ?3, 0, 'sessionLifecycle', 'session.created', ?4)",
-            params![
-                mint_uuid_v7().to_string(),
-                session_id.text().as_str(),
-                WireInstant::now().as_str(),
-                json!({
-                    "mainAgent": {
-                        "agentId": mint_uuid_v7().to_string(),
-                        "binding": { "providerName": PROVIDERS[0].id },
-                    },
-                })
-                .to_string(),
-            ],
-        )
-        .expect("the test creates the session's lead");
 }
 
 fn new_run_id() -> RunId {

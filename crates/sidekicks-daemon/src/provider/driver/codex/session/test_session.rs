@@ -7,7 +7,6 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use rusqlite::params;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
@@ -24,7 +23,7 @@ use tokio::time::Instant;
 use tokio_util::task::TaskTracker;
 
 use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::test_file::TestDatabase;
+use crate::database::writer::test_file::{TestDatabase, insert_lead};
 use crate::events::log_service::tests::open_log;
 use crate::policy::execution_posture_service::compose_execution_posture;
 use crate::provider::compaction_wait::PendingCompactionRegistry;
@@ -82,7 +81,6 @@ use crate::session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
 use crate::session::run::engine::tests::test_engine;
 use crate::session::run::inbound::RunInboundDispatch;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::instant::WireInstant;
 
 /// The conversation a test session starts on.
 pub(crate) const TEST_THREAD: &str = "thread-1";
@@ -163,7 +161,7 @@ impl TestCodexSession {
         }));
         let session_id =
             SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
-        let lead_agent_id = insert_lead(&database, session_id);
+        let lead_agent_id = insert_lead(&database, session_id, DESCRIPTOR.id);
         let (inbound, receiver) = codex_session_inbound(session_id);
         let slots = Arc::new(CodexSessionSlots::new());
         slots
@@ -496,32 +494,6 @@ pub(crate) fn turn_reply(turn_id: &str) -> Value {
 /// A minted run id.
 pub(crate) fn new_run_id() -> RunId {
     RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
-}
-
-/// Writes the session's creation, its lead bound to Codex, and answers the lead's agent.
-fn insert_lead(database: &TestDatabase, session_id: SessionId) -> AgentId {
-    let agent_id = mint_uuid_v7().to_string();
-    database
-        .reader()
-        .execute(
-            "INSERT INTO session_events
-               (id, session_id, sequence, occurred_at, monotonic_ns, category, type, payload)
-             VALUES (?1, ?2, 0, ?3, 0, 'sessionLifecycle', 'session.created', ?4)",
-            params![
-                mint_uuid_v7().to_string(),
-                session_id.text().as_str(),
-                WireInstant::now().as_str(),
-                json!({
-                    "mainAgent": {
-                        "agentId": agent_id,
-                        "binding": { "providerName": DESCRIPTOR.id },
-                    },
-                })
-                .to_string(),
-            ],
-        )
-        .expect("the test creates the session's lead");
-    AgentId::new(&agent_id).expect("a minted UUID is an agent id")
 }
 
 /// Opens each turn the daemon starts on the binding the test names, for the session's lead.
