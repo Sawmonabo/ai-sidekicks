@@ -543,7 +543,7 @@ async fn wait_for_wake(wake_watch: Option<&mut WakeWatch>) -> Result<(), WakeWat
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
 
     use futures::future::BoxFuture;
@@ -553,6 +553,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::{ScheduleError, ScheduledJobOutcome, Scheduler};
+    use crate::mutex_lock::lock;
 
     // Far longer than any periodic look would wait between two looks.
     const IDLE_SPAN: Duration = Duration::from_secs(600);
@@ -649,10 +650,6 @@ mod tests {
                 Ok(())
             })
         }
-    }
-
-    fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-        mutex.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     #[tokio::test(start_paused = true)]

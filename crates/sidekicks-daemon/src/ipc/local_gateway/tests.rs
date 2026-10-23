@@ -7,7 +7,7 @@ use std::future::Future;
 use std::io;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, ready};
 use std::time::Duration;
 
@@ -44,6 +44,7 @@ use crate::ipc::registry::{
 };
 use crate::ipc::stream::feed::SendGate;
 use crate::ipc::stream::subscriptions::Subscriptions;
+use crate::mutex_lock::lock;
 use crate::recovery::database_file::damage::DatabaseDamageWatch;
 
 mod call_cap;
@@ -150,10 +151,6 @@ fn encoded(value: &Value) -> EncodedValue {
         json: serde_json::to_vec(value).expect("a test value writes"),
         attachments: Vec::new(),
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// A feed with a value of `bytes` characters ready each time its gate opens.
