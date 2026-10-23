@@ -380,6 +380,12 @@ pub enum ApiRetryErrorKind {
     ServerError,
     /// The reply reached its output token limit.
     MaxOutputTokens,
+    /// The account is on hold.
+    AccountOnHold,
+    /// The account must be verified before it is used again.
+    VerificationRequired,
+    /// The cloud provider's credentials were refused.
+    CloudCredentialError,
     /// A cause the vocabulary lacks.
     Unknown,
 }

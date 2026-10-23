@@ -389,9 +389,16 @@ async fn a_rate_limit_event_hands_the_accounts_quota_windows_to_the_usage_record
 }
 
 // Killed by an `api_retry` frame that writes no row, or one for each of its reads, by a cause,
-// wait or attempt read from the wrong member, and by an `api_error` frame read as a retry too.
+// wait or attempt read from the wrong member, by a cause the vocabulary names read as `unknown`
+// (`account_on_hold`), and by an `api_error` frame read as a retry too.
+#[rstest]
+#[case::overloaded("overloaded", ApiRetryErrorKind::Overloaded)]
+#[case::account_on_hold("account_on_hold", ApiRetryErrorKind::AccountOnHold)]
 #[tokio::test(start_paused = true)]
-async fn each_api_retry_frame_writes_one_retried_request_with_its_cause_wait_and_attempt() {
+async fn each_api_retry_frame_writes_one_retried_request_with_its_cause_wait_and_attempt(
+    #[case] error: &str,
+    #[case] error_kind: ApiRetryErrorKind,
+) {
     let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
     let retry = |subtype: &str| {
@@ -402,7 +409,7 @@ async fn each_api_retry_frame_writes_one_retried_request_with_its_cause_wait_and
             "max_retries": 10,
             "retry_delay_ms": 1_500,
             "error_status": 529,
-            "error": "overloaded",
+            "error": error,
             "session_id": SCRIPTED_PROVIDER_SESSION_ID,
         })
     };
@@ -424,7 +431,7 @@ async fn each_api_retry_frame_writes_one_retried_request_with_its_cause_wait_and
                 session_id: session.session_id,
                 run_id: Some(run_id),
                 provider: DESCRIPTOR.provider_id(),
-                error_kind: ApiRetryErrorKind::Overloaded,
+                error_kind,
                 retry_delay_ms: SafeInt::new(1_500),
                 attempt: SafeInt::new(2),
                 source_epoch: None,

@@ -168,6 +168,9 @@ pub(crate) fn read_claude_api_retry(
         Some("model_not_found") => ApiRetryErrorKind::ModelNotFound,
         Some("server_error") => ApiRetryErrorKind::ServerError,
         Some("max_output_tokens") => ApiRetryErrorKind::MaxOutputTokens,
+        Some("account_on_hold") => ApiRetryErrorKind::AccountOnHold,
+        Some("verification_required") => ApiRetryErrorKind::VerificationRequired,
+        Some("cloud_credential_error") => ApiRetryErrorKind::CloudCredentialError,
         Some(_) | None => ApiRetryErrorKind::Unknown,
     };
     UsageApiRequestRetriedPayload {
