@@ -228,14 +228,16 @@ async fn crashes_become_stripped_reports_and_none_while_off() {
     );
 }
 
-// What a failed write of the monitor left, a partial dump and a panic record whose dump is not
-// there, and a key's temporary file a process ended mid-write left, are deleted by a pass
-// whether reports are kept or not; a partial dump a monitor holds locked, and the panic record
-// written beside it, stay. A leftover that cannot be removed, a folder in a partial dump's
-// place, is answered beside the pass, which still deletes the finished dump. Killed by a pass
-// that reads only finished dumps, by a key's temporary file kept, by a sweep left out of
-// either branch, by a held dump or its record taken for a leftover, and by a removal failure
-// that stops the pass or goes unanswered.
+// What a failed write of the monitor left, a partial dump, a panic record whose dump is not there
+// and a panic record's temporary file whose partial dump no monitor holds, and a key's or a
+// report's temporary file a process ended mid-write left, are deleted by a pass whether reports
+// are kept or not; a partial dump a monitor holds locked, and the panic record and its temporary
+// file written beside it, stay. A file that cannot be removed, a folder in a partial dump's place
+// or in a finished dump's panic record's, is answered beside the pass, which runs on: it still
+// deletes the other finished dumps, and with reports off every report. Killed by a pass that reads
+// only finished dumps, by a temporary file kept or taken while its dump is held, by a sweep left
+// out of either branch, by a held dump or its record taken for a leftover, and by a removal
+// failure that stops the pass or goes unanswered.
 #[rstest]
 #[case::reports_kept(true)]
 #[case::reports_off(false)]
@@ -244,20 +246,32 @@ async fn a_pass_deletes_what_a_failed_dump_left(#[case] is_kept: bool) {
     let scratch = tempfile::tempdir().expect("a scratch folder");
     let data_folder = scratch.path().to_path_buf();
     let dumps = data_folder.join(CRASH_DUMPS_FOLDER_NAME);
-    fs::create_dir_all(&dumps).expect("the dumps folder is made");
+    let reports = data_folder.join(CRASH_REPORTS_FOLDER_NAME);
+    fs::create_dir_all(dumps.join("sub")).expect("the dumps folder is made");
+    fs::create_dir_all(&reports).expect("the reports folder is made");
     let partial =
         |stem: &str| dumps.join(format!("{stem}.{DUMP_EXTENSION}{DUMP_IN_PROGRESS_SUFFIX}"));
     let record = |stem: &str| dumps.join(format!("{stem}{PANIC_RECORD_SUFFIX}"));
+    let record_temporary =
+        |stem: &str| dumps.join(format!("{stem}{PANIC_RECORD_SUFFIX}.a1b2c3.tmp"));
     fs::write(partial("left"), b"part of a dump").expect("written");
+    fs::write(record_temporary("left"), b"{").expect("written");
     fs::write(record("orphan"), b"{}").expect("written");
     let held = fs::File::create(partial("held")).expect("the held dump is made");
     held.lock()
         .expect("the test holds the dump as a writing monitor does");
     fs::write(record("held"), b"{}").expect("written");
+    fs::write(record_temporary("held"), b"{").expect("written");
     fs::create_dir_all(partial("stuck").join("inside")).expect("the stuck folder is made");
+    fs::write(dumps.join(format!("sub/stuck.{DUMP_EXTENSION}")), b"a dump").expect("written");
+    fs::create_dir_all(dumps.join(format!("sub/stuck{PANIC_RECORD_SUFFIX}/inside")))
+        .expect("the stuck record folder is made");
     fs::write(dumps.join(format!("late.{DUMP_EXTENSION}")), b"a dump").expect("written");
     let key_leftover = data_folder.join(format!("{REPORT_KEY_FILE_NAME}.a1b2c3.tmp"));
     fs::write(&key_leftover, b"part of a key").expect("written");
+    let report_leftover = reports.join("old.json.a1b2c3.tmp");
+    fs::write(&report_leftover, b"part of a report").expect("written");
+    fs::write(reports.join("old.json"), b"{}").expect("written");
     let settings = Arc::new(MachineSettingsFile::new(
         data_folder.join("machine-settings.json"),
     ));
@@ -276,21 +290,41 @@ async fn a_pass_deletes_what_a_failed_dump_left(#[case] is_kept: bool) {
         .await
         .expect("the pass runs");
 
-    let mut left: Vec<_> = fs::read_dir(&dumps)
-        .expect("the dumps list")
-        .map(|entry| entry.expect("an entry").path())
-        .collect();
-    left.sort();
-    let mut kept = [partial("held"), record("held"), partial("stuck")];
+    let listed = |folder: &Path| {
+        let mut left: Vec<_> = fs::read_dir(folder)
+            .expect("the folder lists")
+            .map(|entry| entry.expect("an entry").path())
+            .collect();
+        left.sort();
+        left
+    };
+    let mut kept = [
+        partial("held"),
+        record("held"),
+        record_temporary("held"),
+        partial("stuck"),
+        dumps.join("sub"),
+    ];
     kept.sort();
-    assert_eq!(left, kept);
+    assert_eq!(listed(&dumps), kept);
+    assert_eq!(
+        listed(&dumps.join("sub")),
+        [dumps.join(format!("sub/stuck{PANIC_RECORD_SUFFIX}"))]
+    );
     assert!(!key_leftover.exists());
+    let kept_reports = if is_kept {
+        vec![reports.join("old.json")]
+    } else {
+        Vec::new()
+    };
+    assert_eq!(listed(&reports), kept_reports);
     let failures = pass
-        .leftover_failures
-        .expect("the stuck folder's removal is answered");
-    assert!(
-        failures.cleanup_failures().is_empty(),
-        "one removal failed, not {failures}"
+        .removal_failures
+        .expect("the stuck folders' removals are answered");
+    assert_eq!(
+        failures.cleanup_failures().len(),
+        1,
+        "two removals failed, not {failures}"
     );
     drop(held);
 }

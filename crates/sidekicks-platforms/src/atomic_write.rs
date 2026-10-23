@@ -51,12 +51,15 @@ pub fn create_file_atomically(
     create_file_atomically_through(target, contents, mode, <File as Write>::write_all)
 }
 
-/// Removes every temporary file a write to `target` left beside it, as a process ended mid-write
-/// leaves one, running on past a removal that fails. It takes a live write's temporary file too,
-/// so it runs only while no write to `target` does. Blocks; answers the folder's listing failure or
-/// each removal's, none once every leftover is gone.
-pub fn remove_atomic_write_leftovers(target: &Path) -> Vec<io::Error> {
-    let (folder, prefix) = temporary_place(target);
+/// Removes every temporary file a write left in `folder` to a target whose file name `is_target`
+/// takes, as a process ended mid-write leaves one, running on past a removal that fails. It takes
+/// a live write's temporary file too, so it runs only while no write to such a target does.
+/// Blocks; answers the folder's listing failure or each removal's, none once every leftover is
+/// gone.
+pub fn remove_atomic_write_leftovers(
+    folder: &Path,
+    is_target: impl Fn(&str) -> bool,
+) -> Vec<io::Error> {
     let entries = match fs::read_dir(folder) {
         Ok(entries) => entries,
         Err(missing) if missing.kind() == io::ErrorKind::NotFound => return Vec::new(),
@@ -72,10 +75,10 @@ pub fn remove_atomic_write_leftovers(target: &Path) -> Vec<io::Error> {
             }
         };
         let name = entry.file_name();
-        let is_leftover = name.to_str().is_some_and(|name| {
-            name.strip_prefix(prefix.as_str())
-                .is_some_and(|rest| rest.ends_with(TEMPORARY_SUFFIX))
-        });
+        let is_leftover = name
+            .to_str()
+            .and_then(atomic_write_target_of)
+            .is_some_and(&is_target);
         if is_leftover
             && let Err(failure) = fs::remove_file(entry.path())
             && failure.kind() != io::ErrorKind::NotFound
@@ -84,6 +87,13 @@ pub fn remove_atomic_write_leftovers(target: &Path) -> Vec<io::Error> {
         }
     }
     failures
+}
+
+/// The file name of the target a crash-safe write's temporary file named `file_name` is for, as
+/// [`replace_file_atomically`] names it; `None` for a name no such write makes.
+pub fn atomic_write_target_of(file_name: &str) -> Option<&str> {
+    let (target, random) = file_name.strip_suffix(TEMPORARY_SUFFIX)?.rsplit_once('.')?;
+    (!target.is_empty() && !random.is_empty()).then_some(target)
 }
 
 // The suffix of a temporary file a write makes.
@@ -245,7 +255,6 @@ mod tests {
     #[test]
     fn the_leftovers_of_a_write_are_removed_and_nothing_else() {
         let scratch = tempfile::tempdir().expect("a scratch folder");
-        let target = scratch.path().join("target.key");
         for name in [
             "target.key",
             "target.key.a1b2c3.tmp",
@@ -254,7 +263,7 @@ mod tests {
             fs::write(scratch.path().join(name), b"bytes").expect("written");
         }
 
-        let failures = remove_atomic_write_leftovers(&target);
+        let failures = remove_atomic_write_leftovers(scratch.path(), |name| name == "target.key");
 
         assert!(failures.is_empty(), "{failures:?}");
 

@@ -7,11 +7,13 @@
 //! monitor's or Crashpad's in its `new` folder, is passed over. A dump that does not build is named
 //! in the service log and deleted. Every pass also deletes what a write cut short left: a partial
 //! dump no monitor holds locked while writing it, a panic record with neither its dump nor such a
-//! partial dump in the dumps folder, and a temporary file of the key. A leftover that cannot be
-//! removed is named beside the pass's result and the pass runs on. While `Keep crash reports` is
-//! off, no report is built and every dump, report and panic record goes. Each pass is metered
-//! against its processor budget.
+//! partial dump in the dumps folder, a panic record's temporary file whose partial dump no monitor
+//! holds, and a temporary file of the key or of a report. A file the pass cannot remove is named
+//! beside the pass's result and the pass runs on. While `Keep crash reports` is off, no report is
+//! built and every dump, report and panic record goes. Each pass is metered against its processor
+//! budget.
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{self, File, TryLockError};
 use std::io;
@@ -35,7 +37,8 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_platforms::{
-    create_file_atomically, remove_atomic_write_leftovers, replace_file_atomically,
+    atomic_write_target_of, create_file_atomically, remove_atomic_write_leftovers,
+    replace_file_atomically,
 };
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
@@ -113,9 +116,9 @@ pub(crate) struct CrashReportPass {
     pub(crate) failed: usize,
     /// The bytes of the dumps built or failed.
     pub(crate) dump_bytes: u64,
-    /// What the sweep of leftovers could not remove, the first failure carrying the rest; the pass
-    /// ran on past them. `None` once every leftover is gone.
-    pub(crate) leftover_failures: Option<CleanupFailures<io::Error>>,
+    /// What the pass could not remove, leftovers and dumps alike, the first failure carrying the
+    /// rest; the pass ran on past them. `None` once every file it deletes is gone.
+    pub(crate) removal_failures: Option<CleanupFailures<io::Error>>,
 }
 
 /// Why a dump did not build.
@@ -164,10 +167,10 @@ async fn run_crash_report_pass(
     meter: &ProcessorMeter,
 ) -> MeteredJobOutcome {
     let pass = build_crash_reports(deps, stop, meter).await?;
-    if let Some(failures) = &pass.leftover_failures {
+    if let Some(failures) = &pass.removal_failures {
         tracing::warn!(
             error = failures as &(dyn Error + 'static),
-            "what failed crash dumps left could not all be removed"
+            "the crash pass could not remove every file it deletes"
         );
     }
     if pass.built == 0 && pass.failed == 0 {
@@ -193,81 +196,96 @@ pub(crate) async fn build_crash_reports(
     let dumps_folder = deps.data_folder.join(CRASH_DUMPS_FOLDER_NAME);
     let reports_folder = deps.data_folder.join(CRASH_REPORTS_FOLDER_NAME);
     let listed_folder = dumps_folder.clone();
-    let key_path = deps.data_folder.join(REPORT_KEY_FILE_NAME);
-    let (dumps, leftover_failures) = meter
+    let swept_reports = reports_folder.clone();
+    let key_folder = deps.data_folder.clone();
+    let (dumps, mut removal_failures) = meter
         .run_blocking(move || {
             let mut failures = remove_monitor_leftovers(&listed_folder);
-            failures.extend(remove_atomic_write_leftovers(&key_path));
+            failures.extend(remove_atomic_write_leftovers(&key_folder, |target| {
+                target == REPORT_KEY_FILE_NAME
+            }));
+            // A pass is the only writer of reports, and passes never overlap.
+            failures.extend(remove_atomic_write_leftovers(&swept_reports, |target| {
+                Path::new(target)
+                    .extension()
+                    .is_some_and(|extension| extension == REPORT_EXTENSION)
+            }));
             list_finished_dumps(&listed_folder).map(|dumps| (dumps, failures))
         })
         .await??;
-    let mut leftover_failures = leftover_failures.into_iter();
-    let mut pass = CrashReportPass {
-        leftover_failures: leftover_failures.next().map(|first| {
-            CleanupFailures::new(
-                first,
-                leftover_failures.collect(),
-                "the crash leftovers' sweep",
-            )
-        }),
-        ..CrashReportPass::default()
-    };
+    let mut pass = CrashReportPass::default();
     if !is_kept {
         let reports = reports_folder.clone();
-        meter
+        let failures = meter
             .run_blocking(move || {
-                for (dump, _bytes) in &dumps {
-                    remove_dump(dump)?;
-                }
-                remove_reports(&reports)
+                let failures: Vec<io::Error> = dumps
+                    .iter()
+                    .filter_map(|(dump, _bytes)| remove_dump(dump).err())
+                    .collect();
+                remove_reports(&reports).map(|()| failures)
             })
             .await??;
+        removal_failures.extend(failures);
+        pass.removal_failures = removal_failures_of(removal_failures);
         return Ok(pass);
     }
-    if dumps.is_empty() {
-        return Ok(pass);
-    }
-    let key_folder = deps.data_folder.clone();
-    let key = meter
-        .run_blocking(move || read_or_make_key(&key_folder))
-        .await??;
-    for (dump, bytes) in dumps {
-        if stop.is_cancelled() {
-            break;
-        }
-        pass.dump_bytes = pass.dump_bytes.saturating_add(bytes);
-        match build_report(&dump, &key, deps).await {
-            Ok(report) => {
-                let name = dump
-                    .with_extension(REPORT_EXTENSION)
-                    .file_name()
-                    .expect("a dump's path names its file")
-                    .to_owned();
-                let report_path = reports_folder.join(name);
-                let reports = reports_folder.clone();
-                let bytes = serde_json::to_vec(&report).expect("a report serializes as JSON");
-                meter
-                    .run_blocking(move || {
-                        sidekicks_platforms::create_private_folder(&reports)?;
-                        replace_file_atomically(&report_path, &bytes, REPORT_FILE_MODE)
-                            .map_err(io::Error::other)?;
-                        remove_dump(&dump)
-                    })
-                    .await??;
-                pass.built += 1;
+    if !dumps.is_empty() {
+        let key_folder = deps.data_folder.clone();
+        let key = meter
+            .run_blocking(move || read_or_make_key(&key_folder))
+            .await??;
+        for (dump, bytes) in dumps {
+            if stop.is_cancelled() {
+                break;
             }
-            Err(failure) => {
-                tracing::warn!(
-                    dump = %dump.display(),
-                    error = &failure as &(dyn Error + 'static),
-                    "the crash dump did not build into a report and is deleted"
-                );
-                meter.run_blocking(move || remove_dump(&dump)).await??;
-                pass.failed += 1;
-            }
+            pass.dump_bytes = pass.dump_bytes.saturating_add(bytes);
+            let removed = match build_report(&dump, &key, deps).await {
+                Ok(report) => {
+                    let name = dump
+                        .with_extension(REPORT_EXTENSION)
+                        .file_name()
+                        .expect("a dump's path names its file")
+                        .to_owned();
+                    let report_path = reports_folder.join(name);
+                    let reports = reports_folder.clone();
+                    let bytes = serde_json::to_vec(&report).expect("a report serializes as JSON");
+                    let removed = meter
+                        .run_blocking(move || {
+                            sidekicks_platforms::create_private_folder(&reports)?;
+                            replace_file_atomically(&report_path, &bytes, REPORT_FILE_MODE)
+                                .map_err(io::Error::other)?;
+                            Ok::<_, io::Error>(remove_dump(&dump))
+                        })
+                        .await??;
+                    pass.built += 1;
+                    removed
+                }
+                Err(failure) => {
+                    tracing::warn!(
+                        dump = %dump.display(),
+                        error = &failure as &(dyn Error + 'static),
+                        "the crash dump did not build into a report and is deleted"
+                    );
+                    pass.failed += 1;
+                    meter.run_blocking(move || remove_dump(&dump)).await?
+                }
+            };
+            removal_failures.extend(removed.err());
         }
     }
+    pass.removal_failures = removal_failures_of(removal_failures);
     Ok(pass)
+}
+
+// The pass's removal failures as one, the first carrying the rest; `None` for none.
+fn removal_failures_of(failures: Vec<io::Error>) -> Option<CleanupFailures<io::Error>> {
+    let mut failures = failures.into_iter();
+    let first = failures.next()?;
+    Some(CleanupFailures::new(
+        first,
+        failures.collect(),
+        "the crash pass's removals",
+    ))
 }
 
 /// The crash reports in the data folder `data_folder`, newest first; a report that does not read
@@ -337,14 +355,17 @@ fn list_finished_dumps(folder: &Path) -> io::Result<Vec<(PathBuf, u64)>> {
 }
 
 // Deletes what a failed write of the monitor left in the dumps folder `folder`: each partial dump
-// no monitor holds, and each panic record whose dump is not there. Runs on past a check or a
-// removal that fails, answering each failure.
+// no monitor holds, each panic record whose dump is not there, and each panic record's temporary
+// file whose partial dump no monitor holds, since a monitor writes the record only while holding
+// it. The folder is listed once and each partial dump's lock tried at most once. Runs on past a
+// check or a removal that fails, answering each failure.
 fn remove_monitor_leftovers(folder: &Path) -> Vec<io::Error> {
     let entries = match fs::read_dir(folder).none_if_missing() {
         Ok(Some(entries)) => entries,
         Ok(None) => return Vec::new(),
         Err(failure) => return vec![failure],
     };
+    let mut held = HashMap::new();
     let mut failures = Vec::new();
     for entry in entries {
         let path = match entry {
@@ -357,10 +378,16 @@ fn remove_monitor_leftovers(folder: &Path) -> Vec<io::Error> {
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        let is_leftover = match name.strip_suffix(PANIC_RECORD_SUFFIX) {
-            Some(stem) => is_record_orphaned(folder, stem),
-            None if name.ends_with(DUMP_IN_PROGRESS_SUFFIX) => is_held(&path).map(|held| !held),
-            None => Ok(false),
+        let record_temporary_stem = atomic_write_target_of(name)
+            .and_then(|target| target.strip_suffix(PANIC_RECORD_SUFFIX));
+        let is_leftover = if let Some(stem) = name.strip_suffix(PANIC_RECORD_SUFFIX) {
+            is_record_orphaned(folder, stem, &mut held)
+        } else if name.ends_with(DUMP_IN_PROGRESS_SUFFIX) {
+            is_partial_dump_held(folder, name.to_owned(), &mut held).map(|is_held| !is_held)
+        } else if let Some(stem) = record_temporary_stem {
+            is_partial_dump_held(folder, partial_dump_name(stem), &mut held).map(|is_held| !is_held)
+        } else {
+            Ok(false)
         };
         let removed = is_leftover.and_then(|is_leftover| {
             if is_leftover {
@@ -376,14 +403,40 @@ fn remove_monitor_leftovers(folder: &Path) -> Vec<io::Error> {
     failures
 }
 
+// The file name of the dump `<stem>.dmp` while it is being written.
+fn partial_dump_name(stem: &str) -> String {
+    format!("{stem}.{DUMP_EXTENSION}{DUMP_IN_PROGRESS_SUFFIX}")
+}
+
 // Whether the panic record of the dump `<stem>.dmp` has lost its dump: no monitor holds the dump
 // while writing it, and it is not finished either. The partial dump is looked at first, since a
 // monitor renames it to the finished name while it holds it.
-fn is_record_orphaned(folder: &Path, stem: &str) -> io::Result<bool> {
-    let dump = folder.join(format!("{stem}.{DUMP_EXTENSION}"));
-    let mut partial = dump.clone().into_os_string();
-    partial.push(DUMP_IN_PROGRESS_SUFFIX);
-    Ok(!is_held(Path::new(&partial))? && !dump.try_exists()?)
+fn is_record_orphaned(
+    folder: &Path,
+    stem: &str,
+    held: &mut HashMap<String, bool>,
+) -> io::Result<bool> {
+    Ok(
+        !is_partial_dump_held(folder, partial_dump_name(stem), held)?
+            && !folder
+                .join(format!("{stem}.{DUMP_EXTENSION}"))
+                .try_exists()?,
+    )
+}
+
+// Whether a monitor holds the partial dump named `name` in `folder`, as `held` recorded it earlier
+// in the pass or as its lock answers now, recorded for the rest of the pass.
+fn is_partial_dump_held(
+    folder: &Path,
+    name: String,
+    held: &mut HashMap<String, bool>,
+) -> io::Result<bool> {
+    if let Some(&is_partial_held) = held.get(&name) {
+        return Ok(is_partial_held);
+    }
+    let is_partial_held = is_held(&folder.join(&name))?;
+    held.insert(name, is_partial_held);
+    Ok(is_partial_held)
 }
 
 // Whether a monitor holds the partial dump at `path` locked while it writes it; one gone is not.
