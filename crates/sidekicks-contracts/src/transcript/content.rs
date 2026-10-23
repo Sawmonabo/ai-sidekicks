@@ -9,13 +9,13 @@ use serde_json::{Map, Value};
 
 use crate::event::declared_variants::{
     CONTENT_LENGTH_PAYLOAD_KEY, CONTENT_PAYLOAD_PLAINTEXT_MAX, CONTENT_TRUNCATED_PAYLOAD_KEY,
-    ToolCallId,
 };
 use crate::event::envelope::{HydratedContentUnavailableReason, HydratedSessionEventContent};
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::byte_length::{fits_budget, json_utf8_byte_length};
 use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
+use crate::provider::tool_call::ToolCallId;
 use crate::session::id::SessionId;
 use crate::transcript::limits::TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES;
 use crate::wire::attachment::Bytes;

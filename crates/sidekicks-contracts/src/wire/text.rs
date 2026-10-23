@@ -478,7 +478,15 @@ macro_rules! branded_free_form_text {
     )+) => {$(
         $(#[doc = $doc])+
         #[derive(
-            Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+            Clone,
+            Debug,
+            PartialEq,
+            Eq,
+            Hash,
+            PartialOrd,
+            Ord,
+            serde::Serialize,
+            serde::Deserialize,
         )]
         #[serde(transparent)]
         pub struct $name($crate::wire::text::FreeFormText<{ $max }>);
@@ -513,10 +521,8 @@ macro_rules! branded_free_form_text {
             }
 
             fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-                let mut schema =
-                    <$crate::wire::text::FreeFormText<{ $max }> as schemars::JsonSchema>::json_schema(
-                        generator,
-                    );
+                type Text = $crate::wire::text::FreeFormText<{ $max }>;
+                let mut schema = <Text as schemars::JsonSchema>::json_schema(generator);
                 schema.insert(
                     "description".into(),
                     $crate::schema::doc_description(concat!($($doc, "\n"),+)).into(),

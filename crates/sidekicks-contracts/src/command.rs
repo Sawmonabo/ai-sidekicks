@@ -423,7 +423,7 @@ mod tests {
         }
     }
 
-    // Killed by `truncation_reports_its_length` answering `Ok` for a cut mark with no length.
+    // Killed by `requires_length_beside_cut_mark` answering `Ok` for a cut mark with no length.
     #[test]
     fn a_cut_body_reports_its_length() {
         let mut cut = ended("failed", None);

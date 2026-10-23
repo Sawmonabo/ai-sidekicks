@@ -9,8 +9,8 @@ use crate::approval::{
     ApprovalCategory, ApprovalRequestId, ApprovalScope, InvalidationTrigger, RememberedRuleId,
     RememberedScope, ReviewerDenialId,
 };
-use crate::event::declared_variants::ToolCallId;
 use crate::machine::id::MachineId;
+use crate::provider::tool_call::ToolCallId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;

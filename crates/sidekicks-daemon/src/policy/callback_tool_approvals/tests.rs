@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use serde_json::{Map, json};
 use sidekicks_contracts::approval::ApprovalResolveRequest;
-use sidekicks_contracts::event::declared_variants::ToolCallId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::task::JoinHandle;

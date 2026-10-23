@@ -91,9 +91,9 @@ mod tests {
     use futures::FutureExt as _;
     use futures::future::BoxFuture;
     use serde_json::{Map, Value};
-    use sidekicks_contracts::event::declared_variants::ToolCallId;
     use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
     use sidekicks_contracts::provider::id::ProviderId;
+    use sidekicks_contracts::provider::tool_call::ToolCallId;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::FreeFormText;

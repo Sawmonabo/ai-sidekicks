@@ -6,8 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::approval::{ApprovalCategory, ApprovalScope};
-use sidekicks_contracts::event::declared_variants::ToolCallId;
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::JsonRecord;

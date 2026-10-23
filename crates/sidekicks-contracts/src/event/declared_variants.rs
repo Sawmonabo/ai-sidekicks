@@ -14,7 +14,7 @@ use crate::event::envelope::{
 };
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::machine::id::MachineId;
-use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
+use crate::provider::tool_call::ToolCallId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::transcript::row::TranscriptOmittedPatch;
@@ -23,7 +23,7 @@ use crate::voice::MessageOrigin;
 use crate::wire::Never;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
-use crate::wire::text::{FreeFormText, branded_free_form_text};
+use crate::wire::text::FreeFormText;
 
 ts_constants! {
     /// The payload key carrying the body's UTF-8 byte length before any cut, so a cut row still
@@ -37,11 +37,6 @@ ts_constants! {
     /// file patches is the one exception: each file is stored in parts of at most this many code
     /// points, so every patch reads back whole.
     pub const CONTENT_PAYLOAD_PLAINTEXT_MAX: usize = 262_144;
-}
-
-branded_free_form_text! {
-    /// A provider's id of one tool call.
-    pub struct ToolCallId(PROVIDER_WIRE_HANDLE_MAX_LEN);
 }
 
 /// Refuses a deleted range that ends before it starts.
@@ -97,7 +92,10 @@ pub struct SessionEventCompactedPayload {
 pub(crate) trait MachineContentDescriptor {}
 
 /// Refuses a cut mark on a payload that reports no body length.
-pub(crate) fn truncation_reports_its_length(is_truncated: bool, has_length: bool) -> garde::Result {
+pub(crate) fn requires_length_beside_cut_mark(
+    is_truncated: bool,
+    has_length: bool,
+) -> garde::Result {
     if is_truncated && !has_length {
         Err(garde::Error::new("a cut body reports its length"))
     } else {
@@ -105,7 +103,7 @@ pub(crate) fn truncation_reports_its_length(is_truncated: bool, has_length: bool
     }
 }
 
-/// The schema twin of [`truncation_reports_its_length`], merged into the payload's own
+/// The schema twin of [`requires_length_beside_cut_mark`], merged into the payload's own
 /// `dependentRequired` so the epoch stamp's pairs stay beside it.
 pub(crate) fn add_truncation_length_rule(schema: &mut schemars::Schema) {
     let rule = serde_json::json!([CONTENT_LENGTH_PAYLOAD_KEY]);
@@ -133,7 +131,7 @@ macro_rules! with_machine_content_descriptor {
     ($(#[$meta:meta])* pub struct $name:ident { $($members:tt)* }) => {
         $(#[$meta])*
         #[garde(custom(|payload: &Self, (): &()| {
-            $crate::event::declared_variants::truncation_reports_its_length(
+            $crate::event::declared_variants::requires_length_beside_cut_mark(
                 payload.content_truncated.is_some(),
                 payload.content_length.is_some(),
             )
@@ -383,7 +381,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<SessionEventCompactedRemovedSession>(),
         Definition::read::<SessionEventCompactedPayload>().checked(),
-        Definition::read::<ToolCallId>(),
         Definition::read::<ProviderBlock>(),
         Definition::read::<RunAgentOutputPayload>(),
         Definition::read::<VoiceAgentOutputPayload>(),

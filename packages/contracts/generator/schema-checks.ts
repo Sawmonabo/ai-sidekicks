@@ -56,7 +56,7 @@ function createAjv(schemas: readonly SchemaObject[]): Ajv2020 {
   const ajv = new Ajv2020({
     strict: true,
     $data: true,
-    // The contracts name a tagged union's tag as its `discriminator`, so a check picks the arm by it.
+    // Picks a tagged union's arm by its `discriminator`.
     discriminator: true,
     allErrors: true,
     messages: false,

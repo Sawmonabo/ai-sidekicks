@@ -500,7 +500,7 @@ mod tests {
     #[case::a_nul("turn\u{0}1".to_owned())]
     #[case::a_blank("   ".to_owned())]
     #[case::past_the_cap("t".repeat(257))]
-    fn a_retry_refuses_a_turn_id_free_form_text_refuses(#[case] expected_turn_id: String) {
+    fn a_retry_refuses_a_turn_id_that_is_not_free_form_text(#[case] expected_turn_id: String) {
         let retry = |expected_turn_id: &str| {
             json!({
                 "type": "fasterModelRetry",

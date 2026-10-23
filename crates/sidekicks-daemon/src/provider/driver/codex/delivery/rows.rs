@@ -5,11 +5,11 @@
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::agent::definition::AgentId;
-use sidekicks_contracts::event::declared_variants::ToolCallId;
 use sidekicks_contracts::event::declared_variants::{RunAgentOutputPayload, ToolActivityPayload};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::row::TranscriptOmittedPatch;

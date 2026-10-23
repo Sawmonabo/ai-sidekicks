@@ -4,8 +4,8 @@
 //! thread, are delivered on the child run between the two, in frame order.
 
 use serde_json::value::RawValue;
-use sidekicks_contracts::event::declared_variants::ToolCallId;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentLifecyclePayload;
 use sidekicks_contracts::wire::text::FreeFormText;
