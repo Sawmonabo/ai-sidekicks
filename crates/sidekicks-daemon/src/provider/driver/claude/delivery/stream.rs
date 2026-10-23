@@ -548,11 +548,12 @@ impl ClaudeDeliveryStream {
             | ClaudeWireFrameKind::ResultErrorMaxTurns
             | ClaudeWireFrameKind::ResultErrorMaxBudgetUsd
             | ClaudeWireFrameKind::ResultErrorDuringExecution
-            | ClaudeWireFrameKind::ResultErrorMaxStructuredOutputRetries => {}
+            | ClaudeWireFrameKind::ResultErrorMaxStructuredOutputRetries
             // A helper's start and moves, read off the frame before it reaches the reader.
-            ClaudeWireFrameKind::SystemTaskStarted | ClaudeWireFrameKind::SystemTaskUpdated => {}
+            | ClaudeWireFrameKind::SystemTaskStarted
+            | ClaudeWireFrameKind::SystemTaskUpdated
             // Kinds that add no row; each variant says why.
-            ClaudeWireFrameKind::SystemCompactBoundary
+            | ClaudeWireFrameKind::SystemCompactBoundary
             | ClaudeWireFrameKind::SystemHookStarted
             | ClaudeWireFrameKind::SystemHookProgress
             | ClaudeWireFrameKind::SystemHookResponse
@@ -562,9 +563,9 @@ impl ClaudeDeliveryStream {
             | ClaudeWireFrameKind::SystemMemoryRecall
             | ClaudeWireFrameKind::SystemLocalCommandOutput
             | ClaudeWireFrameKind::SystemTaskProgress
-            | ClaudeWireFrameKind::SystemBackgroundTasksChanged => {}
+            | ClaudeWireFrameKind::SystemBackgroundTasksChanged
             // Control traffic takes the request path or settles a call, never this reader.
-            ClaudeWireFrameKind::ControlRequestCanUseTool
+            | ClaudeWireFrameKind::ControlRequestCanUseTool
             | ClaudeWireFrameKind::ControlRequestElicitation
             | ClaudeWireFrameKind::ControlRequestRequestUserDialog
             | ClaudeWireFrameKind::ControlRequestHookCallback
