@@ -85,7 +85,11 @@ mod tests {
     #[rstest]
     #[case::five_hour("five_hour", None, Some(("session", 300)))]
     #[case::seven_day("seven_day", None, Some(("weekly_all", 10_080)))]
-    #[case::scoped("seven_day_overage_included", Some("Opus"), Some(("weekly_scoped:Opus", 10_080)))]
+    #[case::scoped(
+        "seven_day_overage_included",
+        Some("Opus"),
+        Some(("weekly_scoped:Opus", 10_080))
+    )]
     #[case::scoped_before_any_read("seven_day_overage_included", None, None)]
     #[case::per_model_key("seven_day_opus", Some("Opus"), None)]
     #[case::overage("overage", Some("Opus"), None)]

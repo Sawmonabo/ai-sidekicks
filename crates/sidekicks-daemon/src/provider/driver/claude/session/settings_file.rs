@@ -27,7 +27,10 @@ static SETTINGS_FILE_LOCK: LazyLock<KeyedLock<PathBuf>> = LazyLock::new(KeyedLoc
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ClaudeSettingsFileError {
     /// The file is not a strict JSON object of the shape the edit needs, so it is left as it is.
-    #[error("{} is not a settings object the daemon can edit, so it was left as it is", path.display())]
+    #[error(
+        "{} is not a settings object the daemon can edit, so it was left as it is",
+        path.display()
+    )]
     Refused {
         /// The settings file.
         path: PathBuf,

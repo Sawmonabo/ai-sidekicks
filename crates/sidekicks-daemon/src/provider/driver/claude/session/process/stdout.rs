@@ -276,7 +276,10 @@ mod tests {
                     "{}\n{}\n",
                     r#"{"type":"system","subtype":"status"}"#,
                     format_args!(
-                        r#"{{"type":"control_response","response":{{"subtype":"success","request_id":"{}","response":{{}}}}}}"#,
+                        concat!(
+                            r#"{{"type":"control_response","response":{{"subtype":"success","#,
+                            r#""request_id":"{}","response":{{}}}}}}"#,
+                        ),
                         pending.request_id()
                     ),
                 )

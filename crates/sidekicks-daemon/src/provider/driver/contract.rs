@@ -421,6 +421,10 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// The rows the driver declares on its provider's settings, each with its live value in every
     /// place, as `provider.list` serves them, `app_values` being the values the app stored for
     /// them; read again after each change.
+    #[expect(
+        dead_code,
+        reason = "the provider.list handler reads each provider's Settings rows"
+    )]
     fn read_rows(
         &self,
         app_values: ProviderRowValues,

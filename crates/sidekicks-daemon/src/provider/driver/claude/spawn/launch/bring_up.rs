@@ -34,8 +34,9 @@ use crate::provider::driver::claude::session::ultracode::{
 use crate::provider::driver::claude::spawn::arguments::{
     ClaudeArgumentsRequest, ClaudeConversationStart, compose_claude_arguments,
 };
-use crate::provider::driver::claude::spawn::launch::initialize_reply::read_claude_initialize_declaration;
-use crate::provider::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
+use crate::provider::driver::claude::spawn::launch::{
+    ClaudeLaunchError, ClaudeProcessLauncher, initialize_reply,
+};
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::claude::spawn::settings::{
     ClaudePermissionsRequest, compose_claude_spawn_settings,
@@ -164,8 +165,10 @@ pub(crate) async fn bring_up_claude_process(
         )
         .await?;
     match configure(&process, legs.subagent_policy.as_ref(), in_process_servers).await {
-        Ok((initialize_reply, settings_readback)) => Ok(ClaudeBroughtUp {
-            initialize: read_claude_initialize_declaration(initialize_reply.as_deref()),
+        Ok((initialize_response, settings_readback)) => Ok(ClaudeBroughtUp {
+            initialize: initialize_reply::read_claude_initialize_declaration(
+                initialize_response.as_deref(),
+            ),
             settings_readback,
             process,
         }),

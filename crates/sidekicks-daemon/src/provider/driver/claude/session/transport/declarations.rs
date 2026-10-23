@@ -1,6 +1,7 @@
 //! What a Claude Code process declares about itself, as the stream reader reads it: the
-//! `initialize` reply's models, the one match of a model against them, styles and fast mode, the `system/init` handshake's commands and
-//! capabilities, and the routing facts of each inbound frame.
+//! `initialize` reply's models, the one match of a model against them, styles and fast mode, the
+//! `system/init` handshake's commands and capabilities, and the routing facts of each inbound
+//! frame.
 
 use std::collections::HashSet;
 

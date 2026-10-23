@@ -1,7 +1,8 @@
 //! What Claude Code's `system` frames say about a run, in the daemon's words: a model switch, the
 //! refusal no other model took, a retried request, a warning, the coarse status, the worker's
-//! shutdown reason and a helper's end; and the refusal an `assistant` message ends on. The frames are untrusted, so each
-//! member is narrowed, and a frame that reads as nothing known reads as `None`.
+//! shutdown reason and a helper's end; and the refusal an `assistant` message ends on. The frames
+//! are untrusted, so each member is narrowed, and a frame that reads as nothing known reads as
+//! `None`.
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::{
