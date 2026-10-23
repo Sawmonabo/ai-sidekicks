@@ -249,11 +249,14 @@ impl ClaudeWireFrameKind {
             // A forward marker only: `agent.run.*` transitions stay daemon-emitted, never derived
             // from init.
             Self::SystemInit => self.normalized(Stream, NormalizedEventKind::Init),
-            // `system/api_error` maps onto the retry kind; the typed-error members are carried
-            // verbatim by the payload layer, since a string census cannot prove the set closed.
-            Self::SystemApiRetry | Self::SystemApiError => {
-                self.normalized(Stream, NormalizedEventKind::ApiRetry)
-            }
+            // Each retry Claude Code announces is a retried request; the typed-error member is read
+            // into the payload's vocabulary.
+            Self::SystemApiRetry => self.normalized(Stream, NormalizedEventKind::ApiRetry),
+            Self::SystemApiError => self.not_evented(
+                Stream,
+                "a request error Claude Code reports on the retry ladder, read only as the \
+                 spent-retries signal",
+            ),
             // The wire's `rate_limit_event` becomes the account quota snapshot kind, the preferred
             // carrier because it is pushed, with no round trip on the experimental `get_usage`.
             Self::RateLimitEvent => self.normalized(Stream, NormalizedEventKind::RateLimits),
