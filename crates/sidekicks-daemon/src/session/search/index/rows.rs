@@ -176,15 +176,15 @@ fn damage_of(
     owner_key: u64,
     sequence: Option<i64>,
 ) -> Result<DamagedSourceRow, rusqlite::Error> {
-    match error {
-        damage @ rusqlite::Error::FromSqlConversionFailure(..) => Ok(DamagedSourceRow {
-            key,
-            owner_key,
-            sequence,
-            damage,
-        }),
-        refused => Err(refused),
+    if !matches!(error, rusqlite::Error::FromSqlConversionFailure(..)) {
+        return Err(error);
     }
+    Ok(DamagedSourceRow {
+        key,
+        owner_key,
+        sequence,
+        damage: error,
+    })
 }
 
 // A log row's text before its body: a person's words, nothing before an agent's reply, or a tool's

@@ -639,7 +639,9 @@ fn stated_encoding_column(
         Value::Text(word) => closed_word(word).map(Some).map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(error))
         }),
-        other => Err(wrong_type_failure(index, &other)),
+        other @ (Value::Integer(_) | Value::Real(_) | Value::Blob(_)) => {
+            Err(wrong_type_failure(index, &other))
+        }
     }
 }
 
@@ -651,7 +653,9 @@ fn stated_length_column(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<
         Value::Integer(length) => u64::try_from(length).map(Some).map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(index, Type::Integer, Box::new(error))
         }),
-        other => Err(wrong_type_failure(index, &other)),
+        other @ (Value::Real(_) | Value::Text(_) | Value::Blob(_)) => {
+            Err(wrong_type_failure(index, &other))
+        }
     }
 }
 

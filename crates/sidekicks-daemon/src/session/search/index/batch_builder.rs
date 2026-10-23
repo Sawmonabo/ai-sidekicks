@@ -63,7 +63,7 @@ impl IndexBatchBuilder {
             SourceRowRead::Whole(row) => row,
             SourceRowRead::Damaged(damaged) => {
                 self.pass_over(
-                    damaged,
+                    &damaged,
                     self.batch.long_row_documents.len(),
                     self.text_bytes,
                 );
@@ -89,7 +89,7 @@ impl IndexBatchBuilder {
         let stopped = match paged {
             Ok(stopped) => stopped,
             Err(PageReadError::Damaged(damaged)) => {
-                self.pass_over(damaged, documents_before, text_bytes_before);
+                self.pass_over(&damaged, documents_before, text_bytes_before);
                 return Ok(());
             }
             Err(PageReadError::Refused(refused)) => return Err(refused.into()),
@@ -126,7 +126,7 @@ impl IndexBatchBuilder {
     // row, and its key takes out any an earlier batch committed.
     fn pass_over(
         &mut self,
-        damaged: DamagedSourceRow,
+        damaged: &DamagedSourceRow,
         documents_before: usize,
         text_bytes_before: usize,
     ) {
