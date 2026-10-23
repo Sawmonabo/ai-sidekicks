@@ -19,9 +19,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::wire::{BoolLiteral, True};
 use strum::EnumString;
 
-use crate::provider::driver::claude::event_normalizer::{
-    ClaudeWireFrameKind, compose_claude_wire_frame_kind,
-};
+use crate::provider::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::provider::driver::claude::turn_evidence::classify_claude_turn_evidence;
 use crate::provider::driver::contract::bound_failure_detail;
 use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
@@ -151,9 +149,11 @@ pub(crate) struct ClaudeTurnEnd {
 // How a failure detail names a `result` that carries no subtype.
 const CLAUDE_RESULT_WITHOUT_SUBTYPE: &str = "result with no subtype";
 
-/// Composes the end one settling `result` frame of `run_id` asks for under `marks`.
+/// Composes the end one settling `result` frame of `run_id`, read as `kind`, asks for under
+/// `marks`.
 pub(crate) fn compose_claude_turn_end(
     frame: &Value,
+    kind: &ClaudeWireFrameKind,
     run_id: RunId,
     marks: ClaudeTurnEndMarks,
 ) -> ClaudeTurnEnd {
@@ -193,11 +193,11 @@ pub(crate) fn compose_claude_turn_end(
     }
     // A `result` of a subtype the census does not list, or of none, still ends its turn, as a
     // failure that names the subtype or its absence, so a turn's end never vanishes.
-    let unlisted_subtype =
-        match ClaudeWireFrameKind::read(&compose_claude_wire_frame_kind("result", subtype)) {
-            Some(ClaudeWireFrameKind::ResultUnlisted { subtype }) => Some(subtype),
-            _ => None,
-        };
+    let unlisted_subtype = if let ClaudeWireFrameKind::ResultUnlisted { subtype } = kind {
+        Some(subtype.as_deref())
+    } else {
+        None
+    };
     let is_too_long = terminal_reason.is_some_and(ClaudeTerminalReason::is_too_long);
     let (mut change, outcome, is_failed) = match marks.refusal {
         Some(refusal) => (
@@ -228,7 +228,7 @@ pub(crate) fn compose_claude_turn_end(
             };
             let words = describe_turn_failure(members);
             let named = unlisted_subtype
-                .map(|subtype| subtype.unwrap_or_else(|| CLAUDE_RESULT_WITHOUT_SUBTYPE.to_owned()));
+                .map(|subtype| subtype.unwrap_or(CLAUDE_RESULT_WITHOUT_SUBTYPE).to_owned());
             let detail = bound_failure_detail(
                 &match named {
                     Some(named) if !words.is_empty() && words != named => {
@@ -350,6 +350,7 @@ mod tests {
     use sidekicks_contracts::run::events::TurnEndCause;
 
     use super::{ClaudeTurnEndMarks, compose_claude_turn_end};
+    use crate::provider::driver::claude::event_normalizer::ClaudeWireFrameKind;
     use crate::provider::driver::claude::session::scripted::mint_run_id;
     use crate::session::run::engine::turns::TurnOutcome;
     use crate::session::run::state_change::RunStateEntry;
@@ -360,7 +361,12 @@ mod tests {
         let run_id = mint_run_id();
         let frame = json!({"type": "result", "subtype": "error_max_turns", "is_error": true});
 
-        let end = compose_claude_turn_end(&frame, run_id, ClaudeTurnEndMarks::default());
+        let end = compose_claude_turn_end(
+            &frame,
+            &ClaudeWireFrameKind::ResultErrorMaxTurns,
+            run_id,
+            ClaudeTurnEndMarks::default(),
+        );
 
         let change = end.change.expect("the run moves");
         assert_eq!(
@@ -391,13 +397,19 @@ mod tests {
 
         let held = compose_claude_turn_end(
             &frame,
+            &ClaudeWireFrameKind::ResultErrorDuringExecution,
             run_id,
             ClaudeTurnEndMarks {
                 is_held_for_interrupt: true,
                 ..ClaudeTurnEndMarks::default()
             },
         );
-        let unmarked = compose_claude_turn_end(&frame, run_id, ClaudeTurnEndMarks::default());
+        let unmarked = compose_claude_turn_end(
+            &frame,
+            &ClaudeWireFrameKind::ResultErrorDuringExecution,
+            run_id,
+            ClaudeTurnEndMarks::default(),
+        );
 
         assert_eq!(held.outcome, TurnOutcome::Interrupted(None));
         assert!(held.is_daemon_interrupt_end);
@@ -420,7 +432,12 @@ mod tests {
             "result": "the request was stopped in a tight loop",
         });
 
-        let end = compose_claude_turn_end(&frame, run_id, ClaudeTurnEndMarks::default());
+        let end = compose_claude_turn_end(
+            &frame,
+            &ClaudeWireFrameKind::ResultSuccess,
+            run_id,
+            ClaudeTurnEndMarks::default(),
+        );
 
         let change = end.change.expect("the run moves");
         assert_eq!(

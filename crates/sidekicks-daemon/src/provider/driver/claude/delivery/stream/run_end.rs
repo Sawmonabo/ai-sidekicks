@@ -19,6 +19,7 @@ use crate::provider::driver::claude::delivery::run_readings::{
 use crate::provider::driver::claude::delivery::turn_end::{
     ClaudeTurnEndMarks, compose_claude_turn_end,
 };
+use crate::provider::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::provider::driver::claude::run::routes::ClaudeBoundRun;
 use crate::provider::terminal_emission_gate::{TerminalEmissionDecision, TerminalRunFrame};
 use crate::provider::thread_frame_router::ThreadFrameRoute;
@@ -111,6 +112,7 @@ impl ClaudeDeliveryStream {
         session: &ClaudeSessionStream,
         lead: &ClaudeBoundRun,
         frame: &Value,
+        kind: &ClaudeWireFrameKind,
         route: ThreadFrameRoute,
         is_reviewed: bool,
     ) -> Option<RunId> {
@@ -195,7 +197,7 @@ impl ClaudeDeliveryStream {
                 newest_message_id,
             };
             (
-                compose_claude_turn_end(frame, lead.run_id, marks),
+                compose_claude_turn_end(frame, kind, lead.run_id, marks),
                 reader_carried,
                 marked,
                 intended_close,

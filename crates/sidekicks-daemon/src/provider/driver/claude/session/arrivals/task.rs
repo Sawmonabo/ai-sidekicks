@@ -288,8 +288,8 @@ impl ClaudeSessionTask {
     }
 }
 
-// The task is dropped once it ends, whether on its process's exit, when every sender is gone, or
-// aborted, so a close waiting on it never waits on a task that is gone.
+// The task is dropped once it ends: after it handled its process's `Exit` arrival, or when it is
+// aborted or panics, so a close waiting on it never waits on a task that is gone.
 impl Drop for ClaudeSessionTask {
     fn drop(&mut self) {
         drop(self.live.task_ended.set(()));

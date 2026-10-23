@@ -376,7 +376,7 @@ async fn read_entries(
                 tracing::warn!(
                     file = %file.display(),
                     line_number,
-                    "a line of a claude code conversation file passed the line ceiling, so it \
+                    "a line of a Claude Code conversation file passed the line ceiling, so it \
                      was skipped"
                 );
             }

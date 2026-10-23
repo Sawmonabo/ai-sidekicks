@@ -119,7 +119,10 @@ pub(crate) struct ClaudeSessionStream {
     routes: Arc<ClaudeRunRoutes>,
     prompts: Arc<Mutex<ClaudeSentPrompts>>,
     // The kinds of the frames no daemon run held, already logged on this process's connection.
-    diagnostics: Mutex<OnceReportedDiagnostics>,
+    unheld_reports: Mutex<OnceReportedDiagnostics>,
+    // The `result` kinds of unlisted subtypes that ended a run, already logged on this connection,
+    // apart from the unheld ones so neither record keeps the other from being logged.
+    unlisted_result_reports: Mutex<OnceReportedDiagnostics>,
     // How many turns the run engine could not number have ended.
     unnumbered_turns: AtomicU64,
 }
@@ -142,7 +145,8 @@ impl ClaudeSessionStream {
             arrivals,
             routes,
             prompts,
-            diagnostics: Mutex::default(),
+            unheld_reports: Mutex::default(),
+            unlisted_result_reports: Mutex::default(),
             unnumbered_turns: AtomicU64::new(0),
         }
     }
@@ -390,14 +394,6 @@ impl ClaudeDeliveryStream {
             return after;
         }
         let is_result = kind.is_result();
-        if let ClaudeWireFrameKind::ResultUnlisted { .. } = kind {
-            record_unmapped(
-                session,
-                frame_kind,
-                "a `result` of a subtype the census does not list, or of none, ends its turn as \
-                 a failure naming the subtype or its absence",
-            );
-        }
         // The reader released the turn as it read a turn-ending `result`, so that frame ends the
         // turn the stream opened; any other frame belongs to the run that held the turn as it was
         // read, the reader being ahead of this task.
@@ -414,9 +410,23 @@ impl ClaudeDeliveryStream {
         else {
             // A frame of a turn no daemon run holds, such as one Claude Code started itself
             // whose run never opened.
-            record_unmapped(session, frame_kind, UNHELD_FRAME_REASON);
+            record_unmapped(
+                session,
+                &session.unheld_reports,
+                frame_kind,
+                UNHELD_FRAME_REASON,
+            );
             return after;
         };
+        if let ClaudeWireFrameKind::ResultUnlisted { .. } = kind {
+            record_unmapped(
+                session,
+                &session.unlisted_result_reports,
+                frame_kind,
+                "a `result` of a subtype the census does not list, or of none, ends its turn as \
+                 a failure naming the subtype or its absence",
+            );
+        }
         self.open_turn(session, &lead).await;
         if self.dependencies.dialogs.observe_turn_frame(lead.run_id) {
             // An answer no write or check settled reached Claude Code, which runs the turn again.
@@ -448,6 +458,7 @@ impl ClaudeDeliveryStream {
                         session,
                         &lead,
                         &Value::Object(members),
+                        &kind,
                         routed.route,
                         is_reviewed,
                     )
@@ -780,11 +791,16 @@ fn is_tool_call(row: &ClaudeMessageRow) -> bool {
 const UNHELD_FRAME_REASON: &str = "a frame of a turn no daemon run holds has no binding to be \
                                    attributed on, so it is dropped with this record";
 
-// Reports the first frame of each kind the reader has no row for, a frame no daemon run holds or a
-// `result` of an unlisted subtype; a kind the build sends every turn would otherwise log on every
-// frame.
-fn record_unmapped(session: &ClaudeSessionStream, frame_kind: &str, disposition_reason: &str) {
-    lock(&session.diagnostics).report(&DriverDiagnosticRecord {
+// Reports the first frame of each kind in `reports` the reader has no row for, a frame no daemon
+// run holds or a `result` of an unlisted subtype; a kind the build sends every turn would
+// otherwise log on every frame.
+fn record_unmapped(
+    session: &ClaudeSessionStream,
+    reports: &Mutex<OnceReportedDiagnostics>,
+    frame_kind: &str,
+    disposition_reason: &str,
+) {
+    lock(reports).report(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
         provider_account_id: session.provider_account_id.clone(),
         kind: DriverDiagnosticKind::UnmappedWireKind,

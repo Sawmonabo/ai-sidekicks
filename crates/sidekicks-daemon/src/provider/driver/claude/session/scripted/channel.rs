@@ -103,8 +103,8 @@ impl ScriptedChannel {
         release
     }
 
-    /// Hands the exit of a later close to `listener`, the listener of the start that brought the
-    /// process up.
+    /// Hands the exit of a later close or terminate to `listener`, the listener of the start that
+    /// brought the process up; the process exits once.
     pub(crate) fn hand_exit_to(&self, listener: Arc<dyn ClaudeProcessListener>) {
         *lock(&self.listener) = Some(listener);
     }
@@ -227,6 +227,7 @@ impl ClaudeProcessChannel for ScriptedChannel {
 
     fn terminate(&self) -> BoxFuture<'_, ()> {
         self.record(ScriptedWrite::Terminate);
+        self.exit("terminated");
         async {}.boxed()
     }
 
@@ -237,15 +238,23 @@ impl ClaudeProcessChannel for ScriptedChannel {
             if let Some(hold) = hold {
                 drop(hold.await);
             }
-            let listener = lock(&self.listener).clone();
-            if let Some(listener) = listener {
-                listener.take_exit(Ok(ProcessExit::Code(ProcessExitWithCode {
-                    exit_code: ExitCode::new(0).expect("zero is a safe integer"),
-                    signal: None,
-                    output_tail: FreeFormText::new("closed".to_owned()).expect("the tail fits"),
-                })));
-            }
+            self.exit("closed");
         }
         .boxed()
+    }
+}
+
+impl ScriptedChannel {
+    // Hands the process's code-0 exit, with `output_tail`, to the start's listener, as a real
+    // reader does after its last frame; a process already exited hands nothing.
+    fn exit(&self, output_tail: &str) {
+        let listener = lock(&self.listener).take();
+        if let Some(listener) = listener {
+            listener.take_exit(Ok(ProcessExit::Code(ProcessExitWithCode {
+                exit_code: ExitCode::new(0).expect("zero is a safe integer"),
+                signal: None,
+                output_tail: FreeFormText::new(output_tail.to_owned()).expect("the tail fits"),
+            })));
+        }
     }
 }

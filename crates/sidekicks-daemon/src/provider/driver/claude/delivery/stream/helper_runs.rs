@@ -37,6 +37,7 @@ impl ClaudeDeliveryStream {
         let Some(lead) = lead.or_else(|| self.helper_parent_run(session, &emission)) else {
             record_unmapped(
                 session,
+                &session.unheld_reports,
                 lifecycle_wire_type(emission.event_type),
                 UNHELD_FRAME_REASON,
             );
