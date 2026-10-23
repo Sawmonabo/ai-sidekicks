@@ -394,8 +394,8 @@ impl ClaudeDeliveryStream {
             record_unmapped(
                 session,
                 frame_kind,
-                "a `result` of a subtype the census does not list ends its turn as a failure \
-                 carrying the subtype",
+                "a `result` of a subtype the census does not list, or of none, ends its turn as \
+                 a failure naming the subtype or its absence",
             );
         }
         // The reader released the turn as it read a turn-ending `result`, so that frame ends the

@@ -5,7 +5,8 @@
 //! Left out of the census, so the router quarantines and reports them instead of a guessed row:
 //! `queued_notification` (daemon-to-CLI, so anomalous inbound), `prompt_suggestion`, and the
 //! `set_effort`, `rewind` and `compact` control subtypes. A `result` of a subtype the census does
-//! not list is no such kind: it still ends its turn, as a failure, and is reported once.
+//! not list, or of none, is no such kind: it still ends its turn, as a failure, and is reported
+//! once.
 
 use std::borrow::Cow;
 use std::str::FromStr;
@@ -128,11 +129,12 @@ pub(crate) enum ClaudeWireFrameKind {
     /// `result/error_max_structured_output_retries`.
     #[strum(serialize = "result/error_max_structured_output_retries")]
     ResultErrorMaxStructuredOutputRetries,
-    /// A `result` whose subtype the census does not list: it still ends its turn, as a failure.
+    /// A `result` whose subtype the census does not list, or that carries none: it still ends its
+    /// turn, as a failure.
     #[strum(disabled)]
     ResultUnlisted {
-        /// The subtype as Claude Code sent it.
-        subtype: String,
+        /// The subtype as Claude Code sent it, if any.
+        subtype: Option<String>,
     },
     /// `control_request/can_use_tool`.
     #[strum(serialize = "control_request/can_use_tool")]
@@ -191,14 +193,17 @@ pub(crate) enum ClaudeWireFrameKind {
 }
 
 impl ClaudeWireFrameKind {
-    /// Reads `frame_kind`: a census kind, or a `result` of a subtype the census does not list;
-    /// `None` for any other unlisted kind, which the router quarantines.
+    /// Reads `frame_kind`: a census kind, or a `result` of a subtype the census does not list or
+    /// of no subtype; `None` for any other unlisted kind, which the router quarantines.
     pub(crate) fn read(frame_kind: &str) -> Option<Self> {
         Self::from_str(frame_kind).ok().or_else(|| {
+            if frame_kind == "result" {
+                return Some(Self::ResultUnlisted { subtype: None });
+            }
             frame_kind
                 .strip_prefix("result/")
                 .map(|subtype| Self::ResultUnlisted {
-                    subtype: subtype.to_owned(),
+                    subtype: Some(subtype.to_owned()),
                 })
         })
     }
@@ -291,7 +296,8 @@ impl ClaudeWireFrameKind {
 }
 
 /// The census key of a frame's `type` and subtype; with no subtype it is the bare `type`, which
-/// the router quarantines unless the census lists it. Both inputs are untrusted.
+/// the router quarantines unless the census lists it or it is a `result`. Both inputs are
+/// untrusted.
 pub(crate) fn compose_claude_wire_frame_kind<'frame>(
     frame_type: &'frame str,
     subtype: Option<&str>,

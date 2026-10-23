@@ -148,6 +148,9 @@ pub(crate) struct ClaudeTurnEnd {
     pub(crate) is_too_long: bool,
 }
 
+// How a failure detail names a `result` that carries no subtype.
+const CLAUDE_RESULT_WITHOUT_SUBTYPE: &str = "result with no subtype";
+
 /// Composes the end one settling `result` frame of `run_id` asks for under `marks`.
 pub(crate) fn compose_claude_turn_end(
     frame: &Value,
@@ -188,8 +191,8 @@ pub(crate) fn compose_claude_turn_end(
     {
         return interrupted(None, TurnOutcome::Interrupted(None), true);
     }
-    // A `result` of a subtype the census does not list still ends its turn, as a failure that
-    // names the subtype, so a turn's end never vanishes.
+    // A `result` of a subtype the census does not list, or of none, still ends its turn, as a
+    // failure that names the subtype or its absence, so a turn's end never vanishes.
     let unlisted_subtype =
         match ClaudeWireFrameKind::read(&compose_claude_wire_frame_kind("result", subtype)) {
             Some(ClaudeWireFrameKind::ResultUnlisted { subtype }) => Some(subtype),
@@ -224,10 +227,15 @@ pub(crate) fn compose_claude_turn_end(
                     })
             };
             let words = describe_turn_failure(members);
+            let named = unlisted_subtype
+                .map(|subtype| subtype.unwrap_or_else(|| CLAUDE_RESULT_WITHOUT_SUBTYPE.to_owned()));
             let detail = bound_failure_detail(
-                &match unlisted_subtype {
-                    Some(subtype) if words != subtype => format!("{subtype}: {words}"),
-                    Some(_) | None => words,
+                &match named {
+                    Some(named) if !words.is_empty() && words != named => {
+                        format!("{named}: {words}")
+                    }
+                    Some(named) => named,
+                    None => words,
                 },
                 UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
             );

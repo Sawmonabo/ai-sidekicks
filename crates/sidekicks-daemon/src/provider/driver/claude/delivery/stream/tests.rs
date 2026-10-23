@@ -488,18 +488,34 @@ async fn an_unlisted_frame_family_is_quarantined_once_and_adds_nothing() {
     assert_eq!(session.engine.calls(), []);
 }
 
-// Killed by quarantining a `result` whose subtype the census does not list (its arm read as an
-// unlisted kind): the run would stay running with nothing holding the turn; by ending it
-// completed or twice; and by reporting it on every such frame.
+// Killed by quarantining a `result` whose subtype the census does not list (the `result/` arm of
+// `ClaudeWireFrameKind::read` dropped) or that carries none (its bare-`result` arm dropped): the
+// run would stay running with nothing holding the turn; by ending it completed or twice; and by
+// reporting it on every such frame.
+#[rstest]
+#[case::unlisted_subtype(
+    result(&json!({"subtype": "error_unlisted"})),
+    "error_unlisted: done",
+    "result/error_unlisted"
+)]
+#[case::no_subtype(
+    json!({"type": "result", "session_id": SCRIPTED_PROVIDER_SESSION_ID}),
+    "result with no subtype",
+    "result"
+)]
 #[tokio::test(start_paused = true)]
-async fn a_result_of_an_unlisted_subtype_fails_its_run_once_and_is_reported_once() {
+async fn a_result_of_an_unlisted_subtype_or_none_fails_its_run_once_and_is_reported_once(
+    #[case] frame: Value,
+    #[case] detail: &str,
+    #[case] raw_wire_type: &str,
+) {
     let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
     let recorded = RecordedEvents::default();
     let recording = recorded.record_until_dropped();
 
     session.frame(&init());
-    session.frame(&result(&json!({"subtype": "error_unlisted"})));
+    session.frame(&frame);
     settle().await;
     drop(recording);
 
@@ -507,14 +523,14 @@ async fn a_result_of_an_unlisted_subtype_fails_its_run_once_and_is_reported_once
     assert!(
         matches!(
             moves.as_slice(),
-            [RunStateEntry::Failed { provider_failure_detail: Some(detail), .. }]
-                if detail.as_str().contains("error_unlisted")
+            [RunStateEntry::Failed { provider_failure_detail: Some(failed), .. }]
+                if failed.as_str() == detail
         ),
         "{moves:?}"
     );
     assert!(!session.start.routes.is_turn_held(session.session_id));
     assert_eq!(
         recorded.field_on("driver.normalize.unmappedWireKind", "raw_wire_type"),
-        ["result/error_unlisted"]
+        [raw_wire_type]
     );
 }
