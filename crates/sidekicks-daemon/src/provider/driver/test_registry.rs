@@ -94,8 +94,9 @@ impl AttachmentResolver for NothingServed {
 }
 
 /// The shared services every driver's build takes, with every port unregistered, no spawn context,
-/// attachment or binding rebind served, the read pool on a database no test opens, and every folder under a
-/// relative one that no test makes. Called on a tokio runtime, which the spawner thread starts on.
+/// attachment or binding rebind served, the read pool on a database no test opens, and every folder
+/// under a relative one that no test makes. Called on a tokio runtime, which the spawner thread
+/// starts on.
 pub(crate) fn test_driver_services() -> DriverServices {
     let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
     let folder = PathBuf::from("driver-services");

@@ -11,11 +11,13 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::{
     ClaudeCallbackBinding, ClaudeEstablishmentError, ClaudeModelCheck, ClaudeSessionEstablishment,
-    ClaudeSessionStart, conversation_file_of,
+    ClaudeSessionStart,
 };
 use crate::mutex_lock::lock;
 use crate::provider::driver::claude::run::start::claude_session_unavailable;
-use crate::provider::driver::claude::session::conversation_file::read_claude_conversation_outline;
+use crate::provider::driver::claude::session::conversation_file::{
+    conversation_file_of, read_claude_conversation_outline,
+};
 use crate::provider::driver::claude::session::errors::ClaudeSessionUnavailableReason;
 use crate::provider::driver::claude::session::state::{
     ClaudeUsageEstablishment, LiveClaudeSession,

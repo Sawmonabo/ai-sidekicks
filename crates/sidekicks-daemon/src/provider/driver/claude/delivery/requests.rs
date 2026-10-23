@@ -180,7 +180,7 @@ impl ClaudeInboundRequests {
     }
 
     /// Takes one request event the daemon's own hooks did not answer, on the session's task. A
-    /// withdrawal settles what it withdrew: a tool server's call is cancelled, a pending ask's card
+    /// withdrawal settles what it withdrew: a tool server's call is canceled, a pending ask's card
     /// settles canceled, and a choice is recorded by the dialogs.
     pub(crate) async fn take_request(
         &self,

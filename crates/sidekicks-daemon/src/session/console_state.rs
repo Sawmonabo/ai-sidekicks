@@ -1,8 +1,9 @@
 //! A session's own console settings, over the `session_console_state` table: the advisor a session
 //! on a provider that offers an advisor keeps from its creation or, where no one picked one, from
-//! what the provider resolved at its first start, changed only by the session's advisor command, the Build or Plan mode the provider last took, and the session's own bound on
-//! the steps one turn may take. Every process the daemon starts for the session reads the advisor
-//! at launch, a restart resumes in the mode, and `session.read` answers with the step bound.
+//! what the provider resolved at its first start, changed only by the session's advisor command;
+//! the Build or Plan mode the provider last took; and the session's own bound on the steps one
+//! turn may take. Every process the daemon starts for the session reads the advisor at launch, a
+//! restart resumes in the mode, and `session.read` answers with the step bound.
 
 use std::borrow::Cow;
 use std::error::Error;
@@ -24,8 +25,10 @@ use crate::database::writer::DatabaseWriter;
 use crate::provider::port::session_advisor_store::ClaudeSessionAdvisorStore;
 use crate::session::directory::lookups::write_while_session_exists;
 
-/// The row a session on a provider that offers an advisor is born with, its advisor copied from
-/// the machine's default; it binds the session id, the advisor and the time, in that order.
+/// The row a session on a provider that offers an advisor is born with when the person picked its
+/// advisor: a model, or `NULL` for off. Never written for an unpicked session, whose advisor the
+/// provider resolves at its first start. It binds the session id, the advisor and the time, in
+/// that order.
 pub(crate) const INSERT_CONSOLE_STATE_SQL: &str = "INSERT INTO session_console_state
   (session_id, advisor_model, advisor_set, updated_at) VALUES (?, ?, 1, ?)";
 

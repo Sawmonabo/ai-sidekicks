@@ -12,9 +12,10 @@ use sidekicks_platforms::PathRules;
 use super::{ClaudeDriver, internal};
 use crate::mutex_lock::lock;
 use crate::provider::driver::claude::delivery::requests::answers::claude_project_folder;
-use crate::provider::driver::claude::session::conversation_file::find_claude_taken_messages;
+use crate::provider::driver::claude::session::conversation_file::{
+    conversation_file_of, find_claude_taken_messages,
+};
 use crate::provider::driver::claude::session::errors::record_unheard_claude_failure;
-use crate::provider::driver::claude::session::establishment::conversation_file_of;
 use crate::provider::driver::claude::session::naming::{
     name_claude_session, tell_claude_session_name,
 };

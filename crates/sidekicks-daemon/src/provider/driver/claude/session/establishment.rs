@@ -27,7 +27,6 @@ use sidekicks_contracts::session::controls::events::SessionNoticePostedPayload;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_platforms::{PathRules, Spawner};
 
@@ -60,9 +59,7 @@ use crate::provider::driver::claude::session::arrivals::task::{
 use crate::provider::driver::claude::session::arrivals::{
     ClaudeSessionListener, claude_session_arrivals, drain_claude_session_arrivals,
 };
-use crate::provider::driver::claude::session::conversation_file::{
-    find_claude_conversation_file, read_claude_conversation_outline,
-};
+use crate::provider::driver::claude::session::conversation_file::read_turn_count;
 use crate::provider::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
@@ -76,7 +73,6 @@ use crate::provider::driver::claude::session::state::{
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::provider::driver::claude::session::ultracode::requested_claude_ultracode;
 use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
-use crate::provider::driver::claude::spawn::environment::claude_config_folder;
 use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::provider::driver::claude::spawn::launch::bring_up::{
     ClaudeBringUpRequest, ClaudeSessionSpawn,
@@ -825,37 +821,6 @@ impl ClaudeSessionEstablishment {
             .processes
             .remove_exited(live.session_id, started.identity);
     }
-}
-
-/// The file of conversation `handle` in the Claude Code home `spawn_environment` names; `None`
-/// where the home names no folder or holds no such file. Fails as the home cannot be listed.
-pub(crate) async fn conversation_file_of(
-    spawn_environment: &[(String, String)],
-    handle: &str,
-) -> io::Result<Option<PathBuf>> {
-    let Some(config_folder) = claude_config_folder(spawn_environment, PathRules::NATIVE) else {
-        return Ok(None);
-    };
-    find_claude_conversation_file(&config_folder, handle).await
-}
-
-// How many turns the conversation holds; one with no file yet holds none. Fails as its home
-// cannot be listed or its file read.
-async fn read_turn_count(
-    spawn_environment: &[(String, String)],
-    handle: &str,
-) -> io::Result<SafeInt<0>> {
-    let count = match conversation_file_of(spawn_environment, handle).await? {
-        Some(file) => read_claude_conversation_outline(&file)
-            .await?
-            .turn_end_uuids
-            .len(),
-        None => 0,
-    };
-    Ok(u64::try_from(count)
-        .ok()
-        .and_then(SafeInt::new)
-        .expect("a conversation's turn count is far below the wire's integer cap"))
 }
 
 // A folder the session's commands are kept from that could not be resolved refuses the start

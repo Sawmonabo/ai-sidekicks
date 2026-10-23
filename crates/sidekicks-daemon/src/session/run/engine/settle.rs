@@ -456,12 +456,13 @@ enum RunProcessEnd<'exit> {
 }
 
 // The change that ends `run_id` as `settlement` decides, an interrupted or stopped end carrying
-// `intended_close`; `None` or a `failed` settlement takes `failed_change`.
+// `intended_close`; `None` or a `failed` settlement takes `fallback_change`: the exit's failure,
+// or the close's interruption.
 fn settlement_change(
     run_id: RunId,
     settlement: Option<RestartSettlement>,
     intended_close: Option<True>,
-    failed_change: impl FnOnce() -> RunStateChange,
+    fallback_change: impl FnOnce() -> RunStateChange,
 ) -> RunStateChange {
     match settlement {
         Some(RestartSettlement::Interrupted { trigger }) => RunStateChange::new(
@@ -478,7 +479,7 @@ fn settlement_change(
                 trigger: Some(trigger),
             },
         ),
-        Some(RestartSettlement::Failed) | None => failed_change(),
+        Some(RestartSettlement::Failed) | None => fallback_change(),
     }
 }
 

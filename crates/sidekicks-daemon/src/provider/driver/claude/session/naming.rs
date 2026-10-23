@@ -9,14 +9,13 @@ use sidekicks_contracts::wire::record::Record;
 use sidekicks_platforms::PathRules;
 use tokio_util::sync::CancellationToken;
 
+use crate::provider::driver::claude::session::conversation_file::conversation_file_of;
 use crate::provider::driver::claude::session::conversation_file::title::append_claude_custom_title;
 use crate::provider::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason,
 };
+use crate::provider::driver::claude::session::establishment::ClaudeSpawnSources;
 use crate::provider::driver::claude::session::establishment::context::resolve_claude_spawn_context;
-use crate::provider::driver::claude::session::establishment::{
-    ClaudeSpawnSources, conversation_file_of,
-};
 use crate::provider::driver::claude::session::restart::ClaudeEndedConversation;
 use crate::provider::driver::claude::session::state::LiveClaudeSession;
 use crate::provider::driver::claude::session::transport::control::{

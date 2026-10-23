@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde::de::{self, Deserializer, SeqAccess, Visitor};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -25,7 +26,9 @@ use crate::provider::driver::claude::session::plan_files::{ClaudePlan, find_clau
 use crate::provider::driver::claude::session::rules::{
     ClaudeProjectFolder, resolve_claude_local_settings_file,
 };
-use crate::provider::driver::claude::spawn::environment::compose_claude_scratch_folder;
+use crate::provider::driver::claude::spawn::environment::{
+    claude_config_folder, compose_claude_scratch_folder,
+};
 use crate::provider::inbound_json::decode_inbound_json;
 use crate::provider::lenient_json::{
     Lenient, LenientElement, LenientVisitor, lenient_object, read_lenient, skip_other_shapes,
@@ -458,6 +461,37 @@ impl Lenient for MessageContent {
 }
 
 lenient_object!(ConversationEntry, ConversationMessage, ContentBlock);
+
+/// The file of conversation `handle` in the Claude Code home `spawn_environment` names; `None`
+/// where the home names no folder or holds no such file. Fails as the home cannot be listed.
+pub(crate) async fn conversation_file_of(
+    spawn_environment: &[(String, String)],
+    handle: &str,
+) -> io::Result<Option<PathBuf>> {
+    let Some(config_folder) = claude_config_folder(spawn_environment, PathRules::NATIVE) else {
+        return Ok(None);
+    };
+    find_claude_conversation_file(&config_folder, handle).await
+}
+
+/// How many turns conversation `handle` holds in the Claude Code home `spawn_environment` names;
+/// one with no file yet holds none. Fails as its home cannot be listed or its file read.
+pub(crate) async fn read_turn_count(
+    spawn_environment: &[(String, String)],
+    handle: &str,
+) -> io::Result<SafeInt<0>> {
+    let count = match conversation_file_of(spawn_environment, handle).await? {
+        Some(file) => read_claude_conversation_outline(&file)
+            .await?
+            .turn_end_uuids
+            .len(),
+        None => 0,
+    };
+    Ok(u64::try_from(count)
+        .ok()
+        .and_then(SafeInt::new)
+        .expect("a conversation's turn count is far below the wire's integer cap"))
+}
 
 #[cfg(test)]
 mod tests {
