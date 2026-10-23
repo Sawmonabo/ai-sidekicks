@@ -3,6 +3,7 @@
 pub(crate) mod allocator;
 pub(crate) mod askpass;
 pub(crate) mod caller_process;
+pub(crate) mod channel_folder_watch;
 pub(crate) mod child_command;
 pub(crate) mod child_tree;
 pub(crate) mod command_argument_limit;

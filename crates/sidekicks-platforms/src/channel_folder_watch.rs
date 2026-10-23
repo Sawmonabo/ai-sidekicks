@@ -1,0 +1,199 @@
+//! The watches a command's channel needs: the records renamed into its folder, and the bytes
+//! appended to a file the command writes. Each platform's module supplies the wake a change
+//! raises; the folder's listing and the file's reads are shared.
+
+use std::collections::HashSet;
+use std::ffi::OsString;
+use std::io;
+use std::path::{Path, PathBuf};
+
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
+
+use crate::atomic_replace::TEMPORARY_FILE_SUFFIX;
+#[cfg(target_os = "linux")]
+use crate::linux::channel_folder_watch::ChangeWake;
+#[cfg(target_os = "macos")]
+use crate::macos::channel_folder_watch::ChangeWake;
+#[cfg(target_os = "windows")]
+use crate::windows::channel_folder_watch::ChangeWake;
+
+// The most bytes one read of an appended file hands back, so a burst of output is read in bounded
+// pieces.
+const APPEND_READ_LIMIT: usize = 64 * 1024;
+
+/// A watch on a folder whose records arrive by rename, a record being written to a temporary name
+/// and renamed into place, so a half-written record is never seen.
+pub struct FolderArrivalWatch {
+    folder: PathBuf,
+    // The names the last listing held, so each arrival is reported once.
+    known: HashSet<OsString>,
+    wake: ChangeWake,
+}
+
+impl FolderArrivalWatch {
+    /// Watches `folder`; the records it already holds are not arrivals. Fails with the system's
+    /// error when the folder cannot be opened, watched or listed, and with `Unsupported` on Windows.
+    pub async fn watch(folder: &Path) -> io::Result<Self> {
+        let wake = ChangeWake::on_folder_renames(folder)?;
+        let known = list_names(folder).await?;
+        Ok(Self {
+            folder: folder.to_path_buf(),
+            known,
+            wake,
+        })
+    }
+
+    /// The paths of the records that arrived since the last call, waiting until one does; a name
+    /// ending in the temporary suffix a record is written under is never one. Fails with the
+    /// system's error when the folder cannot be listed or the watch fails.
+    pub async fn next_arrivals(&mut self) -> io::Result<Vec<PathBuf>> {
+        loop {
+            let names = list_names(&self.folder).await?;
+            let arrivals: Vec<PathBuf> = names
+                .difference(&self.known)
+                .map(|name| self.folder.join(name))
+                .collect();
+            self.known = names;
+            if !arrivals.is_empty() {
+                return Ok(arrivals);
+            }
+            self.wake.changed().await?;
+        }
+    }
+}
+
+/// A watch on a file a command writes, handing back each byte appended to it once, from its start.
+pub struct FileAppendWatch {
+    file: File,
+    wake: ChangeWake,
+}
+
+impl FileAppendWatch {
+    /// Watches the file at `path`, whose bytes so far are read first. Fails with the system's error
+    /// when the file cannot be opened or watched, and with `Unsupported` on Windows.
+    pub async fn watch(path: &Path) -> io::Result<Self> {
+        let wake = ChangeWake::on_file_appends(path)?;
+        let file = File::open(path).await?;
+        Ok(Self { file, wake })
+    }
+
+    /// The bytes appended since the last call, at most 64 KiB, waiting until there are some. Fails
+    /// with the system's error when the file cannot be read or the watch fails.
+    pub async fn next_appended(&mut self) -> io::Result<Vec<u8>> {
+        let mut buffer = vec![0_u8; APPEND_READ_LIMIT];
+        loop {
+            let count = self.file.read(&mut buffer).await?;
+            if count > 0 {
+                buffer.truncate(count);
+                return Ok(buffer);
+            }
+            self.wake.changed().await?;
+        }
+    }
+}
+
+// The names in `folder`, the temporary names records are written under left out.
+async fn list_names(folder: &Path) -> io::Result<HashSet<OsString>> {
+    let mut entries = tokio::fs::read_dir(folder).await?;
+    let mut names = HashSet::new();
+    while let Some(entry) = entries.next_entry().await? {
+        let name = entry.file_name();
+        if !name
+            .as_encoded_bytes()
+            .ends_with(TEMPORARY_FILE_SUFFIX.as_bytes())
+        {
+            names.insert(name);
+        }
+    }
+    Ok(names)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::fs;
+    use std::io::Write;
+    use std::time::Duration;
+
+    use tokio::time::{sleep, timeout};
+
+    use super::{FileAppendWatch, FolderArrivalWatch};
+    use crate::atomic_replace::TEMPORARY_FILE_SUFFIX;
+
+    // How long a change may take to be seen.
+    const SEEN_WITHIN: Duration = Duration::from_secs(5);
+
+    // How long a write that must not be seen is waited on.
+    const UNSEEN_FOR: Duration = Duration::from_millis(300);
+
+    // How long a change waits, so the watch is already waiting when it comes.
+    const CHANGE_DELAY: Duration = Duration::from_millis(50);
+
+    // Fails when a write to a temporary name is taken for a record, or a rename into the folder
+    // does not wake the waiting watch.
+    #[tokio::test]
+    async fn channel_folder_watch_sees_a_rename_and_not_a_temporary_write() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let mut watch = FolderArrivalWatch::watch(folder.path())
+            .await
+            .expect("the folder is watched");
+        let temporary = folder
+            .path()
+            .join(format!("record.1{TEMPORARY_FILE_SUFFIX}"));
+        let record = folder.path().join("record");
+
+        let (early, ()) = tokio::join!(timeout(UNSEEN_FOR, watch.next_arrivals()), async {
+            sleep(CHANGE_DELAY).await;
+            fs::write(&temporary, b"half").expect("the temporary file is written");
+        });
+        let (arrivals, ()) = tokio::join!(timeout(SEEN_WITHIN, watch.next_arrivals()), async {
+            sleep(CHANGE_DELAY).await;
+            fs::rename(&temporary, &record).expect("the record is renamed into place");
+        });
+
+        assert!(
+            early.is_err(),
+            "a temporary write was an arrival: {early:?}"
+        );
+        assert_eq!(
+            arrivals
+                .expect("the rename is seen in time")
+                .expect("the folder is listed"),
+            vec![record]
+        );
+    }
+
+    // Fails when the bytes written before the watch are skipped, an append does not wake the
+    // waiting watch, or a byte is handed back twice.
+    #[tokio::test]
+    async fn channel_folder_watch_hands_back_each_appended_byte_once() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let path = folder.path().join("output");
+        let mut writer = fs::File::create(&path).expect("the file is made");
+        writer
+            .write_all(b"first ")
+            .expect("the first bytes are written");
+        let mut watch = FileAppendWatch::watch(&path)
+            .await
+            .expect("the file is watched");
+
+        let first = timeout(SEEN_WITHIN, watch.next_appended()).await;
+        let (second, ()) = tokio::join!(timeout(SEEN_WITHIN, watch.next_appended()), async {
+            sleep(CHANGE_DELAY).await;
+            writer.write_all(b"second").expect("the append is written");
+        });
+
+        assert_eq!(
+            first
+                .expect("the first bytes in time")
+                .expect("the file reads"),
+            b"first "
+        );
+        assert_eq!(
+            second
+                .expect("the append is seen in time")
+                .expect("the file reads"),
+            b"second"
+        );
+    }
+}

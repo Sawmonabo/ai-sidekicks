@@ -9,6 +9,10 @@ use tempfile::TempPath;
 
 use crate::{create_new_file, flush_open_file, rename_replacing};
 
+/// The suffix of the temporary file a replace writes before its rename, which a watch for renamed
+/// records leaves out.
+pub(crate) const TEMPORARY_FILE_SUFFIX: &str = ".tmp";
+
 /// Why a crash-safe replace failed; the target keeps its old contents.
 #[derive(Debug, thiserror::Error)]
 #[error("{failure}{}", removal_note(.removal_failure.as_ref()))]
@@ -39,7 +43,7 @@ pub fn replace_file_atomically(
     prefix.push(".");
     let mut temporary = tempfile::Builder::new()
         .prefix(&prefix)
-        .suffix(".tmp")
+        .suffix(TEMPORARY_FILE_SUFFIX)
         .make_in(folder, |path| create_new_file(path, mode))
         .map_err(|failure| ReplaceFileError {
             failure,
