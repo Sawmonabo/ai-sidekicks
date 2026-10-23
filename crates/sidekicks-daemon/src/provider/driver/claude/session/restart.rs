@@ -382,8 +382,9 @@ impl ClaudeSessionRestarts {
         lock(&self.table)
             .ended_conversations
             .insert(session_id, ended_conversation_of(live));
-        self.routes.retire_run_routes(session_id);
         close.close_channel().await;
+        // Once the channel is closed, so a frame read before it still reaches its run.
+        self.routes.retire_run_routes(session_id);
         close.finish();
         live.release_served_presses(&self.ports.reviewer_denials);
         if let Some(process_gone) = self.ports.process_gone.port() {

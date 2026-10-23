@@ -1,9 +1,9 @@
 //! A run engine that records each call the driver makes and answers as the real one would on
-//! success.
+//! success, and one that holds a delivery to another engine until released.
 
 use std::collections::VecDeque;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -260,6 +260,100 @@ impl ClaudeRunEngine for RecordingRunEngine {
     fn end_turn_on_close(&self, run_id: RunId) -> BoxFuture<'_, Result<(), RunEngineError>> {
         self.record(EngineCall::EndTurnOnClose(run_id));
         async { Ok(()) }.boxed()
+    }
+}
+
+/// A run engine that hands every call to `inner`, holding the outcome of the next delivery until
+/// the sender `hold_next_delivery` returned fires or drops, so the session's task waits on it.
+pub(crate) struct HeldDeliveryEngine {
+    inner: Arc<dyn ClaudeRunEngine>,
+    delivery_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
+}
+
+impl HeldDeliveryEngine {
+    /// The engine over `inner`, holding nothing yet.
+    pub(crate) fn new(inner: Arc<dyn ClaudeRunEngine>) -> Self {
+        Self {
+            inner,
+            delivery_holds: Mutex::default(),
+        }
+    }
+
+    /// Holds the next delivery's outcome until the returned sender fires or drops.
+    pub(crate) fn hold_next_delivery(&self) -> oneshot::Sender<()> {
+        let (release, held) = oneshot::channel();
+        lock(&self.delivery_holds).push_back(held);
+        release
+    }
+}
+
+impl ClaudeRunEngine for HeldDeliveryEngine {
+    fn deliver<'engine>(
+        &'engine self,
+        provider_account_id: Option<ProviderAccountId>,
+        raw_wire_type: Option<&str>,
+        delivery: InboundDelivery<'_>,
+    ) -> BoxFuture<'engine, Option<InboundOutcome>> {
+        let delivered = self
+            .inner
+            .deliver(provider_account_id, raw_wire_type, delivery);
+        let hold = lock(&self.delivery_holds).pop_front();
+        async move {
+            if let Some(hold) = hold {
+                hold.await.unwrap_or(());
+            }
+            delivered.await
+        }
+        .boxed()
+    }
+
+    fn start_turn(
+        &self,
+        run_id: RunId,
+        step_bound: Option<SafeInt<1>>,
+    ) -> BoxFuture<'_, Result<Option<StartedTurn>, RunEngineError>> {
+        self.inner.start_turn(run_id, step_bound)
+    }
+
+    fn count_step(&self, run_id: RunId) -> BoxFuture<'_, Result<(), RunEngineError>> {
+        self.inner.count_step(run_id)
+    }
+
+    fn record_turn_end(
+        &self,
+        run_id: RunId,
+        turn_end: ProviderTurnEnd,
+    ) -> BoxFuture<'_, Result<bool, RunEngineError>> {
+        self.inner.record_turn_end(run_id, turn_end)
+    }
+
+    fn record_settled_output_speed(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+        state: ProviderOutputSpeedState,
+    ) -> BoxFuture<'_, Result<(), RunEngineError>> {
+        self.inner
+            .record_settled_output_speed(session_id, run_id, state)
+    }
+
+    fn start_daemon_turn(
+        &self,
+        request: DaemonTurnStartRequest,
+    ) -> BoxFuture<'_, Result<RunId, RunEngineError>> {
+        self.inner.start_daemon_turn(request)
+    }
+
+    fn end_turn_on_process_exit(
+        &self,
+        run_id: RunId,
+        process_exit: ProcessExit,
+    ) -> BoxFuture<'_, Result<(), RunEngineError>> {
+        self.inner.end_turn_on_process_exit(run_id, process_exit)
+    }
+
+    fn end_turn_on_close(&self, run_id: RunId) -> BoxFuture<'_, Result<(), RunEngineError>> {
+        self.inner.end_turn_on_close(run_id)
     }
 }
 

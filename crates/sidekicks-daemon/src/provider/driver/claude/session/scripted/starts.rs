@@ -178,6 +178,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                     None => return Err(spawn_failure("no session scripted")),
                 };
                 tables.next_process_id += 1;
+                channel.hand_exit_to(Arc::clone(&request.listener));
                 tables.started.push(ScriptedStartRecord {
                     conversation: request.conversation,
                     listener: request.listener,

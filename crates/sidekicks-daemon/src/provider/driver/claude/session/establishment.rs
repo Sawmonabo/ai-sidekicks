@@ -29,6 +29,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_platforms::{PathRules, Spawner};
+use tokio::sync::SetOnce;
 
 use self::context::{
     ClaudeSpawnContextError, ClaudeStoredReadError, read_claude_step_bound,
@@ -716,6 +717,7 @@ impl ClaudeSessionEstablishment {
             process_identity: started.identity,
             callback_tool_binding: callback_tools.into_shared(),
             process_exit: OnceLock::new(),
+            task_ended: SetOnce::new(),
             served_bindings: Mutex::default(),
             spawn_bound_legs: legs,
         });

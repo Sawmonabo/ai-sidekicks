@@ -332,10 +332,12 @@ impl ClaudeSlotClose {
         &self.session
     }
 
-    /// Closes the process's channel, then stops taking its frames: one read before it closed
-    /// still reaches the session.
+    /// Closes the process's channel, waits until the process's task has taken every arrival its
+    /// reader queued before the exit, or ended without it, then stops taking its frames: every
+    /// frame read before the process exited reaches the session, whole, and none after.
     pub(crate) async fn close_channel(&self) {
         self.session.channel.close().await;
+        self.session.task_ended.wait().await;
         if let Some(ClaudeSessionSlot::Closing { settled, reading }) =
             lock(&self.table).by_session.get_mut(&self.session_id)
             && Arc::ptr_eq(settled, &self.settled)

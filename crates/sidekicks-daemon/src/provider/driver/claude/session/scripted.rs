@@ -26,6 +26,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::Spawner;
 use tempfile::TempDir;
 use tokio::runtime::Handle;
+use tokio::sync::SetOnce;
 
 use self::channel::ScriptedChannel;
 use self::daemon_services::{
@@ -147,6 +148,7 @@ pub(crate) fn scripted_live_session(
         },
         callback_tool_binding: test_callback_tool_binding(session_id),
         process_exit: OnceLock::new(),
+        task_ended: SetOnce::new(),
         served_bindings: Mutex::default(),
     }
 }

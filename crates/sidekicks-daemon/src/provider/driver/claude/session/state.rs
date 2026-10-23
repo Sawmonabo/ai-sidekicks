@@ -188,6 +188,9 @@ pub(crate) struct LiveClaudeSession {
     /// The exit the process ended with, set once it ended, for a rewind's predecessor whose exit
     /// is taken up only once its fork fails.
     pub(crate) process_exit: OnceLock<ProcessExit>,
+    /// Set once the process's task has ended, on its exit or for any other reason: by then the
+    /// task has taken whole every arrival its reader queued before the exit.
+    pub(crate) task_ended: SetOnce<()>,
     /// The binding of each run that took the session's turn on this process, whose held `Allow
     /// once` presses are released once the process is gone, ended runs' included.
     pub(crate) served_bindings: Mutex<HashSet<RuntimeBindingId>>,

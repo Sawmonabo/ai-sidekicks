@@ -3,16 +3,20 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use serde_json::Value;
 use serde_json::value::RawValue;
+use sidekicks_contracts::command::ExitCode;
+use sidekicks_contracts::run::control::{ProcessExit, ProcessExitWithCode};
+use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::oneshot;
 
 use crate::mutex_lock::lock;
 use crate::provider::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
+use crate::provider::driver::claude::session::process::ClaudeProcessListener;
 use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::provider::driver::claude::session::transport::control::ClaudeControlRequest;
 use crate::provider::driver::claude::session::transport::inbound::ClaudeControlAnswer;
@@ -61,8 +65,9 @@ pub(crate) enum ScriptedAnswer {
 }
 
 /// A Claude Code process that records what the driver writes and answers as scripted: a control
-/// request with no scripted answer is answered with an empty response, and a user line is written
-/// unless a hold or a failure was scripted for it.
+/// request with no scripted answer is answered with an empty response, a user line is written
+/// unless a hold or a failure was scripted for it, and a close ends the process, whose exit its
+/// listener takes as a real reader hands it over.
 #[derive(Default)]
 pub(crate) struct ScriptedChannel {
     writes: Mutex<Vec<ScriptedWrite>>,
@@ -70,6 +75,7 @@ pub(crate) struct ScriptedChannel {
     user_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
     user_failures: Mutex<VecDeque<ClaudeWriteDelivery>>,
     close_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
+    listener: Mutex<Option<Arc<dyn ClaudeProcessListener>>>,
 }
 
 impl ScriptedChannel {
@@ -95,6 +101,12 @@ impl ScriptedChannel {
         let (release, held) = oneshot::channel();
         lock(&self.close_holds).push_back(held);
         release
+    }
+
+    /// Hands the exit of a later close to `listener`, the listener of the start that brought the
+    /// process up.
+    pub(crate) fn hand_exit_to(&self, listener: Arc<dyn ClaudeProcessListener>) {
+        *lock(&self.listener) = Some(listener);
     }
 
     /// Fails the next user line's write as `delivery`.
@@ -224,6 +236,14 @@ impl ClaudeProcessChannel for ScriptedChannel {
         async move {
             if let Some(hold) = hold {
                 drop(hold.await);
+            }
+            let listener = lock(&self.listener).clone();
+            if let Some(listener) = listener {
+                listener.take_exit(Ok(ProcessExit::Code(ProcessExitWithCode {
+                    exit_code: ExitCode::new(0).expect("zero is a safe integer"),
+                    signal: None,
+                    output_tail: FreeFormText::new("closed".to_owned()).expect("the tail fits"),
+                })));
             }
         }
         .boxed()

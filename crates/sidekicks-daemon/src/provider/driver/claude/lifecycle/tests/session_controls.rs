@@ -3,7 +3,6 @@
 
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -20,15 +19,19 @@ use super::{resume_params, start_params};
 use crate::events::log_service::tests::open_log;
 use crate::policy::execution_posture_service::compose_execution_posture;
 use crate::provider::driver::claude::DESCRIPTOR;
+use crate::provider::driver::claude::delivery::run_engine::{ClaudeRunEngine, RunEngineDelivery};
 use crate::provider::driver::claude::lifecycle::ClaudeDriver;
 use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::provider::driver::claude::session::scripted::driver::{
     ScriptedDriver, create_params, end_turn_of,
 };
-use crate::provider::driver::claude::session::scripted::run_engine::EngineCall;
+use crate::provider::driver::claude::session::scripted::run_engine::{
+    EngineCall, HeldDeliveryEngine,
+};
 use crate::provider::driver::claude::session::scripted::starts::ScriptedOneTurnRecord;
 use crate::provider::driver::claude::session::scripted::{
-    binding_id, mint_run_id, mint_session_id, settle,
+    SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, mint_run_id, mint_session_id,
+    settle,
 };
 use crate::provider::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::provider::driver::claude::session::transport::declarations::{
@@ -253,6 +256,20 @@ async fn driver_on_the_daemons_engine(
     session_id: SessionId,
     run_id: RunId,
 ) -> Arc<ClaudeDriver> {
+    register_the_daemons_engine(fixture, session_id, run_id).await;
+    Arc::new(ClaudeDriver::with_starts(
+        &fixture.services,
+        fixture.starts.clone(),
+    ))
+}
+
+// Registers the daemon's own run engine and inbound dispatch as the driver's ports, with `run_id`
+// running on `session_id`'s lead binding, and answers the two as the driver delivers to them.
+async fn register_the_daemons_engine(
+    fixture: &ScriptedDriver,
+    session_id: SessionId,
+    run_id: RunId,
+) -> RunEngineDelivery {
     insert_running_run(&fixture.database, session_id, run_id);
     let mut epochs = ExecutionEpochs::new(NonZeroUsize::new(2).expect("the cap is not zero"));
     epochs
@@ -268,24 +285,35 @@ async fn driver_on_the_daemons_engine(
         .expect("the binding has no cursor yet");
     let log = open_log(&fixture.database, None).await;
     let engine = test_engine(&fixture.database, Arc::clone(&log.service), &fixture.home);
+    let dispatch = Arc::new(RunInboundDispatch::new(
+        Arc::clone(&engine),
+        Arc::new(Mutex::new(epochs)),
+        Arc::new(UnreadPublisher),
+        log.service,
+    ));
     let ports = &fixture.services.ports;
     ports
         .inbound_dispatch
-        .register(Arc::new(RunInboundDispatch::new(
-            Arc::clone(&engine),
-            Arc::new(Mutex::new(epochs)),
-            Arc::new(UnreadPublisher),
-            log.service,
-        )))
+        .register(Arc::clone(&dispatch))
         .expect("the dispatch registers once");
     ports
         .run_engine
-        .register(engine)
+        .register(Arc::clone(&engine))
         .expect("the run engine registers once");
-    Arc::new(ClaudeDriver::with_starts(
-        &fixture.services,
-        fixture.starts.clone(),
-    ))
+    RunEngineDelivery::new(engine, dispatch)
+}
+
+// How many reply messages of `run_id` are stored.
+fn reply_count(fixture: &ScriptedDriver, run_id: RunId) -> i64 {
+    fixture
+        .database
+        .reader()
+        .query_row(
+            "SELECT COUNT(*) FROM session_events WHERE run_id = ?1 AND type = 'agent.message.sent'",
+            [run_id.text().as_str()],
+            |row| row.get(0),
+        )
+        .expect("the run's replies count")
 }
 
 // Each terminal event of `run_id`, with the intended close it carries.
@@ -371,15 +399,26 @@ async fn a_close_ends_the_run_in_flight_interrupted_as_intended() {
     );
 }
 
-// Killed by a closing slot that drops the frames its process wrote before the channel closed
-// (`binds_channel` refusing every `Closing` slot): the run would end interrupted by the close
-// instead of on its own `result`, and by a second end the close adds to a run already ended.
+// Killed by a close that stops taking its process's frames once the channel closes (the wait on
+// the session's task deleted from `close_channel`): the reply and the `result` queued behind a held
+// delivery would be dropped and the run would end interrupted by the close, not on its `result`;
+// by a closing slot that refuses every frame; and by a second end the close adds to an ended run.
 #[tokio::test(start_paused = true)]
-async fn a_result_read_during_the_close_ends_its_run_as_intended() {
+async fn the_frames_read_before_the_close_ended_the_process_end_their_run_as_intended() {
     let fixture = ScriptedDriver::new();
     let session_id = mint_session_id();
     let run_id = mint_run_id();
-    let claude = driver_on_the_daemons_engine(&fixture, session_id, run_id).await;
+    let engine = Arc::new(HeldDeliveryEngine::new(Arc::new(
+        register_the_daemons_engine(&fixture, session_id, run_id).await,
+    )));
+    let claude = Arc::new(
+        ClaudeDriver::with_engine(
+            &fixture.services,
+            fixture.starts.clone(),
+            &(Arc::clone(&engine) as Arc<dyn ClaudeRunEngine>),
+        )
+        .expect("the driver composes"),
+    );
     let driver: Arc<dyn ProviderDriver> = claude.clone();
     let channel = Arc::new(ScriptedChannel::default());
     fixture.starts.script_session(Arc::clone(&channel));
@@ -392,6 +431,7 @@ async fn a_result_read_during_the_close_ends_its_run_as_intended() {
         .start_run(start_params(session_id, run_id))
         .await
         .expect("the run starts");
+    let release_engine = engine.hold_next_delivery();
     let release_close = channel.hold_next_close();
 
     let close = tokio::spawn({
@@ -403,14 +443,36 @@ async fn a_result_read_during_the_close_ends_its_run_as_intended() {
         }
     });
     settle().await;
-    end_turn_of(&claude, &start, session_id);
-    tokio::time::timeout(
-        Duration::from_secs(1),
-        ScriptedDriver::wait_for(|| stored_run_state(&fixture.database, &run_id).0 == "completed"),
-    )
-    .await
-    .expect("the run ends on its own result while the close waits");
+    let routes = &claude.composed_parts().expect("composed").run_start.routes;
+    for frame in [
+        json!({"type": "system", "subtype": "init", "session_id": SCRIPTED_PROVIDER_SESSION_ID}),
+        json!({
+            "type": "assistant",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "message": {
+                "id": "message-1",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "the reply"}],
+            },
+        }),
+        json!({
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "result": "the reply",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        }),
+    ] {
+        hand_scripted_frame(&*start.listener, routes, session_id, &frame);
+    }
+    settle().await;
     drop(release_close);
+    settle().await;
+    assert!(
+        !close.is_finished(),
+        "the close waits for the session's task"
+    );
+    drop(release_engine);
     close
         .await
         .expect("the close task ends")
@@ -421,4 +483,5 @@ async fn a_result_read_during_the_close_ends_its_run_as_intended() {
         terminal_events(&fixture, run_id),
         [("agent.run.completed".to_owned(), Some(true))]
     );
+    assert_eq!(reply_count(&fixture, run_id), 1);
 }
