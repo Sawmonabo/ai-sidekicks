@@ -37,6 +37,8 @@ struct DayFiles {
 struct OpenDay {
     day: Date,
     file: File,
+    // The file's length in bytes: read at its open, and grown by each line written whole.
+    length: u64,
 }
 
 // One line: the record's own members beside the instant it was recorded, in the stored form.
@@ -118,16 +120,17 @@ impl DayFiles {
                     .create(true)
                     .append(true)
                     .open(self.folder.join(format!("{day}.ndjson")))?;
-                open_day.insert(OpenDay { day, file })
+                let length = file.metadata()?.len();
+                open_day.insert(OpenDay { day, file, length })
             }
         };
-        let length = open.file.metadata()?.len();
         let Err(failure) = write(&mut open.file, line) else {
+            open.length += line.len() as u64;
             return Ok(());
         };
         let cut = open_day
             .take()
-            .map(|open| open.file.set_len(length))
+            .map(|open| open.file.set_len(open.length))
             .transpose();
         match cut {
             Ok(_cut) => Err(failure),

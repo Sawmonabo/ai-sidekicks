@@ -52,8 +52,9 @@ pub fn create_file_atomically(
 }
 
 /// Removes every temporary file a write to `target` left beside it, as a process ended mid-write
-/// leaves one, running on past a removal that fails. Blocks; answers the folder's listing failure
-/// or each removal's, none once every leftover is gone.
+/// leaves one, running on past a removal that fails. It takes a live write's temporary file too,
+/// so it runs only while no write to `target` does. Blocks; answers the folder's listing failure or
+/// each removal's, none once every leftover is gone.
 pub fn remove_atomic_write_leftovers(target: &Path) -> Vec<io::Error> {
     let (folder, prefix) = temporary_place(target);
     let entries = match fs::read_dir(folder) {

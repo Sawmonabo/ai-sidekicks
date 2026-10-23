@@ -142,11 +142,11 @@ pub(crate) fn crash_monitor_socket_path(run_folder: &Path, daemon_pid: u32) -> P
 /// when it cannot serve.
 pub fn run_crash_monitor(arguments: &[OsString]) -> ExitCode {
     let [socket_path] = arguments else {
-        write_error_line("The crash monitor is started with its socket's path");
+        write_error_line("the crash monitor is started with its socket's path");
         return ExitCode::FAILURE;
     };
     let Some(home) = std::env::home_dir() else {
-        write_error_line("The crash monitor cannot find the home folder");
+        write_error_line("the crash monitor cannot find the home folder");
         return ExitCode::FAILURE;
     };
     let dumps_folder = data_folder(&home).join(CRASH_DUMPS_FOLDER_NAME);
@@ -154,7 +154,7 @@ pub fn run_crash_monitor(arguments: &[OsString]) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(failure) => {
             write_error_line(&format!(
-                "The crash monitor stopped: {}",
+                "the crash monitor stopped: {}",
                 describe_error(&failure)
             ));
             ExitCode::FAILURE

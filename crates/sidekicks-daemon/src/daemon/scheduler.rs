@@ -468,7 +468,7 @@ impl SchedulerShared {
                 // once more when it fires.
                 tracing::error!(
                     error = &source as &(dyn Error + 'static),
-                    "The wall-clock timer could not be disarmed"
+                    "the wall-clock timer could not be disarmed"
                 );
                 break;
             };
@@ -518,7 +518,7 @@ impl SchedulerShared {
                     if let Err(failure) = fired {
                         tracing::error!(
                             error = &failure as &(dyn Error + 'static),
-                            "The wall-clock timer could not be read"
+                            "the wall-clock timer could not be read"
                         );
                     }
                     // A firing spends the instant, so the timer is armed again from the clock.
@@ -528,7 +528,7 @@ impl SchedulerShared {
                 SchedulerEvent::MachineWoke(Err(failure)) => {
                     tracing::warn!(
                         error = &failure as &(dyn Error + 'static),
-                        "The machine's wakes are no longer heard"
+                        "the machine's wakes are no longer heard"
                     );
                     wake_watch = None;
                     // Dropped outside the lock, which closes every receiver.
@@ -621,7 +621,7 @@ fn refuse_run(refused: PendingRun, source: io::Error) {
     tracing::error!(
         job = refused.name,
         error = &source as &(dyn Error + 'static),
-        "The wall-clock timer could not be armed, so the job will not run"
+        "the wall-clock timer could not be armed, so the job will not run"
     );
     if let Some(refusal_sender) = refused.refusal_sender {
         // A send fails only when the handle is gone, and then no one waits for the refusal.

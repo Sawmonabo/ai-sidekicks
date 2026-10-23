@@ -158,13 +158,13 @@ pub(crate) enum RestoreError {
 /// Exits 0 once the restore is recorded, 1 with its step on standard error when it fails.
 pub fn run_database_restore(arguments: &[OsString]) -> ExitCode {
     let [backup_folder] = arguments else {
-        write_error_line("The restore is started with the backup's folder");
+        write_error_line("the restore is started with the backup's folder");
         return ExitCode::FAILURE;
     };
     match restore_from_home(Path::new(backup_folder)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(failure) => {
-            write_error_line(&format!("The restore failed: {}", describe_error(&failure)));
+            write_error_line(&format!("the restore failed: {}", describe_error(&failure)));
             ExitCode::FAILURE
         }
     }

@@ -35,7 +35,6 @@ use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::scheduler::{JobCondition, ScheduledJobHandle, Scheduler};
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::writer::DatabaseWriter;
-use crate::error_description::describe_error;
 use crate::ipc::registry::HandlerError;
 use crate::session::search::index::applier::{SearchIndexApplier, SearchIndexApplyError};
 use crate::session::search::index::outbox::{AppliedOutbox, OutboxReader, delete_applied_outbox};
@@ -686,7 +685,7 @@ async fn follow_commits(
                 let wait = match retry {
                     None => {
                         tracing::warn!(
-                            error = describe_error(&failure),
+                            error = &failure as &(dyn Error + 'static),
                             "search_index_apply_failed"
                         );
                         APPLY_RETRY_FIRST_WAIT
