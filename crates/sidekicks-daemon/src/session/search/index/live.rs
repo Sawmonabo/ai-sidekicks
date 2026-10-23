@@ -244,6 +244,10 @@ impl LiveIndex {
 
     /// One page of a `session.search`, once the index is open. Fails as the search does, or with
     /// the live index's failure or close.
+    #[expect(
+        dead_code,
+        reason = "the daemon's session.search handler, registered at its start"
+    )]
     pub(crate) async fn search_sessions(
         &self,
         request: SessionSearchRequest,
@@ -267,6 +271,10 @@ impl LiveIndex {
     /// One page of a `transcript.search`, once the index is open; a session whose history is
     /// damaged from `damaged_from_sequence` on is searched before that point. Fails as the search
     /// does, or with the live index's failure or close.
+    #[expect(
+        dead_code,
+        reason = "the daemon's transcript.search handler, registered at its start"
+    )]
     pub(crate) async fn search_transcript(
         &self,
         request: TranscriptSearchRequest,
