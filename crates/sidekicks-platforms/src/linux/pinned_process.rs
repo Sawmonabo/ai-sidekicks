@@ -14,7 +14,7 @@ use tokio::io::Interest;
 use tokio::io::unix::AsyncFd;
 
 use crate::child_command::ChildEnd;
-use crate::linux::processes::read_process_environment;
+use crate::linux::process_start::read_process_environment;
 use crate::linux::{read_process_file, read_process_stat_fields};
 use crate::pinned_process::ProcessRecord;
 use crate::posix::process::group::signal_group;

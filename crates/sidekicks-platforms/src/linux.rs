@@ -2,10 +2,10 @@
 //! the Windows drives are mounted at, reads at an offset rather than through a memory map, a
 //! process's files under `/proc` and the fields of its stat file, a local connection's caller
 //! pinned, the bound on a program's argument, a process's memory and the machine's available
-//! memory, one user's processes and a process's environment, whether a terminal's program waits for
-//! input, the daemon's process containment and its shell start's writer check, the machine's wakes
-//! from sleep, a wall-clock timer, the Secret Service and the shells the live test opens on a
-//! folder.
+//! memory, one user's processes and the arguments and environment a process started with, whether a
+//! terminal's program waits for input, the daemon's process containment and its shell start's
+//! writer check, the machine's wakes from sleep, a wall-clock timer, the Secret Service and the
+//! shells the live test opens on a folder.
 
 pub(crate) mod caller_process;
 pub(crate) mod credential_store;
@@ -13,6 +13,7 @@ pub(crate) mod input_wait;
 pub(crate) mod memory;
 pub(crate) mod pinned_process;
 pub(crate) mod process_containment;
+pub(crate) mod process_start;
 pub(crate) mod processes;
 pub(crate) mod shell_start_confirmation;
 pub(crate) mod user_namespace;

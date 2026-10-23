@@ -1,10 +1,7 @@
-//! This process's user's processes and a process's environment, as macOS lists and shows them.
+//! This process's user's processes, as macOS lists them.
 
 use std::io;
 use std::ptr;
-use std::sync::OnceLock;
-
-use crate::posix::process::id::system_process_id;
 
 // `<libproc.h>`'s `PROC_UID_ONLY` and `PROC_PPID_ONLY`, which `libc` does not bind: list the
 // processes of one user id, or the children of one process.
@@ -16,16 +13,6 @@ const PROC_PGRP_ONLY: u32 = 2;
 
 // The bytes of one process id in `proc_listpids`' answer.
 const PROCESS_ID_BYTES: usize = size_of::<libc::pid_t>();
-
-// The bytes of the argument count that opens a `KERN_PROCARGS2` answer.
-const ARGUMENT_COUNT_BYTES: usize = size_of::<libc::c_int>();
-
-// The boundary the kernel pads the executable's path to before the arguments: a pointer of a
-// 64-bit process, which is every process this macOS runs.
-const STRING_AREA_ALIGNMENT: usize = size_of::<u64>();
-
-// The most bytes a process's arguments and environment take together (`KERN_ARGMAX`), read once.
-static ARGUMENT_BYTES: OnceLock<usize> = OnceLock::new();
 
 /// The ids of the processes this process's user runs. Blocks on the read; fails with the system's
 /// error when macOS refuses the list.
@@ -73,165 +60,4 @@ fn list_process_ids(kind: u32, value: u32) -> io::Result<Vec<u32>> {
             u32::try_from(process_id).ok().filter(|id| *id > 0)
         })
         .collect())
-}
-
-/// The environment process `process_id` started with, one `NAME=value` entry each, bytes that are
-/// not UTF-8 read lossily; `None` when the system refuses the process (it ended, or another user
-/// runs it) or shows no environment, as it shows none for its own programs. Blocks on the read;
-/// fails with the system's error on any other refusal.
-pub fn read_process_environment(process_id: u32) -> io::Result<Option<Vec<String>>> {
-    let Ok(pid) = system_process_id(process_id) else {
-        return Ok(None);
-    };
-    let argument_bytes = if let Some(bytes) = ARGUMENT_BYTES.get() {
-        *bytes
-    } else {
-        let bytes = read_argument_bytes()?;
-        *ARGUMENT_BYTES.get_or_init(|| bytes)
-    };
-    // Allocated per read and freed after it, so no buffer the size of the limit stays held.
-    let mut buffer = vec![0_u8; argument_bytes];
-    let mut length = buffer.len();
-    let mut name = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid.get()];
-    // SAFETY: `name` holds three integers, the buffer is live and `length` long, and nothing else
-    // reads either until the call returns.
-    let status = unsafe {
-        libc::sysctl(
-            name.as_mut_ptr(),
-            3,
-            buffer.as_mut_ptr().cast(),
-            &raw mut length,
-            ptr::null_mut(),
-            0,
-        )
-    };
-    if status != 0 {
-        let error = io::Error::last_os_error();
-        // A process that ended or that the system hides from this user is refused as invalid.
-        return match error.raw_os_error() {
-            Some(libc::EINVAL | libc::EPERM | libc::ESRCH) => Ok(None),
-            _ => Err(error),
-        };
-    }
-    buffer.truncate(length);
-    Ok(environment_in(&buffer))
-}
-
-// `KERN_ARGMAX`: the most bytes a process's arguments and environment take together.
-fn read_argument_bytes() -> io::Result<usize> {
-    let mut argument_bytes: libc::c_int = 0;
-    let mut length = size_of::<libc::c_int>();
-    let mut name = [libc::CTL_KERN, libc::KERN_ARGMAX];
-    // SAFETY: `name` holds two integers, the answer is one live `c_int` of `length` bytes, and
-    // nothing else reads either until the call returns.
-    let status = unsafe {
-        libc::sysctl(
-            name.as_mut_ptr(),
-            2,
-            (&raw mut argument_bytes).cast(),
-            &raw mut length,
-            ptr::null_mut(),
-            0,
-        )
-    };
-    if status != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    usize::try_from(argument_bytes).map_err(io::Error::other)
-}
-
-// A `KERN_PROCARGS2` answer is the argument count, then the executable's path, zero bytes that
-// pad the strings to the next pointer boundary from their start, each argument and each environment
-// entry, each ended by a zero byte, and the environment by an empty entry; the environment's
-// entries, or `None` when there are none or the answer is cut short. Only the padding is skipped,
-// so an empty first argument is still counted.
-fn environment_in(answer: &[u8]) -> Option<Vec<String>> {
-    let (count_bytes, strings) = answer.split_at_checked(ARGUMENT_COUNT_BYTES)?;
-    let argument_count = libc::c_int::from_ne_bytes(count_bytes.try_into().ok()?);
-    let argument_count = usize::try_from(argument_count).ok()?;
-    let path_end = strings.iter().position(|byte| *byte == 0)?;
-    let arguments_start = (path_end + 1).next_multiple_of(STRING_AREA_ALIGNMENT);
-    let environment: Vec<String> = strings
-        .get(arguments_start..)?
-        .split(|byte| *byte == 0)
-        .skip(argument_count)
-        .take_while(|entry| !entry.is_empty())
-        .map(|entry| String::from_utf8_lossy(entry).into_owned())
-        .collect();
-    (!environment.is_empty()).then_some(environment)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::process::{Command, Stdio};
-    use std::thread;
-    use std::time::Duration;
-
-    use super::environment_in;
-    use crate::{list_user_process_ids, read_process_environment};
-
-    // The marker the child carries, and the value it carries it with.
-    const PROBE_NAME: &str = "SIDEKICKS_PROBE";
-    const PROBE_ENTRY: &str = "SIDEKICKS_PROBE=1";
-
-    // How long the child waits, which bounds the test if it is never killed.
-    const CHILD_WAIT: Duration = Duration::from_secs(5);
-
-    // macOS hides the environment of its own programs, so the child is this test program, run
-    // again on this one test, which waits when it carries the marker.
-    #[test]
-    fn a_child_s_environment_and_id_read_back() {
-        if std::env::var_os(PROBE_NAME).is_some() {
-            thread::sleep(CHILD_WAIT);
-            return;
-        }
-        let test_name = module_path!()
-            .split_once("::")
-            .map_or(module_path!(), |(_, path)| path);
-        let mut child = Command::new(std::env::current_exe().expect("the test program is known"))
-            .args([
-                "--exact",
-                &format!("{test_name}::a_child_s_environment_and_id_read_back"),
-            ])
-            .env(PROBE_NAME, "1")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("the child starts");
-        let child_id = child.id();
-
-        let environment = read_process_environment(child_id);
-        let user_processes = list_user_process_ids();
-        child.kill().expect("the child is killed");
-        child.wait().expect("the child is reaped");
-
-        let environment = environment
-            .expect("the environment reads")
-            .expect("the child shows an environment");
-        assert!(environment.iter().any(|entry| entry == PROBE_ENTRY));
-        assert!(
-            user_processes
-                .expect("the user's processes list")
-                .contains(&child_id)
-        );
-    }
-
-    // Fails when the padding after the executable's path is skipped as a run of empty entries,
-    // which also skips an empty first argument and then reads one argument as the environment.
-    #[test]
-    fn an_empty_first_argument_is_counted_after_the_path_s_padding() {
-        let answer = |path: &[u8]| -> Vec<u8> {
-            let mut answer = 2_i32.to_ne_bytes().to_vec();
-            answer.extend_from_slice(path);
-            answer.push(0);
-            answer.resize((answer.len() - 4).next_multiple_of(8) + 4, 0);
-            answer.extend_from_slice(b"\0second\0A=1\0B=2\0\0apple=x\0");
-            answer
-        };
-        let expected = Some(vec!["A=1".to_owned(), "B=2".to_owned()]);
-
-        // A path whose end falls between boundaries, and one whose end falls on one.
-        assert_eq!(environment_in(&answer(b"/bin/a")), expected);
-        assert_eq!(environment_in(&answer(b"/bin/ab")), expected);
-    }
 }

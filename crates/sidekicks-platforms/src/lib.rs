@@ -27,7 +27,7 @@
               measurement tests' footprint share, Windows' `OpenProcess` and \
               `K32GetProcessMemoryInfo`, the available-memory reads (macOS's `mach_host_self` and \
               `host_statistics64`, Windows' `GlobalMemoryStatusEx`), macOS's process list \
-              (`proc_listpids`) and environment read (`sysctl` of `KERN_ARGMAX` and \
+              (`proc_listpids`) and process start read (`sysctl` of `KERN_ARGMAX` and \
               `KERN_PROCARGS2`), a released terminal's wait for its program (`waitid`, and its \
               exit event's registration), mimalloc's `mi_collect`, tree-sitter's `set_allocator`, \
               and the power notifications and wall-clock timers of macOS and Windows are C \
@@ -84,6 +84,7 @@ mod pipe_reader;
 mod posix;
 mod process_containment;
 mod process_identity;
+mod process_start;
 mod program_install_folders;
 mod program_start;
 mod recreate_link;
@@ -160,7 +161,9 @@ pub use linux::pinned_process::{PinnedProcess, pin_child_process, pin_running_pr
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::process_footprint;
 #[cfg(target_os = "linux")]
-pub use linux::processes::{list_user_process_ids, read_process_environment};
+pub use linux::process_start::{read_process_environment, read_process_start};
+#[cfg(target_os = "linux")]
+pub use linux::processes::list_user_process_ids;
 #[cfg(target_os = "linux")]
 pub use linux::read_command_argument_limit;
 #[cfg(target_os = "linux")]
@@ -196,7 +199,9 @@ pub use macos::pinned_process::{PinnedProcess, pin_child_process, pin_running_pr
 #[cfg(target_os = "macos")]
 pub use macos::power_source::PowerSourceWatch;
 #[cfg(target_os = "macos")]
-pub use macos::processes::{list_user_process_ids, read_process_environment};
+pub use macos::process_start::{read_process_environment, read_process_start};
+#[cfg(target_os = "macos")]
+pub use macos::processes::list_user_process_ids;
 #[cfg(target_os = "macos")]
 pub use macos::read_command_argument_limit;
 #[cfg(target_os = "macos")]
@@ -278,6 +283,7 @@ pub use posix::shell_start::{DOES_PARENT_DEATH_FOLLOW_STARTING_THREAD, run_shell
 pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
+pub use process_start::ProcessStart;
 // The daemon's own socket on macOS and Linux is AF_UNIX too, so one dial serves both.
 #[cfg(unix)]
 pub use posix::shell_start_confirmation::{ShellLaunchWriter, ShellStartConfirmation};
@@ -420,7 +426,9 @@ pub use windows::pinned_process::{PinnedProcess, pin_child_process, pin_running_
 #[cfg(target_os = "windows")]
 pub use windows::private_folder::create_private_folder;
 #[cfg(target_os = "windows")]
-pub use windows::processes::{list_user_process_ids, read_process_environment};
+pub use windows::process_start::{read_process_environment, read_process_start};
+#[cfg(target_os = "windows")]
+pub use windows::processes::list_user_process_ids;
 #[cfg(target_os = "windows")]
 pub use windows::real_path::real_path;
 #[cfg(target_os = "windows")]

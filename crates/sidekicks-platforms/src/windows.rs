@@ -29,6 +29,7 @@ pub(crate) mod os_text;
 pub(crate) mod pinned_process;
 pub(crate) mod private_folder;
 pub(crate) mod process_containment;
+pub(crate) mod process_start;
 pub(crate) mod process_user;
 pub(crate) mod processes;
 pub(crate) mod real_path;
