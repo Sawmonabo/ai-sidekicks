@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use rstest::rstest;
 use rusqlite::Connection;
+use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
 use sidekicks_search::index::{SearchIndex, SearchQuery};
 use tokio::sync::{Notify, watch};
 use tokio::time::{Instant, timeout, timeout_at};
@@ -17,6 +18,7 @@ use super::test_services::TestDaemonServices;
 use super::{LiveIndexShared, LiveIndexState, OpenIndex, catch_up, delete_applied, follow_commits};
 use crate::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
 use crate::database::writer::test_file::TestDatabase;
+use crate::session::directory::test_rows::insert_session_row;
 use crate::session::search::index::applier::SearchIndexApplier;
 use crate::session::search::index::outbox::{AppliedOutbox, OutboxReader, delete_applied_outbox};
 use crate::session::search::index::rebuild::{
@@ -24,6 +26,7 @@ use crate::session::search::index::rebuild::{
 };
 use crate::session::search::index::schema::add_titled_session;
 use crate::session::search::rowid_floors::RowidFloorLog;
+use crate::transcript::test_log::TranscriptTestLog;
 
 // A database of `session_count` titled sessions, beside an index whose newest commit records the
 // first session's outbox rows, opened as a start opens it; and the outbox's highest id. Past one
@@ -309,5 +312,50 @@ async fn a_failed_apply_keeps_the_last_commit_served_and_is_tried_again_after_it
         shared.stop.cancel();
     };
     tokio::join!(following, driving);
+    open.index.close().expect("the index closes");
+}
+
+// A reply whose stored body is damaged in its second frame is no index row: the apply passes over
+// it and applies the reply after it, so the damaged reply's words find nothing and the next
+// reply's do. Killed by a damaged body that fails the apply as a refused read does.
+#[tokio::test]
+async fn an_apply_passes_over_a_damaged_body_and_applies_the_rows_after_it() {
+    let log = TranscriptTestLog::new();
+    let services = TestDaemonServices::open(&log.database).await;
+    let folder = tempfile::tempdir().expect("the test makes a temporary folder");
+    let (_, open, _) = index_behind_its_database(&log.database, &services, folder.path(), 1).await;
+    insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
+    let session_rowid: i64 = log
+        .writer
+        .query_row(
+            "SELECT rowid FROM sessions WHERE id = ?1",
+            [log.session_id.text().as_str()],
+            |row| row.get(0),
+        )
+        .expect("the session's key reads");
+    let session_key = u64::try_from(session_rowid).expect("a rowid is positive");
+    let damaged_reply = format!("zebra {}", "words ".repeat(2 * PAGE_MAX_BYTES / 6));
+    let (damaged, _) = log.reply("m1", None, &damaged_reply);
+    log.damage_frame(damaged, 1);
+    log.reply("m2", None, "quokka");
+
+    open.applier
+        .apply_waiting(|_| {})
+        .await
+        .expect("the apply passes over the damaged reply");
+
+    let rows_found = |word: &str| {
+        let query = SearchQuery {
+            words: vec![word.to_owned()],
+            last_word_is_prefix: false,
+        };
+        open.index
+            .find_in_session(session_key, &query)
+            .expect("the find reads")
+            .row_keys
+            .len()
+    };
+    assert_eq!(rows_found("zebra"), 0);
+    assert_eq!(rows_found("quokka"), 1);
     open.index.close().expect("the index closes");
 }

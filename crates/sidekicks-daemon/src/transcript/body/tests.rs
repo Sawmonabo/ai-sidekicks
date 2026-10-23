@@ -2,7 +2,6 @@
 
 use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
 use sidekicks_contracts::session::id::SessionId;
-use zstd::zstd_safe;
 
 use super::read_row_body;
 use super::starts_cache::BlockCuts;
@@ -40,27 +39,6 @@ fn read_part(
     .map_err(|error| error.to_string())
 }
 
-// Flips the checksum of the first frame of the body stored at `sequence`, so decoding it fails.
-fn damage_first_frame(log: &TranscriptTestLog, sequence: i64) {
-    let mut stored: Vec<u8> = log
-        .writer
-        .query_row(
-            "SELECT content_payload FROM session_events WHERE sequence = ?1",
-            [sequence],
-            |row| row.get(0),
-        )
-        .expect("the body reads");
-    let first_frame_bytes =
-        zstd_safe::find_frame_compressed_size(&stored).expect("the first frame is whole");
-    stored[first_frame_bytes - 1] ^= 0xff;
-    log.writer
-        .execute(
-            "UPDATE session_events SET content_payload = ?1 WHERE sequence = ?2",
-            rusqlite::params![stored, sequence],
-        )
-        .expect("the damaged body is written");
-}
-
 // Once an ended reply's first part has cut it, a later part decodes only the frames it covers:
 // the first frame, damaged after that read, is never decoded again. A reply still taking pieces
 // is read whole for each part, so the same damage fails its later part. Killed by an ended reply
@@ -84,7 +62,7 @@ fn an_ended_replys_later_part_reads_only_its_frames() {
             third > PAGE_MAX_BYTES as u64,
             "the third part starts past the first frame"
         );
-        damage_first_frame(&log, sequence);
+        log.damage_frame(sequence, 0);
         let read = read_part(&log, &block_cuts, &row_id, third);
         assert_eq!(read.is_ok(), is_ended, "ended: {is_ended}, read: {read:?}");
     }

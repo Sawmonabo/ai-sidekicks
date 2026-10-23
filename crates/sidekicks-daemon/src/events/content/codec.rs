@@ -309,6 +309,18 @@ pub(crate) fn no_decoder_read_failure() -> rusqlite::Error {
     )
 }
 
+/// Whether `error` is the conversion error [`StoredBodyPlace::stream_column`] fails with on a
+/// damaged body, as against a read SQLite refused.
+pub(crate) fn is_damaged_body_column(error: &rusqlite::Error) -> bool {
+    let rusqlite::Error::FromSqlConversionFailure(_, _, cause) = error else {
+        return false;
+    };
+    matches!(
+        cause.downcast_ref::<BodyStreamError>(),
+        Some(BodyStreamError::Damaged(_))
+    )
+}
+
 /// Where a stored body sits before it is read: its row and what its payload states, read back by
 /// [`StoredBodyPlace::read`] from the columns [`stored_body_place_sql`] selects.
 #[derive(Clone, Debug)]

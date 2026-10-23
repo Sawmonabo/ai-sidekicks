@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::attachment::write;
+use zstd::zstd_safe;
 
 use crate::database::writer::test_file::{TestDatabase, insert_test_event, test_session_id};
 use crate::transcript::block_cut::{ChildStartsParse, MARKDOWN_PARSE};
@@ -218,6 +219,31 @@ impl TranscriptTestLog {
     /// A second connection, to read what the writer committed.
     pub(crate) fn reader(&self) -> Connection {
         self.database.reader()
+    }
+
+    /// Flips the checksum, its last byte, of the frame at `frame`, counted from 0, of the body
+    /// stored at `sequence`, so decoding that frame fails.
+    pub(crate) fn damage_frame(&self, sequence: i64, frame: usize) {
+        let mut stored: Vec<u8> = self
+            .writer
+            .query_row(
+                "SELECT content_payload FROM session_events WHERE sequence = ?1",
+                [sequence],
+                |row| row.get(0),
+            )
+            .expect("the body reads");
+        let mut frame_end = 0;
+        for _ in 0..=frame {
+            frame_end += zstd_safe::find_frame_compressed_size(&stored[frame_end..])
+                .expect("the stored frames are whole");
+        }
+        stored[frame_end - 1] ^= 0xff;
+        self.writer
+            .execute(
+                "UPDATE session_events SET content_payload = ?1 WHERE sequence = ?2",
+                rusqlite::params![stored, sequence],
+            )
+            .expect("the damaged body is written");
     }
 }
 

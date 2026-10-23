@@ -1,14 +1,16 @@
 //! Fills the batches handed to the index row by row, a row's text read a page at a time: a row of
 //! one page goes whole, a longer one as its pages, its edge documents and its terminal document,
-//! which a search waits for before it sees the row. Each page is charged to
-//! the batch's text bound, and a long row that fills it hands the batch so far to the index and
-//! goes on in the next, so a batch holds about the bound and one page, and a row of any length
-//! one page and the tail its edges keep.
+//! which a search waits for before it sees the row. Each page is charged to the batch's text
+//! bound, and a long row that fills it hands the batch so far to the index and goes on in the next,
+//! so a batch holds about the bound and one page, and a row of any length one page and the tail its
+//! edges keep. A row whose stored body is damaged is no index row: it is logged and passed over.
 
+use std::error::Error;
 use std::ops::ControlFlow;
 
 use sidekicks_search::index::{IndexBatch, IndexRow, LongRowDocuments};
 
+use crate::events::content::codec::is_damaged_body_column;
 use crate::session::search::index::rows::{IndexRowReader, SourceRow};
 
 /// One batch being filled, with the text bound its pages are charged to.
@@ -43,7 +45,8 @@ impl IndexBatchBuilder {
     /// Adds `row`, its text read through `rows` a page at a time. Once its pages fill the text
     /// bound before its end, the batch so far goes to `flush` recording `applied_through`, the
     /// outbox id before the row's entry, and the row goes on in a new batch that continues its key.
-    /// Fails as the row's read or `flush` fails.
+    /// A row whose stored body does not decode is logged and taken out of the index instead.
+    /// Fails as the row's read is refused or `flush` fails.
     pub(crate) fn add_row<Failure>(
         &mut self,
         rows: &IndexRowReader<'_>,
@@ -57,7 +60,8 @@ impl IndexBatchBuilder {
         // A page is held until the next arrives, so a row of one page goes whole.
         let mut held: Option<String> = None;
         let mut long_row: Option<LongRowDocuments> = None;
-        let stopped = rows.for_each_page(&row, |page| {
+        let documents_before = self.batch.long_row_documents.len();
+        let paged = rows.for_each_page(&row, |page| {
             let Some(earlier) = held.replace(page) else {
                 return ControlFlow::Continue(());
             };
@@ -67,7 +71,28 @@ impl IndexBatchBuilder {
                 Ok(()) => ControlFlow::Continue(()),
                 Err(failure) => ControlFlow::Break(failure),
             }
-        })?;
+        });
+        let stopped = match paged {
+            Ok(stopped) => stopped,
+            Err(damage) if is_damaged_body_column(&damage) => {
+                tracing::warn!(
+                    session_key = row.owner_key,
+                    sequence = row.log_row.as_ref().map(|log_row| log_row.sequence),
+                    error = &damage as &(dyn Error + 'static),
+                    "search_index_row_damaged"
+                );
+                // The row's pages this batch holds go, and its key takes out any an earlier
+                // batch committed.
+                if self.batch.continued_key == Some(row.key) {
+                    self.batch.long_row_documents.clear();
+                } else {
+                    self.batch.long_row_documents.truncate(documents_before);
+                }
+                self.batch.removed_keys.push(row.key);
+                return Ok(());
+            }
+            Err(refused) => return Err(refused.into()),
+        };
         if let Some(failure) = stopped {
             return Err(failure);
         }

@@ -249,7 +249,7 @@ fn a_long_body_streams_from_its_column_a_frame_at_a_time_until_a_damaged_frame()
     assert!(matches!(stopped, Ok(ControlFlow::Break(1))), "{stopped:?}");
     assert_eq!(first_frames, frames[..1]);
 
-    let mut stored: Vec<u8> = reader
+    let stored: Vec<u8> = reader
         .query_row(
             "SELECT content_payload FROM session_events WHERE sequence = ?1",
             [sequence],
@@ -271,16 +271,7 @@ fn a_long_body_streams_from_its_column_a_frame_at_a_time_until_a_damaged_frame()
     .expect("the body streams across a split header");
     assert_eq!(split_read, ControlFlow::Continue(()));
     assert_eq!(split_frames, frames);
-    let second_frame_bytes = zstd_safe::find_frame_compressed_size(&stored[first_frame_bytes..])
-        .expect("the second frame is whole");
-    // The second frame's last byte is its checksum, which then no longer holds.
-    stored[first_frame_bytes + second_frame_bytes - 1] ^= 0xff;
-    log.writer
-        .execute(
-            "UPDATE session_events SET content_payload = ?1 WHERE sequence = ?2",
-            rusqlite::params![stored, sequence],
-        )
-        .expect("the damaged body is stored");
+    log.damage_frame(sequence, 1);
     let mut damaged_frames = Vec::new();
     let refused = stream_place(&mut damaged_frames);
     assert!(

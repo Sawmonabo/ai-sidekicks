@@ -6,7 +6,7 @@
 //! is marked on the same pages the index saw. A log row belongs to its session through the
 //! session's directory row; a log row of a session with none, which only the daemon's own sentinel
 //! session lacks, is no index row, and neither is a row in a range its session skipped past as
-//! damaged or one whose payload damage left unreadable.
+//! damaged or one whose payload or stored body damage left unreadable.
 
 use std::collections::HashMap;
 use std::mem;
