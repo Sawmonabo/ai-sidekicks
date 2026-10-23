@@ -10,8 +10,6 @@ use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
-use serde::Deserialize;
-use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
 use sidekicks_contracts::session::controls::events::{
@@ -50,7 +48,7 @@ use crate::provider::driver::claude::session::permission_level::{
 use crate::provider::driver::claude::session::permissions::read_claude_session_rules;
 use crate::provider::driver::claude::session::state::LiveClaudeSession;
 use crate::provider::driver::claude::session::transport::control::{
-    ClaudeControlRequest, ClaudeFlagSettings, ClaudePermissionMode,
+    ClaudeControlRequest, ClaudeFlagSettings, ClaudePermissionMode, ClaudeSettingsReply,
 };
 use crate::provider::driver::claude::session::transport::declarations::{
     ClaudeCumulativeUsageObservation, ClaudeInitializeDeclaration,
@@ -120,19 +118,6 @@ pub(crate) struct ClaudeSideQuestionCopy {
     pub(crate) provider_account_id: Option<ProviderAccountId>,
     /// The conversation copied, whose emitted usage the copy's is metered less.
     pub(crate) parent_provider_session_id: String,
-}
-
-// A `get_settings` reply's `effective` member, of which only the output style is read.
-#[derive(Deserialize)]
-struct SettingsReply {
-    #[serde(default)]
-    effective: Option<EffectiveSettings>,
-}
-
-#[derive(Deserialize)]
-struct EffectiveSettings {
-    #[serde(default, rename = "outputStyle")]
-    output_style: Option<String>,
 }
 
 impl ClaudeSessionControls {
@@ -478,7 +463,8 @@ impl ClaudeSessionControls {
             self.deliver(live.session_id, InboundDelivery::SessionEvent { row })
                 .await;
         }
-        Ok(effective_output_style(settings.response.as_deref()).as_deref() == Some(output_style))
+        let reply = ClaudeSettingsReply::read(settings.response.as_deref());
+        Ok(effective_output_style(&reply) == Some(output_style))
     }
 
     // Off is Claude Code's own empty advisor, never `null`, which would let the person's own
@@ -501,7 +487,8 @@ impl ClaudeSessionControls {
             .channel
             .send_control_request(ClaudeControlRequest::GetSettings {})
             .await?;
-        let attached = read_claude_attached_advisor(settings.response.as_deref());
+        let attached =
+            read_claude_attached_advisor(&ClaudeSettingsReply::read(settings.response.as_deref()));
         {
             let mut held = lock(&live.settings);
             held.advisor = ClaudeSessionAdvisor::of(advisor_model);
@@ -747,11 +734,8 @@ fn confirmed_advisor_line(
 }
 
 // The output style a `get_settings` reply says is in effect.
-fn effective_output_style(reply: Option<&RawValue>) -> Option<String> {
-    serde_json::from_str::<SettingsReply>(reply?.get())
-        .ok()?
-        .effective?
-        .output_style
+fn effective_output_style(reply: &ClaudeSettingsReply) -> Option<&str> {
+    reply.effective.as_ref()?.get("outputStyle")?.as_str()
 }
 
 // The review command for `target`: with no words the skill reads the branch's commits ahead of

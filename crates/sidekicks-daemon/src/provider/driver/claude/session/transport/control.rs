@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use serde_json::value::RawValue;
 
 use crate::provider::lenient_json::{LenientList, lenient_object, read_lenient};
@@ -366,6 +367,28 @@ pub(crate) struct ClaudeSessionTitleReply {
     /// The title Claude Code wrote.
     #[serde(default, deserialize_with = "read_lenient")]
     pub(crate) title: Option<String>,
+}
+
+/// A `get_settings` answer: the settings merged from every source and what took effect for the
+/// session, each read by the member its reader needs; every other member is left unread.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct ClaudeSettingsReply {
+    /// The settings merged from every source.
+    #[serde(default)]
+    pub(crate) effective: Option<Value>,
+    /// What took effect for the session.
+    #[serde(default)]
+    pub(crate) applied: Option<Value>,
+}
+
+impl ClaudeSettingsReply {
+    /// Reads a `get_settings` answer; an absent one, or one that is no object, carries neither
+    /// member.
+    pub(crate) fn read(reply: Option<&RawValue>) -> Self {
+        reply
+            .and_then(|reply| serde_json::from_str(reply.get()).ok())
+            .unwrap_or_default()
+    }
 }
 
 lenient_object!(

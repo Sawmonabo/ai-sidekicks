@@ -8,11 +8,10 @@
 
 use std::collections::HashMap;
 
-use serde::Deserialize;
 use serde_json::Value;
-use serde_json::value::RawValue;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 
+use crate::provider::driver::claude::session::transport::control::ClaudeSettingsReply;
 use crate::provider::driver::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeLocalCommandReply,
 };
@@ -126,19 +125,10 @@ pub(crate) enum ClaudeCommandOutcome<V> {
     Apply(V),
 }
 
-// A `get_settings` reply's `applied` member; every other member is left unread.
-#[derive(Deserialize)]
-struct SettingsReply {
-    #[serde(default)]
-    applied: Option<Value>,
-}
-
-/// Reads the advisor a `get_settings` reply says will attach to the session's requests.
-pub(crate) fn read_claude_attached_advisor(reply: Option<&RawValue>) -> ClaudeAttachedAdvisor {
-    let applied = reply
-        .and_then(|reply| serde_json::from_str::<SettingsReply>(reply.get()).ok())
-        .and_then(|reply| reply.applied);
-    let Some(Value::Object(applied)) = applied else {
+/// Reads the advisor a `get_settings` reply's `applied` says will attach to the session's
+/// requests.
+pub(crate) fn read_claude_attached_advisor(reply: &ClaudeSettingsReply) -> ClaudeAttachedAdvisor {
+    let Some(Value::Object(applied)) = &reply.applied else {
         return ClaudeAttachedAdvisor::Unreported;
     };
     match applied.get("advisor") {

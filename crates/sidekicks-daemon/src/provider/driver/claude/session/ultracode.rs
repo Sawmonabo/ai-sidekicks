@@ -3,9 +3,6 @@
 //! `get_settings`' `applied`, which says whether it is in effect and whether the session can run
 //! it, after each spawn and each change.
 
-use serde::Deserialize;
-use serde_json::Value;
-use serde_json::value::RawValue;
 use sidekicks_contracts::provider::declaration::{
     ObservedProviderOption, ObservedProviderOptions, ProviderDeclarationId,
     ProviderDeclarationText, ProviderOptionSetting, ProviderSessionOption,
@@ -15,7 +12,7 @@ use sidekicks_contracts::provider::declaration::{
 use crate::provider::driver::claude::session::errors::ClaudeSessionError;
 use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::provider::driver::claude::session::transport::control::{
-    ClaudeControlRequest, ClaudeFlagSettings,
+    ClaudeControlRequest, ClaudeFlagSettings, ClaudeSettingsReply,
 };
 
 /// The option's id, as the agent's binding carries it.
@@ -31,19 +28,10 @@ pub(crate) struct ClaudeUltracodeReading {
     pub(crate) is_available: bool,
 }
 
-// A `get_settings` reply's `applied` member; every other member is left unread.
-#[derive(Deserialize)]
-struct SettingsReply {
-    #[serde(default)]
-    applied: Option<Value>,
-}
-
-/// Reads Ultracode's state from a `get_settings` reply; `None` from a build that reports either
-/// member other than as a boolean.
-pub(crate) fn read_claude_ultracode(reply: Option<&RawValue>) -> Option<ClaudeUltracodeReading> {
-    let applied = reply
-        .and_then(|reply| serde_json::from_str::<SettingsReply>(reply.get()).ok())
-        .and_then(|reply| reply.applied)?;
+/// Reads Ultracode's state from a `get_settings` reply's `applied`; `None` from a build that
+/// reports either member other than as a boolean.
+pub(crate) fn read_claude_ultracode(reply: &ClaudeSettingsReply) -> Option<ClaudeUltracodeReading> {
+    let applied = reply.applied.as_ref()?;
     Some(ClaudeUltracodeReading {
         is_on: applied.get("ultracode")?.as_bool()?,
         is_available: applied.get("ultracodeAvailable")?.as_bool()?,
@@ -78,7 +66,9 @@ pub(crate) async fn apply_claude_ultracode(
     let settings = channel
         .send_control_request(ClaudeControlRequest::GetSettings {})
         .await?;
-    Ok(read_claude_ultracode(settings.response.as_deref()))
+    Ok(read_claude_ultracode(&ClaudeSettingsReply::read(
+        settings.response.as_deref(),
+    )))
 }
 
 /// The session options Claude Code's driver declares: the Ultracode switch in the effort menu.
