@@ -8,24 +8,23 @@
     unsafe_code,
     reason = "the terminal's window size, queued-byte counts (`FIONREAD`, on Linux on the \
               program's side `TIOCGPTPEER` opens), signal request (`TIOCSIG`), console, console \
-              input count (`GetNumberOfConsoleInputEvents`) and \
-              library-search calls, the shell start's signal and console-handler calls, the \
-              parent check a `Command` child runs in `pre_exec`, a lasting child's `setsid` and \
-              `prctl` in `pre_exec`, the stop of a pinned process (Linux's `pidfd_send_signal`, \
-              macOS's exit filter, descendant list and audit-token signal, Windows' \
-              `OpenProcess`, `GetProcessTimes`, `WaitForSingleObject`, `TerminateProcess` and its \
-              job's open, check and end), a lasting child's start on Windows (`CreateProcessW` \
-              with its attribute list, its job's creation and access list, the handles it \
-              inherits and the wait for its exit), the user-namespace check's `unshare` and map \
-              writes, the boot id's `sysctl`, the Windows host-name, free-room, volume-root \
-              (`GetVolumePathNameW`, `GetDriveTypeW`) and file-information calls, the Windows \
-              replacing rename's `MoveFileExW`, the caller reads (Linux's peer process descriptor \
-              and `pidfd_open`, macOS's audit token, checked process reads and \
-              responsible-process reads), macOS's code-signature checks, the start as its own \
-              responsible process (its thread count, its program's path, its marker's removal \
-              from the environment and the disclaiming exec), the socket pair a shell's start is \
-              confirmed over, macOS's `proc_pid_rusage`, which a process's peak memory and the \
-              measurement tests' footprint share, Windows' `OpenProcess` and \
+              input count (`GetNumberOfConsoleInputEvents`) and library-search calls, the shell \
+              start's signal and console-handler calls, the parent check a `Command` child runs in \
+              `pre_exec`, a lasting child's `setsid` and `prctl` in `pre_exec`, the stop of a \
+              pinned process (Linux's `pidfd_send_signal`, macOS's exit filter, descendant list \
+              and audit-token signal, Windows' `OpenProcess`, `GetProcessTimes`, \
+              `WaitForSingleObject`, `TerminateProcess` and its job's open, check and end), a \
+              lasting child's start on Windows (`CreateProcessW` with its attribute list, its \
+              job's creation and access list, the handles it inherits and the wait for its exit), \
+              the user-namespace check's `unshare` and map writes, the boot id's `sysctl`, the \
+              Windows host-name, free-room, volume-root (`GetVolumePathNameW`, `GetDriveTypeW`) \
+              and file-information calls, the Windows replacing rename's `MoveFileExW`, the caller \
+              reads (Linux's peer process descriptor and `pidfd_open`, macOS's audit token, \
+              checked process reads and responsible-process reads), macOS's code-signature checks, \
+              the start as its own responsible process (its thread count, its program's path, its \
+              marker's removal from the environment and the disclaiming exec), the socket pair a \
+              shell's start is confirmed over, macOS's `proc_pid_rusage`, which a process's peak \
+              memory and the measurement tests' footprint share, Windows' `OpenProcess` and \
               `K32GetProcessMemoryInfo`, the available-memory reads (macOS's `mach_host_self` and \
               `host_statistics64`, Windows' `GlobalMemoryStatusEx`), macOS's process list \
               (`proc_listpids`) and process start read (`sysctl` of `KERN_ARGMAX` and \
@@ -35,25 +34,23 @@
               and wall-clock timers of macOS and Windows are C interfaces, and tokio's watch of \
               the Linux timer's, the terminal poller's and macOS's folder and file watch queue's \
               descriptors trusts each to stay open while it watches, and the Windows Ctrl-C \
-              ending's `ExitProcess`, the user's locale reads (Windows' `GetLocaleInfoEx`, \
-              macOS's `CFDateFormatterCreateDateFormatFromTemplate`), a process's user read from \
-              its token (`OpenProcess`, `OpenProcessToken`, `GetTokenInformation`, `EqualSid`, \
+              ending's `ExitProcess`, the user's locale reads (Windows' `GetLocaleInfoEx`, macOS's \
+              `CFDateFormatterCreateDateFormatFromTemplate`), a process's user read from its token \
+              (`OpenProcess`, `OpenProcessToken`, `GetTokenInformation`, `EqualSid`, \
               `ConvertSidToStringSidW`), the named pipe's server read \
-              (`GetNamedPipeServerProcessId`), a Windows AF_UNIX socket's peer read (`WSAIoctl` \
-              of `SIO_AF_UNIX_GETPEERPID`) and the mark that lets `async-io` drive it (`IoSafe`), \
-              the run folder's owner and access list (`GetSecurityInfo`, `GetAce`, \
-              `IsWellKnownSid`), a Windows child's output read at its exit (`CancelIoEx`, \
-              `PeekNamedPipe`), the daemon's process containment (Windows' kill-on-close job \
-              through `CreateJobObjectW`, `SetInformationJobObject` and \
-              `AssignProcessToJobObject`, and Linux's `poll` of its cgroup's events), the start \
-              confirmation's peer checks (`SO_PEERCRED`, and on Windows \
-              `GetNamedPipeClientProcessId`), the Windows stop request's hidden window \
+              (`GetNamedPipeServerProcessId`), a Windows AF_UNIX socket's peer read (`WSAIoctl` of \
+              `SIO_AF_UNIX_GETPEERPID`) and the mark that lets `async-io` drive it (`IoSafe`), the \
+              run folder's owner and access list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`), \
+              a Windows child's output read at its exit (`CancelIoEx`, `PeekNamedPipe`), the \
+              daemon's process containment (Windows' kill-on-close job through `CreateJobObjectW`, \
+              `SetInformationJobObject` and `AssignProcessToJobObject`, and Linux's `poll` of its \
+              cgroup's events), the start confirmation's peer checks (`SO_PEERCRED`, and on \
+              Windows `GetNamedPipeClientProcessId`), the Windows stop request's hidden window \
               (`RegisterClassExW`, `CreateWindowExW` and its message loop), Windows' binary \
-              standard streams (`_setmode`), macOS's input-wait reads (`proc_pidinfo`'s thread \
-              and work-loop lists and BSD information, `proc_pidfdinfo`, \
-              `proc_piddynkqueueinfo`), the Linux input-wait test's page mapping (`mmap`, \
-              `munmap`) and macOS's user \
-              temp folder (`confstr`) are C interfaces too"
+              standard streams (`_setmode`), macOS's input-wait reads (`proc_pidinfo`'s thread and \
+              work-loop lists and BSD information, `proc_pidfdinfo`, `proc_piddynkqueueinfo`), the \
+              Linux input-wait test's page mapping (`mmap`, `munmap`) and macOS's user temp folder \
+              (`confstr`) are C interfaces too"
 )]
 
 mod atomic_replace;
@@ -269,8 +266,6 @@ pub use posix::file_system::{
     CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, remove_tree, rename_replacing,
 };
 #[cfg(unix)]
-pub use posix::inner_terminal::start_inner_terminal;
-#[cfg(unix)]
 pub use posix::login_shell::{login_shell, name_as_login_shell};
 #[cfg(unix)]
 pub use posix::null_device::NULL_DEVICE_PATH;
@@ -292,6 +287,8 @@ pub use posix::shell_start::{DOES_PARENT_DEATH_FOLLOW_STARTING_THREAD, run_shell
 pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
+#[cfg(unix)]
+pub use posix::terminal::inner::start_inner_terminal;
 // The daemon's own socket on macOS and Linux is AF_UNIX too, so one dial serves both.
 #[cfg(unix)]
 pub use posix::shell_start_confirmation::{ShellLaunchWriter, ShellStartConfirmation};

@@ -8,7 +8,8 @@ use std::fs::{self, File};
 use std::io::{self, ErrorKind};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::os::unix::fs::{FileExt, FileTypeExt, MetadataExt};
-use std::sync::Once;
+use std::path::Path;
+use std::sync::{Once, OnceLock};
 
 use crate::input_wait::{InputTerminal, InputWaitReading};
 use crate::linux::pinned_process::{GROUP_FIELD, SESSION_FIELD};
@@ -42,19 +43,23 @@ const EPOLL_WAIT_CHANNEL: &str = "do_epoll_wait";
 // Names the weaker reading in the service log once, the first time Yama refuses the reads.
 static WEAKER_READING_NOTED: Once = Once::new();
 
+// Whether the kernel lists a thread's children (`CONFIG_PROC_CHILDREN`), read once.
+static IS_CHILDREN_LISTED: OnceLock<bool> = OnceLock::new();
+
 /// Whether the terminal's foreground group waits on `terminal`'s input, takes input, and has echo
 /// off, read from `/proc`; a process or thread that ends during the reads is left out. Fails with
-/// the system's error when `/proc` refuses a read this user may make.
+/// the system's error when `/proc` refuses a read this user may make, and with `Unsupported` on a
+/// kernel that lists no thread's children, where the group cannot be found.
 pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading> {
     // A wait needs nothing queued on the terminal (an absent count reads as not waiting), no thread
-    // of the group running, and a thread blocked in `read`, `readv` or `pread64` on the terminal,
-    // in an epoll wait on a set holding the terminal for input, or in `select`, `pselect6`, `poll`
-    // or `ppoll` with the terminal in its read set. Where Yama refuses those reads, a thread
-    // sleeping where the line discipline or an epoll wait sleeps counts instead; a program whose
-    // descriptors or calls the daemon may not read, as `sudo`, waits when the terminal is set as a
-    // password prompt and a member sleeps.
+    // of the group running or stopped, and a thread blocked in `read`, `readv` or `pread64` on the
+    // terminal, in an epoll wait on a set holding the terminal for input, or in `select`,
+    // `pselect6`, `poll` or `ppoll` with the terminal in its read set. Where Yama refuses those
+    // reads, a thread sleeping where the line discipline or an epoll wait sleeps counts instead; a
+    // program whose descriptors or calls the daemon may not read, as `sudo`, waits when the
+    // terminal is set as a password prompt and a member sleeps.
     let mut accepts_input = false;
-    let mut is_running = false;
+    let mut is_running_or_stopped = false;
     let mut is_waiting = false;
     let mut is_any_refused_sleeping = false;
     let mut is_refused = false;
@@ -68,7 +73,8 @@ pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading>
         };
         accepts_input |= !process.terminal_reads.is_empty();
         for thread in &process.threads {
-            is_running |= thread.state == 'R';
+            // A stopped thread reads nothing until it is continued, whatever call it stopped in.
+            is_running_or_stopped |= matches!(thread.state, 'R' | 'T' | 't');
             let wait = if process.is_refused {
                 ThreadWait::Refused
             } else {
@@ -89,7 +95,7 @@ pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading>
     // An absent count is not known to be empty, so the command reads as not waiting.
     let is_nothing_queued = terminal.master.queued_input_bytes == Some(0);
     Ok(InputWaitReading {
-        is_waiting: is_nothing_queued && !is_running && (is_waiting || is_password_wait),
+        is_waiting: is_nothing_queued && !is_running_or_stopped && (is_waiting || is_password_wait),
         // The `select` and `poll` sets are read from the call's memory, so such a wait is above.
         is_waiting_in_select: false,
         accepts_input: accepts_input || is_password_wait,
@@ -177,6 +183,12 @@ enum WalkStart {
 // check, and an orphan a nearer subreaper took in or a process that left the session is missed;
 // the walk's cost grows with this process's direct children.
 fn list_group_members(leader: u32, group_id: u32) -> io::Result<Vec<GroupMember>> {
+    if !is_children_listed()? {
+        return Err(io::Error::new(
+            ErrorKind::Unsupported,
+            "the kernel lists no thread's children, so a terminal's foreground group is not found",
+        ));
+    }
     let own_id = std::process::id();
     // A stack, so the leader's tree is walked first and the group's leader last.
     let mut pending = vec![(group_id, WalkStart::GroupLeader)];
@@ -221,6 +233,17 @@ fn list_group_members(leader: u32, group_id: u32) -> io::Result<Vec<GroupMember>
         }
     }
     Ok(members)
+}
+
+// Whether the kernel lists a thread's children, read from this thread's own listing once; until it
+// is known to, a missing listing could not tell an ended thread from an unbuilt file.
+fn is_children_listed() -> io::Result<bool> {
+    if let Some(is_listed) = IS_CHILDREN_LISTED.get() {
+        return Ok(*is_listed);
+    }
+    let own_listing = format!("/proc/self/task/{}/children", nix::unistd::gettid());
+    let is_listed = Path::new(&own_listing).try_exists()?;
+    Ok(*IS_CHILDREN_LISTED.get_or_init(|| is_listed))
 }
 
 // The children of process `process_id`, listed by each of its threads `thread_ids`; none for a
@@ -303,8 +326,11 @@ fn read_process(
         else {
             continue;
         };
-        let Ok(target) = fs::read_link(entry.path()) else {
-            continue;
+        let target = match fs::read_link(entry.path()) {
+            Ok(target) => target,
+            // Closed since the listing.
+            Err(error) if is_gone(&error) => continue,
+            Err(error) => return Err(error),
         };
         let target = target.to_string_lossy();
         if target.starts_with("socket:")
@@ -319,7 +345,7 @@ fn read_process(
             &target,
             member.controlling_terminal,
             device,
-        ) && is_open_for_reading(process_id, descriptor)?
+        )? && is_open_for_reading(process_id, descriptor)?
         {
             process.terminal_reads.push(descriptor);
         }
@@ -328,18 +354,22 @@ fn read_process(
 }
 
 // Whether the descriptor at `path`, open on `target`, is the terminal: a character device of its
-// device number, or `/dev/tty` in a process whose controlling terminal it is.
+// device number, or `/dev/tty` in a process whose controlling terminal it is; not one closed since
+// the listing.
 fn is_terminal_descriptor(
-    path: &std::path::Path,
+    path: &Path,
     target: &str,
     controlling_terminal: Option<i64>,
     device: TerminalDevice,
-) -> bool {
+) -> io::Result<bool> {
     if target == "/dev/tty" {
-        return controlling_terminal == Some(encode_old_device(device));
+        return Ok(controlling_terminal == Some(encode_old_device(device)));
     }
-    fs::metadata(path)
-        .is_ok_and(|metadata| metadata.file_type().is_char_device() && metadata.rdev() == device.0)
+    match fs::metadata(path) {
+        Ok(metadata) => Ok(metadata.file_type().is_char_device() && metadata.rdev() == device.0),
+        Err(error) if is_gone(&error) => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
 // A device number in the old encoding `stat`'s `tty_nr` field writes it in.
@@ -451,9 +481,10 @@ fn read_system_call(number: libc::c_long) -> Option<SystemCall> {
     }
 }
 
-// A system call argument as the descriptor it names; one past `i32` names none.
+// A system call argument as the descriptor it names, which the kernel reads as an `int` from the
+// register's low 32 bits.
 fn read_descriptor(argument: u64) -> i32 {
-    i32::try_from(argument).unwrap_or(-1)
+    low_32_bits(argument).cast_signed()
 }
 
 // Whether epoll set `epoll_set` of `process` waits for input on one of its descriptors of the

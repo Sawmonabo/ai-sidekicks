@@ -11,11 +11,11 @@ use nix::sys::stat::fstat;
 
 use crate::terminal::{InnerTerminal, TerminalDevice};
 
-/// Opens a terminal of `window_size` and starts the program `options` names in it, a session leader
-/// whose controlling terminal it is. `alacritty_terminal` adds `USER` and `HOME`, read from this
-/// process's own, and `ALACRITTY_WINDOW_ID` and `WINDOWID`, which `options` can change but not
-/// remove, so the program removes those two at its own start. Blocks; fails with the system's
-/// error when the terminal cannot be opened or read or the program cannot be started.
+/// Opens a terminal of `window_size` and starts the program `options` names in it as a session
+/// leader whose controlling terminal it is, with `alacritty_terminal`'s `USER`, `HOME`,
+/// `ALACRITTY_WINDOW_ID` and `WINDOWID` added, the last two of which the program removes itself.
+/// Blocks; fails with the system's error when the terminal cannot be opened or read or the program
+/// cannot be started.
 pub fn start_inner_terminal(
     options: &Options,
     window_size: WindowSize,
@@ -46,6 +46,15 @@ fn terminal_device(rdev: libc::dev_t) -> io::Result<TerminalDevice> {
     let device = u64::try_from(rdev).map_err(io::Error::other)?;
     Ok(TerminalDevice(device))
 }
+
+/// The 80 by 24 window the tests' terminals open at.
+#[cfg(test)]
+pub(crate) const TEST_WINDOW_SIZE: WindowSize = WindowSize {
+    num_lines: 24,
+    num_cols: 80,
+    cell_width: 0,
+    cell_height: 0,
+};
 
 /// What `pty`'s program printed until it printed `marker`, read within `deadline`; what it printed
 /// instead when the marker does not come.
@@ -117,10 +126,12 @@ mod tests {
     use std::sync::Once;
     use std::time::Duration;
 
-    use alacritty_terminal::event::WindowSize;
     use nix::sys::stat::stat;
 
-    use super::{end_inner_terminal, read_until_marker, start_inner_terminal, terminal_device};
+    use super::{
+        TEST_WINDOW_SIZE, end_inner_terminal, read_until_marker, start_inner_terminal,
+        terminal_device,
+    };
     use crate::posix::terminal::{read_terminal_master, terminal_options};
 
     // Fails when the command is not its own session's leader with the terminal as its controlling
@@ -137,14 +148,9 @@ mod tests {
             None,
             HashMap::new(),
         );
-        let window_size = WindowSize {
-            num_lines: 24,
-            num_cols: 80,
-            cell_width: 0,
-            cell_height: 0,
-        };
 
-        let terminal = start_inner_terminal(&options, window_size).expect("the terminal starts");
+        let terminal =
+            start_inner_terminal(&options, TEST_WINDOW_SIZE).expect("the terminal starts");
         let output = read_until_marker(&terminal.pty, ":end", Duration::from_secs(10));
         // The device is read while the terminal is open: macOS removes its node at the close.
         let device = output.as_ref().ok().and_then(|output| {

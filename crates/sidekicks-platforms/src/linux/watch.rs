@@ -97,8 +97,8 @@ impl ChangeWake {
     }
 
     /// Completes at the next change, or at once when one came since the last call. Fails with
-    /// `notify`'s error when the watch fails, and with `NotFound` once the watched folder is removed
-    /// or renamed away.
+    /// `notify`'s error when the watch fails, and with `NotFound` once the watched folder is
+    /// removed or renamed away.
     pub(crate) async fn changed(&mut self) -> io::Result<()> {
         match self.wakes.recv().await {
             Some(wake) => wake,

@@ -102,7 +102,7 @@ pub struct TerminalMasterReading {
     /// The program's output the master has not read yet (`FIONREAD` on the master), which Linux
     /// alone counts apart from the program's input.
     #[cfg(target_os = "linux")]
-    pub unread_output_bytes: u32,
+    pub(crate) unread_output_bytes: u32,
     /// Whether the terminal echoes what is typed (`ECHO`).
     pub is_echo_on: bool,
     /// Whether the terminal hands input over a line at a time (`ICANON`).
@@ -112,7 +112,8 @@ pub struct TerminalMasterReading {
 impl TerminalMasterReading {
     /// Whether the terminal is set as a password prompt sets it: a line at a time with echo off. A
     /// full-screen program turns line input off with echo, so it is not one.
-    pub fn is_password_prompt(&self) -> bool {
+    #[cfg(unix)]
+    pub(crate) fn is_password_prompt(&self) -> bool {
         self.is_canonical && !self.is_echo_on
     }
 }

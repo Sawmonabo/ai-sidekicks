@@ -1,6 +1,8 @@
 //! The macOS and Linux side of the terminal interface: POSIX signals, the keys a terminal turns
 //! into signals, the PTY's window size and a poller over the terminal and its program's exit,
-//! whose descriptor the runtime watches.
+//! whose descriptor the runtime watches; `inner` starts a command in a terminal of its own.
+
+pub(crate) mod inner;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -18,7 +20,7 @@ use std::time::{Duration, Instant};
 use alacritty_terminal::tty::{self, ChildEvent, EventedPty, EventedReadWrite, Pty};
 use nix::errno::Errno;
 use nix::sys::signal::{Signal, kill};
-use nix::sys::termios::{LocalFlags, SpecialCharacterIndices, Termios, tcgetattr, tcgetsid};
+use nix::sys::termios::{LocalFlags, SpecialCharacterIndices, tcgetattr, tcgetsid};
 use nix::unistd::{Pid, tcgetpgrp};
 use polling::{Event, Events, PollMode, Poller};
 use tokio::io::Interest;
@@ -379,7 +381,7 @@ impl TerminalWatch {
     /// input. Fails with the system's error when the settings cannot be read or the signal cannot
     /// be sent.
     pub fn send_signal_key(&self, key: u8) -> io::Result<bool> {
-        let settings = read_terminal_settings(self.master.as_fd())?;
+        let settings = tcgetattr(self.master.as_fd()).map_err(io::Error::from)?;
         if !settings.local_flags.contains(LocalFlags::ISIG) {
             return Ok(false);
         }
@@ -578,13 +580,10 @@ pub(crate) fn read_queued_bytes(descriptor: BorrowedFd<'_>) -> io::Result<u32> {
     })
 }
 
-/// What the master of `pty` shows of its terminal: its session and foreground process group, the
-/// input queued for its program, on Linux the output queued for the master, and its echo and line
-/// settings, which need no right over the program. On Linux the input is counted on the program's
-/// side, opened from the master for that count alone; when it cannot be, the count is absent and
-/// the failure is logged once for `peer_failure_noted`, which the holder keeps one of per terminal.
-/// Fails with the system's error when a read of the master is refused, and with `InvalidData` when
-/// the terminal has no session or no foreground group.
+/// What the master of `pty` shows of its terminal, read with no right over its program; a Linux
+/// input count that cannot be read is absent and logged once for `peer_failure_noted`, which the
+/// holder keeps one of per terminal. Fails with the system's error when a read of the master is
+/// refused, and with `InvalidData` when the terminal has no session or no foreground group.
 #[cfg_attr(
     not(target_os = "linux"),
     expect(
@@ -606,8 +605,10 @@ pub fn read_terminal_master(
         tcgetpgrp(master).map_err(io::Error::from)?.as_raw(),
     )?;
     let master_queued_bytes = read_queued_bytes(master)?;
-    let settings = read_terminal_settings(master)?;
-    // macOS keeps one record for both sides, so the master counts the program's unread input.
+    // Linux hands back the program's side's settings, and macOS keeps one record for both sides,
+    // so its master counts the program's unread input; Linux counts it on the program's side,
+    // opened from the master for that count alone.
+    let settings = tcgetattr(master).map_err(io::Error::from)?;
     #[cfg(not(target_os = "linux"))]
     let queued_input_bytes = Some(master_queued_bytes);
     #[cfg(target_os = "linux")]
@@ -643,13 +644,6 @@ fn process_group_id(kind: &str, id: libc::pid_t) -> io::Result<u32> {
             format!("the terminal names no {kind} ({id})"),
         )
     })
-}
-
-// The settings of the terminal whose master is `master`, the one read the signal key and the
-// master's reading share: Linux hands back the program's side's settings, and macOS keeps one
-// record for both sides.
-fn read_terminal_settings(master: BorrowedFd<'_>) -> io::Result<Termios> {
-    tcgetattr(master).map_err(io::Error::from)
 }
 
 /// Completes when `deadline` passes, and never without one.

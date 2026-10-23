@@ -3,17 +3,19 @@
 //! reader's threads wait through Apple's `sample`, since macOS copies a thread's wait reason out to
 //! no other process. A thread's run state only rules a wait out; it never shows one.
 
-use std::io::{self, ErrorKind};
+use std::io::{self, ErrorKind, Read, Seek};
 use std::process::{Command, Output, Stdio};
 use std::sync::OnceLock;
 
 use libc::{c_int, c_void};
 
 use crate::input_wait::{InputTerminal, InputWaitReading};
+use crate::macos::pinned_process::ExitWatch;
 use crate::macos::processes::{
     list_group_process_ids, read_counted_list, read_libproc_count, read_pid_list,
 };
 use crate::posix::process::id::system_process_id;
+use crate::terminal::{HELPER_PROGRAM_TIME_LIMIT, TerminalDevice};
 
 // `<sys/proc_info.h>`'s flavors and flags `libc` does not bind, and the private ones Apple's own
 // tools read, which `<sys/proc_info_private.h>` defines.
@@ -147,16 +149,17 @@ unsafe extern "C" {
 /// a blocking character device other than the terminal, or on a descriptor kind the read skips
 /// (`FSEVENTS`, `NETPOLICY`, `CHANNEL`, `NEXUS`, `PSHM`, `PSEM`), still reads as a wait on it.
 /// Fails with the system's error when a read is refused for a process this user may read, with
-/// `sample`'s or `ps`'s own error text when either fails on a process still there, and with
-/// `InvalidData` when `sample`'s report has no call graph.
+/// `sample`'s or `ps`'s own error text when either fails on a process still there, `TimedOut` when
+/// either runs past its time limit, and `InvalidData` when `sample`'s report has no call graph.
 pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading> {
     // After the reads `may_wait_for_input` makes, `sample` shows where each reader's threads wait:
-    // on the terminal in a read while the process holds no socket, no FIFO open for reading and
-    // no pipe a reader sleeps on, or in a `kevent` while it holds a read knote on the terminal; or
-    // in `select` when that call or `poll` is innermost while it holds no socket, no pipe or FIFO
-    // open for reading and no kqueue. A group macOS refuses to show, as `sudo`'s, waits when the terminal is set as a
-    // password prompt, nothing is queued and `ps` shows a member left and none running. A reader
-    // that ends before `sample` reads it does not wait.
+    // on the terminal in a read while the process holds no socket, no FIFO open for reading and no
+    // pipe a reader sleeps on, or in a `kevent` while it holds a read knote on the terminal; or in
+    // `select` when that call or `poll` is innermost while it holds no socket, no pipe or FIFO open
+    // for reading and no kqueue. A group macOS refuses to show, as `sudo`'s, waits when the
+    // terminal is set as a password prompt, nothing is queued and `ps` shows a member left and none
+    // running or stopped, as a stopped thread reads nothing until it is continued, whatever call it
+    // stopped in. A reader that ends before `sample` reads it does not wait.
     let survey = survey_group(terminal)?;
     let mut is_waiting = matches!(survey.wait, GroupWait::Password);
     let mut is_waiting_in_select = false;
@@ -182,9 +185,9 @@ pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading>
 }
 
 /// Whether the terminal's foreground group may wait on `terminal`'s input, read without `sample`:
-/// no input is queued, no thread of the group runs, and a process of it holds the terminal for
-/// reading, or a group macOS refuses to show waits on a password. Blocks on the reads; fails with
-/// the system's error when a read is refused for a process this user may read.
+/// no input is queued, no thread of the group runs or is stopped, and a process of it holds the
+/// terminal for reading, or a group macOS refuses to show waits on a password. Blocks on the reads;
+/// fails with the system's error when a read is refused for a process this user may read.
 pub fn may_wait_for_input(terminal: &InputTerminal) -> io::Result<bool> {
     Ok(!matches!(survey_group(terminal)?.wait, GroupWait::RuledOut))
 }
@@ -197,7 +200,7 @@ struct GroupSurvey {
 
 // Whether the foreground group may wait on the terminal.
 enum GroupWait {
-    // Input is queued, a thread runs, or nothing holds the terminal for reading.
+    // Input is queued, a thread runs or is stopped, or nothing holds the terminal for reading.
     RuledOut,
     // A group macOS refuses to show sits at a prompt with echo off.
     Password,
@@ -242,7 +245,7 @@ enum ProcessSurvey {
     Refused,
     Read {
         descriptors: ProcessDescriptors,
-        is_running: bool,
+        is_running_or_stopped: bool,
     },
 }
 
@@ -250,16 +253,16 @@ enum ProcessSurvey {
 fn survey_group(terminal: &InputTerminal) -> io::Result<GroupSurvey> {
     let mut readers = Vec::new();
     let mut refused = Vec::new();
-    let mut is_running = false;
+    let mut is_running_or_stopped = false;
     for process_id in list_group_process_ids(terminal.master.foreground_group)? {
         match survey_process(process_id, terminal)? {
             ProcessSurvey::Gone => {}
             ProcessSurvey::Refused => refused.push(process_id),
             ProcessSurvey::Read {
                 descriptors,
-                is_running: is_process_running,
+                is_running_or_stopped: is_process_running_or_stopped,
             } => {
-                is_running |= is_process_running;
+                is_running_or_stopped |= is_process_running_or_stopped;
                 if !descriptors.terminal_reads.is_empty() {
                     readers.push(Reader {
                         process_id,
@@ -270,7 +273,7 @@ fn survey_group(terminal: &InputTerminal) -> io::Result<GroupSurvey> {
         }
     }
     let accepts_input = !readers.is_empty();
-    if is_running || terminal.master.queued_input_bytes != Some(0) {
+    if is_running_or_stopped || terminal.master.queued_input_bytes != Some(0) {
         return Ok(GroupSurvey {
             accepts_input,
             wait: GroupWait::RuledOut,
@@ -284,7 +287,7 @@ fn survey_group(terminal: &InputTerminal) -> io::Result<GroupSurvey> {
     }
     let is_password_wait = !refused.is_empty()
         && terminal.master.is_password_prompt()
-        && is_any_running_by_ps(&refused)? == Some(false);
+        && is_any_running_or_stopped_by_ps(&refused)? == Some(false);
     Ok(GroupSurvey {
         accepts_input: is_password_wait,
         wait: if is_password_wait {
@@ -298,17 +301,24 @@ fn survey_group(terminal: &InputTerminal) -> io::Result<GroupSurvey> {
 // What process `process_id` shows of its descriptors and threads.
 fn survey_process(process_id: u32, terminal: &InputTerminal) -> io::Result<ProcessSurvey> {
     let pid = system_process_id(process_id)?.get();
-    let descriptors = match read_descriptors(pid, terminal) {
+    let info = match read_bsd_info(pid) {
+        Ok(info) => info,
+        Err(error) => return survey_refusal(error),
+    };
+    let is_controlling_terminal = u64::from(info.e_tdev) == terminal.device.0;
+    let descriptors = match read_descriptors(pid, terminal.device, is_controlling_terminal) {
         Ok(descriptors) => descriptors,
         Err(error) => return survey_refusal(error),
     };
-    let is_running = match is_any_thread_running(pid) {
-        Ok(is_running) => is_running,
-        Err(error) => return survey_refusal(error),
-    };
+    // A process stopped by a signal leaves its threads in the calls they stopped in.
+    let is_running_or_stopped = info.pbi_status == libc::SSTOP
+        || match is_any_thread_running_or_stopped(pid) {
+            Ok(is_running_or_stopped) => is_running_or_stopped,
+            Err(error) => return survey_refusal(error),
+        };
     Ok(ProcessSurvey::Read {
         descriptors,
-        is_running,
+        is_running_or_stopped,
     })
 }
 
@@ -321,12 +331,15 @@ fn survey_refusal(error: io::Error) -> io::Result<ProcessSurvey> {
     }
 }
 
-// The descriptors of process `pid` that bear on a wait on `terminal`: one open on the terminal's
-// device, or on `/dev/tty` while the terminal is the process's controlling one.
-fn read_descriptors(pid: c_int, terminal: &InputTerminal) -> io::Result<ProcessDescriptors> {
+// The descriptors of process `pid` that bear on a wait on the terminal `device`: one open on that
+// device, or on `/dev/tty` while it is the process's controlling terminal.
+fn read_descriptors(
+    pid: c_int,
+    device: TerminalDevice,
+    is_controlling_terminal: bool,
+) -> io::Result<ProcessDescriptors> {
     let listed: Vec<libc::proc_fdinfo> = read_pid_list(pid, libc::PROC_PIDLISTFDS)?;
     let mut descriptors = ProcessDescriptors::default();
-    let mut is_controlling_terminal = None;
     for entry in listed {
         let descriptor = entry.proc_fd;
         match c_int::try_from(entry.proc_fdtype).unwrap_or(-1) {
@@ -342,17 +355,8 @@ fn read_descriptors(pid: c_int, terminal: &InputTerminal) -> io::Result<ProcessD
                 if file_type != libc::S_IFCHR || !is_readable {
                     continue;
                 }
-                let is_terminal = if u64::from(stat.vst_rdev) == terminal.device.0 {
-                    true
-                } else if stat.vst_rdev == controlling_terminal_node()? {
-                    if is_controlling_terminal.is_none() {
-                        is_controlling_terminal =
-                            Some(read_controlling_terminal(pid)? == terminal.device.0);
-                    }
-                    is_controlling_terminal == Some(true)
-                } else {
-                    false
-                };
+                let is_terminal = u64::from(stat.vst_rdev) == device.0
+                    || (is_controlling_terminal && stat.vst_rdev == controlling_terminal_node()?);
                 if is_terminal {
                     descriptors.terminal_reads.push(descriptor);
                 }
@@ -385,9 +389,9 @@ fn controlling_terminal_node() -> io::Result<u32> {
     Ok(*CONTROLLING_TERMINAL_NODE.get_or_init(|| device))
 }
 
-// The device number of process `pid`'s controlling terminal, which no terminal's device matches
-// when it has none.
-fn read_controlling_terminal(pid: c_int) -> io::Result<u64> {
+// The BSD information of process `pid`: its status and its controlling terminal's device, which no
+// terminal's device matches when it has none.
+fn read_bsd_info(pid: c_int) -> io::Result<libc::proc_bsdinfo> {
     // SAFETY: `proc_bsdinfo` is a C struct of integers and characters, for which all zero bytes
     // are valid.
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
@@ -409,11 +413,11 @@ fn read_controlling_terminal(pid: c_int) -> io::Result<u64> {
             format!("process {pid}'s information was cut short"),
         ));
     }
-    Ok(u64::from(info.e_tdev))
+    Ok(info)
 }
 
-// Whether a thread of process `pid` is running now.
-fn is_any_thread_running(pid: c_int) -> io::Result<bool> {
+// Whether a thread of process `pid` is running or stopped now.
+fn is_any_thread_running_or_stopped(pid: c_int) -> io::Result<bool> {
     let thread_ids: Vec<u64> = read_pid_list(pid, PROC_PIDLISTTHREADS)?;
     for thread_id in thread_ids {
         // SAFETY: `proc_threadinfo` is a C struct of integers and characters, for which all zero
@@ -436,25 +440,33 @@ fn is_any_thread_running(pid: c_int) -> io::Result<bool> {
             // A thread that ended since the listing is no longer running.
             Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {}
             Err(error) => return Err(error),
-            Ok(_) if info.pth_run_state == libc::TH_STATE_RUNNING => return Ok(true),
+            Ok(_)
+                if matches!(
+                    info.pth_run_state,
+                    libc::TH_STATE_RUNNING | libc::TH_STATE_STOPPED
+                ) =>
+            {
+                return Ok(true);
+            }
             Ok(_) => {}
         }
     }
     Ok(false)
 }
 
-// Whether `ps`, which runs as root, shows any of `process_ids` running; `None` when it shows none
-// of them, since every one ended. `ps` exits 1 when any is missing and still lists the rest.
-fn is_any_running_by_ps(process_ids: &[u32]) -> io::Result<Option<bool>> {
+// Whether `ps`, which runs as root, shows any of `process_ids` running or stopped; `None` when it
+// shows none of them, since every one ended. `ps` exits 1 when any is missing and still lists the
+// rest.
+fn is_any_running_or_stopped_by_ps(process_ids: &[u32]) -> io::Result<Option<bool>> {
     let listed = process_ids
         .iter()
         .map(u32::to_string)
         .collect::<Vec<_>>()
         .join(",");
-    let output = Command::new(PS_PROGRAM)
-        .args(["-o", "stat=", "-p", &listed])
-        .stdin(Stdio::null())
-        .output()?;
+    let output = run_within_time_limit(
+        "ps",
+        Command::new(PS_PROGRAM).args(["-o", "stat=", "-p", &listed]),
+    )?;
     let states = String::from_utf8_lossy(&output.stdout);
     match output.status.code() {
         Some(0 | PS_ANY_MISSING_STATUS) => {}
@@ -466,7 +478,7 @@ fn is_any_running_by_ps(process_ids: &[u32]) -> io::Result<Option<bool>> {
     Ok(Some(
         states
             .lines()
-            .any(|state| state.trim_start().starts_with('R')),
+            .any(|state| state.trim_start().starts_with(['R', 'T'])),
     ))
 }
 
@@ -590,17 +602,17 @@ fn read_fd_info<T>(pid: c_int, descriptor: c_int, flavor: c_int) -> io::Result<O
 // The innermost calls of each thread of process `process_id`, as one `sample` shows them; `None`
 // when `sample` fails because the process ended.
 fn sample_innermost_calls(process_id: u32) -> io::Result<Option<Vec<Vec<String>>>> {
-    let output = Command::new(SAMPLE_PROGRAM)
-        .args([
+    let output = run_within_time_limit(
+        "sample",
+        Command::new(SAMPLE_PROGRAM).args([
             &process_id.to_string(),
             SAMPLE_SECONDS,
             SAMPLE_INTERVAL_MILLISECONDS,
             // Written to standard output alone, so no report is left in the temporary folder.
             "-file",
             "/dev/stdout",
-        ])
-        .stdin(Stdio::null())
-        .output()?;
+        ]),
+    )?;
     if !output.status.success() {
         let pid = system_process_id(process_id)?.get();
         if is_gone(pid)? {
@@ -617,6 +629,40 @@ fn is_gone(pid: c_int) -> io::Result<bool> {
         Ok(_threads) => Ok(false),
         Err(error) => Ok(matches!(survey_refusal(error)?, ProcessSurvey::Gone)),
     }
+}
+
+// Runs `command`, the program named `program`, to its end within `HELPER_PROGRAM_TIME_LIMIT`, its
+// output kept in unnamed files so a long report never fills a pipe no one reads while it waits; a
+// run past the limit is killed and reaped and fails with `TimedOut` naming `program`.
+fn run_within_time_limit(program: &str, command: &mut Command) -> io::Result<Output> {
+    let mut stdout = tempfile::tempfile()?;
+    let mut stderr = tempfile::tempfile()?;
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(stdout.try_clone()?)
+        .stderr(stderr.try_clone()?)
+        .spawn()?;
+    let has_ended =
+        ExitWatch::attach(child.id()).and_then(|exit| exit.wait(HELPER_PROGRAM_TIME_LIMIT));
+    if !matches!(has_ended, Ok(true)) {
+        child.kill()?;
+        child.wait()?;
+        has_ended?;
+        return Err(io::Error::new(
+            ErrorKind::TimedOut,
+            format!("{program} ran past its {HELPER_PROGRAM_TIME_LIMIT:?} limit"),
+        ));
+    }
+    let mut output = Output {
+        status: child.wait()?,
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+    };
+    stdout.rewind()?;
+    stdout.read_to_end(&mut output.stdout)?;
+    stderr.rewind()?;
+    stderr.read_to_end(&mut output.stderr)?;
+    Ok(output)
 }
 
 // A program's failure on `processes`, with its status and the error text it wrote.
