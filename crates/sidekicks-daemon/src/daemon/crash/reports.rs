@@ -218,13 +218,14 @@ pub(crate) async fn build_crash_reports(
         let reports = reports_folder.clone();
         let failures = meter
             .run_blocking(move || {
-                let failures: Vec<io::Error> = dumps
+                let mut failures: Vec<io::Error> = dumps
                     .iter()
                     .filter_map(|(dump, _bytes)| remove_dump(dump).err())
                     .collect();
-                remove_reports(&reports).map(|()| failures)
+                failures.extend(remove_reports(&reports));
+                failures
             })
-            .await??;
+            .await?;
         removal_failures.extend(failures);
         pass.removal_failures = removal_failures_of(removal_failures);
         return Ok(pass);
@@ -458,13 +459,23 @@ fn remove_dump(dump: &Path) -> io::Result<()> {
     Ok(())
 }
 
-// Deletes every report and every panic record in `folder`.
-fn remove_reports(folder: &Path) -> io::Result<()> {
-    let Some(entries) = fs::read_dir(folder).none_if_missing()? else {
-        return Ok(());
+// Deletes every report and every panic record in `folder`. Runs on past a removal that fails,
+// answering each failure, the folder's listing failure included.
+fn remove_reports(folder: &Path) -> Vec<io::Error> {
+    let entries = match fs::read_dir(folder).none_if_missing() {
+        Ok(Some(entries)) => entries,
+        Ok(None) => return Vec::new(),
+        Err(failure) => return vec![failure],
     };
+    let mut failures = Vec::new();
     for entry in entries {
-        let path = entry?.path();
+        let path = match entry {
+            Ok(entry) => entry.path(),
+            Err(failure) => {
+                failures.push(failure);
+                break;
+            }
+        };
         let is_report = path
             .extension()
             .is_some_and(|extension| extension == REPORT_EXTENSION);
@@ -475,11 +486,13 @@ fn remove_reports(folder: &Path) -> io::Result<()> {
                 .file_name()
                 .and_then(|name| name.to_str())
                 .is_some_and(|name| name.starts_with(PANIC_RECORD_FILE_PREFIX));
-        if is_report || is_panic_record {
-            fs::remove_file(&path).none_if_missing()?;
+        if (is_report || is_panic_record)
+            && let Err(failure) = fs::remove_file(&path).none_if_missing()
+        {
+            failures.push(failure);
         }
     }
-    Ok(())
+    failures
 }
 
 // The install's key, made once with random bytes.

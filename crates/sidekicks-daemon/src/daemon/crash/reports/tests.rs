@@ -233,8 +233,9 @@ async fn crashes_become_stripped_reports_and_none_while_off() {
 // report's temporary file a process ended mid-write left, are deleted by a pass whether reports
 // are kept or not; a partial dump a monitor holds locked, and the panic record and its temporary
 // file written beside it, stay. A file that cannot be removed, a folder in a partial dump's place
-// or in a finished dump's panic record's, is answered beside the pass, which runs on: it still
-// deletes the other finished dumps, and with reports off every report. Killed by a pass that reads
+// or in a finished dump's panic record's or, with reports off, a report's, is answered beside the
+// pass, which runs on: it still deletes the other finished dumps, and with reports off every other
+// report. Killed by a pass that reads
 // only finished dumps, by a temporary file kept or taken while its dump is held, by a sweep left
 // out of either branch, by a held dump or its record taken for a leftover, and by a removal
 // failure that stops the pass or goes unanswered.
@@ -272,6 +273,7 @@ async fn a_pass_deletes_what_a_failed_dump_left(#[case] is_kept: bool) {
     let report_leftover = reports.join("old.json.a1b2c3.tmp");
     fs::write(&report_leftover, b"part of a report").expect("written");
     fs::write(reports.join("old.json"), b"{}").expect("written");
+    fs::create_dir_all(reports.join("stuck.json/inside")).expect("the stuck report folder is made");
     let settings = Arc::new(MachineSettingsFile::new(
         data_folder.join("machine-settings.json"),
     ));
@@ -312,19 +314,20 @@ async fn a_pass_deletes_what_a_failed_dump_left(#[case] is_kept: bool) {
         [dumps.join(format!("sub/stuck{PANIC_RECORD_SUFFIX}"))]
     );
     assert!(!key_leftover.exists());
-    let kept_reports = if is_kept {
-        vec![reports.join("old.json")]
-    } else {
-        Vec::new()
-    };
+    let mut kept_reports = vec![reports.join("stuck.json")];
+    if is_kept {
+        kept_reports.push(reports.join("old.json"));
+    }
+    kept_reports.sort();
     assert_eq!(listed(&reports), kept_reports);
     let failures = pass
         .removal_failures
         .expect("the stuck folders' removals are answered");
+    let failure_count = 1 + failures.cleanup_failures().len();
     assert_eq!(
-        failures.cleanup_failures().len(),
-        1,
-        "two removals failed, not {failures}"
+        failure_count,
+        if is_kept { 2 } else { 3 },
+        "removals failed: {failures}"
     );
     drop(held);
 }
