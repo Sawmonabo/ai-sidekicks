@@ -26,7 +26,7 @@ pub struct InputWaitReading {
     pub is_waiting: bool,
     /// Whether, when `is_waiting` is not set, a thread of the group waits in `select` or `poll` with the
     /// terminal among its readable descriptors as far as the read can tell, its process holding no
-    /// socket, no pipe open for reading and no kqueue: a wait a consumer marks only with the
+    /// socket, no pipe or FIFO open for reading and no kqueue: a wait a consumer marks only with the
     /// output's own evidence, a prompt-like last line, since macOS shows the call's descriptors to
     /// no reader without root. Linux reads them and marks such a wait in `is_waiting`, so this is
     /// `false` there and on Windows.
@@ -76,9 +76,9 @@ mod tests {
     };
 
     // Fails when a thread's run state is taken as a wait (`sleep 30` and the shell waiting on it
-    // after `read -t` wait in the kernel too), when input typed ahead does not rule a wait out,
+    // after `read -t` wait in the kernel too), when a read on a FIFO is taken for the terminal's,
     // when echo is read as off only with canonical input on (`vim` turns both off), when echo off
-    // alone reads as a password prompt (`stty -echo -icanon`), or when a read on the terminal, a
+    // alone reads as a password prompt (`stty -echo -icanon`), when a read on the terminal, a
     // `kevent` on a read knote, a `select` or a read through `/dev/tty` is missed, or when a
     // `select` in a process holding a socket reads as a wait on the terminal.
     #[rstest]
@@ -95,14 +95,12 @@ mod tests {
         "",
         reading(Wait::OnTerminal, Echo::On)
     )]
-    // It reads a named pipe while its standard input is the terminal, so on macOS only the line
-    // typed ahead and left unread tells its read is not the terminal's.
-    #[case::typed_ahead_elsewhere_reader(
-        "pipe=$(mktemp -u); mkfifo \"$pipe\"; exec python3 -c \"import os, sys; \
-         pipe = os.open(sys.argv[1], os.O_RDWR); os.unlink(sys.argv[1]); \
-         print('ready', flush=True); os.read(pipe, 1)\" \"$pipe\"",
+    // It reads a FIFO a quiet writer holds open while its standard input is the terminal, so on
+    // macOS only the FIFO it holds tells its read is not the terminal's.
+    #[case::fifo_reader(
+        "mkfifo pipe; sleep 600 > pipe & echo ready; exec cat pipe",
         "ready",
-        "a line\n",
+        "",
         reading(Wait::None, Echo::On)
     )]
     #[case::raw_cat(
@@ -158,10 +156,12 @@ mod tests {
         #[case] typed: &str,
         #[case] expected: InputWaitReading,
     ) {
+        // The command's own folder, which holds what it makes and goes with the test.
+        let folder = tempfile::tempdir().expect("a scratch folder");
         let options = terminal_options(
             "/bin/sh".to_owned(),
             vec!["-c".to_owned(), script.to_owned()],
-            None,
+            Some(folder.path().to_path_buf()),
             HashMap::new(),
         );
         let window_size = WindowSize {

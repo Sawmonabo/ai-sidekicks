@@ -143,18 +143,20 @@ unsafe extern "C" {
 }
 
 /// Whether the terminal's foreground group waits on `terminal`'s input, takes input, and has echo
-/// off: the reads [`may_wait_for_input`] makes, then `sample` on each process holding the terminal
-/// for reading, whose thread waits when its innermost call is a read and the process holds no
-/// socket and no pipe a reader sleeps on, or a `kevent` and the process holds a read knote on the
-/// terminal; a thread whose innermost call is `select` or `poll` in a process holding no socket, no
-/// pipe open for reading and no kqueue waits in `select` only. A group macOS refuses to show, as
-/// `sudo`'s, waits when the terminal has canonical
-/// input on and echo off, nothing is queued and `ps` shows a member left and none running. A reader
-/// that ends before `sample` reads it does not wait. Blocks for about a tenth of a second per
-/// reader sampled; fails with the system's error when a read is refused for a process this user may
-/// read, with `sample`'s or `ps`'s own error text when either fails on a process still there, and
-/// with `InvalidData` when `sample`'s report has no call graph.
+/// off, blocking about a tenth of a second per process holding the terminal for reading; a read on
+/// a blocking character device other than the terminal, or on a descriptor kind the read skips
+/// (`FSEVENTS`, `NETPOLICY`, `CHANNEL`, `NEXUS`, `PSHM`, `PSEM`), still reads as a wait on it.
+/// Fails with the system's error when a read is refused for a process this user may read, with
+/// `sample`'s or `ps`'s own error text when either fails on a process still there, and with
+/// `InvalidData` when `sample`'s report has no call graph.
 pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading> {
+    // After the reads `may_wait_for_input` makes, `sample` shows where each reader's threads wait:
+    // on the terminal in a read while the process holds no socket, no FIFO open for reading and
+    // no pipe a reader sleeps on, or in a `kevent` while it holds a read knote on the terminal; or
+    // in `select` when that call or `poll` is innermost while it holds no socket, no pipe or FIFO
+    // open for reading and no kqueue. A group macOS refuses to show, as `sudo`'s, waits when the terminal is set as a
+    // password prompt, nothing is queued and `ps` shows a member left and none running. A reader
+    // that ends before `sample` reads it does not wait.
     let survey = survey_group(terminal)?;
     let mut is_waiting = matches!(survey.wait, GroupWait::Password);
     let mut is_waiting_in_select = false;
@@ -211,6 +213,10 @@ struct Reader {
 
 // What one process's descriptors show.
 #[derive(Default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each is a separate kind of descriptor a blocked call may wait on instead"
+)]
 struct ProcessDescriptors {
     // The descriptors open for reading on the terminal.
     terminal_reads: Vec<c_int>,
@@ -218,6 +224,9 @@ struct ProcessDescriptors {
     holds_socket: bool,
     // Whether a pipe is open for reading, which a blocked `select` or `poll` may wait on.
     holds_readable_pipe: bool,
+    // Whether a FIFO is open for reading, whose read shows as a terminal's does: macOS builds a
+    // FIFO from sockets the descriptor list never shows.
+    holds_readable_fifo: bool,
     // Whether a pipe open for reading has a reader sleeping on it, whose read a blocked read may
     // be.
     holds_awaited_pipe: bool,
@@ -327,9 +336,10 @@ fn read_descriptors(pid: c_int, terminal: &InputTerminal) -> io::Result<ProcessD
                     continue;
                 };
                 let stat = &info.pvi.vi_stat;
-                let is_character_device =
-                    libc::mode_t::from(stat.vst_mode) & libc::S_IFMT == libc::S_IFCHR;
-                if !is_character_device || info.pfi.fi_openflags & FREAD == 0 {
+                let file_type = libc::mode_t::from(stat.vst_mode) & libc::S_IFMT;
+                let is_readable = info.pfi.fi_openflags & FREAD != 0;
+                descriptors.holds_readable_fifo |= file_type == libc::S_IFIFO && is_readable;
+                if file_type != libc::S_IFCHR || !is_readable {
                     continue;
                 }
                 let is_terminal = if u64::from(stat.vst_rdev) == terminal.device.0 {
@@ -482,7 +492,8 @@ fn reader_waits(reader: &Reader) -> io::Result<ReaderWait> {
         })
     };
     let descriptors = &reader.descriptors;
-    if is_wait_in(&READ_CALLS) && !descriptors.holds_socket && !descriptors.holds_awaited_pipe {
+    let holds_readable_other = descriptors.holds_socket || descriptors.holds_readable_fifo;
+    if is_wait_in(&READ_CALLS) && !holds_readable_other && !descriptors.holds_awaited_pipe {
         return Ok(ReaderWait::OnTerminal);
     }
     if is_wait_in(&KEVENT_CALLS) {
@@ -491,9 +502,8 @@ fn reader_waits(reader: &Reader) -> io::Result<ReaderWait> {
             return Ok(ReaderWait::OnTerminal);
         }
     }
-    let holds_other_wait_source = descriptors.holds_socket
-        || descriptors.holds_readable_pipe
-        || !descriptors.kqueues.is_empty();
+    let holds_other_wait_source =
+        holds_readable_other || descriptors.holds_readable_pipe || !descriptors.kqueues.is_empty();
     Ok(if is_wait_in(&SELECT_CALLS) && !holds_other_wait_source {
         ReaderWait::InSelect
     } else {
