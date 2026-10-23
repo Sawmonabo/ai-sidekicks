@@ -90,6 +90,8 @@ pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading>
     let is_nothing_queued = terminal.master.queued_input_bytes == Some(0);
     Ok(InputWaitReading {
         is_waiting: is_nothing_queued && !is_running && (is_waiting || is_password_wait),
+        // The `select` and `poll` sets are read from the call's memory, so such a wait is above.
+        is_waiting_in_select: false,
         accepts_input: accepts_input || is_password_wait,
         is_echo_off: !terminal.master.is_echo_on,
         is_password_prompt: terminal.master.is_password_prompt(),

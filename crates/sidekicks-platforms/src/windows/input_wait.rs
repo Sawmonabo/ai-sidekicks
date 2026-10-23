@@ -16,6 +16,7 @@ impl From<&ConsoleReading> for InputWaitReading {
     fn from(console: &ConsoleReading) -> Self {
         Self {
             is_waiting: false,
+            is_waiting_in_select: false,
             accepts_input: !console.process_ids.is_empty(),
             is_echo_off: !console.is_echo_input,
             is_password_prompt: console.is_line_input && !console.is_echo_input,

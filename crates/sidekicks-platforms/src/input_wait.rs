@@ -18,12 +18,19 @@ pub struct InputTerminal {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[expect(
     clippy::struct_excessive_bools,
-    reason = "each is a separate fact the command's line reads: its wait, its input, its echo and \
-              its masking"
+    reason = "each is a separate fact the command's line reads: its two waits, its input, its echo \
+              and its masking"
 )]
 pub struct InputWaitReading {
     /// Whether a process of the terminal's foreground group is blocked reading the terminal.
     pub is_waiting: bool,
+    /// Whether, when `is_waiting` is not set, a thread of the group waits in `select` or `poll` with the
+    /// terminal among its readable descriptors as far as the read can tell, its process holding no
+    /// socket, no pipe open for reading and no kqueue: a wait a consumer marks only with the
+    /// output's own evidence, a prompt-like last line, since macOS shows the call's descriptors to
+    /// no reader without root. Linux reads them and marks such a wait in `is_waiting`, so this is
+    /// `false` there and on Windows.
+    pub is_waiting_in_select: bool,
     /// Whether a process of the terminal's foreground group holds the terminal open for reading.
     pub accepts_input: bool,
     /// Whether the terminal's echo is off, the echo setting alone: a full-screen program turns it
@@ -37,7 +44,7 @@ pub struct InputWaitReading {
 #[cfg(all(test, unix))]
 mod tests {
     use std::collections::HashMap;
-    use std::io::Write;
+    use std::io::{Read, Write};
     use std::sync::Once;
     use std::thread;
     use std::time::{Duration, Instant};
@@ -61,23 +68,33 @@ mod tests {
     // How long a command that waits on nothing settles before it is read.
     const SETTLE: Duration = Duration::from_millis(300);
 
-    // Whether a `select` reader is seen: Linux reads its descriptor set, macOS cannot.
-    const IS_SELECT_SEEN: bool = cfg!(target_os = "linux");
+    // How a `select` or `poll` reader's wait reads: Linux reads its descriptor set, macOS cannot.
+    const SELECT_WAIT: Wait = if cfg!(target_os = "linux") {
+        Wait::OnTerminal
+    } else {
+        Wait::InSelect
+    };
 
     // Fails when a thread's run state is taken as a wait (`sleep 30` and the shell waiting on it
     // after `read -t` wait in the kernel too), when input typed ahead does not rule a wait out,
     // when echo is read as off only with canonical input on (`vim` turns both off), when echo off
     // alone reads as a password prompt (`stty -echo -icanon`), or when a read on the terminal, a
-    // `kevent` on a read knote, a `select` on Linux or a read through `/dev/tty` is missed.
+    // `kevent` on a read knote, a `select` or a read through `/dev/tty` is missed, or when a
+    // `select` in a process holding a socket reads as a wait on the terminal.
     #[rstest]
     #[case::node_readline(
         "node -e \"require('readline').createInterface({input: process.stdin, \
          output: process.stdout}).question('ready> ', () => {})\"",
         "ready>",
         "",
-        reading(true, Echo::Off)
+        reading(Wait::OnTerminal, Echo::Off)
     )]
-    #[case::cat("echo ready; exec cat", "ready", "", reading(true, Echo::On))]
+    #[case::cat(
+        "echo ready; exec cat",
+        "ready",
+        "",
+        reading(Wait::OnTerminal, Echo::On)
+    )]
     // It reads a named pipe while its standard input is the terminal, so on macOS only the line
     // typed ahead and left unread tells its read is not the terminal's.
     #[case::typed_ahead_elsewhere_reader(
@@ -86,27 +103,39 @@ mod tests {
          print('ready', flush=True); os.read(pipe, 1)\" \"$pipe\"",
         "ready",
         "a line\n",
-        reading(false, Echo::On)
+        reading(Wait::None, Echo::On)
     )]
     #[case::raw_cat(
         "stty -echo -icanon; echo ready; exec cat",
         "ready",
         "",
-        reading(true, Echo::Off)
+        reading(Wait::OnTerminal, Echo::Off)
     )]
     #[case::read_with_time_limit(
         "read -t 1 line; echo ready; sleep 30",
         "ready",
         "",
-        reading(false, Echo::On)
+        reading(Wait::None, Echo::On)
     )]
-    #[case::sleep("echo ready; exec sleep 30", "ready", "", reading(false, Echo::On))]
+    #[case::sleep(
+        "echo ready; exec sleep 30",
+        "ready",
+        "",
+        reading(Wait::None, Echo::On)
+    )]
     #[case::python_select(
         "exec python3 -c \"import select, sys; print('ready', flush=True); \
          select.select([sys.stdin], [], [])\"",
         "ready",
         "",
-        reading(IS_SELECT_SEEN, Echo::On)
+        reading(SELECT_WAIT, Echo::On)
+    )]
+    // Bound to the loopback address, which no firewall prompt guards.
+    #[case::socket_server(
+        "exec python3 -m http.server 0 --bind 127.0.0.1",
+        "Serving HTTP",
+        "",
+        reading(Wait::None, Echo::On)
     )]
     // Its standard streams are away from the terminal, so `/dev/tty` is its only way to it.
     #[case::controlling_terminal_reader(
@@ -114,15 +143,15 @@ mod tests {
          os.write(terminal, b'ready\\n'); os.read(terminal, 1)\" < /dev/null > /dev/null 2>&1",
         "ready",
         "",
-        reading(true, Echo::On)
+        reading(Wait::OnTerminal, Echo::On)
     )]
     #[case::hidden_read(
         "echo ready; exec /bin/bash -c 'read -s line'",
         "ready",
         "",
-        reading(true, Echo::OffAtPasswordPrompt)
+        reading(Wait::OnTerminal, Echo::OffAtPasswordPrompt)
     )]
-    #[case::vim("exec vim -u NONE -N -n", "~", "", reading(IS_SELECT_SEEN, Echo::Off))]
+    #[case::vim("exec vim -u NONE -N -n", "~", "", reading(SELECT_WAIT, Echo::Off))]
     fn input_wait_reads_each_kind_of_reader(
         #[case] script: &str,
         #[case] marker: &str,
@@ -146,7 +175,8 @@ mod tests {
         let typing = prompt
             .is_ok()
             .then(|| terminal.pty.file().write_all(typed.as_bytes()));
-        if prompt.is_ok() && !expected.is_waiting {
+        let is_marked = expected.is_waiting || expected.is_waiting_in_select;
+        if prompt.is_ok() && !is_marked {
             thread::sleep(SETTLE);
         }
         let peer_failure_noted = Once::new();
@@ -160,11 +190,20 @@ mod tests {
         // across the whole bound, and must never read as waiting.
         let window_start = Instant::now();
         let mut readings = Vec::new();
+        let mut output = [0_u8; 4_096];
         while prompt.is_ok() {
+            // The output is read as the daemon reads it, so a command drawing a screen never
+            // blocks on a full terminal.
+            while terminal
+                .pty
+                .file()
+                .read(&mut output)
+                .is_ok_and(|count| count > 0)
+            {}
             let reading = read();
             let is_settled = reading
                 .as_ref()
-                .map_or(true, |reading| expected.is_waiting && *reading == expected);
+                .map_or(true, |reading| is_marked && *reading == expected);
             readings.push(reading);
             if is_settled || window_start.elapsed() >= WAIT_BOUND {
                 break;
@@ -180,7 +219,7 @@ mod tests {
             .into_iter()
             .collect::<std::io::Result<Vec<_>>>()
             .expect("the wait reads");
-        if expected.is_waiting {
+        if is_marked {
             assert_eq!(readings.last(), Some(&expected), "{script}");
         } else {
             assert!(
@@ -267,6 +306,14 @@ mod tests {
         assert_eq!(after_reading.queued_input_bytes, Some(0));
     }
 
+    // How a case's command waits.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Wait {
+        OnTerminal,
+        InSelect,
+        None,
+    }
+
     // How a case's terminal echoes.
     #[derive(Clone, Copy)]
     enum Echo {
@@ -278,9 +325,10 @@ mod tests {
     }
 
     // A command holding its terminal for reading, waiting or not, with its echo as given.
-    const fn reading(is_waiting: bool, echo: Echo) -> InputWaitReading {
+    fn reading(wait: Wait, echo: Echo) -> InputWaitReading {
         InputWaitReading {
-            is_waiting,
+            is_waiting: wait == Wait::OnTerminal,
+            is_waiting_in_select: wait == Wait::InSelect,
             accepts_input: true,
             is_echo_off: !matches!(echo, Echo::On),
             is_password_prompt: matches!(echo, Echo::OffAtPasswordPrompt),

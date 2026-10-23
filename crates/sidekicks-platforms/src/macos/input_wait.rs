@@ -56,6 +56,21 @@ const READ_CALLS: [&str; 3] = ["read", "__read_nocancel", "readv"];
 // The calls a thread blocked on a kqueue shows innermost.
 const KEVENT_CALLS: [&str; 4] = ["kevent", "kevent64", "kevent_qos", "kevent_id"];
 
+// The calls a thread blocked in `select`, `pselect` or `poll` shows innermost.
+const SELECT_CALLS: [&str; 11] = [
+    "select",
+    "__select",
+    "__select_nocancel",
+    "pselect",
+    "__pselect",
+    "__pselect_nocancel",
+    "poll",
+    "__poll",
+    "__poll_nocancel",
+    "select$DARWIN_EXTSN",
+    "select$DARWIN_EXTSN$NOCANCEL",
+];
+
 // `struct proc_fileinfo`.
 #[repr(C)]
 struct ProcFileInfo {
@@ -131,7 +146,9 @@ unsafe extern "C" {
 /// off: the reads [`may_wait_for_input`] makes, then `sample` on each process holding the terminal
 /// for reading, whose thread waits when its innermost call is a read and the process holds no
 /// socket and no pipe a reader sleeps on, or a `kevent` and the process holds a read knote on the
-/// terminal. A group macOS refuses to show, as `sudo`'s, waits when the terminal has canonical
+/// terminal; a thread whose innermost call is `select` or `poll` in a process holding no socket, no
+/// pipe open for reading and no kqueue waits in `select` only. A group macOS refuses to show, as
+/// `sudo`'s, waits when the terminal has canonical
 /// input on and echo off, nothing is queued and `ps` shows a member left and none running. A reader
 /// that ends before `sample` reads it does not wait. Blocks for about a tenth of a second per
 /// reader sampled; fails with the system's error when a read is refused for a process this user may
@@ -139,22 +156,23 @@ unsafe extern "C" {
 /// with `InvalidData` when `sample`'s report has no call graph.
 pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading> {
     let survey = survey_group(terminal)?;
-    let is_waiting = match &survey.wait {
-        GroupWait::RuledOut => false,
-        GroupWait::Password => true,
-        GroupWait::Readers(readers) => {
-            let mut is_waiting = false;
-            for reader in readers {
-                if reader_waits(reader)? {
+    let mut is_waiting = matches!(survey.wait, GroupWait::Password);
+    let mut is_waiting_in_select = false;
+    if let GroupWait::Readers(readers) = &survey.wait {
+        for reader in readers {
+            match reader_waits(reader)? {
+                ReaderWait::OnTerminal => {
                     is_waiting = true;
                     break;
                 }
+                ReaderWait::InSelect => is_waiting_in_select = true,
+                ReaderWait::Elsewhere => {}
             }
-            is_waiting
         }
-    };
+    }
     Ok(InputWaitReading {
         is_waiting,
+        is_waiting_in_select: is_waiting_in_select && !is_waiting,
         accepts_input: survey.accepts_input,
         is_echo_off: !terminal.master.is_echo_on,
         is_password_prompt: terminal.master.is_password_prompt(),
@@ -198,6 +216,8 @@ struct ProcessDescriptors {
     terminal_reads: Vec<c_int>,
     // Whether a socket is open, whose read a blocked read may be.
     holds_socket: bool,
+    // Whether a pipe is open for reading, which a blocked `select` or `poll` may wait on.
+    holds_readable_pipe: bool,
     // Whether a pipe open for reading has a reader sleeping on it, whose read a blocked read may
     // be.
     holds_awaited_pipe: bool,
@@ -333,9 +353,9 @@ fn read_descriptors(pid: c_int, terminal: &InputTerminal) -> io::Result<ProcessD
                 else {
                     continue;
                 };
-                if info.pfi.fi_openflags & FREAD != 0 && info.pipeinfo.pipe_status & PIPE_WANTR != 0
-                {
-                    descriptors.holds_awaited_pipe = true;
+                if info.pfi.fi_openflags & FREAD != 0 {
+                    descriptors.holds_readable_pipe = true;
+                    descriptors.holds_awaited_pipe |= info.pipeinfo.pipe_status & PIPE_WANTR != 0;
                 }
             }
             libc::PROX_FDTYPE_KQUEUE => descriptors.kqueues.push(descriptor),
@@ -440,28 +460,45 @@ fn is_any_running_by_ps(process_ids: &[u32]) -> io::Result<Option<bool>> {
     ))
 }
 
-// Whether a thread of `reader` waits on the terminal, read through `sample`; a reader that ended
-// before `sample` read it waits on nothing.
-fn reader_waits(reader: &Reader) -> io::Result<bool> {
+// Where a thread of one reader waits, as far as `sample` and its descriptors tell.
+enum ReaderWait {
+    OnTerminal,
+    // In `select` or `poll`, whose descriptors no reading shows, with nothing else to wait on.
+    InSelect,
+    Elsewhere,
+}
+
+// Where the threads of `reader` wait, read through `sample`; a reader that ended before `sample`
+// read it waits on nothing.
+fn reader_waits(reader: &Reader) -> io::Result<ReaderWait> {
     let Some(innermost_calls) = sample_innermost_calls(reader.process_id)? else {
-        return Ok(false);
+        return Ok(ReaderWait::Elsewhere);
     };
-    let is_read_wait = innermost_calls
-        .iter()
-        .any(|calls| calls.iter().all(|call| READ_CALLS.contains(&call.as_str())));
-    if is_read_wait && !reader.descriptors.holds_socket && !reader.descriptors.holds_awaited_pipe {
-        return Ok(true);
+    let is_wait_in = |calls_named: &[&str]| {
+        innermost_calls.iter().any(|calls| {
+            calls
+                .iter()
+                .all(|call| calls_named.contains(&call.as_str()))
+        })
+    };
+    let descriptors = &reader.descriptors;
+    if is_wait_in(&READ_CALLS) && !descriptors.holds_socket && !descriptors.holds_awaited_pipe {
+        return Ok(ReaderWait::OnTerminal);
     }
-    let is_kevent_wait = innermost_calls.iter().any(|calls| {
-        calls
-            .iter()
-            .all(|call| KEVENT_CALLS.contains(&call.as_str()))
-    });
-    if !is_kevent_wait {
-        return Ok(false);
+    if is_wait_in(&KEVENT_CALLS) {
+        let pid = system_process_id(reader.process_id)?.get();
+        if holds_terminal_read_knote(pid, descriptors)? {
+            return Ok(ReaderWait::OnTerminal);
+        }
     }
-    let pid = system_process_id(reader.process_id)?.get();
-    holds_terminal_read_knote(pid, &reader.descriptors)
+    let holds_other_wait_source = descriptors.holds_socket
+        || descriptors.holds_readable_pipe
+        || !descriptors.kqueues.is_empty();
+    Ok(if is_wait_in(&SELECT_CALLS) && !holds_other_wait_source {
+        ReaderWait::InSelect
+    } else {
+        ReaderWait::Elsewhere
+    })
 }
 
 // Whether a kqueue of process `pid`, its work-queue kqueue or one of its work-loop kqueues holds a
