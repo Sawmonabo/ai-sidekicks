@@ -6,14 +6,15 @@
 //! forwarded report names no folder, no secret and no id anyone could confirm. A dump still being
 //! written, the monitor's or Crashpad's in its `new` folder, is passed over. A dump that does not
 //! build is named in the service log and deleted. What a failed write of the monitor's left, a
-//! partial dump or a panic record without its dump, is deleted by every pass: the monitor exits
-//! after one dump, so no pass meets one it is still writing. While `Keep crash reports` is off, no report is
+//! partial dump or a panic record without its dump, is deleted by every pass, and so is a key's
+//! temporary file a process ended mid-write left: the monitor exits after one dump and only a pass
+//! writes the key, so no pass meets either still being written. While `Keep crash reports` is off, no report is
 //! built and every dump, report and panic record goes. Each pass is metered against its processor
 //! budget.
 
 use std::error::Error;
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
@@ -33,7 +34,9 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::BoundedText;
-use sidekicks_platforms::{create_new_file, replace_file_atomically};
+use sidekicks_platforms::{
+    create_file_atomically, remove_atomic_write_leftovers, replace_file_atomically,
+};
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
@@ -180,9 +183,11 @@ pub(crate) async fn build_crash_reports(
     let dumps_folder = deps.data_folder.join(CRASH_DUMPS_FOLDER_NAME);
     let reports_folder = deps.data_folder.join(CRASH_REPORTS_FOLDER_NAME);
     let listed_folder = dumps_folder.clone();
+    let key_path = deps.data_folder.join(REPORT_KEY_FILE_NAME);
     let dumps = meter
         .run_blocking(move || {
             remove_monitor_leftovers(&listed_folder)?;
+            remove_atomic_write_leftovers(&key_path)?;
             list_finished_dumps(&listed_folder)
         })
         .await??;
@@ -380,31 +385,29 @@ fn read_or_make_key(data_folder: &Path) -> io::Result<[u8; REPORT_KEY_LENGTH]> {
     let mut key = [0_u8; REPORT_KEY_LENGTH];
     getrandom::fill(&mut key).map_err(io::Error::other)?;
     sidekicks_platforms::create_private_folder(data_folder)?;
-    make_key(data_folder, key, <fs::File as Write>::write_all)
+    make_key(data_folder, key)
 }
 
-// Makes `key` the install's key unless another pass made one first, and answers the key that
-// stands. `write` fills a temporary file that takes the key's name only once written and flushed,
-// so a failed write leaves no key file.
+// Makes `key` the install's key, whole or not at all, unless another pass made one first, and
+// answers the key that stands.
 fn make_key(
     data_folder: &Path,
     key: [u8; REPORT_KEY_LENGTH],
-    write: impl FnOnce(&mut fs::File, &[u8]) -> io::Result<()>,
 ) -> io::Result<[u8; REPORT_KEY_LENGTH]> {
-    let mut temporary = tempfile::Builder::new()
-        .prefix(REPORT_KEY_FILE_NAME)
-        .suffix(".tmp")
-        .make_in(data_folder, |path| create_new_file(path, REPORT_FILE_MODE))?;
-    write(temporary.as_file_mut(), &key)?;
-    temporary.as_file().sync_all()?;
-    // A failed link hands the temporary file back, and dropping it removes it.
-    match temporary.persist_noclobber(data_folder.join(REPORT_KEY_FILE_NAME)) {
-        Ok(_key_file) => Ok(key),
+    match create_file_atomically(
+        &data_folder.join(REPORT_KEY_FILE_NAME),
+        &key,
+        REPORT_FILE_MODE,
+    ) {
+        Ok(()) => Ok(key),
         // Another pass made it first.
-        Err(failure) if failure.error.kind() == io::ErrorKind::AlreadyExists => {
+        Err(failure)
+            if failure.failure.kind() == io::ErrorKind::AlreadyExists
+                && failure.removal_failure.is_none() =>
+        {
             read_or_make_key(data_folder)
         }
-        Err(failure) => Err(failure.error),
+        Err(failure) => Err(io::Error::other(failure)),
     }
 }
 
@@ -541,7 +544,6 @@ fn platform_name(os: Os) -> String {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::io::{self, Write as _};
     use std::path::{Path, PathBuf};
     use std::process::Command;
     use std::sync::Arc;
@@ -771,8 +773,9 @@ mod tests {
     }
 
     // What a failed write of the monitor left, a partial dump and a panic record whose dump is not
-    // there, is deleted by a pass whether reports are kept or not. Killed by a pass that reads only
-    // finished dumps, and by a sweep left out of either branch.
+    // there, and a key's temporary file a process ended mid-write left, are deleted by a pass
+    // whether reports are kept or not. Killed by a pass that reads only finished dumps, by a key's
+    // temporary file kept, and by a sweep left out of either branch.
     #[rstest]
     #[case::reports_kept(true)]
     #[case::reports_off(false)]
@@ -785,6 +788,8 @@ mod tests {
         let partial = format!("left.{DUMP_EXTENSION}{DUMP_IN_PROGRESS_SUFFIX}");
         fs::write(dumps.join(partial), b"part of a dump").expect("written");
         fs::write(dumps.join(format!("orphan{PANIC_RECORD_SUFFIX}")), b"{}").expect("written");
+        let key_leftover = data_folder.join(format!("{REPORT_KEY_FILE_NAME}.a1b2c3.tmp"));
+        fs::write(&key_leftover, b"part of a key").expect("written");
         let settings = Arc::new(MachineSettingsFile::new(
             data_folder.join("machine-settings.json"),
         ));
@@ -808,44 +813,27 @@ mod tests {
             .map(|entry| entry.expect("an entry").file_name())
             .collect();
         assert_eq!(left, Vec::<std::ffi::OsString>::new());
+        assert!(!key_leftover.exists());
     }
 
-    // The write a pass makes: the whole key.
-    fn write_whole(file: &mut fs::File, key: &[u8]) -> io::Result<()> {
-        file.write_all(key)
-    }
-
-    // A write the disk refuses partway: half the key, then a failure.
-    fn write_half_then_fail(file: &mut fs::File, key: &[u8]) -> io::Result<()> {
-        file.write_all(&key[..key.len() / 2])?;
-        Err(io::Error::from(io::ErrorKind::StorageFull))
-    }
-
-    // A key another pass made first stands, and a write that fails partway leaves neither a key
-    // file nor a temporary one, so a later pass makes a whole key rather than reading a short one
-    // as damaged. Killed by writing the key at its own name, and by replacing a key that stands.
-    #[rstest]
-    #[case::another_pass_made_it_first(Some([1; REPORT_KEY_LENGTH]), write_whole)]
-    #[case::the_write_fails(None, write_half_then_fail)]
-    fn a_key_file_is_made_whole_or_not_at_all(
-        #[case] standing: Option<[u8; REPORT_KEY_LENGTH]>,
-        #[case] write: fn(&mut fs::File, &[u8]) -> io::Result<()>,
-    ) {
+    // A key another pass made first stands, and the pass answers it in place of its own, leaving
+    // no temporary file. Killed by replacing a key that stands, and by answering the pass's own.
+    #[test]
+    fn a_key_another_pass_made_first_stands() {
         let data_folder = tempfile::tempdir().expect("the test makes a temporary folder");
         let key_path = data_folder.path().join(REPORT_KEY_FILE_NAME);
-        if let Some(standing) = standing {
-            fs::write(&key_path, standing).expect("the standing key is written");
-        }
+        let standing = [1; REPORT_KEY_LENGTH];
+        fs::write(&key_path, standing).expect("the standing key is written");
 
-        let made = make_key(data_folder.path(), [2; REPORT_KEY_LENGTH], write);
+        let made = make_key(data_folder.path(), [2; REPORT_KEY_LENGTH]).expect("the key reads");
 
-        assert_eq!(made.ok(), standing);
+        assert_eq!(made, standing);
         let names: Vec<_> = fs::read_dir(data_folder.path())
             .expect("the data folder lists")
             .map(|entry| entry.expect("an entry").file_name())
             .collect();
-        assert_eq!(names.len(), usize::from(standing.is_some()), "{names:?}");
-        assert_eq!(fs::read(&key_path).ok(), standing.map(Vec::from));
+        assert_eq!(names, [REPORT_KEY_FILE_NAME]);
+        assert_eq!(fs::read(&key_path).expect("the key reads"), standing);
     }
 
     // The panic records the hook wrote into the crash reports folder.

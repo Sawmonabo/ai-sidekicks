@@ -52,7 +52,7 @@
               interfaces too"
 )]
 
-mod atomic_replace;
+mod atomic_write;
 mod base_environment;
 mod bash_start;
 mod caller_process;
@@ -110,7 +110,10 @@ mod wall_clock;
 mod windows;
 mod wsl;
 
-pub use atomic_replace::{ReplaceFileError, replace_file_atomically};
+pub use atomic_write::{
+    AtomicWriteError, create_file_atomically, remove_atomic_write_leftovers,
+    replace_file_atomically,
+};
 pub use base_environment::{BaseEnvironmentSource, base_environment_source};
 pub use bash_start::{BashStart, BashStartInput, start_bash};
 #[cfg(not(target_os = "macos"))]
