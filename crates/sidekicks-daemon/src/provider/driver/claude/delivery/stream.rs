@@ -13,6 +13,7 @@ mod taken_messages;
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -49,6 +50,7 @@ use crate::provider::driver::claude::delivery::system::{
     read_claude_worker_shutdown_reason,
 };
 use crate::provider::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
+use crate::provider::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::provider::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::provider::driver::claude::rate_limit_windows::read_claude_quota_windows;
 use crate::provider::driver::claude::run::prompts::ClaudeSentPrompts;
@@ -353,28 +355,33 @@ impl ClaudeDeliveryStream {
             return after;
         }
         let frame_kind = frame.observation.frame_kind.as_str();
-        let frame_type = frame_kind.split('/').next().unwrap_or(frame_kind);
+        // The router quarantined every kind the census leaves out before it came here.
+        let Ok(kind) = ClaudeWireFrameKind::from_str(frame_kind) else {
+            return after;
+        };
         let Ok(Value::Object(members)) = serde_json::from_str::<Value>(&frame.text) else {
             return after;
         };
         let released = session.lock().buffer.flush_expired(Instant::now());
         self.send_rows(session, released, None).await;
-        if matches!(frame_kind, "system/init" | "system/status")
-            && let Some(mode) = read_non_empty_string(&members, "permissionMode")
+        if matches!(
+            kind,
+            ClaudeWireFrameKind::SystemInit | ClaudeWireFrameKind::SystemStatus
+        ) && let Some(mode) = read_non_empty_string(&members, "permissionMode")
         {
             session.lock().permission_mode = Some(mode.to_owned());
         }
         // A background helper ends on its own route, also after the turn that started it ended.
-        if frame_kind == "system/task_notification" {
+        if kind == ClaudeWireFrameKind::SystemTaskNotification {
             self.end_helper(session, &members).await;
             return after;
         }
-        if frame_type == "command_lifecycle" {
+        if kind == ClaudeWireFrameKind::CommandLifecycle {
             self.read_command_lifecycle(session, &members);
             return after;
         }
         // The account's quota, whichever turn it came on.
-        if frame_kind == "rate_limit_event" {
+        if kind == ClaudeWireFrameKind::RateLimitEvent {
             if let Some(sink) = self.dependencies.usage.port() {
                 let scoped_model = session.lock().usage_probe_model.clone();
                 sink.record_quota_windows(
@@ -385,10 +392,18 @@ impl ClaudeDeliveryStream {
             }
             return after;
         }
+        let is_result = matches!(
+            kind,
+            ClaudeWireFrameKind::ResultSuccess
+                | ClaudeWireFrameKind::ResultErrorMaxTurns
+                | ClaudeWireFrameKind::ResultErrorMaxBudgetUsd
+                | ClaudeWireFrameKind::ResultErrorDuringExecution
+                | ClaudeWireFrameKind::ResultErrorMaxStructuredOutputRetries
+        );
         // The reader released the turn as it read a turn-ending `result`, so that frame ends the
         // turn the stream opened; any other frame belongs to the run that held the turn as it was
         // read, the reader being ahead of this task.
-        let open_turn = (frame_type == "result")
+        let open_turn = is_result
             .then(|| session.lock().turn.clone())
             .flatten()
             .map(|turn| ClaudeBoundRun {
@@ -428,7 +443,7 @@ impl ClaudeDeliveryStream {
             )
             .await;
         }
-        if frame_type == "result" {
+        if is_result {
             if is_turn_ending {
                 after.too_long_run = self
                     .end_turn(
@@ -442,12 +457,12 @@ impl ClaudeDeliveryStream {
             }
             return after;
         }
-        match frame_kind {
-            "system/init" => {
+        match kind {
+            ClaudeWireFrameKind::SystemInit => {
                 self.mark_initialized(session, &lead, read_non_empty_string(&members, "model"))
                     .await;
             }
-            "system/status" => {
+            ClaudeWireFrameKind::SystemStatus => {
                 if let Some(status) = read_claude_provider_status(&members) {
                     let row = LateAppendableRow::SessionProviderStatusReported(
                         SessionProviderStatusReportedPayload {
@@ -463,7 +478,7 @@ impl ClaudeDeliveryStream {
                     self.send_row(session, &lead, row, frame_kind).await;
                 }
             }
-            "system/worker_shutting_down" => {
+            ClaudeWireFrameKind::SystemWorkerShuttingDown => {
                 let marker = RunMarker::WorkerShuttingDown {
                     run_id: lead.run_id,
                     reason: read_claude_worker_shutdown_reason(&members),
@@ -471,19 +486,16 @@ impl ClaudeDeliveryStream {
                 self.send_marker(session, &lead, marker, Some(frame_kind))
                     .await;
             }
+            ClaudeWireFrameKind::SystemApiRetry => {
+                let retried = read_claude_api_retry(&members, session.session_id, lead.run_id);
+                let row = LateAppendableRow::UsageApiRequestRetried(retried);
+                self.send_row(session, &lead, row, frame_kind).await;
+                mark_retries_spent(session, members);
+            }
             // Claude Code maps its `api_error` onto the retry announcement, which alone is a
             // retried request.
-            "system/api_retry" | "system/api_error" => {
-                if frame_kind == "system/api_retry" {
-                    let retried = read_claude_api_retry(&members, session.session_id, lead.run_id);
-                    let row = LateAppendableRow::UsageApiRequestRetried(retried);
-                    self.send_row(session, &lead, row, frame_kind).await;
-                }
-                if classify_claude_spent_retries(&Value::Object(members)).is_some() {
-                    session.lock().is_retries_spent = true;
-                }
-            }
-            "system/informational" => {
+            ClaudeWireFrameKind::SystemApiError => mark_retries_spent(session, members),
+            ClaudeWireFrameKind::SystemInformational => {
                 if let Some(text) = read_claude_warning(&members) {
                     let notice =
                         SessionNoticePostedPayload::Notice(SessionNotice::ProviderWarning {
@@ -503,19 +515,19 @@ impl ClaudeDeliveryStream {
                     .await;
                 }
             }
-            "system/model_refusal_fallback"
-            | "system/model_fallback"
-            | "system/model_consent_fallback" => {
+            ClaudeWireFrameKind::SystemModelRefusalFallback
+            | ClaudeWireFrameKind::SystemModelFallback
+            | ClaudeWireFrameKind::SystemModelConsentFallback => {
                 // Another model took the refused turn, which Claude Code retracts: no refusal.
-                if frame_kind == "system/model_refusal_fallback" {
+                if kind == ClaudeWireFrameKind::SystemModelRefusalFallback {
                     session.lock().refusal = None;
                 }
                 after.running_model = self.reroute(session, &lead, frame_kind, &members).await;
             }
-            "system/model_refusal_no_fallback" => {
+            ClaudeWireFrameKind::SystemModelRefusalNoFallback => {
                 session.lock().refusal = read_claude_refusal_without_fallback(&members);
             }
-            "system/permission_denied" => {
+            ClaudeWireFrameKind::SystemPermissionDenied => {
                 if let (Some(tool_call_id), Some(message)) = (
                     read_non_empty_string(&members, "tool_use_id"),
                     read_non_empty_string(&members, "message"),
@@ -526,13 +538,53 @@ impl ClaudeDeliveryStream {
                         .insert(tool_call_id.to_owned(), message.to_owned());
                 }
             }
-            "stream_event" => stream_event(session, &lead, &frame.text),
-            "assistant" => self.assistant(session, &lead, &frame.text, &members).await,
-            "user" => self.user(session, &lead, &frame.text, &members).await,
-            // Every kind reaching here is a census kind this reader reads nothing from, a helper's
-            // start and moves among them, read off the frame before it reaches the reader; the
-            // router quarantined an unlisted one before it came.
-            _ => {}
+            ClaudeWireFrameKind::StreamEvent => stream_event(session, &lead, &frame.text),
+            ClaudeWireFrameKind::Assistant => {
+                self.assistant(session, &lead, &frame.text, &members).await;
+            }
+            ClaudeWireFrameKind::User => self.user(session, &lead, &frame.text, &members).await,
+            // Read above: a helper's end, a sent message's fate, the quota and the turn's end.
+            ClaudeWireFrameKind::SystemTaskNotification
+            | ClaudeWireFrameKind::CommandLifecycle
+            | ClaudeWireFrameKind::RateLimitEvent
+            | ClaudeWireFrameKind::ResultSuccess
+            | ClaudeWireFrameKind::ResultErrorMaxTurns
+            | ClaudeWireFrameKind::ResultErrorMaxBudgetUsd
+            | ClaudeWireFrameKind::ResultErrorDuringExecution
+            | ClaudeWireFrameKind::ResultErrorMaxStructuredOutputRetries => {}
+            // A helper's start and moves, read off the frame before it reaches the reader.
+            ClaudeWireFrameKind::SystemTaskStarted | ClaudeWireFrameKind::SystemTaskUpdated => {}
+            // Kinds that add no row; each variant says why.
+            ClaudeWireFrameKind::SystemCompactBoundary
+            | ClaudeWireFrameKind::SystemHookStarted
+            | ClaudeWireFrameKind::SystemHookProgress
+            | ClaudeWireFrameKind::SystemHookResponse
+            | ClaudeWireFrameKind::SystemNotification
+            | ClaudeWireFrameKind::SystemFilesPersisted
+            | ClaudeWireFrameKind::SystemToolUseSummary
+            | ClaudeWireFrameKind::SystemMemoryRecall
+            | ClaudeWireFrameKind::SystemLocalCommandOutput
+            | ClaudeWireFrameKind::SystemTaskProgress
+            | ClaudeWireFrameKind::SystemBackgroundTasksChanged => {}
+            // Control traffic takes the request path or settles a call, never this reader.
+            ClaudeWireFrameKind::ControlRequestCanUseTool
+            | ClaudeWireFrameKind::ControlRequestElicitation
+            | ClaudeWireFrameKind::ControlRequestRequestUserDialog
+            | ClaudeWireFrameKind::ControlRequestHookCallback
+            | ClaudeWireFrameKind::ControlRequestMcpMessage
+            | ClaudeWireFrameKind::ControlRequestMcpSetServers
+            | ClaudeWireFrameKind::ControlRequestInterrupt
+            | ClaudeWireFrameKind::ControlRequestSetPermissionMode
+            | ClaudeWireFrameKind::ControlRequestSetModel
+            | ClaudeWireFrameKind::ControlRequestGetUsage
+            | ClaudeWireFrameKind::ControlRequestGetContextUsage
+            | ClaudeWireFrameKind::ControlRequestGetSessionCost
+            | ClaudeWireFrameKind::ControlRequestListModels
+            | ClaudeWireFrameKind::ControlRequestGetBinaryVersion
+            | ClaudeWireFrameKind::ControlRequestApplyFlagSettings
+            | ClaudeWireFrameKind::ControlRequestRewindFiles
+            | ClaudeWireFrameKind::ControlResponseSuccess
+            | ClaudeWireFrameKind::ControlResponseError => {}
         }
         after
     }
@@ -740,6 +792,13 @@ fn record_unheld(session: &ClaudeSessionStream, frame_kind: &str) {
             Value::from(session.session_id.to_string()),
         )]),
     });
+}
+
+// Marks the session's retries spent when a retry frame says Claude Code gave up retrying.
+fn mark_retries_spent(session: &ClaudeSessionStream, members: Map<String, Value>) {
+    if classify_claude_spent_retries(&Value::Object(members)).is_some() {
+        session.lock().is_retries_spent = true;
+    }
 }
 
 fn report_engine_failure(
