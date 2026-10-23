@@ -6,8 +6,9 @@
 //! the daemon's writer applies what the outbox holds, each durable index commit has its outbox rows
 //! deleted and wakes the merging. A failed open, rebuild or first catch-up fails every search
 //! waiting and every later one, and is reported once. A failed apply after the open is logged
-//! once and leaves searches answering from the last durable commit; it is tried again at the next
-//! commit of the writer or after a wait of 1 s doubling to 60 s, and its recovery is logged once.
+//! once and leaves searches answering from the last durable commit; it is tried again only once a
+//! wait of 1 s doubling to 60 s runs out, a commit of the writer meanwhile waiting with it, and its
+//! recovery is logged once.
 //! A close takes no new search, lets the searches taken, the apply and the merge under way finish,
 //! ends a build under way once its process has exited, then closes the index and waits for the
 //! outbox deletes.
@@ -643,8 +644,9 @@ async fn catch_up(
 
 // Applies what the outbox holds after each commit of the writer, until the close. A failed apply
 // leaves the index at its last durable commit, which searches go on reading; it is logged once and
-// tried again at the next commit or once its wait runs out, the wait doubling while it fails. An
-// apply under way when the close comes finishes first.
+// tried again only once its wait runs out, the wait doubling while it fails, so a commit meanwhile
+// starts no apply and a lasting failure costs one apply a wait. An apply under way when the close
+// comes finishes first.
 async fn follow_commits(
     shared: &LiveIndexShared,
     open: &OpenIndex,
@@ -664,6 +666,11 @@ async fn follow_commits(
                     // The writer is gone, so no write commits again before the close.
                     shared.stop.cancelled().await;
                     return;
+                }
+                // While a failure stands, the commit's rows wait for the retry, which applies
+                // everything waiting.
+                if retry_at.is_some_and(|at| Instant::now() < at) {
+                    continue;
                 }
             }
             () = tokio::time::sleep_until(retry_at.unwrap_or_else(Instant::now)),

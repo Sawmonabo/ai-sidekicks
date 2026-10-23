@@ -1,10 +1,14 @@
 use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use rstest::rstest;
+use rusqlite::Connection;
 use sidekicks_search::index::{SearchIndex, SearchQuery};
 use tokio::sync::{Notify, watch};
+use tokio::time::{Instant, timeout, timeout_at};
 use tracing::field::{Field, Visit};
 use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
@@ -160,10 +164,25 @@ async fn a_restart_deletes_what_its_index_holds_and_applies_what_it_does_not(
     open.index.close().expect("the index closes");
 }
 
-// Wakes `wake` each time the test's thread logs an event whose message is `message`.
-struct LogWake {
+// Counts, and wakes `wake` at, each event the test's thread logs whose message is `message`.
+struct MessageWaker {
     message: &'static str,
     wake: Arc<Notify>,
+    count: Arc<AtomicUsize>,
+}
+
+impl MessageWaker {
+    // A waker for `message`, with its wake and its count.
+    fn new(message: &'static str) -> (Self, Arc<Notify>, Arc<AtomicUsize>) {
+        let wake = Arc::new(Notify::new());
+        let count = Arc::new(AtomicUsize::new(0));
+        let waker = Self {
+            message,
+            wake: Arc::clone(&wake),
+            count: Arc::clone(&count),
+        };
+        (waker, wake, count)
+    }
 }
 
 struct LogMessage(Option<String>);
@@ -176,11 +195,12 @@ impl Visit for LogMessage {
     }
 }
 
-impl<S: Subscriber> Layer<S> for LogWake {
+impl<S: Subscriber> Layer<S> for MessageWaker {
     fn on_event(&self, event: &Event<'_>, _context: Context<'_, S>) {
         let mut message = LogMessage(None);
         event.record(&mut message);
         if message.0.as_deref() == Some(self.message) {
+            self.count.fetch_add(1, Ordering::SeqCst);
             self.wake.notify_one();
         }
     }
@@ -200,12 +220,26 @@ fn sessions_found(index: &SearchIndex) -> usize {
         .len()
 }
 
+// Renames the outbox away, so every read of it fails, or back.
+fn move_outbox(connection: &Connection, away: bool) {
+    let (from, to) = if away {
+        ("session_search_outbox", "outbox_away")
+    } else {
+        ("outbox_away", "session_search_outbox")
+    };
+    connection
+        .execute_batch(&format!("ALTER TABLE {from} RENAME TO {to}"))
+        .expect("the outbox is renamed");
+}
+
 // An apply after the open whose outbox read fails leaves the index at its last durable commit,
-// which a search goes on answering from, and the following goes on: once the read can run again,
-// the next commit of the writer applies what waited. Killed by a failed apply that ends the
-// following, and by one that fails the index.
-#[tokio::test]
-async fn a_failed_apply_keeps_the_last_commit_served_and_applies_at_the_next_commit() {
+// which a search goes on answering from, and the following goes on. While the failure stands a
+// commit starts no apply: the retry alone applies, after 1 s, then 2 s, logging the failure once
+// and the recovery once. On a paused clock, which moves only while nothing runs, the blocking pool
+// included. Killed by a failed apply that ends the following or fails the index, by a commit that
+// applies during the wait, by a wait that does not double and by a warning per attempt.
+#[tokio::test(start_paused = true)]
+async fn a_failed_apply_keeps_the_last_commit_served_and_is_tried_again_after_its_wait() {
     let database = TestDatabase::new();
     let services = TestDaemonServices::open(&database).await;
     let folder = tempfile::tempdir().expect("the test makes a temporary folder");
@@ -216,44 +250,61 @@ async fn a_failed_apply_keeps_the_last_commit_served_and_applies_at_the_next_com
         .await
         .expect("the index catches up");
     applied.borrow_and_update();
-    let failed = Arc::new(Notify::new());
-    let _logs = tracing::subscriber::set_default(tracing_subscriber::registry().with(LogWake {
-        message: "search_index_apply_failed",
-        wake: Arc::clone(&failed),
-    }));
+    let (failures, failed, failure_count) = MessageWaker::new("search_index_apply_failed");
+    let (recoveries, _, recovery_count) = MessageWaker::new("search_index_apply_recovered");
+    let _logs = tracing::subscriber::set_default(
+        tracing_subscriber::registry()
+            .with(failures)
+            .with(recoveries),
+    );
     let connection = database.opener()().expect("the test opens its database");
     let (commit, mut commits) = watch::channel(0_u64);
+    let bounded = Duration::from_secs(5);
 
     let following = follow_commits(&shared, &open, &mut commits, &deletes, &index_commits);
     let driving = async {
         add_titled_session(&connection, "session-2");
         commit.send_replace(1);
-        applied
-            .changed()
+        timeout(bounded, applied.changed())
             .await
+            .expect("the commit applies")
             .expect("the following reports its commits");
         let served_id = open.index.last_applied_outbox_id();
         assert_eq!(sessions_found(&open.index), 1);
 
         let waiting_id = add_titled_session(&connection, "session-3");
-        connection
-            .execute_batch("ALTER TABLE session_search_outbox RENAME TO outbox_away")
-            .expect("the outbox is renamed");
+        move_outbox(&connection, true);
         commit.send_replace(2);
-        failed.notified().await;
+        timeout(bounded, failed.notified())
+            .await
+            .expect("the apply fails");
+        let failed_at = Instant::now();
         assert_eq!(open.index.last_applied_outbox_id(), served_id);
         assert_eq!(sessions_found(&open.index), 1);
 
-        connection
-            .execute_batch("ALTER TABLE outbox_away RENAME TO session_search_outbox")
-            .expect("the outbox is named back");
-        commit.send_replace(3);
-        applied
-            .changed()
+        // Three commits inside the first wait start no apply; the retry at 1 s fails again.
+        for count in 3..=5 {
+            commit.send_replace(count);
+            tokio::task::yield_now().await;
+        }
+        tokio::time::sleep_until(failed_at + Duration::from_millis(1500)).await;
+        move_outbox(&connection, false);
+        commit.send_replace(6);
+        assert!(
+            timeout_at(failed_at + Duration::from_millis(2900), applied.changed())
+                .await
+                .is_err(),
+            "nothing applies before the doubled wait runs out"
+        );
+        timeout(bounded, applied.changed())
             .await
+            .expect("the retry applies")
             .expect("the following reports its commits");
+        assert!(Instant::now() >= failed_at + Duration::from_secs(3));
         assert_eq!(open.index.last_applied_outbox_id(), waiting_id);
         assert_eq!(sessions_found(&open.index), 2);
+        assert_eq!(failure_count.load(Ordering::SeqCst), 1);
+        assert_eq!(recovery_count.load(Ordering::SeqCst), 1);
         assert!(!matches!(*shared.state.borrow(), LiveIndexState::Failed(_)));
         shared.stop.cancel();
     };
