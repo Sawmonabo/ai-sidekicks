@@ -144,17 +144,6 @@ pub(crate) fn claude_permission_mode_for(level: Option<PermissionLevel>) -> Clau
     }
 }
 
-/// The level a posture runs at.
-pub(crate) fn permission_level_of(posture: &ExecutionPosture) -> PermissionLevel {
-    match posture {
-        ExecutionPosture::Readonly { .. } => PermissionLevel::Readonly,
-        ExecutionPosture::Ask { .. } => PermissionLevel::Ask,
-        ExecutionPosture::Reviewed { .. } => PermissionLevel::Reviewed,
-        ExecutionPosture::Sandboxed { .. } => PermissionLevel::Sandboxed,
-        ExecutionPosture::Yolo { .. } => PermissionLevel::Yolo,
-    }
-}
-
 /// The levels a Claude Code session can run at on this system, each named by the mode it runs in;
 /// Sandboxed only where `can_run_sandbox`, the descriptor's command-sandbox check, holds.
 pub(crate) fn list_claude_modes(can_run_sandbox: bool) -> Vec<ProviderMode> {

@@ -13,7 +13,6 @@ use sidekicks_platforms::PathRules;
 
 use crate::policy::background_work::plain_background_work_forms;
 use crate::policy::execution_posture_service::{CredentialDenyPath, CredentialDenyPathKind};
-use crate::provider::driver::claude::session::permission_level::permission_level_of;
 use crate::provider::driver::claude::session::rules::{
     ClaudeRulesError, compose_claude_session_rule_lists, compose_path_content,
 };
@@ -216,7 +215,7 @@ pub(crate) fn compose_claude_spawn_settings(
     let writable_roots = posture
         .map(ExecutionPosture::writable_roots)
         .unwrap_or_default();
-    let level = posture.map(permission_level_of);
+    let level = posture.map(ExecutionPosture::permission_level);
     Ok(ClaudeSpawnSettings {
         cleanup_period_days: CLAUDE_CLEANUP_PERIOD_DAYS,
         disable_agent_view: AgentViewOff,

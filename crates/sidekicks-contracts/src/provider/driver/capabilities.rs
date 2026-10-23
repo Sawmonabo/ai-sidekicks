@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::free_form_string::FilesystemPath;
 use crate::provider::driver::methods::{PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN};
+use crate::session::controls::methods::PermissionLevel;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
@@ -166,6 +167,17 @@ impl ExecutionPosture {
                 credential_policy_ref,
                 ..
             } => credential_policy_ref,
+        }
+    }
+
+    /// The permission level the posture runs at, its `mode`.
+    pub fn permission_level(&self) -> PermissionLevel {
+        match self {
+            Self::Readonly { .. } => PermissionLevel::Readonly,
+            Self::Ask { .. } => PermissionLevel::Ask,
+            Self::Reviewed { .. } => PermissionLevel::Reviewed,
+            Self::Sandboxed { .. } => PermissionLevel::Sandboxed,
+            Self::Yolo { .. } => PermissionLevel::Yolo,
         }
     }
 

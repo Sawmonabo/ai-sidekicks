@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
 use sidekicks_contracts::session::controls::events::{
     SessionNotice, SessionNoticePostedPayload, SessionSideQuestionAnsweredPayload,
@@ -43,9 +44,7 @@ use crate::provider::driver::claude::session::arrivals::deliver_in_session_order
 use crate::provider::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
-use crate::provider::driver::claude::session::permission_level::{
-    claude_permission_mode_for, permission_level_of,
-};
+use crate::provider::driver::claude::session::permission_level::claude_permission_mode_for;
 use crate::provider::driver::claude::session::permissions::read_claude_session_rules;
 use crate::provider::driver::claude::session::state::LiveClaudeSession;
 use crate::provider::driver::claude::session::transport::control::{
@@ -154,7 +153,7 @@ impl ClaudeSessionControls {
         let level = lock(&live.settings)
             .execution_posture
             .as_ref()
-            .map(permission_level_of);
+            .map(ExecutionPosture::permission_level);
         let permission_mode = match mode {
             SessionMode::Plan => ClaudePermissionMode::Plan,
             SessionMode::Build => claude_permission_mode_for(level),

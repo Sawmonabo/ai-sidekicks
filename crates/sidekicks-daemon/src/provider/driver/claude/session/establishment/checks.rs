@@ -11,7 +11,7 @@ use crate::provider::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason,
 };
 use crate::provider::driver::claude::session::permission_level::{
-    can_run_claude_level, permission_level_of, read_claude_sandbox_support,
+    can_run_claude_level, read_claude_sandbox_support,
 };
 use crate::provider::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeControlSubtype, ClaudePermissionMode,
@@ -73,7 +73,7 @@ impl ClaudeSessionEstablishment {
                 Some(session_id),
             )
             .await;
-            let level = permission_level_of(posture);
+            let level = posture.permission_level();
             if !can_run_claude_level(
                 level,
                 &legs.model,

@@ -17,7 +17,6 @@ use sidekicks_platforms::PathRules;
 use crate::cleanup_failures::CleanupFailures;
 use crate::mutex_lock::lock;
 use crate::provider::driver::claude::session::errors::ClaudeSessionError;
-use crate::provider::driver::claude::session::permission_level::permission_level_of;
 use crate::provider::driver::claude::session::rules::{
     ClaudeProjectFolder, ClaudeRulesError, remove_claude_project_rule,
     resolve_claude_local_settings_file, write_claude_project_rule,
@@ -142,7 +141,7 @@ pub(crate) async fn resend_claude_permissions(
             .as_ref()
             .map(ExecutionPosture::writable_roots)
             .unwrap_or_default(),
-        posture.as_ref().map(permission_level_of),
+        posture.as_ref().map(ExecutionPosture::permission_level),
         session_rules,
         path_rules,
     )

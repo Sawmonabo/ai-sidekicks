@@ -18,7 +18,6 @@ use std::time::Duration;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
@@ -148,7 +147,10 @@ impl CodexRunStart {
             output_speed: params.output_speed.map(|level| level.as_str().to_owned()),
             output_speed_for_turn,
             output_schema: params.output_schema.map(serde_json::Value::Object),
-            level: params.execution_posture.as_ref().map(posture_level),
+            level: params
+                .execution_posture
+                .as_ref()
+                .map(ExecutionPosture::permission_level),
         };
         let started = self
             .start_turn(&inbound, run_id, opening.binding_id, turn, None, &deadline)
@@ -334,17 +336,6 @@ async fn wait_out_stopped_turns(
         Err(CodexError::SessionTurnInFlight {
             session_id: inbound.session_id(),
         })
-    }
-}
-
-// The level a run's posture runs at.
-fn posture_level(posture: &ExecutionPosture) -> PermissionLevel {
-    match posture {
-        ExecutionPosture::Readonly { .. } => PermissionLevel::Readonly,
-        ExecutionPosture::Ask { .. } => PermissionLevel::Ask,
-        ExecutionPosture::Reviewed { .. } => PermissionLevel::Reviewed,
-        ExecutionPosture::Sandboxed { .. } => PermissionLevel::Sandboxed,
-        ExecutionPosture::Yolo { .. } => PermissionLevel::Yolo,
     }
 }
 
