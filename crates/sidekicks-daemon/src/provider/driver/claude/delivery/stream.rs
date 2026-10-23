@@ -223,6 +223,16 @@ impl ClaudeSessionStream {
         self.lock().gate.signal_intended_close();
     }
 
+    /// Keeps the model display name the account's latest `get_usage` read named in its
+    /// `model_scoped`, which a later event's weekly window over one model is named for.
+    #[expect(
+        dead_code,
+        reason = "the account's limits read names the model its scoped weekly window covers"
+    )]
+    pub(crate) fn note_usage_probe_model(&self, display_name: String) {
+        self.lock().usage_probe_model = Some(display_name);
+    }
+
     /// The permission mode the process last reported it runs in, if any.
     pub(crate) fn permission_mode(&self) -> Option<String> {
         self.lock().permission_mode.clone()
@@ -365,10 +375,11 @@ impl ClaudeDeliveryStream {
         // The account's quota, whichever turn it came on.
         if frame_kind == "rate_limit_event" {
             if let Some(sink) = self.dependencies.usage.port() {
+                let scoped_model = session.lock().usage_probe_model.clone();
                 sink.record_quota_windows(
                     DESCRIPTOR.provider_id(),
                     session.provider_account_id.clone(),
-                    read_claude_quota_windows(&members),
+                    read_claude_quota_windows(&members, scoped_model.as_deref()),
                 );
             }
             return after;

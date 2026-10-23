@@ -368,13 +368,13 @@ async fn a_rate_limit_event_hands_the_accounts_quota_windows_to_the_usage_record
             None,
             vec![
                 ProviderQuotaWindow {
-                    limit_id: "five_hour".to_owned(),
+                    limit_id: "session".to_owned(),
                     window_mins: 300,
                     used_percent: 25.0,
                     resets_at: at(1_790_125_200),
                 },
                 ProviderQuotaWindow {
-                    limit_id: "seven_day".to_owned(),
+                    limit_id: "weekly_all".to_owned(),
                     window_mins: 10_080,
                     used_percent: 50.0,
                     resets_at: at(1_790_524_800),
