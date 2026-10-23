@@ -1,12 +1,16 @@
+use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
 
 use rstest::rstest;
-use sidekicks_search::index::SearchIndex;
+use sidekicks_search::index::{SearchIndex, SearchQuery};
 use tokio::sync::{Notify, watch};
+use tracing::field::{Field, Visit};
+use tracing::{Event, Subscriber};
+use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
 use super::test_services::TestDaemonServices;
-use super::{LiveIndexShared, OpenIndex, catch_up, delete_applied};
+use super::{LiveIndexShared, LiveIndexState, OpenIndex, catch_up, delete_applied, follow_commits};
 use crate::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
 use crate::database::writer::test_file::TestDatabase;
 use crate::session::search::index::applier::SearchIndexApplier;
@@ -153,5 +157,106 @@ async fn a_restart_deletes_what_its_index_holds_and_applies_what_it_does_not(
         .expect("the outbox counts");
     assert_eq!(outbox_rows, 0, "every row the index holds is deleted");
     assert_eq!(open.index.last_applied_outbox_id(), highest_id_given);
+    open.index.close().expect("the index closes");
+}
+
+// Wakes `wake` each time the test's thread logs an event whose message is `message`.
+struct LogWake {
+    message: &'static str,
+    wake: Arc<Notify>,
+}
+
+struct LogMessage(Option<String>);
+
+impl Visit for LogMessage {
+    fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
+        if field.name() == "message" {
+            self.0 = Some(format!("{value:?}"));
+        }
+    }
+}
+
+impl<S: Subscriber> Layer<S> for LogWake {
+    fn on_event(&self, event: &Event<'_>, _context: Context<'_, S>) {
+        let mut message = LogMessage(None);
+        event.record(&mut message);
+        if message.0.as_deref() == Some(self.message) {
+            self.wake.notify_one();
+        }
+    }
+}
+
+// How many sessions a search for the titles' word ranks in `index` as it is now.
+fn sessions_found(index: &SearchIndex) -> usize {
+    let query = SearchQuery {
+        words: vec!["billing".to_owned()],
+        last_word_is_prefix: false,
+    };
+    index
+        .open_search(Vec::new(), 16, Some(&query))
+        .expect("the search opens")
+        .sessions_at(0, 16)
+        .expect("the sessions rank")
+        .len()
+}
+
+// An apply after the open whose outbox read fails leaves the index at its last durable commit,
+// which a search goes on answering from, and the following goes on: once the read can run again,
+// the next commit of the writer applies what waited. Killed by a failed apply that ends the
+// following, and by one that fails the index.
+#[tokio::test]
+async fn a_failed_apply_keeps_the_last_commit_served_and_applies_at_the_next_commit() {
+    let database = TestDatabase::new();
+    let services = TestDaemonServices::open(&database).await;
+    let folder = tempfile::tempdir().expect("the test makes a temporary folder");
+    let (shared, open, _) = index_behind_its_database(&database, &services, folder.path(), 1).await;
+    let (deletes, mut applied) = watch::channel(None);
+    let index_commits = Notify::new();
+    catch_up(&shared, &open, &deletes, &index_commits)
+        .await
+        .expect("the index catches up");
+    applied.borrow_and_update();
+    let failed = Arc::new(Notify::new());
+    let _logs = tracing::subscriber::set_default(tracing_subscriber::registry().with(LogWake {
+        message: "search_index_apply_failed",
+        wake: Arc::clone(&failed),
+    }));
+    let connection = database.opener()().expect("the test opens its database");
+    let (commit, mut commits) = watch::channel(0_u64);
+
+    let following = follow_commits(&shared, &open, &mut commits, &deletes, &index_commits);
+    let driving = async {
+        add_titled_session(&connection, "session-2");
+        commit.send_replace(1);
+        applied
+            .changed()
+            .await
+            .expect("the following reports its commits");
+        let served_id = open.index.last_applied_outbox_id();
+        assert_eq!(sessions_found(&open.index), 1);
+
+        let waiting_id = add_titled_session(&connection, "session-3");
+        connection
+            .execute_batch("ALTER TABLE session_search_outbox RENAME TO outbox_away")
+            .expect("the outbox is renamed");
+        commit.send_replace(2);
+        failed.notified().await;
+        assert_eq!(open.index.last_applied_outbox_id(), served_id);
+        assert_eq!(sessions_found(&open.index), 1);
+
+        connection
+            .execute_batch("ALTER TABLE outbox_away RENAME TO session_search_outbox")
+            .expect("the outbox is named back");
+        commit.send_replace(3);
+        applied
+            .changed()
+            .await
+            .expect("the following reports its commits");
+        assert_eq!(open.index.last_applied_outbox_id(), waiting_id);
+        assert_eq!(sessions_found(&open.index), 2);
+        assert!(!matches!(*shared.state.borrow(), LiveIndexState::Failed(_)));
+        shared.stop.cancel();
+    };
+    tokio::join!(following, driving);
     open.index.close().expect("the index closes");
 }
