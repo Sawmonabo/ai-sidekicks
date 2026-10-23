@@ -87,6 +87,9 @@ pub(crate) async fn read_within_ceiling<Output: Send + 'static>(
             .await?
         }
     };
+    let Some(ceiling) = ceiling else {
+        return answered.await;
+    };
     match tokio::time::timeout(ceiling, answered).await {
         Ok(answer) => answer,
         Err(_elapsed) => {
@@ -133,18 +136,19 @@ fn lock_abandoned_paths() -> MutexGuard<'static, Vec<PathBuf>> {
 }
 
 #[cfg(not(test))]
-fn read_ceiling(_path: &Path) -> Duration {
-    FILE_READ_CEILING
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "a test's read of a path it does not hold runs with no ceiling"
+)]
+fn read_ceiling(_path: &Path) -> Option<Duration> {
+    Some(FILE_READ_CEILING)
 }
 
-// A test's held read gives up in moments rather than after the whole ceiling.
+// A test's held read gives up in moments rather than after the whole ceiling; any other read in a
+// test runs with no timer, so a paused clock's advance never abandons a read that is answering.
 #[cfg(test)]
-fn read_ceiling(path: &Path) -> Duration {
-    if stalled_reads::is_stalled(path) {
-        stalled_reads::STALLED_READ_CEILING
-    } else {
-        FILE_READ_CEILING
-    }
+fn read_ceiling(path: &Path) -> Option<Duration> {
+    stalled_reads::is_stalled(path).then_some(stalled_reads::STALLED_READ_CEILING)
 }
 
 #[cfg(test)]

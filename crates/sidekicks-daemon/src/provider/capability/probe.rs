@@ -189,10 +189,6 @@ impl CapabilityDetectionReading {
     /// Reports each flag this reading withdrew as a diagnostic of its own, apart from a failed
     /// read: the read worked, but the build carries less than the driver declares. Reports nothing
     /// when every flag was accepted.
-    #[expect(
-        dead_code,
-        reason = "each driver's capability read reports the flags its probe withdrew through it"
-    )]
     pub(crate) fn report_withdrawals(&self) {
         for withdrawal in &self.withdrawals {
             let (reason, disposition_reason) = match withdrawal.reason {
@@ -299,10 +295,6 @@ pub(crate) async fn read_capability_detection(
 /// and composes `declared` narrowed by the probe, `contract_version`, `tools`, the version the
 /// build printed and the descriptor's output-speed levels where the output-speed flag resolved on.
 /// Fails with [`DriverError::CapabilityProbe`] when the probe read fails.
-#[expect(
-    dead_code,
-    reason = "each driver's capability read answers through it on attach and each refresh"
-)]
 pub(crate) async fn read_provider_capabilities(
     descriptor: &ProviderDescriptor,
     rules: &CapabilityProbeRules,

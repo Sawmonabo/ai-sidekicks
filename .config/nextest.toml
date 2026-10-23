@@ -1,5 +1,17 @@
 # No profile retries a failed test: a retry hides a flaky one.
 
+# A test still running after two minutes is ended, so a hung one fails rather than holding the run.
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 2 }
+
+# A measurement, a live-provider test or an endurance test runs as long as it needs, never ended:
+# each is ignored, run on demand with `--run-ignored only`, and the filter matches a test by the
+# module it sits in, `measurements`, `live_provider` or `endurance`, at the start of the test's
+# path or after `::`.
+[[profile.default.overrides]]
+filter = "test(/(^|::)(measurements|live_provider|endurance)::/)"
+slow-timeout = "60s"
+
 # Every failure is reported in one run.
 [profile.ci]
 fail-fast = false

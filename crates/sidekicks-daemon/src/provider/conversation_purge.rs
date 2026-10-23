@@ -177,8 +177,6 @@ mod tests {
 
     use rusqlite::params;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-    use sidekicks_platforms::Spawner;
-    use tokio::runtime::Handle;
 
     use super::{CONVERSATION_PURGE_STATEMENT_CAPACITY, ConversationPurge, ConversationPurgeError};
     use crate::database::connection::read_pool::DatabaseReadPool;
@@ -186,7 +184,8 @@ mod tests {
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use crate::provider::driver::contract::MockProviderDriver;
     use crate::provider::driver::registry::{ProviderRegistry, test_provider};
-    use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+    use crate::provider::driver::test_registry::test_driver_services;
+    use crate::provider::driver::{PROVIDERS, ProviderRegistration};
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // A binding row of `run_id` on `provider` naming `resume_handle`.
@@ -243,10 +242,7 @@ mod tests {
                 build: |_| Arc::new(MockProviderDriver::new()),
             })
             .collect();
-        let services = DriverServices {
-            spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-            data_folder: database.path(),
-        };
+        let services = test_driver_services();
         let purge = ConversationPurge::new(
             Arc::new(DatabaseReadPool::new(
                 database.path(),

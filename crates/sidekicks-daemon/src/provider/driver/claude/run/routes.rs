@@ -158,13 +158,6 @@ impl ClaudeRunRoutes {
     /// Answers `true` once nothing holds the session's turn or it was released since the call, at
     /// once when nothing holds it, or `false` when `deadline` passes first. A release followed at
     /// once by a new hold still answers `true`; the caller's next hold may then be refused.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's run start waits on the turn through it"
-        )
-    )]
     pub(crate) async fn when_turn_released(
         &self,
         session_id: SessionId,
@@ -188,10 +181,6 @@ impl ClaudeRunRoutes {
     }
 
     /// Whether a run or a command holds the session's turn, so no other turn may start.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's run start checks the turn through it"
-    )]
     pub(crate) fn is_turn_held(&self, session_id: SessionId) -> bool {
         self.lock()
             .turns
@@ -202,13 +191,6 @@ impl ClaudeRunRoutes {
     /// Binds a run to the session its opening frame goes to and the binding its deliveries are
     /// attributed on, and gives it the session's turn; a run that holds the turn already takes the
     /// new binding. Fails with [`TurnHeld`] when another run or a command holds the turn.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's run start binds each run through it"
-        )
-    )]
     pub(crate) fn hold_turn(
         &self,
         run_id: RunId,
@@ -239,10 +221,6 @@ impl ClaudeRunRoutes {
     /// Gives a run the session's turn again on the binding it already holds, as a paused run's
     /// next turn does. Fails with [`HoldAgainRefusal::NoBinding`] for a run the routes hold no
     /// binding for, and [`HoldAgainRefusal::TurnHeld`] when another run or a command holds it.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's paused-run resume takes the turn through it"
-    )]
     pub(crate) fn hold_turn_again(&self, run_id: RunId) -> Result<(), HoldAgainRefusal> {
         let mut tables = self.lock();
         let Some(&(session_id, _)) = tables.bindings.get(&run_id) else {
@@ -265,10 +243,6 @@ impl ClaudeRunRoutes {
 
     /// Holds the session's turn for a command Claude Code runs as a turn of its own; the turn's
     /// settlement releases it. Fails with [`TurnHeld`] when a run holds it.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's command dispatch holds the turn through it"
-    )]
     pub(crate) fn hold_turn_for_command(&self, session_id: SessionId) -> Result<(), TurnHeld> {
         self.lock()
             .change_turn(session_id, |state| match state.holder {
@@ -282,10 +256,6 @@ impl ClaudeRunRoutes {
     }
 
     /// Releases a command's hold whose text never reached Claude Code.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's command dispatch releases a failed write"
-    )]
     pub(crate) fn release_command_turn(&self, session_id: SessionId) {
         self.lock()
             .change_turn(session_id, |state| match state.holder {
@@ -299,13 +269,6 @@ impl ClaudeRunRoutes {
 
     /// Keeps a run holding its session's turn through the turn's settlement, into the next turn;
     /// a run that holds no turn is left as it is.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's steer marks an untaken steer through it"
-        )
-    )]
     pub(crate) fn carry_turn_over(&self, run_id: RunId) {
         let mut tables = self.lock();
         let Some(&(session_id, _)) = tables.bindings.get(&run_id) else {
@@ -324,13 +287,6 @@ impl ClaudeRunRoutes {
     }
 
     /// Drops one run's turn hold, its carry with it; its binding stays until the run ends.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver releases a paused run's turn through it"
-        )
-    )]
     pub(crate) fn unbind_run(&self, run_id: RunId) {
         let mut tables = self.lock();
         if let Some(&(session_id, _)) = tables.bindings.get(&run_id) {
@@ -339,10 +295,6 @@ impl ClaudeRunRoutes {
     }
 
     /// Forgets an ended run: its turn hold and its binding.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver forgets each ended run through it"
-    )]
     pub(crate) fn forget_run(&self, run_id: RunId) {
         let mut tables = self.lock();
         if let Some((session_id, _)) = tables.bindings.remove(&run_id) {
@@ -351,10 +303,6 @@ impl ClaudeRunRoutes {
     }
 
     /// The run holding this session's turn with its binding, or `None` when none holds it.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's frames are attributed to the lead through it"
-    )]
     pub(crate) fn lead_run_on(&self, session_id: SessionId) -> Option<ClaudeBoundRun> {
         let tables = self.lock();
         let holder = tables.turns.get(&session_id)?.borrow().holder;
@@ -368,11 +316,20 @@ impl ClaudeRunRoutes {
         })
     }
 
+    /// Every lead run bound to the session, with its binding, whether or not it holds the turn.
+    pub(crate) fn bound_runs_on(&self, session_id: SessionId) -> Vec<ClaudeBoundRun> {
+        self.lock()
+            .bindings
+            .iter()
+            .filter(|(_, (bound, _))| *bound == session_id)
+            .map(|(run_id, (_, binding_id))| ClaudeBoundRun {
+                run_id: *run_id,
+                binding_id: binding_id.clone(),
+            })
+            .collect()
+    }
+
     /// Where `run_id` is routed, or `None` for a run the routes do not hold.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's run controls route a run's override and stop through it"
-    )]
     pub(crate) fn route_of(&self, run_id: RunId) -> Option<ClaudeRunRoute> {
         let tables = self.lock();
         if let Some((session_id, binding_id)) = tables.bindings.get(&run_id) {
@@ -392,13 +349,6 @@ impl ClaudeRunRoutes {
 
     /// Drops the session's turn hold as its turn settles, a command's included, but a run's that
     /// carries over into the next turn, which keeps it uncarried; bindings stay.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver settles each turn's hold through it"
-        )
-    )]
     pub(crate) fn settle_turn_holds(&self, session_id: SessionId) {
         self.lock()
             .change_turn(session_id, |state| match &mut state.holder {
@@ -415,10 +365,6 @@ impl ClaudeRunRoutes {
     }
 
     /// Drops the session's turn hold, a command's and a carried run's included; bindings stay.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver retires a superseded or closing session's turn through it"
-    )]
     pub(crate) fn retire_run_routes(&self, session_id: SessionId) {
         self.lock()
             .change_turn(session_id, |state| match state.holder {
@@ -432,10 +378,6 @@ impl ClaudeRunRoutes {
 
     /// Forgets every run binding on a closed session, whose runs can deliver nothing more, and its
     /// turn where nothing holds it; a turn still held is left to its release.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver forgets a closed session's routes through it"
-    )]
     pub(crate) fn forget_session_bindings(&self, session_id: SessionId) {
         let mut tables = self.lock();
         tables.bindings.retain(|_, (bound, _)| *bound != session_id);
@@ -447,28 +389,16 @@ impl ClaudeRunRoutes {
     }
 
     /// Binds a helper's child run to its session and the agent id Claude Code gave it.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's helper start binds its child run through it"
-    )]
     pub(crate) fn bind_child_run(&self, run_id: RunId, route: ClaudeChildRunRoute) {
         self.lock().children.insert(run_id, route);
     }
 
     /// Drops a child run's route once its helper ended.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's helper end drops its child run through it"
-    )]
     pub(crate) fn retire_child_run(&self, run_id: RunId) {
         self.lock().children.remove(&run_id);
     }
 
     /// The child run of the helper Claude Code named `agent_id` on a session, if one is bound.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver routes a helper's frames through it"
-    )]
     pub(crate) fn child_run_for(&self, session_id: SessionId, agent_id: &str) -> Option<RunId> {
         self.lock()
             .children
@@ -478,10 +408,6 @@ impl ClaudeRunRoutes {
     }
 
     /// Drops every child route on a session whose process is gone; its helpers went with it.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver drops an ended process's helpers through it"
-    )]
     pub(crate) fn retire_child_routes(&self, session_id: SessionId) {
         self.lock()
             .children
@@ -489,18 +415,24 @@ impl ClaudeRunRoutes {
     }
 
     /// Binds a run apart from its session's process to how it is stopped, until its turn ends.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's staged-changes review binds its run so"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the staged review binds its run so; the driver's start_review reaches it"
+        )
     )]
     pub(crate) fn bind_apart_run(&self, run_id: RunId, stop: ClaudeApartRunStop) {
         self.lock().apart_stops.insert(run_id, stop);
     }
 
     /// Drops an apart run's route once its turn ended.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's staged-changes review drops its run so"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the staged review drops its run so; the driver's start_review reaches it"
+        )
     )]
     pub(crate) fn forget_apart_run(&self, run_id: RunId) {
         self.lock().apart_stops.remove(&run_id);
@@ -508,10 +440,6 @@ impl ClaudeRunRoutes {
 
     /// Stops a run bound apart from its session's process, answering `false` for any other run;
     /// `is_end_written` as [`ClaudeApartRunStop`] takes it.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's stop reaches an apart run through it"
-    )]
     pub(crate) fn stop_apart_run(&self, run_id: RunId, is_end_written: bool) -> bool {
         // Taken out under the lock and called after it, so the stop may reach the routes again.
         let stop = self.lock().apart_stops.remove(&run_id);

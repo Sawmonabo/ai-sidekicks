@@ -16,17 +16,9 @@ pub(crate) const CLAUDE_RESERVE_READ_WINDOW_TOKENS: u64 = 100_000;
 pub(crate) const CLAUDE_RESERVE_READ_MAXIMUM_OUTPUT_TOKENS: u64 = 1_000;
 
 /// The environment key that sets the window Claude Code compacts on.
-#[expect(
-    dead_code,
-    reason = "the creation-time control-only process sets it for the two reserve reads"
-)]
 pub(crate) const CLAUDE_AUTO_COMPACT_WINDOW_KEY: &str = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
 
 /// The environment key that caps every reply; set only in the creation-time control process.
-#[expect(
-    dead_code,
-    reason = "the creation-time control-only process sets it for the second reserve read"
-)]
 pub(crate) const CLAUDE_MAX_OUTPUT_TOKENS_KEY: &str = "CLAUDE_CODE_MAX_OUTPUT_TOKENS";
 
 /// The reply reserve and constant Claude Code subtracts from the window for the session's model,
@@ -53,10 +45,6 @@ pub(crate) enum ClaudeReplyReserve {
 /// request on the way, when a reply lacks the window or the compaction point, when either read is
 /// not on the window key's window (Claude Code drops a key it does not take), or when the maximum
 /// reply did not move the point.
-#[expect(
-    dead_code,
-    reason = "the Claude model figures derive each model's reply reserve through it"
-)]
 pub(crate) fn derive_claude_reply_reserve(
     requested_model: &str,
     reads: &ClaudeReplyReserveReads,

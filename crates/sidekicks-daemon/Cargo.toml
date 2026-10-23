@@ -66,7 +66,6 @@ ignored = [
   # The passkey relying party's and the relay channel's tokens.
   "pasetors",
   # The redaction set built from each secret of a run.
-  "base64",
   "form_urlencoded",
   "percent-encoding",
   # The daemon's own tool server and its connections to a session's tool servers.

@@ -65,7 +65,8 @@ pub(crate) struct ScheduledJobHandle {
     scheduler: Weak<SchedulerShared>,
     job_id: u64,
     is_canceled: Arc<AtomicBool>,
-    // For a wall-clock job, the refusal the task sends when it cannot arm the timer for its instant.
+    // For a wall-clock job, the refusal the task sends when it cannot arm the timer for its
+    // instant.
     refusal: Option<oneshot::Receiver<ScheduleError>>,
 }
 
@@ -308,7 +309,8 @@ impl Drop for Scheduler {
 impl ScheduledJobHandle {
     /// Waits until the job's instant is settled: the refusal when the operating system would not
     /// arm the wall-clock timer for it, which drops the job, or `None` once it ran, was canceled or
-    /// the scheduler stopped. A job set a delay away, or a second call, settles at once with `None`.
+    /// the scheduler stopped. A job set a delay away, or a second call, settles at once with
+    /// `None`.
     pub(crate) async fn refusal(&mut self) -> Option<ScheduleError> {
         self.refusal.take()?.await.ok()
     }
@@ -543,7 +545,7 @@ async fn wait_for_wake(wake_watch: Option<&mut WakeWatch>) -> Result<(), WakeWat
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
 
     use futures::future::BoxFuture;
@@ -553,6 +555,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::{ScheduleError, ScheduledJobOutcome, Scheduler};
+    use crate::mutex_lock::lock;
 
     // Far longer than any periodic look would wait between two looks.
     const IDLE_SPAN: Duration = Duration::from_secs(600);
@@ -649,10 +652,6 @@ mod tests {
                 Ok(())
             })
         }
-    }
-
-    fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-        mutex.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     #[tokio::test(start_paused = true)]

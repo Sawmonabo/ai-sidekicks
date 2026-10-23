@@ -18,24 +18,10 @@ pub(crate) const SESSION_RUN_IDS_SQL: &str = "
   SELECT run_id FROM run_execution_contexts WHERE session_id = @sessionId";
 
 /// Reads a row only while the `@runId` parameter names a run of the `@sessionId` session.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "an artifact's manifest write, which holds only while its run is the session's"
-    )
-)]
 pub(crate) const RUN_IN_SESSION_SQL: &str =
     "SELECT 1 FROM runs WHERE run_id = @runId AND session_id = @sessionId";
 
 /// A statement that holds only while `run_id` names a run of `session_id`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "an artifact's manifest write, which holds only while its run is the session's"
-    )
-)]
 pub(crate) fn run_in_session_statement(session_id: &SessionId, run_id: &RunId) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(RUN_IN_SESSION_SQL),

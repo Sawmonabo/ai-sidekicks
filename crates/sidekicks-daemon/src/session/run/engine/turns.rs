@@ -203,7 +203,6 @@ pub(super) struct TurnEnd {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TurnOutcome {
     /// `agent.turn.completed`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     Completed,
     /// `agent.turn.interrupted`.
     Interrupted(Option<TurnEndCause>),
@@ -328,7 +327,6 @@ impl RunEngine {
     /// pending. A run with no count armed is left as it is. Fails as the stop fails; a failed stop
     /// is tried again at the next step or turn end, the interrupt alone once the turn's reached
     /// event has landed.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn count_step(self: &Arc<Self>, run_id: RunId) -> Result<(), RunEngineError> {
         let stop = {
             let mut live = lock(&self.live);
@@ -366,7 +364,6 @@ impl RunEngine {
     /// which did not take. It then hands again a step limit's interrupt a stop could not hand,
     /// that failure returned beside. Fails with
     /// `RunRefusal::NotFound` for an unknown run and with the read's or the append's failure.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn record_turn_end(
         self: &Arc<Self>,
         run_id: RunId,

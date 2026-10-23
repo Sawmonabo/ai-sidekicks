@@ -16,13 +16,6 @@ pub(crate) enum PausedRole {
     /// The session's own conversation.
     Lead,
     /// A helper's conversation.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "run control pauses a helper's run on its own conversation"
-        )
-    )]
     Helper,
 }
 
@@ -41,10 +34,6 @@ pub(crate) struct HookPause<Detail, Held> {
     /// Whether the pause has stopped the conversation: its first held call, or the driver's mark.
     has_taken_effect: bool,
     /// Whether the pause's effect has been reported.
-    #[expect(
-        dead_code,
-        reason = "Claude Code's run control reports its lead's pause once through it"
-    )]
     is_effect_reported: bool,
 }
 
@@ -149,10 +138,6 @@ impl<Conversation: Eq + Hash, Detail, Held> HookPauses<Conversation, Detail, Hel
     /// The detail of `conversation`'s pause the first time it is asked after the pause took
     /// effect, so the effect is reported once; `None` before it took effect and after it was
     /// reported.
-    #[expect(
-        dead_code,
-        reason = "Claude Code's run control reports its lead's pause once through it"
-    )]
     pub(crate) fn report_effect(&mut self, conversation: &Conversation) -> Option<&Detail> {
         let pause = self.pauses.get_mut(conversation)?;
         if !pause.has_taken_effect || pause.is_effect_reported {
@@ -164,10 +149,6 @@ impl<Conversation: Eq + Hash, Detail, Held> HookPauses<Conversation, Detail, Hel
 
     /// The detail of `conversation`'s pause once its effect was reported, while it holds; `None`
     /// otherwise.
-    #[expect(
-        dead_code,
-        reason = "Claude Code's run control reports its lead's pause once through it"
-    )]
     pub(crate) fn reported(&self, conversation: &Conversation) -> Option<&Detail> {
         self.pauses
             .get(conversation)

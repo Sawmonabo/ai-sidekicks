@@ -2,19 +2,35 @@
 //! machinery. A provider's code stays in its own folder below; this file is the one other place
 //! that names one, in its table entry.
 
+use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use futures::future::BoxFuture;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::{ProviderId, is_provider_id};
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_platforms::{
     PathRules, PerSystem, Spawner, SystemFolders, can_create_user_namespace, find_executables,
 };
 
+use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::git::worktree::staged_changes::StagedChangesWorktrees;
+use crate::policy::execution_posture_service::ExecutionPostureService;
+use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
+use crate::provider::command_search::ProviderCommandSearch;
+use crate::provider::compaction_wait::PendingCompactionRegistry;
+use crate::provider::driver::attachments::AttachmentResolver;
 use crate::provider::driver::contract::ProviderDriver;
+use crate::provider::driver::ports::DriverPorts;
 use crate::provider::output_validation::is_canonical_semver;
+use crate::provider::process_registry::ProviderProcessRegistry;
+use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
+use crate::provider::spawn_environment::ReservedEnvironmentNames;
 
 pub(crate) mod attachments;
 pub(crate) mod callback_tool;
@@ -29,6 +45,7 @@ pub(crate) mod error_causes;
 pub(crate) mod hook_pauses;
 pub(crate) mod mcp_server_status;
 pub(crate) mod message_handing;
+pub(crate) mod ports;
 pub(crate) mod question_answers;
 pub(crate) mod registry;
 pub(crate) mod reorder_buffer;
@@ -125,10 +142,6 @@ impl ProviderDescriptor {
 
     /// The folder on the running system the provider reads its administrator-managed settings
     /// from, `None` where it names none there; the WSL server, a Linux build, answers Linux's.
-    #[expect(
-        dead_code,
-        reason = "the managed-settings checks read the provider's administrator settings there"
-    )]
     pub(crate) fn managed_settings_folder(&self) -> Option<PathBuf> {
         self.managed_settings_folders.native_path()
     }
@@ -141,10 +154,6 @@ impl ProviderDescriptor {
     /// [`CommandSandboxAvailability::AskTheService`]. It reads the file system and starts a short
     /// check process, so it runs on the daemon's spawner thread; the WSL server, a Linux build,
     /// answers Linux's. Fails with the system's error from the namespace check.
-    #[expect(
-        dead_code,
-        reason = "the sandboxed permission level's check asks it before offering that level"
-    )]
     pub(crate) fn can_run_command_sandbox(
         &self,
         environment: &[(String, String)],
@@ -350,10 +359,6 @@ impl ReportedVersionReading {
     /// `token` as the version where it is a canonical semantic version of at most
     /// [`VERSION_TOKEN_MAX_LEN`] characters, else `reply`, the text
     /// that carried it, as unreadable; every driver's version reader decides through this one rule.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "each driver's version read decides through it")
-    )]
     pub(crate) fn from_token(token: &str, reply: &str) -> Self {
         if token.chars().count() <= VERSION_TOKEN_MAX_LEN && is_canonical_semver(token) {
             Self::Version(token.to_owned())
@@ -373,17 +378,90 @@ const _: () = assert!(
 const _: () = assert!(has_unique_ids(PROVIDERS), "two providers share an id");
 
 /// The shared services every driver's build takes, one bundle, so adding a provider never edits the
-/// daemon's start. Each field is a handle a driver reads; a provider's own folders stay in its
-/// driver.
-#[expect(
-    dead_code,
-    reason = "each driver's build reads it at the daemon's start"
-)]
+/// daemon's start. Each field is a handle a driver reads, every one provider-neutral: a provider's
+/// own folders and settings stay in its driver, and what the daemon builds after the drivers is a
+/// port in `ports`.
 pub(crate) struct DriverServices {
     /// The one thread every child process is spawned from.
     pub(crate) spawner: Spawner,
     /// The daemon's data folder.
     pub(crate) data_folder: PathBuf,
+    /// The person's home folder.
+    pub(crate) home_folder: PathBuf,
+    /// The read pool every driver's database read goes through.
+    pub(crate) pool: Arc<DatabaseReadPool>,
+    /// Binds a message's attachments to their stored copies.
+    pub(crate) attachments: Arc<dyn AttachmentResolver>,
+    /// Opens temporary worktrees of a folder's staged changes.
+    pub(crate) staged_changes: StagedChangesWorktrees,
+    /// Resolves each posture's curated credential list.
+    pub(crate) execution_postures: Arc<ExecutionPostureService>,
+    /// The login shell's environment captured at the daemon's start, every provider process's base.
+    pub(crate) base_environment: Arc<[(String, String)]>,
+    /// The names every provider sets on its processes, which no environment row may set.
+    pub(crate) reserved_names: Arc<ReservedEnvironmentNames>,
+    /// The search a provider's command falls back to once its spawn environment's `PATH` holds
+    /// none.
+    pub(crate) command_search: Arc<ProviderCommandSearch>,
+    /// The compactions waiting for their provider's evidence, keyed by each driver's binding.
+    pub(crate) pending_compactions: PendingCompactionRegistry,
+    /// Which provider process runs each session, which each driver writes at spawn and exit.
+    pub(crate) processes: Arc<ProviderProcessRegistry>,
+    /// Where each session's provider process runs, resolved at every spawn.
+    pub(crate) spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
+    /// Points a session's binding at the conversation a driver moved it onto.
+    pub(crate) runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
+    /// The daemon-wide bound on the shell-line bytes an ask's checks parse at once.
+    pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    /// The handles the daemon builds after the drivers, each registered by its start.
+    pub(crate) ports: Arc<DriverPorts>,
+}
+
+/// Where and as whom one session's provider process runs, as the daemon resolves it at every spawn:
+/// what every provider reads; a provider's own settings for the session stay with its driver.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SessionSpawnContext {
+    /// The session's working folder, its worktree, absolute.
+    pub(crate) working_directory: PathBuf,
+    /// The repository's git folder, the common one for a linked worktree; `None` outside one.
+    pub(crate) git_common_folder: Option<PathBuf>,
+    /// The machine's `Every project` environment rows.
+    pub(crate) every_project_rows: Vec<EnvironmentRow>,
+    /// The session's project's own environment rows, which win over an `Every project` row.
+    pub(crate) project_rows: Vec<EnvironmentRow>,
+    /// The folders of the account the process runs on, where the app manages its home; `None` on
+    /// the person's own sign-in.
+    pub(crate) account_folders: Option<ProviderAccountFolders>,
+}
+
+/// The folders of an account whose home the app manages, each absolute: the configuration folder a
+/// session reads and the account's own credential store, kept apart from it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProviderAccountFolders {
+    /// The configuration folder.
+    pub(crate) configuration_folder: PathBuf,
+    /// The account's credential store.
+    pub(crate) credential_store_folder: PathBuf,
+}
+
+/// Resolves where a session's provider process runs, and an account's folders before any session
+/// runs on it, wired by the daemon.
+pub(crate) trait SessionSpawnContextResolver: Send + Sync {
+    /// The context `session_id` runs in on `provider_account_id`'s account, or on the person's own
+    /// sign-in when `None`. Fails when the session or its folders cannot be read.
+    fn resolve_spawn_context(
+        &self,
+        session_id: SessionId,
+        provider_account_id: Option<ProviderAccountId>,
+    ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn Error + Send + Sync>>>;
+
+    /// The folders of `provider_account_id`'s account where the app manages its home, `None`
+    /// where it does not; read with no session, before one exists. Fails when the account or its
+    /// folders cannot be read.
+    fn resolve_account_folders(
+        &self,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<ProviderAccountFolders>, Box<dyn Error + Send + Sync>>>;
 }
 
 /// One registered provider: its descriptor and the function that builds its driver from the shared

@@ -34,9 +34,8 @@ use crate::database::statement::{
 };
 use crate::database::stored_column::{StoredJsonFault, parse_stored_json_object, text_column};
 use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::provider::driver::contract::{
-    DriverCliVersionReport, SessionToolServer, SpawnedVersionBindingCarriers, SubagentPolicy,
-};
+use crate::provider::driver::contract::{DriverCliVersionReport, SpawnedVersionBindingCarriers};
+use crate::provider::driver::session_control::{SessionToolServer, SubagentPolicy};
 use crate::provider::left_conversations::{LeftConversation, compose_left_conversation_insert};
 use crate::provider::output_validation::{
     ProviderOutputValidationError, check_contract_version, check_resume_handle,
@@ -540,34 +539,6 @@ impl RuntimeBindingStore {
                 continue;
             };
             return Ok(Some(patched_binding(stored, returned, updated_at)?));
-        }
-    }
-
-    /// Points binding `rebind.binding_id` at the conversation its session moved onto, recording
-    /// each conversation the session left in the same write. Fails with
-    /// [`RuntimeBindingStoreError::NoRowToRebind`] when the binding has no row, so nothing was
-    /// recorded, and as [`RuntimeBindingStore::update`] does.
-    #[expect(
-        dead_code,
-        reason = "a fork or a restart's resume points the binding at its new conversation \
-                  through it"
-    )]
-    pub(crate) async fn rebind(
-        &self,
-        rebind: RuntimeBindingRebind,
-    ) -> Result<(), RuntimeBindingStoreError> {
-        let patch = RuntimeBindingPatch {
-            resume_handle: Some(rebind.resume_handle),
-            ..RuntimeBindingPatch::default()
-        };
-        match self
-            .update(&rebind.binding_id, patch, rebind.left_conversations)
-            .await?
-        {
-            Some(_) => Ok(()),
-            None => Err(RuntimeBindingStoreError::NoRowToRebind {
-                binding_id: rebind.binding_id,
-            }),
         }
     }
 

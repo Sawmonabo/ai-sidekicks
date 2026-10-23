@@ -10,6 +10,7 @@ use super::{
     compose_claude_session_rule_lists, remove_claude_project_rule, remove_claude_tool_server_rules,
     resolve_claude_local_settings_file, write_claude_project_rule,
 };
+use crate::provider::driver::claude::session::settings_file::ClaudeSettingsFileError;
 use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
 
 fn rule(
@@ -107,7 +108,7 @@ async fn a_write_lands_at_the_root_once_and_a_revoke_clears_the_root_and_the_sta
 
     remove_claude_project_rule(
         &folders,
-        &home.join("managed-settings.json"),
+        Some(&home),
         &home.join(".claude"),
         &home,
         PathRules::Posix,
@@ -200,7 +201,11 @@ async fn an_edit_keeps_every_other_byte_and_a_block_moves_the_allow_out() {
     fs::create_dir_all(file.parent().expect("the file has a folder")).expect("the folder is made");
     fs::write(
         &file,
-        "{\n    \"model\": \"opus\",\n    \"permissions\": {\n        \"allow\": [\"WebFetch(domain:example.com)\", \"Read\"],\n        \"deny\": [\"Bash(rm *)\"]\n    }\n}\n",
+        concat!(
+            "{\n    \"model\": \"opus\",\n    \"permissions\": {\n",
+            "        \"allow\": [\"WebFetch(domain:example.com)\", \"Read\"],\n",
+            "        \"deny\": [\"Bash(rm *)\"]\n    }\n}\n",
+        ),
     )
     .expect("the file is written");
     let folders = [ClaudeProjectFolder {
@@ -224,7 +229,11 @@ async fn an_edit_keeps_every_other_byte_and_a_block_moves_the_allow_out() {
 
     assert_eq!(
         read(&file),
-        "{\n    \"model\": \"opus\",\n    \"permissions\": {\n        \"allow\": [\"Read\"],\n        \"deny\": [\"Bash(rm *)\", \"WebFetch(domain:example.com)\"]\n    }\n}\n"
+        concat!(
+            "{\n    \"model\": \"opus\",\n    \"permissions\": {\n",
+            "        \"allow\": [\"Read\"],\n",
+            "        \"deny\": [\"Bash(rm *)\", \"WebFetch(domain:example.com)\"]\n    }\n}\n",
+        )
     );
 }
 
@@ -258,7 +267,7 @@ async fn a_file_that_is_not_a_strict_settings_object_is_refused_unchanged(#[case
     let failure = outcome.expect_err("the file is refused");
     assert!(matches!(
         failure.original(),
-        ClaudeRulesError::Refused { .. }
+        ClaudeRulesError::SettingsFile(ClaudeSettingsFileError::Refused { .. })
     ));
     assert!(text.trim().is_empty() || !failure.to_string().contains(text.trim()));
     assert_eq!(read(&file), text);
@@ -287,6 +296,17 @@ async fn a_revoke_of_a_rule_a_file_the_daemon_does_not_edit_keeps_names_it_and_c
         "{\"permissions\": {\"allow\": [\"Bash(make *)\"]}}",
     )
     .expect("the managed settings are written");
+    let drop_in_file = config_folder
+        .path()
+        .join("managed-settings.d")
+        .join("10-team.json");
+    fs::create_dir_all(config_folder.path().join("managed-settings.d"))
+        .expect("the drop-in folder is made");
+    fs::write(
+        &drop_in_file,
+        "{\"permissions\": {\"allow\": [\"Bash(just *)\"]}}",
+    )
+    .expect("the drop-in is written");
     // The local file holds the rule the shared file keeps, which the revoke leaves in place.
     let local_text = "{\"permissions\": {\"allow\": [\"Bash(npm test *)\"]}}";
     fs::write(local_settings(folder.path()), local_text).expect("the local file is written");
@@ -296,11 +316,11 @@ async fn a_revoke_of_a_rule_a_file_the_daemon_does_not_edit_keeps_names_it_and_c
         repository: None,
     });
     let mut outcomes = Vec::new();
-    for subject in ["npm test", "cargo build", "make", "ls"] {
+    for subject in ["npm test", "cargo build", "make", "just", "ls"] {
         outcomes.push(
             remove_claude_project_rule(
                 &folders,
-                &managed_file,
+                Some(config_folder.path()),
                 config_folder.path(),
                 folder.path(),
                 PathRules::Posix,
@@ -309,8 +329,13 @@ async fn a_revoke_of_a_rule_a_file_the_daemon_does_not_edit_keeps_names_it_and_c
             .await,
         );
     }
-    let [in_shared_file, in_user_file, in_managed_file, nowhere] =
-        <[_; 4]>::try_from(outcomes).expect("four revokes ran");
+    let [
+        in_shared_file,
+        in_user_file,
+        in_managed_file,
+        in_drop_in,
+        nowhere,
+    ] = <[_; 5]>::try_from(outcomes).expect("five revokes ran");
 
     assert!(matches!(
         in_shared_file,
@@ -324,6 +349,10 @@ async fn a_revoke_of_a_rule_a_file_the_daemon_does_not_edit_keeps_names_it_and_c
         in_managed_file,
         Err(ClaudeRulesError::RuleInUneditedFile { path }) if path == managed_file
     ));
+    assert!(matches!(
+        in_drop_in,
+        Err(ClaudeRulesError::RuleInUneditedFile { path }) if path == drop_in_file
+    ));
     assert!(matches!(nowhere, Err(ClaudeRulesError::RuleNotFound)));
     assert_eq!(read(&local_settings(folder.path())), local_text);
     assert!(!local_settings(other_folder.path()).exists());
@@ -336,7 +365,13 @@ async fn a_removed_tool_servers_rules_go_in_claude_codes_spelling_and_other_serv
     fs::create_dir_all(file.parent().expect("the file has a folder")).expect("the folder is made");
     fs::write(
         &file,
-        "{\"permissions\": {\"allow\": [\"mcp__my_server__read\", \"mcp__my_server\", \"mcp__reports\", \"mcp__reports__search\", \"mcp__reports__v2__*\", \"mcp__reports___*\", \"mcp__other__x\", \"mcp__my_serverx__y\", \"mcp__claude_ai_Notion_beta__search\"], \"deny\": [\"mcp__my_server__*\"]}}",
+        concat!(
+            "{\"permissions\": {\"allow\": [",
+            "\"mcp__my_server__read\", \"mcp__my_server\", \"mcp__reports\", ",
+            "\"mcp__reports__search\", \"mcp__reports__v2__*\", \"mcp__reports___*\", ",
+            "\"mcp__other__x\", \"mcp__my_serverx__y\", \"mcp__claude_ai_Notion_beta__search\"], ",
+            "\"deny\": [\"mcp__my_server__*\"]}}",
+        ),
     )
     .expect("the file is written");
     let folders = [ClaudeProjectFolder {
@@ -352,7 +387,10 @@ async fn a_removed_tool_servers_rules_go_in_claude_codes_spelling_and_other_serv
 
     assert_eq!(
         read(&file),
-        "{\"permissions\": {\"allow\": [\"mcp__reports__v2__*\", \"mcp__reports___*\", \"mcp__other__x\", \"mcp__my_serverx__y\"], \"deny\": []}}"
+        concat!(
+            "{\"permissions\": {\"allow\": [\"mcp__reports__v2__*\", \"mcp__reports___*\", ",
+            "\"mcp__other__x\", \"mcp__my_serverx__y\"], \"deny\": []}}",
+        )
     );
 }
 
@@ -383,7 +421,7 @@ async fn a_revoke_keeps_every_byte_of_the_list_but_the_entry_and_its_separator(
 
     remove_claude_project_rule(
         &folders,
-        &folder.path().join("managed-settings.json"),
+        Some(folder.path()),
         folder.path(),
         folder.path(),
         PathRules::Posix,

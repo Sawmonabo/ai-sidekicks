@@ -20,9 +20,8 @@ use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
 use crate::provider::driver::capabilities::DriverCapabilityFlag;
-use crate::provider::driver::contract::DriverResumeResult;
 use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::session_control::ResumeSessionParams;
+use crate::provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
 use crate::session::not_found::session_not_found;
 
 /// The provider a session ran on, and its last binding rebuilt as the params of a resume.
@@ -102,32 +101,30 @@ async fn restart(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
     use std::sync::Arc;
 
     use futures::FutureExt as _;
     use rstest::rstest;
     use serde_json::{Value, json};
+    use sidekicks_contracts::agent::definition::AgentId;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::machine::settings::ProviderRowValues;
     use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::controls::methods::SessionMode;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::text::FreeFormText;
-    use sidekicks_platforms::Spawner;
-    use tokio::runtime::Handle;
 
     use super::{RestartTargetReader, SessionRestartTarget, restart};
     use crate::ipc::registry::HandlerError;
     use crate::provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
-    use crate::provider::driver::contract::{
-        DriverResumeResult, MockProviderDriver, ProviderDriver,
-    };
+    use crate::provider::driver::contract::{MockProviderDriver, ProviderDriver};
     use crate::provider::driver::registry::ProviderRegistry;
-    use crate::provider::driver::session_control::ResumeSessionParams;
+    use crate::provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
+    use crate::provider::driver::test_registry::test_driver_services;
     use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
 
     const SESSION: &str = "0b7f3c1e-9a52-4d6b-8e21-5f4c7d9a1b30";
@@ -167,10 +164,7 @@ mod tests {
     /// The registry of the table's first provider, built by `build`, with `resume` declared as
     /// `has_resume` says; or no provider at all when `build` is `None`.
     fn providers(build: Option<BuildDriver>, has_resume: bool) -> ProviderRegistry {
-        let services = DriverServices {
-            spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-            data_folder: PathBuf::from("data"),
-        };
+        let services = test_driver_services();
         let table: Vec<ProviderRegistration> = build
             .map(|build| ProviderRegistration {
                 descriptor: PROVIDERS[0],
@@ -204,6 +198,8 @@ mod tests {
                 provider: ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id"),
                 params: ResumeSessionParams {
                     session_id,
+                    agent_id: AgentId::new(&mint_uuid_v7().to_string())
+                        .expect("a minted UUID is an agent id"),
                     resume_handle: "conversation".to_owned(),
                     model: FreeFormText::new("model".to_owned()).expect("valid text"),
                     larger_window: None,
@@ -217,7 +213,6 @@ mod tests {
                     tool_servers: None,
                     output_schema: None,
                     provider_account_id: None,
-                    on_callback_tool_call: None,
                     on_mcp_server_status: None,
                 },
             });

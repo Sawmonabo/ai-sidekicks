@@ -2,17 +2,16 @@
 //! Claude Code's own `/output-style` writes the project's local settings, its `/advisor` saves the
 //! choice for the whole machine, and its `/config` writes the person's settings, so each is applied
 //! for this one session instead. Only the `/config` keys a console control owns are the daemon's;
-//! every other `/config` goes as typed. Typed with nothing, `/output-style` and `/advisor` list what
-//! a control-only process in the session's folder printed for each; an argument the session cannot
-//! take goes as typed, and Claude Code answers it.
+//! every other `/config` goes as typed. Typed with nothing, `/output-style` and `/advisor` list
+//! what a control-only process in the session's folder printed for each; an argument the session
+//! cannot take goes as typed, and Claude Code answers it.
 
 use std::collections::HashMap;
 
-use serde::Deserialize;
 use serde_json::Value;
-use serde_json::value::RawValue;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 
+use crate::provider::driver::claude::session::transport::control::ClaudeSettingsReply;
 use crate::provider::driver::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeLocalCommandReply,
 };
@@ -73,6 +72,8 @@ pub(crate) enum ClaudeAdvisorChoices {
 /// What a session holds for the commands the daemon answers itself with no argument.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ClaudeCommandChoices {
+    /// The style names the build offers, in its order.
+    pub(crate) output_style_names: Vec<String>,
     /// The style descriptions.
     pub(crate) output_styles: ClaudeOutputStyleDescriptions,
     /// The advisors.
@@ -124,23 +125,10 @@ pub(crate) enum ClaudeCommandOutcome<V> {
     Apply(V),
 }
 
-// A `get_settings` reply's `applied` member; every other member is left unread.
-#[derive(Deserialize)]
-struct SettingsReply {
-    #[serde(default)]
-    applied: Option<Value>,
-}
-
-/// Reads the advisor a `get_settings` reply says will attach to the session's requests.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's /advisor answer reads what attaches through it"
-)]
-pub(crate) fn read_claude_attached_advisor(reply: Option<&RawValue>) -> ClaudeAttachedAdvisor {
-    let applied = reply
-        .and_then(|reply| serde_json::from_str::<SettingsReply>(reply.get()).ok())
-        .and_then(|reply| reply.applied);
-    let Some(Value::Object(applied)) = applied else {
+/// Reads the advisor a `get_settings` reply's `applied` says will attach to the session's
+/// requests.
+pub(crate) fn read_claude_attached_advisor(reply: &ClaudeSettingsReply) -> ClaudeAttachedAdvisor {
+    let Some(Value::Object(applied)) = &reply.applied else {
         return ClaudeAttachedAdvisor::Unreported;
     };
     match applied.get("advisor") {
@@ -154,10 +142,6 @@ pub(crate) fn read_claude_attached_advisor(reply: Option<&RawValue>) -> ClaudeAt
 
 /// What a session holds from the command replies of its creation-time process: the style
 /// descriptions, unlisted when the build no longer lists `/output-style`, and the advisors.
-#[expect(
-    dead_code,
-    reason = "the Claude model figures hold each folder's command choices through it"
-)]
 pub(crate) fn read_claude_command_choices(
     reading: &ClaudeCreationFiguresReading,
 ) -> ClaudeCommandChoices {
@@ -174,21 +158,16 @@ pub(crate) fn read_claude_command_choices(
         ),
     };
     ClaudeCommandChoices {
+        output_style_names: reading.output_style_names.clone(),
         output_styles,
         advisor: read_advisor_choices(&reading.advisor),
     }
 }
 
 /// What a session holds when its command choices could not be read, with the reason given.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver holds it for a session whose creation-time read failed"
-    )
-)]
 pub(crate) fn unreadable_claude_command_choices(detail: &str) -> ClaudeCommandChoices {
     ClaudeCommandChoices {
+        output_style_names: Vec::new(),
         output_styles: ClaudeOutputStyleDescriptions::Unlisted {
             line: format!("Claude Code's style descriptions could not be read: {detail}"),
         },
@@ -203,7 +182,7 @@ pub(crate) fn unreadable_claude_command_choices(detail: &str) -> ClaudeCommandCh
 /// it.
 #[expect(
     dead_code,
-    reason = "the Claude driver reads each typed message through it before writing it"
+    reason = "message admission reads each typed message through it before writing it"
 )]
 pub(crate) fn read_claude_answered_command(text: &str) -> Option<ClaudeAnsweredCommand> {
     let typed = text.strip_prefix('/')?;
@@ -234,7 +213,7 @@ pub(crate) fn read_claude_answered_command(text: &str) -> Option<ClaudeAnsweredC
 /// show included, is the listing laid out as Claude Code's own with the descriptions it printed.
 #[expect(
     dead_code,
-    reason = "the Claude driver answers a typed /output-style through it"
+    reason = "message admission answers a typed /output-style through it"
 )]
 pub(crate) fn answer_claude_output_style(
     argument: &str,
@@ -287,7 +266,7 @@ pub(crate) fn answer_claude_output_style(
 /// name it.
 #[expect(
     dead_code,
-    reason = "the Claude driver answers a typed /advisor through it"
+    reason = "message admission answers a typed /advisor through it"
 )]
 pub(crate) fn answer_claude_advisor(
     argument: &str,
