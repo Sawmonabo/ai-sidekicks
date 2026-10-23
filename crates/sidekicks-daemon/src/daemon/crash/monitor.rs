@@ -28,6 +28,7 @@ use sidekicks_platforms::{
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::data_folder::data_folder;
+use crate::error_description::describe_error;
 use crate::missing_entry::MissingEntry as _;
 
 /// The word the daemon's own program is started with to run the crash monitor; the socket's path
@@ -153,7 +154,7 @@ pub fn run_crash_monitor(arguments: &[OsString]) -> ExitCode {
         Err(failure) => {
             write_line(&format!(
                 "The crash monitor stopped: {}",
-                crate::error_description::describe_error(&failure)
+                describe_error(&failure)
             ));
             ExitCode::FAILURE
         }
@@ -332,7 +333,10 @@ impl ServerHandler for DumpWriter {
         match result {
             Ok(dump) => {
                 if let Err(failure) = self.finish_dump(&dump) {
-                    write_line(&format!("the crash dump could not be finished: {failure}"));
+                    write_line(&format!(
+                        "the crash dump could not be finished: {}",
+                        describe_error(&failure)
+                    ));
                 }
             }
             Err(failure) => {
@@ -349,7 +353,10 @@ impl ServerHandler for DumpWriter {
                     removal_failures.collect(),
                     "the crash dump's write",
                 );
-                write_line(&format!("the crash dump could not be written: {failure}"));
+                write_line(&format!(
+                    "the crash dump could not be written: {}",
+                    describe_error(&failure)
+                ));
             }
         }
         LoopAction::Exit
@@ -436,13 +443,66 @@ fn write_line(line: &str) {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::io;
+    use std::sync::Mutex;
     use std::sync::mpsc::sync_channel;
     use std::thread;
     use std::time::{Duration, Instant};
 
+    use minidumper::{LoopAction, MinidumpBinary, ServerHandler};
+    use rstest::rstest;
+
     use super::{
-        PANIC_RECORD_MAX_BYTES, PanicRecord, PanicRecordSendError, panic_record_bytes, send_within,
+        DumpWriter, PANIC_RECORD_MAX_BYTES, PanicRecord, PanicRecordSendError, panic_record_bytes,
+        send_within,
     };
+
+    // A dump whose write fails, as a full disk fails it, and one whose finish fails after its
+    // panic record was written, the finished name taken by a folder, leave neither the partial
+    // dump nor the record. Killed by a failed write that keeps its partial dump, and by a failed
+    // finish that keeps the dump or the record it wrote.
+    #[rstest]
+    #[case::write_fails(false)]
+    #[case::finish_fails(true)]
+    fn a_failed_dump_leaves_no_file_of_its_own(#[case] is_written: bool) {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let writer = DumpWriter {
+            dumps_folder: scratch.path().to_path_buf(),
+            panic: Mutex::new(Some(b"{}".to_vec())),
+            writing: Mutex::new(None),
+        };
+        let (file, path) = writer
+            .create_minidump_file()
+            .expect("the dump's file is made");
+        let finished = path.with_extension("");
+        let written = if is_written {
+            fs::create_dir_all(finished.join("inside")).expect("the finished name is taken");
+            Ok(MinidumpBinary {
+                file,
+                path,
+                contents: None,
+            })
+        } else {
+            drop(file);
+            Err(minidumper::Error::Io(io::Error::from(
+                io::ErrorKind::StorageFull,
+            )))
+        };
+
+        assert!(writer.on_minidump_created(written) == LoopAction::Exit);
+
+        let left: Vec<_> = fs::read_dir(scratch.path())
+            .expect("the dumps folder lists")
+            .map(|entry| entry.expect("an entry").path())
+            .collect();
+        let taken = if is_written {
+            vec![finished]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(left, taken);
+    }
 
     // A message far past the bound, of characters JSON escapes and characters of several bytes,
     // is cut under 64 KiB at a character boundary and still reads back. Killed by the cap dropped,
