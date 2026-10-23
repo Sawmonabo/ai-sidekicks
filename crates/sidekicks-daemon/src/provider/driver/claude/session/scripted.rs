@@ -50,7 +50,7 @@ use crate::provider::driver::claude::session::answered_commands::{
 use crate::provider::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
 use crate::provider::driver::claude::session::process::{ClaudeProcessListener, ClaudeStreamFrame};
 use crate::provider::driver::claude::session::state::{
-    ClaudeLiveSettings, ClaudeSpawnBinding, ClaudeUsageEstablishment, LiveClaudeSession,
+    ClaudeLiveSettings, ClaudeSpawnBinding, LiveClaudeSession,
 };
 use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::provider::driver::claude::session::transport::declarations::{
@@ -129,7 +129,6 @@ pub(crate) fn scripted_live_session(
         },
         initialize: ClaudeInitializeDeclaration::default(),
         command_choices: async move { choices }.boxed().shared(),
-        establishment: ClaudeUsageEstablishment::Fresh,
         admitted_provider_account_id: None,
         settings: Mutex::new(ClaudeLiveSettings {
             execution_posture: Some(execution_posture),

@@ -137,7 +137,7 @@ pub(crate) struct ClaudeLiveSettings {
     /// The advisor Claude Code says it attaches, read after the start and after each change.
     #[expect(
         dead_code,
-        reason = "the Claude driver's relaunch and controls read it"
+        reason = "the daemon's start registers the Claude driver, whose `/advisor` answer reads it"
     )]
     pub(crate) attached_advisor: ClaudeAttachedAdvisor,
     /// The output-speed level the process last took, which a rewind applies to its fork; `None`
@@ -168,14 +168,12 @@ pub(crate) struct LiveClaudeSession {
     /// What the process's `initialize` reply declared.
     pub(crate) initialize: ClaudeInitializeDeclaration,
     /// The style descriptions and advisors Claude Code offers, kept across a rewind.
-    #[expect(dead_code, reason = "the Claude driver's session task reads it")]
-    pub(crate) command_choices: ClaudeHeldCommandChoices,
-    /// The usage base.
     #[expect(
         dead_code,
-        reason = "the Claude driver's stream reader meters usage from it"
+        reason = "the daemon's start registers the Claude driver, whose `/output-style` and \
+                  `/advisor` answers and rewind read it"
     )]
-    pub(crate) establishment: ClaudeUsageEstablishment,
+    pub(crate) command_choices: ClaudeHeldCommandChoices,
     /// The account the process was admitted against, captured when it came up, since the
     /// registry can move; a rewind inherits it. `None` on the machine's own home.
     pub(crate) admitted_provider_account_id: Option<ProviderAccountId>,

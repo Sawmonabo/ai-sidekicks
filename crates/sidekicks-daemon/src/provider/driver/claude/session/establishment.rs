@@ -207,7 +207,8 @@ pub(crate) struct ClaudeSpawnSources {
     /// Points the session's binding at the conversation it moved onto.
     #[expect(
         dead_code,
-        reason = "a fork points the session's binding at its new conversation through it"
+        reason = "the daemon's start registers the Claude driver, whose fork points the session's \
+                  binding at its new conversation through it"
     )]
     pub(crate) runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
     /// The read pool, for the session's stored settings.
@@ -695,7 +696,6 @@ impl ClaudeSessionEstablishment {
             spawn_binding,
             initialize: started.initialize.clone(),
             command_choices,
-            establishment,
             admitted_provider_account_id: provider_account_id,
             settings: Mutex::new(ClaudeLiveSettings {
                 execution_posture: legs.execution_posture.clone(),
