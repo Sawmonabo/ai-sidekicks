@@ -38,7 +38,7 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_platforms::{
     atomic_write_target_of, create_file_atomically, remove_atomic_write_leftovers,
-    replace_file_atomically,
+    remove_unless_held, replace_file_atomically,
 };
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
@@ -356,10 +356,11 @@ fn list_finished_dumps(folder: &Path) -> io::Result<Vec<(PathBuf, u64)>> {
 }
 
 // Deletes what a failed write of the monitor left in the dumps folder `folder`: each partial dump
-// no monitor holds, each panic record whose dump is not there, and each panic record's temporary
-// file whose partial dump no monitor holds, since a monitor writes the record only while holding
-// it. The folder is listed once and each partial dump's lock tried at most once. Runs on past a
-// check or a removal that fails, answering each failure.
+// no monitor holds, removed under the pass's own lock, each panic record whose dump is not there,
+// and each panic record's temporary file whose partial dump no monitor holds, since a monitor
+// writes the record only while holding it. The folder is listed once, and a partial dump's lock is
+// tried for its own entry and at most once more for the files beside it. Runs on past a check or a
+// removal that fails, answering each failure.
 fn remove_monitor_leftovers(folder: &Path) -> Vec<io::Error> {
     let entries = match fs::read_dir(folder).none_if_missing() {
         Ok(Some(entries)) => entries,
@@ -379,12 +380,19 @@ fn remove_monitor_leftovers(folder: &Path) -> Vec<io::Error> {
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
+        if name.ends_with(DUMP_IN_PROGRESS_SUFFIX) {
+            match remove_unless_held(&path) {
+                Ok(is_held) => {
+                    held.insert(name.to_owned(), is_held);
+                }
+                Err(failure) => failures.push(failure),
+            }
+            continue;
+        }
         let record_temporary_stem = atomic_write_target_of(name)
             .and_then(|target| target.strip_suffix(PANIC_RECORD_SUFFIX));
         let is_leftover = if let Some(stem) = name.strip_suffix(PANIC_RECORD_SUFFIX) {
             is_record_orphaned(folder, stem, &mut held)
-        } else if name.ends_with(DUMP_IN_PROGRESS_SUFFIX) {
-            is_partial_dump_held(folder, name.to_owned(), &mut held).map(|is_held| !is_held)
         } else if let Some(stem) = record_temporary_stem {
             is_partial_dump_held(folder, partial_dump_name(stem), &mut held).map(|is_held| !is_held)
         } else {

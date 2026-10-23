@@ -66,6 +66,7 @@ mod file_facts;
 mod file_watch;
 #[cfg(any(test, feature = "test-support"))]
 mod footprint;
+mod held_file;
 mod hidden_entry;
 mod keep_awake;
 mod lasting_child;
@@ -140,6 +141,7 @@ pub use file_facts::FileFacts;
 pub use file_watch::{WATCHES_TREES, inotify_watch_ceiling};
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
+pub use held_file::remove_unless_held;
 pub use hidden_entry::is_hidden_entry;
 pub use keep_awake::{KeepAwakeHold, KeepAwakePurpose, KeepAwakeRefused};
 pub use lasting_child::{LastingChild, LastingCommand};
