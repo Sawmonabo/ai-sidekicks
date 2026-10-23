@@ -339,9 +339,10 @@ impl ClaudeWireFrameKind {
                 Stream,
                 "a refusal no other model takes, carried on the refused turn's own ending",
             ),
-            Self::Assistant => self.normalized(Stream, NormalizedEventKind::TextDelta),
+            Self::Assistant | Self::StreamEvent => {
+                self.normalized(Stream, NormalizedEventKind::TextDelta)
+            }
             Self::User => self.normalized(Stream, NormalizedEventKind::ToolComplete),
-            Self::StreamEvent => self.normalized(Stream, NormalizedEventKind::TextDelta),
             Self::CommandLifecycle => self.not_evented(
                 Stream,
                 "what became of a message the session was sent, read into the queue's taken and \

@@ -529,10 +529,9 @@ impl ClaudeDeliveryStream {
             "stream_event" => stream_event(session, &lead, &frame.text),
             "assistant" => self.assistant(session, &lead, &frame.text, &members).await,
             "user" => self.user(session, &lead, &frame.text, &members).await,
-            // A helper's start and moves are read off the frame before it reaches the reader.
-            "system/task_started" | "system/task_updated" => {}
-            // Every kind reaching here is a census kind this reader reads nothing from; the router
-            // quarantined an unlisted one before it came.
+            // Every kind reaching here is a census kind this reader reads nothing from, a helper's
+            // start and moves among them, read off the frame before it reaches the reader; the
+            // router quarantined an unlisted one before it came.
             _ => {}
         }
         after

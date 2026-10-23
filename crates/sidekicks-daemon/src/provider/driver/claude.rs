@@ -550,7 +550,6 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 
-    use crate::provider::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
     use crate::provider::driver::claude::lifecycle::ClaudeDriver;
     use crate::provider::driver::contract::ProviderDriver;
     use crate::provider::driver::run_control::PickedSkill;
