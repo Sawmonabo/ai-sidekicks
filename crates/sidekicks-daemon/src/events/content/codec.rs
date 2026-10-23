@@ -12,7 +12,7 @@ use std::ops::{ControlFlow, Range};
 use std::string::FromUtf8Error;
 
 use rusqlite::blob::Blob;
-use rusqlite::types::{FromSqlError, Type, Value};
+use rusqlite::types::{Type, Value};
 use rusqlite::{Connection, MAIN_DB, Row};
 use sidekicks_contracts::event::declared_variants::{
     CONTENT_ENCODING_PAYLOAD_KEY, CONTENT_LENGTH_PAYLOAD_KEY, ContentEncoding,
@@ -24,7 +24,7 @@ use zstd::zstd_safe::zstd_sys::ZSTD_ErrorCode;
 use zstd::zstd_safe::{self, CParameter, DCtx};
 
 use crate::database::schema::SESSION_EVENTS_TABLE;
-use crate::database::stored_column::closed_word;
+use crate::database::stored_column::{closed_word, wrong_type_failure};
 
 /// The smallest body stored compressed, in UTF-8 bytes.
 const COMPRESSED_FROM_BYTES: usize = 1024;
@@ -657,15 +657,6 @@ fn stated_length_column(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<
             Err(wrong_type_failure(index, &other))
         }
     }
-}
-
-// A payload value of a type no writer stores there, as rusqlite's conversion error on its column.
-fn wrong_type_failure(index: usize, value: &Value) -> rusqlite::Error {
-    rusqlite::Error::FromSqlConversionFailure(
-        index,
-        value.data_type(),
-        Box::new(FromSqlError::InvalidType),
-    )
 }
 
 /// A body that does not decode, as the read's conversion failure on its column; zstd out of memory

@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use rstest::rstest;
 use rusqlite::Connection;
+use serde_json::json;
 use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
 use sidekicks_search::index::{IndexRowKind, SearchIndex, SearchQuery};
 use tokio::sync::{Notify, watch};
@@ -27,7 +28,7 @@ use crate::session::search::index::rebuild::{
 };
 use crate::session::search::index::schema::add_titled_session;
 use crate::session::search::rowid_floors::RowidFloorLog;
-use crate::transcript::test_log::TranscriptTestLog;
+use crate::transcript::test_log::{RowDamage, TranscriptTestLog};
 
 // A database of `session_count` titled sessions, beside an index whose newest commit records the
 // first session's outbox rows, opened as a start opens it; and the outbox's highest id. Past one
@@ -297,31 +298,24 @@ async fn a_failed_apply_keeps_the_last_commit_served_and_is_tried_again_after_it
     open.index.close().expect("the index closes");
 }
 
-// How a test damages a stored reply's row.
-#[derive(Clone, Copy)]
-enum ReplyDamage {
-    // Its payload names an encoding no build writes.
-    Encoding,
-    // Its payload states its length as text.
-    Length,
-    // Its stored body fails a frame's checksum.
-    Frame,
-}
-
-// A reply damaged in its payload's encoding or length, or in the fourth of its five stored frames,
-// is no index row: the apply passes over it, logging it once, leaves no document under its key,
-// the pages before the damage included, and applies the reply after it, so the next reply's words
-// find it. Killed by a damaged row that fails the apply as a refused read does, whether the row's
-// read or its body's fails, by a length of another type read as a refused read, and by the damaged
-// row's pages kept in the batch. Its log is the process's own, which nextest runs it in, so the
+// A reply damaged in its payload's encoding, by a word no build writes or by one flipped bit that
+// leaves it no UTF-8, or in its length, or in the fourth of its five stored frames, and a tool
+// call whose payload names its tool with a number, are no index rows: the apply passes over each,
+// logging it once, leaves no document under its key, the pages before the damage included, and
+// applies the reply after it, so the next reply's words find it. Killed by a damaged row that
+// fails the apply as a refused read does, whether the row's read or its body's fails, by a UTF-8
+// error, a length or a tool name of another type read as a refused read, and by the damaged row's
+// pages kept in the batch. Its log is the process's own, which nextest runs it in, so the
 // blocking pool's lines reach it.
 #[rstest]
-#[case::encoding(ReplyDamage::Encoding)]
-#[case::length(ReplyDamage::Length)]
-#[case::frame(ReplyDamage::Frame)]
+#[case::encoding(RowDamage::Encoding)]
+#[case::encoding_byte(RowDamage::EncodingByte)]
+#[case::length(RowDamage::Length)]
+#[case::tool_name(RowDamage::ToolName)]
+#[case::frame(RowDamage::Frame(3))]
 #[tokio::test]
 async fn an_apply_passes_over_a_damaged_row_and_applies_the_rows_after_it(
-    #[case] damage: ReplyDamage,
+    #[case] damage: RowDamage,
 ) {
     let (damage_logs, _, damage_log_count) = MessageWaker::new("search_index_row_damaged");
     tracing::subscriber::set_global_default(tracing_subscriber::registry().with(damage_logs))
@@ -340,13 +334,18 @@ async fn an_apply_passes_over_a_damaged_row_and_applies_the_rows_after_it(
         )
         .expect("the session's key reads");
     let session_key = u64::try_from(session_rowid).expect("a rowid is positive");
-    let damaged_reply = format!("zebra {}", "words ".repeat(4 * PAGE_MAX_BYTES / 6));
-    let (damaged, _) = log.reply("m1", None, &damaged_reply);
-    match damage {
-        ReplyDamage::Encoding => log.set_payload_text(damaged, "$.contentEncoding", "zstdx"),
-        ReplyDamage::Length => log.set_payload_text(damaged, "$.contentLength", "many"),
-        ReplyDamage::Frame => log.damage_frame(damaged, 3),
-    }
+    let damaged_text = format!("zebra {}", "words ".repeat(4 * PAGE_MAX_BYTES / 6));
+    let (damaged, _) = if matches!(damage, RowDamage::ToolName) {
+        let payload =
+            json!({ "sessionId": log.session_id, "runId": log.run_id, "toolName": "edit" });
+        log.write(
+            json!({ "type": "agent.toolCall.invoked", "payload": payload }),
+            Some(&damaged_text),
+        )
+    } else {
+        log.reply("m1", None, &damaged_text)
+    };
+    log.damage_row(damaged, damage);
     let damaged_rowid: i64 = log
         .writer
         .query_row(

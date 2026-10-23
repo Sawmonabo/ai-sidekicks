@@ -214,16 +214,17 @@ mod tests {
     use crate::session::search::index::rows::{
         IndexRowReader, SourceRowRead, empty_index_batch_room,
     };
-    use crate::transcript::test_log::TranscriptTestLog;
+    use crate::transcript::test_log::{RowDamage, TranscriptTestLog};
 
     // A search whose hits list a reply damaged since it was indexed, in its stored body's second
-    // frame or its payload's encoding, answers with the line of the session's other reply, the
-    // damaged one showing none. Killed by a damaged body or row that fails the search as a refused
-    // read does.
+    // frame or its payload's encoding, by a word no build writes or by one flipped bit that leaves
+    // it no UTF-8, answers with the line of the session's other reply, the damaged one showing
+    // none. Killed by a damaged body or row that fails the search as a refused read does.
     #[rstest]
-    #[case::frame(true)]
-    #[case::encoding(false)]
-    fn a_search_answers_past_a_hit_whose_row_was_damaged(#[case] is_frame_damaged: bool) {
+    #[case::frame(RowDamage::Frame(1))]
+    #[case::encoding(RowDamage::Encoding)]
+    #[case::encoding_byte(RowDamage::EncodingByte)]
+    fn a_search_answers_past_a_hit_whose_row_was_damaged(#[case] damage: RowDamage) {
         let log = TranscriptTestLog::new();
         insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
         let damaged_reply = format!("zebra {}", "words ".repeat(2 * PAGE_MAX_BYTES / 6));
@@ -238,11 +239,7 @@ mod tests {
             .iter()
             .map(SourceRowRead::key)
             .collect();
-        if is_frame_damaged {
-            log.damage_frame(damaged, 1);
-        } else {
-            log.set_payload_text(damaged, "$.contentEncoding", "zstdx");
-        }
+        log.damage_row(damaged, damage);
 
         let query = SearchQuery {
             words: vec!["quokka".to_owned()],

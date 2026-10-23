@@ -6,21 +6,23 @@
 //! is marked on the same pages the index saw. A log row belongs to its session through the
 //! session's directory row; a log row of a session with none, which only the daemon's own sentinel
 //! session lacks, is no index row, and neither is a row in a range its session skipped past as
-//! damaged. A row a value of which does not read as its type, such as its payload's body encoding
-//! or length or its stored body, is no index row either: a read hands it back damaged, so every
-//! reader passes it over alike, and only SQLite's refusal of a read fails it.
+//! damaged. A row a value of which does not read as its type, such as text that is not UTF-8, its
+//! payload's text, body encoding or length or its stored body, is no index row either: a read
+//! hands it back damaged on rusqlite's conversion or UTF-8 error, so every reader passes it over
+//! alike, and only SQLite's refusal of a read fails it.
 
 use std::collections::HashMap;
 use std::mem;
 use std::ops::ControlFlow;
 use std::sync::LazyLock;
 
+use rusqlite::types::Value;
 use rusqlite::{Connection, Row, named_params};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_search::index::{IndexRowKind, IndexRowTag, find_page_end};
 
 use crate::database::sql_list::sql_list_of;
-use crate::database::stored_column::{optional_text_column, rowid_column};
+use crate::database::stored_column::{optional_text_column, rowid_column, wrong_type_failure};
 use crate::events::content::codec::{
     StoredBodyPlace, stored_body_encoding_sql, stored_body_length_sql,
 };
@@ -144,9 +146,9 @@ impl SourceRowRead {
     }
 }
 
-/// A source row a value of which does not read as its type: its payload's body encoding or length,
-/// its stored body or another column. It is no index row. Only rusqlite's conversion error makes
-/// one; SQLite's own refusal of a read stays a failed read.
+/// A source row a value of which does not read as its type: its payload's text, body encoding or
+/// length, its stored body or another column. It is no index row. Only rusqlite's conversion or
+/// UTF-8 error makes one; SQLite's own refusal of a read stays a failed read.
 #[derive(Debug)]
 pub(crate) struct DamagedSourceRow {
     /// The row's index key.
@@ -155,7 +157,7 @@ pub(crate) struct DamagedSourceRow {
     pub(crate) owner_key: u64,
     /// A log row's sequence in its session's log; `None` on a title, group or tag.
     pub(crate) sequence: Option<i64>,
-    /// The conversion error the value failed with, keeping why.
+    /// The conversion or UTF-8 error the value failed with, keeping why.
     pub(crate) damage: rusqlite::Error,
 }
 
@@ -168,15 +170,19 @@ pub(crate) enum PageReadError {
     Refused(rusqlite::Error),
 }
 
-// `error` as the damage of the row it was read from when it is rusqlite's conversion error, which a
-// value that does not read as its type fails with; any other error is SQLite's refusal, handed back.
+// `error` as the damage of the row it was read from when it is rusqlite's conversion or UTF-8 error,
+// which a value that does not read as its type fails with; any other error fails the read, handed
+// back.
 fn damage_of(
     error: rusqlite::Error,
     key: u64,
     owner_key: u64,
     sequence: Option<i64>,
 ) -> Result<DamagedSourceRow, rusqlite::Error> {
-    if !matches!(error, rusqlite::Error::FromSqlConversionFailure(..)) {
+    if !matches!(
+        error,
+        rusqlite::Error::FromSqlConversionFailure(..) | rusqlite::Error::Utf8Error(..)
+    ) {
         return Err(error);
     }
     Ok(DamagedSourceRow {
@@ -310,7 +316,8 @@ fn row_sql(kind: IndexRowKind, choice: RowChoice) -> String {
 }
 
 /// Reads index rows from their source tables on one connection. A row a value of which does not
-/// read as its type is handed back damaged; SQLite's refusal fails the read with its error.
+/// read as its type, on rusqlite's conversion or UTF-8 error, is handed back damaged; SQLite's
+/// refusal fails the read with its error.
 pub(crate) struct IndexRowReader<'connection> {
     /// The connection the rows are read on.
     reader: &'connection Connection,
@@ -473,7 +480,7 @@ fn whole_source_row_of(
     let event_id: Option<String> = row.get(3)?;
     let tag_fold: Option<String> = row.get(5)?;
     let session_last_activity_ms = optional_text_column(row, 6, |text| last_activity_ms(&text))?;
-    let mut text: String = row.get(2)?;
+    let mut text = row_text_column(row, 2)?;
     let body = StoredBodyPlace::read(row, BODY_COLUMN + 1)?;
     if body.is_some() {
         text.push_str(row.get_ref(BODY_COLUMN)?.as_str()?);
@@ -496,6 +503,17 @@ fn whole_source_row_of(
     })
 }
 
+// A row's text, read from `index`: a payload's member is any JSON value, so one that is not text
+// fails with rusqlite's conversion error, as the damage it is.
+fn row_text_column(row: &Row<'_>, index: usize) -> rusqlite::Result<String> {
+    match row.get::<_, Value>(index)? {
+        Value::Text(text) => Ok(text),
+        other @ (Value::Null | Value::Integer(_) | Value::Real(_) | Value::Blob(_)) => {
+            Err(wrong_type_failure(index, &other))
+        }
+    }
+}
+
 // A stored instant as milliseconds since the Unix epoch, as the index orders a tag's sessions;
 // fails on text that is not an instant.
 fn last_activity_ms(text: &str) -> Result<u64, jiff::Error> {
@@ -508,11 +526,14 @@ fn last_activity_ms(text: &str) -> Result<u64, jiff::Error> {
 mod tests {
     use std::ops::ControlFlow;
 
+    use rstest::rstest;
+    use rusqlite::types::{FromSqlError, Type};
     use serde_json::json;
     use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
     use sidekicks_search::index::IndexRowKind;
 
-    use super::{IndexRowReader, SourceRow, SourceRowRead, empty_index_batch_room};
+    use super::{IndexRowReader, SourceRow, SourceRowRead, damage_of, empty_index_batch_room};
+    use crate::events::content::codec::out_of_memory_read_failure;
     use crate::session::directory::test_rows::insert_session_row;
     use crate::transcript::test_log::TranscriptTestLog;
 
@@ -535,6 +556,37 @@ mod tests {
             panic!("the row reads whole, not {read:?}");
         };
         row
+    }
+
+    // rusqlite's conversion and UTF-8 errors damage a row; SQLite out of memory and a column of a
+    // type the read does not take are refusals, handed back to fail the read. Killed by the refusal
+    // guard deleted, which passes a refused row over and drops it from the index for good, and by
+    // a UTF-8 error left out of the damage, which stalls indexing on one flipped bit.
+    #[rstest]
+    #[case::out_of_memory(out_of_memory_read_failure(), false)]
+    #[case::column_type(rusqlite::Error::InvalidColumnType(2, "text".to_owned(), Type::Integer), false)]
+    #[case::conversion(
+        rusqlite::Error::FromSqlConversionFailure(
+            2,
+            Type::Text,
+            Box::new(FromSqlError::InvalidType)
+        ),
+        true
+    )]
+    #[case::utf8(
+        rusqlite::Error::Utf8Error(
+            2,
+            String::from_utf8(vec![0xFA])
+                .expect_err("0xFA begins no UTF-8 character")
+                .utf8_error()
+        ),
+        true
+    )]
+    fn only_a_conversion_or_utf8_error_damages_a_row(
+        #[case] error: rusqlite::Error,
+        #[case] is_damage: bool,
+    ) {
+        assert_eq!(damage_of(error, 1, 2, Some(3)).is_ok(), is_damage);
     }
 
     // A reply and a tool call's arguments past 1 KiB are stored compressed, and the index takes
