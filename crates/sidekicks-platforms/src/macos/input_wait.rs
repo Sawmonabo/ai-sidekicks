@@ -152,6 +152,7 @@ pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading>
         is_waiting,
         accepts_input: survey.accepts_input,
         is_echo_off: !terminal.master.is_echo_on,
+        is_password_prompt: terminal.master.is_password_prompt(),
     })
 }
 
@@ -248,8 +249,7 @@ fn survey_group(terminal: &InputTerminal) -> io::Result<GroupSurvey> {
         });
     }
     let is_password_wait = !refused.is_empty()
-        && terminal.master.is_canonical
-        && !terminal.master.is_echo_on
+        && terminal.master.is_password_prompt()
         && is_any_running_by_ps(&refused)? == Some(false);
     Ok(GroupSurvey {
         accepts_input: is_password_wait,

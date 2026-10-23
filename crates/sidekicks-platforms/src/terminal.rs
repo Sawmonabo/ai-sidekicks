@@ -101,6 +101,14 @@ pub struct TerminalMasterReading {
     pub is_canonical: bool,
 }
 
+impl TerminalMasterReading {
+    /// Whether the terminal is set as a password prompt sets it: a line at a time with echo off. A
+    /// full-screen program turns line input off with echo, so it is not one.
+    pub fn is_password_prompt(&self) -> bool {
+        self.is_canonical && !self.is_echo_on
+    }
+}
+
 /// The device number of a terminal's program side, which tells a descriptor open on that terminal
 /// from every other, whatever path opened it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

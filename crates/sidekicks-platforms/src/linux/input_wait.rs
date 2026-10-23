@@ -60,14 +60,13 @@ pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading>
             }
         }
     }
-    let is_password_wait = is_refused
-        && is_any_refused_sleeping
-        && terminal.master.is_canonical
-        && !terminal.master.is_echo_on;
+    let is_password_wait =
+        is_refused && is_any_refused_sleeping && terminal.master.is_password_prompt();
     Ok(InputWaitReading {
         is_waiting: !is_running && (is_waiting || is_password_wait),
         accepts_input: accepts_input || is_password_wait,
         is_echo_off: !terminal.master.is_echo_on,
+        is_password_prompt: terminal.master.is_password_prompt(),
     })
 }
 
