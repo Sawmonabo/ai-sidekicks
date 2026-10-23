@@ -66,7 +66,8 @@ impl FolderArrivalWatch {
     }
 }
 
-/// A watch on a file a command writes, handing back each byte appended to it once, from its start.
+/// A watch on a file a command writes, handing back each byte appended to it once, from its start;
+/// it follows the open file, so the bytes written after its name is removed or replaced still come.
 pub struct FileAppendWatch {
     file: File,
     // The bytes handed back so far, which the file's length never falls under while only appended.
@@ -76,7 +77,8 @@ pub struct FileAppendWatch {
 
 impl FileAppendWatch {
     /// Watches the file at `path`, whose bytes so far are read first. Fails with the system's error
-    /// when the file cannot be opened or watched, and with `Unsupported` on Windows.
+    /// when the file cannot be opened or watched, `NotFound` when its name is already gone, and
+    /// with `Unsupported` on Windows.
     pub async fn watch(path: &Path) -> io::Result<Self> {
         let wake = ChangeWake::on_file_appends(path)?;
         let file = File::open(path).await?;
@@ -88,30 +90,47 @@ impl FileAppendWatch {
     }
 
     /// The bytes appended since the last call, at most 64 KiB, waiting until there are some. Fails
-    /// with the system's error when the file cannot be read or the watch fails, with
+    /// with the system's error when the file cannot be read or the watch fails, and with
     /// `InvalidData` once the file is shorter than the bytes already handed back, as a truncated
-    /// file is, and with `NotFound` once the file is removed or renamed away.
+    /// file is; a command that empties and rewrites its own output between two reads loses the
+    /// bytes up to where the last read stopped.
     pub async fn next_appended(&mut self) -> io::Result<Vec<u8>> {
         let mut buffer = vec![0_u8; APPEND_READ_LIMIT];
         loop {
-            let length = self.file.metadata().await?.len();
-            if length < self.offset {
-                return Err(io::Error::new(
-                    ErrorKind::InvalidData,
-                    format!(
-                        "the watched file holds {length} bytes, fewer than the {} already read",
-                        self.offset
-                    ),
-                ));
-            }
-            let count = self.file.read(&mut buffer).await?;
+            let count = self.read_appended(&mut buffer).await?;
             if count > 0 {
-                self.offset += u64::try_from(count).map_err(io::Error::other)?;
                 buffer.truncate(count);
                 return Ok(buffer);
             }
             self.wake.changed().await?;
         }
+    }
+
+    /// The bytes appended since the last call, at most 64 KiB, without waiting: empty when none
+    /// are, for a caller reading the last bytes after the writer's end. Fails as
+    /// [`Self::next_appended`] does.
+    pub async fn drain(&mut self) -> io::Result<Vec<u8>> {
+        let mut buffer = vec![0_u8; APPEND_READ_LIMIT];
+        let count = self.read_appended(&mut buffer).await?;
+        buffer.truncate(count);
+        Ok(buffer)
+    }
+
+    // Reads into `buffer` what was appended since the last read, counting it handed back.
+    async fn read_appended(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let length = self.file.metadata().await?.len();
+        if length < self.offset {
+            return Err(io::Error::new(
+                ErrorKind::InvalidData,
+                format!(
+                    "the watched file holds {length} bytes, fewer than the {} already read",
+                    self.offset
+                ),
+            ));
+        }
+        let count = self.file.read(buffer).await?;
+        self.offset += u64::try_from(count).map_err(io::Error::other)?;
+        Ok(count)
     }
 }
 
@@ -135,8 +154,10 @@ async fn list_names(folder: &Path) -> io::Result<HashSet<OsString>> {
 mod tests {
     use std::fs;
     use std::io::{ErrorKind, Seek, Write};
+    use std::path::Path;
     use std::time::Duration;
 
+    use rstest::rstest;
     use tokio::time::{sleep, timeout};
 
     use super::{FileAppendWatch, FolderArrivalWatch};
@@ -238,6 +259,82 @@ mod tests {
                 .expect("the append is seen in time")
                 .expect("the file reads"),
             b"second"
+        );
+    }
+
+    // Fails when the watch ends, or stops waking, once the file's name is removed, renamed away or
+    // replaced by another file's, while its writer goes on writing through its open descriptor.
+    #[rstest]
+    #[case::removed(|path: &Path| fs::remove_file(path).expect("the file's name is removed"))]
+    #[case::renamed_away(|path: &Path| {
+        fs::rename(path, path.with_extension("moved")).expect("the file is renamed away");
+    })]
+    #[case::renamed_over(|path: &Path| {
+        let other = path.with_extension("other");
+        fs::write(&other, b"other").expect("another file is written");
+        fs::rename(&other, path).expect("the other file is renamed over the name");
+    })]
+    #[tokio::test]
+    async fn file_append_watch_follows_its_file_past_its_name(#[case] lose_name: fn(&Path)) {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let path = folder.path().join("output");
+        let mut writer = fs::File::create(&path).expect("the file is made");
+        let mut watch = FileAppendWatch::watch(&path)
+            .await
+            .expect("the file is watched");
+
+        let (after, ()) = tokio::join!(timeout(SEEN_WITHIN, watch.next_appended()), async {
+            sleep(CHANGE_DELAY).await;
+            lose_name(&path);
+            writer.write_all(b"after").expect("the append is written");
+        });
+
+        assert_eq!(
+            after
+                .expect("the append is seen in time")
+                .expect("the file reads"),
+            b"after"
+        );
+    }
+
+    // Fails when a file whose name is gone before the watch fails as anything but missing.
+    #[tokio::test]
+    async fn file_append_watch_of_a_missing_file_fails_as_not_found() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+
+        let failure = FileAppendWatch::watch(&folder.path().join("output")).await;
+
+        assert_eq!(
+            failure.err().map(|failure| failure.kind()),
+            Some(ErrorKind::NotFound)
+        );
+    }
+
+    // Fails when a drain waits for an append, or does not hand back what was appended.
+    #[tokio::test]
+    async fn file_append_watch_drains_without_waiting() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let path = folder.path().join("output");
+        let mut writer = fs::File::create(&path).expect("the file is made");
+        let mut watch = FileAppendWatch::watch(&path)
+            .await
+            .expect("the file is watched");
+
+        let quiet = timeout(SEEN_WITHIN, watch.drain()).await;
+        writer.write_all(b"last").expect("the append is written");
+        let appended = timeout(SEEN_WITHIN, watch.drain()).await;
+
+        assert_eq!(
+            quiet
+                .expect("a quiet file drains in time")
+                .expect("the file reads"),
+            b""
+        );
+        assert_eq!(
+            appended
+                .expect("the append drains in time")
+                .expect("the file reads"),
+            b"last"
         );
     }
 

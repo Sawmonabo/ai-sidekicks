@@ -1,6 +1,6 @@
 //! The wake a folder's arrival watch and a file's append watch wait on, as Linux raises it: an
-//! inotify watch through `notify`, `IN_MOVED_TO` on the folder and `IN_MODIFY` on a file, ended by
-//! `IN_DELETE_SELF` or `IN_MOVE_SELF` on either.
+//! inotify watch through `notify`, `IN_MOVED_TO` on the folder, which `IN_DELETE_SELF` or
+//! `IN_MOVE_SELF` ends, and `IN_MODIFY` on a file's inode, whatever becomes of its name.
 
 use std::io::{self, ErrorKind};
 use std::path::Path;
@@ -9,7 +9,7 @@ use notify::event::{ModifyKind, RenameMode};
 use notify::{Config, Event, EventKind, EventKindMask, INotifyWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 
-// The kinds that carry the watched path's own end: `notify` reports `IN_DELETE_SELF` as a removal
+// The kinds that carry the watched folder's own end: `notify` reports `IN_DELETE_SELF` as a removal
 // and `IN_MOVE_SELF` as a rename, each at the watched path itself.
 const ENDING_KINDS: EventKindMask = EventKindMask::REMOVE.union(EventKindMask::MODIFY_NAME);
 
@@ -33,16 +33,17 @@ impl ChangeWake {
         })
     }
 
-    /// Wakes when the file at `path` is written. Fails with the system's error when the file
-    /// cannot be watched.
+    /// Wakes when the file at `path` is written, after its name is removed or replaced too. Fails
+    /// with the system's error when the file cannot be watched.
     pub(crate) fn on_file_appends(path: &Path) -> io::Result<Self> {
-        Self::on_path(path, EventKindMask::MODIFY_DATA | ENDING_KINDS, |kind| {
+        Self::on_path(path, EventKindMask::MODIFY_DATA, |kind| {
             matches!(kind, EventKind::Modify(ModifyKind::Data(_)))
         })
     }
 
     // A watch on `path` for the inotify events `kinds` asks for, waking on those `is_wake` keeps
-    // and on a lost-events notice, and failing once `path` itself is removed or renamed away.
+    // and on a lost-events notice, and failing once `path` itself is removed or renamed away when
+    // `kinds` asks for those.
     fn on_path(
         path: &Path,
         kinds: EventKindMask,
@@ -81,7 +82,14 @@ impl ChangeWake {
         .map_err(io::Error::other)?;
         watcher
             .watch(path, RecursiveMode::NonRecursive)
-            .map_err(io::Error::other)?;
+            .map_err(|error| {
+                // A path already gone fails as opening it would.
+                if matches!(error.kind, notify::ErrorKind::PathNotFound) {
+                    io::Error::new(ErrorKind::NotFound, error)
+                } else {
+                    io::Error::other(error)
+                }
+            })?;
         Ok(Self {
             _watcher: watcher,
             wakes,
@@ -89,8 +97,8 @@ impl ChangeWake {
     }
 
     /// Completes at the next change, or at once when one came since the last call. Fails with
-    /// `notify`'s error when the watch fails, and with `NotFound` once the watched folder or file
-    /// is removed or renamed away.
+    /// `notify`'s error when the watch fails, and with `NotFound` once the watched folder is removed
+    /// or renamed away.
     pub(crate) async fn changed(&mut self) -> io::Result<()> {
         match self.wakes.recv().await {
             Some(wake) => wake,

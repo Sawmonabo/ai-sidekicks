@@ -16,8 +16,8 @@ use tokio::io::unix::AsyncFd;
 // holds all that a watched file raised.
 const DRAINED_EVENTS: usize = 4;
 
-// The changes that end a watch: the watched folder or file removed, renamed away, or its file
-// system unmounted.
+// The changes that end a watch: the watched folder removed or renamed away, or the file system of
+// the watched folder or file unmounted.
 const ENDING_CHANGES: FilterFlag = FilterFlag::NOTE_DELETE
     .union(FilterFlag::NOTE_RENAME)
     .union(FilterFlag::NOTE_REVOKE);
@@ -31,6 +31,8 @@ const NO_WAIT: libc::timespec = libc::timespec {
 /// Raises a wake each time the watched folder or file changes as its watch asked.
 pub(crate) struct ChangeWake {
     queue: AsyncFd<WatchQueue>,
+    // The changes this watch asked for that end it.
+    endings: FilterFlag,
     // The descriptor the filter watches, which only marks the vnode and stays open as long.
     _watched: File,
 }
@@ -52,12 +54,13 @@ impl ChangeWake {
         Self::on_vnode(folder, FilterFlag::NOTE_WRITE | ENDING_CHANGES)
     }
 
-    /// Wakes when the file at `path` grows or is written. Needs a tokio runtime's reactor; fails
-    /// with the system's error when the file cannot be opened or watched.
+    /// Wakes when the file at `path` grows or is written, after its name is removed or replaced
+    /// too. Needs a tokio runtime's reactor; fails with the system's error when the file cannot be
+    /// opened or watched.
     pub(crate) fn on_file_appends(path: &Path) -> io::Result<Self> {
         Self::on_vnode(
             path,
-            FilterFlag::NOTE_EXTEND | FilterFlag::NOTE_WRITE | ENDING_CHANGES,
+            FilterFlag::NOTE_EXTEND | FilterFlag::NOTE_WRITE | FilterFlag::NOTE_REVOKE,
         )
     }
 
@@ -87,13 +90,14 @@ impl ChangeWake {
                 .map_err(io::Error::from)?;
         Ok(Self {
             queue,
+            endings: changes & ENDING_CHANGES,
             _watched: watched,
         })
     }
 
     /// Completes at the next change, or at once when one came since the last call. Fails with the
-    /// system's error when the queue cannot be read, and with `NotFound` once the watched folder or
-    /// file is removed, renamed away or unmounted.
+    /// system's error when the queue cannot be read, and with `NotFound` once a change this watch
+    /// ends on comes: its folder removed or renamed away, or its file system unmounted.
     pub(crate) async fn changed(&mut self) -> io::Result<()> {
         loop {
             let mut ready = self.queue.readable().await?;
@@ -114,7 +118,7 @@ impl ChangeWake {
             let drained = events.get(..count).unwrap_or(&events);
             if drained
                 .iter()
-                .any(|event| event.fflags().intersects(ENDING_CHANGES))
+                .any(|event| event.fflags().intersects(self.endings))
             {
                 return Err(io::Error::new(
                     io::ErrorKind::NotFound,
