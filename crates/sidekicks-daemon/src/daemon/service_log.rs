@@ -16,6 +16,7 @@
 //!   error says so once in the file, which carries it alone. Neither stops the daemon.
 //! - Lines from the daemon's own crates are kept from info up, every other crate's from warn up.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::error::Error;
 use std::io::{self, Write};
@@ -57,7 +58,7 @@ const OWN_CRATES_TARGET_PREFIX: &str = "sidekicks_";
 
 // The line the file gets once, when standard error fails.
 const STANDARD_ERROR_GONE_NOTICE: &str =
-    "Standard error failed, so the service log goes to its file alone from here";
+    "standard error failed, so the service log goes to its file alone from here";
 
 // The line standard error gets once, when the file fails, until it takes a line again.
 const FILE_FAILED_NOTICE: &str = "the service log file failed, so the service log goes to standard \
@@ -127,7 +128,7 @@ impl ServiceLog {
         if let Some(failure) = &self.open_failure {
             tracing::warn!(
                 error = failure as &(dyn Error + 'static),
-                "The service log file could not be opened, so the service log goes to standard \
+                "the service log file could not be opened, so the service log goes to standard \
                  error alone from here"
             );
         }
@@ -158,8 +159,8 @@ impl ServiceLogGuard {
 }
 
 impl ServiceLogFiles {
-    /// The file the service log writes now, which the expiry never deletes, held through a failed
-    /// write the next line reopens it after; `None` when it never opened.
+    /// The file the service log writes now, which the expiry never deletes; it stays the live file
+    /// through a failed write, which the next line reopens; `None` when it never opened.
     #[cfg_attr(
         not(test),
         expect(
@@ -416,7 +417,9 @@ impl ServiceLogSides {
 
 impl FileSide {
     // Turns the file when the local day has turned or the line would take it past the ceiling, or
-    // else reopens it after a failure, then writes the whole line through `write`.
+    // else reopens it after a failure, then writes the whole line through `write`. The first line
+    // into a reopened file starts on a line of its own, since a failed write may have left part of
+    // one.
     fn write_line(
         &mut self,
         line: &[u8],
@@ -425,13 +428,18 @@ impl FileSide {
         let line_length = u64::try_from(line.len()).unwrap_or(u64::MAX);
         let is_full = self.byte_count > 0
             && self.byte_count.saturating_add(line_length) > SERVICE_LOG_FILE_BYTE_CEILING;
-        if is_full || Timestamp::now() >= self.next_day_at {
+        let line = if is_full || Timestamp::now() >= self.next_day_at {
             self.turn()?;
+            Cow::Borrowed(line)
         } else if self.is_failing {
             self.writer.reopen_outputfile().map_err(io::Error::other)?;
-        }
-        write(&mut self.writer, line)?;
-        self.byte_count = self.byte_count.saturating_add(line_length);
+            Cow::Owned([b"\n", line].concat())
+        } else {
+            Cow::Borrowed(line)
+        };
+        write(&mut self.writer, &line)?;
+        let written = u64::try_from(line.len()).unwrap_or(u64::MAX);
+        self.byte_count = self.byte_count.saturating_add(written);
         Ok(())
     }
 
@@ -521,9 +529,7 @@ impl Write for &ServiceLogSides {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
-
-    use std::io::{Read as _, Write as _};
+    use std::io::{self, Read as _, Write as _};
 
     use flexi_logger::writers::ArcFileLogWriter;
 
@@ -532,42 +538,61 @@ mod tests {
         open_service_log, service_log_folder,
     };
 
-    // A write to the file that fails twice in a row says so once on standard error, and the next
-    // line lands in the file again. Killed by a failure that ends the file for good, and by a
-    // notice for each failed line.
+    // Each run of failed writes to the file, two in a row, says so once on standard error, and the
+    // next line lands in the file again: on a line of its own after a write that failed halfway,
+    // and at the live file's path once the file was removed under the log. Killed by a failure
+    // that ends the file for good, by a notice for each failed line, by a line that joins the part
+    // a failed write left, and by a recovery that writes on without reopening the file.
     #[test]
     fn a_failed_file_write_is_told_once_and_the_next_line_lands() {
         let data_folder = tempfile::tempdir().expect("a scratch data folder");
         let (mut standard_error, writer) = io::pipe().expect("a pipe");
         let service_log = open_service_log(data_folder.path(), writer);
-        let refuse = |_: &mut ArcFileLogWriter, _: &[u8]| -> io::Result<()> {
-            Err(io::Error::from(io::ErrorKind::StorageFull))
-        };
-
-        service_log
-            .sides
-            .write_file_through(b"the first line\n", refuse);
-        service_log
-            .sides
-            .write_file_through(b"the second line\n", refuse);
-        (&*service_log.sides)
-            .write_all(b"the third line\n")
-            .expect("the log's writer never fails");
-        service_log.sides.flush();
-
         let files = ServiceLogFiles {
             sides: std::sync::Arc::clone(&service_log.sides),
         };
-        let file = files.live_file().expect("the file stays the live one");
-        let text = std::fs::read_to_string(file).expect("the file reads");
-        assert!(!text.contains("the first line") && !text.contains("the second line"));
-        assert!(text.contains("the third line"), "{text}");
+        let live_file = files.live_file().expect("the file opened");
+        let refuse = |_: &mut ArcFileLogWriter, _: &[u8]| -> io::Result<()> {
+            Err(io::Error::from(io::ErrorKind::StorageFull))
+        };
+        let write_halfway = |file: &mut ArcFileLogWriter, line: &[u8]| -> io::Result<()> {
+            file.write_all(&line[..8])?;
+            Err(io::Error::from(io::ErrorKind::StorageFull))
+        };
+        let write = |line: &[u8]| {
+            (&*service_log.sides)
+                .write_all(line)
+                .expect("the log's writer never fails");
+            service_log.sides.flush();
+        };
+
+        service_log
+            .sides
+            .write_file_through(b"the first line\n", write_halfway);
+        service_log
+            .sides
+            .write_file_through(b"the second line\n", refuse);
+        write(b"the third line\n");
+        let text = std::fs::read_to_string(&live_file).expect("the file reads");
+        assert_eq!(text, "the firs\nthe third line\n");
+        service_log
+            .sides
+            .write_file_through(b"the fourth line\n", refuse);
+        std::fs::remove_file(&live_file).expect("the file is removed under the log");
+        service_log
+            .sides
+            .write_file_through(b"the fifth line\n", refuse);
+        write(b"the sixth line\n");
+
+        assert_eq!(files.live_file(), Some(live_file.clone()));
+        let text = std::fs::read_to_string(&live_file).expect("the file is back at its path");
+        assert_eq!(text, "\nthe sixth line\n");
         drop((files, service_log));
         let mut told = String::new();
         standard_error
             .read_to_string(&mut told)
             .expect("standard error reads to its end");
-        assert_eq!(told.matches(FILE_FAILED_NOTICE).count(), 1, "{told}");
+        assert_eq!(told.matches(FILE_FAILED_NOTICE).count(), 2, "{told}");
     }
 
     #[test]

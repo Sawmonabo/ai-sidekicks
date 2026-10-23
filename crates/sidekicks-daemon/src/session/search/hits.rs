@@ -7,6 +7,7 @@
 //! or a skipped range covers it. A search with words marks them as the index finds them; a search
 //! by tags alone marks each tag's levels the queried tag names.
 
+use std::collections::HashSet;
 use std::error::Error;
 use std::ops::ControlFlow;
 
@@ -79,7 +80,8 @@ impl<'connection> HitLineReader<'connection> {
     }
 
     // Each round reads, for every list short of `count` lines with keys left, as many of its next
-    // keys as it is short, all in one read.
+    // keys as it is short, all in one read. A damaged row is logged once a search, however many
+    // lists hold it, and its pages are not read again.
     fn read_marked_lines(
         &self,
         key_lists: &[&[u64]],
@@ -95,6 +97,7 @@ impl<'connection> HitLineReader<'connection> {
                 lines: Vec::new(),
             })
             .collect();
+        let mut damaged_keys = HashSet::new();
         loop {
             let mut chunks: Vec<(usize, &[u64])> = Vec::new();
             for (place, read) in reads.iter_mut().enumerate() {
@@ -117,7 +120,12 @@ impl<'connection> HitLineReader<'connection> {
                     let row = match rows.get(key) {
                         None => continue,
                         Some(SourceRowRead::Damaged(damaged)) => {
-                            log_damaged_hit(damaged);
+                            if damaged_keys.insert(damaged.key) {
+                                log_damaged_hit(damaged);
+                            }
+                            continue;
+                        }
+                        Some(SourceRowRead::Whole(row)) if damaged_keys.contains(&row.key) => {
                             continue;
                         }
                         Some(SourceRowRead::Whole(row)) => row,
@@ -139,6 +147,7 @@ impl<'connection> HitLineReader<'connection> {
                     let marked = match paged {
                         Ok(marked) => marked,
                         Err(PageReadError::Damaged(damaged)) => {
+                            damaged_keys.insert(damaged.key);
                             log_damaged_hit(&damaged);
                             None
                         }
@@ -210,16 +219,18 @@ mod tests {
     use sidekicks_search::index::{IndexRowKind, SearchQuery};
 
     use super::HitLineReader;
+    use crate::provider::driver::diagnostics::RecordedEvents;
     use crate::session::directory::test_rows::insert_session_row;
     use crate::session::search::index::rows::{
         IndexRowReader, SourceRowRead, empty_index_batch_room,
     };
     use crate::transcript::test_log::{RowDamage, TranscriptTestLog};
 
-    // A search whose hits list a reply damaged since it was indexed, in its stored body's second
-    // frame or its payload's encoding, by a word no build writes or by one flipped bit that leaves
-    // it no UTF-8, answers with the line of the session's other reply, the damaged one showing
-    // none. Killed by a damaged body or row that fails the search as a refused read does.
+    // A search whose two lists of hits both hold a reply damaged since it was indexed, in its
+    // stored body's second frame or its payload's encoding, by a word no build writes or by one
+    // flipped bit that leaves it no UTF-8, answers each list with the line of the session's other
+    // reply, the damaged one showing none and logged once. Killed by a damaged body or row that
+    // fails the search as a refused read does, and by a log per list.
     #[rstest]
     #[case::frame(RowDamage::Frame(1))]
     #[case::encoding(RowDamage::Encoding)]
@@ -245,13 +256,23 @@ mod tests {
             words: vec!["quokka".to_owned()],
             last_word_is_prefix: false,
         };
-        let lines = HitLineReader::new(rows, 100)
-            .read_lines(&[&keys], &query, 2)
-            .expect("the search answers");
+        let recorded = RecordedEvents::default();
+        let mut lines = Vec::new();
+        recorded.record_during(|| {
+            lines = HitLineReader::new(rows, 100)
+                .read_lines(&[&keys, &keys], &query, 2)
+                .expect("the search answers");
+        });
         let line_keys: Vec<Vec<u64>> = lines
             .iter()
             .map(|list_lines| list_lines.iter().map(|line| line.key).collect())
             .collect();
-        assert_eq!(line_keys, [vec![keys[1]]]);
+        assert_eq!(line_keys, [vec![keys[1]], vec![keys[1]]]);
+        let damage_logs = recorded
+            .messages()
+            .into_iter()
+            .filter(|message| message == "search_hit_row_damaged")
+            .count();
+        assert_eq!(damage_logs, 1);
     }
 }

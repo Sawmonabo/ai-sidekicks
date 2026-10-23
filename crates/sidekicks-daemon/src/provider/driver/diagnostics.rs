@@ -327,6 +327,11 @@ mod recorded_events {
             self.fields_where(|_fields| true, "counter")
         }
 
+        /// The message of each event recorded, in order.
+        pub(crate) fn messages(&self) -> Vec<String> {
+            self.fields_where(|_fields| true, "message")
+        }
+
         /// The value of `field` on each diagnostic recorded under `counter`, in order.
         pub(crate) fn field_on(&self, counter: &str, field: &str) -> Vec<String> {
             self.fields_where(
