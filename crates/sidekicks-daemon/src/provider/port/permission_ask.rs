@@ -64,6 +64,36 @@ pub(crate) enum ProviderAskAction {
     },
 }
 
+impl ProviderAskAction {
+    /// The line a command action runs, which is read before a rule's subject is derived from it;
+    /// `None` for any other action.
+    pub(crate) fn command_line(&self) -> Option<&str> {
+        match self {
+            Self::Command { command } => Some(command),
+            Self::CommandInput { .. }
+            | Self::FileChange { .. }
+            | Self::FileRead { .. }
+            | Self::Network { .. }
+            | Self::Tool { .. } => None,
+        }
+    }
+
+    /// The command or path a person may correct before approving the action, and which an ask
+    /// carrying out a correction must name exactly: a command, a read's path, or a change's one
+    /// path; `None` for any other action, which takes no correction.
+    pub(crate) fn corrected_subject(&self) -> Option<&str> {
+        match self {
+            Self::Command { command } => Some(command),
+            Self::FileRead { path } => Some(path),
+            Self::FileChange { paths } => match paths.as_slice() {
+                [only] => Some(only),
+                [] | [_, _, ..] => None,
+            },
+            Self::CommandInput { .. } | Self::Network { .. } | Self::Tool { .. } => None,
+        }
+    }
+}
+
 /// One ask a provider holds a tool call on: the tool, its input as the provider sent it, the
 /// provider's own request id the answer goes back under, and its prompt where it sent one.
 #[derive(Clone, Debug, PartialEq)]

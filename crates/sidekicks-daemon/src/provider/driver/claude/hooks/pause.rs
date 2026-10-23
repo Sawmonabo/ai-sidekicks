@@ -24,6 +24,26 @@ pub(crate) enum ClaudeHookAnswer {
         /// Why the turn stopped.
         reason: String,
     },
+    /// Adds `context` for the model to read after the tool call it answers.
+    AddContext {
+        /// The hook's event, which Claude Code checks the answer against.
+        hook_event_name: &'static str,
+        /// What the model reads.
+        context: String,
+    },
+    /// Keeps a finishing helper going, the helper reading `reason` as its next instruction.
+    Block {
+        /// What the helper reads.
+        reason: String,
+    },
+}
+
+// The `hookSpecificOutput` of an answer that adds context.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AddedContext<'context> {
+    hook_event_name: &'static str,
+    additional_context: &'context str,
 }
 
 // The `hookSpecificOutput` of a pre-tool denial.
@@ -55,6 +75,26 @@ impl Serialize for ClaudeHookAnswer {
                 let mut map = serializer.serialize_map(Some(2))?;
                 map.serialize_entry("continue", &false)?;
                 map.serialize_entry("stopReason", reason)?;
+                map.end()
+            }
+            Self::AddContext {
+                hook_event_name,
+                context,
+            } => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry(
+                    "hookSpecificOutput",
+                    &AddedContext {
+                        hook_event_name,
+                        additional_context: context,
+                    },
+                )?;
+                map.end()
+            }
+            Self::Block { reason } => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("decision", "block")?;
+                map.serialize_entry("reason", reason)?;
                 map.end()
             }
         }

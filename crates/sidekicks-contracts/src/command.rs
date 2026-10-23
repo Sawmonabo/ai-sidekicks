@@ -7,6 +7,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::event::declared_variants::with_machine_content_descriptor;
 use crate::event::envelope::{
     SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
 };
@@ -135,14 +136,14 @@ pub struct AgentCommandStopRequest {
     pub command_id: CommandId,
 }
 
-/// The command was stopped.
+/// The provider acknowledged the command's stop.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct AgentCommandStopResponse {
     /// The command.
     pub command_id: CommandId,
-    /// Always true.
+    /// True once the provider acknowledged the stop.
     pub stopped: True,
 }
 
@@ -223,63 +224,77 @@ fn add_write_carries_something_rule(schema: &mut schemars::Schema) {
     );
 }
 
-/// How a command ended: it finished, it failed, or the person stopped it.
+/// How a command ended: it finished, it failed or the provider stopped it, or the person stopped
+/// it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum CommandEnding {
     /// It finished.
     Finished,
-    /// It failed.
+    /// It failed, or the provider stopped it.
     Failed,
     /// The person stopped it.
     EndedByPerson,
 }
 
-/// The `agent.command.ended` payload: one command's ending. `exitCode` is the process's own when it
-/// has one; `durationMs` is how long it ran, so the row reads its duration after a reload. It takes
-/// the epoch stamp.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
-#[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-pub struct AgentCommandEndedPayload {
-    /// The session.
-    pub session_id: SessionId,
-    /// The run.
-    pub run_id: RunId,
-    /// The command.
-    pub command_id: CommandId,
-    /// How it ended.
-    pub ending: CommandEnding,
-    /// The process's exit code.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "ExitCode")]
-    pub exit_code: Option<ExitCode>,
-    /// How long it ran, in milliseconds.
-    pub duration_ms: SafeInt<0>,
-    /// The superseded execution epoch the row was delivered for; comes with `sourcePosition`.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "SourceEpoch")]
-    #[garde(custom(|epoch: &Option<SourceEpoch>, (): &()| {
-        check_epoch_stamp(*epoch, self.source_position, true)
+with_machine_content_descriptor! {
+    /// The `agent.command.ended` payload: one command's ending, which takes the epoch stamp. A
+    /// provider's summary of a command it stopped itself is the event's body, only on a `failed`
+    /// ending.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[garde(allow_unvalidated)]
+    #[garde(custom(|payload: &Self, (): &()| {
+        if payload.content_length.is_none() || payload.ending == CommandEnding::Failed {
+            Ok(())
+        } else {
+            Err(garde::Error::new("only a failed ending carries the provider's summary"))
+        }
     }))]
-    pub source_epoch: Option<SourceEpoch>,
-    /// The turn position the row occupies within its epoch; comes with `sourceEpoch`.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "SourcePosition")]
-    pub source_position: Option<SourcePosition>,
+    #[schemars(extend(
+        "dependentRequired" = epoch_stamp_dependent_required(),
+        "if" = { "properties": { "contentLength": true }, "required": ["contentLength"] },
+        "then" = { "properties": { "ending": { "const": "failed" } } },
+    ))]
+    pub struct AgentCommandEndedPayload {
+        /// The session.
+        pub session_id: SessionId,
+        /// The run.
+        pub run_id: RunId,
+        /// The command.
+        pub command_id: CommandId,
+        /// How it ended.
+        pub ending: CommandEnding,
+        /// The process's exit code.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ExitCode")]
+        pub exit_code: Option<ExitCode>,
+        /// How long it ran, in milliseconds.
+        pub duration_ms: SafeInt<0>,
+        /// The superseded execution epoch the row was delivered for; comes with `sourcePosition`.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "SourceEpoch")]
+        #[garde(custom(|epoch: &Option<SourceEpoch>, (): &()| {
+            check_epoch_stamp(*epoch, self.source_position, true)
+        }))]
+        pub source_epoch: Option<SourceEpoch>,
+        /// The turn position the row occupies within its epoch; comes with `sourceEpoch`.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "SourcePosition")]
+        pub source_position: Option<SourcePosition>,
+    }
 }
 
 /// A process's exit code, any whole number a JavaScript number holds exactly.
@@ -301,21 +316,32 @@ methods! {
             mutating: true,
             params: AgentCommandStopRequest,
             result: AgentCommandStopResponse,
-            refusals: [SessionNotFound],
+            refusals: [SessionNotFound, ProviderUnavailable, ProviderTimeout],
         },
         /// Moves a command the agent waits on to the background.
         AgentCommandBackground = mutation "agent.command.background" {
             mutating: true,
             params: AgentCommandBackgroundRequest,
             result: AgentCommandBackgroundResponse,
-            refusals: [SessionNotFound, ProviderCapabilityUnsupported, AgentCommandNotInForeground],
+            refusals: [
+                SessionNotFound,
+                ProviderCapabilityUnsupported,
+                AgentCommandNotInForeground,
+                ProviderUnavailable,
+                ProviderTimeout,
+            ],
         },
         /// Writes input to a command, ends its input, or both.
         AgentCommandWrite = mutation "agent.command.write" {
             mutating: true,
             params: AgentCommandWriteRequest,
             result: NullPayload,
-            refusals: [SessionNotFound, AgentCommandTakesNoInput],
+            refusals: [
+                SessionNotFound,
+                AgentCommandTakesNoInput,
+                ProviderUnavailable,
+                ProviderTimeout,
+            ],
         },
     ];
 }
@@ -352,5 +378,63 @@ impl ListKey for RunningCommand {
 
     fn validate_item(&self, parent: &mut dyn FnMut() -> garde::Path, report: &mut garde::Report) {
         garde::Validate::validate_into(self, &(), parent, report);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use garde::Validate as _;
+    use serde_json::{Value, json};
+
+    use super::AgentCommandEndedPayload;
+
+    /// A stored `agent.command.ended` payload ending as `ending`, with a body of `content_length`
+    /// bytes where one is given.
+    fn ended(ending: &str, content_length: Option<u64>) -> Value {
+        let mut payload = json!({
+            "sessionId": "0190f2a0-0000-7000-8000-000000000000",
+            "runId": "0190f2a0-0000-7000-8000-000000000001",
+            "commandId": "toolu_01",
+            "ending": ending,
+            "durationMs": 120_000,
+        });
+        if let Some(length) = content_length {
+            payload["contentLength"] = json!(length);
+        }
+        payload
+    }
+
+    #[test]
+    fn only_a_failed_ending_carries_the_providers_summary() {
+        let stopped = ended("failed", Some(42));
+        let payload: AgentCommandEndedPayload =
+            serde_json::from_value(stopped.clone()).expect("a failed ending with a body reads");
+        assert!(payload.validate().is_ok());
+        assert_eq!(serde_json::to_value(&payload).expect("it writes"), stopped);
+
+        for ending in ["finished", "endedByPerson"] {
+            let without_body: AgentCommandEndedPayload =
+                serde_json::from_value(ended(ending, None))
+                    .expect("an ending without a body reads");
+            assert!(without_body.validate().is_ok(), "{ending}");
+            let with_body: AgentCommandEndedPayload =
+                serde_json::from_value(ended(ending, Some(42))).expect("the shape reads");
+            assert!(with_body.validate().is_err(), "{ending}");
+        }
+    }
+
+    // Killed by `requires_length_beside_cut_mark` answering `Ok` for a cut mark with no length.
+    #[test]
+    fn a_cut_body_reports_its_length() {
+        let mut cut = ended("failed", None);
+        cut["contentTruncated"] = json!(true);
+        let without_length: AgentCommandEndedPayload =
+            serde_json::from_value(cut.clone()).expect("the shape reads");
+        assert!(without_length.validate().is_err());
+
+        cut["contentLength"] = json!(300_000);
+        let with_length: AgentCommandEndedPayload =
+            serde_json::from_value(cut).expect("the shape reads");
+        assert!(with_length.validate().is_ok());
     }
 }

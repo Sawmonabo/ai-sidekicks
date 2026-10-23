@@ -102,7 +102,6 @@ pub(crate) enum InterruptRoute {
 /// session and version when it records it. A turn's start is no marker: [`RunEngine::start_turn`]
 /// numbers it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(dead_code, reason = "the provider's event delivery")]
 pub(crate) enum RunMarker {
     /// The provider process reported its start for the run (`agent.run.providerInitialized`).
     ProviderInitialized {
@@ -496,7 +495,6 @@ impl RunEngine {
     /// interrupt a stop of the run could not hand is handed again, and once the provider reports
     /// the run back to `running` from a wait, a pause or `pausing`, the interrupt of every limit it
     /// owes, each failure returned beside the run as the change left it.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn apply_provider_state_change(
         self: &Arc<Self>,
         change: RunStateChange,
@@ -628,7 +626,6 @@ impl RunEngine {
     /// Records `marker` on its run at the run's current version and returns the id of the event
     /// written, or `None` with nothing written when the run has ended. Fails with
     /// [`RunRefusal::NotFound`] for a run the daemon has no row for.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn append_run_marker(
         &self,
         marker: RunMarker,
@@ -653,7 +650,6 @@ impl RunEngine {
     /// provider runs it at another state, appends one `fastOutputUnavailable` notice naming the
     /// run, with the provider's reason. Only the first report for a started run is compared; a
     /// later one finds nothing. Fails when the notice is not appended.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn record_settled_output_speed(
         &self,
         session_id: SessionId,

@@ -6,8 +6,8 @@
 //!   and a task the holder spawns is handed the hold, since a hold on a `'static` lock is itself
 //!   `'static`.
 //! - The hold ends when it drops, by a value, an error or a cancel alike.
-//! - Each key's queue is a FIFO mutex, removed once no caller holds or waits on it, so the map never
-//!   grows with every key ever locked.
+//! - Each key's queue is a FIFO mutex, removed once no caller holds or waits on it, so the map
+//!   never grows with every key ever locked.
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -50,6 +50,17 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
         };
         hold.guard = Some(queue.lock_owned().await);
         hold
+    }
+
+    /// How many handles on `requested_key`'s queue its holder and its waiters keep, beside the
+    /// map's own; 0 when no one holds or waits on it. A waiter keeps handles of its own, so the
+    /// count rises once a caller waits behind the holder.
+    #[cfg(test)]
+    pub(crate) fn queue_handle_count(&self, requested_key: Key) -> usize {
+        let key = (self.canonical_key)(requested_key);
+        self.lock_queues()
+            .get(&key)
+            .map_or(0, |queue| Arc::strong_count(queue) - 1)
     }
 
     fn lock_queues(&self) -> std::sync::MutexGuard<'_, HashMap<Key, Arc<tokio::sync::Mutex<()>>>> {

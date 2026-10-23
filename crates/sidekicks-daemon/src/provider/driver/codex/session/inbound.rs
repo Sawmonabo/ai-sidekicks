@@ -31,9 +31,8 @@ use crate::provider::driver::codex::server_requests::{
 use crate::provider::driver::codex::session::calls::CodexSessionReading;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
-use crate::provider::driver::contract::{
-    DriverError, MoveSessionToForkParams, MoveSessionToForkResult,
-};
+use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
 
 /// The depth past which a session's queue is logged, then again at each doubling.
 const CODEX_SESSION_INBOUND_DEPTH_MARK: usize = 512;

@@ -1,46 +1,27 @@
-//! The Claude Code half of the driver's normalize boundary: a pure, total mapping from a pinned
-//! stream-json or control-channel frame kind to its event category, the emission route the driver
-//! core reads it through, the helper lifecycle signals, and each frame kind's routing family.
+//! The Claude Code half of the driver's normalize boundary: the pinned census of stream-json and
+//! control-channel frame kinds, each kind's routing family, and the helper lifecycle signals. The
+//! stream reader decides each census kind's rows by matching on it.
 //!
-//! Left out of the census: the frames the delivery side reads itself (the `assistant` and `user`
-//! messages, the `stream_event` frames of a response being written, the `task_*` helper frames,
-//! `informational`, `status`, `permission_denied` and the four model switches), which the router
-//! still classifies below; and, so the diagnostic default branch reports them instead of a guessed
-//! row, `command_lifecycle`, `queued_notification` (daemon-to-CLI, so anomalous inbound),
-//! `prompt_suggestion`, and the `set_effort`, `rewind` and `compact` control subtypes.
+//! Left out of the census, so the router quarantines and reports them instead of a guessed row:
+//! `queued_notification` (daemon-to-CLI, so anomalous inbound), `prompt_suggestion`, and the
+//! `set_effort`, `rewind` and `compact` control subtypes. A `result` of a subtype the census does
+//! not list, or of none, is no such kind: it still ends its turn, as a failure, and is reported
+//! once.
 
 use std::borrow::Cow;
 use std::str::FromStr;
 
-use serde_json::Map;
 use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use strum::{EnumString, IntoStaticStr, VariantArray};
+use strum::EnumString;
 
-use crate::provider::driver::diagnostics::{
-    DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
-};
-use crate::provider::event_disposition::{NormalizedEventKind, resolve_adopted_event_target};
 use crate::provider::thread_frame_router::{
     ChildThreadAnnouncement, ThreadFrameFamilyClass, ThreadScopedFrameCapability,
 };
 
-/// Which channel carried a frame: stdout stream-json, or one half of the control channel. Not a
-/// direction: control traffic runs both ways under one frame type.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ClaudeWireChannel {
-    /// Standard output's stream-json.
-    Stream,
-    /// A control request.
-    ControlRequest,
-    /// The answer to a control request.
-    ControlResponse,
-}
-
-/// The pinned inbound frame-kind census with a settled disposition: the frame `type` joined to its
-/// subtype by `/`, read from and written as that text.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, EnumString, IntoStaticStr, VariantArray)]
+/// The pinned inbound frame-kind census: the frame `type` joined to its subtype by `/`, read from
+/// that text, and a `result` whose subtype the census does not list.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, EnumString)]
 pub(crate) enum ClaudeWireFrameKind {
     /// `system/init`.
     #[strum(serialize = "system/init")]
@@ -48,42 +29,88 @@ pub(crate) enum ClaudeWireFrameKind {
     /// `system/api_retry`.
     #[strum(serialize = "system/api_retry")]
     SystemApiRetry,
-    /// `system/api_error`.
+    /// `system/api_error`: a request error on the retry ladder, read only as the spent signal.
     #[strum(serialize = "system/api_error")]
     SystemApiError,
-    /// `system/compact_boundary`.
+    /// `system/compact_boundary`: Claude Code compacted its context window; the reader adds no row.
     #[strum(serialize = "system/compact_boundary")]
     SystemCompactBoundary,
     /// `system/worker_shutting_down`.
     #[strum(serialize = "system/worker_shutting_down")]
     SystemWorkerShuttingDown,
-    /// `system/hook_started`.
+    /// `system/hook_started`: a hook began, the daemon's own orchestration; no event.
     #[strum(serialize = "system/hook_started")]
     SystemHookStarted,
-    /// `system/hook_progress`.
+    /// `system/hook_progress`: a running hook's progress; no event.
     #[strum(serialize = "system/hook_progress")]
     SystemHookProgress,
-    /// `system/hook_response`.
+    /// `system/hook_response`: a hook's result, which the hook dispatcher takes; no event.
     #[strum(serialize = "system/hook_response")]
     SystemHookResponse,
-    /// `system/notification`.
+    /// `system/notification`: a notice `system/informational` already carries; no event.
     #[strum(serialize = "system/notification")]
     SystemNotification,
-    /// `system/files_persisted`.
+    /// `system/files_persisted`: a file-write summary the tool rows already carry; no event.
     #[strum(serialize = "system/files_persisted")]
     SystemFilesPersisted,
-    /// `system/tool_use_summary`.
+    /// `system/tool_use_summary`: a summary of tool calls already recorded; no event.
     #[strum(serialize = "system/tool_use_summary")]
     SystemToolUseSummary,
-    /// `system/memory_recall`.
+    /// `system/memory_recall`: Claude Code's own memory read; no event.
     #[strum(serialize = "system/memory_recall")]
     SystemMemoryRecall,
-    /// `system/local_command_output`.
+    /// `system/local_command_output`: output the tool rows already carry; no event.
     #[strum(serialize = "system/local_command_output")]
     SystemLocalCommandOutput,
-    /// `system/task_progress`.
+    /// `system/task_progress`: a helper's progress; its start, moves and end carry its state.
     #[strum(serialize = "system/task_progress")]
     SystemTaskProgress,
+    /// `system/task_started`: a helper began in the lead's stream.
+    #[strum(serialize = "system/task_started")]
+    SystemTaskStarted,
+    /// `system/task_updated`: a helper moved to the background or the foreground.
+    #[strum(serialize = "system/task_updated")]
+    SystemTaskUpdated,
+    /// `system/task_notification`: a helper ended.
+    #[strum(serialize = "system/task_notification")]
+    SystemTaskNotification,
+    /// `system/background_tasks_changed`: the set of background tasks; each helper's own frames
+    /// carry its state.
+    #[strum(serialize = "system/background_tasks_changed")]
+    SystemBackgroundTasksChanged,
+    /// `system/informational`.
+    #[strum(serialize = "system/informational")]
+    SystemInformational,
+    /// `system/status`.
+    #[strum(serialize = "system/status")]
+    SystemStatus,
+    /// `system/permission_denied`: a blocked call's words, carried on that call's failure.
+    #[strum(serialize = "system/permission_denied")]
+    SystemPermissionDenied,
+    /// `system/model_fallback`.
+    #[strum(serialize = "system/model_fallback")]
+    SystemModelFallback,
+    /// `system/model_refusal_fallback`.
+    #[strum(serialize = "system/model_refusal_fallback")]
+    SystemModelRefusalFallback,
+    /// `system/model_consent_fallback`.
+    #[strum(serialize = "system/model_consent_fallback")]
+    SystemModelConsentFallback,
+    /// `system/model_refusal_no_fallback`: a refusal no model takes, carried on the turn's end.
+    #[strum(serialize = "system/model_refusal_no_fallback")]
+    SystemModelRefusalNoFallback,
+    /// `assistant`: a message of the agent's reply.
+    #[strum(serialize = "assistant")]
+    Assistant,
+    /// `user`: a tool's result, or the echo of a message the session was sent.
+    #[strum(serialize = "user")]
+    User,
+    /// `stream_event`: a piece of a response being written.
+    #[strum(serialize = "stream_event")]
+    StreamEvent,
+    /// `command_lifecycle`: what became of a message the session was sent.
+    #[strum(serialize = "command_lifecycle")]
+    CommandLifecycle,
     /// `rate_limit_event`: an account quota snapshot as its own `type`, with no subtype.
     #[strum(serialize = "rate_limit_event")]
     RateLimitEvent,
@@ -102,19 +129,26 @@ pub(crate) enum ClaudeWireFrameKind {
     /// `result/error_max_structured_output_retries`.
     #[strum(serialize = "result/error_max_structured_output_retries")]
     ResultErrorMaxStructuredOutputRetries,
+    /// A `result` whose subtype the census does not list, or that carries none: it still ends its
+    /// turn, as a failure.
+    #[strum(disabled)]
+    ResultUnlisted {
+        /// The subtype as Claude Code sent it, if any.
+        subtype: Option<String>,
+    },
     /// `control_request/can_use_tool`.
     #[strum(serialize = "control_request/can_use_tool")]
     ControlRequestCanUseTool,
     /// `control_request/elicitation`.
     #[strum(serialize = "control_request/elicitation")]
     ControlRequestElicitation,
-    /// `control_request/request_user_dialog`.
+    /// `control_request/request_user_dialog`: a dialog the request path answers.
     #[strum(serialize = "control_request/request_user_dialog")]
     ControlRequestRequestUserDialog,
-    /// `control_request/hook_callback`.
+    /// `control_request/hook_callback`: a hook's call, answered by the hook dispatcher.
     #[strum(serialize = "control_request/hook_callback")]
     ControlRequestHookCallback,
-    /// `control_request/mcp_message`.
+    /// `control_request/mcp_message`: MCP transport between Claude Code and a server.
     #[strum(serialize = "control_request/mcp_message")]
     ControlRequestMcpMessage,
     /// `control_request/mcp_set_servers`.
@@ -150,288 +184,120 @@ pub(crate) enum ClaudeWireFrameKind {
     /// `control_request/rewind_files`.
     #[strum(serialize = "control_request/rewind_files")]
     ControlRequestRewindFiles,
-    /// `control_response/success`, answering a daemon request.
+    /// `control_response/success`, answering a daemon request; the dispatcher settles the call.
     #[strum(serialize = "control_response/success")]
     ControlResponseSuccess,
-    /// `control_response/error`, answering a daemon request.
+    /// `control_response/error`, answering a daemon request; the dispatcher reads the refusal.
     #[strum(serialize = "control_response/error")]
     ControlResponseError,
 }
 
-/// A frame that normalizes into one event category. `normalized_kind` is `None` for a frame the
-/// normalized vocabulary does not name (`worker_shutting_down`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ClaudeNormalizedCategoryEmission {
-    /// The frame's census kind.
-    pub(crate) frame_kind: ClaudeWireFrameKind,
-    /// The channel that carried it.
-    pub(crate) channel: ClaudeWireChannel,
-    /// The event's category, its type's own.
-    pub(crate) category: EventCategory,
-    /// The event's type.
-    pub(crate) event_type: SessionEventType,
-    /// The normalized kind the row names, if any.
-    pub(crate) normalized_kind: Option<NormalizedEventKind>,
-}
-
-/// A known frame that carries no transcript capability, so it normalizes to no category, with the
-/// reason it does not.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ClaudeNotEventedFrameDisposition {
-    /// The frame's census kind.
-    pub(crate) frame_kind: ClaudeWireFrameKind,
-    /// The channel that carried it.
-    pub(crate) channel: ClaudeWireChannel,
-    /// Why the frame adds no event.
-    pub(crate) reason: &'static str,
-}
-
-/// The total result of normalizing one census frame kind.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ClaudeFrameNormalization {
-    /// The frame becomes an event.
-    Normalized(ClaudeNormalizedCategoryEmission),
-    /// The frame adds no event.
-    NotEvented(ClaudeNotEventedFrameDisposition),
-}
-
 impl ClaudeWireFrameKind {
-    // The census row of each kind. A `result` frame does not end the read loop (trailing events
-    // can follow), so no row is terminal for the stream.
-    fn normalization(self) -> ClaudeFrameNormalization {
-        use ClaudeWireChannel::{ControlRequest, ControlResponse, Stream};
+    /// Reads `frame_kind`: a census kind, or a `result` of a subtype the census does not list or
+    /// of no subtype; `None` for any other unlisted kind, which the router quarantines.
+    pub(crate) fn read(frame_kind: &str) -> Option<Self> {
+        Self::from_str(frame_kind).ok().or_else(|| {
+            if frame_kind == "result" {
+                return Some(Self::ResultUnlisted { subtype: None });
+            }
+            frame_kind
+                .strip_prefix("result/")
+                .map(|subtype| Self::ResultUnlisted {
+                    subtype: Some(subtype.to_owned()),
+                })
+        })
+    }
+
+    /// Whether the kind is a `result`, its subtype listed or not.
+    pub(crate) const fn is_result(&self) -> bool {
+        matches!(
+            self,
+            Self::ResultSuccess
+                | Self::ResultErrorMaxTurns
+                | Self::ResultErrorMaxBudgetUsd
+                | Self::ResultErrorDuringExecution
+                | Self::ResultErrorMaxStructuredOutputRetries
+                | Self::ResultUnlisted { .. }
+        )
+    }
+
+    // The family the thread-frame router reads the kind as.
+    fn routing_family(&self) -> ThreadFrameFamilyClass {
         match self {
-            // A forward marker only: `agent.run.*` transitions stay daemon-emitted, never derived
-            // from init.
-            Self::SystemInit => self.normalized(Stream, NormalizedEventKind::Init),
-            // `system/api_error` maps onto the retry kind; the typed-error members are carried
-            // verbatim by the payload layer, since a string census cannot prove the set closed.
-            Self::SystemApiRetry | Self::SystemApiError => {
-                self.normalized(Stream, NormalizedEventKind::ApiRetry)
+            // Connection- and account-scoped, the control channel included (connection-level
+            // both ways).
+            Self::SystemApiRetry
+            | Self::SystemApiError
+            | Self::RateLimitEvent
+            | Self::SystemInit
+            | Self::SystemWorkerShuttingDown
+            | Self::ControlRequestCanUseTool
+            | Self::ControlRequestElicitation
+            | Self::ControlRequestRequestUserDialog
+            | Self::ControlRequestHookCallback
+            | Self::ControlRequestMcpMessage
+            | Self::ControlRequestMcpSetServers
+            | Self::ControlRequestInterrupt
+            | Self::ControlRequestSetPermissionMode
+            | Self::ControlRequestSetModel
+            | Self::ControlRequestGetUsage
+            | Self::ControlRequestGetContextUsage
+            | Self::ControlRequestGetSessionCost
+            | Self::ControlRequestListModels
+            | Self::ControlRequestGetBinaryVersion
+            | Self::ControlRequestApplyFlagSettings
+            | Self::ControlRequestRewindFiles
+            | Self::ControlResponseSuccess
+            | Self::ControlResponseError => ThreadFrameFamilyClass::Connection,
+            // Thread-scoped usage: the compaction marker rides the thread it compacts.
+            Self::SystemCompactBoundary => ThreadFrameFamilyClass::Thread {
+                capability: ThreadScopedFrameCapability::Usage,
+            },
+            // A helper's start and end; the start is also the router's registration input.
+            Self::SystemTaskStarted | Self::SystemTaskNotification => {
+                ThreadFrameFamilyClass::Thread {
+                    capability: ThreadScopedFrameCapability::Lifecycle,
+                }
             }
-            // The wire's `rate_limit_event` becomes the account quota snapshot kind, the preferred
-            // carrier because it is pushed, with no round trip on the experimental `get_usage`.
-            Self::RateLimitEvent => self.normalized(Stream, NormalizedEventKind::RateLimits),
-            // Provider context-window compaction, apart from the daemon's own event compaction.
-            Self::SystemCompactBoundary => {
-                self.normalized(Stream, NormalizedEventKind::CompactBoundary)
-            }
-            // Wire-layer, no normalized kind. Assumed on the system channel; on another it misses
-            // this row and reaches the diagnostic default branch.
-            Self::SystemWorkerShuttingDown => ClaudeFrameNormalization::Normalized(self.emission(
-                Stream,
-                SessionEventType::AgentRunWorkerShuttingDown,
-                None,
-            )),
-            Self::SystemHookStarted => self.not_evented(
-                Stream,
-                "hook-lifecycle progress; hook execution is daemon-internal orchestration, not a \
-                 capability the transcript or audit log records",
-            ),
-            Self::SystemHookProgress => self.not_evented(
-                Stream,
-                "intra-hook progress; same daemon-internal-orchestration reason",
-            ),
-            Self::SystemHookResponse => self.not_evented(
-                Stream,
-                "hook result consumed by the hook dispatcher, not a transcript capability",
-            ),
-            Self::SystemNotification => self.not_evented(
-                Stream,
-                "distinct from the `notification` kind, which Codex feeds; the user-facing-notice \
-                 capability is already carried there — this Claude system subtype is redundant \
-                 transport noise",
-            ),
-            Self::SystemFilesPersisted => self.not_evented(
-                Stream,
-                "file-write summary; the adopted `diff` / `command_output` kinds plus \
-                 `artifactPublication` already carry the file-change capability",
-            ),
-            Self::SystemToolUseSummary => self.not_evented(
-                Stream,
-                "aggregate over the adopted `tool_start` / `tool_complete` kinds; no new \
-                 capability",
-            ),
-            Self::SystemMemoryRecall => self.not_evented(
-                Stream,
-                "provider-internal memory-retrieval signal; no capability the transcript or audit \
-                 log records",
-            ),
-            Self::SystemLocalCommandOutput => self.not_evented(
-                Stream,
-                "superseded by the adopted `command_output` kind; the local variant carries no \
-                 additional capability",
-            ),
-            Self::SystemTaskProgress => self.not_evented(
-                Stream,
-                "intra-task progress; `task_updated` and `task_notification` carry a helper's \
-                 state, and the task and to-do lists stay with Claude Code",
-            ),
-            Self::ResultSuccess => self.normalized(Stream, NormalizedEventKind::TurnComplete),
-            Self::ResultErrorMaxTurns
+            // Thread-scoped content: the result frames, the messages and the remaining system
+            // subtypes.
+            Self::ResultSuccess
+            | Self::ResultErrorMaxTurns
             | Self::ResultErrorMaxBudgetUsd
             | Self::ResultErrorDuringExecution
-            | Self::ResultErrorMaxStructuredOutputRetries => {
-                self.normalized(Stream, NormalizedEventKind::Error)
-            }
-            // Only `can_use_tool` and `elicitation` are asks aimed at the person; the other control
-            // requests are answered by the driver's control dispatcher or never sent. A permission
-            // ask is recorded once as the approval it opens; the question tool also arrives here,
-            // and the delivery side splits it off by tool name.
-            Self::ControlRequestCanUseTool => {
-                self.normalized(ControlRequest, NormalizedEventKind::ApprovalRequest)
-            }
-            // An MCP elicitation, recorded as the same question record the question tool yields.
-            Self::ControlRequestElicitation => {
-                self.normalized(ControlRequest, NormalizedEventKind::UserInputRequest)
-            }
-            Self::ControlRequestRequestUserDialog => self.not_evented(
-                ControlRequest,
-                "a host-rendered dialog, sent only for a kind the host declared at `initialize`; \
-                 the CLI fails closed on any other. The daemon's two kinds are \
-                 `refusal_fallback_prompt` and `fable_overage_consent_prompt`, recorded as \
-                 `agent.run.refusalChoice.requested` and \
-                 `agent.run.usageCreditsChoice.requested`, and neither arrives until the driver \
-                 declares them. `auto_mode_server_fallback` stays undeclared, its words reaching \
-                 the working line as a provider warning, and `auto_mode_outside_reads` never \
-                 reaches a headless host",
-            ),
-            Self::ControlRequestHookCallback => self.not_evented(
-                ControlRequest,
-                "hook family, disposed `discard`: hook-lifecycle, daemon-internal orchestration, \
-                 not a capability the transcript or audit log records",
-            ),
-            Self::ControlRequestMcpMessage => self.not_evented(
-                ControlRequest,
-                "MCP transport passthrough between the CLI and a configured server; the daemon's \
-                 own MCP governance surface events its decisions (`mcp.*`), so relaying the \
-                 transport frame would double-record events the daemon already audits",
-            ),
-            // The CLI answers it though the census leaves it out; it dispatches, and the daemon
-            // sends it.
-            Self::ControlRequestMcpSetServers => self.not_evented(
-                ControlRequest,
-                "daemon-originated live server-set reconcile; the driver's control dispatcher owns \
-                 the round trip and the resulting server-set change is already evented by the \
-                 daemon's MCP governance surface",
-            ),
-            Self::ControlRequestInterrupt => self.not_evented(
-                ControlRequest,
-                "daemon-originated control request; the intervention that caused it is already \
-                 evented by the daemon's intervention surface, and the driver's control dispatcher \
-                 owns the request/response round trip",
-            ),
-            Self::ControlRequestSetPermissionMode => self.not_evented(
-                ControlRequest,
-                "daemon-originated control request; execution posture is daemon-owned and evented \
-                 when the daemon applies it, so relaying the request would double-record a \
-                 mutation the daemon authored",
-            ),
-            Self::ControlRequestSetModel => self.not_evented(
-                ControlRequest,
-                "daemon-originated control request; the agent-configuration change it carries is \
-                 evented by the daemon that applied it, not by the wire frame that requested it",
-            ),
-            Self::ControlRequestGetUsage => self.not_evented(
-                ControlRequest,
-                "daemon-originated read of the experimental usage surface; its ANSWER is what \
-                 carries telemetry, and the push carrier `rate_limit_event` is the preferred \
-                 source where both are available",
-            ),
-            Self::ControlRequestGetContextUsage => self.not_evented(
-                ControlRequest,
-                "daemon-originated read; the request carries no observation, and the \
-                 context-window telemetry its answer yields reaches the transcript through the \
-                 driver's own usage emission",
-            ),
-            Self::ControlRequestGetSessionCost => self.not_evented(
-                ControlRequest,
-                "daemon-originated read; cost reaches the transcript through the driver's \
-                 `usage.cost.updated` emission, never through the request that polled for it",
-            ),
-            Self::ControlRequestListModels => self.not_evented(
-                ControlRequest,
-                "daemon-originated capability discovery; a discovery read is not a transcript \
-                 capability",
-            ),
-            Self::ControlRequestGetBinaryVersion => self.not_evented(
-                ControlRequest,
-                "daemon-originated version read; the reported CLI version is persisted on the \
-                 binding record at the driver write seam, not evented",
-            ),
-            Self::ControlRequestApplyFlagSettings => self.not_evented(
-                ControlRequest,
-                "daemon-originated settings push; the daemon authored the settings and its typed \
-                 refusal is classified by the control dispatcher, so neither half is a provider \
-                 observation",
-            ),
-            Self::ControlRequestRewindFiles => self.not_evented(
-                ControlRequest,
-                "daemon-originated file-side rewind; the rollback that drove it is evented by the \
-                 daemon's intervention surface, and a cloud-hosted session refuses this subtype \
-                 outright, which is a dispatcher classification rather than a transcript row",
-            ),
-            // The answers to daemon requests, correlated by `request_id`; the error arm is
-            // `{ type: "control_response", response: { subtype: "error", request_id, error } }`.
-            Self::ControlResponseSuccess => self.not_evented(
-                ControlResponse,
-                "answer to a daemon-originated control request, correlated by `request_id`; the \
-                 control dispatcher resolves the pending call and whatever the answer authorizes \
-                 is evented by the surface that acted on it",
-            ),
-            Self::ControlResponseError => self.not_evented(
-                ControlResponse,
-                "typed control-channel refusal, correlated by `request_id`; every control request \
-                 is feature-detected at call time by classifying this arm, which makes it a \
-                 capability signal for the dispatcher rather than a transcript row",
-            ),
+            | Self::ResultErrorMaxStructuredOutputRetries
+            | Self::ResultUnlisted { .. }
+            | Self::SystemHookStarted
+            | Self::SystemHookProgress
+            | Self::SystemHookResponse
+            | Self::SystemNotification
+            | Self::SystemFilesPersisted
+            | Self::SystemToolUseSummary
+            | Self::SystemMemoryRecall
+            | Self::SystemLocalCommandOutput
+            | Self::SystemTaskProgress
+            | Self::SystemTaskUpdated
+            | Self::SystemBackgroundTasksChanged
+            | Self::SystemInformational
+            | Self::SystemStatus
+            | Self::SystemPermissionDenied
+            | Self::SystemModelRefusalFallback
+            | Self::SystemModelFallback
+            | Self::SystemModelConsentFallback
+            | Self::SystemModelRefusalNoFallback
+            | Self::Assistant
+            | Self::StreamEvent
+            | Self::User
+            | Self::CommandLifecycle => ThreadFrameFamilyClass::Thread {
+                capability: ThreadScopedFrameCapability::Content,
+            },
         }
-    }
-
-    fn normalized(
-        self,
-        channel: ClaudeWireChannel,
-        normalized_kind: NormalizedEventKind,
-    ) -> ClaudeFrameNormalization {
-        let target = resolve_adopted_event_target(normalized_kind)
-            .expect("every normalized kind the census names is adopted onto an event type");
-        ClaudeFrameNormalization::Normalized(self.emission(
-            channel,
-            target.event_type,
-            Some(normalized_kind),
-        ))
-    }
-
-    fn emission(
-        self,
-        channel: ClaudeWireChannel,
-        event_type: SessionEventType,
-        normalized_kind: Option<NormalizedEventKind>,
-    ) -> ClaudeNormalizedCategoryEmission {
-        ClaudeNormalizedCategoryEmission {
-            frame_kind: self,
-            channel,
-            category: event_type.category(),
-            event_type,
-            normalized_kind,
-        }
-    }
-
-    fn not_evented(
-        self,
-        channel: ClaudeWireChannel,
-        reason: &'static str,
-    ) -> ClaudeFrameNormalization {
-        ClaudeFrameNormalization::NotEvented(ClaudeNotEventedFrameDisposition {
-            frame_kind: self,
-            channel,
-            reason,
-        })
     }
 }
 
 /// The census key of a frame's `type` and subtype; with no subtype it is the bare `type`, which
-/// reaches the diagnostic default branch unless the census lists it. Both inputs are untrusted.
+/// the router quarantines unless the census lists it or it is a `result`. Both inputs are
+/// untrusted.
 pub(crate) fn compose_claude_wire_frame_kind<'frame>(
     frame_type: &'frame str,
     subtype: Option<&str>,
@@ -443,62 +309,10 @@ pub(crate) fn compose_claude_wire_frame_kind<'frame>(
 }
 
 /// Claude Code's question tool, by its name on the wire.
-#[expect(dead_code, reason = "the Claude Code driver's question hand-off")]
 pub(crate) const CLAUDE_QUESTION_TOOL_NAME: &str = "AskUserQuestion";
 
 /// The tool Claude Code asks to leave plan mode through, carrying the plan, by its wire name.
-#[expect(dead_code, reason = "the Claude Code driver's plan hand-off")]
 pub(crate) const CLAUDE_PLAN_EXIT_TOOL_NAME: &str = "ExitPlanMode";
-
-/// A census frame's emission, its not-evented disposition, or the diagnostic it was routed to.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum ClaudeFrameEmissionRoute {
-    /// The frame becomes an event.
-    Emit(ClaudeNormalizedCategoryEmission),
-    /// The frame adds no event.
-    NotEvented(ClaudeNotEventedFrameDisposition),
-    /// The frame went to the diagnostic default branch, which logged this record unless its kind
-    /// was already reported on the connection.
-    Diagnostic(DriverDiagnosticRecord),
-}
-
-/// The driver core's entry point onto the census, for the account `provider_account_id` names.
-/// Never fails: a kind outside the census is routed to a diagnostic, logged once per kind on the
-/// connection `reports` belongs to, never forced into an envelope or dropped.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude stream reader routes each frame the delivery side leaves through it"
-    )
-)]
-pub(crate) fn resolve_claude_frame_emission_route(
-    frame_kind: &str,
-    provider_account_id: Option<ProviderAccountId>,
-    reports: &mut OnceReportedDiagnostics,
-) -> ClaudeFrameEmissionRoute {
-    let Ok(census_kind) = ClaudeWireFrameKind::from_str(frame_kind) else {
-        let record = DriverDiagnosticRecord {
-            provider: super::DESCRIPTOR.provider_id(),
-            provider_account_id,
-            kind: DriverDiagnosticKind::UnmappedWireKind,
-            raw_wire_type: Some(frame_kind.to_owned()),
-            disposition_reason: "wire kind outside the pinned Claude inbound census; routed to \
-                                 the daemon diagnostic default branch, never silently dropped \
-                                 and never forced into an envelope"
-                .to_owned(),
-            details: Map::new(),
-        };
-        reports.report(&record);
-        return ClaudeFrameEmissionRoute::Diagnostic(record);
-    };
-    match census_kind.normalization() {
-        ClaudeFrameNormalization::NotEvented(disposition) => {
-            ClaudeFrameEmissionRoute::NotEvented(disposition)
-        }
-        ClaudeFrameNormalization::Normalized(emission) => ClaudeFrameEmissionRoute::Emit(emission),
-    }
-}
 
 /// Which helper lifecycle signal a frame is read as: a helper's `task_started` frame is its
 /// `SubagentStart`, its `task_notification` frame its `SubagentStop`.
@@ -599,131 +413,25 @@ pub(crate) fn classify_claude_frame_family_for_routing(
     kind_class
 }
 
+// A census kind's family; an unlisted kind is `Unknown`, but for a `result`.
 fn classify_claude_frame_kind_for_routing(frame_kind: &str) -> ThreadFrameFamilyClass {
-    match frame_kind {
-        // Connection- and account-scoped, the control channel included (connection-level both
-        // ways).
-        "system/api_retry"
-        | "system/api_error"
-        | "rate_limit_event"
-        | "system/init"
-        | "system/worker_shutting_down"
-        | "control_request/can_use_tool"
-        | "control_request/elicitation"
-        | "control_request/request_user_dialog"
-        | "control_request/hook_callback"
-        | "control_request/mcp_message"
-        | "control_request/mcp_set_servers"
-        | "control_request/interrupt"
-        | "control_request/set_permission_mode"
-        | "control_request/set_model"
-        | "control_request/get_usage"
-        | "control_request/get_context_usage"
-        | "control_request/get_session_cost"
-        | "control_request/list_models"
-        | "control_request/get_binary_version"
-        | "control_request/apply_flag_settings"
-        | "control_request/rewind_files"
-        | "control_response/success"
-        | "control_response/error" => ThreadFrameFamilyClass::Connection,
-        // Thread-scoped usage: the compaction marker rides the thread it compacts.
-        "system/compact_boundary" => ThreadFrameFamilyClass::Thread {
-            capability: ThreadScopedFrameCapability::Usage,
-        },
-        // A helper's start and end; the start is also the router's registration input.
-        "system/task_started" | "system/task_notification" => ThreadFrameFamilyClass::Thread {
-            capability: ThreadScopedFrameCapability::Lifecycle,
-        },
-        // Thread-scoped content: the result frames and the remaining system subtypes.
-        "result/success"
-        | "result/error_max_turns"
-        | "result/error_max_budget_usd"
-        | "result/error_during_execution"
-        | "result/error_max_structured_output_retries"
-        | "system/hook_started"
-        | "system/hook_progress"
-        | "system/hook_response"
-        | "system/notification"
-        | "system/files_persisted"
-        | "system/tool_use_summary"
-        | "system/memory_recall"
-        | "system/local_command_output"
-        | "system/task_progress"
-        | "system/task_updated"
-        | "system/background_tasks_changed"
-        | "system/informational"
-        | "system/status"
-        | "system/permission_denied"
-        | "system/model_refusal_fallback"
-        | "system/model_fallback"
-        | "system/model_consent_fallback"
-        | "system/model_refusal_no_fallback"
-        | "assistant"
-        | "stream_event"
-        | "user" => ThreadFrameFamilyClass::Thread {
-            capability: ThreadScopedFrameCapability::Content,
-        },
-        _ => ThreadFrameFamilyClass::Unknown,
-    }
+    ClaudeWireFrameKind::read(frame_kind).map_or(ThreadFrameFamilyClass::Unknown, |kind| {
+        kind.routing_family()
+    })
+}
+
+/// Whether `frame_kind` is a `result`, its subtype listed or not.
+pub(crate) fn is_claude_result_frame_kind(frame_kind: &str) -> bool {
+    ClaudeWireFrameKind::read(frame_kind).is_some_and(|kind| kind.is_result())
 }
 
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use sidekicks_contracts::event::registry::SessionEventType;
 
     use super::{
-        ClaudeFrameEmissionRoute, ClaudeSubagentLifecycleSignal, ClaudeSubagentSignal,
-        normalize_claude_subagent_lifecycle, resolve_claude_frame_emission_route,
+        ClaudeSubagentLifecycleSignal, ClaudeSubagentSignal, normalize_claude_subagent_lifecycle,
     };
-    use crate::provider::driver::diagnostics::{
-        DriverDiagnosticKind, OnceReportedDiagnostics, RecordedEvents,
-    };
-
-    #[test]
-    fn an_unknown_kind_routes_to_a_logged_diagnostic() {
-        let recorded = RecordedEvents::default();
-        let mut route = None;
-        recorded.record_during(|| {
-            route = Some(resolve_claude_frame_emission_route(
-                "system/brand_new",
-                None,
-                &mut OnceReportedDiagnostics::default(),
-            ));
-        });
-
-        let Some(ClaudeFrameEmissionRoute::Diagnostic(record)) = route else {
-            panic!("an unknown kind routes to a diagnostic, got {route:?}");
-        };
-        assert_eq!(record.kind, DriverDiagnosticKind::UnmappedWireKind);
-        assert_eq!(record.raw_wire_type.as_deref(), Some("system/brand_new"));
-        assert_eq!(
-            recorded.field_on("driver.normalize.unmappedWireKind", "raw_wire_type"),
-            ["system/brand_new"]
-        );
-    }
-
-    #[rstest]
-    #[case::success("result/success", SessionEventType::AgentTurnCompleted)]
-    #[case::error_during_execution(
-        "result/error_during_execution",
-        SessionEventType::AgentRunFailed
-    )]
-    fn a_result_frame_emits_its_ending_event(
-        #[case] frame_kind: &str,
-        #[case] event_type: SessionEventType,
-    ) {
-        let route = resolve_claude_frame_emission_route(
-            frame_kind,
-            None,
-            &mut OnceReportedDiagnostics::default(),
-        );
-
-        let ClaudeFrameEmissionRoute::Emit(emission) = route else {
-            panic!("a result frame emits, got {route:?}");
-        };
-        assert_eq!(emission.event_type, event_type);
-    }
 
     #[rstest]
     #[case::no_helper_call_declares_no_parent(None, None, &["h1"], None)]

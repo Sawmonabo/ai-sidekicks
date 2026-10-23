@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -13,7 +12,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionRenameRequest;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_platforms::Spawner;
 use tokio::runtime::Handle;
 use tokio::sync::Notify;
 
@@ -30,6 +28,7 @@ use crate::events::session::followers::SessionEventFollowers;
 use crate::provider::driver::contract::{MockProviderDriver, ProviderDriver};
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::test_registry::bind_run_to_first_provider;
+use crate::provider::driver::test_registry::test_driver_services;
 use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
 use crate::session::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
 use crate::session::directory::row::{DirectoryEvent, directory_statements_for};
@@ -72,10 +71,7 @@ async fn harness(build: fn(&DriverServices) -> Arc<dyn ProviderDriver>) -> Harne
         refuse_session_write: None,
         read_damaged_from_sequence: None,
     }));
-    let services = DriverServices {
-        spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-        data_folder: PathBuf::from("data"),
-    };
+    let services = test_driver_services();
     let providers = Arc::new(ProviderRegistry::register_from(
         &[ProviderRegistration {
             descriptor: PROVIDERS[0],

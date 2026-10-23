@@ -29,6 +29,7 @@ fn approval_schema_sql() -> String {
     let remembered_scope_kinds = sql_list_of_every::<RememberedScopeKind>();
     let pending = <&'static str>::from(ApprovalState::Pending);
     let approved = <&'static str>::from(ApprovalDecision::Approved);
+    let rejected = <&'static str>::from(ApprovalDecision::Rejected);
     format!(
         "
 -- ---------------------------------------------------------------------------
@@ -84,12 +85,23 @@ CREATE TABLE approval_resolutions (
                            CHECK(remembered_scope_kind IS NULL
                              OR remembered_scope_kind IN ({remembered_scope_kinds})),
   remembered_scope_pattern TEXT,
+  -- The rule the answer asked for, written with it, so a resend under the same client resolution
+  -- id records that rule and no other; NULL for a one-time answer. Its sense follows the decision.
+  asked_scope_kind         TEXT
+                           CHECK(asked_scope_kind IS NULL
+                             OR asked_scope_kind IN ({remembered_scope_kinds})),
+  asked_scope_pattern      TEXT,
   -- The command or path as the person corrected it on the card, which is what runs; NULL for an
   -- answer that changed nothing and for every decline.
   edited_action            TEXT,
+  -- The `why not` words the person typed on a decline, which go back to the provider; NULL for a
+  -- decline without words and for every approval.
+  decline_reason           TEXT,
   resolved_at              TEXT NOT NULL,
   CHECK((remembered_scope_kind IS NULL) = (remembered_scope_pattern IS NULL)),
-  CHECK(edited_action IS NULL OR decision = '{approved}')
+  CHECK((asked_scope_kind IS NULL) = (asked_scope_pattern IS NULL)),
+  CHECK(edited_action IS NULL OR decision = '{approved}'),
+  CHECK(decline_reason IS NULL OR decision = '{rejected}')
 ) STRICT;
 
 -- ---------------------------------------------------------------------------

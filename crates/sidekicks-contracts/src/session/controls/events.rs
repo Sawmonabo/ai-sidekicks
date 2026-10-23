@@ -21,6 +21,7 @@ use crate::session::controls::methods::{
 };
 use crate::session::cost::{TokensPerRun, UsdMicros};
 use crate::session::id::SessionId;
+use crate::turn::ProviderTurnId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
 use crate::wire::text::{ComposedText, FreeFormText};
@@ -90,7 +91,7 @@ pub struct RunSafetyBufferingUpdatedPayload {
     /// The run.
     pub run_id: RunId,
     /// The provider's turn id.
-    pub turn_id: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
+    pub turn_id: ProviderTurnId,
     /// Whether the hold is on.
     pub active: bool,
     /// The faster model the provider names, where it names one.

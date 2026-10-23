@@ -16,7 +16,9 @@ use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::events::RunStateChangeState;
-use sidekicks_contracts::run::failure_cause::{DaemonFailureOrigin, RunFailureCause};
+use sidekicks_contracts::run::failure_cause::{
+    DaemonFailureOrigin, RunFailureCause, RunRefusedOrigin,
+};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::{
     AgentRunQueuedNewState, AgentRunQueuedPayload, ChildRunProvenance, RunQueuedSessionAgentPayload,
@@ -32,6 +34,7 @@ use crate::database::statement::WriteStatement;
 use crate::error_description::describe_error;
 use crate::events::session::appender::SessionEventDraft;
 use crate::provider::driver::contract::bound_failure_detail;
+use crate::provider::driver::run_control::DriverRunRefusal;
 use crate::queue::store::take_over_interrupted_statement;
 use crate::session::run::agent::RunAgentReader;
 use crate::session::run::daemon_turn::queue_daemon_turn_run;
@@ -223,13 +226,6 @@ impl RunEngine {
     /// The run of a provider's own turn takes over, in its `running` write, the lead messages
     /// waiting for the session's interrupted lead runs, so a turn that fails to open leaves them
     /// where they were. Fails as [`RunEngine::start_run`] does.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the turns the daemon starts on a session itself, such as a goal or a review"
-        )
-    )]
     pub(crate) async fn start_daemon_turn(
         &self,
         request: DaemonTurnStartRequest,
@@ -284,7 +280,6 @@ impl RunEngine {
     /// which asked its provider for the subagent, then `starting` and `running`, and returns the
     /// new run's id. Returns `None` with nothing written when the parent has ended, and fails with
     /// [`RunRefusal::NotFound`] for a parent the daemon has no run for.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn start_provider_subagent_run(
         &self,
         parent_run_id: RunId,
@@ -540,7 +535,6 @@ impl RunEngine {
     /// `None` with nothing written when the run no longer reads interrupted, or while another
     /// continue or a resume holds it. Whatever the provider reports on the run after this call
     /// waits for its write. Fails as [`RunEngine::transition`] does.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn continue_run_with_kept_messages(
         &self,
         run_id: RunId,
@@ -624,24 +618,47 @@ impl RunEngine {
         }
     }
 
-    // Ends a run whose start failed `failed`, a provider failure carrying the failure's words.
+    // Ends a run whose start failed `failed`: refused as the daemon's own refusal where its driver
+    // refused the start, else a provider failure carrying the failure's words.
     async fn end_failed_start(
         &self,
         run_id: RunId,
         start_error: &RunEngineError,
     ) -> Result<(), RunEngineError> {
+        let (failure_category, failure_cause, provider_failure_detail) =
+            match driver_run_refusal(start_error) {
+                Some(refusal) => (
+                    RunFailureCategory::Refused,
+                    Some(RunFailureCause::Refused {
+                        origin: RunRefusedOrigin::Daemon,
+                        model: refusal.model.clone(),
+                        sentence: Some(bound_failure_detail(
+                            &refusal.sentence,
+                            DRIVER_START_FAILURE_FALLBACK.clone(),
+                        )),
+                        explanation: None,
+                        safety_category: None,
+                    }),
+                    None,
+                ),
+                None => (
+                    RunFailureCategory::ProviderFailure,
+                    None,
+                    Some(bound_failure_detail(
+                        &failure_words(start_error),
+                        DRIVER_START_FAILURE_FALLBACK.clone(),
+                    )),
+                ),
+            };
         let failed = RunStateChange {
             expected_state: Some(RunState::Starting),
-            failure_category: Some(RunFailureCategory::ProviderFailure),
+            failure_category: Some(failure_category),
             ..RunStateChange::new(
                 run_id,
                 RunStateEntry::Failed {
                     intended_close: None,
-                    failure_cause: None,
-                    provider_failure_detail: Some(bound_failure_detail(
-                        &failure_words(start_error),
-                        DRIVER_START_FAILURE_FALLBACK.clone(),
-                    )),
+                    failure_cause,
+                    provider_failure_detail,
                     process_exit: None,
                 },
             )
@@ -686,6 +703,17 @@ fn failure_words(error: &RunEngineError) -> String {
     describe_error(own)
 }
 
+// The refusal a driver's failed start carries, wherever in the failure's causes it sits.
+fn driver_run_refusal(start_error: &RunEngineError) -> Option<&DriverRunRefusal> {
+    let RunEngineError::Driver { source, .. } = start_error else {
+        return None;
+    };
+    std::iter::successors(Some(&**source as &(dyn Error + 'static)), |&cause| {
+        cause.source()
+    })
+    .find_map(|cause| cause.downcast_ref::<DriverRunRefusal>())
+}
+
 // The cause a setup failure records: a refusing gate's code, and the failure's own words.
 fn setup_failed_cause(setup_error: &RunEngineError) -> RunFailureCause {
     let code = if let RunEngineError::Gate {
@@ -726,94 +754,4 @@ fn continue_refusal(run_id: RunId, run: &RunRead, is_held: bool) -> RunEngineErr
 }
 
 #[cfg(test)]
-mod tests {
-    use rusqlite::params;
-    use sidekicks_contracts::run::id::RunId;
-
-    use crate::database::writer::test_file::{TestDatabase, test_session_id};
-    use crate::events::log_service::tests::open_log;
-    use crate::provider::driver::registry::test_provider;
-    use crate::session::run::engine::tests::{
-        DRIVER_HOLD, SETTLE_WAIT, held_driver, test_engine, turn_start,
-    };
-    use crate::session::run::start_request::RunStartRequest;
-    use crate::session::run::state_change::{RunStateChange, RunStateEntry};
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
-
-    // Killed by dropping the report's wait on the starting run's settlement: the report then reads
-    // the run `starting`, which may not move to `waitingForApproval`, and is refused before the
-    // start's `running` write lands.
-    #[tokio::test]
-    async fn a_provider_report_during_a_start_waits_for_its_running_write() {
-        let database = TestDatabase::new();
-        let log = open_log(&database, None).await;
-        let session_id = test_session_id();
-        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        {
-            let connection = database.reader();
-            connection
-                .execute(
-                    "INSERT INTO runs (run_id, session_id, state, run_version)
-                     VALUES (?1, ?2, 'queued', 0)",
-                    params![run_id.text().as_str(), session_id.text().as_str()],
-                )
-                .expect("the test queues the run");
-        }
-        let home = tempfile::tempdir().expect("the test makes a home folder");
-        let engine = test_engine(&database, log.service, home.path());
-
-        let (start_driver, driver_has_started, release_driver) = held_driver();
-        let request = RunStartRequest {
-            turn: turn_start(run_id, start_driver),
-            queue_item: None,
-            provider: test_provider(),
-            output_speed: None,
-            running_statements: None,
-        };
-
-        let report_during_start = async {
-            driver_has_started
-                .await
-                .expect("the driver's start is reached");
-            let report = engine.apply_provider_state_change(
-                RunStateChange::new(run_id, RunStateEntry::WaitingForApproval),
-                None,
-            );
-            let release = async {
-                tokio::time::sleep(DRIVER_HOLD).await;
-                release_driver
-                    .send(())
-                    .expect("the start still waits in its driver");
-            };
-            tokio::join!(report, release).0
-        };
-        let (started, reported) = tokio::time::timeout(SETTLE_WAIT, async {
-            tokio::join!(Box::pin(engine.start_run(request)), report_during_start)
-        })
-        .await
-        .expect("the report and the start settle without waiting on each other");
-
-        started.expect("the start writes its run running");
-        let reported = reported.expect("the report is written after the start's running write");
-        assert_eq!(
-            reported.written.state,
-            sidekicks_contracts::run::state::RunState::WaitingForApproval
-        );
-        let types: Vec<String> = database
-            .reader()
-            .prepare("SELECT type FROM session_events WHERE run_id = ?1 ORDER BY sequence")
-            .expect("the test reads the run's events")
-            .query_map([run_id.text().as_str()], |row| row.get(0))
-            .expect("the run's events read")
-            .collect::<Result<_, _>>()
-            .expect("each type reads");
-        assert_eq!(
-            types,
-            [
-                "agent.run.starting",
-                "agent.run.running",
-                "agent.run.waitingForApproval"
-            ]
-        );
-    }
-}
+mod tests;

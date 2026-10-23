@@ -1,7 +1,8 @@
 //! The daemon's Claude Code hooks: their registration in `initialize`, and the answers they give,
-//! the helper limit and pauses.
+//! the helper limit, pauses and the words waiting for a helper.
 
 pub(super) mod callbacks;
-mod helper_limit;
-mod pause;
+pub(super) mod helper_limit;
+pub(super) mod helper_steers;
+pub(super) mod pause;
 pub(super) mod registration;

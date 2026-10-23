@@ -2,13 +2,14 @@
 
 use serde::Serialize;
 use sidekicks_contracts::provider::driver::methods::{
-    PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_REASON_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN,
+    PROVIDER_WIRE_REASON_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{
     AgentRunInterveneRequest, InterruptInterventionRecord, InterventionInterruptRequest,
     InterventionType, PersonInterruptRecord,
 };
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -91,7 +92,7 @@ pub(super) fn interrupt_choice_of(interrupt: &InterventionInterruptRequest) -> I
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RetryRecord<'request> {
-    expected_turn_id: &'request FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
+    expected_turn_id: &'request ProviderTurnId,
     model: &'request FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>,
 }
 

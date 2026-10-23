@@ -15,7 +15,9 @@ use super::{
     RuntimeBindingStore, read_binding,
 };
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::provider::driver::contract::{SessionToolServer, SubagentDefinition, SubagentPolicy};
+use crate::provider::driver::session_control::{
+    SessionToolServer, SubagentDefinition, SubagentPolicy,
+};
 use crate::provider::left_conversations::LeftConversation;
 use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
 use sidekicks_contracts::wire::id::mint_uuid_v7;

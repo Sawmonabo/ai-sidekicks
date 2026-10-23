@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::event::declared_variants::{RunAgentOutputPayload, ToolActivityPayload};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -94,16 +95,8 @@ pub(crate) struct ClaudeOpenToolCall {
 /// One row read off a message frame, with how it pairs in the reorder buffer.
 pub(crate) struct ClaudeMessageRow {
     /// The tool call the row belongs to, `None` on a thinking or text row.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's stream reader writes each row with it"
-    )]
     pub(crate) tool_call_id: Option<String>,
     /// Where the row stands in its call's pair.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's stream reader writes each row with it"
-    )]
     pub(crate) pairing_role: ReorderPairingRole,
     /// The row and its stored body.
     pub(crate) row: ClaudeMessageRowKind,
@@ -111,10 +104,6 @@ pub(crate) struct ClaudeMessageRow {
 
 impl ClaudeMessageRow {
     /// The provider operation the row belongs to: its tool call, opened by its invocation.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's stream reader binds each row's operation through it"
-    )]
     pub(crate) fn operation(&self) -> Option<DeliveryOperation<'_>> {
         self.tool_call_id
             .as_deref()
@@ -149,13 +138,7 @@ pub(crate) enum ClaudeMessageBody {
     /// The message's text, the call's input as JSON, or the result's words.
     Text(String),
     /// The change the call made.
-    Patch(
-        #[expect(
-            dead_code,
-            reason = "the Claude driver's stream reader writes the change from it"
-        )]
-        WholePatchFile,
-    ),
+    Patch(WholePatchFile),
 }
 
 /// The rows of one `user` frame of the lead and the tool calls it answered with an error. A
@@ -194,10 +177,6 @@ impl ClaudeMessageFrame {
 /// The rows of one `assistant` frame of the lead: each thinking block's summary and each text
 /// block under the message's id, a fresh one where the frame names none, and each tool call as
 /// `agent.toolCall.invoked`, which opens the call in `open_tool_calls` at `now`.
-#[expect(
-    dead_code,
-    reason = "the Claude Code stream reader turns each assistant frame into its rows"
-)]
 pub(crate) fn read_claude_assistant_rows(
     frame: &ClaudeMessageFrame,
     session_id: SessionId,
@@ -250,7 +229,10 @@ pub(crate) fn read_claude_assistant_rows(
             continue;
         }
         let (Some(tool_call_id), Some(tool_name)) = (
-            block.id.as_ref().and_then(|id| event_text(id)),
+            block
+                .id
+                .as_ref()
+                .and_then(|id| ToolCallId::new(id.clone()).ok()),
             block.name.as_ref().and_then(|name| event_text(name)),
         ) else {
             continue;
@@ -285,10 +267,6 @@ pub(crate) fn read_claude_assistant_rows(
 /// The tool results one `user` frame carries, each as `agent.toolCall.completed` or, when Claude
 /// Code marks it an error, `agent.toolCall.failed`, closing its call in `open_tool_calls` and
 /// timed from its start to `now`. A file-changing call's lone result carries its patch.
-#[expect(
-    dead_code,
-    reason = "the Claude Code stream reader turns each user frame into its rows"
-)]
 pub(crate) fn read_claude_user_rows(
     frame: &ClaudeMessageFrame,
     session_id: SessionId,
@@ -318,7 +296,7 @@ pub(crate) fn read_claude_user_rows(
         let Some(opened) = open_tool_calls.remove(call_id) else {
             continue;
         };
-        let Some(tool_call_id) = event_text(call_id) else {
+        let Ok(tool_call_id) = ToolCallId::new(call_id.clone()) else {
             continue;
         };
         // Claude Code's structured result rides the frame beside a lone tool result.
@@ -372,7 +350,7 @@ fn tool_activity(
     session_id: SessionId,
     run_id: RunId,
     tool_name: EventText,
-    tool_call_id: EventText,
+    tool_call_id: ToolCallId,
     duration_ms: Option<SafeInt<0>>,
 ) -> ToolActivityPayload {
     ToolActivityPayload {

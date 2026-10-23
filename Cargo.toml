@@ -365,6 +365,11 @@ satteri-pulldown-cmark.rev = "e16b7bcd04445ce2435fa3f0efbd21835821294d"
 tree-sitter-bash.git = "https://github.com/tree-sitter/tree-sitter-bash"
 tree-sitter-bash.rev = "35cc06e9e460a6c8066eae72df1698bb42c3d756"
 
+# Development and test builds carry line tables only: a backtrace keeps its file and line, and the
+# workspace's rlibs and test binaries drop the variable and type records no debugger reads here.
+[profile.dev]
+debug = "line-tables-only"
+
 # The WebAssembly builds: small and fast, with no unwinding to carry. The release profile the other
 # crates build with stays as it is.
 [profile.wasm-release]

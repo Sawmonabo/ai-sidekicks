@@ -13,6 +13,7 @@ use sidekicks_platforms::PathRules;
 
 use crate::policy::background_work::plain_background_work_forms;
 use crate::policy::execution_posture_service::{CredentialDenyPath, CredentialDenyPathKind};
+use crate::provider::driver::claude::session::permission_level::permission_level_of;
 use crate::provider::driver::claude::session::rules::{
     ClaudeRulesError, compose_claude_session_rule_lists, compose_path_content,
 };
@@ -44,7 +45,8 @@ impl Serialize for AgentViewOff {
 }
 
 /// The `--settings` document. `advisor_model` is `""` when the session's advisor is off, which
-/// outranks the person's own advisor, and `output_style` is absent where the session chose none.
+/// outranks the person's own advisor, and absent where no advisor was picked, so Claude Code's own
+/// settings resolve it; `output_style` is absent where the session chose none.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ClaudeSpawnSettings {
@@ -54,8 +56,9 @@ pub(crate) struct ClaudeSpawnSettings {
     pub(crate) disable_agent_view: AgentViewOff,
     /// The session's whole permission rules.
     pub(crate) permissions: ClaudePermissionsDocument,
-    /// The session's advisor model, `""` for none.
-    pub(crate) advisor_model: String,
+    /// The session's advisor model, `""` for none, absent where none was picked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) advisor_model: Option<String>,
     /// The session's output style.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) output_style: Option<String>,
@@ -77,18 +80,47 @@ pub(crate) struct ClaudePermissionsRequest<'a> {
     pub(crate) path_rules: PathRules,
 }
 
-/// The setting for a session's advisor, `None` when off: `""`, which Claude Code reads as no
-/// advisor and which outranks the person's own advisor in their Claude Code settings.
-pub(crate) fn claude_advisor_setting(advisor_model: Option<&str>) -> String {
-    advisor_model.unwrap_or_default().to_owned()
+/// The advisor a session's processes start with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ClaudeSessionAdvisor {
+    /// Neither the session nor the app picked one, so Claude Code's own settings resolve it.
+    Unpicked,
+    /// No advisor.
+    Off,
+    /// This advisor model.
+    Model(String),
+}
+
+impl ClaudeSessionAdvisor {
+    /// The advisor a picked or resolved `advisorModel` names; `None` and `""` are off.
+    pub(crate) fn of(advisor_model: Option<&str>) -> Self {
+        match advisor_model {
+            Some(model) if !model.is_empty() => Self::Model(model.to_owned()),
+            Some(_) | None => Self::Off,
+        }
+    }
+
+    /// The advisor model, `None` when off or unpicked.
+    pub(crate) fn model(&self) -> Option<&str> {
+        match self {
+            Self::Model(model) => Some(model),
+            Self::Unpicked | Self::Off => None,
+        }
+    }
+
+    /// The `advisorModel` setting: `""` when off, which Claude Code reads as no advisor and which
+    /// outranks the person's own advisor in their Claude Code settings; `None` when unpicked.
+    pub(crate) fn setting(&self) -> Option<String> {
+        match self {
+            Self::Unpicked => None,
+            Self::Off => Some(String::new()),
+            Self::Model(model) => Some(model.clone()),
+        }
+    }
 }
 
 /// Whether a tool ask is a removal the Reviewed ask rule matches: the shell tool running a command
 /// that starts with `rm` and its arguments. `input` is the provider's own.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's tool-ask reader marks a Reviewed removal through it"
-)]
 pub(crate) fn matches_claude_reviewed_removal_rule(
     tool_name: &str,
     input: &Map<String, Value>,
@@ -175,14 +207,10 @@ pub(crate) fn compose_claude_permissions(
 
 /// The `--settings` document for a process at the session's current `posture`, advisor, output
 /// style and own rules. Fails as [`compose_claude_permissions`] does.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's launch passes it as each process's --settings"
-)]
 pub(crate) fn compose_claude_spawn_settings(
     request: &ClaudePermissionsRequest<'_>,
     posture: Option<&ExecutionPosture>,
-    advisor_model: Option<&str>,
+    advisor: &ClaudeSessionAdvisor,
     output_style: Option<&str>,
 ) -> Result<ClaudeSpawnSettings, ClaudeRulesError> {
     let writable_roots = posture
@@ -193,7 +221,7 @@ pub(crate) fn compose_claude_spawn_settings(
         cleanup_period_days: CLAUDE_CLEANUP_PERIOD_DAYS,
         disable_agent_view: AgentViewOff,
         permissions: compose_claude_permissions(request, writable_roots, level)?,
-        advisor_model: claude_advisor_setting(advisor_model),
+        advisor_model: advisor.setting(),
         output_style: output_style.map(str::to_owned),
         sandbox: (level == Some(PermissionLevel::Sandboxed))
             .then(|| compose_claude_sandbox_settings(writable_roots)),
@@ -220,17 +248,6 @@ pub(crate) fn compose_claude_sandbox_settings(
     }
 }
 
-// The level a posture runs at.
-fn permission_level_of(posture: &ExecutionPosture) -> PermissionLevel {
-    match posture {
-        ExecutionPosture::Readonly { .. } => PermissionLevel::Readonly,
-        ExecutionPosture::Ask { .. } => PermissionLevel::Ask,
-        ExecutionPosture::Reviewed { .. } => PermissionLevel::Reviewed,
-        ExecutionPosture::Sandboxed { .. } => PermissionLevel::Sandboxed,
-        ExecutionPosture::Yolo { .. } => PermissionLevel::Yolo,
-    }
-}
-
 // A `tool` rule on the absolute `path`, as Claude Code matches it (`Read(//c/Users/a/**)`), with
 // `glob` under it where given.
 fn path_rule(tool: &str, path: &str, glob: Option<&str>, path_rules: PathRules) -> String {
@@ -245,10 +262,14 @@ fn path_rule(tool: &str, path: &str, glob: Option<&str>, path_rules: PathRules) 
 mod tests {
     use std::path::PathBuf;
 
+    use serde_json::{Value, json};
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
     use sidekicks_platforms::PathRules;
 
-    use super::{ClaudePermissionsRequest, compose_claude_permissions};
+    use super::{
+        ClaudePermissionsRequest, ClaudeSessionAdvisor, compose_claude_permissions,
+        compose_claude_spawn_settings,
+    };
 
     // Killed by dropping the memory allows or the `//` anchor, by a `Write(` rule Claude Code never
     // reads, by the `.md` filter the design does not ask for, or by dropping the background deny
@@ -296,5 +317,29 @@ mod tests {
             .expect("the rules compose");
         assert_eq!(reviewed.allow, [] as [String; 0]);
         assert_eq!(reviewed.ask, ["Bash(rm *)"]);
+    }
+
+    // Killed by an unpicked advisor sent as off, which hides the person's own advisor, and by an
+    // advisor turned off left out, which lets the person's own advisor through.
+    #[test]
+    fn only_an_unpicked_advisor_is_left_to_claude_codes_own_settings() {
+        let request = ClaudePermissionsRequest {
+            credential_deny_paths: &[],
+            memory_folders: &[],
+            session_rules: &[],
+            path_rules: PathRules::Posix,
+        };
+        let advisor_setting = |advisor: ClaudeSessionAdvisor| {
+            let settings = compose_claude_spawn_settings(&request, None, &advisor, None)
+                .expect("the settings compose");
+            serde_json::to_value(settings).expect("the settings serialize")["advisorModel"].clone()
+        };
+
+        assert_eq!(advisor_setting(ClaudeSessionAdvisor::Unpicked), Value::Null);
+        assert_eq!(advisor_setting(ClaudeSessionAdvisor::Off), json!(""));
+        assert_eq!(
+            advisor_setting(ClaudeSessionAdvisor::Model("opus".to_owned())),
+            json!("opus")
+        );
     }
 }

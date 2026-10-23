@@ -95,24 +95,40 @@ pub(crate) struct ProviderAxisInvalid {
 }
 
 /// The request members that set a provider axis, named as the request names them.
-#[expect(
-    dead_code,
-    reason = "the session start's axis checks name the provider, model, window, effort and speed"
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, strum::Display, strum::IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
 pub(crate) enum ProviderAxis {
     /// The provider.
+    #[expect(
+        dead_code,
+        reason = "the binding checks of an agent's provider switch and a session's create name it"
+    )]
     ProviderName,
     /// The model.
     ModelId,
     /// The model's larger context window.
+    #[expect(
+        dead_code,
+        reason = "the binding checks of an agent's provider switch and a session's create name it"
+    )]
     LargerWindow,
     /// The reasoning effort.
+    #[expect(
+        dead_code,
+        reason = "the binding checks of an agent's provider switch and a session's create name it"
+    )]
     Effort,
     /// The output speed.
+    #[expect(
+        dead_code,
+        reason = "the binding checks of an agent's provider switch and a session's create name it"
+    )]
     OutputSpeed,
     /// A session option.
+    #[expect(
+        dead_code,
+        reason = "the binding checks of an agent's provider switch and a session's create name it"
+    )]
     Options,
 }
 

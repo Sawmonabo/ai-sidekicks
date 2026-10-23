@@ -15,6 +15,7 @@ use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::byte_length::{fits_budget, json_utf8_byte_length};
 use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
+use crate::provider::tool_call::ToolCallId;
 use crate::session::id::SessionId;
 use crate::transcript::limits::TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES;
 use crate::wire::attachment::Bytes;
@@ -471,7 +472,7 @@ pub struct TranscriptPatchListRequest {
     /// The session.
     pub session_id: SessionId,
     /// The tool call.
-    pub tool_call_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    pub tool_call_id: ToolCallId,
     /// Where the part starts; the first file's start when absent.
     #[serde(
         default,

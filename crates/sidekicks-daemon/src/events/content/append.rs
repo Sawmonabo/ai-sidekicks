@@ -22,16 +22,6 @@ use crate::transcript::whole_patch::{
 const CONTENT_DESCRIPTION_PAYLOAD_KEYS: [&str; 2] =
     [CONTENT_LENGTH_PAYLOAD_KEY, CONTENT_TRUNCATED_PAYLOAD_KEY];
 
-/// The event types whose registered payload declares the content members, the only ones that may
-/// carry a machine-authored content partition.
-const BODY_BEARING_EVENT_TYPES: [SessionEventType; 5] = [
-    SessionEventType::AgentMessageSent,
-    SessionEventType::AgentThinkingUpdated,
-    SessionEventType::AgentToolCallInvoked,
-    SessionEventType::AgentToolCallCompleted,
-    SessionEventType::AgentToolCallFailed,
-];
-
 /// A producer pre-seeded a content description member; it names the key only.
 #[derive(Debug, thiserror::Error)]
 #[error(
@@ -80,8 +70,11 @@ pub(crate) struct ContentPartitionRefusedError {
 }
 
 fn body_bearing_type_names() -> String {
-    BODY_BEARING_EVENT_TYPES
-        .map(SessionEventType::as_str)
+    SessionEventType::ALL
+        .iter()
+        .filter(|event_type| event_type.carries_content())
+        .map(|event_type| event_type.as_str())
+        .collect::<Vec<_>>()
         .join(", ")
 }
 
@@ -96,7 +89,7 @@ pub(crate) fn compose_content_payload(
     payload: &mut Map<String, Value>,
     body: &str,
 ) -> Result<Vec<u8>, ContentPartitionRefusedError> {
-    if !BODY_BEARING_EVENT_TYPES.contains(&event_type) {
+    if !event_type.carries_content() {
         return Err(ContentPartitionRefusedError {
             event_type: event_type.as_str().to_owned(),
         });

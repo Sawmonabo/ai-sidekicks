@@ -40,7 +40,7 @@ use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_providers,
 };
-use crate::provider::port::reviewer_denial::ProviderReviewerDenial;
+use crate::provider::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::pause::tests::unanswered;
 use crate::session::run::projection::insert_queued_run_statement;

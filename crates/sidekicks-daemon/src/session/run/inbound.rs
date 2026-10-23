@@ -10,7 +10,7 @@
 mod absorb;
 pub(crate) mod rows;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -53,13 +53,6 @@ use crate::transcript::reasoning::split_reasoning_text;
 /// The runtime binding a delivery arrived on, and the provider operation it belongs to, where it
 /// has one.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the provider's event delivery names each delivery's binding"
-    )
-)]
 pub(crate) struct DeliveryBinding<'key> {
     /// The binding.
     pub(crate) binding_id: RuntimeBindingId,
@@ -167,13 +160,6 @@ pub(crate) enum InboundDelivery<'key> {
 
 impl InboundDelivery<'_> {
     /// The delivery's kind as a diagnostic names it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the delivery dispatch names a refused delivery's kind in its diagnostic"
-        )
-    )]
     pub(crate) fn kind_name(&self) -> &'static str {
         match self {
             Self::TurnBoundary { .. } => "turnBoundary",
@@ -247,13 +233,6 @@ pub(crate) enum InboundOutcome {
 
 impl InboundOutcome {
     /// The id of the event a delivery was written as; `None` where nothing was written.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the provider's event delivery reads the event a delivery was written as"
-        )
-    )]
     pub(crate) fn event_id(&self) -> Option<&FreeFormText<EVENT_FIELD_MAX_LEN>> {
         match self {
             Self::Appended { event_id } | Self::AppendedStamped { event_id, .. } => Some(event_id),
@@ -426,13 +405,6 @@ impl RunInboundDispatch {
     /// [`RunRefusal::NotFound`] for a piece of a run with no row, and with the engine's or the
     /// log's failure; a refusal for an ended run is an absorb, and a resend the engine owed after
     /// a move is logged, never failed.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the provider's event delivery hands each delivery to it"
-        )
-    )]
     pub(crate) fn dispatch<'dispatch>(
         &'dispatch self,
         delivery: InboundDelivery<'_>,

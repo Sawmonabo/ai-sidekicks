@@ -13,7 +13,8 @@ use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 
 use crate::file::atomic_write::write_file_atomically;
 use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::contract::{DriverError, SubagentDefinition};
+use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::session_control::SubagentDefinition;
 
 /// A role file is readable and writable by the person alone.
 const ROLE_FILE_MODE: u32 = 0o600;
@@ -237,7 +238,8 @@ mod tests {
 
     use super::write_codex_helper_roles;
     use crate::provider::driver::codex::session::errors::CodexError;
-    use crate::provider::driver::contract::{DriverError, SubagentDefinition};
+    use crate::provider::driver::contract::DriverError;
+    use crate::provider::driver::session_control::SubagentDefinition;
 
     #[tokio::test]
     async fn a_blank_prompt_is_refused_before_any_file_is_written() {

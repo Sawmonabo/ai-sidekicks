@@ -1,9 +1,12 @@
 //! What a Claude Code turn's settling `result` frame proves about how the turn ended.
 
-use serde_json::Value;
-use strum::VariantArray;
+use std::str::FromStr;
 
-use crate::provider::driver::claude::event_normalizer::ClaudeWireFrameKind;
+use serde_json::Value;
+
+use crate::provider::driver::claude::event_normalizer::{
+    ClaudeWireFrameKind, compose_claude_wire_frame_kind,
+};
 use crate::provider::turn_evidence::{
     TurnEvidenceClass, TurnEvidenceClassification, UNRECOGNIZED_TURN_EVIDENCE,
     observed_turn_evidence,
@@ -25,16 +28,19 @@ pub(crate) fn classify_claude_turn_evidence(terminal_frame: &Value) -> TurnEvide
     let Some(frame) = terminal_frame.as_object() else {
         return UNRECOGNIZED_TURN_EVIDENCE;
     };
-    if frame.get("type").and_then(Value::as_str) != Some("result") {
-        return UNRECOGNIZED_TURN_EVIDENCE;
-    }
-    let Some(subtype) = frame
-        .get("subtype")
+    let frame_type = frame
+        .get("type")
         .and_then(Value::as_str)
-        .filter(|subtype| is_claude_result_subtype(subtype))
-    else {
+        .unwrap_or_default();
+    let Some(subtype) = frame.get("subtype").and_then(Value::as_str) else {
         return UNRECOGNIZED_TURN_EVIDENCE;
     };
+    // Only a `result` the census lists is read; one of an unlisted subtype proves nothing.
+    if !ClaudeWireFrameKind::from_str(&compose_claude_wire_frame_kind(frame_type, Some(subtype)))
+        .is_ok_and(|kind| kind.is_result())
+    {
+        return UNRECOGNIZED_TURN_EVIDENCE;
+    }
 
     // Not read: `is_error` (false on an intercepted run, true on a refused real turn), the
     // `<synthetic>` model (an API-errored turn renders it too), and the `<local-command-stdout>`
@@ -53,22 +59,9 @@ pub(crate) fn classify_claude_turn_evidence(terminal_frame: &Value) -> TurnEvide
     {
         observations.push(TurnEvidenceClass::ModelOutput);
     }
-    if is_claude_declared_failure_subtype(subtype) {
+    // `success` is no declared failure: a zero-turn command reply wears it too.
+    if subtype.starts_with("error_") {
         observations.push(TurnEvidenceClass::DeclaredTurnFailure);
     }
     observed_turn_evidence(&observations)
-}
-
-// Whether the census names `result/<subtype>`, so a new subtype joins without a second edit.
-fn is_claude_result_subtype(subtype: &str) -> bool {
-    ClaudeWireFrameKind::VARIANTS.iter().any(|&kind| {
-        let kind: &'static str = kind.into();
-        kind.strip_prefix("result/") == Some(subtype)
-    })
-}
-
-// Whether the subtype is a census `result/error_*` kind. `success` is none: a zero-turn command
-// reply wears it too.
-fn is_claude_declared_failure_subtype(subtype: &str) -> bool {
-    subtype.starts_with("error_") && is_claude_result_subtype(subtype)
 }

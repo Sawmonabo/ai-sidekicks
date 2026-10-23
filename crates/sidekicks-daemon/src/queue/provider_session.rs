@@ -28,11 +28,11 @@ use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::ipc::domain_error::DomainError;
 use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::policy::execution_posture_service::compose_execution_posture;
-use crate::provider::driver::contract::{
-    DriverError, DriverResumeResult, SpawnedVersionBindingCarriers,
-};
+use crate::provider::driver::contract::{DriverError, SpawnedVersionBindingCarriers};
 use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::session_control::{CreateSessionParams, UpdatePermissionLevelParams};
+use crate::provider::driver::session_control::{
+    CreateSessionParams, DriverResumeResult, UpdatePermissionLevelParams,
+};
 use crate::provider::left_conversations::LeftConversation;
 use crate::provider::runtime_binding::resume::{
     ResumeFunctionLegs, RuntimeBindingNotResumable, compose_resume_session_params,
@@ -251,8 +251,8 @@ impl ProviderSessions {
     }
 
     /// The posture the session's process runs at, which each of its runs is requested at: the open
-    /// one's, else the one it opens at. Fails with [`ProviderSessionError::NoPosture`] for a session
-    /// whose lead runs at none, and as the opening's composition fails.
+    /// one's, else the one it opens at. Fails with [`ProviderSessionError::NoPosture`] for a
+    /// session whose lead runs at none, and as the opening's composition fails.
     pub(crate) async fn read_execution_posture(
         &self,
         session_id: SessionId,
@@ -439,7 +439,6 @@ impl ProviderSessions {
             })
             .await?;
         let legs = function_legs_for(&binding.id);
-        create_params.on_callback_tool_call = legs.on_callback_tool_call;
         create_params.on_mcp_server_status = legs.on_mcp_server_status;
         let handle = match driver.create_session(create_params).await {
             Ok(handle) => handle,
@@ -499,6 +498,7 @@ impl ProviderSessions {
             .await?;
         let params = compose_resume_session_params(
             session_id,
+            opening.create_params.agent_id,
             &leg,
             opening.create_params.model.clone(),
             opening.create_params.larger_window,

@@ -7,8 +7,6 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionRenameRequest;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_platforms::Spawner;
-use tokio::runtime::Handle;
 
 use super::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
 use crate::database::connection::read_pool::DatabaseReadPool;
@@ -19,8 +17,8 @@ use crate::events::log_service::{
 };
 use crate::events::session::followers::SessionEventFollowers;
 use crate::ipc::domain_error::DomainError;
-use crate::provider::driver::DriverServices;
 use crate::provider::driver::registry::ProviderRegistry;
+use crate::provider::driver::test_registry::test_driver_services;
 use crate::session::directory::test_rows::insert_session_row;
 
 /// Bounds a change the test expects to answer, so one that waits forever fails the test.
@@ -131,10 +129,7 @@ async fn a_change_is_decided_on_the_facts_that_landed(
         read_damaged_from_sequence: None,
     }));
     // The session ran nothing, so no driver is told its name.
-    let services = DriverServices {
-        spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-        data_folder: database.path(),
-    };
+    let services = test_driver_services();
     let changes = SessionChanges::new(
         Arc::new(DatabaseReadPool::new(
             database.path(),

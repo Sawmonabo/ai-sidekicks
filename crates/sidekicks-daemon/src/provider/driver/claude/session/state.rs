@@ -3,15 +3,21 @@
 //! disposal failed.
 
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use futures::future::{BoxFuture, Shared};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
+use tokio::sync::SetOnce;
 
+use crate::mutex_lock::lock;
+use crate::provider::callback_tools::spawn_binding::CallbackToolSpawnBinding;
 use crate::provider::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, ClaudeCommandChoices,
 };
@@ -20,17 +26,18 @@ use crate::provider::driver::claude::session::transport::declarations::{
     ClaudeHandshakeDeclaration, ClaudeInboundFrameObservation, ClaudeInitializeDeclaration,
 };
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::provider::driver::claude::session::ultracode::ClaudeUltracodeReading;
+use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::provider::port::registration::PortRegistration;
+use crate::provider::port::reviewer_denial::ReviewerDenialPort;
 use crate::provider::thread_frame_router::{
     RoutableProviderFrame, ThreadFrameFamilyClass, ThreadFrameRouter, ThreadFrameRouterConfig,
 };
 use crate::provider::usage_delta_accountant::UsageDeltaAccountant;
+use crate::queue::delivery::ProviderProcessIdentity;
 
 /// The router's bounds. The hold covers a helper's frames arriving ahead of its start; the short
 /// timeout means a frame held longer names a helper never announced.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's session lifecycle builds each session's router with it"
-)]
 pub(crate) const CLAUDE_THREAD_FRAME_ROUTER_CONFIG: ThreadFrameRouterConfig =
     ThreadFrameRouterConfig {
         max_quarantined_frames: 64,
@@ -42,10 +49,6 @@ pub(crate) const CLAUDE_THREAD_FRAME_ROUTER_CONFIG: ThreadFrameRouterConfig =
 /// under: a rewind forks a new process behind the same session, so a read checks the stamp and
 /// answers as unread rather than with the old process's declaration.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(
-    dead_code,
-    reason = "the Claude driver's stream reader holds each process's declaration in it"
-)]
 pub(crate) struct ClaudeHeldHandshake {
     /// The provider session the declaration was read under.
     pub(crate) provider_session_id: String,
@@ -59,10 +62,6 @@ pub(crate) struct ClaudeHeldHandshake {
 /// thread is the helper's id or else the provider session id, never none, which would quarantine
 /// every ordinary frame.
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "the Claude driver's stream reader routes each frame as it"
-)]
 pub(crate) struct ClaudeRoutableFrame {
     /// The helper's id, or the provider session id.
     pub(crate) thread_id: String,
@@ -87,10 +86,6 @@ impl RoutableProviderFrame for ClaudeRoutableFrame {
 }
 
 /// A session's router and accountant, held together so no frame routes to an unmetered thread.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's session lifecycle keeps each session's router in it"
-)]
 pub(crate) struct ClaudeSessionRoutingBand {
     /// The router.
     pub(crate) router: ThreadFrameRouter<ClaudeRoutableFrame>,
@@ -111,20 +106,9 @@ pub(crate) struct ClaudeSpawnBinding {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeUsageEstablishment {
     /// Zero.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session create starts its usage from it"
-        )
-    )]
     Fresh,
     /// The sums already reported under `prior_emitted_thread_id`, which after a rewind is the
     /// predecessor's, since the fork announces a new one.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session resume and rewind start their usage from it"
-    )]
     Resume {
         /// The thread the sums were reported under.
         prior_emitted_thread_id: String,
@@ -141,97 +125,103 @@ pub(crate) type ClaudeHeldCommandChoices = Shared<BoxFuture<'static, ClaudeComma
 #[derive(Clone, Debug)]
 pub(crate) struct ClaudeLiveSettings {
     /// The posture the session runs at; a relaunch starts at this one.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's relaunch and controls read it"
-    )]
     pub(crate) execution_posture: Option<ExecutionPosture>,
     /// Whether the next turns build or plan; a fresh process builds.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's relaunch and controls read it"
-    )]
     pub(crate) session_mode: SessionMode,
-    /// The advisor model, `None` when off.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's relaunch and controls read it"
-    )]
-    pub(crate) advisor_model: Option<String>,
+    /// The session's advisor, the one Claude Code resolved at the start where none was picked.
+    pub(crate) advisor: ClaudeSessionAdvisor,
     /// The session's own output style, `None` where Claude Code's own setting holds.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's relaunch and controls read it"
-    )]
     pub(crate) output_style: Option<String>,
     /// The model the session runs on; a relaunch and a fork pass this one as `--model`.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's relaunch and controls read it"
-    )]
     pub(crate) running_model: String,
     /// The advisor Claude Code says it attaches, read after the start and after each change.
     #[expect(
         dead_code,
-        reason = "the Claude driver's relaunch and controls read it"
+        reason = "the daemon's start registers the Claude driver, whose `/advisor` answer reads it"
     )]
     pub(crate) attached_advisor: ClaudeAttachedAdvisor,
     /// The output-speed level the process last took, which a rewind applies to its fork; `None`
     /// when it took none.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's relaunch and controls read it"
-    )]
     pub(crate) applied_output_speed: Option<String>,
+    /// The Ultracode value the agent asked for, which a relaunch starts with; `None` keeps Claude
+    /// Code's own.
+    pub(crate) ultracode_requested: Option<bool>,
+    /// Ultracode's state as Claude Code last reported it.
+    pub(crate) ultracode: Option<ClaudeUltracodeReading>,
 }
 
 /// A session whose Claude Code process is running, with the legs it was started with.
 pub(crate) struct LiveClaudeSession {
     /// The session.
-    #[expect(dead_code, reason = "the Claude driver's session task reads it")]
     pub(crate) session_id: SessionId,
+    /// The session's lead, which a relaunch resumes as.
+    pub(crate) agent_id: AgentId,
     /// The provider session the process runs under.
-    #[expect(dead_code, reason = "the Claude driver's session task reads it")]
     pub(crate) provider_session_id: String,
     /// The process.
-    #[expect(dead_code, reason = "the Claude driver's session task reads it")]
     pub(crate) channel: Arc<dyn ClaudeProcessChannel>,
     /// What the process was started with, for a later run's check.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's run start checks a run against it"
-    )]
     pub(crate) spawn_binding: ClaudeSpawnBinding,
     /// The legs the process was started with; a rewind starts its fork from these, since
     /// deriving them again would guess, and a guess without the posture runs unsandboxed.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's rewind starts its fork from it"
-    )]
     pub(crate) spawn_bound_legs: ClaudeSpawnBoundLegs,
     /// What the process's `initialize` reply declared.
-    #[expect(dead_code, reason = "the Claude driver's session task reads it")]
     pub(crate) initialize: ClaudeInitializeDeclaration,
     /// The style descriptions and advisors Claude Code offers, kept across a rewind.
-    #[expect(dead_code, reason = "the Claude driver's session task reads it")]
-    pub(crate) command_choices: ClaudeHeldCommandChoices,
-    /// The usage base.
     #[expect(
         dead_code,
-        reason = "the Claude driver's stream reader meters usage from it"
+        reason = "the daemon's start registers the Claude driver, whose `/output-style` and \
+                  `/advisor` answers and rewind read it"
     )]
-    pub(crate) establishment: ClaudeUsageEstablishment,
+    pub(crate) command_choices: ClaudeHeldCommandChoices,
     /// The account the process was admitted against, captured when it came up, since the
     /// registry can move; a rewind inherits it. `None` on the machine's own home.
-    #[expect(dead_code, reason = "the Claude driver's session task reads it")]
     pub(crate) admitted_provider_account_id: Option<ProviderAccountId>,
     /// What the session runs with now.
-    #[expect(dead_code, reason = "the Claude driver's session task reads it")]
     pub(crate) settings: Mutex<ClaudeLiveSettings>,
+    /// The process's identity in the daemon's spawn count, removed from the process registry at
+    /// its exit.
+    pub(crate) process_identity: ProviderProcessIdentity,
+    /// The spawn's callback-tool registry, released once no process of the session holds it; a
+    /// rewind's fork shares its predecessor's.
+    pub(crate) callback_tool_binding: Arc<CallbackToolSpawnBinding>,
+    /// The exit the process ended with, set once it ended, for a rewind's predecessor whose exit
+    /// is taken up only once its fork fails.
+    pub(crate) process_exit: OnceLock<ProcessExit>,
+    /// Set once the process's task has ended: after its `Exit` arrival, by when the task has taken
+    /// whole every arrival its reader queued before the exit, or on an abort or a panic.
+    pub(crate) task_ended: SetOnce<()>,
+    /// The binding of each run that took the session's turn on this process, whose held `Allow
+    /// once` presses are released once the process is gone, ended runs' included.
+    pub(crate) served_bindings: Mutex<HashSet<RuntimeBindingId>>,
 }
 
-/// A slot's transition in flight; it never fails.
-pub(crate) type ClaudeSlotSettled = Shared<BoxFuture<'static, ()>>;
+impl LiveClaudeSession {
+    /// Records that a run on `binding_id` took the session's turn on this process.
+    pub(crate) fn record_served_binding(&self, binding_id: RuntimeBindingId) {
+        lock(&self.served_bindings).insert(binding_id);
+    }
+
+    /// Releases the held `Allow once` presses of every binding this process served, through
+    /// `reviewer_denials` once the approvals are registered, and forgets them, once the process is
+    /// gone or no longer the session's.
+    pub(crate) fn release_served_presses(
+        &self,
+        reviewer_denials: &PortRegistration<Arc<dyn ReviewerDenialPort>>,
+    ) {
+        let Some(reviewer_denials) = reviewer_denials.port() else {
+            return;
+        };
+        let served = std::mem::take(&mut *lock(&self.served_bindings));
+        for binding_id in &served {
+            reviewer_denials.release_held_presses(binding_id);
+        }
+    }
+}
+
+/// A slot's transition in flight, set once its slot write is made or the transition ends without
+/// it; a waiter then reads the slot again.
+pub(crate) type ClaudeSlotSettled = Arc<SetOnce<()>>;
 
 /// One session's slot. No slot is Empty, the only state a create or resume may start from; every
 /// other state is held in one registry so a slot mid-disposal never reads as Empty.
@@ -239,22 +229,8 @@ pub(crate) type ClaudeSlotSettled = Shared<BoxFuture<'static, ()>>;
 pub(crate) enum ClaudeSessionSlot {
     /// A create, resume or rewind is bringing a process up. A rewind keeps the session it forks
     /// from, whose frames stay attributable during the fork and which a failed fork restores.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's session lifecycle holds a bring-up in it"
-        )
-    )]
     Establishing {
         /// The bring-up.
-        #[cfg_attr(
-            test,
-            expect(
-                dead_code,
-                reason = "the Claude driver's session lifecycle waits on it"
-            )
-        )]
         settled: ClaudeSlotSettled,
         /// The session a rewind forks from; `None` for a create or resume.
         predecessor: Option<Arc<LiveClaudeSession>>,
@@ -262,43 +238,27 @@ pub(crate) enum ClaudeSessionSlot {
     /// A process is up; the only state a run starts in.
     Live {
         /// The session.
-        #[cfg_attr(
-            not(test),
-            expect(dead_code, reason = "the Claude driver's session task reads it")
-        )]
         session: Arc<LiveClaudeSession>,
     },
     /// The process is being disposed of; Empty once that succeeds, Quarantined when it fails.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle holds a disposal in it"
-    )]
     Closing {
         /// The disposal.
         settled: ClaudeSlotSettled,
+        /// The process's channel until it closes, whose frames read meanwhile still reach the
+        /// session, so a `result` read during the close ends its turn; `None` once it closed.
+        reading: Option<Arc<dyn ClaudeProcessChannel>>,
     },
     /// The disposal failed, so the process still lives and this is the only handle on it, kept
-    /// until a later close disposes of it.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle holds a failed disposal in it"
-    )]
+    /// with the bindings it served until a later close disposes of it.
     Quarantined {
-        /// The process.
-        channel: Arc<dyn ClaudeProcessChannel>,
+        /// The session whose process it is.
+        session: Arc<LiveClaudeSession>,
     },
 }
 
 impl ClaudeSessionSlot {
     /// The slot once a bring-up from this one failed: a rewind's predecessor is live again, and a
     /// create or resume leaves the slot Empty (`None`); any other slot is left as it is.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's lifecycle settles a failed bring-up through it"
-        )
-    )]
     pub(crate) fn after_failed_bring_up(self) -> Option<Self> {
         match self {
             Self::Establishing {
@@ -317,68 +277,23 @@ impl ClaudeSessionSlot {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
-    use futures::FutureExt;
-    use sidekicks_contracts::session::controls::methods::SessionMode;
     use sidekicks_contracts::session::id::SessionId;
-
-    use super::{
-        ClaudeLiveSettings, ClaudeSessionSlot, ClaudeSpawnBinding, ClaudeUsageEstablishment,
-        LiveClaudeSession,
-    };
-    use crate::provider::driver::claude::session::answered_commands::{
-        ClaudeAttachedAdvisor, unreadable_claude_command_choices,
-    };
-    use crate::provider::driver::claude::session::transport::channel::MockClaudeProcessChannel;
-    use crate::provider::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
-    use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use tokio::sync::SetOnce;
+
+    use super::{ClaudeSessionSlot, LiveClaudeSession};
+    use crate::provider::driver::claude::session::scripted::scripted_live_session;
+    use crate::provider::driver::claude::session::transport::channel::MockClaudeProcessChannel;
 
     fn live_session() -> Arc<LiveClaudeSession> {
         let session_id =
             SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
-        let choices = unreadable_claude_command_choices("unread");
-        Arc::new(LiveClaudeSession {
+        Arc::new(scripted_live_session(
             session_id,
-            provider_session_id: "provider-session".to_owned(),
-            channel: Arc::new(MockClaudeProcessChannel::new()),
-            spawn_binding: ClaudeSpawnBinding {
-                execution_posture: None,
-                output_schema_digest: None,
-            },
-            spawn_bound_legs: ClaudeSpawnBoundLegs {
-                session_id,
-                model: "opus".to_owned(),
-                execution_posture: None,
-                working_directory: PathBuf::from("/work"),
-                callback_tools: None,
-                subagent_policy: None,
-                tool_servers: Vec::new(),
-                output_schema: None,
-                on_callback_tool_call: None,
-                on_mcp_server_status: None,
-                credential_deny_paths: Vec::new(),
-                memory_folders: Vec::new(),
-                spawn_environment: Vec::new(),
-                advisor_model: None,
-                output_style: None,
-            },
-            initialize: ClaudeInitializeDeclaration::default(),
-            command_choices: async move { choices }.boxed().shared(),
-            establishment: ClaudeUsageEstablishment::Fresh,
-            admitted_provider_account_id: None,
-            settings: Mutex::new(ClaudeLiveSettings {
-                execution_posture: None,
-                session_mode: SessionMode::Build,
-                advisor_model: None,
-                output_style: None,
-                running_model: "opus".to_owned(),
-                attached_advisor: ClaudeAttachedAdvisor::Unreported,
-                applied_output_speed: None,
-            }),
-        })
+            Arc::new(MockClaudeProcessChannel::new()),
+        ))
     }
 
     // Killed by a failed rewind that empties the slot, losing a live process, or by a failed
@@ -386,7 +301,7 @@ mod tests {
     #[test]
     fn a_failed_rewind_restores_its_predecessor_and_a_failed_create_empties_the_slot() {
         let predecessor = live_session();
-        let settled = async {}.boxed().shared();
+        let settled = Arc::new(SetOnce::new());
 
         let rewound = ClaudeSessionSlot::Establishing {
             settled: settled.clone(),

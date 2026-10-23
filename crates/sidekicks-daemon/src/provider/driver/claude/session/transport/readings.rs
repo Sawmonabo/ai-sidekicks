@@ -59,7 +59,6 @@ pub(crate) struct ClaudeLocalCommandReply {
 #[derive(Debug)]
 pub(crate) enum ClaudeReplyReserveReads {
     /// Both reads were answered.
-    #[expect(dead_code, reason = "the Claude driver's model read records it")]
     Read {
         /// The reply with only the window key set.
         window_only: Option<Box<RawValue>>,
@@ -67,7 +66,6 @@ pub(crate) enum ClaudeReplyReserveReads {
         with_maximum_output: Option<Box<RawValue>>,
     },
     /// Claude Code refused a request on the way.
-    #[expect(dead_code, reason = "the Claude driver's model read records it")]
     Refused {
         /// Its words.
         detail: String,
@@ -87,9 +85,7 @@ pub(crate) struct ClaudeCreationFiguresReading {
     /// What `/advisor` printed.
     pub(crate) advisor: ClaudeLocalCommandReply,
     /// The reply reserve's two reads.
-    #[expect(dead_code, reason = "the Claude driver's model read reads it")]
     pub(crate) reply_reserve_reads: ClaudeReplyReserveReads,
     /// The context reads.
-    #[expect(dead_code, reason = "the Claude driver's model read reads it")]
     pub(crate) context_reads: Vec<ClaudeModelContextRead>,
 }

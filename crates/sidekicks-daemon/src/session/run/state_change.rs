@@ -110,17 +110,14 @@ pub(crate) enum RunStateEntry {
         execution_posture: Option<ExecutionPosture>,
     },
     /// Into `waitingForApproval`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     WaitingForApproval,
     /// Into `waitingForInput`.
     WaitingForInput,
     /// Into `pausing`.
     Pausing,
     /// Into `paused`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     Paused,
     /// Into `completed`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     Completed {
         /// Set only on a terminal the daemon itself closed.
         intended_close: Option<True>,

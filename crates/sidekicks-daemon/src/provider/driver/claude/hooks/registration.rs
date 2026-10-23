@@ -11,7 +11,7 @@ use crate::provider::driver::claude::event_normalizer::CLAUDE_QUESTION_TOOL_NAME
 use crate::provider::driver::claude::session::transport::control::{
     ClaudeAgentDefinition, ClaudeControlRequest, ClaudeHookMatcher, ClaudeHooks,
 };
-use crate::provider::driver::contract::{SubagentDefinition, SubagentPolicy};
+use crate::provider::driver::session_control::{SubagentDefinition, SubagentPolicy};
 use crate::provider::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 
 /// How long Claude Code waits on a held callback, in seconds: one day. Without it a callback left
@@ -40,17 +40,23 @@ pub(crate) enum ClaudeHookCallback {
     PermissionDenied,
     /// Refuses a shell command that starts background work.
     BackgroundWork,
+    /// Hands a helper the person's waiting words after its tool call.
+    HelperSteerAfterTool,
+    /// Hands a helper the person's waiting words as it finishes, so it goes on.
+    HelperSteerAtStop,
 }
 
 impl ClaudeHookCallback {
     /// Every hook, so a callback id is read back against each.
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 8] = [
         Self::PauseBeforeTool,
         Self::PauseAfterBatch,
         Self::HelperLimit,
         Self::QuestionBridge,
         Self::PermissionDenied,
         Self::BackgroundWork,
+        Self::HelperSteerAfterTool,
+        Self::HelperSteerAtStop,
     ];
 
     /// The callback id the hook is registered under.
@@ -62,15 +68,13 @@ impl ClaudeHookCallback {
             Self::QuestionBridge => "sidekicks-question-bridge",
             Self::PermissionDenied => "sidekicks-permission-denied",
             Self::BackgroundWork => "sidekicks-background-claude",
+            Self::HelperSteerAfterTool => "sidekicks-helper-steer-after-tool",
+            Self::HelperSteerAtStop => "sidekicks-helper-steer-at-stop",
         }
     }
 
     /// The hook a `hook_callback`'s `callback_id` names, or `None` for an id the daemon never
     /// registered.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's hook-callback router reads each callback through it"
-    )]
     pub(crate) fn of(callback_id: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|hook| hook.id() == callback_id)
     }
@@ -102,10 +106,6 @@ impl ClaudeDialogKind {
 /// session's helper definitions, the two dialogs the console draws, and the per-task stop the
 /// console offers, and the tool servers the daemon hosts in-process, by name. The helper hold is
 /// registered only where the policy limits helpers at once.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's launch sends it first on each session process"
-)]
 pub(crate) fn compose_claude_initialize_request(
     subagent_policy: Option<&SubagentPolicy>,
     in_process_servers: Vec<String>,
@@ -154,8 +154,10 @@ pub(crate) fn compose_claude_initialize_request(
     ClaudeControlRequest::Initialize {
         hooks: Some(ClaudeHooks {
             pre_tool_use,
+            post_tool_use: vec![unheld(None, ClaudeHookCallback::HelperSteerAfterTool)],
             post_tool_batch: vec![unheld(None, ClaudeHookCallback::PauseAfterBatch)],
             permission_denied: vec![unheld(None, ClaudeHookCallback::PermissionDenied)],
+            subagent_stop: vec![unheld(None, ClaudeHookCallback::HelperSteerAtStop)],
         }),
         agents,
         supported_dialog_kinds: Some(

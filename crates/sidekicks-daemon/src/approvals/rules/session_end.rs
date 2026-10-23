@@ -185,6 +185,7 @@ mod tests {
             scope: ApprovalScope::new("npm run build".to_owned()).expect("a scope"),
             granted_at: WireInstant::try_from("2026-10-18T09:00:00.000Z".to_owned())
                 .expect("an instant"),
+            is_daemon_kept: false,
         }
     }
 

@@ -21,6 +21,7 @@ use crate::run::intervention::{InterventionId, InterventionType};
 use crate::run::state::RunState;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
+use crate::turn::ProviderTurnId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
@@ -328,8 +329,8 @@ run_event_payloads! {
         pub model: Option<FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>>,
     }
 
-    /// The `agent.turn.started` payload: a turn opened within the run, at the session position the
-    /// provider named where it named one.
+    /// The `agent.turn.started` payload: a turn opened within the run, at the session position and
+    /// under the provider's own turn id where the provider named them.
     pub struct AgentTurnStartedPayload {
         /// The turn's number within its run, from 1.
         pub turn_number: SafeInt<1>,
@@ -341,6 +342,15 @@ run_event_payloads! {
         )]
         #[schemars(with = "SourcePosition")]
         pub position: Option<SourcePosition>,
+        /// The provider's own id of the turn, so what the provider reports against that id joins
+        /// the turn it opened in.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ProviderTurnId")]
+        pub provider_turn_id: Option<ProviderTurnId>,
     }
 
     /// The `agent.turn.completed` payload: the turn ended normally, as the provider reported it.
@@ -594,6 +604,10 @@ mod tests {
     }
 
     #[rstest]
+    #[case::turn_started_under_the_provider_turn_id(
+        "agent.turn.started",
+        json!({ "turnNumber": 1, "providerTurnId": "019a-turn-7" })
+    )]
     #[case::turn_completed("agent.turn.completed", json!({ "turnNumber": 1 }))]
     #[case::turn_interrupted_by_the_provider(
         "agent.turn.interrupted",
@@ -615,7 +629,7 @@ mod tests {
         "agent.run.stopped",
         json!({ "previousState": "running", "newState": "stopped", "trigger": "tokenLimit" })
     )]
-    fn a_turn_end_and_a_token_limit_stop_round_trip(
+    fn a_turn_event_and_a_token_limit_stop_round_trip(
         #[case] event_type: &str,
         #[case] members: Value,
     ) {

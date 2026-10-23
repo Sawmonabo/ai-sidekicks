@@ -40,6 +40,7 @@ macro_rules! late_appendable_rows {
         /// the source-epoch stamp, its payload as the producer built it, without the stamp. A
         /// reasoning update is not one: it is its own delivery, since its body is required.
         #[derive(Debug)]
+        #[cfg_attr(test, derive(Clone, PartialEq))]
         #[expect(dead_code, reason = "the provider's event delivery builds each row it hands over")]
         pub(crate) enum LateAppendableRow {
             $($(#[$doc])* $variant($payload),)+

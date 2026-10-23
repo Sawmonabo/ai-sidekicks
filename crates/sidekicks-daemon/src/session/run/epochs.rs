@@ -52,13 +52,6 @@ pub(crate) struct EpochBinding {
 /// The provider-side operation a delivery belongs to (a tool call, a message item, an artifact),
 /// by the key the provider correlates its deliveries with. The first delivery of every operation
 /// is passed as its opening; a later one that finds no opening held is read as one evicted.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the provider's event delivery names the operation each delivery belongs to"
-    )
-)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct DeliveryOperation<'key> {
     /// The provider's key for the operation.
@@ -224,13 +217,6 @@ impl ExecutionEpochs {
 
     /// The binding a cursor counts for. Fails with [`EpochCursorError::NotOpen`] for a binding
     /// with no cursor open.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the provider's event delivery names an absorbed delivery's binding from it"
-        )
-    )]
     pub(crate) fn binding(
         &self,
         binding_id: &RuntimeBindingId,
@@ -246,13 +232,6 @@ impl ExecutionEpochs {
     /// Counts a turn boundary the binding delivered: the current generation moves to its next
     /// turn. On a frozen binding nothing moves, and the boundary belongs to the execution before
     /// the cut. Fails with [`EpochCursorError::NotOpen`] for a binding with no cursor open.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the provider's event delivery counts each turn boundary through it"
-        )
-    )]
     pub(crate) fn open_turn(
         &mut self,
         binding_id: &RuntimeBindingId,
@@ -272,13 +251,6 @@ impl ExecutionEpochs {
     /// a frozen binding's delivery takes its retained pair and an in-place binding's is current,
     /// by the fence's order. Fails with [`EpochCursorError::NotOpen`] for a binding with no cursor
     /// open.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the provider's event delivery attributes each delivery"
-        )
-    )]
     pub(crate) fn attribute(
         &mut self,
         binding_id: &RuntimeBindingId,

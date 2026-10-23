@@ -7,7 +7,7 @@
 
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::provider::driver::contract::{SubagentDefinition, SubagentPolicy};
+use crate::provider::driver::session_control::{SubagentDefinition, SubagentPolicy};
 
 /// What a session's helper policy is assembled from.
 #[derive(Clone, Debug, PartialEq, Eq)]

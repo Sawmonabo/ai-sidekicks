@@ -53,13 +53,6 @@ struct RequestTable {
 
 impl ClaudeControlRequests {
     /// An empty table for one process, withdrawing a request through `withdraw`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process opens its control table with its input writer"
-        )
-    )]
     pub(crate) fn new(withdraw: ClaudeRequestWithdrawal) -> Self {
         Self {
             table: Arc::new(Mutex::new(RequestTable {
@@ -73,13 +66,6 @@ impl ClaudeControlRequests {
 
     /// Opens a request under a fresh id, before it is written, so an answer arriving at once finds
     /// it. Fails with `Unavailable` once the process exited, since nothing would answer.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process opens each control request with it"
-        )
-    )]
     pub(crate) fn open(
         &self,
         subtype: ClaudeControlSubtype,
@@ -101,13 +87,6 @@ impl ClaudeControlRequests {
     }
 
     /// Settles the request an answer names by its `request_id`, as sent.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process reader settles each control answer with it"
-        )
-    )]
     pub(crate) fn settle(
         &self,
         request_id: &str,
@@ -138,13 +117,6 @@ impl ClaudeControlRequests {
 
     /// Fails every pending request at once, and refuses every later one, because the process
     /// exited with `detail`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process closes its table when it exits"
-        )
-    )]
     pub(crate) fn close_on_exit(&self, detail: String) {
         let mut table = lock(&self.table);
         table.exit_detail = Some(detail);
@@ -177,13 +149,6 @@ impl PendingControlRequest {
     /// answer. Fails with `InputUnwritable` when no byte was written; with `Unanswered` when some
     /// were and no answer came: the write was cut short, the deadline passed (the request is then
     /// withdrawn) or the process exited; and with `ControlRequestRefused` when Claude Code refused.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process settles each control request it writes through it"
-        )
-    )]
     pub(crate) async fn answer_within(
         mut self,
         written: ClaudeWriteAttempt,

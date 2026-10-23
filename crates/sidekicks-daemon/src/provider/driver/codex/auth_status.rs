@@ -15,7 +15,7 @@ use crate::provider::driver::codex::transport::connection::{
     CodexAppServerConnection, read_codex_object,
 };
 use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::contract::{
+use crate::provider::driver::session_control::{
     DriverAuthProbeResult, DriverAuthProbeStatus, build_auth_probe_result,
 };
 

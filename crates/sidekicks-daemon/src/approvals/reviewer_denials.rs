@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use futures::future::BoxFuture;
 use rusqlite::{Connection, OptionalExtension as _, named_params};
@@ -54,6 +54,7 @@ use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::keyed_lock::KeyedLock;
 use crate::keyed_wait::KeyedWaits;
+use crate::mutex_lock::lock;
 #[cfg(test)]
 use crate::pause_point::PausePoint;
 use crate::provider::driver::contract::DriverError;
@@ -295,6 +296,7 @@ pub(crate) struct ReviewerDenials {
     presses: KeyedLock<ReviewerDenialId>,
     /// The presses held after their first send, changed under the map's lock: a press writes its
     /// pending mark before the driver call and keeps it only if no release dropped it meanwhile.
+    /// No holder awaits or panics while it changes the map, so a poisoned lock holds whole marks.
     held_presses: Mutex<HashMap<ReviewerDenialId, HeldPress>>,
     // Where a test holds a block's read on the pool's thread once it found no row.
     #[cfg(test)]
@@ -364,30 +366,6 @@ impl ReviewerDenials {
         self.is_stopped.store(true, Ordering::SeqCst);
         drop(attachment);
         self.row_waits.settle_where(|_| true, RowWait::Stopped);
-    }
-
-    /// The process behind `binding_id` has ended, so nothing can still take an override sent to
-    /// it: a press held on one, or still waiting on its answer, sends again. A driver that has
-    /// released a binding never answers a later request to it as unanswered: such a request fails
-    /// as refused, so no press is held on a binding that will not be released again.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the drivers report here when a provider process ends"
-        )
-    )]
-    pub(crate) fn release_held_presses(&self, binding_id: &RuntimeBindingId) {
-        lock_held(&self.held_presses).retain(|_, held| match held {
-            HeldPress::Pending {
-                binding_id: sent_to,
-            }
-            | HeldPress::Unanswered {
-                binding_id: sent_to,
-                ..
-            } => sent_to != binding_id,
-            HeldPress::Answered { .. } => true,
-        });
     }
 
     /// Records `denial` on the blocked call's own row, waiting for that row when the block came
@@ -503,10 +481,6 @@ impl ReviewerDenials {
     /// every later press until the process it went to has ended. A caller awaits a press to its
     /// end and never drops it mid-send; the method layer cancels through its token, not by
     /// dropping the future.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the approval.denial.override handler calls it")
-    )]
     pub(crate) async fn override_denial(
         &self,
         request: &ApprovalDenialOverrideRequest,
@@ -541,7 +515,7 @@ impl ReviewerDenials {
         }
         refuse_unchangeable_session(&session_id, session_state)?;
         // Read out first, so the map's lock is never held across the record's await.
-        let held = match lock_held(&self.held_presses).get(&denial_id) {
+        let held = match lock(&self.held_presses).get(&denial_id) {
             Some(HeldPress::Unanswered { refusal, .. }) => Some(Err(copy_of_refusal(refusal))),
             Some(HeldPress::Answered { overridden_at }) => Some(Ok(overridden_at.clone())),
             // A press settles its own pending mark before it ends, and no caller drops a press
@@ -566,7 +540,7 @@ impl ReviewerDenials {
         let provider_denial = RawValue::from_string(denial.provider_denial)
             .map_err(DenialOverrideError::StoredDenial)?;
         // Written before the send, so a release that lands before the answer drops it.
-        lock_held(&self.held_presses).insert(
+        lock(&self.held_presses).insert(
             denial_id,
             HeldPress::Pending {
                 binding_id: run_provider.binding_id,
@@ -587,7 +561,7 @@ impl ReviewerDenials {
             Err(DriverError::Unanswered(RequestUnanswered { refusal })) => {
                 // The provider may have taken it, so nothing is sent again while its process
                 // lives; a process that already ended dropped the pending mark.
-                let mut held_presses = lock_held(&self.held_presses);
+                let mut held_presses = lock(&self.held_presses);
                 if let Some(held) = held_presses.get_mut(&denial_id)
                     && let HeldPress::Pending { binding_id } = held
                 {
@@ -599,7 +573,7 @@ impl ReviewerDenials {
                 Err(refusal.into())
             }
             Err(failed) => {
-                lock_held(&self.held_presses).remove(&denial_id);
+                lock(&self.held_presses).remove(&denial_id);
                 Err(DenialOverrideError::Driver(failed))
             }
         }
@@ -630,7 +604,7 @@ impl ReviewerDenials {
                 },
             )
             .await;
-        let mut held_presses = lock_held(&self.held_presses);
+        let mut held_presses = lock(&self.held_presses);
         match recorded {
             Ok(_receipt) => {
                 held_presses.remove(&denial_id);
@@ -653,6 +627,23 @@ impl ReviewerDenialPort for ReviewerDenials {
         denial: ProviderReviewerDenial,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         Box::pin(async move { Ok(self.take(denial).await?) })
+    }
+
+    /// The process behind `binding_id` has ended, so nothing can still take an override sent to
+    /// it: a press held on one, or still waiting on its answer, sends again. A driver that has
+    /// released a binding never answers a later request to it as unanswered: such a request fails
+    /// as refused, so no press is held on a binding that will not be released again.
+    fn release_held_presses(&self, binding_id: &RuntimeBindingId) {
+        lock(&self.held_presses).retain(|_, held| match held {
+            HeldPress::Pending {
+                binding_id: sent_to,
+            }
+            | HeldPress::Unanswered {
+                binding_id: sent_to,
+                ..
+            } => sent_to != binding_id,
+            HeldPress::Answered { .. } => true,
+        });
     }
 }
 
@@ -781,13 +772,6 @@ fn copy_of_refusal(refusal: &DomainError) -> DomainError {
         detail: refusal.detail.clone(),
         source: None,
     }
-}
-
-// No holder awaits or panics while it changes the map, so a poisoned lock still holds whole marks.
-fn lock_held(
-    held_presses: &Mutex<HashMap<ReviewerDenialId, HeldPress>>,
-) -> MutexGuard<'_, HashMap<ReviewerDenialId, HeldPress>> {
-    held_presses.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 #[cfg(test)]

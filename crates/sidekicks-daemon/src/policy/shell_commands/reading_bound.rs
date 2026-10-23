@@ -17,13 +17,6 @@ pub(crate) struct ShellLineReadingBound {
     limit: usize,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the approval and command-ask checks will read every shell line through it"
-    )
-)]
 impl ShellLineReadingBound {
     /// A bound of `limit` line bytes, the reader's limit: a system's argument bound, under 4 GiB.
     pub(crate) fn new(limit: usize) -> Self {

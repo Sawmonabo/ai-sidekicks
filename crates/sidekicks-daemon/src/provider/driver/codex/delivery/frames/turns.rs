@@ -4,11 +4,10 @@
 //! and the asks it held, which its end or Codex's own settle withdraws.
 
 use serde_json::{Map, Value};
-use sidekicks_contracts::provider::driver::methods::{
-    PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN,
-};
+use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::provider::driver::codex::delivery::failure_cause::{
@@ -340,8 +339,7 @@ impl CodexFrameDelivery {
         is_active: bool,
         faster_model: Option<&str>,
     ) {
-        let Ok(turn_id) = FreeFormText::<PROVIDER_WIRE_HANDLE_MAX_LEN>::new(turn_id.to_owned())
-        else {
+        let Ok(turn_id) = ProviderTurnId::new(turn_id.to_owned()) else {
             return;
         };
         let state = RunSafetyBufferingUpdatedPayload {

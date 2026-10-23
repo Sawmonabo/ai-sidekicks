@@ -461,6 +461,84 @@ macro_rules! branded_text {
 
 pub(crate) use branded_text;
 
+/// Declares a branded newtype over [`FreeFormText`] of at most `MAX` code points, an id a peer
+/// mints opaquely that keeps free-form text's rules (no NUL, not blank), which TypeScript reads as
+/// a branded string:
+///
+/// ```ignore
+/// branded_free_form_text! {
+///     /// A provider's id of one turn.
+///     pub struct ProviderTurnId(PROVIDER_WIRE_HANDLE_MAX_LEN);
+/// }
+/// ```
+macro_rules! branded_free_form_text {
+    ($(
+        $(#[doc = $doc:literal])+
+        pub struct $name:ident($max:expr);
+    )+) => {$(
+        $(#[doc = $doc])+
+        #[derive(
+            Clone,
+            Debug,
+            PartialEq,
+            Eq,
+            Hash,
+            PartialOrd,
+            Ord,
+            serde::Serialize,
+            serde::Deserialize,
+        )]
+        #[serde(transparent)]
+        pub struct $name($crate::wire::text::FreeFormText<{ $max }>);
+
+        impl $name {
+            /// Checks `text` as free-form text of the type's cap; refuses it with the first rule it
+            /// breaks.
+            pub fn new(text: String) -> Result<Self, $crate::wire::text::TextError> {
+                $crate::wire::text::FreeFormText::new(text).map(Self)
+            }
+
+            /// The checked text.
+            pub fn as_str(&self) -> &str {
+                self.0.as_str()
+            }
+
+            /// The checked text, consuming the value.
+            pub fn into_string(self) -> String {
+                self.0.into_string()
+            }
+        }
+
+        impl AsRef<str> for $name {
+            fn as_ref(&self) -> &str {
+                self.0.as_str()
+            }
+        }
+
+        impl schemars::JsonSchema for $name {
+            fn schema_name() -> std::borrow::Cow<'static, str> {
+                stringify!($name).into()
+            }
+
+            fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+                type Text = $crate::wire::text::FreeFormText<{ $max }>;
+                let mut schema = <Text as schemars::JsonSchema>::json_schema(generator);
+                schema.insert(
+                    "description".into(),
+                    $crate::schema::doc_description(concat!($($doc, "\n"),+)).into(),
+                );
+                schema.insert(
+                    "tsType".into(),
+                    concat!("string & { readonly __brand: \"", stringify!($name), "\" }").into(),
+                );
+                schema
+            }
+        }
+    )+};
+}
+
+pub(crate) use branded_free_form_text;
+
 pattern_text! {
     /// Text holding at least one character outside ECMAScript's `\s` set; unlike free-form text it
     /// may hold a NUL.

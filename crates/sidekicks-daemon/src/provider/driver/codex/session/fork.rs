@@ -37,10 +37,11 @@ use crate::provider::driver::codex::thread::view::{
 };
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::contract::{MoveSessionToForkParams, MoveSessionToForkResult};
+use crate::provider::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
 use crate::provider::left_conversations::LeftConversation;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::tool_server_route::ToolServerRoute;
+use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder as _;
 use crate::provider::runtime_binding::store::{RuntimeBindingRebind, RuntimeBindingStore};
 
 const THREAD_FORK_METHOD: &str = "thread/fork";
@@ -395,9 +396,9 @@ async fn rebind(
     bindings
         .rebind(rebind)
         .await
-        .map_err(|error| CodexError::PortFailed {
+        .map_err(|cause| CodexError::PortFailed {
             port: RUNTIME_BINDING_STORE_PORT,
-            cause: Box::new(error),
+            cause,
         })
 }
 

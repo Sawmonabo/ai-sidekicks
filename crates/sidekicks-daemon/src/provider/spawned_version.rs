@@ -66,11 +66,6 @@ pub(crate) struct ProviderVersionHandshakeRequest {
 /// A driver's zero-turn version handshake: starts the request's build as resolved, under a
 /// deadline the driver owns, and answers the version text its own reader took from the reply. It
 /// fails with the driver's error when the build cannot be started or does not answer.
-#[expect(
-    dead_code,
-    reason = "each driver's capability read and session start read the spawned build's version \
-              through it"
-)]
 pub(crate) trait ProviderVersionHandshake:
     AsyncFnOnce(&ProviderVersionHandshakeRequest) -> Result<String, DriverError>
 {
@@ -113,14 +108,6 @@ pub(crate) fn parse_cli_version_report(raw: &str) -> DriverCliVersionReport {
 /// [`DriverError::ExecutableUnresolvable`] naming the command as configured when it is blank, names
 /// no build, or names one the system cannot start, and with [`DriverError::Internal`] when a
 /// blocking task ends before it answers.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "each driver's session start and capability read resolve its command to the \
-                  build they start through it"
-    )
-)]
 pub(crate) async fn resolve_provider_executable(
     command_search: &ProviderCommandSearch,
     provider: &ProviderId,
@@ -206,11 +193,6 @@ pub(crate) fn start_resolved_build(
 /// unparsed, since a version-shaped word in it may name something else, such as the caller's own
 /// client version. Fails with the handshake's error, or [`DriverError::Internal`] when the report
 /// is blank, holds a NUL or passes its storage bounds.
-#[expect(
-    dead_code,
-    reason = "each driver's capability read and session start read the spawned build's version \
-              through it"
-)]
 pub(crate) async fn read_spawned_version(
     request: &ProviderVersionHandshakeRequest,
     handshake: impl ProviderVersionHandshake,
@@ -231,11 +213,6 @@ pub(crate) async fn read_spawned_version(
 
 /// The two binding carriers of one reading, so a binding row never pairs one build's version with
 /// another build's path.
-#[expect(
-    dead_code,
-    reason = "each driver's capability read and session start read the spawned build's version \
-              through it"
-)]
 pub(crate) fn to_binding_version_carriers(
     reading: &SpawnedProviderVersionReading,
 ) -> SpawnedVersionBindingCarriers {

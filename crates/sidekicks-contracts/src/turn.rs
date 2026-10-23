@@ -8,15 +8,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
+use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
-use crate::wire::text::{NonEmptyText, branded_text};
+use crate::wire::text::{NonEmptyText, branded_free_form_text};
 
-branded_text! {
+branded_free_form_text! {
     /// A provider's id of one turn.
-    pub struct ProviderTurnId(1..=usize::MAX);
+    pub struct ProviderTurnId(PROVIDER_WIRE_HANDLE_MAX_LEN);
 }
 
 /// The run whose current turn an `agent.turn.usage.subscribe` or `agent.turn.task.subscribe`

@@ -25,7 +25,7 @@ use crate::provider::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInboundSender,
 };
 use crate::provider::driver::codex::session::slots::CodexSessionSlots;
-use crate::provider::driver::contract::{
+use crate::provider::driver::session_control::{
     ClearSessionGoalParams, DriverGoalResult, SetSessionGoalParams,
 };
 

@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 use rusqlite::Connection;
 use sidekicks_contracts::event::envelope::EventEnvelope;
+use sidekicks_contracts::event::session::{SessionEvent, SessionEventReadError};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::session::event_cursor::{
     EventCursor, EventCursorPositionOutOfRange, START_OF_LOG_POSITION,
@@ -145,6 +146,10 @@ pub(crate) enum EventAppendError {
     /// A tool completion naming patched files carries a body that is not their list.
     #[error(transparent)]
     PatchFiles(#[from] PatchFilesRefusedError),
+    /// The payload, once its body is described, does not read back as its type's, as a body on
+    /// an ending that carries none.
+    #[error("the event's payload with its body described does not read as its type's")]
+    DescribedPayload(#[source] SessionEventReadError),
     /// The writer did not keep the write: a guarded statement refused it
     /// ([`WriteError::Refused`]), SQLite failed it, or the writer was ended or closed.
     #[error("the event's write was not kept")]
@@ -682,6 +687,11 @@ pub(crate) fn compose_rows(
         }
         Some(body) => (Some(envelope.describe_content(body)?), Vec::new()),
     };
+    // The store refuses what a strict read of the row would refuse.
+    if content_payload.is_some() {
+        SessionEvent::from_payload(envelope.event_type(), envelope.payload())
+            .map_err(EventAppendError::DescribedPayload)?;
+    }
     let row = |envelope: UnsequencedEventEnvelope, content_payload| SessionEventRow {
         payload: serde_json::to_string(envelope.payload()).expect("a JSON object serializes"),
         envelope: Arc::new(envelope),

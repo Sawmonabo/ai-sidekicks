@@ -16,7 +16,8 @@ use super::{ProviderSessions, ProviderSessionsDeps};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
-use crate::provider::driver::contract::{DriverResumeResult, MockProviderDriver};
+use crate::provider::driver::contract::MockProviderDriver;
+use crate::provider::driver::session_control::DriverResumeResult;
 use crate::provider::driver::test_registry::registry_of_first_provider;
 use crate::provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, RuntimeBindingStore,

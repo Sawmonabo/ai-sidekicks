@@ -24,7 +24,7 @@ use crate::provider::driver::codex::permission_level::{
     compose_codex_permission_config,
 };
 use crate::provider::driver::codex::session::helper_roles::CodexHelperRole;
-use crate::provider::driver::contract::{SessionToolServer, SubagentPolicy};
+use crate::provider::driver::session_control::{SessionToolServer, SubagentPolicy};
 use crate::provider::port::tool_server_route::ToolServerRoute;
 use crate::provider::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 
@@ -512,7 +512,7 @@ mod tests {
     };
     use crate::provider::driver::codex::permission_level::CodexProfileFolders;
     use crate::provider::driver::codex::vendored_schema::vendored_schema_file;
-    use crate::provider::driver::contract::SubagentPolicy;
+    use crate::provider::driver::session_control::SubagentPolicy;
     use crate::provider::spawn_environment::{
         ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
         build_conversation_command_environment,
