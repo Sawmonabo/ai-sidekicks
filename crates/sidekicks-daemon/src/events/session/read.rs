@@ -26,7 +26,9 @@ use sidekicks_contracts::wire::integer::{MAX_SAFE_SIGNED_INTEGER, SafeInt};
 use sidekicks_contracts::wire::record::RecordKey;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::events::content::codec::{BodyStreamError, StoredBodyPlace, stored_body_place_sql};
+use crate::events::content::codec::{
+    BodyStreamError, StoredBodyPlace, no_decoder_read_failure, stored_body_place_sql,
+};
 use crate::events::content::read::{
     StoredEventContentRow, hydrate_stored_event, joined_content_length,
 };
@@ -612,12 +614,9 @@ where
     ) -> Result<HydratedSessionEvent, SessionLogReadError> {
         let mut content_payload: Option<String> = None;
         for piece in pieces {
-            let text = piece.decode(self.reader).map_err(|error| match error {
-                BodyStreamError::Read(error) => SessionLogReadError::Database(error),
-                damaged @ (BodyStreamError::Damaged(_) | BodyStreamError::Write(_)) => {
-                    malformed_body(&envelope, damaged).into()
-                }
-            })?;
+            let text = piece
+                .decode(self.reader)
+                .map_err(|error| body_read_error(&envelope, error))?;
             content_payload.get_or_insert_default().push_str(&text);
         }
         Ok(hydrate_stored_event(StoredEventContentRow {
@@ -757,6 +756,18 @@ impl StoredEventRow {
             .validate()
             .map_err(|report| malformed(MalformedStoredEventFault::Check(report)))?;
         Ok(envelope)
+    }
+}
+
+// Why `envelope`'s body could not be read: a refused read, or zstd with no memory to decode it, is
+// the database's failure; a body that does not read back as its payload describes is malformed.
+fn body_read_error(envelope: &EventEnvelope, error: BodyStreamError) -> SessionLogReadError {
+    match error {
+        BodyStreamError::Read(error) => SessionLogReadError::Database(error),
+        BodyStreamError::NoDecoder => SessionLogReadError::Database(no_decoder_read_failure()),
+        damaged @ (BodyStreamError::Damaged(_) | BodyStreamError::Write(_)) => {
+            malformed_body(envelope, damaged).into()
+        }
     }
 }
 

@@ -36,7 +36,7 @@ use crate::artifacts::payload_store::{ContentHash, PayloadStore};
 use crate::artifacts::validation::FILE_NAME_MEMBER;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::error_description::describe_error;
-use crate::events::content::codec::BodyStreamError;
+use crate::events::content::codec::{BodyStreamError, no_decoder_read_failure};
 use crate::events::content::read::{
     StoredEventContentRow, hydrate_stored_event, joined_content_length,
 };
@@ -483,6 +483,7 @@ fn write_streamed_line(
             })
             .map_err(|error| match error {
                 BodyStreamError::Read(error) => ExportError::Query(error),
+                BodyStreamError::NoDecoder => ExportError::Query(no_decoder_read_failure()),
                 BodyStreamError::Write(error) => ExportError::Write(error),
                 damaged @ BodyStreamError::Damaged(_) => {
                     ExportError::Log(malformed_body(&event, damaged).into())

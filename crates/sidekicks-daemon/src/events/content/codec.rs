@@ -295,6 +295,18 @@ pub(crate) enum BodyStreamError {
     /// The reader refused a frame's text.
     #[error("a stored body's text could not be written")]
     Write(#[source] io::Error),
+    /// zstd had no memory to make a decoding context; the row is not at fault.
+    #[error("zstd could not make a decoding context")]
+    NoDecoder,
+}
+
+/// The read failure a body zstd had no memory to decode is, as SQLite names running out of
+/// memory, so a caller reads it as a failed read and never as a damaged row.
+pub(crate) fn no_decoder_read_failure() -> rusqlite::Error {
+    rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_NOMEM),
+        Some(BodyStreamError::NoDecoder.to_string()),
+    )
 }
 
 /// Where a stored body sits before it is read: its row and what its payload states, read back by
@@ -381,6 +393,7 @@ impl StoredBodyPlace {
         self.stream(connection, |frame| Ok(each(frame)))
             .map_err(|error| match error {
                 BodyStreamError::Read(error) => error,
+                BodyStreamError::NoDecoder => no_decoder_read_failure(),
                 other @ (BodyStreamError::Damaged(_) | BodyStreamError::Write(_)) => {
                     rusqlite::Error::FromSqlConversionFailure(index, Type::Blob, Box::new(other))
                 }
@@ -409,12 +422,7 @@ fn stream_frames<Stop>(
     stated: u64,
     mut each: impl FnMut(&str) -> io::Result<ControlFlow<Stop>>,
 ) -> Result<ControlFlow<Stop>, BodyStreamError> {
-    let mut context: DCtx<'static> = DCtx::try_create().ok_or_else(|| {
-        BodyDecodeError::Stream(io::Error::new(
-            io::ErrorKind::OutOfMemory,
-            "zstd could not make a decoding context",
-        ))
-    })?;
+    let mut context: DCtx<'static> = DCtx::try_create().ok_or(BodyStreamError::NoDecoder)?;
     let mut header = [0; FRAME_HEADER_MAX_BYTES];
     let mut text = Vec::new();
     let mut decoded: u64 = 0;

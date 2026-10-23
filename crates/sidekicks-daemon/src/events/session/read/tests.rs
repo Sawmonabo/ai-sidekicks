@@ -7,8 +7,9 @@ use sidekicks_contracts::event::envelope::{
 };
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use super::{MalformedStoredEventFault, SessionEventReads, SessionLogReadError};
+use super::{MalformedStoredEventFault, SessionEventReads, SessionLogReadError, body_read_error};
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
+use crate::events::content::codec::{BodyDecodeError, BodyStreamError};
 use crate::transcript::test_log::TranscriptTestLog;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -169,4 +170,35 @@ fn a_hydrated_page_stays_within_its_text() {
         .read_page_hydrated(&log.session_id, long)
         .expect("the last page reads");
     assert_eq!(sequences(&page), [last]);
+}
+
+// A body zstd had no memory to decode is a failed read, so a projection rebuild never marks a
+// healthy session unreadable over it; a body that does not read back as stated is the malformed
+// row it is. Killed by reading the decoder's failure as a damaged row.
+#[rstest]
+#[case::no_decoder(BodyStreamError::NoDecoder, true)]
+#[case::damaged(BodyStreamError::Damaged(BodyDecodeError::NoLength), false)]
+fn a_body_that_cannot_be_read_is_a_failed_read_or_a_malformed_row(
+    #[case] error: BodyStreamError,
+    #[case] is_failed_read: bool,
+) {
+    let log = TranscriptTestLog::new();
+    log.reply("m1", None, "a reply");
+    let reader = log.reader();
+    let page = SessionEventReads::new(&reader, |_: &SessionId| None)
+        .read_page_hydrated(&log.session_id, -1)
+        .expect("the page reads");
+
+    let read_error = body_read_error(&page.events[0].event, error);
+
+    assert_eq!(
+        matches!(read_error, SessionLogReadError::Database(_)),
+        is_failed_read,
+        "{read_error:?}"
+    );
+    assert_eq!(
+        matches!(read_error, SessionLogReadError::Malformed(_)),
+        !is_failed_read,
+        "{read_error:?}"
+    );
 }
