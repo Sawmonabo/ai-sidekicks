@@ -251,8 +251,8 @@ impl ProviderSessions {
     }
 
     /// The posture the session's process runs at, which each of its runs is requested at: the open
-    /// one's, else the one it opens at. Fails with [`ProviderSessionError::NoPosture`] for a session
-    /// whose lead runs at none, and as the opening's composition fails.
+    /// one's, else the one it opens at. Fails with [`ProviderSessionError::NoPosture`] for a
+    /// session whose lead runs at none, and as the opening's composition fails.
     pub(crate) async fn read_execution_posture(
         &self,
         session_id: SessionId,

@@ -19,9 +19,9 @@ use crate::queue::store::QueueItemReader;
 impl QueueAdmission {
     /// The skills `picks` names as the session's provider loads them: none asked, none read. A
     /// start of the session's queued run is waited for first, so the read never takes a second
-    /// place behind it, and a read that would start the provider's process waits at the gate itself
-    /// and leaves it once the read settles. Refuses `provider.timeout` when either wait outlives the
-    /// delivery timeout, and as the driver refuses a pick.
+    /// place behind it, and a read that would start the provider's process waits at the gate
+    /// itself and leaves it once the read settles. Refuses `provider.timeout` when either wait
+    /// outlives the delivery timeout, and as the driver refuses a pick.
     pub(crate) async fn resolve_skill_picks(
         &self,
         session_id: SessionId,

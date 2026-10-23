@@ -43,8 +43,8 @@ pub(crate) fn provider_capability_unsupported(
 }
 
 /// The refusal for a call the provider itself refused for want of `flag`'s capability, beyond what
-/// the static flag shows: [`provider_capability_unsupported`]'s detail with the provider's own words
-/// as `providerFailureDetail`.
+/// the static flag shows: [`provider_capability_unsupported`]'s detail with the provider's own
+/// words as `providerFailureDetail`.
 pub(crate) fn provider_capability_refused(
     provider: &ProviderId,
     flag: DriverCapabilityFlag,

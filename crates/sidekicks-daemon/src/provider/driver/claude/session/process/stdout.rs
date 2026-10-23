@@ -77,7 +77,7 @@ impl ClaudeOutputReader {
                 Err(AnyDelimiterCodecError::MaxChunkLengthExceeded) => {
                     emit_driver_diagnostic(&self.compose_record(
                         DriverDiagnosticKind::ProviderFrameOversized,
-                        "an output line passed the frame ceiling, so the process was ended",
+                        "an output line passed the frame ceiling, so the process is asked to stop",
                         Some(CLAUDE_OUTPUT_LINE_MAX_BYTES),
                     ));
                     if let Some(ends) = self.ends.upgrade() {
@@ -92,7 +92,7 @@ impl ClaudeOutputReader {
                         provider_session_id = self.provider_session_id.as_str(),
                         error = &error as &(dyn std::error::Error + 'static),
                         "the Claude Code process's output could not be read further, so the \
-                         process was ended"
+                         process is asked to stop"
                     );
                     if let Some(ends) = self.ends.upgrade() {
                         ends.ask(ChildEnd::Stop);
