@@ -79,16 +79,22 @@ pub(crate) fn read_until_marker(
 
 /// Ends the command `terminal` started and its group as a test's teardown, reading what it still
 /// prints until its side closes, since a process's exit waits for its terminal's output to drain.
+/// A group already gone is left as it is, so the test's own failure is the one reported.
 #[cfg(test)]
 pub(crate) fn end_inner_terminal(terminal: InnerTerminal) {
     use std::io::{ErrorKind, Read};
     use std::time::{Duration, Instant};
 
+    use nix::errno::Errno;
     use nix::sys::signal::{Signal, killpg};
     use nix::unistd::Pid;
 
     let leader = i32::try_from(terminal.pty.child().id()).expect("a process id");
-    killpg(Pid::from_raw(leader), Signal::SIGKILL).expect("the command's group is killed");
+    match killpg(Pid::from_raw(leader), Signal::SIGKILL) {
+        Ok(()) => {}
+        Err(Errno::ESRCH) => return,
+        Err(errno) => panic!("the command's group is not killed: {errno}"),
+    }
     let started = Instant::now();
     let mut master = terminal.pty.file();
     let mut buffer = [0_u8; 4_096];
