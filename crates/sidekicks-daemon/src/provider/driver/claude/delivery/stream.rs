@@ -57,7 +57,7 @@ use crate::provider::driver::claude::session::arrivals::{
 };
 use crate::provider::driver::claude::spent_retries_signal::classify_claude_spent_retries;
 use crate::provider::driver::diagnostics::{
-    DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics, emit_driver_diagnostic,
+    DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::usage_sink::UsageSink;
@@ -112,7 +112,7 @@ pub(crate) struct ClaudeSessionStream {
     arrivals: ClaudeArrivalSender,
     routes: Arc<ClaudeRunRoutes>,
     prompts: Arc<Mutex<ClaudeSentPrompts>>,
-    // The kinds outside the census already logged on this process's connection.
+    // The kinds of the frames no daemon run held, already logged on this process's connection.
     diagnostics: Mutex<OnceReportedDiagnostics>,
     // How many turns the run engine could not number have ended.
     unnumbered_turns: AtomicU64,
@@ -707,8 +707,10 @@ fn is_tool_call(row: &ClaudeMessageRow) -> bool {
     )
 }
 
+// Reports the first frame of each kind no daemon run holds; a kind the build sends every turn
+// would otherwise log on every frame.
 fn record_unheld(session: &ClaudeSessionStream, frame_kind: &str) {
-    emit_driver_diagnostic(&DriverDiagnosticRecord {
+    lock(&session.diagnostics).report(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
         provider_account_id: session.provider_account_id.clone(),
         kind: DriverDiagnosticKind::UnmappedWireKind,

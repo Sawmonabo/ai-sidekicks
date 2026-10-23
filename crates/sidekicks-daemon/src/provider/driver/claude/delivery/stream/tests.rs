@@ -384,10 +384,10 @@ async fn a_rate_limit_event_hands_the_accounts_quota_windows_to_the_usage_record
     );
 }
 
-// Killed by a router that reads an unlisted family as connection-scoped, and by a reader that
-// writes a quarantined frame onto the run holding the turn.
+// Killed by a router that reads an unlisted family as connection-scoped, by a reader that writes
+// a quarantined frame onto the run holding the turn, and by reporting every frame of the family.
 #[tokio::test(start_paused = true)]
-async fn a_frame_of_an_unlisted_family_is_quarantined_and_adds_nothing() {
+async fn an_unlisted_frame_family_is_quarantined_once_and_adds_nothing() {
     let session = ScriptedSession::new().await;
     session.hold_lead_turn("lead");
     let unlisted = json!({
@@ -397,7 +397,10 @@ async fn a_frame_of_an_unlisted_family_is_quarantined_and_adds_nothing() {
     });
 
     let recorded = RecordedEvents::default();
-    recorded.record_during(|| session.frame(&unlisted));
+    recorded.record_during(|| {
+        session.frame(&unlisted);
+        session.frame(&unlisted);
+    });
     settle().await;
 
     assert_eq!(

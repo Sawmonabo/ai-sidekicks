@@ -36,7 +36,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use tokio::time::Instant;
 
 use crate::provider::driver::diagnostics::{
-    DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
+    DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics, emit_driver_diagnostic,
 };
 
 /// The capability a thread-scoped frame carries, which selects its carve-out: `Usage` and
@@ -218,6 +218,8 @@ pub(crate) struct ThreadFrameRouter<Frame> {
     pending_holds: VecDeque<PendingHold<Frame>>,
     /// The quarantine, oldest first.
     quarantined_frames: VecDeque<QuarantinedFrame>,
+    /// The families quarantined so far, each reported once.
+    quarantine_reports: OnceReportedDiagnostics,
 }
 
 impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
@@ -231,6 +233,7 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
             child_attributions_by_thread_id: HashMap::new(),
             pending_holds: VecDeque::new(),
             quarantined_frames: VecDeque::new(),
+            quarantine_reports: OnceReportedDiagnostics::default(),
         }
     }
 
@@ -442,13 +445,16 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
         taken.into_iter().map(|held| held.frame).collect()
     }
 
+    // Quarantines `frame`, reporting the first of its family; one the build sends every turn
+    // would otherwise log on every frame.
     fn quarantine(&mut self, frame: &Frame, reason: &str) -> ThreadFrameRoute {
-        self.emit(
+        let record = self.record(
             DriverDiagnosticKind::ThreadFrameQuarantined,
             Some(frame.raw_wire_type()),
             reason,
             [("threadId", Value::from(frame.thread_id()))],
         );
+        self.quarantine_reports.report(&record);
         self.quarantined_frames.push_back(QuarantinedFrame {
             raw_wire_type: frame.raw_wire_type().to_owned(),
             thread_id: frame.thread_id().map(str::to_owned),
@@ -480,7 +486,17 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
         disposition_reason: &str,
         details: [(&str, Value); FIELDS],
     ) {
-        emit_driver_diagnostic(&DriverDiagnosticRecord {
+        emit_driver_diagnostic(&self.record(kind, raw_wire_type, disposition_reason, details));
+    }
+
+    fn record<const FIELDS: usize>(
+        &self,
+        kind: DriverDiagnosticKind,
+        raw_wire_type: Option<&str>,
+        disposition_reason: &str,
+        details: [(&str, Value); FIELDS],
+    ) -> DriverDiagnosticRecord {
+        DriverDiagnosticRecord {
             provider: self.provider.clone(),
             provider_account_id: None,
             kind,
@@ -490,7 +506,7 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
                 .into_iter()
                 .map(|(name, value)| (name.to_owned(), value))
                 .collect::<Map<String, Value>>(),
-        });
+        }
     }
 }
 
