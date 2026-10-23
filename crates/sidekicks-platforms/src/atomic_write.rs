@@ -52,16 +52,24 @@ pub fn create_file_atomically(
 }
 
 /// Removes every temporary file a write to `target` left beside it, as a process ended mid-write
-/// leaves one. Blocks; fails when the folder does not list or a removal fails.
-pub fn remove_atomic_write_leftovers(target: &Path) -> io::Result<()> {
+/// leaves one, running on past a removal that fails. Blocks; answers the folder's listing failure
+/// or each removal's, none once every leftover is gone.
+pub fn remove_atomic_write_leftovers(target: &Path) -> Vec<io::Error> {
     let (folder, prefix) = temporary_place(target);
     let entries = match fs::read_dir(folder) {
         Ok(entries) => entries,
-        Err(missing) if missing.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(failure) => return Err(failure),
+        Err(missing) if missing.kind() == io::ErrorKind::NotFound => return Vec::new(),
+        Err(failure) => return vec![failure],
     };
+    let mut failures = Vec::new();
     for entry in entries {
-        let entry = entry?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(failure) => {
+                failures.push(failure);
+                break;
+            }
+        };
         let name = entry.file_name();
         let is_leftover = name.to_str().is_some_and(|name| {
             name.strip_prefix(prefix.as_str())
@@ -71,10 +79,10 @@ pub fn remove_atomic_write_leftovers(target: &Path) -> io::Result<()> {
             && let Err(failure) = fs::remove_file(entry.path())
             && failure.kind() != io::ErrorKind::NotFound
         {
-            return Err(failure);
+            failures.push(failure);
         }
     }
-    Ok(())
+    failures
 }
 
 // The suffix of a temporary file a write makes.
@@ -245,7 +253,9 @@ mod tests {
             fs::write(scratch.path().join(name), b"bytes").expect("written");
         }
 
-        remove_atomic_write_leftovers(&target).expect("the leftovers are removed");
+        let failures = remove_atomic_write_leftovers(&target);
+
+        assert!(failures.is_empty(), "{failures:?}");
 
         let mut entries: Vec<_> = fs::read_dir(scratch.path())
             .expect("the scratch folder lists")

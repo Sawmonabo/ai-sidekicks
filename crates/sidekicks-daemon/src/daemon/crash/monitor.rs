@@ -2,8 +2,9 @@
 //! the service when it crashes, since a crashed process cannot write its own. The service connects
 //! to it at its start and attaches the crash handler, which asks the monitor for the dump on a
 //! crash; a panic first sends its message and place, which the monitor keeps beside the dump. A
-//! dump is written under a temporary name and renamed once whole, so the report builder never
-//! reads one half written. The monitor ends once it has written a dump or its service has gone.
+//! dump is written under a temporary name, held locked until it is renamed once whole, so the
+//! report builder never reads one half written nor takes it for a leftover. The monitor ends once
+//! it has written a dump or its service has gone.
 
 use std::ffi::OsString;
 use std::fs::File;
@@ -313,6 +314,16 @@ impl ServerHandler for DumpWriter {
             mint_uuid_v7()
         ));
         let file = sidekicks_platforms::create_new_file(&path, CRASH_FILE_MODE)?;
+        // Held until the dump is finished and the file closed after `on_minidump_created`, so a
+        // crash pass that meets the file meanwhile leaves it.
+        if let Err(failure) = file.lock() {
+            drop(file);
+            let removal_failures = remove_leftover(&path).into_iter().collect();
+            return Err(io::Error::new(
+                failure.kind(),
+                CleanupFailures::new(failure, removal_failures, "the crash dump's lock"),
+            ));
+        }
         *self.writing.lock().unwrap_or_else(PoisonError::into_inner) = Some(path.clone());
         Ok((file, path))
     }

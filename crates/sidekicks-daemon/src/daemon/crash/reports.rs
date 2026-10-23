@@ -6,13 +6,14 @@
 //! names no folder, no secret and no id anyone could confirm. A dump still being written, the
 //! monitor's or Crashpad's in its `new` folder, is passed over. A dump that does not build is named
 //! in the service log and deleted. Every pass also deletes what a write cut short left: a partial
-//! dump or a panic record without its dump in the dumps folder, and a temporary file of the key; it
-//! takes each for a leftover, since the monitor exits after its one dump. While
-//! `Keep crash reports` is off, no report is built and every dump, report and panic record goes.
-//! Each pass is metered against its processor budget.
+//! dump no monitor holds locked while writing it, a panic record with neither its dump nor such a
+//! partial dump in the dumps folder, and a temporary file of the key. A leftover that cannot be
+//! removed is named beside the pass's result and the pass runs on. While `Keep crash reports` is
+//! off, no report is built and every dump, report and panic record goes. Each pass is metered
+//! against its processor budget.
 
 use std::error::Error;
-use std::fs;
+use std::fs::{self, File, TryLockError};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
@@ -39,6 +40,7 @@ use sidekicks_platforms::{
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
+use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::crash::monitor::{
     CRASH_DUMPS_FOLDER_NAME, DUMP_EXTENSION, DUMP_IN_PROGRESS_SUFFIX, PANIC_RECORD_SUFFIX,
     PanicRecord, panic_record_path,
@@ -103,7 +105,7 @@ pub(crate) struct CrashReportDeps {
 }
 
 /// What one pass did.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default)]
 pub(crate) struct CrashReportPass {
     /// The reports built.
     pub(crate) built: usize,
@@ -111,6 +113,9 @@ pub(crate) struct CrashReportPass {
     pub(crate) failed: usize,
     /// The bytes of the dumps built or failed.
     pub(crate) dump_bytes: u64,
+    /// What the sweep of leftovers could not remove, the first failure carrying the rest; the pass
+    /// ran on past them. `None` once every leftover is gone.
+    pub(crate) leftover_failures: Option<CleanupFailures<io::Error>>,
 }
 
 /// Why a dump did not build.
@@ -159,6 +164,12 @@ async fn run_crash_report_pass(
     meter: &ProcessorMeter,
 ) -> MeteredJobOutcome {
     let pass = build_crash_reports(deps, stop, meter).await?;
+    if let Some(failures) = &pass.leftover_failures {
+        tracing::warn!(
+            error = failures as &(dyn Error + 'static),
+            "what failed crash dumps left could not all be removed"
+        );
+    }
     if pass.built == 0 && pass.failed == 0 {
         return Ok(None);
     }
@@ -172,7 +183,7 @@ async fn run_crash_report_pass(
 
 /// One pass over the crash dumps folder, as the module's doc says, its blocking work charged to
 /// `meter`; checks `stop` between dumps. Fails when the settings, a folder or the key cannot be
-/// read or written.
+/// read or written; a leftover that cannot be removed is answered in the pass instead.
 pub(crate) async fn build_crash_reports(
     deps: &CrashReportDeps,
     stop: &CancellationToken,
@@ -183,14 +194,24 @@ pub(crate) async fn build_crash_reports(
     let reports_folder = deps.data_folder.join(CRASH_REPORTS_FOLDER_NAME);
     let listed_folder = dumps_folder.clone();
     let key_path = deps.data_folder.join(REPORT_KEY_FILE_NAME);
-    let dumps = meter
+    let (dumps, leftover_failures) = meter
         .run_blocking(move || {
-            remove_monitor_leftovers(&listed_folder)?;
-            remove_atomic_write_leftovers(&key_path)?;
-            list_finished_dumps(&listed_folder)
+            let mut failures = remove_monitor_leftovers(&listed_folder);
+            failures.extend(remove_atomic_write_leftovers(&key_path));
+            list_finished_dumps(&listed_folder).map(|dumps| (dumps, failures))
         })
         .await??;
-    let mut pass = CrashReportPass::default();
+    let mut leftover_failures = leftover_failures.into_iter();
+    let mut pass = CrashReportPass {
+        leftover_failures: leftover_failures.next().map(|first| {
+            CleanupFailures::new(
+                first,
+                leftover_failures.collect(),
+                "the crash leftovers' sweep",
+            )
+        }),
+        ..CrashReportPass::default()
+    };
     if !is_kept {
         let reports = reports_folder.clone();
         meter
@@ -315,28 +336,66 @@ fn list_finished_dumps(folder: &Path) -> io::Result<Vec<(PathBuf, u64)>> {
     Ok(dumps)
 }
 
-// Deletes what a failed write of the monitor left in the dumps folder `folder`: each partial dump,
-// and each panic record whose dump is not there.
-fn remove_monitor_leftovers(folder: &Path) -> io::Result<()> {
-    let Some(entries) = fs::read_dir(folder).none_if_missing()? else {
-        return Ok(());
+// Deletes what a failed write of the monitor left in the dumps folder `folder`: each partial dump
+// no monitor holds, and each panic record whose dump is not there. Runs on past a check or a
+// removal that fails, answering each failure.
+fn remove_monitor_leftovers(folder: &Path) -> Vec<io::Error> {
+    let entries = match fs::read_dir(folder).none_if_missing() {
+        Ok(Some(entries)) => entries,
+        Ok(None) => return Vec::new(),
+        Err(failure) => return vec![failure],
     };
+    let mut failures = Vec::new();
     for entry in entries {
-        let path = entry?.path();
+        let path = match entry {
+            Ok(entry) => entry.path(),
+            Err(failure) => {
+                failures.push(failure);
+                break;
+            }
+        };
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
         let is_leftover = match name.strip_suffix(PANIC_RECORD_SUFFIX) {
-            Some(stem) => !folder
-                .join(format!("{stem}.{DUMP_EXTENSION}"))
-                .try_exists()?,
-            None => name.ends_with(DUMP_IN_PROGRESS_SUFFIX),
+            Some(stem) => is_record_orphaned(folder, stem),
+            None if name.ends_with(DUMP_IN_PROGRESS_SUFFIX) => is_held(&path).map(|held| !held),
+            None => Ok(false),
         };
-        if is_leftover {
-            fs::remove_file(&path).none_if_missing()?;
+        let removed = is_leftover.and_then(|is_leftover| {
+            if is_leftover {
+                fs::remove_file(&path).none_if_missing().map(drop)
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(failure) = removed {
+            failures.push(failure);
         }
     }
-    Ok(())
+    failures
+}
+
+// Whether the panic record of the dump `<stem>.dmp` has lost its dump: no monitor holds the dump
+// while writing it, and it is not finished either. The partial dump is looked at first, since a
+// monitor renames it to the finished name while it holds it.
+fn is_record_orphaned(folder: &Path, stem: &str) -> io::Result<bool> {
+    let dump = folder.join(format!("{stem}.{DUMP_EXTENSION}"));
+    let mut partial = dump.clone().into_os_string();
+    partial.push(DUMP_IN_PROGRESS_SUFFIX);
+    Ok(!is_held(Path::new(&partial))? && !dump.try_exists()?)
+}
+
+// Whether a monitor holds the partial dump at `path` locked while it writes it; one gone is not.
+fn is_held(path: &Path) -> io::Result<bool> {
+    let Some(file) = File::open(path).none_if_missing()? else {
+        return Ok(false);
+    };
+    match file.try_lock() {
+        Ok(()) => Ok(false),
+        Err(TryLockError::WouldBlock) => Ok(true),
+        Err(TryLockError::Error(failure)) => Err(failure),
+    }
 }
 
 // Deletes the dump at `dump` and the panic record beside it.
@@ -541,307 +600,4 @@ fn platform_name(os: Os) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::fs;
-    use std::path::{Path, PathBuf};
-    use std::process::Command;
-    use std::sync::Arc;
-
-    use rstest::rstest;
-    use sidekicks_contracts::machine::settings::MachineSettingsChange;
-    use tokio_util::sync::CancellationToken;
-
-    use super::{
-        CrashReportDeps, REPORT_KEY_FILE_NAME, REPORT_KEY_LENGTH, build_crash_reports, make_key,
-        read_crash_reports,
-    };
-    use crate::daemon::crash::monitor::{
-        CRASH_DUMPS_FOLDER_NAME, DUMP_EXTENSION, DUMP_IN_PROGRESS_SUFFIX, PANIC_RECORD_SUFFIX,
-        attach_crash_handler, connect_crash_monitor, crash_monitor_socket_path,
-        serve_crash_monitor,
-    };
-    use crate::daemon::machine::settings::file::MachineSettingsFile;
-    use crate::daemon::panic_hook::{install_panic_hook, send_panics_to_monitor};
-    use crate::daemon::scheduler::budget::ProcessorMeter;
-    use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
-
-    // The child's crash, its monitor's socket and its data folder, passed to the child.
-    const CHILD_CRASH: &str = "SIDEKICKS_TEST_CRASH";
-    const CHILD_SOCKET: &str = "SIDEKICKS_TEST_CRASH_SOCKET";
-    const CHILD_DATA_FOLDER: &str = "SIDEKICKS_TEST_CRASH_DATA_FOLDER";
-
-    // A secret the child holds in memory, so its dump carries it, and the session id, folder and
-    // credentials its panic names.
-    const PLANTED_TOKEN: &str = "planted-secret-held-in-the-crashing-stack";
-    const SESSION_ID: &str = "0199f3a1-7c2e-7b44-9a51-3f0e6d2c8b17";
-    const PRIVATE_FOLDER: &str = "/Users/someone/private project/src";
-    const PLANTED_API_KEY: &str = "sk-plantedkey0123456789";
-    const PLANTED_BEARER_TOKEN: &str = "x.y.z";
-
-    // Runs as the crashing child: connects to the monitor, attaches the crash handler and crashes
-    // as asked, a panic through the service's own hook or a bad read.
-    #[expect(
-        unsafe_code,
-        reason = "the child reads a bad address to crash on purpose"
-    )]
-    fn crash_as_the_child(crash: &str) -> ! {
-        let socket = PathBuf::from(std::env::var_os(CHILD_SOCKET).expect("the socket is passed"));
-        let data_folder =
-            PathBuf::from(std::env::var_os(CHILD_DATA_FOLDER).expect("the folder is passed"));
-        // On the crashing thread's stack, which the dump holds.
-        let mut held = [0_u8; PLANTED_TOKEN.len()];
-        held.copy_from_slice(PLANTED_TOKEN.as_bytes());
-        std::hint::black_box(&mut held);
-        let client = Arc::new(connect_crash_monitor(&socket).expect("the monitor answers"));
-        let _handler = attach_crash_handler(Arc::clone(&client)).expect("the handler attaches");
-        if crash == "panic" {
-            install_panic_hook(&data_folder, None);
-            send_panics_to_monitor(client);
-            panic!(
-                "session {SESSION_ID} failed reading {PRIVATE_FOLDER}/main.rs:12:5 with key \
-                 {PLANTED_API_KEY} and Authorization: Bearer {PLANTED_BEARER_TOKEN} ({})",
-                std::hint::black_box(&held).len()
-            );
-        }
-        // SAFETY: none holds; the read of a bad address crashes the child, which is the point.
-        let crashed = unsafe { std::ptr::without_provenance::<u64>(8).read_volatile() };
-        unreachable!(
-            "the bad read crashed the child before it read {crashed} past {}",
-            std::hint::black_box(&held).len()
-        );
-    }
-
-    // Serves a monitor and runs this test's binary as a child that crashes as `crash`, then waits
-    // for the monitor to write its dump.
-    fn crash_a_child(crash: &str, data_folder: &Path) {
-        // A folder per child: the in-process monitor's port name lives as long as this process.
-        let run_folder = data_folder.join(crash);
-        fs::create_dir_all(&run_folder).expect("the run folder is made");
-        let socket = crash_monitor_socket_path(&run_folder, std::process::id());
-        let dumps = data_folder.join(CRASH_DUMPS_FOLDER_NAME);
-        let monitor_socket = socket.clone();
-        let monitor = std::thread::spawn(move || serve_crash_monitor(&monitor_socket, &dumps));
-        let test_path = module_path!()
-            .split_once("::")
-            .map(|(_crate, path)| path)
-            .expect("the module path names its crate");
-        let status = Command::new(std::env::current_exe().expect("the test knows its binary"))
-            .args([
-                "--exact",
-                &format!("{test_path}::crashes_become_stripped_reports_and_none_while_off"),
-                "--nocapture",
-            ])
-            .env(CHILD_CRASH, crash)
-            .env(CHILD_SOCKET, &socket)
-            .env(CHILD_DATA_FOLDER, data_folder)
-            .status()
-            .expect("the child runs");
-        assert!(!status.success(), "the child crashed");
-        monitor
-            .join()
-            .expect("the monitor's thread ends")
-            .expect("the monitor served its child");
-    }
-
-    // A panic and a bad read in a child each leave one report of module file names and offsets;
-    // the panic's report names its file and not its folder, holds the session id only as its
-    // keyed hash and holds neither credential its message named, nor does either of the panic's
-    // raw records, the hook's and the one the monitor writes beside the dump;
-    // no report holds the secret the child's dump does; each dump is deleted once built. While
-    // `Keep crash reports` is off, no report is built and every dump, report and panic record
-    // goes. Killed by a path kept whole or cut at a space, by an unkeyed or raw id, by the
-    // credential scrub dropped from the report or either raw record, by a dump left behind, by the
-    // monitor not writing, by the switch not read, and by the raw record kept while it is off.
-    #[tokio::test]
-    async fn crashes_become_stripped_reports_and_none_while_off() {
-        if let Ok(crash) = std::env::var(CHILD_CRASH) {
-            crash_as_the_child(&crash);
-        }
-        let scratch = tempfile::tempdir().expect("a scratch folder");
-        let data_folder = scratch.path().join("data");
-        fs::create_dir_all(&data_folder).expect("the data folder is made");
-        crash_a_child("panic", &data_folder);
-        crash_a_child("bad-read", &data_folder);
-        let dumps = data_folder.join(CRASH_DUMPS_FOLDER_NAME);
-        let dump_bytes: Vec<u8> = fs::read_dir(&dumps)
-            .expect("the dumps list")
-            .flat_map(|entry| fs::read(entry.expect("an entry").path()).unwrap_or_default())
-            .collect();
-        assert!(
-            dump_bytes
-                .windows(PLANTED_TOKEN.len())
-                .any(|window| window == PLANTED_TOKEN.as_bytes()),
-            "a dump holds the planted secret"
-        );
-        let monitor_records: Vec<String> = fs::read_dir(&dumps)
-            .expect("the dumps list")
-            .map(|entry| entry.expect("an entry").path())
-            .filter(|path| path.to_string_lossy().ends_with(PANIC_RECORD_SUFFIX))
-            .map(|path| fs::read_to_string(path).expect("the monitor's record reads"))
-            .collect();
-        assert_eq!(
-            monitor_records.len(),
-            1,
-            "the monitor wrote the panic's record"
-        );
-        assert!(
-            monitor_records[0].contains(SESSION_ID),
-            "the monitor's record is the unstripped one"
-        );
-        assert!(!monitor_records[0].contains(PLANTED_API_KEY));
-        assert!(!monitor_records[0].contains(PLANTED_BEARER_TOKEN));
-        let settings = Arc::new(MachineSettingsFile::new(
-            data_folder.join("machine-settings.json"),
-        ));
-        let deps = CrashReportDeps {
-            data_folder: data_folder.clone(),
-            settings: Arc::clone(&settings),
-            app_version: "0.1.0".to_owned(),
-            service_version: "0.1.0".to_owned(),
-        };
-        let stop = CancellationToken::new();
-        let meter = ProcessorMeter::default();
-
-        let pass = build_crash_reports(&deps, &stop, &meter)
-            .await
-            .expect("the pass runs");
-
-        assert_eq!((pass.built, pass.failed), (2, 0));
-        assert!(pass.dump_bytes > 0);
-        assert_eq!(fs::read_dir(&dumps).expect("the dumps list").count(), 0);
-        let reports = read_crash_reports(&data_folder).expect("the reports read");
-        assert_eq!(reports.len(), 2);
-        let report_text = serde_json::to_string(&reports).expect("the reports serialize");
-        assert!(!report_text.contains(PLANTED_TOKEN));
-        assert!(!report_text.contains("/Users/someone"));
-        assert!(!report_text.contains("project"));
-        assert!(!report_text.contains(SESSION_ID));
-        assert!(!report_text.contains(PLANTED_API_KEY));
-        assert!(!report_text.contains(PLANTED_BEARER_TOKEN));
-        let raw_records = panic_records(&data_folder);
-        assert_eq!(raw_records.len(), 1, "the panic's hook wrote its record");
-        let raw_record = fs::read_to_string(&raw_records[0]).expect("the record reads");
-        assert!(
-            raw_record.contains(SESSION_ID),
-            "the raw record is the unstripped one"
-        );
-        assert!(!raw_record.contains(PLANTED_API_KEY));
-        assert!(!raw_record.contains(PLANTED_BEARER_TOKEN));
-        for report in &reports {
-            assert!(!report.stack.as_ref().is_empty(), "each report has a stack");
-        }
-        let panic = reports
-            .iter()
-            .find_map(|report| report.panic.as_ref())
-            .expect("the panic's report carries it");
-        let key = fs::read(data_folder.join(REPORT_KEY_FILE_NAME)).expect("the key reads");
-        let key: [u8; 32] = key.try_into().expect("the key is 32 bytes");
-        let hashed = blake3::keyed_hash(&key, SESSION_ID.as_bytes()).to_hex();
-        assert!(
-            panic
-                .message
-                .as_ref()
-                .contains(&format!("id-{}", &hashed[..32]))
-        );
-        assert!(panic.message.as_ref().contains("main.rs:12:5"));
-        assert!(panic.location.as_ref().starts_with("reports.rs:"));
-        assert_eq!(
-            reports
-                .iter()
-                .filter(|report| report.panic.is_some())
-                .count(),
-            1
-        );
-
-        settings
-            .update(MachineSettingsChange::KeepCrashReports(false))
-            .await
-            .expect("the switch is turned off");
-        fs::write(dumps.join("late.dmp"), b"a dump").expect("written");
-        let pass = build_crash_reports(&deps, &stop, &meter)
-            .await
-            .expect("the pass runs");
-
-        assert_eq!((pass.built, pass.failed), (0, 0));
-        assert!(!dumps.join("late.dmp").exists());
-        assert_eq!(panic_records(&data_folder), Vec::<PathBuf>::new());
-        assert_eq!(
-            read_crash_reports(&data_folder).expect("the reports read"),
-            Vec::new()
-        );
-    }
-
-    // What a failed write of the monitor left, a partial dump and a panic record whose dump is not
-    // there, and a key's temporary file a process ended mid-write left, are deleted by a pass
-    // whether reports are kept or not. Killed by a pass that reads only finished dumps, by a key's
-    // temporary file kept, and by a sweep left out of either branch.
-    #[rstest]
-    #[case::reports_kept(true)]
-    #[case::reports_off(false)]
-    #[tokio::test]
-    async fn a_pass_deletes_what_a_failed_dump_left(#[case] is_kept: bool) {
-        let scratch = tempfile::tempdir().expect("a scratch folder");
-        let data_folder = scratch.path().to_path_buf();
-        let dumps = data_folder.join(CRASH_DUMPS_FOLDER_NAME);
-        fs::create_dir_all(&dumps).expect("the dumps folder is made");
-        let partial = format!("left.{DUMP_EXTENSION}{DUMP_IN_PROGRESS_SUFFIX}");
-        fs::write(dumps.join(partial), b"part of a dump").expect("written");
-        fs::write(dumps.join(format!("orphan{PANIC_RECORD_SUFFIX}")), b"{}").expect("written");
-        let key_leftover = data_folder.join(format!("{REPORT_KEY_FILE_NAME}.a1b2c3.tmp"));
-        fs::write(&key_leftover, b"part of a key").expect("written");
-        let settings = Arc::new(MachineSettingsFile::new(
-            data_folder.join("machine-settings.json"),
-        ));
-        settings
-            .update(MachineSettingsChange::KeepCrashReports(is_kept))
-            .await
-            .expect("the switch is set");
-        let deps = CrashReportDeps {
-            data_folder,
-            settings,
-            app_version: "0.1.0".to_owned(),
-            service_version: "0.1.0".to_owned(),
-        };
-
-        build_crash_reports(&deps, &CancellationToken::new(), &ProcessorMeter::default())
-            .await
-            .expect("the pass runs");
-
-        let left: Vec<_> = fs::read_dir(&dumps)
-            .expect("the dumps list")
-            .map(|entry| entry.expect("an entry").file_name())
-            .collect();
-        assert_eq!(left, Vec::<std::ffi::OsString>::new());
-        assert!(!key_leftover.exists());
-    }
-
-    // A key another pass made first stands, and the pass answers it in place of its own, leaving
-    // no temporary file. Killed by replacing a key that stands, and by answering the pass's own.
-    #[test]
-    fn a_key_another_pass_made_first_stands() {
-        let data_folder = tempfile::tempdir().expect("the test makes a temporary folder");
-        let key_path = data_folder.path().join(REPORT_KEY_FILE_NAME);
-        let standing = [1; REPORT_KEY_LENGTH];
-        fs::write(&key_path, standing).expect("the standing key is written");
-
-        let made = make_key(data_folder.path(), [2; REPORT_KEY_LENGTH]).expect("the key reads");
-
-        assert_eq!(made, standing);
-        let names: Vec<_> = fs::read_dir(data_folder.path())
-            .expect("the data folder lists")
-            .map(|entry| entry.expect("an entry").file_name())
-            .collect();
-        assert_eq!(names, [REPORT_KEY_FILE_NAME]);
-        assert_eq!(fs::read(&key_path).expect("the key reads"), standing);
-    }
-
-    // The panic records the hook wrote into the crash reports folder.
-    fn panic_records(data_folder: &Path) -> Vec<PathBuf> {
-        let folder = data_folder.join(CRASH_REPORTS_FOLDER_NAME);
-        fs::read_dir(folder)
-            .expect("the reports folder lists")
-            .map(|entry| entry.expect("an entry").path())
-            .filter(|path| path.extension().is_some_and(|extension| extension == "txt"))
-            .collect()
-    }
-}
+mod tests;
