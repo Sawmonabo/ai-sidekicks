@@ -1,10 +1,13 @@
 use jiff::Timestamp;
 use rstest::rstest;
 use serde_json::{Value, json};
+use sidekicks_contracts::event::usage::{ApiRetryErrorKind, UsageApiRequestRetriedPayload};
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::daemon_ends::ClaudeDaemonEndSettlement;
+use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::session::scripted::run_engine::EngineCall;
 use crate::provider::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
@@ -12,6 +15,7 @@ use crate::provider::driver::claude::session::scripted::{
 use crate::provider::driver::diagnostics::RecordedEvents;
 use crate::provider::port::usage_sink::ProviderQuotaWindow;
 use crate::session::run::engine::turns::TurnOutcome;
+use crate::session::run::inbound::rows::LateAppendableRow;
 use crate::session::run::state_change::RunStateEntry;
 
 fn init() -> Value {
@@ -380,6 +384,52 @@ async fn a_rate_limit_event_hands_the_accounts_quota_windows_to_the_usage_record
                     resets_at: at(1_790_524_800),
                 },
             ]
+        )]
+    );
+}
+
+// Killed by an `api_retry` frame that writes no row, or one for each of its reads, by a cause,
+// wait or attempt read from the wrong member, and by an `api_error` frame read as a retry too.
+#[tokio::test(start_paused = true)]
+async fn each_api_retry_frame_writes_one_retried_request_with_its_cause_wait_and_attempt() {
+    let session = ScriptedSession::new().await;
+    let run_id = session.hold_lead_turn("lead");
+    let retry = |subtype: &str| {
+        json!({
+            "type": "system",
+            "subtype": subtype,
+            "attempt": 2,
+            "max_retries": 10,
+            "retry_delay_ms": 1_500,
+            "error_status": 529,
+            "error": "overloaded",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        })
+    };
+
+    session.frame(&retry("api_retry"));
+    session.frame(&retry("api_error"));
+    settle().await;
+
+    let rows: Vec<_> = session
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter_map(|delivery| delivery.row)
+        .collect();
+    assert_eq!(
+        rows,
+        [LateAppendableRow::UsageApiRequestRetried(
+            UsageApiRequestRetriedPayload {
+                session_id: session.session_id,
+                run_id: Some(run_id),
+                provider: DESCRIPTOR.provider_id(),
+                error_kind: ApiRetryErrorKind::Overloaded,
+                retry_delay_ms: SafeInt::new(1_500),
+                attempt: SafeInt::new(2),
+                source_epoch: None,
+                source_position: None,
+            }
         )]
     );
 }

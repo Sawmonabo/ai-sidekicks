@@ -44,8 +44,9 @@ use crate::provider::driver::claude::delivery::run_readings::{
 };
 use crate::provider::driver::claude::delivery::streamed_blocks::ClaudeStreamedRun;
 use crate::provider::driver::claude::delivery::system::{
-    read_claude_assistant_refusal, read_claude_model_reroute, read_claude_provider_status,
-    read_claude_refusal_without_fallback, read_claude_warning, read_claude_worker_shutdown_reason,
+    read_claude_api_retry, read_claude_assistant_refusal, read_claude_model_reroute,
+    read_claude_provider_status, read_claude_refusal_without_fallback, read_claude_warning,
+    read_claude_worker_shutdown_reason,
 };
 use crate::provider::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
 use crate::provider::driver::claude::hooks::pause::ClaudeRunPauses;
@@ -470,8 +471,14 @@ impl ClaudeDeliveryStream {
                 self.send_marker(session, &lead, marker, Some(frame_kind))
                     .await;
             }
-            // Claude Code maps its `api_error` onto the retry announcement.
+            // Claude Code maps its `api_error` onto the retry announcement, which alone is a
+            // retried request.
             "system/api_retry" | "system/api_error" => {
+                if frame_kind == "system/api_retry" {
+                    let retried = read_claude_api_retry(&members, session.session_id, lead.run_id);
+                    let row = LateAppendableRow::UsageApiRequestRetried(retried);
+                    self.send_row(session, &lead, row, frame_kind).await;
+                }
                 if classify_claude_spent_retries(&Value::Object(members)).is_some() {
                     session.lock().is_retries_spent = true;
                 }

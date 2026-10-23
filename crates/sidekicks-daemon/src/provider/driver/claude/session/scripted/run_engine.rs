@@ -23,6 +23,7 @@ use crate::mutex_lock::lock;
 use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::session::run::engine::RunEngineError;
 use crate::session::run::engine::turns::{ProviderTurnEnd, StartedTurn, TurnOutcome};
+use crate::session::run::inbound::rows::LateAppendableRow;
 use crate::session::run::inbound::{InboundDelivery, InboundOutcome};
 use crate::session::run::start_request::DaemonTurnStartRequest;
 use crate::session::run::state_change::RunStateChange;
@@ -42,6 +43,8 @@ pub(crate) struct RecordedDelivery {
     pub(crate) is_daemon_interrupt_end: bool,
     /// The run a child run delivery starts beneath.
     pub(crate) parent_run_id: Option<RunId>,
+    /// The row a session row delivery appends.
+    pub(crate) row: Option<LateAppendableRow>,
 }
 
 /// One call the driver made on the run engine, in order.
@@ -268,6 +271,7 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         turn_end: None,
         is_daemon_interrupt_end: false,
         parent_run_id: None,
+        row: None,
     };
     match delivery {
         InboundDelivery::TurnBoundary { binding_id } => {
@@ -316,9 +320,10 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
             recorded.kind = "permissionAsk";
             recorded.binding_id = Some(binding.binding_id.clone());
         }
-        InboundDelivery::SessionRow { binding, .. } => {
+        InboundDelivery::SessionRow { binding, row, .. } => {
             recorded.kind = "sessionRow";
             recorded.binding_id = Some(binding.binding_id.clone());
+            recorded.row = Some(row.clone());
         }
         InboundDelivery::UnstampedRow { binding, .. } => {
             recorded.kind = "unstampedRow";

@@ -1,11 +1,12 @@
 //! What Claude Code's `system` frames say about a run, in the daemon's words: a model switch, the
-//! refusal no other model took, a warning, the coarse status, the worker's shutdown reason and a
-//! helper's end; and the refusal an `assistant` message ends on. The frames are untrusted, so each
+//! refusal no other model took, a retried request, a warning, the coarse status, the worker's
+//! shutdown reason and a helper's end; and the refusal an `assistant` message ends on. The frames are untrusted, so each
 //! member is narrowed, and a frame that reads as nothing known reads as `None`.
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::{
-    AgentTurnReroutedPayload, ModelRerouteCause, ModelRerouteScope,
+    AgentTurnReroutedPayload, ApiRetryErrorKind, ModelRerouteCause, ModelRerouteScope,
+    UsageApiRequestRetriedPayload,
 };
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::{
@@ -15,9 +16,11 @@ use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::failure_cause::{RunFailureCause, RunRefusedOrigin};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::provider::record_readers::read_non_empty_string;
+use crate::provider::driver::claude::DESCRIPTOR;
+use crate::provider::record_readers::{read_count, read_non_empty_string};
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
 use crate::text_cut::cut_to_code_points;
 
@@ -145,6 +148,37 @@ pub(crate) fn read_claude_provider_status(
     frame: &Map<String, Value>,
 ) -> Option<FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>> {
     read_text(frame, "status")
+}
+
+/// The retry an `api_retry` frame announces on `run_id`: why, the wait before it in milliseconds
+/// and which attempt it is. An `error` the vocabulary lacks, or none, reads as unknown.
+pub(crate) fn read_claude_api_retry(
+    frame: &Map<String, Value>,
+    session_id: SessionId,
+    run_id: RunId,
+) -> UsageApiRequestRetriedPayload {
+    let error_kind = match frame.get("error").and_then(Value::as_str) {
+        Some("authentication_failed") => ApiRetryErrorKind::AuthenticationFailed,
+        Some("oauth_org_not_allowed") => ApiRetryErrorKind::OauthOrgNotAllowed,
+        Some("billing_error") => ApiRetryErrorKind::BillingError,
+        Some("rate_limit") => ApiRetryErrorKind::RateLimit,
+        Some("overloaded") => ApiRetryErrorKind::Overloaded,
+        Some("invalid_request") => ApiRetryErrorKind::InvalidRequest,
+        Some("model_not_found") => ApiRetryErrorKind::ModelNotFound,
+        Some("server_error") => ApiRetryErrorKind::ServerError,
+        Some("max_output_tokens") => ApiRetryErrorKind::MaxOutputTokens,
+        Some(_) | None => ApiRetryErrorKind::Unknown,
+    };
+    UsageApiRequestRetriedPayload {
+        session_id,
+        run_id: Some(run_id),
+        provider: DESCRIPTOR.provider_id(),
+        error_kind,
+        retry_delay_ms: read_count(frame, "retry_delay_ms").and_then(SafeInt::new),
+        attempt: read_count(frame, "attempt").and_then(SafeInt::new),
+        source_epoch: None,
+        source_position: None,
+    }
 }
 
 /// The reason a `worker_shutting_down` frame gives, where it gives one.
