@@ -284,6 +284,7 @@ impl RunEngine {
                     run_version: safe_run_version(run.version),
                     turn_number,
                     position,
+                    provider_turn_id: None,
                 }),
             )?;
             let transactional_prelude = vec![

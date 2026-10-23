@@ -93,6 +93,7 @@ mod tests {
     use serde_json::{Map, Value};
     use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
     use sidekicks_contracts::provider::id::ProviderId;
+    use sidekicks_contracts::provider::tool_call::ToolCallId;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::FreeFormText;
@@ -182,7 +183,7 @@ mod tests {
         let invocation = CallbackToolInvocation {
             tool_name: FreeFormText::new(TOOL.to_owned()).expect("the name is in bounds"),
             arguments: Map::from_iter([("query".to_owned(), Value::from("x"))]),
-            tool_call_id: FreeFormText::new("call-1".to_owned()).expect("the id is in bounds"),
+            tool_call_id: ToolCallId::new("call-1".to_owned()).expect("the id is in bounds"),
             session_id: SessionId::new(SESSION).expect("the text is a UUID"),
             run_id: RunId::new("0192f0c8-7a3e-7b4c-9d2e-3f4a5b6c7d8e").expect("the text is a UUID"),
         };

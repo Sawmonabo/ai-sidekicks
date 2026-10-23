@@ -3,6 +3,8 @@
 //! the tolerant layer that stores and passes on any type; the strict event is read from it with
 //! [`SessionEvent::from_envelope`].
 
+use std::marker::PhantomData;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -25,7 +27,7 @@ use crate::daemon::recovery::{
     DaemonRecoveryAttemptedPayload, DaemonRecoveryFailedPayload, DaemonRecoverySucceededPayload,
 };
 use crate::event::declared_variants::{
-    AgentOutputPayload, SessionEventCompactedPayload, ToolActivityPayload,
+    AgentOutputPayload, MachineContentDescriptor, SessionEventCompactedPayload, ToolActivityPayload,
 };
 use crate::event::envelope::{EventCategory, EventEnvelope};
 use crate::event::registry::SessionEventType;
@@ -168,6 +170,29 @@ macro_rules! event_run {
     };
 }
 
+/// Asks whether a payload type is a [`MachineContentDescriptor`] for a payload named in a macro:
+/// the probe's own method applies only to such a payload, and method lookup falls back to its
+/// reference's, which answers no, for every other.
+struct ContentProbe<Payload>(PhantomData<Payload>);
+
+/// The answer for a payload declared with the content members.
+trait DeclaresContent {
+    fn declares_content(&self) -> bool {
+        true
+    }
+}
+
+impl<Payload: MachineContentDescriptor> DeclaresContent for ContentProbe<Payload> {}
+
+/// The answer for every other payload.
+trait DeclaresNoContent {
+    fn declares_content(&self) -> bool {
+        false
+    }
+}
+
+impl<Payload> DeclaresNoContent for &ContentProbe<Payload> {}
+
 /// Declares [`SessionEvent`] from one registration table: each row is an arm named as its
 /// [`SessionEventType`] variant, its payload (with `#[garde(dive)]` where the payload has checks),
 /// its wire name and, after `=>`, the rule its run is read by (see `event_run!`). The same table
@@ -215,6 +240,18 @@ macro_rules! session_events {
                 match event_type {
                     $(SessionEventType::$variant => {
                         <$payload as Deserialize>::deserialize(payload).map(Self::$variant)
+                    })+
+                }
+            }
+        }
+
+        impl SessionEventType {
+            /// Whether an event of this type may carry a body kept apart from its payload: its
+            /// registered payload is declared with the content members.
+            pub fn carries_content(self) -> bool {
+                match self {
+                    $(SessionEventType::$variant => {
+                        (&ContentProbe::<$payload>(PhantomData)).declares_content()
                     })+
                 }
             }
@@ -697,7 +734,17 @@ impl SessionEvent {
                 found: envelope.category,
             });
         }
-        let event = Self::read_payload(event_type, &envelope.payload)?;
+        Self::from_payload(event_type, &envelope.payload)
+    }
+
+    /// Reads the strict event of `event_type` from `payload` and holds it to its type's checks,
+    /// as a stored row is read. Fails with [`SessionEventReadError`] on a payload its type's
+    /// schema refuses.
+    pub fn from_payload(
+        event_type: SessionEventType,
+        payload: &Map<String, Value>,
+    ) -> Result<Self, SessionEventReadError> {
+        let event = Self::read_payload(event_type, payload)?;
         garde::Validate::validate(&event)?;
         Ok(event)
     }

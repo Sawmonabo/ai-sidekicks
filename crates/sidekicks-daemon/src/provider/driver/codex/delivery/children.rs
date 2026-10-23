@@ -5,6 +5,7 @@
 
 use serde_json::value::RawValue;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentLifecyclePayload;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -319,7 +320,7 @@ fn subagent_row(
         parent_tool_call_id: child
             .parent_tool_call_id
             .clone()
-            .and_then(|tool_call_id| FreeFormText::new(tool_call_id).ok()),
+            .and_then(|tool_call_id| ToolCallId::new(tool_call_id).ok()),
         source_epoch: None,
         source_position: None,
     }

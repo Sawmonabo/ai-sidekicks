@@ -275,6 +275,7 @@ pub(crate) fn turn_started_at(
         run_version: run_version(version),
         turn_number: turn(turn_number),
         position: None,
+        provider_turn_id: None,
     })
 }
 

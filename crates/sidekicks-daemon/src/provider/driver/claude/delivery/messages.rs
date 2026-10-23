@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::event::declared_variants::{RunAgentOutputPayload, ToolActivityPayload};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -250,7 +251,10 @@ pub(crate) fn read_claude_assistant_rows(
             continue;
         }
         let (Some(tool_call_id), Some(tool_name)) = (
-            block.id.as_ref().and_then(|id| event_text(id)),
+            block
+                .id
+                .as_ref()
+                .and_then(|id| ToolCallId::new(id.clone()).ok()),
             block.name.as_ref().and_then(|name| event_text(name)),
         ) else {
             continue;
@@ -318,7 +322,7 @@ pub(crate) fn read_claude_user_rows(
         let Some(opened) = open_tool_calls.remove(call_id) else {
             continue;
         };
-        let Some(tool_call_id) = event_text(call_id) else {
+        let Ok(tool_call_id) = ToolCallId::new(call_id.clone()) else {
             continue;
         };
         // Claude Code's structured result rides the frame beside a lone tool result.
@@ -372,7 +376,7 @@ fn tool_activity(
     session_id: SessionId,
     run_id: RunId,
     tool_name: EventText,
-    tool_call_id: EventText,
+    tool_call_id: ToolCallId,
     duration_ms: Option<SafeInt<0>>,
 ) -> ToolActivityPayload {
     ToolActivityPayload {

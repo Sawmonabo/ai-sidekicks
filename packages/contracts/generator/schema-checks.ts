@@ -56,6 +56,8 @@ function createAjv(schemas: readonly SchemaObject[]): Ajv2020 {
   const ajv = new Ajv2020({
     strict: true,
     $data: true,
+    // Picks a tagged union's arm by its `discriminator`.
+    discriminator: true,
     allErrors: true,
     messages: false,
     passContext: true,

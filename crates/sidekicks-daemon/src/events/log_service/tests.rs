@@ -15,7 +15,11 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WritesHeldError};
 use crate::events::session::append_lock::SESSION_APPEND_LOCK;
+use crate::events::session::appender::{
+    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
+};
 use crate::events::session::followers::SessionEventFollowers;
+use crate::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// Bounds an append the test expects to answer, so one that waits on a lock fails the test.
@@ -278,5 +282,59 @@ async fn an_append_under_a_hold_goes_without_the_lock_and_only_on_the_held_sessi
     .expect("the append commits");
     assert_eq!(appended.sequence.get(), 0);
     drop(hold);
+    assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
+}
+
+// Killed by deleting the strict re-read of the described payload in `compose_rows`, which would
+// store a summary on a `finished` ending that every later strict read of the row refuses.
+#[tokio::test]
+async fn a_command_ending_is_stored_with_a_summary_only_when_it_failed() {
+    let database = TestDatabase::new();
+    let TestLog {
+        writer, service, ..
+    } = open_log(&database, None).await;
+    let appender = SessionEventAppender::new(service, SESSION_EVENT_VERSION.clone());
+    let session_id = test_session_id();
+    let run_id = mint_uuid_v7().to_string();
+    let ended = |ending: &str| {
+        let event = serde_json::from_value(json!({
+            "type": "agent.command.ended",
+            "payload": {
+                "sessionId": session_id,
+                "runId": run_id,
+                "commandId": "toolu_01",
+                "ending": ending,
+                "durationMs": 120_000,
+            },
+        }))
+        .expect("the test writes an agent.command.ended event");
+        SessionEventDraft::of_session(session_id, &event)
+            .expect("the ending passes its checks without a body")
+            .with_content_body("Command timed out after 2 minutes".to_owned())
+    };
+
+    let stored = appender
+        .append(ended("failed"), SessionEventLinkage::default())
+        .await
+        .expect("a failed ending keeps the provider's summary");
+    assert_eq!(stored.sequence.get(), 0);
+
+    let refused = appender
+        .append(ended("finished"), SessionEventLinkage::default())
+        .await;
+    assert!(
+        matches!(
+            refused,
+            Err(SessionEventAppendError::Append(
+                EventAppendError::DescribedPayload(_)
+            ))
+        ),
+        "{refused:?}"
+    );
+    let rows: i64 = database
+        .reader()
+        .query_row("SELECT count(*) FROM session_events", [], |row| row.get(0))
+        .expect("the test counts the stored rows");
+    assert_eq!(rows, 1);
     assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
 }
