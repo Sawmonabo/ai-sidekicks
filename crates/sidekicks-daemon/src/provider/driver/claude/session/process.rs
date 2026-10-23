@@ -4,7 +4,7 @@
 //! control table and the input, then reaches the session's listener last, after every frame.
 
 mod stdin;
-mod stdout;
+pub(crate) mod stdout;
 
 use std::error::Error;
 use std::io;

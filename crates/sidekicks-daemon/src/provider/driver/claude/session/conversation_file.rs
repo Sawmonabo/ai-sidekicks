@@ -19,10 +19,11 @@ use serde::de::{self, Deserializer, SeqAccess, Visitor};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
 use crate::missing_entry::MissingEntry;
 use crate::provider::driver::claude::session::plan_files::{ClaudePlan, find_claude_plan_files};
+use crate::provider::driver::claude::session::process::stdout::CLAUDE_OUTPUT_LINE_MAX_BYTES;
 use crate::provider::driver::claude::session::rules::{
     ClaudeProjectFolder, resolve_claude_local_settings_file,
 };
@@ -348,16 +349,38 @@ async fn read_claude_plan_slug(file: &Path) -> io::Result<Option<String>> {
 }
 
 // Hands each line of `file` that is a JSON object to `visit` until it breaks, reusing one buffer.
+// A line past the ceiling is skipped unread, so a file cut mid-write or with no newline never
+// grows the buffer past it; the first one skipped is logged once.
 async fn read_entries(
     file: &Path,
     mut visit: impl FnMut(ConversationEntry) -> ControlFlow<()>,
 ) -> io::Result<()> {
     let mut reader = BufReader::new(tokio::fs::File::open(file).await?);
     let mut line = Vec::new();
+    let mut line_number: u64 = 0;
+    let mut is_skip_logged = false;
     loop {
         line.clear();
-        if reader.read_until(b'\n', &mut line).await? == 0 {
+        line_number += 1;
+        let read = (&mut reader)
+            .take(CONVERSATION_LINE_READ_LIMIT)
+            .read_until(b'\n', &mut line)
+            .await?;
+        if read == 0 {
             return Ok(());
+        }
+        if line.len() > CLAUDE_OUTPUT_LINE_MAX_BYTES && line.last() != Some(&b'\n') {
+            skip_to_next_line(&mut reader).await?;
+            if !is_skip_logged {
+                is_skip_logged = true;
+                tracing::warn!(
+                    file = %file.display(),
+                    line_number,
+                    "a line of a claude code conversation file passed the line ceiling, so it \
+                     was skipped"
+                );
+            }
+            continue;
         }
         let text = decode_inbound_json(&line);
         let mut deserializer = serde_json::Deserializer::from_str(&text);
@@ -368,6 +391,29 @@ async fn read_entries(
         };
         if visit(entry).is_break() {
             return Ok(());
+        }
+    }
+}
+
+// One past the ceiling, so a line that reaches it without its newline reads as over it.
+const CONVERSATION_LINE_READ_LIMIT: u64 = CLAUDE_OUTPUT_LINE_MAX_BYTES as u64 + 1;
+
+// Consumes the rest of the line being read, through its newline or to the end of the file.
+async fn skip_to_next_line(reader: &mut BufReader<tokio::fs::File>) -> io::Result<()> {
+    loop {
+        let buffered = reader.fill_buf().await?;
+        if buffered.is_empty() {
+            return Ok(());
+        }
+        match memchr::memchr(b'\n', buffered) {
+            Some(newline) => {
+                reader.consume(newline + 1);
+                return Ok(());
+            }
+            None => {
+                let length = buffered.len();
+                reader.consume(length);
+            }
         }
     }
 }
@@ -504,6 +550,7 @@ mod tests {
         ClaudeConversation, ClaudeConversationFolders, ClaudeConversationOutline,
         delete_claude_conversations, find_claude_taken_messages, read_claude_conversation_outline,
     };
+    use crate::provider::driver::claude::session::process::stdout::CLAUDE_OUTPUT_LINE_MAX_BYTES;
     use crate::provider::driver::claude::session::rules::{ClaudeProjectFolder, ClaudeRepository};
 
     const SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000001";
@@ -537,6 +584,30 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    // Killed by reading a line whole however long it is (the `take` bound removed): the entry past
+    // the ceiling would be read and answered as taken.
+    #[tokio::test]
+    async fn a_line_past_the_ceiling_is_skipped_and_the_next_entry_still_reads() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let file = folder.path().join("conversation.jsonl");
+        let padding = "x".repeat(CLAUDE_OUTPUT_LINE_MAX_BYTES);
+        fs::write(
+            &file,
+            format!(
+                "{{\"type\":\"user\",\"uuid\":\"too-long\",\"message\":{{\"content\":\"{padding}\"}}}}\n\
+                 {{\"type\":\"user\",\"uuid\":\"kept\",\"message\":{{\"content\":\"steer\"}}}}\n"
+            ),
+        )
+        .expect("the conversation is written");
+        let asked = ["too-long".to_owned(), "kept".to_owned()];
+
+        let taken = find_claude_taken_messages(&file, &asked)
+            .await
+            .expect("the file reads");
+
+        assert_eq!(taken, vec!["kept".to_owned()]);
     }
 
     #[tokio::test]
