@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use alacritty_terminal::tty::{self, ChildEvent, EventedPty, EventedReadWrite, Pty};
 use nix::errno::Errno;
 use nix::sys::signal::{Signal, kill};
-use nix::sys::termios::{LocalFlags, SpecialCharacterIndices, Termios, tcgetattr};
+use nix::sys::termios::{LocalFlags, SpecialCharacterIndices, Termios, tcgetattr, tcgetsid};
 use nix::unistd::{Pid, tcgetpgrp};
 use polling::{Event, Events, PollMode, Poller};
 use tokio::io::Interest;
@@ -559,22 +559,20 @@ impl TerminalWatch {
 // `FIONREAD` on a terminal's master: how many bytes it counts as queued there.
 nix::ioctl_read_bad!(read_queued_byte_count, libc::FIONREAD, libc::c_int);
 
-/// What the master of `pty` shows of its terminal: its foreground process group, what `FIONREAD`
-/// counts there and its echo and line settings, which need no right over the program. Fails with
-/// the system's error when a read is refused, and with `InvalidData` when the terminal has no
-/// foreground group.
+/// What the master of `pty` shows of its terminal: its session and foreground process group, what
+/// `FIONREAD` counts there and its echo and line settings, which need no right over the program.
+/// Fails with the system's error when a read is refused, and with `InvalidData` when the terminal
+/// has no session or no foreground group.
 pub fn read_terminal_master(pty: &Pty) -> io::Result<TerminalMasterReading> {
     let master = pty.file().as_fd();
-    let foreground_group = tcgetpgrp(master).map_err(io::Error::from)?.as_raw();
-    let foreground_group = u32::try_from(foreground_group)
-        .ok()
-        .filter(|group| *group > 0)
-        .ok_or_else(|| {
-            io::Error::new(
-                ErrorKind::InvalidData,
-                format!("the terminal names no foreground group ({foreground_group})"),
-            )
-        })?;
+    let session_leader = process_group_id(
+        "session",
+        tcgetsid(master).map_err(io::Error::from)?.as_raw(),
+    )?;
+    let foreground_group = process_group_id(
+        "foreground group",
+        tcgetpgrp(master).map_err(io::Error::from)?.as_raw(),
+    )?;
     let mut queued_bytes: libc::c_int = 0;
     // SAFETY: the descriptor is the PTY's open master, and the pointer names a live local the call
     // fills with one integer.
@@ -588,10 +586,21 @@ pub fn read_terminal_master(pty: &Pty) -> io::Result<TerminalMasterReading> {
     })?;
     let settings = read_terminal_settings(master)?;
     Ok(TerminalMasterReading {
+        session_leader,
         foreground_group,
         queued_bytes,
         is_echo_on: settings.local_flags.contains(LocalFlags::ECHO),
         is_canonical: settings.local_flags.contains(LocalFlags::ICANON),
+    })
+}
+
+// The id a terminal names its `kind` of process group by, which is its leader's process id.
+fn process_group_id(kind: &str, id: libc::pid_t) -> io::Result<u32> {
+    u32::try_from(id).ok().filter(|id| *id > 0).ok_or_else(|| {
+        io::Error::new(
+            ErrorKind::InvalidData,
+            format!("the terminal names no {kind} ({id})"),
+        )
     })
 }
 

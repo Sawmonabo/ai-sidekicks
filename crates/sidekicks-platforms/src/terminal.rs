@@ -86,10 +86,13 @@ pub struct ConsoleReading {
     pub is_line_input: bool,
 }
 
-/// What a terminal's master shows of the terminal, read by whoever holds the master: its
-/// foreground process group, what `FIONREAD` counts on the master, and its echo and line settings.
+/// What a terminal's master shows of the terminal, read by whoever holds the master: its session
+/// and foreground process group, what `FIONREAD` counts on the master, and its echo and line
+/// settings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TerminalMasterReading {
+    /// The terminal's session, named by its leader's process id: the command the terminal started.
+    pub session_leader: u32,
     /// The terminal's foreground process group, named by its leader's process id.
     pub foreground_group: u32,
     /// The bytes `FIONREAD` counts on the master: on macOS the input queued unread for the program,

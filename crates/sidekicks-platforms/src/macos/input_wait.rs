@@ -493,7 +493,8 @@ fn holds_terminal_read_knote(pid: c_int, descriptors: &ProcessDescriptors) -> io
         // SAFETY: the buffer is live and `length` bytes long, sized for whole ids, and nothing else
         // reads it until the call returns.
         unsafe { libc::proc_pidinfo(pid, PROC_PIDLISTDYNKQUEUES, 0, buffer, length) }
-    })?;
+    });
+    let work_loops = gone_as_empty(work_loops)?;
     for work_loop in work_loops {
         let knotes = read_counted_list::<KeventExtinfo>(|buffer, length| {
             // SAFETY: the buffer is live and `length` bytes long, sized for whole knotes, and
@@ -509,13 +510,14 @@ fn holds_terminal_read_knote(pid: c_int, descriptors: &ProcessDescriptors) -> io
     Ok(false)
 }
 
-// A kqueue's knotes, none when the kqueue closed or its process ended since its listing.
-fn gone_as_empty(knotes: io::Result<Vec<KeventExtinfo>>) -> io::Result<Vec<KeventExtinfo>> {
-    match knotes {
+// A list of a kqueue or a process, none when the kqueue closed or the process ended since its
+// listing.
+fn gone_as_empty<T>(list: io::Result<Vec<T>>) -> io::Result<Vec<T>> {
+    match list {
         Err(error) if matches!(error.raw_os_error(), Some(libc::EBADF | libc::ESRCH)) => {
             Ok(Vec::new())
         }
-        knotes => knotes,
+        list => list,
     }
 }
 

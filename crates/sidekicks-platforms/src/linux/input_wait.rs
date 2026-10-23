@@ -3,13 +3,21 @@
 //! descriptors that call reads, and where the right to attach is refused, each thread's wait
 //! channel or the terminal's own settings.
 
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, ErrorKind};
 use std::os::unix::fs::{FileExt, FileTypeExt, MetadataExt};
 use std::sync::Once;
 
 use crate::input_wait::{InputTerminal, InputWaitReading};
+use crate::linux::pinned_process::GROUP_FIELD;
+use crate::linux::{read_process_file, read_process_stat_fields};
 use crate::terminal::TerminalDevice;
+
+// The fields of a `stat` file, numbered as proc(5) numbers them, that hold a process's or a
+// thread's state letter and its controlling terminal's device.
+const STATE_FIELD: usize = 3;
+const TERMINAL_FIELD: usize = 7;
 
 // The file Yama keeps its ptrace scope in; at 2 or 3 no reader may attach to a descendant.
 const PTRACE_SCOPE_PATH: &str = "/proc/sys/kernel/yama/ptrace_scope";
@@ -20,6 +28,9 @@ const ADMIN_ONLY_PTRACE_SCOPE: u32 = 2;
 // `<sys/epoll.h>`'s `EPOLLIN` and `<poll.h>`'s `POLLIN` and `POLLRDNORM`: a wait for input.
 const EPOLLIN: u32 = 0x001;
 const POLL_INPUT: i16 = 0x001 | 0x040;
+
+// The most `pollfd` entries a `poll`'s set is read for, so a call's own count never sizes the read.
+const POLL_ENTRY_LIMIT: usize = 1024;
 
 // The wait channels a thread sleeps in while the terminal's line discipline waits for input, and
 // while an epoll set waits.
@@ -32,25 +43,35 @@ static WEAKER_READING_NOTED: Once = Once::new();
 /// Whether the terminal's foreground group waits on `terminal`'s input, takes input, and has echo
 /// off: no thread of the group runs, and a thread is blocked in `read`, `readv` or `pread64` on the
 /// terminal, in an epoll wait on a set holding the terminal for input, or in `select`, `pselect6`,
-/// `poll` or `ppoll` with the terminal in its read set. Where Yama refuses those reads, a thread
-/// sleeping where the line discipline or an epoll wait sleeps counts instead; a program the daemon
-/// may not attach to, as `sudo`, waits when the terminal has canonical input on and echo off and a
-/// member sleeps. Blocks on the reads; fails with the system's error when `/proc` refuses a read
-/// this user may make.
+/// `poll` or `ppoll` with the terminal in its read set. The group is read among the descendants of
+/// the terminal's session leader. Where Yama refuses those reads, a thread sleeping where the line
+/// discipline or an epoll wait sleeps counts instead; a program whose descriptors or calls the
+/// daemon may not read, as `sudo`, waits when the terminal is set as a password prompt and a member
+/// sleeps. A process or thread that ends during the reads is left out. Blocks on the reads; fails
+/// with the system's error when `/proc` refuses a read this user may make.
 pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading> {
     let mut accepts_input = false;
     let mut is_running = false;
     let mut is_waiting = false;
     let mut is_any_refused_sleeping = false;
     let mut is_refused = false;
-    for process_id in list_group_process_ids(terminal.master.foreground_group)? {
-        let Some(process) = read_process(process_id, terminal.device)? else {
+    let members = list_group_members(
+        terminal.master.session_leader,
+        terminal.master.foreground_group,
+    )?;
+    for member in members {
+        let Some(process) = read_process(&member, terminal.device)? else {
             continue;
         };
         accepts_input |= !process.terminal_reads.is_empty();
         for thread in &process.threads {
             is_running |= thread.state == 'R';
-            match thread_wait(&process, thread, terminal)? {
+            let wait = if process.is_refused {
+                ThreadWait::Refused
+            } else {
+                thread_wait(&process, thread, terminal)?
+            };
+            match wait {
                 ThreadWait::OnTerminal => is_waiting = true,
                 ThreadWait::Elsewhere => {}
                 ThreadWait::Refused => {
@@ -80,6 +101,8 @@ pub fn may_wait_for_input(terminal: &InputTerminal) -> io::Result<bool> {
 struct ProcessRead {
     process_id: u32,
     threads: Vec<ThreadRead>,
+    // Whether the kernel refused its descriptors, so its threads' calls cannot be read either.
+    is_refused: bool,
     // The descriptors open for reading on the terminal.
     terminal_reads: Vec<i32>,
     // The epoll sets, whose `fdinfo` lists what they wait on.
@@ -104,69 +127,101 @@ enum ThreadWait {
     Refused,
 }
 
-// The ids of the processes in group `group_id`, read from each process's `stat`; a process that
-// ended during the walk is left out.
-fn list_group_process_ids(group_id: u32) -> io::Result<Vec<u32>> {
-    let mut process_ids = Vec::new();
-    for entry in fs::read_dir("/proc")? {
-        let entry = entry?;
-        let Some(process_id) = entry
-            .file_name()
-            .to_str()
-            .and_then(|name| name.parse::<u32>().ok())
+// One process of the foreground group, as the walk that found it read it.
+struct GroupMember {
+    process_id: u32,
+    thread_ids: Vec<u32>,
+    // Its controlling terminal's device, in `stat`'s old encoding.
+    controlling_terminal: Option<i64>,
+}
+
+// The processes in group `group_id` among session leader `leader` and its descendants, each
+// process's `stat`, threads and children read once; a process that ended during the walk is left
+// out, and so are the children of one whose children the kernel refuses to list.
+fn list_group_members(leader: u32, group_id: u32) -> io::Result<Vec<GroupMember>> {
+    let mut members = Vec::new();
+    let mut pending = vec![leader];
+    let mut seen = HashSet::new();
+    while let Some(process_id) = pending.pop() {
+        if !seen.insert(process_id) {
+            continue;
+        }
+        let Some([group, terminal]) =
+            read_process_stat_fields(process_id, [GROUP_FIELD, TERMINAL_FIELD])?
         else {
             continue;
         };
-        let Ok(stat) = fs::read_to_string(entry.path().join("stat")) else {
-            continue;
-        };
-        if stat_field(&stat, 2).and_then(|group| group.parse().ok()) == Some(group_id) {
-            process_ids.push(process_id);
+        let thread_ids = list_thread_ids(process_id)?;
+        for thread_id in &thread_ids {
+            match read_process_file(process_id, &format!("task/{thread_id}/children")) {
+                Ok(Some(children)) => pending.extend(
+                    String::from_utf8_lossy(&children)
+                        .split_whitespace()
+                        .filter_map(|child| child.parse::<u32>().ok()),
+                ),
+                Ok(None) => {}
+                Err(error) if is_refusal(&error) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        if group.parse() == Ok(group_id) {
+            members.push(GroupMember {
+                process_id,
+                thread_ids,
+                controlling_terminal: terminal.parse().ok(),
+            });
         }
     }
-    Ok(process_ids)
+    Ok(members)
 }
 
-// Field `index` of a `stat` line counted from its state, field 0, which follows the command name's
-// closing parenthesis, since the name may hold spaces and parentheses itself.
-fn stat_field(stat: &str, index: usize) -> Option<&str> {
-    stat.rsplit_once(')')?.1.split_whitespace().nth(index)
-}
-
-// What process `process_id` shows of its threads and descriptors; `None` when it ended.
-fn read_process(process_id: u32, device: TerminalDevice) -> io::Result<Option<ProcessRead>> {
-    let process_path = format!("/proc/{process_id}");
-    let Some(stat) = read_if_present(&format!("{process_path}/stat"))? else {
-        return Ok(None);
+// The ids of process `process_id`'s threads, none when it ended.
+fn list_thread_ids(process_id: u32) -> io::Result<Vec<u32>> {
+    let entries = match fs::read_dir(format!("/proc/{process_id}/task")) {
+        Ok(entries) => entries,
+        Err(error) if is_gone(&error) => return Ok(Vec::new()),
+        Err(error) => return Err(error),
     };
-    let controlling_terminal = stat_field(&stat, 4).and_then(|field| field.parse::<i64>().ok());
+    let mut thread_ids = Vec::new();
+    for entry in entries {
+        if let Some(thread_id) = entry?
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse().ok())
+        {
+            thread_ids.push(thread_id);
+        }
+    }
+    Ok(thread_ids)
+}
+
+// What `member` shows of its threads and descriptors; `None` when it ended.
+fn read_process(member: &GroupMember, device: TerminalDevice) -> io::Result<Option<ProcessRead>> {
+    let process_id = member.process_id;
     let mut threads = Vec::new();
-    for entry in read_dir_if_present(&format!("{process_path}/task"))? {
-        let Some(thread_id) = entry.to_str().and_then(|name| name.parse::<u32>().ok()) else {
+    for &thread_id in &member.thread_ids {
+        let Some([state]) = read_process_stat_fields(thread_id, [STATE_FIELD])? else {
             continue;
         };
-        let Some(thread_stat) = read_if_present(&format!("{process_path}/task/{thread_id}/stat"))?
-        else {
-            continue;
-        };
-        let state = stat_field(&thread_stat, 0)
-            .and_then(|state| state.chars().next())
-            .unwrap_or('?');
+        let state = state.chars().next().unwrap_or('?');
         threads.push(ThreadRead { thread_id, state });
     }
     let mut process = ProcessRead {
         process_id,
         threads,
+        is_refused: false,
         terminal_reads: Vec::new(),
         epoll_sets: Vec::new(),
         holds_other_wait_source: false,
     };
-    let descriptors = match fs::read_dir(format!("{process_path}/fd")) {
+    let descriptors = match fs::read_dir(format!("/proc/{process_id}/fd")) {
         Ok(descriptors) => descriptors,
-        // Another user's process shows no descriptors; its threads' reads are refused too.
-        Err(error) if is_refusal(&error) || error.kind() == ErrorKind::NotFound => {
+        // Another user's process shows no descriptors; its threads' calls are refused too.
+        Err(error) if is_refusal(&error) => {
+            process.is_refused = true;
             return Ok(Some(process));
         }
+        Err(error) if is_gone(&error) => return Ok(None),
         Err(error) => return Err(error),
     };
     for entry in descriptors {
@@ -189,8 +244,12 @@ fn read_process(process_id: u32, device: TerminalDevice) -> io::Result<Option<Pr
             process.holds_other_wait_source = true;
         } else if target == "anon_inode:[eventpoll]" {
             process.epoll_sets.push(descriptor);
-        } else if is_terminal_descriptor(&entry.path(), &target, controlling_terminal, device)
-            && is_open_for_reading(process_id, descriptor)?
+        } else if is_terminal_descriptor(
+            &entry.path(),
+            &target,
+            member.controlling_terminal,
+            device,
+        ) && is_open_for_reading(process_id, descriptor)?
         {
             process.terminal_reads.push(descriptor);
         }
@@ -223,10 +282,10 @@ fn old_device_encoding(device: TerminalDevice) -> i64 {
 // Whether descriptor `descriptor` of process `process_id` was opened for reading, from the access
 // mode in its `fdinfo` flags.
 fn is_open_for_reading(process_id: u32, descriptor: i32) -> io::Result<bool> {
-    let Some(info) = read_if_present(&format!("/proc/{process_id}/fdinfo/{descriptor}"))? else {
+    let Some(info) = read_process_file(process_id, &format!("fdinfo/{descriptor}"))? else {
         return Ok(false);
     };
-    let flags = info
+    let flags = String::from_utf8_lossy(&info)
         .lines()
         .find_map(|line| line.strip_prefix("flags:"))
         .and_then(|flags| i32::from_str_radix(flags.trim(), 8).ok())
@@ -243,20 +302,24 @@ fn thread_wait(
     thread: &ThreadRead,
     terminal: &InputTerminal,
 ) -> io::Result<ThreadWait> {
-    let task_path = format!("/proc/{}/task/{}", process.process_id, thread.thread_id);
-    let call = match fs::read_to_string(format!("{task_path}/syscall")) {
-        Ok(call) => call,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(ThreadWait::Elsewhere),
+    let call = match read_process_file(
+        process.process_id,
+        &format!("task/{}/syscall", thread.thread_id),
+    ) {
+        Ok(Some(call)) => call,
+        // The thread ended since its listing.
+        Ok(None) => return Ok(ThreadWait::Elsewhere),
         Err(error) if is_refusal(&error) => {
             return if is_ptrace_admin_only()? {
                 note_weaker_reading();
-                wait_channel_wait(process, thread, &task_path, terminal)
+                wait_channel_wait(process, thread, terminal)
             } else {
                 Ok(ThreadWait::Refused)
             };
         }
         Err(error) => return Err(error),
     };
+    let call = String::from_utf8_lossy(&call);
     let mut fields = call.split_whitespace();
     let Some(number) = fields
         .next()
@@ -327,11 +390,10 @@ fn epoll_set_waits_on_terminal(process: &ProcessRead, epoll_set: i32) -> io::Res
     if !process.epoll_sets.contains(&epoll_set) {
         return Ok(false);
     }
-    let Some(info) = read_if_present(&format!("/proc/{}/fdinfo/{epoll_set}", process.process_id))?
-    else {
+    let Some(info) = read_process_file(process.process_id, &format!("fdinfo/{epoll_set}"))? else {
         return Ok(false);
     };
-    Ok(info.lines().any(|line| {
+    Ok(String::from_utf8_lossy(&info).lines().any(|line| {
         let mut fields = line.split_whitespace();
         let (Some("tfd:"), Some(target), Some("events:"), Some(events)) =
             (fields.next(), fields.next(), fields.next(), fields.next())
@@ -346,45 +408,56 @@ fn epoll_set_waits_on_terminal(process: &ProcessRead, epoll_set: i32) -> io::Res
 }
 
 // Whether a `select` over `descriptor_count` descriptors with its read set at `read_set` in
-// `process`'s memory holds one of its descriptors of the terminal.
+// `process`'s memory holds one of its descriptors of the terminal. The set is read only up to the
+// highest such descriptor, so the call's own count never sizes the read.
 fn select_reads_terminal(
     process: &ProcessRead,
     descriptor_count: u64,
     read_set: u64,
 ) -> io::Result<bool> {
-    let Ok(descriptor_count) = usize::try_from(descriptor_count) else {
+    // The kernel reads the count as an `int`, from the register's low 32 bits.
+    let descriptor_count = low_32_bits(descriptor_count).cast_signed();
+    let Some(highest) = process
+        .terminal_reads
+        .iter()
+        .copied()
+        .filter(|descriptor| (0..descriptor_count).contains(descriptor))
+        .max()
+    else {
         return Ok(false);
     };
-    if read_set == 0 || descriptor_count == 0 {
+    if read_set == 0 {
         return Ok(false);
     }
-    // The set is an array of 64-bit words, one bit per descriptor.
-    let mut words = vec![0_u8; descriptor_count.div_ceil(64) * 8];
-    if !read_memory(process.process_id, read_set, &mut words)? {
+    let highest = usize::try_from(highest).map_err(io::Error::other)?;
+    // The set is an array of 64-bit words, one bit per descriptor; read as bytes, which holds on a
+    // little-endian processor, where descriptor `n`'s bit is bit `n % 8` of byte `n / 8`.
+    let mut bytes = vec![0_u8; highest / 8 + 1];
+    if !read_memory(process.process_id, read_set, &mut bytes)? {
         return Ok(false);
     }
     Ok(process.terminal_reads.iter().any(|descriptor| {
         usize::try_from(*descriptor).is_ok_and(|descriptor| {
-            descriptor < descriptor_count
-                && words
-                    .get(descriptor / 8)
-                    .is_some_and(|byte| byte & (1 << (descriptor % 8)) != 0)
+            bytes
+                .get(descriptor / 8)
+                .is_some_and(|byte| byte & (1 << (descriptor % 8)) != 0)
         })
     }))
 }
 
 // Whether a `poll` over the `count` `pollfd` entries at `entries` in `process`'s memory waits for
-// input on one of its descriptors of the terminal.
+// input on one of its descriptors of the terminal, among its first `POLL_ENTRY_LIMIT` entries.
 fn poll_reads_terminal(process: &ProcessRead, entries: u64, count: u64) -> io::Result<bool> {
     // `struct pollfd`: a 32-bit descriptor, then 16-bit requested and returned events.
     const ENTRY_BYTES: usize = 8;
-    let Ok(count) = usize::try_from(count) else {
-        return Ok(false);
-    };
+    // The kernel reads the count as an `unsigned int`, from the register's low 32 bits.
+    let count = usize::try_from(low_32_bits(count))
+        .map_err(io::Error::other)?
+        .min(POLL_ENTRY_LIMIT);
     if entries == 0 || count == 0 {
         return Ok(false);
     }
-    let mut bytes = vec![0_u8; count.saturating_mul(ENTRY_BYTES)];
+    let mut bytes = vec![0_u8; count * ENTRY_BYTES];
     if !read_memory(process.process_id, entries, &mut bytes)? {
         return Ok(false);
     }
@@ -396,18 +469,29 @@ fn poll_reads_terminal(process: &ProcessRead, entries: u64, count: u64) -> io::R
     }))
 }
 
-// Fills `bytes` from `process_id`'s memory at `address`, answering whether the memory was there;
-// fails with the system's error when the read is refused.
+// A system call register's low 32 bits, which the kernel reads an `int` argument from.
+fn low_32_bits(register: u64) -> u32 {
+    u32::try_from(register & u64::from(u32::MAX)).expect("the masked register fits 32 bits")
+}
+
+// Fills `bytes` from `process_id`'s memory at `address`, answering whether the memory was there,
+// which it is not once the process ended; fails with the system's error when the read is refused.
 fn read_memory(process_id: u32, address: u64, bytes: &mut [u8]) -> io::Result<bool> {
     let memory = match File::open(format!("/proc/{process_id}/mem")) {
         Ok(memory) => memory,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
+        Err(error) if is_gone(&error) => return Ok(false),
         Err(error) => return Err(error),
     };
     match memory.read_exact_at(bytes, address) {
         Ok(()) => Ok(true),
-        // An address the call's arguments name but the process no longer maps.
-        Err(error) if matches!(error.raw_os_error(), Some(libc::EIO | libc::EFAULT)) => Ok(false),
+        // An address the call's arguments name but the process no longer maps, or a process that
+        // ended, whose memory reads as empty.
+        Err(error)
+            if error.kind() == ErrorKind::UnexpectedEof
+                || matches!(error.raw_os_error(), Some(libc::EIO | libc::EFAULT)) =>
+        {
+            Ok(false)
+        }
         Err(error) => Err(error),
     }
 }
@@ -419,12 +503,16 @@ fn read_memory(process_id: u32, address: u64, bytes: &mut [u8]) -> io::Result<bo
 fn wait_channel_wait(
     process: &ProcessRead,
     thread: &ThreadRead,
-    task_path: &str,
     terminal: &InputTerminal,
 ) -> io::Result<ThreadWait> {
-    let Some(channel) = read_if_present(&format!("{task_path}/wchan"))? else {
+    let Some(channel) = read_process_file(
+        process.process_id,
+        &format!("task/{}/wchan", thread.thread_id),
+    )?
+    else {
         return Ok(ThreadWait::Elsewhere);
     };
+    let channel = String::from_utf8_lossy(&channel);
     let channel = channel.trim();
     let is_on_terminal = if thread.state != 'S' {
         false
@@ -449,10 +537,17 @@ fn wait_channel_wait(
 }
 
 // Whether Yama refuses the system-call and memory reads to every reader without the capability.
+// No Yama module, and so no scope file, refuses nothing.
 fn is_ptrace_admin_only() -> io::Result<bool> {
-    Ok(read_if_present(PTRACE_SCOPE_PATH)?
-        .and_then(|scope| scope.trim().parse::<u32>().ok())
-        .is_some_and(|scope| scope >= ADMIN_ONLY_PTRACE_SCOPE))
+    let scope = match fs::read_to_string(PTRACE_SCOPE_PATH) {
+        Ok(scope) => scope,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    Ok(scope
+        .trim()
+        .parse::<u32>()
+        .is_ok_and(|scope| scope >= ADMIN_ONLY_PTRACE_SCOPE))
 }
 
 fn note_weaker_reading() {
@@ -469,24 +564,58 @@ fn is_refusal(error: &io::Error) -> bool {
     matches!(error.raw_os_error(), Some(libc::EACCES | libc::EPERM))
 }
 
-// The text of the file at `path`, or `None` when it is gone, as a file of an ended process is.
-fn read_if_present(path: &str) -> io::Result<Option<String>> {
-    match fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(error) if matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ESRCH)) => Ok(None),
-        Err(error) => Err(error),
-    }
+// Whether `error` is a read of a process or thread that ended.
+fn is_gone(error: &io::Error) -> bool {
+    error.kind() == ErrorKind::NotFound || error.raw_os_error() == Some(libc::ESRCH)
 }
 
-// The entry names of the folder at `path`, none when it is gone.
-fn read_dir_if_present(path: &str) -> io::Result<Vec<std::ffi::OsString>> {
-    match fs::read_dir(path) {
-        Ok(entries) => entries
-            .map(|entry| entry.map(|entry| entry.file_name()))
-            .collect(),
-        Err(error) if matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ESRCH)) => {
-            Ok(Vec::new())
-        }
-        Err(error) => Err(error),
+#[cfg(test)]
+mod tests {
+    use super::{ProcessRead, select_reads_terminal};
+    use crate::posix::memory::page_bytes;
+
+    // The terminal's descriptor the set marks, the last bit of the set's first byte.
+    const TERMINAL_DESCRIPTOR: i32 = 7;
+
+    // Fails when the `select` set is read to the length the call's own count names: the set's one
+    // byte ends a mapping, so a read past it finds no memory and the terminal is missed.
+    #[test]
+    fn a_select_set_is_read_only_up_to_the_terminal_s_descriptor() {
+        let page = usize::try_from(page_bytes().expect("the page size reads")).expect("a size");
+        // SAFETY: a private anonymous mapping of two fresh pages, aliasing nothing.
+        let pages = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                2 * page,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                -1,
+                0,
+            )
+        };
+        assert_ne!(pages, libc::MAP_FAILED, "the pages are mapped");
+        // SAFETY: the second page lies inside the mapping just made, and nothing points into it.
+        let unmapped = unsafe { libc::munmap(pages.cast::<u8>().add(page).cast(), page) };
+        assert_eq!(unmapped, 0, "the second page is unmapped");
+        // SAFETY: the first page's last byte lies inside the mapping, which nothing else uses.
+        let set = unsafe {
+            let set = pages.cast::<u8>().add(page - 1);
+            set.write(1 << TERMINAL_DESCRIPTOR);
+            set
+        };
+        let process = ProcessRead {
+            process_id: std::process::id(),
+            threads: Vec::new(),
+            is_refused: false,
+            terminal_reads: vec![TERMINAL_DESCRIPTOR],
+            epoll_sets: Vec::new(),
+            holds_other_wait_source: false,
+        };
+
+        let reads = select_reads_terminal(&process, 0x7fff_ffff, set as u64);
+        // SAFETY: the first page is still mapped and nothing points into it any more.
+        unsafe { libc::munmap(pages, page) };
+
+        assert!(reads.expect("the set is read"));
     }
 }

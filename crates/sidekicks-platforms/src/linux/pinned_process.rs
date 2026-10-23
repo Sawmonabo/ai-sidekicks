@@ -21,8 +21,10 @@ use crate::posix::process::group::signal_group;
 use crate::posix::process::id::system_process_id;
 use crate::posix::process::stop::{stop_pinned_process, wait_for_event};
 
-// The stat file's fields holding the process's group and session.
-const GROUP_FIELD: usize = 5;
+/// The stat file's field holding the process's group.
+pub(crate) const GROUP_FIELD: usize = 5;
+
+// The stat file's field holding the process's session.
 const SESSION_FIELD: usize = 6;
 
 // The stat file's field holding the process's start, in clock ticks since boot.

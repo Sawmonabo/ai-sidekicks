@@ -49,7 +49,9 @@
               `GetNamedPipeClientProcessId`), the Windows stop request's hidden window \
               (`RegisterClassExW`, `CreateWindowExW` and its message loop), Windows' binary \
               standard streams (`_setmode`), macOS's input-wait reads (`proc_pidinfo`'s thread \
-              and work-loop lists, `proc_pidfdinfo`, `proc_piddynkqueueinfo`) and macOS's user \
+              and work-loop lists and BSD information, `proc_pidfdinfo`, \
+              `proc_piddynkqueueinfo`), the Linux input-wait test's page mapping (`mmap`, \
+              `munmap`) and macOS's user \
               temp folder (`confstr`) are C interfaces too"
 )]
 

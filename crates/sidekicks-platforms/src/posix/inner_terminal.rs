@@ -116,8 +116,8 @@ mod tests {
     use crate::posix::terminal::{read_terminal_master, terminal_options};
 
     // Fails when the command is not its own session's leader with the terminal as its controlling
-    // one, which leaves the terminal no foreground group, or when the device is read from the
-    // master rather than the program's side.
+    // one, which leaves the terminal no session or foreground group, or when the device is read
+    // from the master rather than the program's side.
     #[test]
     fn inner_terminal_runs_its_command_as_the_leader_of_its_own_session() {
         let options = terminal_options(
@@ -154,6 +154,7 @@ mod tests {
             .expect("the terminal's path reads");
         let reading = reading.expect("the master reads");
         assert_eq!(terminal_device(device).ok(), Some(device_read));
+        assert_eq!(reading.session_leader, child_id);
         assert_eq!(reading.foreground_group, child_id);
     }
 }
