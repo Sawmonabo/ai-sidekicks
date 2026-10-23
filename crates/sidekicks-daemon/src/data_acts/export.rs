@@ -623,7 +623,7 @@ fn write_session_files(
             Ok(_bytes) => {}
             Err(failure) if failure.kind() == io::ErrorKind::NotFound => tracing::warn!(
                 manifest = %manifest_id,
-                "An export left out a file the store no longer holds"
+                "an export left out a file the store no longer holds"
             ),
             Err(failure) => return Err(failure.into()),
         }

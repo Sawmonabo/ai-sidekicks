@@ -28,7 +28,8 @@ pub(crate) struct LongRowMatch {
 pub(crate) struct LongPhraseCounts {
     /// The live pages and edge documents the phrase matches, wherever it sits in them.
     pub(crate) matched_documents: u64,
-    /// The rows the phrase matches on a page or across a boundary.
+    /// The whole rows the phrase matches on a page or across a boundary; a row whose terminal
+    /// document has not landed adds none.
     pub(crate) matched_rows: u64,
 }
 

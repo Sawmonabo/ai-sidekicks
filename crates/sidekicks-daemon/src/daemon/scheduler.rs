@@ -458,7 +458,7 @@ impl SchedulerShared {
                 tracing::error!(
                     job,
                     error = &source as &(dyn Error + 'static),
-                    "The wall-clock timer could not be armed for the job's latest moment, so it \
+                    "the wall-clock timer could not be armed for the job's latest moment, so it \
                      waits for no run to be live"
                 );
                 continue;

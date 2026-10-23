@@ -69,7 +69,7 @@ pub(crate) fn install_panic_hook(data_folder: &Path, log_file: Option<ArcFileLog
         {
             tracing::error!(
                 error = &error as &(dyn std::error::Error + 'static),
-                "The panic's record could not be sent to the crash monitor"
+                "the panic's record could not be sent to the crash monitor"
             );
         }
         if let Err(error) = write_crash_record(&crash_reports, &report) {

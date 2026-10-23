@@ -58,7 +58,7 @@ pub(crate) async fn keep_machine_awake(deps: KeepAwakeDeps) {
                     Err(refusal) => tracing::warn!(
                         ?purpose,
                         error = &refusal as &(dyn Error + 'static),
-                        "The system refused to keep the machine awake; the hold is tried again \
+                        "the system refused to keep the machine awake; the hold is tried again \
                          at the next change"
                     ),
                 }

@@ -29,7 +29,7 @@ use crate::daemon::backup::mirror::{
 };
 use crate::daemon::data_folder::data_folder;
 use crate::daemon::data_folder_lock::{DataFolderLock, DataFolderLockError};
-use crate::daemon::release_version::build_release_version;
+use crate::daemon::release_version::this_build_release_version;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME, open_database,
@@ -172,7 +172,7 @@ pub fn run_database_restore(arguments: &[OsString]) -> ExitCode {
 // The mode's own start: this build's service version, the one each backup's manifest names for
 // its own, and the home folder, handed to the restore.
 fn restore_from_home(backup_folder: &Path) -> Result<(), RestoreError> {
-    let service_version = build_release_version();
+    let service_version = this_build_release_version();
     let home = std::env::home_dir().ok_or(RestoreError::NoHome)?;
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
