@@ -30,6 +30,7 @@ use crate::provider::driver::codex::service::supervisor::test_service::{
 use crate::provider::driver::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceDependencies,
 };
+use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::provider::spawned_version::ResolvedProviderExecutable;
@@ -97,7 +98,7 @@ impl CodexServiceEvents for ExitsHeard {
         let _heard = self.recoveries.send(());
     }
 
-    fn crash_loop(&self, _service: &Arc<CodexService>) {}
+    fn crash_loop(&self, _service: &Arc<CodexService>, _start_failure: Option<Arc<CodexError>>) {}
 
     fn rate_limits_observed(&self, _service: &Arc<CodexService>) {}
 

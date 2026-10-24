@@ -11,12 +11,10 @@ use futures::FutureExt as _;
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
-use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::controls::methods::{SessionMode, SessionReviewTarget};
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::policy::execution_posture_service::compose_execution_posture;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::app_server_protocol::{
     ReviewStartParams, ReviewTarget, ThreadApproveGuardianDeniedActionParams, ThreadResumeParams,
@@ -81,37 +79,20 @@ pub(crate) async fn update_codex_session_mode(
     Ok(())
 }
 
-/// Moves `record`'s conversation to `params.level` from its next turn through
-/// `thread/settings/update`, its profile noted as asked for first; the record then runs at the
-/// level, and owes a fork onto the level's config where that changed, since only a fork carries it.
-/// Fails as the request fails, the level left as it was.
+/// Moves `record`'s conversation to the level of `params.execution_posture` from its next turn
+/// through `thread/settings/update`, its profile noted as asked for first; the record then runs at
+/// that posture as handed in, and owes a fork onto the level's config where that changed, since
+/// only a fork carries it. Fails as the request fails, the level left as it was.
 pub(crate) async fn move_codex_permission_level(
     record: &mut CodexSessionRecord,
     config_forks: &Arc<CodexConfigForks>,
     params: &UpdatePermissionLevelParams,
 ) -> Result<(), CodexError> {
+    let level = params.execution_posture.permission_level();
     let folders = &record.thread_settings.profile_folders;
-    let posture = compose_codex_level_settings(params.level, folders);
-    // The daemon composes the posture it moves to in the session's repository, whose git folder
-    // is the one root Sandboxed names.
-    let git_folder = params
-        .writable_roots
-        .first()
-        .or(folders.git_common_folder.as_ref())
-        .unwrap_or(&folders.working_directory);
-    let git_folder =
-        FilesystemPath::new(git_folder.to_string_lossy().into_owned()).map_err(|refusal| {
-            CodexError::DriverConfig {
-                field: "working folder".to_owned(),
-                detail: format!(
-                    "{} is no folder a posture names: {refusal}",
-                    git_folder.display()
-                ),
-                cause: None,
-            }
-        })?;
+    let posture = compose_codex_level_settings(level, folders);
     let config_before = compose_codex_level_config(record.thread_settings.level, folders);
-    let config_after = compose_codex_level_config(params.level, folders);
+    let config_after = compose_codex_level_config(level, folders);
     record.permission_profiles.note_asked(&posture.permissions);
     record
         .service
@@ -130,8 +111,8 @@ pub(crate) async fn move_codex_permission_level(
         .await?;
     // A resume after a crash sends the level the record holds, and a turn the daemon starts runs
     // at its posture.
-    record.thread_settings.level = params.level;
-    record.execution_posture = compose_execution_posture(params.level, git_folder);
+    record.thread_settings.level = level;
+    record.execution_posture = params.execution_posture.clone();
     if config_before != config_after {
         config_forks.owe(record);
     }
@@ -383,11 +364,61 @@ mod tests {
 
     use serde_json::json;
     use serde_json::value::RawValue;
+    use sidekicks_contracts::free_form_string::FilesystemPath;
+    use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
+    use sidekicks_contracts::session::controls::methods::PermissionLevel;
 
-    use super::CodexSessionControls;
+    use super::{CodexSessionControls, move_codex_permission_level};
+    use crate::policy::execution_posture_service::compose_execution_posture;
     use crate::provider::driver::codex::session::test_session::{TEST_THREAD, TestCodexSession};
     use crate::provider::driver::run_control::OverrideDenialParams;
+    use crate::provider::driver::session_control::UpdatePermissionLevelParams;
     use crate::provider::driver::test_registry::new_run_id;
+
+    // Kills: the move recomposing the posture from its level, which opens Sandboxed to the
+    // repository's folder alone and drops the second root the caller composed.
+    #[tokio::test]
+    async fn a_level_move_runs_at_exactly_the_posture_handed_in() {
+        let mut session = TestCodexSession::start().await;
+        let path = |text: &str| FilesystemPath::new(text.to_owned()).expect("a test path");
+        let composed =
+            compose_execution_posture(PermissionLevel::Sandboxed, path("/work/repository"));
+        let handed = ExecutionPosture::Sandboxed {
+            credential_policy_ref: composed.credential_policy_ref().clone(),
+            writable_roots: vec![path("/work/repository"), path("/work/shared")],
+        };
+        let params = UpdatePermissionLevelParams {
+            session_id: session.task.record.session_id,
+            execution_posture: handed.clone(),
+        };
+        let config_forks = Arc::clone(&session.task.calls.runs.config_forks);
+        let record = &mut session.task.record;
+        let script = &mut session.scripted.script;
+        let service = async {
+            let update = script.next_sent().await;
+            assert_eq!(update["method"], "thread/settings/update");
+            assert_eq!(update["params"]["threadId"], TEST_THREAD);
+            script.answer(&update, &json!({}));
+        };
+        let (moved, ()) = tokio::time::timeout(
+            Duration::from_secs(10),
+            Box::pin(async {
+                tokio::join!(
+                    move_codex_permission_level(record, &config_forks, &params),
+                    service
+                )
+            }),
+        )
+        .await
+        .expect("the move settles");
+        moved.expect("Codex takes the move");
+
+        assert_eq!(session.task.record.execution_posture, handed);
+        assert_eq!(
+            session.task.record.thread_settings.level,
+            PermissionLevel::Sandboxed
+        );
+    }
 
     // Kills: the resume dropped, which Codex answers with "thread not found"; and `Allow once` on
     // the session's idle conversation opened as a run waiting for a turn Codex never starts, since

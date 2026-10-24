@@ -184,7 +184,8 @@ pub enum ProviderWarningSource {
 }
 
 /// Every `session.notice.posted` kind but `settingsIgnored`, each drawn as one plain sentence. A
-/// crash loop names exactly one of the exit code and the signal its process ended on.
+/// crash loop names exactly one of the exit code and the signal its process ended on, and the
+/// failure of its last restart where no ending was read.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "kind",
@@ -194,7 +195,7 @@ pub enum ProviderWarningSource {
 )]
 #[schemars(inline)]
 #[garde(allow_unvalidated)]
-#[garde(custom(|notice: &Self, (): &()| notice.names_one_crash_loop_ending()))]
+#[garde(custom(|notice: &Self, (): &()| notice.names_one_crash_loop_cause()))]
 pub enum SessionNotice {
     /// The conversation was reopened to take new definitions.
     ConversationReloaded {
@@ -273,9 +274,13 @@ pub enum SessionNotice {
         provider: ProviderId,
     },
     /// The provider process ended on its own too many times in a short window and the daemon
-    /// stopped restarting it, with the exit code or the signal it ended on, exactly one of them;
-    /// drawn as a banner.
-    #[schemars(extend("oneOf" = [{ "required": ["exitCode"] }, { "required": ["signal"] }]))]
+    /// stopped restarting it, with the exit code or the signal it ended on, or, where the daemon
+    /// read no ending, the failure its last restart gave, exactly one of them; drawn as a banner.
+    #[schemars(extend("oneOf" = [
+        { "required": ["exitCode"] },
+        { "required": ["signal"] },
+        { "required": ["startFailure"] },
+    ]))]
     ProviderCrashLoop {
         /// The session.
         session_id: SessionId,
@@ -297,6 +302,14 @@ pub enum SessionNotice {
         )]
         #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
         signal: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+        /// The failure its last restart gave, word for word, where no ending was read.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
+        start_failure: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
     },
     /// The provider says fast output is not on for the run that asked for it, with its own reason
     /// when it sent one.
@@ -363,19 +376,27 @@ pub enum SessionNotice {
 }
 
 impl SessionNotice {
-    /// Holds a crash loop to exactly one of the exit code and the signal its process ended on;
-    /// every other kind names neither.
-    fn names_one_crash_loop_ending(&self) -> garde::Result {
+    /// Holds a crash loop to exactly one cause: the exit code or the signal its process ended on,
+    /// or its last restart's failure; every other kind names none.
+    fn names_one_crash_loop_cause(&self) -> garde::Result {
         match self {
             Self::ProviderCrashLoop {
-                exit_code, signal, ..
+                exit_code,
+                signal,
+                start_failure,
+                ..
             } => {
-                if exit_code.is_some() == signal.is_some() {
-                    Err(garde::Error::new(
-                        "a crash loop names exactly one of exitCode and signal",
-                    ))
-                } else {
+                let named = [
+                    exit_code.is_some(),
+                    signal.is_some(),
+                    start_failure.is_some(),
+                ];
+                if named.iter().filter(|is_named| **is_named).count() == 1 {
                     Ok(())
+                } else {
+                    Err(garde::Error::new(
+                        "a crash loop names exactly one of exitCode, signal and startFailure",
+                    ))
                 }
             }
             Self::ConversationReloaded { .. }

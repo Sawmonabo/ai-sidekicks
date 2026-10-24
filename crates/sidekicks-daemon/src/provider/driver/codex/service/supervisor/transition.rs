@@ -274,12 +274,14 @@ impl Supervision {
     }
 
     // The process ended on its own at `at`: a restart after the crash window's wait, or the
-    // crash loop that leaves it down; a replaced service is never restarted and its record goes.
-    // With no `at`, a lasting service a former daemon started whose end the daemon could not
-    // read, it starts again at once and no crash is counted, since a crash loop names its end.
+    // crash loop that leaves it down, reported with `start_failure` where the crash was a restart
+    // that failed; a replaced service is never restarted and its record goes. With no `at`, a
+    // lasting service a former daemon started whose end the daemon could not read, it starts
+    // again at once and no crash is counted, since a crash loop names its end.
     fn crash(
         &mut self,
         at: Option<SystemTime>,
+        start_failure: Option<Arc<CodexError>>,
         mut actions: Vec<SupervisorAction>,
     ) -> (SupervisorState, Vec<SupervisorAction>) {
         actions.push(SupervisorAction::ReportProcessExited);
@@ -301,7 +303,7 @@ impl Supervision {
                 (SupervisorState::Restarting { wait: ticket }, actions)
             }
             CrashOutcome::CrashLoop => {
-                actions.push(SupervisorAction::ReportCrashLoop);
+                actions.push(SupervisorAction::ReportCrashLoop(start_failure));
                 actions.push(SupervisorAction::Publish(
                     CodexServiceAvailability::CrashLoop,
                 ));
@@ -324,8 +326,8 @@ impl Supervision {
             recovery,
             Some(CodexServiceRecoveryCause::Crash | CodexServiceRecoveryCause::PersonRestart)
         ) {
-            actions.push(SupervisorAction::ReportStartFailed(failure));
-            return self.crash(Some(at), actions);
+            actions.push(SupervisorAction::ReportStartFailed(Arc::clone(&failure)));
+            return self.crash(Some(at), Some(failure), actions);
         }
         actions.push(SupervisorAction::Publish(
             CodexServiceAvailability::StartFailed(failure),
@@ -587,6 +589,7 @@ impl Supervision {
             ) if dropped == dial => match process_gone_at {
                 Some(_) if self.kind.is_daemons_own() => self.crash(
                     None,
+                    None,
                     vec![Action::Disconnect {
                         is_process_gone: true,
                     }],
@@ -610,6 +613,7 @@ impl Supervision {
             {
                 self.crash(
                     Some(at),
+                    None,
                     vec![Action::Disconnect {
                         is_process_gone: true,
                     }],
@@ -722,6 +726,7 @@ impl Supervision {
             ) if failed == dial => match (self.kind, process_gone_at) {
                 (CodexServiceKind::Account | CodexServiceKind::Terminal, Some(_)) => self.crash(
                     None,
+                    None,
                     vec![Action::Disconnect {
                         is_process_gone: true,
                     }],
@@ -746,6 +751,7 @@ impl Supervision {
             {
                 self.crash(
                     Some(at),
+                    None,
                     vec![
                         Action::CancelPending,
                         Action::Disconnect {

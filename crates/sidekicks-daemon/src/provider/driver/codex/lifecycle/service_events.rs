@@ -13,6 +13,7 @@ use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::service::supervisor::events::{
     CodexServiceEvents, CodexServiceRecoveryCause,
 };
+use crate::provider::driver::codex::session::errors::CodexError;
 
 /// The service events of every service the driver dials, acted on through the composed pieces.
 pub(crate) struct CodexDriverServiceEvents {
@@ -59,9 +60,12 @@ impl CodexServiceEvents for CodexDriverServiceEvents {
         });
     }
 
-    fn crash_loop(&self, service: &Arc<CodexService>) {
+    fn crash_loop(&self, service: &Arc<CodexService>, start_failure: Option<Arc<CodexError>>) {
         self.spawn(service, "crash loop", |parts, service| async move {
-            parts.recovery.crash_loop(&service).await;
+            parts
+                .recovery
+                .crash_loop(&service, start_failure.as_deref())
+                .await;
         });
     }
 

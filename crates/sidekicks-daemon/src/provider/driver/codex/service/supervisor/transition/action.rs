@@ -87,8 +87,9 @@ pub(crate) enum SupervisorAction {
     ReportRecovered(CodexServiceRecoveryCause),
     /// Tells the session's recovery the process ended on its own.
     ReportProcessExited,
-    /// Reports the crash loop, which leaves the service down.
-    ReportCrashLoop,
+    /// Reports the crash loop, which leaves the service down, with the failure of the restart
+    /// that filled the crash window where a failed restart did.
+    ReportCrashLoop(Option<Arc<CodexError>>),
     /// Retires the record of a service another took the place of once its process ended: what
     /// that process left is ended and the record removed, since nothing restarts it.
     RetireRecord,

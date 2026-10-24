@@ -289,19 +289,14 @@ impl ProviderSessions {
                 .map_err(|cause| ProviderSessionError::LevelNotStored { session_id, cause });
         };
         let posture = compose_execution_posture(level, opened.git_folder.clone());
-        self.move_process(&opened.provider, session_id, level, &posture)
+        self.move_process(&opened.provider, session_id, &posture)
             .await?;
         self.set_posture(session_id, posture);
         let Err(stored_error) = self.record_level(session_id, level).await else {
             return Ok(());
         };
         let moved_back = self
-            .move_process(
-                &opened.provider,
-                session_id,
-                stored,
-                &opened.execution_posture,
-            )
+            .move_process(&opened.provider, session_id, &opened.execution_posture)
             .await;
         match moved_back {
             Ok(()) => {
@@ -573,19 +568,13 @@ impl ProviderSessions {
         &self,
         provider: &ProviderId,
         session_id: SessionId,
-        level: PermissionLevel,
         posture: &ExecutionPosture,
     ) -> Result<(), ProviderSessionError> {
         let driver = self.deps.providers.lookup(provider)?;
         driver
             .update_permission_level(UpdatePermissionLevelParams {
                 session_id,
-                level,
-                writable_roots: posture
-                    .writable_roots()
-                    .iter()
-                    .map(|root| PathBuf::from(root.as_str()))
-                    .collect(),
+                execution_posture: posture.clone(),
             })
             .await?;
         Ok(())
