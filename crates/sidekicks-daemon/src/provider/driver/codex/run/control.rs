@@ -105,9 +105,11 @@ impl CodexRunControl {
     }
 
     /// Interrupts the run's live turn and answers the steers Codex dropped. A retry in flight is
-    /// stopped instead, the commands its held turn left running ended; a turn start in flight is
-    /// withdrawn, its turn interrupted once Codex names it. A run with no turn in flight answers
-    /// at once with nothing sent. Fails as [`interrupt_codex_run`] does.
+    /// stopped instead, the commands its held turn left running ended, and answers no steers,
+    /// since that turn's end gave its dropped steers back to the queue; a retry whose new turn
+    /// already runs is interrupted as that live turn. A turn start in flight is withdrawn, its
+    /// turn interrupted once Codex names it. A run with no turn in flight answers at once with
+    /// nothing sent. Fails as [`interrupt_codex_run`] does.
     pub(crate) async fn interrupt_run(
         &self,
         run_id: RunId,
