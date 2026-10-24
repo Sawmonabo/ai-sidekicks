@@ -3,18 +3,20 @@
 //! reader's threads wait through Apple's `sample`, since macOS copies a thread's wait reason out to
 //! no other process. A thread's run state only rules a wait out; it never shows one.
 
-use std::io::{self, ErrorKind, Read, Seek};
-use std::process::{Command, Output, Stdio};
+use std::io::{self, ErrorKind};
+use std::process::{Output, Stdio};
 use std::sync::OnceLock;
 
 use libc::{c_int, c_void};
+use tokio::process::Command;
 
 use crate::input_wait::{InputTerminal, InputWaitReading};
-use crate::macos::pinned_process::ExitWatch;
 use crate::macos::processes::{
     list_group_process_ids, read_counted_list, read_libproc_count, read_pid_list,
 };
+use crate::posix::child_command::prepare_child_command;
 use crate::posix::process::id::system_process_id;
+use crate::spawner::Spawner;
 use crate::terminal::{HELPER_PROGRAM_TIME_LIMIT, TerminalDevice};
 
 // `<sys/proc_info.h>`'s flavors and flags `libc` does not bind, and the private ones Apple's own
@@ -145,13 +147,17 @@ unsafe extern "C" {
 }
 
 /// Whether the terminal's foreground group waits on `terminal`'s input, takes input, and has echo
-/// off, blocking about a tenth of a second per process holding the terminal for reading; a read on
-/// a blocking character device other than the terminal, or on a descriptor kind the read skips
-/// (`FSEVENTS`, `NETPOLICY`, `CHANNEL`, `NEXUS`, `PSHM`, `PSEM`), still reads as a wait on it.
+/// off, with `sample` and `ps` started on `spawner`'s thread, about a tenth of a second per process
+/// holding the terminal for reading; a read on a blocking character device other than the
+/// terminal, or on a descriptor kind the read skips (`FSEVENTS`, `NETPOLICY`, `CHANNEL`, `NEXUS`,
+/// `PSHM`, `PSEM`), still reads as a wait on it.
 /// Fails with the system's error when a read is refused for a process this user may read, with
 /// `sample`'s or `ps`'s own error text when either fails on a process still there, `TimedOut` when
 /// either runs past its time limit, and `InvalidData` when `sample`'s report has no call graph.
-pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading> {
+pub async fn read_input_wait(
+    spawner: &Spawner,
+    terminal: &InputTerminal,
+) -> io::Result<InputWaitReading> {
     // After the reads `may_wait_for_input` makes, `sample` shows where each reader's threads wait:
     // on the terminal in a read while the process holds no socket, no FIFO open for reading and no
     // pipe a reader sleeps on, or in a `kevent` while it holds a read knote on the terminal; or in
@@ -160,12 +166,12 @@ pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading>
     // terminal is set as a password prompt, nothing is queued and `ps` shows a member left and none
     // running or stopped, as a stopped thread reads nothing until it is continued, whatever call it
     // stopped in. A reader that ends before `sample` reads it does not wait.
-    let survey = survey_group(terminal)?;
+    let survey = survey_group(spawner, terminal).await?;
     let mut is_waiting = matches!(survey.wait, GroupWait::Password);
     let mut is_waiting_in_select = false;
     if let GroupWait::Readers(readers) = &survey.wait {
         for reader in readers {
-            match reader_waits(reader)? {
+            match reader_waits(spawner, reader).await? {
                 ReaderWait::OnTerminal => {
                     is_waiting = true;
                     break;
@@ -186,10 +192,13 @@ pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading>
 
 /// Whether the terminal's foreground group may wait on `terminal`'s input, read without `sample`:
 /// no input is queued, no thread of the group runs or is stopped, and a process of it holds the
-/// terminal for reading, or a group macOS refuses to show waits on a password. Blocks on the reads;
-/// fails with the system's error when a read is refused for a process this user may read.
-pub fn may_wait_for_input(terminal: &InputTerminal) -> io::Result<bool> {
-    Ok(!matches!(survey_group(terminal)?.wait, GroupWait::RuledOut))
+/// terminal for reading, or a group macOS refuses to show waits on a password, `ps` started on
+/// `spawner`'s thread for such a group. Blocks on the reads; fails as [`read_input_wait`] does.
+pub async fn may_wait_for_input(spawner: &Spawner, terminal: &InputTerminal) -> io::Result<bool> {
+    Ok(!matches!(
+        survey_group(spawner, terminal).await?.wait,
+        GroupWait::RuledOut
+    ))
 }
 
 // What the reads without `sample` show of the foreground group.
@@ -250,7 +259,7 @@ enum ProcessSurvey {
 }
 
 // The reads without `sample` of the terminal's foreground group.
-fn survey_group(terminal: &InputTerminal) -> io::Result<GroupSurvey> {
+async fn survey_group(spawner: &Spawner, terminal: &InputTerminal) -> io::Result<GroupSurvey> {
     let mut readers = Vec::new();
     let mut refused = Vec::new();
     let mut is_running_or_stopped = false;
@@ -287,7 +296,7 @@ fn survey_group(terminal: &InputTerminal) -> io::Result<GroupSurvey> {
     }
     let is_password_wait = !refused.is_empty()
         && terminal.master.is_password_prompt()
-        && is_any_running_or_stopped_by_ps(&refused)? == Some(false);
+        && is_any_running_or_stopped_by_ps(spawner, &refused).await? == Some(false);
     Ok(GroupSurvey {
         accepts_input: is_password_wait,
         wait: if is_password_wait {
@@ -457,16 +466,18 @@ fn is_any_thread_running_or_stopped(pid: c_int) -> io::Result<bool> {
 // Whether `ps`, which runs as root, shows any of `process_ids` running or stopped; `None` when it
 // shows none of them, since every one ended. `ps` exits 1 when any is missing and still lists the
 // rest.
-fn is_any_running_or_stopped_by_ps(process_ids: &[u32]) -> io::Result<Option<bool>> {
+async fn is_any_running_or_stopped_by_ps(
+    spawner: &Spawner,
+    process_ids: &[u32],
+) -> io::Result<Option<bool>> {
     let listed = process_ids
         .iter()
         .map(u32::to_string)
         .collect::<Vec<_>>()
         .join(",");
-    let output = run_within_time_limit(
-        "ps",
-        Command::new(PS_PROGRAM).args(["-o", "stat=", "-p", &listed]),
-    )?;
+    let mut command = Command::new(PS_PROGRAM);
+    command.args(["-o", "stat=", "-p", &listed]);
+    let output = run_helper_program(spawner, "ps", command).await?;
     let states = String::from_utf8_lossy(&output.stdout);
     match output.status.code() {
         Some(0 | PS_ANY_MISSING_STATUS) => {}
@@ -492,8 +503,8 @@ enum ReaderWait {
 
 // Where the threads of `reader` wait, read through `sample`; a reader that ended before `sample`
 // read it waits on nothing.
-fn reader_waits(reader: &Reader) -> io::Result<ReaderWait> {
-    let Some(innermost_calls) = sample_innermost_calls(reader.process_id)? else {
+async fn reader_waits(spawner: &Spawner, reader: &Reader) -> io::Result<ReaderWait> {
+    let Some(innermost_calls) = sample_innermost_calls(spawner, reader.process_id).await? else {
         return Ok(ReaderWait::Elsewhere);
     };
     let is_wait_in = |calls_named: &[&str]| {
@@ -601,18 +612,20 @@ fn read_fd_info<T>(pid: c_int, descriptor: c_int, flavor: c_int) -> io::Result<O
 
 // The innermost calls of each thread of process `process_id`, as one `sample` shows them; `None`
 // when `sample` fails because the process ended.
-fn sample_innermost_calls(process_id: u32) -> io::Result<Option<Vec<Vec<String>>>> {
-    let output = run_within_time_limit(
-        "sample",
-        Command::new(SAMPLE_PROGRAM).args([
-            &process_id.to_string(),
-            SAMPLE_SECONDS,
-            SAMPLE_INTERVAL_MILLISECONDS,
-            // Written to standard output alone, so no report is left in the temporary folder.
-            "-file",
-            "/dev/stdout",
-        ]),
-    )?;
+async fn sample_innermost_calls(
+    spawner: &Spawner,
+    process_id: u32,
+) -> io::Result<Option<Vec<Vec<String>>>> {
+    let mut command = Command::new(SAMPLE_PROGRAM);
+    command.args([
+        &process_id.to_string(),
+        SAMPLE_SECONDS,
+        SAMPLE_INTERVAL_MILLISECONDS,
+        // Written to standard output alone, so no report is left in the temporary folder.
+        "-file",
+        "/dev/stdout",
+    ]);
+    let output = run_helper_program(spawner, "sample", command).await?;
     if !output.status.success() {
         let pid = system_process_id(process_id)?.get();
         if is_gone(pid)? {
@@ -631,38 +644,29 @@ fn is_gone(pid: c_int) -> io::Result<bool> {
     }
 }
 
-// Runs `command`, the program named `program`, to its end within `HELPER_PROGRAM_TIME_LIMIT`, its
-// output kept in unnamed files so a long report never fills a pipe no one reads while it waits; a
-// run past the limit is killed and reaped and fails with `TimedOut` naming `program`.
-fn run_within_time_limit(program: &str, command: &mut Command) -> io::Result<Output> {
-    let mut stdout = tempfile::tempfile()?;
-    let mut stderr = tempfile::tempfile()?;
-    let mut child = command
+// Runs `command`, the helper program named `program`, started on `spawner`'s thread as a child
+// of the daemon, to its end within `HELPER_PROGRAM_TIME_LIMIT`, its output read as it runs; a run
+// past the limit is killed as its child drops and fails with `TimedOut` naming `program`.
+async fn run_helper_program(
+    spawner: &Spawner,
+    program: &str,
+    mut command: Command,
+) -> io::Result<Output> {
+    command
         .stdin(Stdio::null())
-        .stdout(stdout.try_clone()?)
-        .stderr(stderr.try_clone()?)
-        .spawn()?;
-    let has_ended =
-        ExitWatch::attach(child.id()).and_then(|exit| exit.wait(HELPER_PROGRAM_TIME_LIMIT));
-    if !matches!(has_ended, Ok(true)) {
-        child.kill()?;
-        child.wait()?;
-        has_ended?;
-        return Err(io::Error::new(
-            ErrorKind::TimedOut,
-            format!("{program} ran past its {HELPER_PROGRAM_TIME_LIMIT:?} limit"),
-        ));
-    }
-    let mut output = Output {
-        status: child.wait()?,
-        stdout: Vec::new(),
-        stderr: Vec::new(),
-    };
-    stdout.rewind()?;
-    stdout.read_to_end(&mut output.stdout)?;
-    stderr.rewind()?;
-    stderr.read_to_end(&mut output.stderr)?;
-    Ok(output)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    prepare_child_command(&mut command, std::process::id());
+    let child = spawner.run(move || command.spawn()).await??;
+    tokio::time::timeout(HELPER_PROGRAM_TIME_LIMIT, child.wait_with_output())
+        .await
+        .map_err(|_elapsed| {
+            io::Error::new(
+                ErrorKind::TimedOut,
+                format!("{program} ran past its {HELPER_PROGRAM_TIME_LIMIT:?} limit"),
+            )
+        })?
 }
 
 // A program's failure on `processes`, with its status and the error text it wrote.

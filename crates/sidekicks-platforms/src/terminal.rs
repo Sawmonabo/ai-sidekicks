@@ -10,8 +10,9 @@ use std::time::Duration;
 use alacritty_terminal::tty::Pty;
 use polling::Poller;
 
-/// How long a helper program the terminals start (`taskkill.exe`, the console helper) may run, and
-/// how long an outright end of a process tree is waited for before its exit is reported anyway.
+/// How long a helper program the terminals start (`taskkill.exe`, the console helper, and on macOS
+/// the input wait's `sample` and `ps`) may run, and how long an outright end of a process tree is
+/// waited for before its exit is reported anyway.
 pub const HELPER_PROGRAM_TIME_LIMIT: Duration = Duration::from_secs(5);
 
 /// A signal the daemon sends a shell's program, named as POSIX names it.

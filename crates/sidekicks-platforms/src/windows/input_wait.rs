@@ -5,6 +5,7 @@
 use std::io::{self, ErrorKind};
 
 use crate::input_wait::{InputTerminal, InputWaitReading};
+use crate::spawner::Spawner;
 use crate::terminal::ConsoleReading;
 
 impl From<&ConsoleReading> for InputWaitReading {
@@ -26,13 +27,16 @@ impl From<&ConsoleReading> for InputWaitReading {
 
 /// Reads a wait from a terminal's master, which a console does not have: its wait is the console
 /// helper's [`ConsoleReading`] instead. Always fails with `Unsupported`.
-pub fn read_input_wait(_terminal: &InputTerminal) -> io::Result<InputWaitReading> {
+pub async fn read_input_wait(
+    _spawner: &Spawner,
+    _terminal: &InputTerminal,
+) -> io::Result<InputWaitReading> {
     Err(console_read_only())
 }
 
 /// Checks a wait on a terminal's master, which a console does not have. Always fails with
 /// `Unsupported`.
-pub fn may_wait_for_input(_terminal: &InputTerminal) -> io::Result<bool> {
+pub async fn may_wait_for_input(_spawner: &Spawner, _terminal: &InputTerminal) -> io::Result<bool> {
     Err(console_read_only())
 }
 

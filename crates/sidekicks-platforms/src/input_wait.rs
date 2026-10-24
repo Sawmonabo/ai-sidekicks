@@ -59,6 +59,7 @@ mod tests {
     };
     use crate::posix::terminal::{read_terminal_master, terminal_options};
     use crate::read_input_wait;
+    use crate::spawner::Spawner;
     use crate::terminal::InnerTerminal;
 
     // How long after its prompt a waiting command must read as waiting, and how long a command
@@ -186,7 +187,8 @@ mod tests {
         Act::Nothing,
         reading(SELECT_WAIT, Echo::Off)
     )]
-    fn input_wait_reads_each_kind_of_reader(
+    #[tokio::test]
+    async fn input_wait_reads_each_kind_of_reader(
         #[case] script: &str,
         #[case] marker: &str,
         #[case] act: Act,
@@ -202,21 +204,16 @@ mod tests {
             Some(folder.path().to_path_buf()),
             HashMap::new(),
         );
+        let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
         let terminal =
             start_inner_terminal(&options, TEST_WINDOW_SIZE).expect("the terminal starts");
         let prompt = read_until_marker(&terminal.pty, marker, Duration::from_secs(20));
         let acting = prompt.is_ok().then(|| act.apply(&terminal));
         let is_marked = expected.is_waiting || expected.is_waiting_in_select;
         if prompt.is_ok() && !is_marked {
-            thread::sleep(SETTLE);
+            tokio::time::sleep(SETTLE).await;
         }
         let peer_failure_noted = Once::new();
-        let read = || {
-            read_input_wait(&InputTerminal {
-                device: terminal.device,
-                master: read_terminal_master(&terminal.pty, &peer_failure_noted)?,
-            })
-        };
         // A waiting command is read until it reads as waiting; one that waits on nothing is read
         // across the whole bound, and must never read as waiting.
         let window_start = Instant::now();
@@ -231,7 +228,13 @@ mod tests {
                 .read(&mut output)
                 .is_ok_and(|count| count > 0)
             {}
-            let reading = read();
+            let reading = match read_terminal_master(&terminal.pty, &peer_failure_noted) {
+                Ok(master) => {
+                    let device = terminal.device;
+                    read_input_wait(&spawner, &InputTerminal { device, master }).await
+                }
+                Err(error) => Err(error),
+            };
             let is_settled = reading
                 .as_ref()
                 .map_or(true, |reading| is_marked && *reading == expected);
@@ -239,7 +242,7 @@ mod tests {
             if is_settled || window_start.elapsed() >= WAIT_BOUND {
                 break;
             }
-            thread::sleep(Duration::from_millis(5));
+            tokio::time::sleep(Duration::from_millis(5)).await;
         }
         end_inner_terminal(terminal);
 

@@ -466,14 +466,14 @@ pub fn pin_child_process(id: u32) -> io::Result<PinnedProcess> {
 
 /// A `kqueue` exit filter on one process, or nothing to watch when the process was already
 /// exiting as the filter was attached.
-pub(crate) struct ExitWatch {
+struct ExitWatch {
     poller: Option<Poller>,
 }
 
 impl ExitWatch {
     /// Attaches the exit filter to process `id`. Fails with `InvalidInput` for an id of 0 or past
     /// `i32::MAX`, else with the system's error.
-    pub(crate) fn attach(id: u32) -> io::Result<Self> {
+    fn attach(id: u32) -> io::Result<Self> {
         let raw_pid = system_process_id(id)?;
         let poller = Poller::new()?;
         // SAFETY: the kernel's exit filter watches any process this user runs, not only a child;
@@ -492,7 +492,7 @@ impl ExitWatch {
 
     /// Waits up to `bound` for the process's exit; answers whether it came. The one-shot filter
     /// posts once, so a wait follows only waits that answered `false`.
-    pub(crate) fn wait(&self, bound: Duration) -> io::Result<bool> {
+    fn wait(&self, bound: Duration) -> io::Result<bool> {
         let Some(poller) = &self.poller else {
             return Ok(true);
         };

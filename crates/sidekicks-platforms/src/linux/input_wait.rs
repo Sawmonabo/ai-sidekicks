@@ -15,6 +15,7 @@ use crate::input_wait::{InputTerminal, InputWaitReading};
 use crate::linux::pinned_process::{GROUP_FIELD, SESSION_FIELD};
 use crate::linux::{read_process_file, read_process_stat_fields};
 use crate::posix::terminal::read_queued_bytes;
+use crate::spawner::Spawner;
 use crate::terminal::TerminalDevice;
 
 // The fields of a `stat` file, numbered as proc(5) numbers them, that hold a process's or a
@@ -47,10 +48,14 @@ static WEAKER_READING_NOTED: Once = Once::new();
 static IS_CHILDREN_LISTED: OnceLock<bool> = OnceLock::new();
 
 /// Whether the terminal's foreground group waits on `terminal`'s input, takes input, and has echo
-/// off, read from `/proc`; a process or thread that ends during the reads is left out. Fails with
-/// the system's error when `/proc` refuses a read this user may make, and with `Unsupported` on a
-/// kernel that lists no thread's children, where the group cannot be found.
-pub fn read_input_wait(terminal: &InputTerminal) -> io::Result<InputWaitReading> {
+/// off, read from `/proc` with no program started, so the spawner goes unused; a process or thread
+/// that ends during the reads is left out. Fails with the system's error when `/proc` refuses a
+/// read this user may make, and with `Unsupported` on a kernel that lists no thread's children,
+/// where the group cannot be found.
+pub async fn read_input_wait(
+    _spawner: &Spawner,
+    terminal: &InputTerminal,
+) -> io::Result<InputWaitReading> {
     // A wait needs nothing queued on the terminal (an absent count reads as not waiting), no thread
     // of the group running or stopped, and a thread blocked in `read`, `readv` or `pread64` on the
     // terminal, in an epoll wait on a set holding the terminal for input, or in `select`,
@@ -122,8 +127,8 @@ pub(crate) fn read_queued_input_bytes(master: BorrowedFd<'_>) -> io::Result<u32>
 
 /// Whether the terminal's foreground group may wait on `terminal`'s input, which on Linux is the
 /// whole reading, since no read of it is slow. Blocks and fails as [`read_input_wait`] does.
-pub fn may_wait_for_input(terminal: &InputTerminal) -> io::Result<bool> {
-    Ok(read_input_wait(terminal)?.is_waiting)
+pub async fn may_wait_for_input(spawner: &Spawner, terminal: &InputTerminal) -> io::Result<bool> {
+    Ok(read_input_wait(spawner, terminal).await?.is_waiting)
 }
 
 // What one process of the group shows.
