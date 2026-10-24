@@ -141,7 +141,8 @@ pub(crate) struct CodexServiceRecoveryDependencies {
 /// What recovery remembers between a service's events, by service.
 #[derive(Default)]
 struct RecoveryState {
-    // How each service's process last ended, which its crash loop's banner names.
+    // How each service's process last ended since it last ran again, which its crash loop's
+    // banner names.
     last_exit: HashMap<CodexServiceId, ProcessExit>,
     // The sessions each service's crash loop told it stays down, owed the person's restart notice.
     held_by_crash_loop: HashMap<CodexServiceId, HashSet<SessionId>>,
@@ -217,12 +218,14 @@ impl CodexServiceRecovery {
     /// Resumes every conversation of a service that runs again: after a crash, a reconnect or the
     /// person's restart of a crash loop. After a reconnect the conversations held for their running
     /// commands are subscribed to again first. Only the person's restart writes a notice: one
-    /// `ProviderRestarted` on each session its crash loop held that the restart brought back.
+    /// `ProviderRestarted` on each session its crash loop held that the restart brought back. The
+    /// service's remembered exit is forgotten, so a later crash loop names only its own.
     pub(crate) async fn recover(
         &self,
         service: &Arc<CodexService>,
         cause: CodexServiceRecoveryCause,
     ) {
+        self.lock().last_exit.remove(&service.id());
         if cause == CodexServiceRecoveryCause::Reconnect {
             self.dependencies.release.resubscribe_service(service).await;
         }

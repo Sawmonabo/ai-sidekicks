@@ -19,6 +19,8 @@ use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::test_session::{
     OneFolder, TEST_THREAD, TestCodexSession, fork_reply, no_turns,
 };
+use crate::provider::driver::codex::thread::settings::CodexThreadSettings;
+use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::provider::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::provider::driver::session_control::DriverResumeResult;
 use crate::provider::driver::test_registry::new_run_id;
@@ -144,6 +146,21 @@ fn restart_failure() -> CodexError {
     }
 }
 
+// Serves, as the service, every conversation it is asked to resume, with no turns on it.
+async fn serve_resumes(mut script: ScriptedService, settings: CodexThreadSettings) {
+    loop {
+        let sent = script.next_sent().await;
+        let answer = match sent["method"].as_str() {
+            Some("thread/resume") => fork_reply(TEST_THREAD, &settings),
+            Some("thread/turns/list") => no_turns(),
+            Some("thread/settings/update") => json!({}),
+            Some("account/rateLimits/read") => json!({"rateLimits": null}),
+            method => panic!("the service was not asked {method:?}"),
+        };
+        script.answer(&sent, &answer);
+    }
+}
+
 fn exit_code(code: u8) -> ProcessExit {
     serde_json::from_value(json!({"exitCode": code, "outputTail": "the service ended"}))
         .expect("the test writes an exit")
@@ -206,21 +223,7 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
         let service = Arc::clone(&session.scripted.service);
         let settings = session.task.record.thread_settings.clone();
         let session_id = session.task.record.session_id;
-        let mut script = session.scripted.script;
-        // The service resumes every conversation it is asked to, with no turns on it.
-        let service_side = tokio::spawn(async move {
-            loop {
-                let sent = script.next_sent().await;
-                let answer = match sent["method"].as_str() {
-                    Some("thread/resume") => fork_reply(TEST_THREAD, &settings),
-                    Some("thread/turns/list") => no_turns(),
-                    Some("thread/settings/update") => json!({}),
-                    Some("account/rateLimits/read") => json!({"rateLimits": null}),
-                    method => panic!("the service was not asked {method:?}"),
-                };
-                script.answer(&sent, &answer);
-            }
-        });
+        let service_side = tokio::spawn(serve_resumes(session.scripted.script, settings));
         let notices = |database: &crate::database::writer::test_file::TestDatabase| {
             database
                 .reader()
@@ -276,8 +279,8 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
 }
 
 // Killed by posting nothing for a loop of failed restarts after an end no wait read, the warning
-// it once logged instead, and by naming an ending the daemon never read. Real time under a bound,
-// since the notice is written to the database.
+// it once logged instead, and by naming an ending the daemon never read, among them one read before
+// a restart that succeeded. Real time under a bound, since the notice is written to the database.
 #[tokio::test]
 async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failure() {
     tokio::time::timeout(Duration::from_secs(30), async {
@@ -287,10 +290,18 @@ async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failur
         let recovery = test_recovery(&session, folder.path(), &steps);
         let service = Arc::clone(&session.scripted.service);
         let session_id = session.task.record.session_id;
+        let settings = session.task.record.thread_settings.clone();
+        let service_side = tokio::spawn(serve_resumes(session.scripted.script, settings));
 
         session
             .task
             .drive(async {
+                recovery
+                    .end_turns_on_exit(&service, Some(exit_code(1)))
+                    .await;
+                recovery
+                    .recover(&service, CodexServiceRecoveryCause::Crash)
+                    .await;
                 recovery.end_turns_on_exit(&service, None).await;
                 recovery
                     .crash_loop(&service, Some(&restart_failure()))
@@ -328,6 +339,7 @@ async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failur
                 true
             )]
         );
+        service_side.abort();
     })
     .await
     .expect("the crash loop is told within the bound");
