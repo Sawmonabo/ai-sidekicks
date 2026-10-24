@@ -287,7 +287,8 @@ impl CodexSideQuestions {
     /// which `resume` names with the session's settings and account: forked on the account's
     /// service, started now, over a connection of its own, and answered once Codex took its turn,
     /// its cost filed through `usage`. The copy is let go with its connection once its turn ended,
-    /// or once [`Self::forget_session`] stopped its turn. Fails as `establishment` cannot compose
+    /// or once [`Self::forget_session`] stopped it, before its turn started or after; a copy let
+    /// go before its turn answers `Ok`. Fails as `establishment` cannot compose
     /// the settings or start the service, as the connection, the fork or the turn's request fails,
     /// and with `CodexError::Transport` when the copy does not run read-only.
     pub(crate) async fn ask_at_rest(
@@ -352,7 +353,8 @@ impl CodexSideQuestions {
     }
 
     /// Lets go of every copy `session_id`'s side questions still hold, once its conversation
-    /// closed: a live session's off its service, and a resting one's turn stopped on its own task.
+    /// closed: a live session's off its service, a resting one's turn stopped on its own task, and
+    /// one still forking let go as its fork ends, with no turn started.
     pub(crate) async fn forget_session(&self, session_id: SessionId) {
         lock_copy_stops(&self.copy_stops).retain(|_side_question_id, copy| {
             let is_kept = copy.session_id != session_id;
@@ -382,9 +384,9 @@ impl CodexSideQuestions {
         }
     }
 
-    /// Stops every copy not yet handed to its session's service, as the driver shuts down: a
-    /// resting one's turn is stopped on its own task and nothing is delivered, so no copy holds the
-    /// driver's tasks open.
+    /// Stops every copy still in `copy_stops`, as the driver shuts down: a resting one's turn is
+    /// stopped on its own task and nothing is delivered, and one still forking is let go, so no
+    /// copy holds the driver's tasks open.
     pub(crate) fn stop_every_copy(&self) {
         for (_side_question_id, copy) in lock_copy_stops(&self.copy_stops).drain() {
             copy.stop.cancel();
