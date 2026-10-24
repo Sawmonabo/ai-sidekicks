@@ -29,6 +29,8 @@ use crate::provider::driver::codex::notification_routing::{
     CodexRoutedFrames, CodexSessionRouting,
 };
 use crate::provider::driver::codex::output_speed::observe_codex_output_speed_frame;
+use crate::provider::driver::codex::run::control::CodexRunControl;
+use crate::provider::driver::codex::run::routes::CodexRunRoutes;
 use crate::provider::driver::codex::run::self_started_turns::open_codex_self_started_turn;
 use crate::provider::driver::codex::run::steer::{
     remember_blocked_codex_prompt, take_blocked_codex_steers, take_echoed_codex_steer,
@@ -44,20 +46,23 @@ use crate::provider::driver::codex::session::controls::{
     move_codex_permission_level, observe_codex_reasoning_effort, update_codex_session_mode,
 };
 use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::provider::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundHandler, CodexSessionInboundReceiver,
     CodexSessionInboundSender, drain_codex_session_inbound,
 };
 use crate::provider::driver::codex::session::slots::{CodexSessionLetGo, let_go_codex_session};
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::thread::permission_profiles::correct_codex_permission_profile_drift;
+use crate::provider::driver::codex::thread::permission_profiles;
 use crate::provider::driver::codex::transport::connection::{
     CodexAppServerConnection, CodexForgottenRequest, read_codex_object,
 };
 use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::ports::DriverPorts;
 use crate::provider::driver::session_control::{
     AskSideQuestionParams, UpdatePermissionLevelParams,
 };
+use crate::session::run::engine::RunEngine;
 
 /// Codex's signal that the skills it lists for a conversation changed.
 const CODEX_SKILLS_CHANGED_METHOD: &str = "skills/changed";
@@ -174,60 +179,18 @@ impl CodexSessionIntake {
             return;
         };
         let parts = &self.parts;
-        for dispatch in routed.dispatches {
-            for taken in dispatch.taken_messages {
-                let Some(message_id) =
-                    take_echoed_codex_steer(record, &taken.turn_id, &taken.client_message_id)
-                else {
-                    continue;
-                };
-                let run_id = record
-                    .active_turn_run(&taken.turn_id)
-                    .or_else(|| record.interrupted_turn_run(&taken.turn_id));
-                // Before the queue registers its intake there is no queue to tell.
-                if let (Some(run_id), Some(listener)) = (run_id, parts.ports.message_taken.port()) {
-                    listener.message_taken(self.session_id, &message_id.to_string(), run_id);
-                }
-            }
-            for blocked in dispatch.blocked_prompts {
-                if let Some(turn_id) = blocked.turn_id {
-                    remember_blocked_codex_prompt(record, &turn_id, &blocked.words);
-                } else {
-                    tracing::debug!("a blocked codex prompt names no turn");
-                }
-            }
-            for ended in dispatch.turns_ended {
-                // Before the queue registers its intake there is no queue to tell.
-                let refused = take_blocked_codex_steers(record, &ended.turn_id);
-                if let Some(listener) = parts.ports.message_refused.port() {
-                    for (message_id, words) in refused {
-                        listener.message_refused(
-                            self.session_id,
-                            &message_id.to_string(),
-                            QueueItemNotDeliveredReason::RefusedByHook { words },
-                        );
-                    }
-                }
-                if let Some(turn_end) = ended.turn_end {
-                    record_turn_end(parts, ended.run_id, turn_end).await;
-                }
-                // By turn id, never run id, so a stale end cannot retire a newer turn.
-                parts.run_routes.retire_turn_route(record, &ended.turn_id);
-                record.forget_interrupted_run(&ended.turn_id);
-                // A pause's stopped turn is let go first, so an owed fork starts here, ahead of its
-                // continue.
-                parts
-                    .run_control
-                    .observe_turn_ended(record, &ended.turn_id)
-                    .await;
-                parts.config_forks.note_turn_settled(record);
-            }
-        }
-        if let Some(usage) = parts.ports.usage.port() {
-            for delta in routed.metered_usage {
-                usage.record_metered(self.session_id, delta);
-            }
-        }
+        apply_codex_routed_frames(
+            &CodexRoutedFramesIntake {
+                ports: &parts.ports,
+                engine: &parts.engine,
+                run_routes: &parts.run_routes,
+                run_control: &parts.run_control,
+                config_forks: &parts.config_forks,
+            },
+            record,
+            routed,
+        )
+        .await;
     }
 
     // The waits each item may have answered settled, and the record's view shown as it stands.
@@ -261,25 +224,10 @@ impl CodexSessionIntake {
             &params,
         )
         .await;
-        match method.as_str() {
-            CODEX_SKILLS_CHANGED_METHOD => parts.provider_commands.refresh(self.session_id),
-            CODEX_TURN_COMPLETED_METHOD => {
-                if let Some(turn_id) = read_ended_turn_id(record, &params) {
-                    record.remember_settled_turn(turn_id);
-                }
-            }
-            CODEX_THREAD_SETTINGS_UPDATED_METHOD => {
-                observe_codex_reasoning_effort(record, &method, &params);
-                correct_codex_permission_profile_drift(
-                    &mut record.permission_profiles,
-                    &record.service,
-                    &record.thread_id,
-                    &record.thread_settings,
-                    &params,
-                );
-            }
-            _ => {}
+        if method == CODEX_SKILLS_CHANGED_METHOD {
+            parts.provider_commands.refresh(self.session_id);
         }
+        observe_codex_session_frame(record, &method, &params);
         for settled in observe_codex_output_speed_frame(record, &method, &params) {
             parts.run_start.record_settled_output_speed(settled).await;
         }
@@ -470,13 +418,93 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
     }
 }
 
+/// What applying a delivery's report acts through, borrowed from the driver's parts.
+pub(crate) struct CodexRoutedFramesIntake<'parts> {
+    /// The queue's intake of taken and refused messages, and the usage record.
+    pub(crate) ports: &'parts DriverPorts,
+    /// The run engine an ended turn's end is recorded in.
+    pub(crate) engine: &'parts Arc<RunEngine>,
+    /// The run routes an ended turn's route is retired from.
+    pub(crate) run_routes: &'parts CodexRunRoutes,
+    /// The run control an ended turn's pause or continue is acted on through.
+    pub(crate) run_control: &'parts Arc<CodexRunControl>,
+    /// The config forks an ended turn lets an owed fork go on.
+    pub(crate) config_forks: &'parts Arc<CodexConfigForks>,
+}
+
+/// Applies what a delivery reported on `record`'s session, in delivery order: each steer Codex
+/// echoed taken from the queue once, each blocked prompt remembered, and for each ended turn its
+/// blocked steers refused, its end recorded where no run moved, its route retired, its pause or
+/// continue acted on and its owed fork let go; then the spend it metered recorded.
+pub(crate) async fn apply_codex_routed_frames(
+    intake: &CodexRoutedFramesIntake<'_>,
+    record: &mut CodexSessionRecord,
+    routed: CodexRoutedFrames,
+) {
+    let session_id = record.session_id;
+    for dispatch in routed.dispatches {
+        for taken in dispatch.taken_messages {
+            let Some(message_id) =
+                take_echoed_codex_steer(record, &taken.turn_id, &taken.client_message_id)
+            else {
+                continue;
+            };
+            let run_id = record
+                .active_turn_run(&taken.turn_id)
+                .or_else(|| record.interrupted_turn_run(&taken.turn_id));
+            // Before the queue registers its intake there is no queue to tell.
+            if let (Some(run_id), Some(listener)) = (run_id, intake.ports.message_taken.port()) {
+                listener.message_taken(session_id, &message_id.to_string(), run_id);
+            }
+        }
+        for blocked in dispatch.blocked_prompts {
+            if let Some(turn_id) = blocked.turn_id {
+                remember_blocked_codex_prompt(record, &turn_id, &blocked.words);
+            } else {
+                tracing::debug!("a blocked codex prompt names no turn");
+            }
+        }
+        for ended in dispatch.turns_ended {
+            // Before the queue registers its intake there is no queue to tell.
+            let refused = take_blocked_codex_steers(record, &ended.turn_id);
+            if let Some(listener) = intake.ports.message_refused.port() {
+                for (message_id, words) in refused {
+                    listener.message_refused(
+                        session_id,
+                        &message_id.to_string(),
+                        QueueItemNotDeliveredReason::RefusedByHook { words },
+                    );
+                }
+            }
+            if let Some(turn_end) = ended.turn_end {
+                record_turn_end(intake.engine, ended.run_id, turn_end).await;
+            }
+            // By turn id, never run id, so a stale end cannot retire a newer turn.
+            intake.run_routes.retire_turn_route(record, &ended.turn_id);
+            record.forget_interrupted_run(&ended.turn_id);
+            // A pause's stopped turn is let go first, so an owed fork starts here, ahead of its
+            // continue.
+            intake
+                .run_control
+                .observe_turn_ended(record, &ended.turn_id)
+                .await;
+            intake.config_forks.note_turn_settled(record);
+        }
+    }
+    if let Some(usage) = intake.ports.usage.port() {
+        for delta in routed.metered_usage {
+            usage.record_metered(session_id, delta);
+        }
+    }
+}
+
 // Writes the end of a turn that moved no run; a failed write is logged, the turn already gone.
 async fn record_turn_end(
-    parts: &CodexDriverParts,
+    engine: &Arc<RunEngine>,
     run_id: RunId,
     turn_end: crate::session::run::engine::turns::ProviderTurnEnd,
 ) {
-    match parts.engine.record_turn_end(run_id, turn_end).await {
+    match engine.record_turn_end(run_id, turn_end).await {
         Ok(written) => {
             if let Some(error) = written.resend_failure {
                 tracing::warn!(
@@ -535,6 +563,34 @@ struct TurnFrame {
 #[derive(Deserialize)]
 struct EndedTurn {
     id: Option<String>,
+}
+
+/// Reads into `record` what a frame of its conversation says of the session before the frame is
+/// routed: a turn's end remembered as settled, a settings change's reasoning effort and permission
+/// profile.
+pub(crate) fn observe_codex_session_frame(
+    record: &mut CodexSessionRecord,
+    method: &str,
+    params: &RawValue,
+) {
+    match method {
+        CODEX_TURN_COMPLETED_METHOD => {
+            if let Some(turn_id) = read_ended_turn_id(record, params) {
+                record.remember_settled_turn(turn_id);
+            }
+        }
+        CODEX_THREAD_SETTINGS_UPDATED_METHOD => {
+            observe_codex_reasoning_effort(record, method, params);
+            permission_profiles::correct_codex_permission_profile_drift(
+                &mut record.permission_profiles,
+                &record.service,
+                &record.thread_id,
+                &record.thread_settings,
+                params,
+            );
+        }
+        _ => {}
+    }
 }
 
 // The turn a `turn/completed` of the session's own conversation ended.

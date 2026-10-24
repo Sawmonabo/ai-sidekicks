@@ -9,26 +9,22 @@ use serde_json::{Value, json};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use tokio_util::task::TaskTracker;
 
-use super::{CodexRunControl, CodexRunControlDependencies};
+use super::CodexRunControl;
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::intervention::CodexSteerRunRequest;
-use crate::provider::driver::codex::run::faster_model_retry::{
-    CodexFasterModelRetries, CodexFasterModelRetryDependencies,
-};
 use crate::provider::driver::codex::run::routes::CodexRunBinding;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::test_session::{
-    NoAttachments, TEST_THREAD, TestCodexSession, turn_completed,
+    TEST_THREAD, TestCodexSession, turn_completed,
 };
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::test_registry::new_run_id;
-use crate::provider::port::registration::PortRegistration;
 
 /// How long a test waits before it counts a hold on the session's task as a deadlock.
 const DEADLOCK_BOUND: Duration = Duration::from_secs(10);
 
-/// Run control over the test session, with the run `run_id` live on turn `turn-1`.
+/// The test session's run control, with the run `run_id` live on turn `turn-1`.
 async fn live_run(session: &mut TestCodexSession) -> (Arc<CodexRunControl>, RunId) {
     let binding_id = session.record_binding().await;
     let run_id = new_run_id();
@@ -49,26 +45,7 @@ async fn live_run(session: &mut TestCodexSession) -> (Arc<CodexRunControl>, RunI
         .record
         .add_active_turn("turn-1".to_owned(), run_id);
     run_routes.bind_run(run_id, session_id);
-    let control = CodexRunControl::new(CodexRunControlDependencies {
-        slots: Arc::clone(&session.slots),
-        config_forks: Arc::clone(&session.task.calls.runs.config_forks),
-        run_routes: Arc::clone(&run_routes),
-        run_start: Arc::clone(&session.run_start),
-        retries: Arc::new(CodexFasterModelRetries::new(
-            CodexFasterModelRetryDependencies {
-                slots: Arc::clone(&session.slots),
-                run_routes,
-                run_start: Arc::clone(&session.run_start),
-                dispatch: Arc::clone(&session.dispatch),
-            },
-        )),
-        attachments: Arc::new(NoAttachments),
-        dispatch: Arc::clone(&session.dispatch),
-        run_pauses: Arc::new(PortRegistration::new("run pauses")),
-        continued_messages: Arc::new(PortRegistration::new("continued messages")),
-        tasks: TaskTracker::new(),
-    });
-    (Arc::new(control), run_id)
+    (Arc::clone(&session.task.run_control), run_id)
 }
 
 fn message_id() -> QueueItemId {
@@ -187,8 +164,8 @@ async fn an_interrupt_cancels_only_the_steers_codex_dropped_unechoed() {
         "only the steer Codex dropped unechoed is cancelled"
     );
     assert_eq!(
-        session.task.taken_steers,
-        vec![echoed_first, echoed_after_interrupt],
+        *lock(&session.queue.taken),
+        vec![echoed_first.to_string(), echoed_after_interrupt.to_string()],
         "each echoed steer is taken once"
     );
 }
