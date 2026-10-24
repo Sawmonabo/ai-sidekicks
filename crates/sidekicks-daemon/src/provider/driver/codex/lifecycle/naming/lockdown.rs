@@ -3,7 +3,7 @@
 //! off, the built-in read-only profile, and each configured MCP server disabled by name: Codex
 //! merges an override into the config it loaded, so only each server's `enabled` member changes.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize as _};
 use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 
@@ -66,6 +66,39 @@ pub(super) fn compose_title_overrides(server_names: &[String]) -> Vec<(String, V
         .chain(choices)
         .chain([(MCP_SERVERS_KEY.to_owned(), Value::Object(servers))])
         .collect()
+}
+
+/// The `-c` arguments that set a title conversation's config on `codex`, each value written by
+/// TOML's own writer, with each of `server_names` disabled.
+pub(super) fn compose_title_exec_overrides(server_names: &[String]) -> Vec<String> {
+    compose_title_overrides(server_names)
+        .into_iter()
+        .flat_map(|(key, value)| {
+            let mut written = String::new();
+            value
+                .serialize(toml::ser::ValueSerializer::new(&mut written))
+                .expect("a config override's booleans, strings and tables are TOML values");
+            ["-c".to_owned(), format!("{key}={written}")]
+        })
+        .collect()
+}
+
+// One server of `codex mcp list --json`.
+#[derive(Deserialize)]
+struct ListedServer {
+    name: String,
+}
+
+/// The MCP servers `codex mcp list --json` printed. Fails with `CodexError::Transport` on a
+/// listing that is not a list of named servers.
+pub(super) fn read_listed_server_names(listing: &str) -> Result<Vec<String>, CodexError> {
+    let servers = serde_json::from_str::<Vec<ListedServer>>(listing).map_err(|error| {
+        CodexError::Transport {
+            detail: "Codex's MCP server list could not be read.".to_owned(),
+            cause: Some(Box::new(error)),
+        }
+    })?;
+    Ok(servers.into_iter().map(|server| server.name).collect())
 }
 
 // The members of a `config/read` reply the pass reads: the effective config, its TOML keys at

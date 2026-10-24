@@ -29,8 +29,8 @@ use crate::provider::driver::codex::event_normalizer::{
 use crate::provider::driver::codex::lifecycle::views::CodexConversationView;
 use crate::provider::driver::codex::service::command::run_codex_command;
 use crate::provider::driver::codex::service::home::CodexServiceKind;
-use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::service::supervisor::start::compose_codex_native_launch;
+use crate::provider::driver::codex::service::supervisor::{CodexService, CodexServiceDependencies};
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::thread::settings::CodexTurnStartParams;
 use crate::provider::driver::codex::thread::view::read_thread;
@@ -39,6 +39,7 @@ use crate::provider::driver::codex::transport::connection::{
 };
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::session_control::NameSessionParams;
+use crate::provider::spawned_version::ResolvedProviderExecutable;
 
 const CONFIG_READ_METHOD: &str = "config/read";
 
@@ -68,6 +69,10 @@ const TITLE_SCHEMA_FILE_NAME: &str = "title-schema.json";
 /// The file the one-shot pass writes its last answer to, beside the schema.
 const TITLE_ANSWER_FILE_NAME: &str = "title.json";
 
+/// How long `codex mcp list` may take to name the servers the one-shot pass disables, well inside
+/// the pass's own bound.
+const CODEX_SERVER_LIST_DEADLINE: Duration = Duration::from_secs(10);
+
 /// How long either pass may take: a short answer on a small model of the account's own.
 const CODEX_NAMING_DEADLINE: Duration = Duration::from_secs(90);
 
@@ -80,7 +85,8 @@ impl CodexDriver {
     /// The session's name from its first exchange: on the session's live service, a name the
     /// person's own terminal gave its conversation first, else a pass there; with no live leg, a
     /// failed pass or no name, a one-shot pass of Codex's program. `None` when both gave no name,
-    /// or once `cancel` fired. Fails only as the one-shot pass's launch cannot be composed.
+    /// or once `cancel` fired. Fails only as the one-shot pass's launch cannot be composed or the
+    /// MCP servers it disables cannot be listed.
     pub(crate) async fn name_session(
         &self,
         params: NameSessionParams,
@@ -333,8 +339,9 @@ async fn draw_title(
     Ok(answered.as_deref().and_then(read_title))
 }
 
-// One `codex exec` of the account's home, ephemeral and in an empty folder of its own, its answer
-// held to the title's schema.
+// One `codex exec` of the account's home, ephemeral and in an empty folder of its own, under the
+// title conversation's config with each MCP server the home lists disabled, its answer held to the
+// title's schema. Fails as the launch cannot be composed or the servers cannot be listed.
 async fn name_in_one_shot(
     service: &CodexService,
     prompt: &str,
@@ -357,23 +364,22 @@ async fn name_in_one_shot(
         .resolve(service.home())
         .await
         .map_err(CodexError::Driver)?;
-    let mut launch = compose_codex_native_launch(
-        &dependencies.data_folder,
-        &executable,
-        vec![
-            "exec".to_owned(),
-            "--ephemeral".to_owned(),
-            "--skip-git-repo-check".to_owned(),
-            "--sandbox".to_owned(),
-            "read-only".to_owned(),
-            "--output-schema".to_owned(),
-            schema_file.to_string_lossy().into_owned(),
-            "--output-last-message".to_owned(),
-            answer_file.to_string_lossy().into_owned(),
-            prompt.to_owned(),
-        ],
-    )
-    .await?;
+    let server_names = list_mcp_server_names(dependencies, &executable).await?;
+    let mut arguments = lockdown::compose_title_exec_overrides(&server_names);
+    arguments.extend([
+        "exec".to_owned(),
+        "--ephemeral".to_owned(),
+        "--skip-git-repo-check".to_owned(),
+        "--sandbox".to_owned(),
+        "read-only".to_owned(),
+        "--output-schema".to_owned(),
+        schema_file.to_string_lossy().into_owned(),
+        "--output-last-message".to_owned(),
+        answer_file.to_string_lossy().into_owned(),
+        prompt.to_owned(),
+    ]);
+    let mut launch =
+        compose_codex_native_launch(&dependencies.data_folder, &executable, arguments).await?;
     launch.working_folder = folder.path().to_owned();
     // The answer is read from its file, since the pass prints more than the answer.
     match run_codex_command(&dependencies.spawner, launch, CODEX_NAMING_DEADLINE).await {
@@ -395,6 +401,27 @@ async fn name_in_one_shot(
             Ok(None)
         }
     }
+}
+
+// The MCP servers `codex mcp list --json` names on the home `executable` runs for. Fails with
+// `CodexError::Transport` when the list cannot be run or read.
+async fn list_mcp_server_names(
+    dependencies: &CodexServiceDependencies,
+    executable: &ResolvedProviderExecutable,
+) -> Result<Vec<String>, CodexError> {
+    let launch = compose_codex_native_launch(
+        &dependencies.data_folder,
+        executable,
+        vec!["mcp".to_owned(), "list".to_owned(), "--json".to_owned()],
+    )
+    .await?;
+    let listing = run_codex_command(&dependencies.spawner, launch, CODEX_SERVER_LIST_DEADLINE)
+        .await
+        .map_err(|error| CodexError::Transport {
+            detail: "Codex's MCP server list could not be read.".to_owned(),
+            cause: Some(Box::new(error)),
+        })?;
+    lockdown::read_listed_server_names(&listing)
 }
 
 // The members of a title conversation's frame the pass reads.

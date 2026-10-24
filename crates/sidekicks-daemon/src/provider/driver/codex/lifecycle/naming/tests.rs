@@ -1,3 +1,6 @@
+#[cfg(unix)]
+mod one_shot;
+
 use std::sync::Arc;
 
 use rstest::rstest;
