@@ -277,32 +277,20 @@ async fn a_title_pass_that_cannot_name_its_servers_or_runs_writable_starts_no_tu
     );
 }
 
-/// How a title pass leaves its turn before it ends.
-enum EarlyEnd {
-    /// The pass is canceled while its `turn/start` waits for its answer.
-    CanceledDuringStart,
-    /// The turn gives no answer within the pass's deadline.
-    TimedOut,
-}
-
-// Killed by dropping the interrupt, and, canceled during the start, by not waiting for the
-// start's answer to name the turn: the pass would end with its turn still running.
-#[rstest]
-#[case::canceled_during_its_start(EarlyEnd::CanceledDuringStart)]
-#[case::past_its_deadline(EarlyEnd::TimedOut)]
+// Killed by dropping the interrupt, and by not waiting for the start's answer to name the turn:
+// the pass would end with its turn still running. Its deadline stops the turn the same way, which
+// the spent-deadline test proves.
 #[tokio::test(start_paused = true)]
-async fn a_title_pass_that_leaves_its_turn_early_interrupts_it(#[case] end: EarlyEnd) {
+async fn a_title_pass_canceled_during_its_turns_start_interrupts_the_turn() {
     let cancel = CancellationToken::new();
     let (pass, mut script) = start_pass(cancel.clone());
     answer_config_read(&mut script).await;
     answer_model_list(&mut script, &[SESSION_MODEL]).await;
     answer_thread_start(&mut script, "readOnly").await;
     let turn = next_turn_start(&mut script).await;
-    if matches!(end, EarlyEnd::CanceledDuringStart) {
-        cancel.cancel();
-        // The pass takes the cancel while the start still waits for its answer.
-        tokio::task::yield_now().await;
-    }
+    cancel.cancel();
+    // The pass takes the cancel while the start still waits for its answer.
+    tokio::task::yield_now().await;
     script.answer(&turn, &turn_reply());
 
     let interrupt = script.next_sent().await;
