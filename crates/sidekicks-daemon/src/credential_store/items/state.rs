@@ -45,7 +45,8 @@ pub(super) enum Verdict {
     // The place kept another value than the check gave it.
     Mismatch,
     // The sealed file cannot be opened for the cause until the next start: an item does not open
-    // under the key the probe opens with, or the service kept another value than the probe gave.
+    // under the key the probe opens with, the service kept another value than the probe gave, or
+    // the file cannot be read.
     Latched(DaemonSecretsFileUnopened),
 }
 

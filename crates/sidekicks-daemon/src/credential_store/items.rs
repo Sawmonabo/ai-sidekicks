@@ -659,7 +659,7 @@ fn cannot_open(cause: DaemonSecretsFileUnopened) -> KeychainRefusal {
             "systemd's credential service is not running, or is older than the one that sealed them"
         }
         DaemonSecretsFileUnopened::SealServiceFailing => {
-            "systemd's credential service does not answer"
+            "systemd's credential service does not answer, or their file cannot be read"
         }
         DaemonSecretsFileUnopened::ChipUnavailable => "the security chip cannot be used",
         DaemonSecretsFileUnopened::KeyChanged => "the key they were sealed with is gone",

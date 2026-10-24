@@ -12,7 +12,10 @@ use sidekicks_contracts::daemon::status::{
     DaemonSecretsFileUnopened as Unopened, DaemonSecretsPlainReason as Reason,
 };
 use sidekicks_contracts::keychain::KeychainRefusalCause;
-use sidekicks_platforms::{SealHeader, SealKey, SecretStoreOffer, secret_store_offer};
+use sidekicks_platforms::{
+    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, SealHeader, SealKey, SecretStoreOffer, is_superuser,
+    make_folder_unreadable, secret_store_offer,
+};
 
 use super::{
     Before, EARLIER, HELD_CALL_TIMEOUT, ITEMS, RECORD, SEALED, Status, WORKFLOW, file_before,
@@ -470,25 +473,56 @@ async fn a_seal_pass_longer_than_a_call_lands_once() {
     assert_eq!(form(folder.path()).as_deref(), Some("sealed"));
 }
 
-/// A sealed file whose key changed, or whose service keeps another value than the probe gave it,
-/// refuses read, write and the account list with the cause's words, latched for the run with no
-/// further seal or unseal, the status naming the cause, until the relink empties the place and
-/// picks it again. Mutations: drop the latch, so the next call probes again; answer the service's
-/// other value with the mismatch's words and no cause.
+// What latches a sealed record's cause for the run.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Latch {
+    // An item does not open under the probe's own key.
+    KeyChanged,
+    // The service keeps another value than the probe gave it.
+    ServiceKeepsAnotherValue,
+    // The items file cannot be read once the probe passes.
+    UnreadableFile,
+}
+
+/// A sealed file whose key changed, whose service keeps another value than the probe gave it, or
+/// which cannot be read, refuses read, write and the account list with the cause's words, latched
+/// for the run with no further seal or unseal, the file kept byte for byte, the status naming the
+/// cause (an unreadable file under the system key, the weaker claim), until the relink empties the
+/// place and picks it again. Mutations: drop the latch, so the next call probes again; answer the
+/// service's other value with the mismatch's words and no cause; in `open_sealed`, answer an
+/// unreadable file with `refuse_opening` rather than `latch_opening`, so the second call probes;
+/// drop the cause from the status's `SealedWithSystemKey`.
 #[rstest]
-#[case::key_changed(Unopened::KeyChanged)]
-#[case::service_keeps_another_value(Unopened::SealServiceFailing)]
+#[case::key_changed(Latch::KeyChanged, Unopened::KeyChanged, "sealedWithChip")]
+#[case::service_keeps_another_value(
+    Latch::ServiceKeepsAnotherValue,
+    Unopened::SealServiceFailing,
+    "sealedWithChip"
+)]
+#[case::unreadable_file(
+    Latch::UnreadableFile,
+    Unopened::SealServiceFailing,
+    "sealedWithSystemKey"
+)]
 #[tokio::test]
-async fn a_latched_cause_refuses_every_call_until_the_relink(#[case] cause: Unopened) {
+async fn a_latched_cause_refuses_every_call_until_the_relink(
+    #[case] latch: Latch,
+    #[case] cause: Unopened,
+    #[case] protection: &str,
+) {
+    // Root reads a folder whatever its mode, and on Windows the file still opens through it.
+    if latch == Latch::UnreadableFile && (is_superuser() || CAN_OPEN_INSIDE_UNREADABLE_FOLDER) {
+        return;
+    }
     let folder = tempfile::tempdir().expect("the test makes a folder");
     std::fs::write(folder.path().join(RECORD), SEALED).expect("the test writes the record");
     let seal = TestSeal::new();
     file_before(folder.path(), &seal, Before::Sealed(SealKey::Chip)).await;
-    match cause {
-        Unopened::KeyChanged => seal.forget_the_blobs_sealed_so_far(),
-        Unopened::SealServiceFailing | Unopened::SealServiceMissing | Unopened::ChipUnavailable => {
-            seal.keep_another_value(true);
-        }
+    let bytes_before = std::fs::read(folder.path().join(ITEMS)).expect("the file is there");
+    match latch {
+        Latch::KeyChanged => seal.forget_the_blobs_sealed_so_far(),
+        Latch::ServiceKeepsAnotherValue => seal.keep_another_value(true),
+        Latch::UnreadableFile => {}
     }
     let items = secret_items(
         folder.path(),
@@ -498,13 +532,29 @@ async fn a_latched_cause_refuses_every_call_until_the_relink(#[case] cause: Unop
     );
     let keychain = items.keychain(KeychainService::WorkflowSecrets);
 
-    let read = keychain.read(EARLIER).await.err();
+    // The data folder is darkened once the probe's seal is asked for, after the record is read.
+    let release = seal.hold_next_seal();
+    let darken = async {
+        let seals = seal.seals();
+        if latch == Latch::UnreadableFile {
+            seal.wait_for_seals(seals + 1).await;
+        }
+        let darkened = (latch == Latch::UnreadableFile).then(|| {
+            make_folder_unreadable(folder.path()).expect("the data folder is made unreadable")
+        });
+        drop(release);
+        darkened
+    };
+    let (read, darkened) = tokio::join!(keychain.read(EARLIER), darken);
+    let read = read.err();
     let calls = (seal.seals(), seal.unseals());
     let write = keychain
         .write("secret", &SecretString::from("value"))
         .await
         .err();
     let accounts = keychain.accounts().await.err();
+    let status_latched = status(&items).await;
+    drop(darkened);
 
     let words = cannot_open(cause);
     for refusal in [read, write, accounts] {
@@ -517,10 +567,14 @@ async fn a_latched_cause_refuses_every_call_until_the_relink(#[case] cause: Unop
         calls,
         "the latch calls no seal"
     );
+    assert_eq!(
+        std::fs::read(folder.path().join(ITEMS)).expect("the file is there"),
+        bytes_before
+    );
     let cause_word = serde_json::to_value(cause).expect("the cause writes");
     assert_eq!(
-        status(&items).await,
-        Some(json!({"protection":"sealedWithChip","cannotOpen":cause_word}))
+        status_latched,
+        Some(json!({"protection":protection,"cannotOpen":cause_word}))
     );
 
     seal.keep_another_value(false);

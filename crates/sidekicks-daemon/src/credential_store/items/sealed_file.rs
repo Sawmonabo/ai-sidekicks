@@ -106,7 +106,8 @@ impl SecretItems {
 
     // Opens one item of the sealed file per key it holds, the probe's blob having shown `probe`,
     // then seals again once each item sealed with a weaker key than the probe's; the caller accepts
-    // the sealed file once its record names it. Fails with the refusal the caller answers with.
+    // the sealed file once its record names it. A file that cannot be read latches the service as
+    // failing for the run. Fails with the refusal the caller answers with.
     pub(super) async fn open_sealed(
         &self,
         state: &mut PlaceState,
@@ -115,7 +116,21 @@ impl SecretItems {
         let seal = self.seal_service()?;
         let mut samples = BTreeMap::new();
         let mut is_any_weaker = false;
-        for item in self.items_file.sealed_items().await? {
+        // A file that cannot be read stays as it is and is not read again this run, so no call
+        // asks the service for it until a restart.
+        let items = match self.items_file.sealed_items().await {
+            Ok(items) => items,
+            Err(unreadable) => {
+                tracing::error!(
+                    error = &unreadable as &(dyn Error + 'static),
+                    file = %self.items_file.file_path().display(),
+                    "the sealed secrets file cannot be read, so every secret call is refused until \
+                     the next start"
+                );
+                return Err(state.latch_opening(DaemonSecretsFileUnopened::SealServiceFailing));
+            }
+        };
+        for item in items {
             if item.service == KeychainService::Probe.as_str() {
                 continue;
             }
