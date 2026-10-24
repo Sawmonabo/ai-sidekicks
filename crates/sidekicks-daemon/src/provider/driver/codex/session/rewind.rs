@@ -414,6 +414,9 @@ mod tests {
                     CodexSessionInbound::Call(CodexSessionCall::ReadSession { .. })
                 ));
                 gate.send(()).expect("the start waits on the gate");
+                // The start waits on the session's turn sends, which nothing announces: with the
+                // clock paused this sleep ends only once every task is idle, the start's wait among
+                // them, so the stop is handled after it.
                 tokio::time::sleep(Duration::from_millis(1)).await;
                 task.handle(stop_read).await;
             };

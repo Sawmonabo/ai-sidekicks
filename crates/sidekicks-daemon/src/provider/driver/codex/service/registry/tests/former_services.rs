@@ -282,6 +282,8 @@ async fn a_daemon_stop_returns_without_waiting_on_a_drain_under_way() {
         tokio::spawn(async move { registry.retire(&first).await })
     };
     let record_file = home_record_file(&services);
+    // The drain marks the record once its ask was delivered and announces nothing, so the test
+    // reads the record until it is marked.
     let is_drain_asked = tokio::time::timeout(CRASH_WAIT, async {
         while !record_file
             .lock()

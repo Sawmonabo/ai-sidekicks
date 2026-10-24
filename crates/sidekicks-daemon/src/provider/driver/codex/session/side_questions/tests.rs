@@ -28,7 +28,9 @@ use crate::policy::execution_posture_service::compose_execution_posture;
 use crate::provider::driver::codex::permission_level::{
     CodexProfileFolders, compose_codex_profile_name,
 };
-use crate::provider::driver::codex::session::test_session::TestCodexSession;
+use crate::provider::driver::codex::service::supervisor::CodexService;
+use crate::provider::driver::codex::session::test_session::{TestCodexSession, turn_reply};
+use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::provider::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
 use crate::provider::port::registration::PortRegistration;
 
@@ -355,24 +357,83 @@ async fn a_resting_copy_let_go_before_its_turn_ends_has_its_turn_stopped(#[case]
     );
 }
 
-// Serves the copy's connection as Codex up to its fork, whose reply it holds, telling `forked` once
-// the fork came; answers every message the daemon sent after it, once it let the connection go.
-async fn serve_held_fork(listener: Listener, forked: oneshot::Sender<()>) -> Vec<Message> {
+/// The reply the service holds while the copy's session closes.
+enum HeldReply {
+    /// The fork's: the copy has no turn yet.
+    Fork,
+    /// The turn's start: Codex starts the turn whatever the close.
+    TurnStart,
+}
+
+// Serves the copy's connection as Codex up to the reply `held` names, telling `reached` once its
+// request came; a held fork is never answered, a held start is answered once `release` fires.
+// Answers each request the daemon sent after the held one, as its method and params, once it let
+// the connection go; an interrupt among them is answered.
+async fn serve_held_reply(
+    listener: Listener,
+    profile: String,
+    held: HeldReply,
+    reached: oneshot::Sender<()>,
+    release: oneshot::Receiver<()>,
+) -> Vec<Value> {
     let mut socket = accept_copy(&listener).await;
     let fork = next_request(&mut socket).await;
     assert_eq!(fork["method"], "thread/fork");
-    forked.send(()).expect("the test waits for the fork");
+    if let HeldReply::TurnStart = held {
+        send(
+            &mut socket,
+            json!({"id": fork["id"], "result": {
+                "thread": {"id": COPY_THREAD, "sessionId": "codex-session"},
+                "activePermissionProfile": {"id": profile},
+            }}),
+        )
+        .await;
+        let turn = next_request(&mut socket).await;
+        assert_eq!(turn["method"], "turn/start");
+        reached
+            .send(())
+            .expect("the test waits for the turn's start");
+        release.await.expect("the test releases the turn's start");
+        send(
+            &mut socket,
+            json!({"id": turn["id"], "result": {"turn": {"id": "copy-turn", "items": [],
+                "status": "inProgress"}}}),
+        )
+        .await;
+    } else {
+        reached.send(()).expect("the test waits for the fork");
+    }
     let mut later = Vec::new();
     while let Some(Ok(message)) = socket.next().await {
-        later.push(message);
+        let Message::Text(text) = message else {
+            continue;
+        };
+        let request: Value = serde_json::from_str(&text).expect("the daemon sends JSON");
+        if request["method"] == "turn/interrupt" {
+            send(&mut socket, json!({"id": request["id"], "result": {}})).await;
+        }
+        later.push(json!({"method": request["method"], "params": request["params"]}));
     }
     later
 }
 
 // Killed by entering the resting copy only once its fork answered: the close would miss it, and
-// the copy would start its turn on a connection kept open.
+// the copy would start its turn on a connection kept open; and by a close that drops the copy's
+// turn start in flight, which leaves the turn running with no interrupt.
+#[rstest]
+#[case::during_its_fork(HeldReply::Fork, json!([]))]
+#[case::during_its_turn_start(
+    HeldReply::TurnStart,
+    json!([{
+        "method": "turn/interrupt",
+        "params": {"threadId": COPY_THREAD, "turnId": "copy-turn"},
+    }]),
+)]
 #[tokio::test(flavor = "multi_thread")]
-async fn a_resting_copy_whose_session_closes_during_its_fork_starts_no_turn() {
+async fn a_resting_copy_whose_session_closes_while_it_opens_leaves_no_turn_running(
+    #[case] held: HeldReply,
+    #[case] sent_after: Value,
+) {
     let session = TestCodexSession::start().await;
     let Some(listener) = bind_test_listener(session.scripted.service.socket_path()) else {
         return;
@@ -383,8 +444,16 @@ async fn a_resting_copy_whose_session_closes_during_its_fork_starts_no_turn() {
     let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), tasks.clone());
     let session_id = session.task.record.session_id;
     let params = resting_question(session_id);
-    let (forked, fork_came) = oneshot::channel();
-    let served = tokio::spawn(serve_held_fork(listener, forked));
+    let (reached, held_came) = oneshot::channel();
+    let (release, released) = oneshot::channel();
+    let is_start_held = matches!(held, HeldReply::TurnStart);
+    let served = tokio::spawn(serve_held_reply(
+        listener,
+        read_only_profile(folder.path()),
+        held,
+        reached,
+        released,
+    ));
 
     let (asked, ()) = tokio::time::timeout(SERVE_WAIT, async {
         tokio::join!(
@@ -398,8 +467,11 @@ async fn a_resting_copy_whose_session_closes_during_its_fork_starts_no_turn() {
                 Arc::new(PortRegistration::new("usage")),
             ),
             async {
-                fork_came.await.expect("the service took the fork");
+                held_came.await.expect("the service took the held request");
                 side_questions.forget_session(session_id).await;
+                if is_start_held {
+                    release.send(()).expect("the service waits for the release");
+                }
             },
         )
     })
@@ -410,14 +482,17 @@ async fn a_resting_copy_whose_session_closes_during_its_fork_starts_no_turn() {
         .await
         .expect("the daemon lets the copy's connection go")
         .expect("the service served the copy");
+    tasks.close();
+    tokio::time::timeout(SERVE_WAIT, tasks.wait())
+        .await
+        .expect("no copy's task is left");
 
+    assert_eq!(Value::from(later), sent_after);
     assert!(
-        later
-            .iter()
-            .all(|message| !matches!(message, Message::Text(_))),
-        "the daemon sent nothing after the fork: {later:?}"
+        lock_copy_stops(&side_questions.copy_stops)
+            .copies
+            .is_empty()
     );
-    assert!(lock_copy_stops(&side_questions.copy_stops).is_empty());
 }
 
 // Killed by entering the live copy only once its fork answered: the close would miss it, and the
@@ -464,9 +539,183 @@ async fn a_live_copy_whose_session_closes_during_its_fork_starts_no_turn() {
         side_questions.lock().is_empty(),
         "the copy was never entered"
     );
-    assert!(lock_copy_stops(&side_questions.copy_stops).is_empty());
+    assert!(
+        lock_copy_stops(&side_questions.copy_stops)
+            .copies
+            .is_empty()
+    );
     assert!(
         script.sent.try_recv().is_err(),
         "the daemon sent nothing more"
+    );
+}
+
+/// Where the live copy's turn is when its copy is let go.
+enum LiveTurn {
+    /// Its start answered.
+    Running,
+    /// Its start sent and not yet answered.
+    Starting,
+}
+
+// Lets go of the session's copies as `end` names.
+async fn end_copies(side_questions: &CodexSideQuestions, end: &CopyEnd, session_id: SessionId) {
+    match end {
+        CopyEnd::SessionClosed => side_questions.forget_session(session_id).await,
+        CopyEnd::DriverShutDown => side_questions.stop_every_copy(),
+    }
+}
+
+// Answers, as the service, the live copy's turn stopped and then the copy let go, the copy off
+// `session_id`'s routing on `service` before its turn is stopped.
+async fn answer_copy_stopped(
+    script: &mut ScriptedService,
+    service: &CodexService,
+    session_id: SessionId,
+) {
+    let interrupt = script.next_sent().await;
+    assert_eq!(interrupt["method"], "turn/interrupt");
+    assert_eq!(
+        interrupt["params"],
+        json!({"threadId": COPY_THREAD, "turnId": "copy-turn"})
+    );
+    assert!(
+        !service
+            .threads_of(&session_id)
+            .iter()
+            .any(|thread_id| thread_id == COPY_THREAD),
+        "the stopped turn's end would reach the session"
+    );
+    script.answer(&interrupt, &json!({}));
+    let unsubscribe = script.next_sent().await;
+    assert_eq!(unsubscribe["method"], "thread/unsubscribe");
+    assert_eq!(unsubscribe["params"]["threadId"], COPY_THREAD);
+    script.answer(&unsubscribe, &json!({"status": "unsubscribed"}));
+}
+
+// Killed by a live copy that drops its turn's id, or is only unsubscribed: no interrupt comes
+// before the unsubscribe, and on a service that outlives the daemon the turn runs on unread.
+#[rstest]
+#[tokio::test]
+async fn a_live_copy_let_go_before_its_turn_ends_has_its_turn_stopped_first(
+    #[values(CopyEnd::SessionClosed, CopyEnd::DriverShutDown)] end: CopyEnd,
+    #[values(LiveTurn::Running, LiveTurn::Starting)] turn: LiveTurn,
+) {
+    let mut session = TestCodexSession::start().await;
+    let tasks = TaskTracker::new();
+    let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), tasks.clone());
+    let session_id = session.task.record.session_id;
+    let params = AskSideQuestionParams {
+        resume: None,
+        ..resting_question(session_id)
+    };
+    let profile = compose_codex_profile_name(
+        PermissionLevel::Readonly,
+        &session.task.record.thread_settings.profile_folders,
+    );
+    let script = &mut session.scripted.script;
+    let service = &*session.scripted.service;
+
+    let (asked, ()) = tokio::time::timeout(SERVE_WAIT, async {
+        tokio::join!(side_questions.ask(&session.task.record, &params), async {
+            let fork = script.next_sent().await;
+            assert_eq!(fork["method"], "thread/fork");
+            script.answer(
+                &fork,
+                &json!({
+                    "thread": {"id": COPY_THREAD, "sessionId": "codex-session"},
+                    "activePermissionProfile": {"id": profile},
+                }),
+            );
+            let start = script.next_sent().await;
+            assert_eq!(start["method"], "turn/start");
+            if let LiveTurn::Starting = turn {
+                end_copies(&side_questions, &end, session_id).await;
+                script.answer(&start, &turn_reply("copy-turn"));
+                answer_copy_stopped(script, service, session_id).await;
+            } else {
+                script.answer(&start, &turn_reply("copy-turn"));
+            }
+        })
+    })
+    .await
+    .expect("the ask ends once its turn started");
+    asked.expect("the copy takes the question");
+    if let LiveTurn::Running = turn {
+        tokio::time::timeout(
+            SERVE_WAIT,
+            futures::future::join(
+                end_copies(&side_questions, &end, session_id),
+                answer_copy_stopped(script, service, session_id),
+            ),
+        )
+        .await
+        .expect("the copy's turn is stopped and the copy let go");
+    }
+    tasks.close();
+    tokio::time::timeout(SERVE_WAIT, tasks.wait())
+        .await
+        .expect("no copy's task is left");
+
+    assert!(side_questions.lock().is_empty(), "no copy is kept");
+    assert!(
+        script.sent.try_recv().is_err(),
+        "the daemon sent nothing more"
+    );
+}
+
+// Killed by a shutdown that only stops the copies it finds: a copy asked for after it forks,
+// which on the live path waits on its fork and on the resting path on a service that never answers.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_side_question_asked_after_the_driver_stopped_every_copy_forks_nothing() {
+    let mut session = TestCodexSession::start().await;
+    // Bound and never served, so a copy that dials it is never answered.
+    let Some(_listener) = bind_test_listener(session.scripted.service.socket_path()) else {
+        return;
+    };
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let establishment = session.establishment(folder.path());
+    let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), TaskTracker::new());
+    let session_id = session.task.record.session_id;
+    let params = resting_question(session_id);
+
+    side_questions.stop_every_copy();
+    tokio::time::timeout(
+        SERVE_WAIT,
+        side_questions.ask_at_rest(
+            &establishment,
+            params
+                .resume
+                .as_ref()
+                .expect("the question is asked at rest"),
+            &params,
+            Arc::new(PortRegistration::new("usage")),
+        ),
+    )
+    .await
+    .expect("the resting ask answers at once")
+    .expect("a stopped copy asks nothing");
+    tokio::time::timeout(
+        SERVE_WAIT,
+        side_questions.ask(
+            &session.task.record,
+            &AskSideQuestionParams {
+                resume: None,
+                ..resting_question(session_id)
+            },
+        ),
+    )
+    .await
+    .expect("the live ask answers at once")
+    .expect("a stopped copy asks nothing");
+
+    assert!(
+        session.scripted.script.sent.try_recv().is_err(),
+        "the live copy was never forked"
+    );
+    assert!(
+        lock_copy_stops(&side_questions.copy_stops)
+            .copies
+            .is_empty()
     );
 }

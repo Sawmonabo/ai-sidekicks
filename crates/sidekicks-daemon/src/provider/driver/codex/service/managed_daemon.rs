@@ -215,7 +215,7 @@ async fn ask_to_stop_without_a_signal(
         tracing::warn!(
             error = &error as &(dyn std::error::Error + 'static),
             process_id = pid,
-            "Codex's managed daemon was not asked to stop; it is ended after the grace"
+            "codex's managed daemon was not asked to stop; it is ended after the grace"
         );
     }
 }

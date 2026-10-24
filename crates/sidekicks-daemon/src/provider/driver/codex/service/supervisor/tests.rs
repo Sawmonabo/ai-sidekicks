@@ -52,6 +52,9 @@ fn the_windows_sandbox_offers_only_on_ready(
 /// How long the test watches for a free check that must not come.
 const QUIET_WAIT: Duration = Duration::from_millis(300);
 
+/// How long the test waits for a free check that must come, long enough for a loaded machine.
+const CHECK_WAIT: Duration = Duration::from_secs(10);
+
 /// A conversation the person's own terminal holds on the joined service.
 const PERSON_S_THREAD: &str = "person-thread-1";
 
@@ -117,9 +120,9 @@ fn answer_as_a_used_managed_daemon(
     });
 }
 
-// Whether a free check reads the loaded conversations within the quiet wait.
-async fn is_checked(loaded_reads: &mut mpsc::UnboundedReceiver<()>) -> bool {
-    tokio::time::timeout(QUIET_WAIT, loaded_reads.recv())
+// Whether a free check reads the loaded conversations within `wait`.
+async fn is_checked(loaded_reads: &mut mpsc::UnboundedReceiver<()>, wait: Duration) -> bool {
+    tokio::time::timeout(wait, loaded_reads.recv())
         .await
         .is_ok()
 }
@@ -183,13 +186,13 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
 
     let is_joined = service.kind() == CodexServiceKind::Joined;
     service.detach_session(&sessions[0]);
-    let is_checked_with_one_left = is_checked(&mut loaded_reads).await;
+    let is_checked_with_one_left = is_checked(&mut loaded_reads, QUIET_WAIT).await;
     notices.send(closed.clone()).expect("the listener runs");
-    let is_checked_on_a_close_with_one_left = is_checked(&mut loaded_reads).await;
+    let is_checked_on_a_close_with_one_left = is_checked(&mut loaded_reads, QUIET_WAIT).await;
     service.detach_session(&sessions[1]);
-    let is_checked_once_none_left = is_checked(&mut loaded_reads).await;
+    let is_checked_once_none_left = is_checked(&mut loaded_reads, CHECK_WAIT).await;
     notices.send(closed).expect("the listener runs");
-    let is_checked_on_a_close_with_none_left = is_checked(&mut loaded_reads).await;
+    let is_checked_on_a_close_with_none_left = is_checked(&mut loaded_reads, CHECK_WAIT).await;
     service.shutdown(DaemonStopIntent::Stop).await;
 
     assert!(is_joined);

@@ -17,7 +17,8 @@ use crate::provider::driver::codex::transport::connection::{
     CodexAppServerConnection, CodexConnectionEvents, CodexForgottenRequest,
 };
 
-/// How long a throwaway turn left early may take to stop, the answer that names it included.
+/// How long a throwaway turn left early may take to stop, the answer that names it included: the
+/// bound Codex's own terminal gives each request of its throwaway turns, the interrupt among them.
 const CODEX_DETACHED_INTERRUPT_DEADLINE: Duration = Duration::from_secs(30);
 
 /// One notification of a detached connection: its method and its params.
