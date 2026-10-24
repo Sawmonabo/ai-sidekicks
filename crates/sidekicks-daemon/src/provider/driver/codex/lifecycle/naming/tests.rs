@@ -6,6 +6,7 @@ use std::sync::Arc;
 use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use super::{TitleConnectionEvents, TitleRequest, draw_title};
 use crate::provider::driver::codex::session::errors::CodexError;
@@ -23,8 +24,17 @@ const FOLDER: &str = "/work/repository";
 /// The title conversation the scripted service starts.
 const TITLE_THREAD: &str = "title-thread";
 
-// A title pass over a scripted connection, run on its own task, and the script.
-fn start_pass() -> (
+/// The title conversation's turn.
+const TITLE_TURN: &str = "title-turn";
+
+/// The session's own model.
+const SESSION_MODEL: &str = "gpt-5";
+
+// A title pass over a scripted connection, run on its own task until `cancel` fires, and the
+// script.
+fn start_pass(
+    cancel: CancellationToken,
+) -> (
     tokio::task::JoinHandle<Result<Option<String>, CodexError>>,
     ScriptedService,
 ) {
@@ -44,8 +54,10 @@ fn start_pass() -> (
                 thread_id: "thread-1",
                 is_joined: false,
                 working_directory: FOLDER,
+                session_model: SESSION_MODEL,
                 prompt: "Name this.",
             },
+            &cancel,
         )
         .await
     });
@@ -70,6 +82,44 @@ async fn answer_config_read(script: &mut ScriptedService) {
             "origins": {},
         }),
     );
+}
+
+// The catalog read the pass sends next, answered with `models`.
+async fn answer_model_list(script: &mut ScriptedService, models: &[&str]) {
+    let listed = script.next_sent().await;
+    assert_eq!(listed["method"], "model/list");
+    let rows: Vec<Value> = models
+        .iter()
+        .map(|id| json!({"id": id, "displayName": id, "hidden": false}))
+        .collect();
+    script.answer(&listed, &json!({"data": rows, "nextCursor": null}));
+}
+
+// The start of the title conversation answered as running under `sandbox_type`, and the start
+// as sent.
+async fn answer_thread_start(script: &mut ScriptedService, sandbox_type: &str) -> Value {
+    let started = script.next_sent().await;
+    assert_eq!(started["method"], "thread/start");
+    script.answer(
+        &started,
+        &json!({
+            "thread": {"id": TITLE_THREAD, "sessionId": "codex-session"},
+            "sandbox": {"type": sandbox_type, "networkAccess": false},
+        }),
+    );
+    started
+}
+
+// The `turn/start` the pass sends on the title conversation, unanswered.
+async fn next_turn_start(script: &mut ScriptedService) -> Value {
+    let turn = script.next_sent().await;
+    assert_eq!(turn["method"], "turn/start");
+    assert_eq!(turn["params"]["threadId"], TITLE_THREAD);
+    turn
+}
+
+fn turn_reply() -> Value {
+    json!({"turn": {"id": TITLE_TURN, "items": [], "status": "inProgress"}})
 }
 
 // Every config key Codex's own terminal sets on a throwaway structured conversation, with the two
@@ -109,23 +159,40 @@ fn locked_down_config() -> Value {
 }
 
 // Killed by dropping any one key of the title conversation's config or any one field of its
-// start, by starting it before the config read, and by dropping the answer's 8 KiB cap: the long
-// answer would name the session.
+// start, by starting it before the config read, by dropping the answer's 8 KiB cap (the long
+// answer would name the session), and by dropping the fallback to the session's model or the small
+// model where the catalog offers it.
 #[rstest]
-#[case::a_short_answer("A short title".to_owned(), Some("A short title"))]
-#[case::an_answer_past_the_cap("x".repeat(9 * 1024), None)]
+#[case::a_short_answer_on_the_offered_title_model(
+    "A short title".to_owned(),
+    &["gpt-5", "gpt-5.6-luna"],
+    "gpt-5.6-luna",
+    Some("low"),
+    Some("A short title")
+)]
+#[case::an_answer_past_the_cap_on_the_session_model(
+    "x".repeat(9 * 1024),
+    &["gpt-5"],
+    SESSION_MODEL,
+    None,
+    None
+)]
 #[tokio::test(start_paused = true)]
 async fn a_title_pass_reads_the_config_then_starts_locked_down_and_reads_a_capped_answer(
     #[case] title: String,
+    #[case] catalog: &[&str],
+    #[case] model: &str,
+    #[case] effort: Option<&str>,
     #[case] named: Option<&str>,
 ) {
-    let (pass, mut script) = start_pass();
+    let (pass, mut script) = start_pass(CancellationToken::new());
     answer_config_read(&mut script).await;
+    answer_model_list(&mut script, catalog).await;
 
-    let started = script.next_sent().await;
-    assert_eq!(started["method"], "thread/start");
+    let started = answer_thread_start(&mut script, "readOnly").await;
     let params = &started["params"];
     assert_eq!(params["config"], locked_down_config());
+    assert_eq!(params["model"], model);
     assert_eq!(params["cwd"], FOLDER);
     assert_eq!(params["ephemeral"], true);
     assert_eq!(params["sandbox"], "read-only");
@@ -139,27 +206,16 @@ async fn a_title_pass_reads_the_config_then_starts_locked_down_and_reads_a_cappe
     ] {
         assert_eq!(params[empty], json!([]), "{empty} is sent empty");
     }
-    script.answer(
-        &started,
-        &json!({
-            "thread": {"id": TITLE_THREAD, "sessionId": "codex-session"},
-            "sandbox": {"type": "readOnly", "networkAccess": false},
-        }),
-    );
-    let turn = script.next_sent().await;
-    assert_eq!(turn["method"], "turn/start");
-    assert_eq!(turn["params"]["threadId"], TITLE_THREAD);
-    script.answer(
-        &turn,
-        &json!({"turn": {"id": "title-turn", "items": [], "status": "inProgress"}}),
-    );
+    let turn = next_turn_start(&mut script).await;
+    assert_eq!(turn["params"].get("effort").and_then(Value::as_str), effort);
+    script.answer(&turn, &turn_reply());
     let answer = json!({"title": title}).to_string();
     script.send(&json!({
         "jsonrpc": "2.0",
         "method": "item/completed",
         "params": {
             "threadId": TITLE_THREAD,
-            "turnId": "title-turn",
+            "turnId": TITLE_TURN,
             "item": {"type": "agentMessage", "id": "item-1", "text": answer},
         },
     }));
@@ -168,7 +224,7 @@ async fn a_title_pass_reads_the_config_then_starts_locked_down_and_reads_a_cappe
         "method": "turn/completed",
         "params": {
             "threadId": TITLE_THREAD,
-            "turn": {"id": "title-turn", "items": [], "status": "completed"},
+            "turn": {"id": TITLE_TURN, "items": [], "status": "completed"},
         },
     }));
 
@@ -193,7 +249,7 @@ enum Refusal {
 async fn a_title_pass_that_cannot_name_its_servers_or_runs_writable_starts_no_turn(
     #[case] refusal: Refusal,
 ) {
-    let (pass, mut script) = start_pass();
+    let (pass, mut script) = start_pass(CancellationToken::new());
     match refusal {
         Refusal::UnreadConfig => {
             let read = script.next_sent().await;
@@ -206,15 +262,8 @@ async fn a_title_pass_that_cannot_name_its_servers_or_runs_writable_starts_no_tu
         }
         Refusal::WritableSandbox => {
             answer_config_read(&mut script).await;
-            let started = script.next_sent().await;
-            assert_eq!(started["method"], "thread/start");
-            script.answer(
-                &started,
-                &json!({
-                    "thread": {"id": TITLE_THREAD, "sessionId": "codex-session"},
-                    "sandbox": {"type": "workspaceWrite", "networkAccess": false},
-                }),
-            );
+            answer_model_list(&mut script, &[SESSION_MODEL]).await;
+            answer_thread_start(&mut script, "workspaceWrite").await;
         }
     }
 
@@ -223,4 +272,43 @@ async fn a_title_pass_that_cannot_name_its_servers_or_runs_writable_starts_no_tu
         script.sent.try_recv().is_err(),
         "the pass sent nothing more"
     );
+}
+
+/// How a title pass leaves its turn before it ends.
+enum EarlyEnd {
+    /// The pass is canceled while its `turn/start` waits for its answer.
+    CanceledDuringStart,
+    /// The turn gives no answer within the pass's deadline.
+    TimedOut,
+}
+
+// Killed by dropping the interrupt, and, canceled during the start, by not waiting for the
+// start's answer to name the turn: the pass would end with its turn still running.
+#[rstest]
+#[case::canceled_during_its_start(EarlyEnd::CanceledDuringStart)]
+#[case::past_its_deadline(EarlyEnd::TimedOut)]
+#[tokio::test(start_paused = true)]
+async fn a_title_pass_that_leaves_its_turn_early_interrupts_it(#[case] end: EarlyEnd) {
+    let cancel = CancellationToken::new();
+    let (pass, mut script) = start_pass(cancel.clone());
+    answer_config_read(&mut script).await;
+    answer_model_list(&mut script, &[SESSION_MODEL]).await;
+    answer_thread_start(&mut script, "readOnly").await;
+    let turn = next_turn_start(&mut script).await;
+    if matches!(end, EarlyEnd::CanceledDuringStart) {
+        cancel.cancel();
+        // The pass takes the cancel while the start still waits for its answer.
+        tokio::task::yield_now().await;
+    }
+    script.answer(&turn, &turn_reply());
+
+    let interrupt = script.next_sent().await;
+    assert_eq!(interrupt["method"], "turn/interrupt");
+    assert_eq!(
+        interrupt["params"],
+        json!({"threadId": TITLE_THREAD, "turnId": TITLE_TURN})
+    );
+    script.answer(&interrupt, &json!({}));
+    let drawn = pass.await.expect("the pass's task ends");
+    assert_eq!(drawn.expect("the pass ran"), None);
 }

@@ -68,10 +68,9 @@ pub(super) fn compose_title_overrides(server_names: &[String]) -> Vec<(String, V
         .collect()
 }
 
-/// The `-c` arguments that set a title conversation's config on `codex`, each value written by
-/// TOML's own writer, with each of `server_names` disabled.
-pub(super) fn compose_title_exec_overrides(server_names: &[String]) -> Vec<String> {
-    compose_title_overrides(server_names)
+/// The `-c` arguments that set `overrides` on `codex`, each value written by TOML's own writer.
+pub(super) fn write_exec_overrides(overrides: Vec<(String, Value)>) -> Vec<String> {
+    overrides
         .into_iter()
         .flat_map(|(key, value)| {
             let mut written = String::new();

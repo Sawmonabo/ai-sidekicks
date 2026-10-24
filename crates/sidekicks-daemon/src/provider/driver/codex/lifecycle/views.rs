@@ -1,8 +1,8 @@
 //! What each session's task shows of its record to the driver's reads that answer at once and so
 //! cannot wait their turn on the task: the service and conversation the session runs on, its
-//! account, folder and one live run, for its command list, a request's answer and its name, and
-//! the tier it declared. The task updates a view after each item it handles, only where it
-//! changed, and takes it away as it lets the record go.
+//! account, folder, model and one live run, for its command list, a request's answer and its
+//! name, and the tier it declared. The task updates a view after each item it handles, only where
+//! it changed, and takes it away as it lets the record go.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -23,12 +23,13 @@ struct CodexSessionView {
     thread_id: String,
     provider_account_id: Option<ProviderAccountId>,
     working_directory: PathBuf,
+    model: String,
     run_id: Option<RunId>,
     declared_output_speed: Option<ProviderOutputSpeedState>,
 }
 
 /// A live session's conversation as its name is drawn and told: the service it is loaded on, the
-/// conversation and the folder it runs in.
+/// conversation, the folder it runs in and the model it runs.
 pub(crate) struct CodexConversationView {
     /// The service.
     pub(crate) service: Arc<CodexService>,
@@ -36,6 +37,8 @@ pub(crate) struct CodexConversationView {
     pub(crate) thread_id: String,
     /// The session's folder.
     pub(crate) working_directory: PathBuf,
+    /// The session's model.
+    pub(crate) model: String,
 }
 
 impl CodexSessionView {
@@ -45,6 +48,7 @@ impl CodexSessionView {
             thread_id: record.thread_id.clone(),
             provider_account_id: record.provider_account_id.clone(),
             working_directory: record.thread_settings.working_directory.clone(),
+            model: record.thread_settings.model.clone(),
             run_id: record.sole_active_run(),
             declared_output_speed: record.declared_output_speed.clone(),
         }
@@ -55,6 +59,7 @@ impl CodexSessionView {
             && self.thread_id == record.thread_id
             && self.provider_account_id == record.provider_account_id
             && self.working_directory == record.thread_settings.working_directory
+            && self.model == record.thread_settings.model
             && self.run_id == record.sole_active_run()
             && self.declared_output_speed == record.declared_output_speed
     }
@@ -113,6 +118,7 @@ impl CodexSessionViews {
                 service: Arc::clone(&view.service),
                 thread_id: view.thread_id.clone(),
                 working_directory: view.working_directory.clone(),
+                model: view.model.clone(),
             })
     }
 

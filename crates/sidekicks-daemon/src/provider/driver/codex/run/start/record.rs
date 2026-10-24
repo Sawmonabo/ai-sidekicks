@@ -351,6 +351,8 @@ async fn compose_run_turn(
         model: turn.model,
         client_user_message_id: turn.client_message_ids.first().cloned(),
         output_schema: turn.output_schema,
+        // The collaboration mode carries the turn's effort.
+        effort: None,
         service_tier: compose_codex_service_tier(sent_output_speed.as_deref()),
         // Codex applies it to this turn's copy of the settings alone, and reads `default` as
         // standard.

@@ -295,6 +295,7 @@ async fn start_turn(
                 model: None,
                 client_user_message_id: None,
                 output_schema: None,
+                effort: None,
                 service_tier: None,
                 service_tier_for_turn: None,
             },

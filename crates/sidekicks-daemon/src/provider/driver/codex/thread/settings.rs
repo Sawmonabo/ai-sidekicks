@@ -15,8 +15,8 @@ use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMo
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::provider::driver::codex::app_server_protocol::{
-    ApprovalsReviewer, AskForApproval, CollaborationMode, ModeKind, Settings, ThreadForkParams,
-    ThreadResumeParams, ThreadStartParams, UserInput,
+    ApprovalsReviewer, AskForApproval, CollaborationMode, ModeKind, ReasoningEffort, Settings,
+    ThreadForkParams, ThreadResumeParams, ThreadStartParams, UserInput,
 };
 use crate::provider::driver::codex::permission_level::{
     CodexApprovalPolicy, CodexApprovalsReviewer, CodexProfileFolders,
@@ -199,6 +199,9 @@ pub(crate) struct CodexTurnStartParams {
     /// The JSON Schema the turn's final message must follow.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) output_schema: Option<Value>,
+    /// The reasoning effort the turn runs at, from this turn on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) effort: Option<ReasoningEffort>,
     /// The thread's service tier from this turn on.
     #[serde(
         default,
@@ -618,6 +621,7 @@ mod tests {
                 model: None,
                 client_user_message_id: None,
                 output_schema: None,
+                effort: None,
                 service_tier,
                 service_tier_for_turn: None,
             }),
@@ -673,6 +677,7 @@ mod tests {
                 model: Some("gpt".to_owned()),
                 client_user_message_id: Some("message".to_owned()),
                 output_schema: Some(json!({ "type": "object" })),
+                effort: Some("low".parse().expect("low is an effort")),
                 service_tier: Some(Some("fast".to_owned())),
                 service_tier_for_turn: Some("fast".to_owned()),
             }),

@@ -8,6 +8,7 @@ mod lockdown;
 #[cfg(test)]
 mod tests;
 
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,6 +17,7 @@ use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use super::CodexDriver;
 use crate::provider::driver::codex::app_server_protocol::{
@@ -23,17 +25,19 @@ use crate::provider::driver::codex::app_server_protocol::{
     ThreadSource, ThreadStartParams,
 };
 use crate::provider::driver::codex::attachments::compose_codex_text_input;
+use crate::provider::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::provider::driver::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_TURN_COMPLETED_METHOD,
 };
 use crate::provider::driver::codex::lifecycle::views::CodexConversationView;
+use crate::provider::driver::codex::run::turn_interrupt::interrupt_codex_turn;
 use crate::provider::driver::codex::service::command::run_codex_command;
 use crate::provider::driver::codex::service::home::CodexServiceKind;
 use crate::provider::driver::codex::service::supervisor::start::compose_codex_native_launch;
 use crate::provider::driver::codex::service::supervisor::{CodexService, CodexServiceDependencies};
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::thread::settings::CodexTurnStartParams;
-use crate::provider::driver::codex::thread::view::read_thread;
+use crate::provider::driver::codex::thread::view::{read_thread, read_turn_id};
 use crate::provider::driver::codex::transport::connection::{
     CodexAppServerConnection, CodexConnectionEvents, CodexForgottenRequest, read_codex_object,
 };
@@ -73,8 +77,23 @@ const TITLE_ANSWER_FILE_NAME: &str = "title.json";
 /// the pass's own bound.
 const CODEX_SERVER_LIST_DEADLINE: Duration = Duration::from_secs(10);
 
-/// How long either pass may take: a short answer on a small model of the account's own.
+/// How long either pass's turn may take to answer.
 const CODEX_NAMING_DEADLINE: Duration = Duration::from_secs(90);
+
+/// How long a title turn the pass leaves early may take to stop, its start's answer included.
+const CODEX_TITLE_INTERRUPT_DEADLINE: Duration = Duration::from_secs(30);
+
+/// Codex's small model, which its own terminal names a conversation with where the account's
+/// catalog offers it.
+const TITLE_MODEL: &str = "gpt-5.6-luna";
+
+/// The effort the small title model answers at.
+const TITLE_MODEL_EFFORT: &str = "low";
+
+/// The config keys of the model and its effort, which the one-shot pass sets as overrides.
+const MODEL_KEY: &str = "model";
+
+const REASONING_EFFORT_KEY: &str = "model_reasoning_effort";
 
 /// The words the pass names the session by.
 const TITLE_INSTRUCTIONS: &str = "Name this coding session from its first exchange below, in at \
@@ -91,30 +110,44 @@ impl CodexDriver {
         &self,
         params: NameSessionParams,
     ) -> Result<Option<String>, DriverError> {
-        let cancel = params.cancel.clone();
-        let prompt = compose_title_prompt(&params);
-        let named = async {
-            // The one-shot pass runs on the live session's own account, else on the person's own.
-            let service = match self.views.conversation(params.session_id) {
-                Some(conversation) => {
-                    match name_on_service(&conversation, &prompt).await {
-                        Ok(Some(name)) => return Ok(Some(name)),
-                        Ok(None) => {}
-                        Err(error) => tracing::info!(
-                            error = &error as &(dyn std::error::Error + 'static),
-                            session_id = %params.session_id,
-                            "a codex session's name could not be drawn on its service"
-                        ),
-                    }
-                    conversation.service
+        let cancel = params.cancel;
+        let prompt = compose_title_prompt(&params.first_message, &params.first_reply);
+        // The one-shot pass runs on the live session's own account, else on the person's own.
+        let (service, session_model) =
+            if let Some(conversation) = self.views.conversation(params.session_id) {
+                let service = Arc::clone(&conversation.service);
+                let session_model = conversation.model.clone();
+                // On a task of its own, so a caller that stops waiting still has its turn stopped.
+                let pass = self.tasks.spawn(name_on_service(
+                    conversation,
+                    prompt.clone(),
+                    cancel.clone(),
+                ));
+                match pass.await {
+                    Ok(Ok(Some(name))) => return Ok(Some(name)),
+                    Ok(Ok(None)) => {}
+                    Ok(Err(error)) => tracing::info!(
+                        error = &error as &(dyn std::error::Error + 'static),
+                        session_id = %params.session_id,
+                        "a codex session's name could not be drawn on its service"
+                    ),
+                    Err(error) => tracing::warn!(
+                        error = &error as &(dyn std::error::Error + 'static),
+                        session_id = %params.session_id,
+                        "a codex session's naming pass on its service ended unfinished"
+                    ),
                 }
-                None => self.registry.service_for(None).await?,
+                (service, Some(session_model))
+            } else {
+                tokio::select! {
+                    () = cancel.cancelled() => return Ok(None),
+                    service = self.registry.service_for(None) => (service?, None),
+                }
             };
-            Ok(name_in_one_shot(&service, &prompt).await?)
-        };
         tokio::select! {
+            biased;
             () = cancel.cancelled() => Ok(None),
-            named = named => named,
+            named = name_in_one_shot(&service, &prompt, session_model.as_deref()) => Ok(named?),
         }
     }
 
@@ -148,10 +181,10 @@ impl CodexDriver {
 }
 
 // The person's first message and the reply, under the naming instructions.
-fn compose_title_prompt(params: &NameSessionParams) -> String {
+fn compose_title_prompt(first_message: &str, first_reply: &str) -> String {
     format!(
-        "{TITLE_INSTRUCTIONS}\n\nThe person's message:\n{}\n\nThe reply:\n{}",
-        params.first_message, params.first_reply
+        "{TITLE_INSTRUCTIONS}\n\nThe person's message:\n{first_message}\n\nThe reply:\n\
+         {first_reply}"
     )
 }
 
@@ -183,16 +216,22 @@ fn read_title(answer: &str) -> Option<String> {
 }
 
 // The name the person's own terminal gave a joined service's conversation, else one drawn on a
-// throwaway conversation of `conversation`'s service over a connection of its own.
+// throwaway conversation of `conversation`'s service over a connection of its own; `None` once
+// `cancel` fired.
 async fn name_on_service(
-    conversation: &CodexConversationView,
-    prompt: &str,
+    conversation: CodexConversationView,
+    prompt: String,
+    cancel: CancellationToken,
 ) -> Result<Option<String>, CodexError> {
     let (sender, mut frames) = mpsc::unbounded_channel();
     let service = &conversation.service;
-    let connection = service
-        .open_detached_connection(Arc::new(TitleConnectionEvents { frames: sender }))
-        .await?;
+    let connection = tokio::select! {
+        biased;
+        () = cancel.cancelled() => return Ok(None),
+        connection = service
+            .open_detached_connection(Arc::new(TitleConnectionEvents { frames: sender })) =>
+                connection?,
+    };
     // The throwaway conversation is ephemeral, so it ends with the connection, dropped here.
     draw_title(
         &connection,
@@ -201,8 +240,10 @@ async fn name_on_service(
             thread_id: &conversation.thread_id,
             is_joined: service.kind() == CodexServiceKind::Joined,
             working_directory: &conversation.working_directory.to_string_lossy(),
-            prompt,
+            session_model: &conversation.model,
+            prompt: &prompt,
         },
+        &cancel,
     )
     .await
 }
@@ -215,20 +256,95 @@ struct TitleRequest<'pass> {
     is_joined: bool,
     /// The session's folder, whose config the title conversation is read and started under.
     working_directory: &'pass str,
+    /// The session's model, which the title turn runs on where the small title model is not
+    /// offered.
+    session_model: &'pass str,
     /// The pass's prompt.
     prompt: &'pass str,
 }
 
+/// How a title conversation's start went: a name the conversation already had, or the
+/// conversation started with the effort its turn runs at.
+enum TitleThread {
+    /// The person's own terminal named the conversation.
+    Named(String),
+    /// A throwaway conversation started.
+    Started {
+        /// The conversation.
+        thread_id: String,
+        /// The effort its turn runs at, `None` on the session's own model.
+        effort: Option<&'static str>,
+    },
+}
+
 // The title of `request`'s conversation drawn over `connection`, whose notifications arrive on
-// `frames`: a name a joined service's conversation already has, else one answer of a throwaway
-// conversation that runs read-only, with no environment, tool, MCP server, hook or feature, which
-// fails closed when the config naming the MCP servers cannot be read or the start does not answer
-// read-only.
+// `frames`, as `start_title_thread` starts it; `None` once `cancel` fired. A turn the pass leaves
+// before it ends, at its deadline or its cancel, is stopped first, one canceled during its start
+// once the start named it.
 async fn draw_title(
     connection: &CodexAppServerConnection,
     frames: &mut mpsc::UnboundedReceiver<(String, Box<RawValue>)>,
     request: &TitleRequest<'_>,
+    cancel: &CancellationToken,
 ) -> Result<Option<String>, CodexError> {
+    let started = tokio::select! {
+        biased;
+        () = cancel.cancelled() => return Ok(None),
+        started = start_title_thread(connection, request) => started?,
+    };
+    let (title_thread_id, effort) = match started {
+        TitleThread::Named(name) => return Ok(Some(name)),
+        TitleThread::Started { thread_id, effort } => (thread_id, effort),
+    };
+    let turn = CodexTurnStartParams {
+        thread_id: title_thread_id.clone(),
+        input: vec![compose_codex_text_input(request.prompt.to_owned())],
+        approvals_reviewer: None,
+        collaboration_mode: None,
+        model: None,
+        client_user_message_id: None,
+        output_schema: Some(title_schema()),
+        effort: effort.map(|effort| effort.parse().expect("the title effort is an effort")),
+        service_tier: None,
+        service_tier_for_turn: None,
+    };
+    let start = connection.request(TURN_START_METHOD, &turn);
+    tokio::pin!(start);
+    let reply = tokio::select! {
+        biased;
+        reply = &mut start => reply?,
+        () = cancel.cancelled() => {
+            stop_title_turn(connection, &title_thread_id, async {
+                read_turn_id(&(&mut start).await?, TURN_START_METHOD)
+            })
+            .await;
+            return Ok(None);
+        }
+    };
+    let turn_id = read_turn_id(&reply, TURN_START_METHOD)?;
+    let answered = tokio::select! {
+        biased;
+        () = cancel.cancelled() => None,
+        answered = tokio::time::timeout(
+            CODEX_NAMING_DEADLINE,
+            read_title_answer(frames, &title_thread_id),
+        ) => answered.ok(),
+    };
+    let Some(answer) = answered else {
+        stop_title_turn(connection, &title_thread_id, async { Ok(turn_id) }).await;
+        return Ok(None);
+    };
+    Ok(answer.as_deref().and_then(read_title))
+}
+
+// A name a joined service's conversation already has, else a throwaway conversation started over
+// `connection` that runs read-only on the small title model where the account's catalog offers
+// it, with no environment, tool, MCP server, hook or feature. Fails closed when the config naming
+// the MCP servers cannot be read or the start does not answer read-only.
+async fn start_title_thread(
+    connection: &CodexAppServerConnection,
+    request: &TitleRequest<'_>,
+) -> Result<TitleThread, CodexError> {
     if request.is_joined {
         let reply = connection
             .request(
@@ -242,8 +358,8 @@ async fn draw_title(
         let given = read_codex_object::<ThreadReadReply>(reply.get())
             .and_then(|reply| reply.thread?.name)
             .filter(|name| !name.trim().is_empty());
-        if given.is_some() {
-            return Ok(given);
+        if let Some(given) = given {
+            return Ok(TitleThread::Named(given));
         }
     }
     let config = connection
@@ -256,10 +372,12 @@ async fn draw_title(
         )
         .await?;
     let server_names = lockdown::read_config_server_names(&config)?;
+    let title_model = choose_title_model(Some(connection), Some(request.session_model)).await;
     let reply = connection
         .request(
             THREAD_START_METHOD,
             &ThreadStartParams {
+                model: title_model.model,
                 cwd: Some(request.working_directory.to_owned()),
                 ephemeral: Some(true),
                 sandbox: Some(SandboxMode::ReadOnly),
@@ -289,54 +407,105 @@ async fn draw_title(
             cause: None,
         });
     }
-    let title_thread_id = read_thread(&reply, THREAD_START_METHOD)?.id;
-    connection
-        .request(
-            TURN_START_METHOD,
-            &CodexTurnStartParams {
-                thread_id: title_thread_id.clone(),
-                input: vec![compose_codex_text_input(request.prompt.to_owned())],
-                approvals_reviewer: None,
-                collaboration_mode: None,
-                model: None,
-                client_user_message_id: None,
-                output_schema: Some(title_schema()),
-                service_tier: None,
-                service_tier_for_turn: None,
-            },
-        )
-        .await?;
-    let answered = tokio::time::timeout(CODEX_NAMING_DEADLINE, async {
-        let mut answer = None;
-        while let Some((method, params)) = frames.recv().await {
-            let Some(frame) = read_codex_object::<TitleFrame>(params.get()) else {
-                continue;
-            };
-            if frame.thread_id.as_deref() != Some(title_thread_id.as_str()) {
-                continue;
-            }
-            match method.as_str() {
-                CODEX_ITEM_COMPLETED_METHOD => {
-                    if let Some(text) = frame
-                        .item
-                        .filter(|item| {
-                            item.item_type.as_deref() == Some(CODEX_AGENT_MESSAGE_ITEM_TYPE)
-                        })
-                        .and_then(|item| item.text)
-                    {
-                        answer = Some(text);
-                    }
-                }
-                CODEX_TURN_COMPLETED_METHOD => break,
-                _ => {}
-            }
-        }
-        answer
+    Ok(TitleThread::Started {
+        thread_id: read_thread(&reply, THREAD_START_METHOD)?.id,
+        effort: title_model.effort,
     })
-    .await
-    .ok()
-    .flatten();
-    Ok(answered.as_deref().and_then(read_title))
+}
+
+// The last answer the title conversation `title_thread_id` gave once its turn completed, or once
+// its connection dropped.
+async fn read_title_answer(
+    frames: &mut mpsc::UnboundedReceiver<(String, Box<RawValue>)>,
+    title_thread_id: &str,
+) -> Option<String> {
+    let mut answer = None;
+    while let Some((method, params)) = frames.recv().await {
+        let Some(frame) = read_codex_object::<TitleFrame>(params.get()) else {
+            continue;
+        };
+        if frame.thread_id.as_deref() != Some(title_thread_id) {
+            continue;
+        }
+        match method.as_str() {
+            CODEX_ITEM_COMPLETED_METHOD => {
+                if let Some(text) = frame
+                    .item
+                    .filter(|item| item.item_type.as_deref() == Some(CODEX_AGENT_MESSAGE_ITEM_TYPE))
+                    .and_then(|item| item.text)
+                {
+                    answer = Some(text);
+                }
+            }
+            CODEX_TURN_COMPLETED_METHOD => break,
+            _ => {}
+        }
+    }
+    answer
+}
+
+// Stops the title turn `turn_id` names within the interrupt's own bound, so a pass that leaves
+// early leaves no turn spending the account's tokens; a failure is logged, as the pass answers no
+// name either way.
+async fn stop_title_turn(
+    connection: &CodexAppServerConnection,
+    title_thread_id: &str,
+    turn_id: impl Future<Output = Result<String, CodexError>>,
+) {
+    let stopped = tokio::time::timeout(CODEX_TITLE_INTERRUPT_DEADLINE, async {
+        interrupt_codex_turn(connection, title_thread_id, &turn_id.await?).await
+    })
+    .await;
+    match stopped {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::info!(
+            error = &error as &(dyn std::error::Error + 'static),
+            "a codex title turn could not be stopped"
+        ),
+        Err(elapsed) => tracing::info!(
+            error = &elapsed as &(dyn std::error::Error + 'static),
+            "a codex title turn was not stopped within its bound"
+        ),
+    }
+}
+
+/// The model and effort a title turn runs on.
+struct TitleModel {
+    /// The model, `None` for the home's default.
+    model: Option<String>,
+    /// The effort, `None` for the model's own.
+    effort: Option<&'static str>,
+}
+
+// Codex's small title model at low effort where the catalog `connection` lists for the account
+// offers it, else `session_model` at its own effort; a catalog that cannot be read offers nothing.
+async fn choose_title_model(
+    connection: Option<&CodexAppServerConnection>,
+    session_model: Option<&str>,
+) -> TitleModel {
+    let is_offered = match connection {
+        Some(connection) => match read_codex_service_model_catalog(connection).await {
+            Ok(models) => models.iter().any(|model| model.id.as_str() == TITLE_MODEL),
+            Err(error) => {
+                tracing::info!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "codex's model catalog could not be read for a title pass"
+                );
+                false
+            }
+        },
+        None => false,
+    };
+    if is_offered {
+        return TitleModel {
+            model: Some(TITLE_MODEL.to_owned()),
+            effort: Some(TITLE_MODEL_EFFORT),
+        };
+    }
+    TitleModel {
+        model: session_model.map(str::to_owned),
+        effort: None,
+    }
 }
 
 // One `codex exec` of the account's home, ephemeral and in an empty folder of its own, under the
@@ -345,6 +514,7 @@ async fn draw_title(
 async fn name_in_one_shot(
     service: &CodexService,
     prompt: &str,
+    session_model: Option<&str>,
 ) -> Result<Option<String>, CodexError> {
     let folder = tempfile::tempdir().map_err(|error| CodexError::Transport {
         detail: "The folder of Codex's naming pass could not be made.".to_owned(),
@@ -365,7 +535,22 @@ async fn name_in_one_shot(
         .await
         .map_err(CodexError::Driver)?;
     let server_names = list_mcp_server_names(dependencies, &executable).await?;
-    let mut arguments = lockdown::compose_title_exec_overrides(&server_names);
+    // The catalog is read on the service where it is up; the one-shot pass starts none.
+    let connection = service.connection().ok();
+    let title_model = choose_title_model(connection.as_deref(), session_model).await;
+    let mut overrides = lockdown::compose_title_overrides(&server_names);
+    overrides.extend(
+        title_model
+            .model
+            .map(|model| (MODEL_KEY.to_owned(), Value::String(model))),
+    );
+    overrides.extend(title_model.effort.map(|effort| {
+        (
+            REASONING_EFFORT_KEY.to_owned(),
+            Value::String(effort.to_owned()),
+        )
+    }));
+    let mut arguments = lockdown::write_exec_overrides(overrides);
     arguments.extend([
         "exec".to_owned(),
         "--ephemeral".to_owned(),
