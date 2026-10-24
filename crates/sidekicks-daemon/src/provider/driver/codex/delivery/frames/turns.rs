@@ -186,7 +186,6 @@ impl CodexFrameDelivery {
                 ending: read_turn_ending(record, &turn_id, turn_run.ending, status),
                 ..turn_run
             });
-        let turn_ending = turn_run.as_ref().map(|turn_run| turn_run.ending);
         // A live turn ending interrupted is one Codex itself stopped, since a turn the daemon
         // interrupted reads interrupted or paused.
         let is_stopped_by_codex = status == Some(CodexTurnStatus::Interrupted);
@@ -232,23 +231,37 @@ impl CodexFrameDelivery {
                     }
                     CodexTurnEnding::Live | CodexTurnEnding::Interrupted => None,
                 };
+                // A pause's turn that failed by itself leaves nothing to pause; the continue that
+                // waited on the pause goes back to the queue.
+                let given_back = match turn_run.ending {
+                    CodexTurnEnding::Live => record
+                        .paused_run_id_by_interrupted_turn_id
+                        .remove(&turn_id)
+                        .and_then(|run_id| record.continues_awaiting_pause.remove(&run_id))
+                        .map(|params| {
+                            params
+                                .messages
+                                .into_iter()
+                                .map(|message| message.id)
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    CodexTurnEnding::Interrupted
+                    | CodexTurnEnding::Paused
+                    | CodexTurnEnding::Retried => Vec::new(),
+                };
                 dispatch.turns_ended.push(CodexTurnMove {
                     turn_id: turn_id.clone(),
                     run_id: turn_run.run_id,
                     ending: turn_run.ending,
                     turn_end,
+                    given_back,
                 });
             }
         }
         record.delivery.safety_hold_run_by_turn_id.remove(&turn_id);
         record.delivery.forget_turn(&turn_id);
         record.turn_input_by_turn_id.remove(&turn_id);
-        // A pause's turn that failed by itself leaves nothing to pause, nor to continue.
-        if turn_ending == Some(CodexTurnEnding::Live)
-            && let Some(run_id) = record.paused_run_id_by_interrupted_turn_id.remove(&turn_id)
-        {
-            record.continues_awaiting_pause.remove(&run_id);
-        }
     }
 
     async fn deliver_terminal(

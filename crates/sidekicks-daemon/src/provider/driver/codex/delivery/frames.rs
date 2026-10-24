@@ -21,6 +21,7 @@ use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -133,6 +134,9 @@ pub(crate) struct CodexTurnMove {
     /// The end the run engine records for a turn whose end moves no run: a paused or retried
     /// turn's; `None` for an end the run's own move or its interrupt records.
     pub(crate) turn_end: Option<ProviderTurnEnd>,
+    /// The messages of a continue that waited on the turn's pause, which the turn's own end leaves
+    /// no turn to take; given back to the queue, where they keep their places.
+    pub(crate) given_back: Vec<QueueItemId>,
 }
 
 /// What one frame told the rest of the driver.

@@ -432,7 +432,7 @@ pub(crate) async fn apply_codex_routed_frames(
                 }
             }
             if let Some(listener) = intake.ports.message_given_back.port() {
-                for message_id in steers.dropped {
+                for message_id in steers.dropped.into_iter().chain(ended.given_back) {
                     listener.message_given_back(session_id, &message_id.to_string());
                 }
             }

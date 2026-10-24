@@ -7,8 +7,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::run::queue::{MessageContent, QueueItemNotDeliveredReason};
 
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
 use crate::mutex_lock::lock;
@@ -18,9 +17,10 @@ use crate::provider::driver::codex::session::test_session::{
     TEST_THREAD, fork_reply, no_turns, test_thread_settings, turn_completed, turn_reply,
 };
 use crate::provider::driver::run_control::{
-    FasterModelRetryOutcome, FasterModelRetryParams, PauseRunParams,
+    FasterModelRetryOutcome, FasterModelRetryParams, PauseRunParams, ResumeRunParams,
+    WaitingMessage,
 };
-use crate::provider::driver::test_registry::terminal_events;
+use crate::provider::driver::test_registry::{new_message_id, terminal_events};
 use crate::session::run::engine::tests::stored_run_state;
 
 // Real time under a timeout, since the run engine writes the turn's end through the database
@@ -147,12 +147,13 @@ enum PauseEnd {
 // and the interrupt's answer the session takes first: one the interrupt stopped reads paused and
 // gives its unechoed steer back to the queue, never refused; one that completed by itself is the
 // step that landed and reads paused too; one that failed by itself ends its run failed, its
-// failure surfacing. Each ends with its turn's route retired and no second end once every answer
-// landed. Killed by reading a pause-marked turn paused whatever its status (the failed run reads
-// paused), by settling an already-ended answer as a stop (the settle-first by-itself run's route
-// is retired before its end), by reading a live turn ahead of the pause's mark in
-// `find_turn_run_id` (the end-first stopped run reads interrupted), and by dropping the
-// `message_given_back` call from the session task's turn end.
+// failure surfacing, and the continue that waited on the pause goes back to the queue. Each ends
+// with its turn's route retired and no second end once every answer landed. Killed by reading a
+// pause-marked turn paused whatever its status (the failed run reads paused), by settling an
+// already-ended answer as a stop (the settle-first by-itself run's route is retired before its
+// end), by reading a live turn ahead of the pause's mark in `find_turn_run_id` (the end-first
+// stopped run reads interrupted), by dropping the `message_given_back` call from the session
+// task's turn end, and by dropping the waiting continue with the failed turn's mark.
 #[rstest]
 #[case::end_first(PauseOrder::EndFirst, PauseEnd::Stopped)]
 #[case::settle_first(PauseOrder::SettleFirst, PauseEnd::Stopped)]
@@ -201,6 +202,29 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
         .await
         .expect("the step's end interrupts the turn");
     assert_eq!(interrupt["method"], "turn/interrupt");
+    // A continue asked for while the pause's interrupt is out waits on the pause.
+    let continued = match end {
+        PauseEnd::FailedByItself => {
+            let message = new_message_id();
+            parts
+                .run_control
+                .resume_run(ResumeRunParams {
+                    session_id: session.session_id,
+                    run_id: session.run_id,
+                    messages: vec![WaitingMessage {
+                        id: message,
+                        content: MessageContent::new("carry on".to_owned())
+                            .expect("the words are a message"),
+                        attachments: Vec::new(),
+                        skills: Vec::new(),
+                    }],
+                })
+                .await
+                .expect("the continue waits on the pause");
+            vec![message]
+        }
+        PauseEnd::Stopped | PauseEnd::CompletedByItself => Vec::new(),
+    };
     let (ended, answer, expected_state) = match end {
         PauseEnd::Stopped => (
             turn_completed(TEST_THREAD, TEST_TURN, "interrupted"),
@@ -244,12 +268,15 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
             .expect("the session's task reports the run's end")
             .expect("the followers stay open");
     }
-    if end == PauseEnd::Stopped {
-        while lock(&session.queue.given_back).is_empty() {
-            tokio::time::timeout(Duration::from_secs(10), session.queue.changed.notified())
-                .await
-                .expect("the session's task gives the steer back");
-        }
+    let given_back: Vec<String> = steers
+        .iter()
+        .chain(&continued)
+        .map(ToString::to_string)
+        .collect();
+    while lock(&session.queue.given_back).len() < given_back.len() {
+        tokio::time::timeout(Duration::from_secs(10), session.queue.changed.notified())
+            .await
+            .expect("the session's task gives the waiting messages back");
     }
     // The interrupt's answer, read off the socket after the end here, has landed too.
     let live_turn_runs = live_turn_runs_once_settled(&mut session).await;
@@ -266,7 +293,6 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
         }
         PauseEnd::FailedByItself => assert_eq!(terminal_types, ["agent.run.failed"]),
     }
-    let given_back: Vec<String> = steers.iter().map(ToString::to_string).collect();
     assert_eq!(*lock(&session.queue.given_back), given_back);
     assert!(lock(&session.queue.refused).is_empty());
 }
@@ -469,10 +495,6 @@ fn retry_params(session: &LiveCodexSession) -> FasterModelRetryParams {
         expected_turn_id: TEST_TURN.to_owned(),
         model: ProviderToken::new("gpt-5-fast".to_owned()).expect("a model token"),
     }
-}
-
-fn new_message_id() -> QueueItemId {
-    QueueItemId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an id")
 }
 
 // One run of the person's `userPromptSubmit` hook handler `handler` on a prompt of the test turn,
