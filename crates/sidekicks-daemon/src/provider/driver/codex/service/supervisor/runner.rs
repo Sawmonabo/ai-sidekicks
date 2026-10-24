@@ -498,7 +498,7 @@ fn check_joined_service_free(service: &Arc<CodexService>, dial: u64) {
         return;
     };
     let checking = Arc::clone(service);
-    tokio::spawn(async move {
+    service.dependencies.tasks.spawn(async move {
         match read_codex_loaded_threads(&connection).await {
             Ok(loaded) if loaded.is_empty() => {}
             Ok(_still_used) => return,

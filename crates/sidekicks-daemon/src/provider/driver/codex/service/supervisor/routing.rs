@@ -75,10 +75,11 @@ impl CodexServiceRouting {
         self.sessions.insert(sender.session_id(), sender);
     }
 
-    /// Stops sending a session its frames and forgets the warnings it was told.
-    pub(super) fn detach(&mut self, session_id: &SessionId) {
-        self.sessions.remove(session_id);
+    /// Stops sending a session its frames and forgets the warnings it was told; answers whether it
+    /// was attached.
+    pub(super) fn detach(&mut self, session_id: &SessionId) -> bool {
         self.config_warnings.forget_session(session_id);
+        self.sessions.remove(session_id).is_some()
     }
 
     /// The queue of one session, when it is attached.
@@ -221,6 +222,11 @@ impl CodexService {
         };
         if has_rate_limits_changed {
             self.dependencies.events.rate_limits_observed(self);
+        }
+        // Codex sends every client each unload, so a conversation of the person's ending in their
+        // terminal may leave a joined service free.
+        if method == CODEX_THREAD_CLOSED_METHOD {
+            self.last_conversation_closed();
         }
         if let FrameAudience::Sessions(sessions) = audience {
             for session_id in sessions {

@@ -109,8 +109,8 @@ pub(crate) struct CodexServiceDependencies {
     /// The drains of the lasting services another took the home's link from, which outlive the
     /// service that asked them and end with the registry's shutdown.
     pub(crate) drains: LastingServiceDrains,
-    /// The driver's tracked tasks, which the driver's shutdown waits for, a switch-off's wait to
-    /// retire a service among them.
+    /// The driver's tracked tasks, which the driver's shutdown waits for: a switch-off's wait to
+    /// retire a service, and a joined service's check that Codex's managed daemon is free.
     pub(crate) tasks: TaskTracker,
 }
 
@@ -519,14 +519,12 @@ impl CodexService {
         self.ensure_started(self.dependencies.startup_timeout).await
     }
 
-    /// The daemon's last conversation on the service closed, so Codex's managed daemon it joined
-    /// may be free to take over.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's close tells the service its last conversation closed"
-    )]
-    pub(crate) fn last_conversation_closed(&self) {
-        self.send(SupervisorEvent::LastConversationClosed);
+    // On a joined service the daemon holds no session on any more, Codex's managed daemon it
+    // joined may be free to take over, so the service checks; any other is told nothing.
+    fn last_conversation_closed(&self) {
+        if self.kind() == CodexServiceKind::Joined && self.lock_routing().attached().is_empty() {
+            self.send(SupervisorEvent::LastConversationClosed);
+        }
     }
 
     /// Sends a session's frames and asks to `sender` from now on, and first the config warnings
@@ -544,9 +542,12 @@ impl CodexService {
         routing.attach(sender);
     }
 
-    /// Stops sending a session its frames.
+    /// Stops sending a session its frames; the last session the daemon held on a joined service
+    /// leaving has it check whether Codex's managed daemon it joined is free.
     pub(crate) fn detach_session(&self, session_id: &SessionId) {
-        self.lock_routing().detach(session_id);
+        if self.lock_routing().detach(session_id) {
+            self.last_conversation_closed();
+        }
     }
 
     /// Queues `item` for one session; answers whether an attached session's queue took it.
