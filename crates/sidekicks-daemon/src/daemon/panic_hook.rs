@@ -18,6 +18,7 @@ use sidekicks_platforms::{LeftoverSweep, create_private_folder, replace_file_ato
 use crate::daemon::crash::monitor::{PanicRecord, send_panic_record};
 use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
 use crate::redaction::scrub_credentials;
+use crate::standard_error::write_error_line;
 
 /// The start of a panic's record's name in the crash reports folder.
 pub(crate) const PANIC_RECORD_FILE_PREFIX: &str = "panic-";
@@ -81,14 +82,10 @@ pub(crate) fn install_panic_hook(data_folder: &Path, log_file: Option<ArcFileLog
         if let Some(mut log_file) = log_file.clone()
             && let Err(error) = log_file.flush()
         {
-            // The log's file is what failed, so standard error alone is left to say so; a failure
-            // there has nowhere left to go.
-            if let Err(write_error) = writeln!(
-                std::io::stderr().lock(),
+            // The log's file is what failed, so standard error alone is left to say so.
+            write_error_line(&format!(
                 "The service log could not be flushed before the panic's end: {error}"
-            ) {
-                drop(write_error);
-            }
+            ));
         }
         std::process::abort();
     }));

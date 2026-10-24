@@ -29,8 +29,8 @@ use sidekicks_platforms::{
 use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::data_folder::data_folder;
 use crate::error_description::describe_error;
-use crate::helper_mode::error_output::write_error_line;
 use crate::missing_entry::MissingEntry as _;
+use crate::standard_error::write_error_line;
 
 /// The word the daemon's own program is started with to run the crash monitor; the socket's path
 /// follows it.

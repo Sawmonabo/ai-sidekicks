@@ -2,7 +2,7 @@
 //! <pid>` sends the console's processes the hard stop, and `console input <pid>` writes how many
 //! input events wait unread there. They start nothing and end as soon as their one call returns.
 
-use std::io::{self, Write as _};
+use std::io;
 use std::process::ExitCode;
 
 use sidekicks_platforms::{
@@ -10,6 +10,7 @@ use sidekicks_platforms::{
 };
 
 use crate::error_description::describe_error;
+use crate::standard_error::write_error_line;
 
 /// The word the daemon's own program is started with to run a `console` mode.
 pub(crate) const CONSOLE_MODE: &str = "console";
@@ -31,14 +32,10 @@ pub(crate) fn run_console_mode(arguments: &[&str]) -> ExitCode {
     match done {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            // Nothing is left to report a failed write to; the exit status still says it failed.
-            if let Err(write_error) = writeln!(
-                io::stderr().lock(),
+            write_error_line(&format!(
                 "The console mode failed: {}",
                 describe_error(&error)
-            ) {
-                drop(write_error);
-            }
+            ));
             ExitCode::FAILURE
         }
     }

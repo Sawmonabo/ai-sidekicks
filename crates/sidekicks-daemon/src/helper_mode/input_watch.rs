@@ -9,7 +9,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use crate::error_description::describe_error;
-use crate::helper_mode::error_output::write_error_line;
+use crate::standard_error::write_error_line;
 
 // What ended the mode first: its work, or the end of standard input.
 enum ModeEnd<Failure> {

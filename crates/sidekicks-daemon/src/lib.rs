@@ -47,6 +47,7 @@ pub(crate) mod redaction;
 pub mod retry_waits;
 pub mod session;
 pub mod settle_all;
+pub(crate) mod standard_error;
 pub mod text_cut;
 pub mod transcript;
 pub(crate) mod utf8_stream;

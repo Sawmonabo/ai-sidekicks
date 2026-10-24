@@ -7,7 +7,7 @@
 //! links are their own features' to add here.
 
 use std::ffi::{CString, OsString, c_int};
-use std::io::{self, Write as _};
+use std::io;
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -20,6 +20,7 @@ use crate::recovery::database_file::copy::{DATABASE_COPY_MODE, run_database_copy
 use crate::recovery::database_file::restore::{DATABASE_RESTORE_MODE, run_database_restore};
 use crate::recovery::database_file::sqlite_shell::DATABASE_SHELL_MODE;
 use crate::session::search::index::build_mode::{SEARCH_INDEX_BUILD_MODE, run_search_index_build};
+use crate::standard_error::write_error_line;
 use crate::workspace::clone::askpass::program::{GIT_ASKPASS_PROGRAM_NAME, run_git_askpass};
 
 /// SQLite's own shell, run with C arguments, its first the program's name; it answers the shell's
@@ -59,14 +60,7 @@ pub fn run_daemon_program(run_sqlite_shell: SqliteShell) -> ExitCode {
             run_database_shell(run_sqlite_shell, &program_name, &arguments[2..])
         }
         _ => {
-            // Nothing is left to report a failed write to; the exit status still says it failed.
-            if let Err(error) = writeln!(
-                io::stderr().lock(),
-                "sidekicks-daemon has no mode {}",
-                words.join(" ")
-            ) {
-                drop(error);
-            }
+            write_error_line(&format!("sidekicks-daemon has no mode {}", words.join(" ")));
             ExitCode::FAILURE
         }
     }
@@ -81,13 +75,9 @@ fn run_database_shell(
     arguments: &[OsString],
 ) -> ExitCode {
     if let Err(error) = sidekicks_platforms::set_binary_standard_streams() {
-        // Nothing is left to report a failed write to; the exit status still says it failed.
-        if let Err(write_error) = writeln!(
-            io::stderr().lock(),
+        write_error_line(&format!(
             "The database shell's standard streams could not be made binary: {error}"
-        ) {
-            drop(write_error);
-        }
+        ));
         return ExitCode::FAILURE;
     }
     let shell_arguments: io::Result<Vec<CString>> = std::iter::once(program_name)
@@ -100,13 +90,9 @@ fn run_database_shell(
     let shell_arguments = match shell_arguments {
         Ok(shell_arguments) => shell_arguments,
         Err(error) => {
-            // Nothing is left to report a failed write to; the exit status still says it failed.
-            if let Err(write_error) = writeln!(
-                io::stderr().lock(),
+            write_error_line(&format!(
                 "The database shell's arguments cannot be passed: {error}"
-            ) {
-                drop(write_error);
-            }
+            ));
             return ExitCode::FAILURE;
         }
     };

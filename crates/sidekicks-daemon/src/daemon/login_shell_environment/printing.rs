@@ -3,10 +3,12 @@
 //! marker lines, so the capture needs no program of the system's and no startup file's alias or
 //! function changes what is printed.
 
-use std::io::{self, Write as _};
+use std::io;
 use std::process::ExitCode;
 
 use sidekicks_platforms::os_text_bytes;
+
+use crate::standard_error::write_error_line;
 
 /// The word the daemon's own program is started with to print its environment.
 pub(crate) const ENVIRONMENT_MODE: &str = "environment";
@@ -37,13 +39,7 @@ pub(crate) fn run_environment_mode(token: &str) -> ExitCode {
     match print_environment(&CaptureMarkers::new(token), &mut io::stdout().lock()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            // Nothing is left to report a failed write to; the exit status still says it failed.
-            if let Err(write_error) = writeln!(
-                io::stderr().lock(),
-                "The environment could not be printed: {error}"
-            ) {
-                drop(write_error);
-            }
+            write_error_line(&format!("The environment could not be printed: {error}"));
             ExitCode::FAILURE
         }
     }

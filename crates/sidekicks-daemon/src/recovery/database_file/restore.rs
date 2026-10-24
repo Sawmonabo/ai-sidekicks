@@ -43,11 +43,11 @@ use crate::events::log_service::{
 use crate::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope};
 use crate::events::session::followers::SessionEventFollowers;
 use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::helper_mode::error_output::write_error_line;
 use crate::missing_entry::MissingEntry as _;
 use crate::recovery::database_file::copy::copy_file_replacing;
 use crate::recovery::database_file::newest_backup::{BackupManifestError, read_backup_manifest};
 use crate::recovery::database_file::{SHARED_MEMORY_SUFFIX, WRITE_AHEAD_LOG_SUFFIX, sibling_path};
+use crate::standard_error::write_error_line;
 
 /// The arguments the daemon's own program is started with to restore a backup; the backup's
 /// folder follows them.
