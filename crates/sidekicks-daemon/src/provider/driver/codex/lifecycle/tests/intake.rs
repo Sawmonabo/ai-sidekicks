@@ -9,13 +9,12 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-use super::{LiveCodexSession, TEST_TURN};
+use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
 use crate::mutex_lock::lock;
 use crate::provider::driver::codex::intervention::CodexSteerRunRequest;
 use crate::provider::driver::codex::session::test_session::{
     TEST_THREAD, fork_reply, no_turns, test_thread_settings, turn_completed, turn_reply,
 };
-use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::provider::driver::run_control::{
     FasterModelRetryOutcome, FasterModelRetryParams, PauseRunParams,
 };
@@ -362,21 +361,6 @@ fn prompt_hook_completed(handler: &str, status: &str, words: &str) -> Value {
             },
         },
     })
-}
-
-// Answers what stopping a turn sends: an interrupt, with its turn's end as Codex sends it on the
-// abort, the running-command list as empty, and the rest with nothing.
-fn answer_stopping_request(script: &ScriptedService, sent: &Value) {
-    match sent["method"].as_str() {
-        Some("turn/interrupt") => {
-            script.answer(sent, &json!({}));
-            script.send(&turn_completed(TEST_THREAD, TEST_TURN, "interrupted"));
-        }
-        Some("thread/backgroundTerminals/list") => {
-            script.answer(sent, &json!({"data": [], "nextCursor": null}));
-        }
-        _ => script.answer(sent, &json!({})),
-    }
 }
 
 // Each message the queue was told a hook refused, with the hook's words.

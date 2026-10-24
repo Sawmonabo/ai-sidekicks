@@ -12,8 +12,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use interprocess::local_socket::traits::tokio::Listener as _;
-use serde_json::Value;
 use serde_json::value::RawValue;
+use serde_json::{Value, json};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
@@ -43,8 +43,9 @@ use crate::provider::driver::codex::service::supervisor::test_service::{
 use crate::provider::driver::codex::session::inbound::codex_session_inbound;
 use crate::provider::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
 use crate::provider::driver::codex::session::test_session::{
-    TestDaemonTurnBindings, UnreadRunStates, open_test_record,
+    TEST_THREAD, TestDaemonTurnBindings, UnreadRunStates, open_test_record, turn_completed,
 };
+use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::provider::driver::test_registry::{RecordedQueue, new_run_id, test_driver_services};
 use crate::provider::runtime_binding::store::RuntimeBindingSpawnConfig;
 use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
@@ -290,4 +291,23 @@ pub(super) fn listen_on_codex_folder(folder: &Path) {
             tokio::spawn(answer_as_codex_service(stream));
         }
     });
+}
+
+/// Answers what stopping a turn sends, a close's or an interrupt's: an interrupt, with the end of
+/// the turn it names as Codex sends it on the abort, the running-command list as empty, and the
+/// rest with nothing.
+pub(super) fn answer_stopping_request(script: &ScriptedService, sent: &Value) {
+    match sent["method"].as_str() {
+        Some("turn/interrupt") => {
+            script.answer(sent, &json!({}));
+            let turn_id = sent["params"]["turnId"]
+                .as_str()
+                .expect("an interrupt names its turn");
+            script.send(&turn_completed(TEST_THREAD, turn_id, "interrupted"));
+        }
+        Some("thread/backgroundTerminals/list") => {
+            script.answer(sent, &json!({"data": [], "nextCursor": null}));
+        }
+        _ => script.answer(sent, &json!({})),
+    }
 }

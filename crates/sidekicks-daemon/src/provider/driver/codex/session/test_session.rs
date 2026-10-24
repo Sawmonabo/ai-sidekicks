@@ -264,6 +264,7 @@ impl TestCodexSession {
         let queue = Arc::new(RecordedQueue::default());
         assert!(ports.message_taken.register(queue.clone()).is_ok());
         assert!(ports.message_refused.register(queue.clone()).is_ok());
+        assert!(ports.message_given_back.register(queue.clone()).is_ok());
         let retries = Arc::new(CodexFasterModelRetries::new(
             CodexFasterModelRetryDependencies {
                 slots: Arc::clone(&slots),

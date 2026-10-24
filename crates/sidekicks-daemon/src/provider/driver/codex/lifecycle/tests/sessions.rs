@@ -8,17 +8,14 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-use super::{LiveCodexSession, TEST_TURN};
+use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
 use crate::provider::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::provider::driver::codex::run::start::record::CodexTurnRequest;
 use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::inbound::codex_session_inbound;
 use crate::provider::driver::codex::session::state::CodexTurnMessage;
-use crate::provider::driver::codex::session::test_session::{
-    TEST_THREAD, turn_completed, turn_reply,
-};
-use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
+use crate::provider::driver::codex::session::test_session::turn_reply;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::provider::driver::session_control::CloseSessionParams;
 use crate::provider::driver::test_registry::terminal_events;
@@ -75,7 +72,7 @@ async fn close_live_turn(is_interrupt_answered: bool) {
                     );
                 }
                 if is_interrupt_answered || sent["method"] != "turn/interrupt" {
-                    answer_close_request(&scripted.script, &sent);
+                    answer_stopping_request(&scripted.script, &sent);
                 }
                 methods.push(sent);
             }
@@ -151,7 +148,7 @@ async fn a_close_interrupts_a_turn_whose_start_codex_answers_after_the_close_beg
                 break;
             }
             sent = scripted.script.next_sent() => {
-                answer_close_request(&scripted.script, &sent);
+                answer_stopping_request(&scripted.script, &sent);
                 methods.push(sent);
             }
         }
@@ -212,7 +209,7 @@ async fn the_daemons_stop_refuses_a_create_and_lets_go_one_claimed_before_it_wit
             () = &mut deadline => panic!("the stop ends within its bound"),
             () = &mut shutdown => break,
             sent = scripted.script.next_sent() => {
-                answer_close_request(&scripted.script, &sent);
+                answer_stopping_request(&scripted.script, &sent);
                 methods.push(sent["method"].clone());
             }
         }
@@ -225,24 +222,6 @@ async fn the_daemons_stop_refuses_a_create_and_lets_go_one_claimed_before_it_wit
             parts.slots.require_live(session_id).is_err(),
             "the stop let the record go"
         );
-    }
-}
-
-// Answers what a close sends: an interrupt, with its turn's end as Codex sends it on the abort,
-// the running-command list as empty, and the rest with nothing.
-fn answer_close_request(script: &ScriptedService, sent: &Value) {
-    match sent["method"].as_str() {
-        Some("turn/interrupt") => {
-            script.answer(sent, &json!({}));
-            let turn_id = sent["params"]["turnId"]
-                .as_str()
-                .expect("an interrupt names its turn");
-            script.send(&turn_completed(TEST_THREAD, turn_id, "interrupted"));
-        }
-        Some("thread/backgroundTerminals/list") => {
-            script.answer(sent, &json!({"data": [], "nextCursor": null}));
-        }
-        _ => script.answer(sent, &json!({})),
     }
 }
 
