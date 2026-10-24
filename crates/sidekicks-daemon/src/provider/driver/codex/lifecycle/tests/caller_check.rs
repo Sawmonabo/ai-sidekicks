@@ -1,5 +1,8 @@
 //! The caller check over the provider services the driver dials.
 
+// Unix alone: the services listen on a socket under `/tmp` and Codex's command is a shell script.
+#![cfg(unix)]
+
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

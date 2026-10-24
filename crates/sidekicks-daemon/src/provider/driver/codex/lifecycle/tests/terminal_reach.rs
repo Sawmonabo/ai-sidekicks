@@ -1,5 +1,8 @@
 //! The terminal-reach switch: its row read from the folder's terminal service, its value applied.
 
+// Unix alone: the services listen on a socket under `/tmp` and Codex's command is a shell script.
+#![cfg(unix)]
+
 use std::sync::atomic::Ordering;
 
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;

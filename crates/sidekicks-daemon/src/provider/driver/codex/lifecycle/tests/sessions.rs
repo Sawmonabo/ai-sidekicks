@@ -1,30 +1,66 @@
-//! A live session's close, through the driver.
+//! A live session's close and the daemon's stop, through the driver.
 
-use std::sync::Arc;
+use std::num::NonZeroUsize;
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use interprocess::local_socket::tokio::Listener;
+use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::{Value, json};
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::session::controls::methods::{
+    PermissionLevel, SessionMode, SideQuestionId,
+};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::record::Record;
 
+use super::super::CodexDriver;
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
+use crate::database::writer::test_file::TestDatabase;
+use crate::events::log_service::tests::open_log;
+use crate::policy::execution_posture_service::{
+    ExecutionPostureService, compose_execution_posture,
+};
+use crate::provider::driver::codex::permission_level::{
+    CodexProfileFolders, compose_codex_profile_name,
+};
 use crate::provider::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::provider::driver::codex::run::start::record::CodexTurnRequest;
 use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
+use crate::provider::driver::codex::service::registry::CodexServiceRegistry;
+use crate::provider::driver::codex::service::supervisor::test_service::{
+    ScriptedCodexService, bind_test_listener, next_socket_request, send_on_socket,
+    start_scripted_codex_service,
+};
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::inbound::codex_session_inbound;
 use crate::provider::driver::codex::session::slots::closing_session_refusal;
 use crate::provider::driver::codex::session::state::CodexTurnMessage;
 use crate::provider::driver::codex::session::test_session::{
-    TEST_THREAD, turn_completed, turn_reply,
+    OneFolder, TEST_THREAD, TestDaemonTurnBindings, UnreadRunStates, turn_completed, turn_reply,
 };
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::driver::session_control::CloseSessionParams;
-use crate::provider::driver::test_registry::{new_run_id, terminal_events};
+use crate::provider::driver::session_control::{
+    AskSideQuestionParams, CloseSessionParams, ResumeSessionParams,
+};
+use crate::provider::driver::test_registry::{new_run_id, terminal_events, test_driver_services};
+use crate::session::run::engine::tests::test_engine;
+use crate::session::run::epochs::ExecutionEpochs;
+use crate::session::run::inbound::RunInboundDispatch;
 
 /// How long a close may take before the test counts it as stuck.
 const CLOSE_BOUND: Duration = Duration::from_secs(10);
+
+/// The read-only copy the service forks a resting session's conversation into for a side question.
+const COPY_THREAD: &str = "copy-thread";
+
+/// The copy's one turn.
+const COPY_TURN: &str = "copy-turn";
 
 // Real time under a timeout, since the run engine writes the run's end through the database
 // writer. Killed by dropping the interrupt from `close_session` and by sending it after the
@@ -107,8 +143,10 @@ async fn a_close_interrupts_a_turn_whose_start_codex_answers_after_the_close_beg
         .slots
         .require_live(session_id)
         .expect("the session is live");
+    let withdrawn = Arc::new(AtomicBool::new(false));
     let start = tokio::spawn({
         let parts = Arc::clone(&parts);
+        let withdrawn = Arc::clone(&withdrawn);
         async move {
             let deadline = CodexTurnEndDeadline::new(CODEX_TURN_START_TIMEOUT);
             parts
@@ -118,7 +156,7 @@ async fn a_close_interrupts_a_turn_whose_start_codex_answers_after_the_close_beg
                     run_id,
                     binding_id,
                     turn_request(),
-                    None,
+                    Some(withdrawn),
                     &deadline,
                 )
                 .await
@@ -131,9 +169,13 @@ async fn a_close_interrupts_a_turn_whose_start_codex_answers_after_the_close_beg
 
     let close = driver.close_session(CloseSessionParams { session_id });
     tokio::pin!(close);
-    // Time for the close to withdraw the start before Codex names its turn; the start's refusal
-    // below shows it did.
-    let named = tokio::time::sleep(Duration::from_millis(200));
+    // Codex names the turn once the close withdrew the start; nothing announces the withdrawal
+    // but the start's own flag, so the test yields until the close set it.
+    let named = async {
+        while !withdrawn.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+    };
     tokio::pin!(named);
     let mut is_named = false;
     let mut methods = Vec::new();
@@ -299,6 +341,153 @@ async fn the_daemons_stop_refuses_a_create_and_lets_go_one_claimed_before_it_wit
             parts.slots.require_live(session_id).is_err(),
             "the stop let the record go"
         );
+    }
+}
+
+// Real time under a timeout, as above. Killed by dropping the stop of every side question's copy
+// from `shutdown`: the copy's turn would run on in a service that outlives the daemon, and the
+// driver's tasks would wait for that turn's end past the test's bound.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_daemons_stop_stops_the_turn_of_a_resting_sessions_side_question() {
+    let scripted = start_scripted_codex_service();
+    let Some(listener) = bind_test_listener(scripted.service.socket_path()) else {
+        return;
+    };
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let database = TestDatabase::new();
+    let driver = driver_holding(&scripted, folder.path(), &database).await;
+    let served = tokio::spawn(serve_unended_copy(
+        listener,
+        read_only_profile(folder.path()),
+    ));
+
+    driver
+        .ask_side_question(resting_question(folder.path()))
+        .await
+        .expect("the copy takes the question");
+    tokio::time::timeout(CLOSE_BOUND, driver.shutdown(DaemonStopIntent::Restart))
+        .await
+        .expect("the stop ends once the copy's turn is stopped");
+
+    let interrupt = tokio::time::timeout(CLOSE_BOUND, served)
+        .await
+        .expect("the copy's turn is interrupted")
+        .expect("the service served the copy");
+    assert_eq!(
+        interrupt["params"],
+        json!({"threadId": COPY_THREAD, "turnId": COPY_TURN})
+    );
+}
+
+// The composed driver on the person's own sign-in whose registry holds `scripted`'s service, every
+// session running in `folder`'s `work`, its runs on an engine over `database`.
+async fn driver_holding(
+    scripted: &ScriptedCodexService,
+    folder: &Path,
+    database: &TestDatabase,
+) -> CodexDriver {
+    let log = open_log(database, None).await;
+    let engine = test_engine(database, Arc::clone(&log.service), folder);
+    let dispatch = Arc::new(RunInboundDispatch::new(
+        Arc::clone(&engine),
+        Arc::new(Mutex::new(ExecutionEpochs::new(
+            NonZeroUsize::new(8).expect("the cap is not zero"),
+        ))),
+        Arc::new(UnreadRunStates),
+        log.service,
+    ));
+    let mut services = test_driver_services();
+    services.spawn_contexts = Arc::new(OneFolder(folder.join("work")));
+    services.execution_postures = Arc::new(ExecutionPostureService::new(
+        folder,
+        folder.join("session-token"),
+    ));
+    let ports = &services.ports;
+    assert!(ports.run_engine.register(engine).is_ok());
+    assert!(ports.inbound_dispatch.register(dispatch).is_ok());
+    let agent_id = AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
+    assert!(
+        ports
+            .daemon_turn_bindings
+            .register(Arc::new(TestDaemonTurnBindings::new(agent_id)))
+            .is_ok()
+    );
+    let mut driver = CodexDriver::new(&services);
+    driver.registry = CodexServiceRegistry::holding(scripted);
+    driver
+}
+
+// A side question on a session at rest whose stored conversation is `stored-thread`, at Ask on the
+// person's own sign-in.
+fn resting_question(folder: &Path) -> AskSideQuestionParams {
+    let session_id = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+    AskSideQuestionParams {
+        session_id,
+        side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),
+        question: "What does this read?".to_owned(),
+        resume: Some(ResumeSessionParams {
+            session_id,
+            agent_id: AgentId::new(&mint_uuid_v7().to_string())
+                .expect("a minted UUID is an agent id"),
+            resume_handle: "stored-thread".to_owned(),
+            model: ProviderToken::new("gpt-5".to_owned()).expect("the model fits"),
+            larger_window: None,
+            mode: SessionMode::Build,
+            execution_posture: Some(compose_execution_posture(
+                PermissionLevel::Ask,
+                FilesystemPath::new(folder.display().to_string()).expect("the folder is a path"),
+            )),
+            output_speed: None,
+            options: Vec::new(),
+            row_values: Record::default(),
+            callback_tools: None,
+            subagent_policy: None,
+            tool_servers: None,
+            output_schema: None,
+            provider_account_id: None,
+            on_mcp_server_status: None,
+        }),
+    }
+}
+
+// The read-only profile a copy of a session running in `folder`'s `work` runs under.
+fn read_only_profile(folder: &Path) -> String {
+    compose_codex_profile_name(
+        PermissionLevel::Readonly,
+        &CodexProfileFolders {
+            working_directory: folder.join("work"),
+            git_common_folder: None,
+            deny_paths: Vec::new(),
+        },
+    )
+}
+
+// Serves a side question's copy as Codex through its turn's start under `profile`, and never ends
+// the turn; answers the interrupt the daemon sent.
+async fn serve_unended_copy(listener: Listener, profile: String) -> Value {
+    let stream = listener
+        .accept()
+        .await
+        .expect("the daemon dials the service");
+    let mut socket = tokio_tungstenite::accept_async(stream)
+        .await
+        .expect("the daemon upgrades its connection");
+    loop {
+        let request = next_socket_request(&mut socket).await;
+        let result = match request["method"].as_str() {
+            Some("initialize") => json!({"userAgent": "codex/0.163.0 (test)"}),
+            Some("thread/fork") => json!({
+                "thread": {"id": COPY_THREAD, "sessionId": "codex-session"},
+                "activePermissionProfile": {"id": profile},
+            }),
+            Some("turn/start") => turn_reply(COPY_TURN),
+            Some("turn/interrupt") => {
+                send_on_socket(&mut socket, json!({"id": request["id"], "result": {}})).await;
+                return request;
+            }
+            method => panic!("the copy sent {method:?}"),
+        };
+        send_on_socket(&mut socket, json!({"id": request["id"], "result": result})).await;
     }
 }
 
