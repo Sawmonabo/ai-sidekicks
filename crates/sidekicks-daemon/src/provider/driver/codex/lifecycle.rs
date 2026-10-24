@@ -366,6 +366,7 @@ impl CodexDriver {
             rewind: CodexConversationRewind::new(
                 Arc::clone(&self.slots),
                 Arc::clone(&self.config_forks),
+                Arc::clone(&run_start),
                 self.tasks.clone(),
             ),
             calls: CodexSessionCallDependencies {
