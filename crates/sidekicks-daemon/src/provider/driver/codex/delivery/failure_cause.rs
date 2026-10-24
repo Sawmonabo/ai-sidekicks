@@ -16,10 +16,10 @@ use crate::provider::driver::codex::usage_limit_signal::classify_codex_usage_lim
 pub(crate) const CODEX_CONTEXT_WINDOW_EXCEEDED_ERROR: &str = "contextWindowExceeded";
 
 /// The arm Codex fails a turn with once the account's usage limit is reached.
-const CODEX_USAGE_LIMIT_EXCEEDED_ERROR: &str = "usageLimitExceeded";
+pub(crate) const CODEX_USAGE_LIMIT_EXCEEDED_ERROR: &str = "usageLimitExceeded";
 
 /// The arm of an upstream rate limit, which Codex gives up on only after its own retries.
-const CODEX_RATE_LIMIT_EXCEEDED_ERROR: &str = "rateLimitExceeded";
+pub(crate) const CODEX_RATE_LIMIT_EXCEEDED_ERROR: &str = "rateLimitExceeded";
 
 /// The arm Codex fails a turn with when the flex service tier has no capacity; it does not retry.
 const CODEX_FLEX_UNAVAILABLE_ERROR: &str = "flexUnavailable";

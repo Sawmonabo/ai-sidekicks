@@ -254,7 +254,7 @@ impl CodexFrameDelivery {
             | "item/reasoning/summaryPartAdded"
             | "item/reasoning/textDelta" => self.deliver_prose_delta(record, method, &members),
             "item/commandExecution/outputDelta" => self.deliver_command_output(record, &members),
-            "error" => turns::note_turn_error(record, &members),
+            "error" => self.deliver_turn_error(record, &members).await,
             "guardianWarning"
             | "item/autoApprovalReview/completed"
             | "autoApprovalReview/strictReviewRequired" => {

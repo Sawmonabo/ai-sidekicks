@@ -1,17 +1,21 @@
 //! A turn's frames: its start, which opens its execution and its numbered turn on the run; its
 //! end, which ends a live turn's run through the session's terminal gate; its errors, which the
-//! end's failure reads; the safety hold Codex keeps on it; the hook runs that block its prompt;
-//! and the asks it held, which its end or Codex's own settle withdraws.
+//! end's failure reads and whose retries file a retried request's row; the safety hold Codex keeps
+//! on it; the hook runs that block its prompt; and the asks it held, which its end or Codex's own
+//! settle withdraws.
 
 use serde_json::{Map, Value};
+use sidekicks_contracts::event::usage::{ApiRetryErrorKind, UsageApiRequestRetriedPayload};
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::delivery::failure_cause::{
-    CODEX_CONTEXT_WINDOW_EXCEEDED_ERROR, read_codex_turn_failure_cause,
+    CODEX_CONTEXT_WINDOW_EXCEEDED_ERROR, CODEX_RATE_LIMIT_EXCEEDED_ERROR,
+    CODEX_USAGE_LIMIT_EXCEEDED_ERROR, read_codex_turn_failure_cause,
 };
 use crate::provider::driver::codex::delivery::frames::{
     CodexBlockedPrompt, CodexFrameDelivery, CodexFrameDispatch, CodexRunMove, CodexTurnEnding,
@@ -22,7 +26,7 @@ use crate::provider::driver::codex::delivery::memory::{
 };
 use crate::provider::driver::codex::delivery::notices::{provider_words, release_reroute};
 use crate::provider::driver::codex::delivery::reviewer::end_codex_review_turn;
-use crate::provider::driver::codex::delivery::rows::CodexRowRun;
+use crate::provider::driver::codex::delivery::rows::{CodexRow, CodexRowDelivery, CodexRowRun};
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
 use crate::provider::driver::codex::transport::diagnostics::{
     CodexDeliveryPort, CodexTransportDiagnostic,
@@ -34,6 +38,7 @@ use crate::provider::record_readers::read_non_empty_string;
 use crate::provider::terminal_emission_gate::TerminalEmissionGate;
 use crate::provider::thread_frame_router::ThreadFrameRoute;
 use crate::session::run::epochs::DeliveryOperation;
+use crate::session::run::inbound::rows::LateAppendableRow;
 use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
 
 /// The hook event whose blocked or stopped run keeps the person's prompt from its turn.
@@ -413,6 +418,23 @@ impl CodexFrameDelivery {
         }
         Some(request_id)
     }
+
+    /// An `error` frame: one Codex retries files the retried request's row on the turn's run; one
+    /// it will not retry is kept as the turn's final error.
+    pub(super) async fn deliver_turn_error(
+        &self,
+        record: &mut CodexSessionRecord,
+        members: &Map<String, Value>,
+    ) {
+        if !note_turn_error(record, members) {
+            return;
+        }
+        let Some(run) = self.row_run_for(record, members, "error") else {
+            return;
+        };
+        self.send_row(record, codex_request_retry(members, &run.row))
+            .await;
+    }
 }
 
 /// The compaction-wait key: session and thread together, since a fork or superseding resume moves
@@ -422,15 +444,16 @@ pub(crate) fn codex_compaction_wait_key(record: &CodexSessionRecord, thread_id: 
     format!("{}\u{0}{thread_id}", record.session_id)
 }
 
-/// An error Codex retries marks the turn retried; one it will not retry is the turn's final error.
-pub(super) fn note_turn_error(record: &mut CodexSessionRecord, members: &Map<String, Value>) {
+// An error Codex retries marks the turn retried; one it will not retry is the turn's final error.
+// Answers whether Codex retries the request.
+fn note_turn_error(record: &mut CodexSessionRecord, members: &Map<String, Value>) -> bool {
     let Some(turn_id) = read_non_empty_string(members, "turnId") else {
-        return;
+        return false;
     };
     let error = members.get("error");
     if members.get("willRetry").and_then(Value::as_bool) == Some(true) {
         record.delivery.retried_turn_ids.insert(turn_id.to_owned());
-        return;
+        return true;
     }
     let message = error
         .and_then(Value::as_object)
@@ -443,6 +466,40 @@ pub(super) fn note_turn_error(record: &mut CodexSessionRecord, members: &Map<Str
             error_kind: read_codex_error_kind(error),
         },
     );
+    false
+}
+
+// The `usage.apiRequest.retried` row of an error Codex retries, on the turn's run, its kind read
+// from Codex's error arm.
+fn codex_request_retry(members: &Map<String, Value>, run: &CodexRowRun) -> CodexRowDelivery {
+    let error_kind = match read_codex_error_kind(members.get("error")).as_deref() {
+        Some("unauthorized") => ApiRetryErrorKind::AuthenticationFailed,
+        Some(CODEX_RATE_LIMIT_EXCEEDED_ERROR | CODEX_USAGE_LIMIT_EXCEEDED_ERROR) => {
+            ApiRetryErrorKind::RateLimit
+        }
+        Some("serverOverloaded") => ApiRetryErrorKind::Overloaded,
+        Some("internalServerError") => ApiRetryErrorKind::ServerError,
+        Some("badRequest") => ApiRetryErrorKind::InvalidRequest,
+        Some(_) | None => ApiRetryErrorKind::Unknown,
+    };
+    CodexRowDelivery {
+        binding_id: run.binding_id.clone(),
+        operation: None,
+        row: CodexRow::Late(LateAppendableRow::UsageApiRequestRetried(
+            UsageApiRequestRetriedPayload {
+                session_id: run.session_id,
+                run_id: Some(run.run_id),
+                provider: DESCRIPTOR.provider_id(),
+                error_kind,
+                retry_delay_ms: None,
+                attempt: None,
+                source_epoch: None,
+                source_position: None,
+            },
+        )),
+        body: None,
+        method: "error",
+    }
 }
 
 /// A `hook/completed` of a `userPromptSubmit` hook that blocked or stopped the prompt, with the
@@ -493,3 +550,6 @@ fn read_completed_turn_id(members: &Map<String, Value>) -> Option<String> {
 fn read_turn_status(members: &Map<String, Value>) -> Option<&str> {
     members.get("turn")?.get("status")?.as_str()
 }
+
+#[cfg(test)]
+mod tests;

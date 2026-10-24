@@ -2,6 +2,7 @@
 //! routing band and waits, a run engine and binding store on a real database, and each item of
 //! the session's queue handed to the test, which handles it the way the session's task does.
 
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -17,6 +18,7 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 use tempfile::TempDir;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
@@ -80,6 +82,7 @@ use crate::provider::runtime_binding::store::{RuntimeBindingSpawnConfig, Runtime
 use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
 use crate::session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
 use crate::session::run::engine::tests::test_engine;
+use crate::session::run::epochs::{EpochBinding, ExecutionEpochs};
 use crate::session::run::inbound::RunInboundDispatch;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -104,6 +107,7 @@ pub(crate) struct TestCodexSession {
     pub(crate) daemon_turn_bindings: Arc<TestDaemonTurnBindings>,
     /// The database.
     pub(crate) database: TestDatabase,
+    epochs: Arc<Mutex<ExecutionEpochs>>,
     _home: TempDir,
 }
 
@@ -134,13 +138,12 @@ impl TestCodexSession {
         let log = open_log(&database, None).await;
         let home = tempfile::tempdir().expect("the test makes a home folder");
         let engine = test_engine(&database, Arc::clone(&log.service), home.path());
+        let epochs = Arc::new(Mutex::new(ExecutionEpochs::new(
+            NonZeroUsize::new(8).expect("the cap is not zero"),
+        )));
         let dispatch = Arc::new(RunInboundDispatch::new(
             Arc::clone(&engine),
-            Arc::new(std::sync::Mutex::new(
-                crate::session::run::epochs::ExecutionEpochs::new(
-                    std::num::NonZeroUsize::new(8).expect("the cap is not zero"),
-                ),
-            )),
+            Arc::clone(&epochs),
             Arc::new(UnreadRunStates),
             log.service,
         ));
@@ -285,6 +288,7 @@ impl TestCodexSession {
             run_start,
             daemon_turn_bindings,
             database,
+            epochs,
             _home: home,
         }
     }
@@ -299,6 +303,24 @@ impl TestCodexSession {
             .await
             .expect("the binding is recorded")
             .id
+    }
+
+    /// Opens the epoch cursor of `binding_id` on `run_id` at the run's start, as the binding's
+    /// spawn does, so the run's rows are attributed.
+    pub(crate) fn open_epoch(&self, binding_id: RuntimeBindingId, run_id: RunId) {
+        self.epochs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .open_binding(
+                EpochBinding {
+                    id: binding_id,
+                    run_id,
+                    provider_name: DESCRIPTOR.provider_id(),
+                    provider_account_id: None,
+                },
+                RUN_START_POSITION,
+            )
+            .expect("the binding has no cursor yet");
     }
 }
 
