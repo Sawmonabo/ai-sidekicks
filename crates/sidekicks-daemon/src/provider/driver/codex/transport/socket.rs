@@ -13,7 +13,8 @@ use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt as _, StreamExt as _};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher as _};
 use sidekicks_platforms::{
-    UnixDomainStream, connect_unix_domain_socket, create_private_folder, real_path,
+    UnixDomainStream, connect_unix_domain_socket, create_private_folder, found_no_listener,
+    real_path,
 };
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::watch;
@@ -266,10 +267,7 @@ async fn dial_once(
 
 // A resolve or connect failure: not listening yet when no socket or no listener is there.
 fn classify_dial_failure(error: io::Error) -> DialAttemptError {
-    if matches!(
-        error.kind(),
-        io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
-    ) {
+    if found_no_listener(&error) {
         return DialAttemptError::NotListening(error);
     }
     DialAttemptError::Failed(transport_failure(

@@ -140,7 +140,7 @@ fn recording_driver(calls: &Arc<DriverCalls>) -> MockProviderDriver {
         });
     driver
         .expect_starts_process()
-        .returning(|_| async { false }.boxed());
+        .returning(|_, _| async { false }.boxed());
     driver.expect_create_session().returning(|_| {
         async {
             Ok(ProviderSessionHandle {

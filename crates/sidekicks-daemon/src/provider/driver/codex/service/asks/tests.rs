@@ -8,7 +8,6 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
-use crate::provider::driver::codex::lifecycle::intake::CodexLifecycleCall;
 use crate::provider::driver::codex::server_requests::{
     CodexInboundServerRequest, CodexServerRequestDecision,
 };
@@ -18,6 +17,7 @@ use crate::provider::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInboundHandler, codex_session_inbound,
     drain_codex_session_inbound,
 };
+use crate::provider::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::provider::driver::contract::DriverError;
 use sidekicks_contracts::wire::id::mint_uuid_v7;

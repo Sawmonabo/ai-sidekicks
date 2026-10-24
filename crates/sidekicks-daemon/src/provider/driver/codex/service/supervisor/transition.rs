@@ -121,8 +121,9 @@ pub(crate) enum SupervisorEvent {
         at: Instant,
         /// When it closed, on the wall clock.
         wall_at: SystemTime,
-        /// For a process the daemon cannot wait on, when the runner found it gone.
-        process_gone_at: Option<SystemTime>,
+        /// Whether the runner found gone a process the daemon cannot wait on, whose end it reads
+        /// from no exit.
+        is_unwaited_process_gone: bool,
     },
     /// The process the start `launch` launched ended.
     ProcessExited {
@@ -144,8 +145,9 @@ pub(crate) enum SupervisorEvent {
         dial: u64,
         /// Whether anything answered on the socket.
         is_listening: bool,
-        /// For a process the daemon cannot wait on, when the runner found it gone.
-        process_gone_at: Option<SystemTime>,
+        /// Whether the runner found gone a process the daemon cannot wait on, whose end it reads
+        /// from no exit.
+        is_unwaited_process_gone: bool,
     },
     /// A crash restart's wait ended.
     WaitElapsed {
@@ -274,12 +276,14 @@ impl Supervision {
     }
 
     // The process ended on its own at `at`: a restart after the crash window's wait, or the
-    // crash loop that leaves it down; a replaced service is never restarted and its record goes.
-    // With no `at`, a lasting service a former daemon started whose end the daemon could not
-    // read, it starts again at once and no crash is counted, since a crash loop names its end.
+    // crash loop that leaves it down, reported with `start_failure` where the crash was a restart
+    // that failed; a replaced service is never restarted and its record goes. With no `at`, a
+    // lasting service a former daemon started whose end the daemon could not read, it starts
+    // again at once and no crash is counted, since a crash loop names its end.
     fn crash(
         &mut self,
         at: Option<SystemTime>,
+        start_failure: Option<Arc<CodexError>>,
         mut actions: Vec<SupervisorAction>,
     ) -> (SupervisorState, Vec<SupervisorAction>) {
         actions.push(SupervisorAction::ReportProcessExited);
@@ -301,7 +305,7 @@ impl Supervision {
                 (SupervisorState::Restarting { wait: ticket }, actions)
             }
             CrashOutcome::CrashLoop => {
-                actions.push(SupervisorAction::ReportCrashLoop);
+                actions.push(SupervisorAction::ReportCrashLoop(start_failure));
                 actions.push(SupervisorAction::Publish(
                     CodexServiceAvailability::CrashLoop,
                 ));
@@ -324,8 +328,8 @@ impl Supervision {
             recovery,
             Some(CodexServiceRecoveryCause::Crash | CodexServiceRecoveryCause::PersonRestart)
         ) {
-            actions.push(SupervisorAction::ReportStartFailed(failure));
-            return self.crash(Some(at), actions);
+            actions.push(SupervisorAction::ReportStartFailed(Arc::clone(&failure)));
+            return self.crash(Some(at), Some(failure), actions);
         }
         actions.push(SupervisorAction::Publish(
             CodexServiceAvailability::StartFailed(failure),
@@ -581,35 +585,37 @@ impl Supervision {
                 Event::Dropped {
                     dial: dropped,
                     at,
-                    process_gone_at,
+                    is_unwaited_process_gone,
                     ..
                 },
-            ) if dropped == dial => match process_gone_at {
-                Some(_) if self.kind.is_daemons_own() => self.crash(
-                    None,
-                    vec![Action::Disconnect {
-                        is_process_gone: true,
-                    }],
-                ),
-                Some(_) | None => {
-                    let is_stable = at.saturating_duration_since(since) >= RECONNECT_STABLE_UPTIME;
-                    self.redial(
-                        launch,
-                        if is_stable { 0 } else { attempt },
-                        vec![
-                            Action::Disconnect {
-                                is_process_gone: false,
-                            },
-                            Action::ReportDropped,
-                        ],
-                    )
+            ) if dropped == dial => {
+                if is_unwaited_process_gone && self.kind.is_daemons_own() {
+                    return self.crash(
+                        None,
+                        None,
+                        vec![Action::Disconnect {
+                            is_process_gone: true,
+                        }],
+                    );
                 }
-            },
+                let is_stable = at.saturating_duration_since(since) >= RECONNECT_STABLE_UPTIME;
+                self.redial(
+                    launch,
+                    if is_stable { 0 } else { attempt },
+                    vec![
+                        Action::Disconnect {
+                            is_process_gone: false,
+                        },
+                        Action::ReportDropped,
+                    ],
+                )
+            }
             (State::Up { launch, .. }, Event::ProcessExited { launch: ended, at })
                 if ended == launch =>
             {
                 self.crash(
                     Some(at),
+                    None,
                     vec![Action::Disconnect {
                         is_process_gone: true,
                     }],
@@ -717,10 +723,11 @@ impl Supervision {
                 Event::ReconnectFailed {
                     dial: failed,
                     is_listening,
-                    process_gone_at,
+                    is_unwaited_process_gone,
                 },
-            ) if failed == dial => match (self.kind, process_gone_at) {
-                (CodexServiceKind::Account | CodexServiceKind::Terminal, Some(_)) => self.crash(
+            ) if failed == dial => match (self.kind, is_unwaited_process_gone) {
+                (CodexServiceKind::Account | CodexServiceKind::Terminal, true) => self.crash(
+                    None,
                     None,
                     vec![Action::Disconnect {
                         is_process_gone: true,
@@ -746,6 +753,7 @@ impl Supervision {
             {
                 self.crash(
                     Some(at),
+                    None,
                     vec![
                         Action::CancelPending,
                         Action::Disconnect {

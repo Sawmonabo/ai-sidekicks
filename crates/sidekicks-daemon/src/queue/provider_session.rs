@@ -35,20 +35,17 @@ use crate::provider::driver::session_control::{
 };
 use crate::provider::left_conversations::LeftConversation;
 use crate::provider::runtime_binding::resume::{
-    ResumeFunctionLegs, RuntimeBindingNotResumable, compose_resume_session_params,
-    select_session_leg,
+    ResumeFunctionLegs, RuntimeBindingNotResumable, compose_resume_session_params, read_session_leg,
 };
 use crate::provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch,
     RuntimeBindingSpawnConfig, RuntimeBindingStore, RuntimeBindingStoreError,
-    read_bindings_of_runs,
 };
 use crate::session::console_state::read_session_mode;
 use crate::session::permission_level::{
     permission_level_change_statement, read_session_permission_level,
 };
 use crate::session::run::binding_cursors::{RunBindingCursorError, RunBindingCursors};
-use crate::session::run::ids::SESSION_RUN_IDS_SQL;
 
 #[cfg(test)]
 pub(crate) mod test_opening;
@@ -292,19 +289,14 @@ impl ProviderSessions {
                 .map_err(|cause| ProviderSessionError::LevelNotStored { session_id, cause });
         };
         let posture = compose_execution_posture(level, opened.git_folder.clone());
-        self.move_process(&opened.provider, session_id, level, &posture)
+        self.move_process(&opened.provider, session_id, &posture)
             .await?;
         self.set_posture(session_id, posture);
         let Err(stored_error) = self.record_level(session_id, level).await else {
             return Ok(());
         };
         let moved_back = self
-            .move_process(
-                &opened.provider,
-                session_id,
-                stored,
-                &opened.execution_posture,
-            )
+            .move_process(&opened.provider, session_id, &opened.execution_posture)
             .await;
         match moved_back {
             Ok(()) => {
@@ -340,7 +332,7 @@ impl ProviderSessions {
         if self.lock_opened().contains_key(&session_id) {
             return Ok(());
         }
-        let opened = match self.read_session_leg(session_id).await? {
+        let opened = match read_session_leg(&self.deps.pool, session_id).await? {
             None => self.create(session_id, run_id).await?,
             Some(leg) => self.resume(&hold, session_id, leg, run_id).await?,
         };
@@ -377,8 +369,7 @@ impl ProviderSessions {
         }
         // Read afresh: a fork moves the leg onto another conversation and a relaunch records a new
         // leg, so the newest one is the session's.
-        let current = self
-            .read_session_leg(session_id)
+        let current = read_session_leg(&self.deps.pool, session_id)
             .await?
             .ok_or(ProviderSessionError::NoConversation { session_id })?;
         if current.run_id == run_id {
@@ -573,46 +564,17 @@ impl ProviderSessions {
             .map_err(|cause| ProviderSessionError::Compose { session_id, cause })
     }
 
-    // The session's newest binding with a conversation to resume, or `None` for none.
-    async fn read_session_leg(
-        &self,
-        session_id: SessionId,
-    ) -> Result<Option<RuntimeBinding>, ProviderSessionError> {
-        self.deps
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                let session = session_id.to_string();
-                let run_ids = reader
-                    .prepare_cached(SESSION_RUN_IDS_SQL)?
-                    .query_map(rusqlite::named_params! { "@sessionId": session }, |row| {
-                        crate::database::stored_column::text_column(row, 0, |text| {
-                            RunId::new(&text)
-                        })
-                    })?
-                    .collect::<rusqlite::Result<Vec<RunId>>>()?;
-                let bindings = read_bindings_of_runs(reader, &run_ids)?;
-                Ok::<_, ProviderSessionError>(select_session_leg(&bindings).cloned())
-            })
-            .await
-    }
-
     async fn move_process(
         &self,
         provider: &ProviderId,
         session_id: SessionId,
-        level: PermissionLevel,
         posture: &ExecutionPosture,
     ) -> Result<(), ProviderSessionError> {
         let driver = self.deps.providers.lookup(provider)?;
         driver
             .update_permission_level(UpdatePermissionLevelParams {
                 session_id,
-                level,
-                writable_roots: posture
-                    .writable_roots()
-                    .iter()
-                    .map(|root| PathBuf::from(root.as_str()))
-                    .collect(),
+                execution_posture: posture.clone(),
             })
             .await?;
         Ok(())

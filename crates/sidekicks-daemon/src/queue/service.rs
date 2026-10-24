@@ -238,7 +238,7 @@ impl RunQueue {
         device_id: DeviceId,
     ) -> Result<AgentQueueItemCreateResponse, QueueError> {
         let session_id = request.to.unwrap_or(request.session_id);
-        let (provider, driver) = read_session_driver::<QueueError>(
+        let (provider, provider_account_id, driver) = read_session_driver::<QueueError>(
             &self.pool,
             &self.providers,
             self.read_damaged_from_sequence.as_ref(),
@@ -263,6 +263,7 @@ impl RunQueue {
             .resolve_skill_picks(
                 session_id,
                 &provider,
+                provider_account_id,
                 driver.as_ref(),
                 request.skills.clone(),
             )

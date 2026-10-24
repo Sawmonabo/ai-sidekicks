@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use sidekicks_contracts::jsonrpc::message::ConnectionUnavailableReason;
-use sidekicks_platforms::connect_socket;
+use sidekicks_platforms::{connect_socket, found_no_listener};
 
 use crate::error::{ClientError, LinkFault};
 
@@ -24,10 +24,9 @@ pub async fn connect_local_socket(socket_path: &Path) -> Result<LocalSocketStrea
 
 /// The unavailable error a failed connect is, its reason read from the failure's kind.
 fn unavailable(error: io::Error) -> ClientError {
-    let kind = error.kind();
-    let reason = if kind == io::ErrorKind::NotFound || kind == io::ErrorKind::ConnectionRefused {
+    let reason = if found_no_listener(&error) {
         ConnectionUnavailableReason::NotListening
-    } else if kind == io::ErrorKind::PermissionDenied {
+    } else if error.kind() == io::ErrorKind::PermissionDenied {
         ConnectionUnavailableReason::AccessDenied
     } else {
         ConnectionUnavailableReason::Unreachable

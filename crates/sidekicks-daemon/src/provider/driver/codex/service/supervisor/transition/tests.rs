@@ -26,7 +26,7 @@ fn dropped(dial: u64, after: u64, is_process_gone: bool) -> impl Fn(Instant) -> 
         dial,
         at: start + Duration::from_secs(after),
         wall_at: wall(after),
-        process_gone_at: is_process_gone.then(|| wall(after)),
+        is_unwaited_process_gone: is_process_gone,
     }
 }
 
@@ -209,7 +209,7 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         at_once(|_| SupervisorEvent::ReconnectFailed {
             dial: 2,
             is_listening: false,
-            process_gone_at: None,
+            is_unwaited_process_gone: false,
         }),
     ],
     "Starting { launch: 3, recovery: Some(Crash) }",

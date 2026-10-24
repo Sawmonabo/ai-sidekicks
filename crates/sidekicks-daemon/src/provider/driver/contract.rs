@@ -69,6 +69,7 @@ use crate::provider::driver::session_control::{
 };
 use crate::provider::port::permission_ask::{ProviderPermissionAnswer, ProviderRuleNotKeptError};
 use crate::provider::port::session_inbox_address::SessionInboxAddresser;
+use crate::provider::runtime_binding::store::RuntimeBindingStoreError;
 use crate::text_cut::cut_to_code_points;
 
 /// The fixed sentence every `provider.capability.unsupported` refusal carries.
@@ -111,6 +112,13 @@ pub(crate) enum DriverError {
     /// The driver or its provider failed.
     #[error("the provider driver failed")]
     Internal(#[source] Box<dyn Error + Send + Sync>),
+}
+
+impl From<RuntimeBindingStoreError> for DriverError {
+    /// A driver's read of the daemon's stored bindings that failed is the driver's own failure.
+    fn from(error: RuntimeBindingStoreError) -> Self {
+        Self::Internal(Box::new(error))
+    }
 }
 
 impl From<DriverError> for HandlerError {
@@ -280,15 +288,24 @@ pub(crate) trait ProviderDriver: Send + Sync {
     }
 
     /// Whether a run started on `session_id` now brings a provider process up, which the memory
-    /// gate weighs before the start; `false` when one already serves the session.
-    fn starts_process(&self, session_id: SessionId) -> BoxFuture<'_, bool>;
+    /// gate weighs before the start; `false` when one already serves the session. A session with
+    /// no live process is weighed on `provider_account_id`, the account the run is admitted
+    /// against (`None` for the provider's current account), since it may not have run yet.
+    fn starts_process(
+        &self,
+        session_id: SessionId,
+        provider_account_id: Option<ProviderAccountId>,
+    ) -> BoxFuture<'_, bool>;
 
-    /// The skills `picks` names as the provider loads them for `session_id`, in the order picked;
-    /// a provider that takes a pick as its text answers each by its name and folder. Fails with
-    /// `skill.pathRefused` for a pick the provider's own list does not name in that folder.
+    /// The skills `picks` names as the provider loads them for `session_id`, in the order picked,
+    /// read on `provider_account_id`'s account (as [`starts_process`](Self::starts_process) takes
+    /// it) where no live process serves the session; a provider that takes a pick as its text
+    /// answers each by its name and folder. Fails with `skill.pathRefused` for a pick the
+    /// provider's own list does not name in that folder.
     fn resolve_skill_picks(
         &self,
         session_id: SessionId,
+        provider_account_id: Option<ProviderAccountId>,
         picks: Vec<QueuedSkillPick>,
     ) -> BoxFuture<'_, Result<Vec<PickedSkill>, DriverError>>;
 
@@ -365,8 +382,9 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// Names a session from its first exchange in one short pass of the provider's own: through
     /// the provider's naming verb on the session's live leg when it has one and the verb answers
     /// with a name, else, when no leg is live or the verb fails or returns no name, in a one-shot
-    /// pass of the provider's program. `None` only when both returned no name. A pass whose
-    /// `cancel` fires ends at once and returns `None`.
+    /// pass of the provider's program on the account the session's leg runs on. `None` only when
+    /// both returned no name, or the session never ran. A pass whose `cancel` fires ends at once
+    /// and returns `None`.
     fn name_session(
         &self,
         params: NameSessionParams,
@@ -374,9 +392,10 @@ pub(crate) trait ProviderDriver: Send + Sync {
 
     /// Tells the provider the name the session now goes by, so its own session list shows that
     /// name: through the provider's rename verb on the session's live leg when it has one, else
-    /// on the provider's stored session where the provider renames one at rest. Fails with the
-    /// driver's error when the provider did not take it, a session it cannot rename at rest
-    /// among them.
+    /// on the provider's stored session, on the account its stored leg ran on, where the provider
+    /// renames one at rest; a session that never ran has nothing to rename and answers `Ok`.
+    /// Fails with the driver's error when the provider did not take it, a session it cannot
+    /// rename at rest among them.
     fn tell_session_name(
         &self,
         session_id: SessionId,

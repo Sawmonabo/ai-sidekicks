@@ -15,6 +15,7 @@ use crate::provider::driver::contract::{RunOpening, StartRunParams};
 use crate::provider::driver::session_control::ResumeSessionParams;
 
 mod bring_up;
+mod naming;
 mod restarts;
 mod session_controls;
 mod settings_reads;

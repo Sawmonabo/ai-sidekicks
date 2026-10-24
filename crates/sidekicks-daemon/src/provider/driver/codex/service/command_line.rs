@@ -1,13 +1,19 @@
 //! The command line a Codex service the daemon starts runs: the listener and the `-c` switches
 //! every conversation on it shares; and the two command hooks the terminal service on the person's
-//! own Codex folder runs, which run the daemon's own program. Each `-c` value is TOML, whose
+//! own Codex folder runs while the daemon's program dispatches its hook mode, which run that
+//! program. Each `-c` value is TOML, whose
 //! integers are 64-bit, so the holds below exceed what a JSON number keeps exactly.
 
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::Serialize;
-use sidekicks_platforms::{PathRules, RunningProgramPath, ShellWordRefused};
+use sidekicks_platforms::{
+    PathRules, RunningProgramPath, ShellWordRefused, read_running_program_path,
+};
+
+use crate::provider::driver::codex::service::home::CodexServiceKind;
 
 /// The hook `timeout`, 10^12 seconds, a hold no call outlasts and one Codex runs without fault;
 /// the code-mode yield takes the same hold in milliseconds, 10^15.
@@ -49,7 +55,19 @@ impl CodexHookCommands {
     }
 }
 
-/// One hook a running service lists in its `hooks/list` reply, the members the daemon compares.
+/// The hooks the daemon starts the terminal service with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum TerminalServiceHooks {
+    /// None, while the daemon's program dispatches no hook mode.
+    NoHooks,
+    /// The daemon's two command hooks, running its program as it started.
+    Daemon(CodexHookCommands),
+    /// The daemon's program was replaced on disk, so no hook of the daemon's can run it.
+    ProgramReplaced,
+}
+
+/// One hook a running service's command line set, as its `hooks/list` reply lists it: the members
+/// the daemon compares.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexListedHook {
     /// The hook's event (`PreToolUse`).
@@ -63,9 +81,9 @@ pub(crate) struct CodexListedHook {
 /// What a daemon does with a lasting service it finds running.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LastingServiceVerdict {
-    /// Its hooks run this daemon's program as it would start them, so the daemon joins it.
+    /// Its command line set the hooks this daemon would start it with, so the daemon joins it.
     Adopt,
-    /// Its hooks run another program, or one no longer on disk, so it is replaced.
+    /// Its hooks differ from those, or run a program no longer on disk, so it is replaced.
     Restart,
 }
 
@@ -78,6 +96,9 @@ pub(crate) enum HookCommandError {
     /// A word cannot be written for the system's command shell.
     #[error("a hook command word cannot be written for the system's command shell")]
     Word(#[from] ShellWordRefused),
+    /// The system could not name the daemon's own program.
+    #[error("the daemon's own program could not be read")]
+    ProgramUnread(#[source] io::Error),
 }
 
 /// The terminal service's hook commands that run `daemon_program`, the daemon's own program as it
@@ -97,20 +118,38 @@ pub(crate) fn compose_daemon_hook_commands(
     })
 }
 
-/// Whether the lasting service a daemon finds running can be joined: `daemon_program`, the
-/// daemon's program as `read_running_program_path` reads it, is still on disk, and each of the
-/// daemon's events has a hook in `listed`, the service's `hooks/list` reply, whose command and
-/// timeout are the ones `composed` from that program gives; any difference answers
+/// The hooks the daemon starts the terminal service with: none while its program dispatches no
+/// hook mode, else the hooks that run that program as it started, read from where it runs now.
+/// Fails when the system cannot name the program or its hook commands cannot be written.
+pub(crate) fn read_terminal_service_hooks() -> Result<TerminalServiceHooks, HookCommandError> {
+    if !CodexServiceKind::Terminal.runs_daemon_hooks() {
+        return Ok(TerminalServiceHooks::NoHooks);
+    }
+    match read_running_program_path().map_err(HookCommandError::ProgramUnread)? {
+        RunningProgramPath::OnDisk(path) => Ok(TerminalServiceHooks::Daemon(
+            compose_daemon_hook_commands(&path)?,
+        )),
+        RunningProgramPath::Replaced => Ok(TerminalServiceHooks::ProgramReplaced),
+    }
+}
+
+/// Whether the lasting service a daemon finds running can be joined, from `listed`, the hooks its
+/// command line set: with `hooks` none, only when it lists none; with the daemon's, only when each
+/// of the daemon's events has a hook listed whose command and timeout are the ones composed; never
+/// once the daemon's program was replaced. Any difference answers
 /// [`LastingServiceVerdict::Restart`], which the daemon's start hands to the planned restart.
 /// Never reproduces Codex's own hook hash.
 pub(crate) fn compare_daemon_hook_commands(
     listed: &[CodexListedHook],
-    composed: &CodexHookCommands,
-    daemon_program: &RunningProgramPath,
+    hooks: &TerminalServiceHooks,
 ) -> LastingServiceVerdict {
-    if *daemon_program == RunningProgramPath::Replaced {
-        return LastingServiceVerdict::Restart;
-    }
+    let composed = match hooks {
+        TerminalServiceHooks::NoHooks if listed.is_empty() => return LastingServiceVerdict::Adopt,
+        TerminalServiceHooks::NoHooks | TerminalServiceHooks::ProgramReplaced => {
+            return LastingServiceVerdict::Restart;
+        }
+        TerminalServiceHooks::Daemon(composed) => composed,
+    };
     let timeout_seconds = CODEX_HOOK_TIMEOUT.as_secs();
     let is_every_event_listed = composed.events().iter().all(|(event_name, command)| {
         listed.iter().any(|hook| {
@@ -220,59 +259,75 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use rstest::rstest;
-    use sidekicks_platforms::RunningProgramPath;
 
     use super::{
         CODEX_HOOK_TIMEOUT, CodexHookCommands, CodexListedHook, CodexServiceCommandLineInput,
-        LastingServiceVerdict, compare_daemon_hook_commands, compose_codex_service_arguments,
-        compose_daemon_hook_commands,
+        LastingServiceVerdict, TerminalServiceHooks, compare_daemon_hook_commands,
+        compose_codex_service_arguments, compose_daemon_hook_commands,
     };
 
-    // Fails when adopt is answered without reading the list, when the event alone is compared, or
-    // when the daemon joins a service whose hooks run a program since replaced.
+    /// The daemon's program in the comparison's cases.
+    const PROGRAM: &str = "/opt/sidekicks/sidekicks-daemon";
+
+    // Fails when adopt is answered without reading the list, when the event alone is compared,
+    // when the daemon joins a service whose hooks run a program since replaced, or when a daemon
+    // that runs no hooks joins a service still running a former daemon's.
     #[rstest]
-    #[case::the_same_hooks("", CODEX_HOOK_TIMEOUT.as_secs(), false, LastingServiceVerdict::Adopt)]
-    #[case::another_program(
-        "-old",
+    #[case::the_same_hooks(
+        Some(""),
         CODEX_HOOK_TIMEOUT.as_secs(),
-        false,
+        "daemon",
+        LastingServiceVerdict::Adopt
+    )]
+    #[case::another_program(
+        Some("-old"),
+        CODEX_HOOK_TIMEOUT.as_secs(),
+        "daemon",
         LastingServiceVerdict::Restart
     )]
-    #[case::another_timeout("", 600, false, LastingServiceVerdict::Restart)]
+    #[case::another_timeout(Some(""), 600, "daemon", LastingServiceVerdict::Restart)]
     #[case::a_replaced_program(
-        "",
+        Some(""),
         CODEX_HOOK_TIMEOUT.as_secs(),
-        true,
+        "replaced",
+        LastingServiceVerdict::Restart
+    )]
+    #[case::no_hooks_and_none_listed(None, 0, "none", LastingServiceVerdict::Adopt)]
+    #[case::no_hooks_and_a_former_daemon_s_listed(
+        Some(""),
+        CODEX_HOOK_TIMEOUT.as_secs(),
+        "none",
         LastingServiceVerdict::Restart
     )]
     fn compare_daemon_hook_commands_adopts_only_the_same_hooks(
-        #[case] listed_program_suffix: &str,
+        #[case] listed_program_suffix: Option<&str>,
         #[case] timeout_seconds: u64,
-        #[case] is_program_replaced: bool,
+        #[case] hooks: &str,
         #[case] expected: LastingServiceVerdict,
     ) {
-        let program = Path::new("/opt/sidekicks/sidekicks-daemon");
-        let composed = compose_daemon_hook_commands(program).expect("the path is text");
-        let listed_program = PathBuf::from(format!(
-            "/opt/sidekicks/sidekicks-daemon{listed_program_suffix}"
-        ));
-        let listed: Vec<CodexListedHook> = compose_daemon_hook_commands(&listed_program)
-            .expect("the path is text")
-            .events()
-            .iter()
-            .map(|(event_name, command)| CodexListedHook {
-                event_name: (*event_name).to_owned(),
-                command: (*command).to_owned(),
-                timeout_seconds,
+        let listed: Vec<CodexListedHook> = listed_program_suffix
+            .map(|suffix| {
+                compose_daemon_hook_commands(&PathBuf::from(format!("{PROGRAM}{suffix}")))
+                    .expect("the path is text")
+                    .events()
+                    .iter()
+                    .map(|(event_name, command)| CodexListedHook {
+                        event_name: (*event_name).to_owned(),
+                        command: (*command).to_owned(),
+                        timeout_seconds,
+                    })
+                    .collect()
             })
-            .collect();
-        let daemon_program = if is_program_replaced {
-            RunningProgramPath::Replaced
-        } else {
-            RunningProgramPath::OnDisk(program.to_owned())
+            .unwrap_or_default();
+        let hooks = match hooks {
+            "daemon" => TerminalServiceHooks::Daemon(
+                compose_daemon_hook_commands(Path::new(PROGRAM)).expect("the path is text"),
+            ),
+            "replaced" => TerminalServiceHooks::ProgramReplaced,
+            _ => TerminalServiceHooks::NoHooks,
         };
 
-        let verdict = compare_daemon_hook_commands(&listed, &composed, &daemon_program);
+        let verdict = compare_daemon_hook_commands(&listed, &hooks);
 
         assert_eq!(verdict, expected);
     }

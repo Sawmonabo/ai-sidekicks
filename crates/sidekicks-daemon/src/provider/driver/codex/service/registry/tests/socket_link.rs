@@ -248,10 +248,11 @@ async fn a_planned_restart_during_the_switch_off_leaves_the_socket_link_and_fail
         .insert(services.home.codex_home.clone(), Arc::clone(&first));
     let inside = json!({"data": ["terminal-thread-1"]});
 
-    let stopping = {
-        let registry = Arc::clone(&registry);
-        tokio::spawn(async move { registry.stop_terminal_service().await })
-    };
+    let retiring = registry
+        .stop_terminal_service()
+        .await
+        .expect("the home resolves")
+        .expect("the folder's terminal service is retired");
     for _read in 0..2 {
         let loaded = script.next_sent().await;
         assert_eq!(loaded["method"], "thread/loaded/list", "{loaded}");
@@ -264,7 +265,8 @@ async fn a_planned_restart_during_the_switch_off_leaves_the_socket_link_and_fail
         "params": {"threadId": "terminal-thread-1"}}));
     let last = script.next_sent().await;
     script.answer(&last, &json!({"data": []}));
-    let stopped = stopping.await.expect("the stop ends");
+    retiring.await.expect("the retirement ends");
+    let is_first_stopped = !first.is_serving();
     registry.shutdown(DaemonStopIntent::Stop).await;
 
     assert!(
@@ -273,5 +275,5 @@ async fn a_planned_restart_during_the_switch_off_leaves_the_socket_link_and_fail
     );
     assert!(replaced.is_err());
     assert_eq!(link, Some(first_socket));
-    assert!(stopped.is_ok());
+    assert!(is_first_stopped);
 }

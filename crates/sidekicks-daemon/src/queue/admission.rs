@@ -21,6 +21,7 @@ use std::error::Error;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::control::RunFailureCategory;
@@ -404,9 +405,15 @@ impl QueueAdmission {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), QueueError> {
-        let (provider, driver) = self.read_session_driver(session_id).await?;
+        let (provider, provider_account_id, driver) = self.read_session_driver(session_id).await?;
         match self
-            .take_place(&provider, driver.as_ref(), session_id, run_id)
+            .take_place(
+                &provider,
+                provider_account_id,
+                driver.as_ref(),
+                session_id,
+                run_id,
+            )
             .await?
         {
             Placed::Admitted => {}
@@ -533,15 +540,18 @@ impl QueueAdmission {
         }
     }
 
-    // Puts `run_id` in the gate's line and waits for its turn within the delivery timeout.
+    // Puts `run_id` in the gate's line and waits for its turn within the delivery timeout. The
+    // gate weighs a process start on `provider_account_id`, the account the run is admitted
+    // against.
     async fn take_place(
         &self,
         provider: &ProviderId,
+        provider_account_id: Option<ProviderAccountId>,
         driver: &dyn ProviderDriver,
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<Placed, QueueError> {
-        let starts_process = driver.starts_process(session_id).await;
+        let starts_process = driver.starts_process(session_id, provider_account_id).await;
         let work = provider_work(&self.deps.providers, provider, !starts_process)?;
         let mut admitted = {
             let mut state = self.lock();
@@ -661,7 +671,14 @@ impl QueueAdmission {
     async fn read_session_driver(
         &self,
         session_id: SessionId,
-    ) -> Result<(ProviderId, Arc<dyn ProviderDriver>), QueueError> {
+    ) -> Result<
+        (
+            ProviderId,
+            Option<ProviderAccountId>,
+            Arc<dyn ProviderDriver>,
+        ),
+        QueueError,
+    > {
         read_session_driver::<QueueError>(
             &self.deps.pool,
             &self.deps.providers,

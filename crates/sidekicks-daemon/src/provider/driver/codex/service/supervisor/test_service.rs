@@ -16,9 +16,12 @@ use sidekicks_platforms::{ProgramStart, Spawner};
 use tempfile::TempDir;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::tungstenite::Message;
+use tokio_util::task::TaskTracker;
 
 use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
-use crate::provider::driver::codex::service::command_line::CodexHookCommands;
+use crate::provider::driver::codex::service::command_line::{
+    TerminalServiceHooks, read_terminal_service_hooks,
+};
 use crate::provider::driver::codex::service::home::{
     CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
@@ -31,14 +34,17 @@ use crate::provider::driver::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
 use crate::provider::driver::codex::session::conversation_release::CodexConversationRelease;
+use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::provider::driver::codex::transport::connection::scripted_service::{
     ScriptedService, connect_scripted_service,
 };
 use crate::provider::driver::contract::DriverError;
+use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::spawned_version::{
     ResolvedProviderExecutable, SpawnedProviderVersionReading, parse_cli_version_report,
 };
+use crate::queue::delivery::ProviderProcessIdentity;
 
 /// The largest message the scripted service takes, far above any a test sends.
 const SCRIPTED_MESSAGE_LIMIT: usize = 1 << 20;
@@ -76,9 +82,13 @@ impl ScriptedCodexService {
         });
     }
 
-    /// Records `process_id` as the process the daemon started for the service.
+    /// Records `process_id` as the process the daemon started for the service, its spawn
+    /// sequence drawn now as a pin draws it.
     pub(crate) fn report_process(&self, process_id: u32) {
-        self.service.lock_live().process_id = Some(process_id);
+        self.service.lock_live().process = Some(ProviderProcessIdentity {
+            process_id,
+            spawn_sequence: self.dependencies.processes.mint_spawn_sequence(),
+        });
     }
 
     /// Publishes the service up again on `connection`.
@@ -104,6 +114,7 @@ pub(crate) fn test_codex_service_dependencies(
     Arc::new(CodexServiceDependencies {
         spawner: Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts"),
         provider_services: Arc::new(ProviderServiceProcesses::default()),
+        processes: Arc::new(ProviderProcessRegistry::default()),
         program,
         data_folder: folder.join("data"),
         logs_folder: folder.join("logs"),
@@ -112,6 +123,7 @@ pub(crate) fn test_codex_service_dependencies(
         events,
         release: Arc::new(CodexConversationRelease::default()),
         drains: LastingServiceDrains::default(),
+        tasks: TaskTracker::new(),
     })
 }
 
@@ -141,8 +153,28 @@ impl CodexProgramResolver for TestCodexProgram {
     }
 }
 
-/// Starts a service whose connection the test scripts. Must be called within a runtime.
+/// Starts a service on an account's home whose connection the test scripts. Must be called within
+/// a runtime.
 pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
+    start_scripted_codex_service_on(CodexHomeKind::Account, CodexServiceKind::Account)
+}
+
+/// Starts the terminal service on the person's own folder with terminal reach on, its connection
+/// scripted by the test. Must be called within a runtime.
+pub(crate) fn start_scripted_terminal_service() -> ScriptedCodexService {
+    start_scripted_codex_service_on(
+        CodexHomeKind::PersonalFolder {
+            is_terminal_reach_on: true,
+        },
+        CodexServiceKind::Terminal,
+    )
+}
+
+// A service of `kind` on a home of `home_kind` whose connection the test scripts.
+fn start_scripted_codex_service_on(
+    home_kind: CodexHomeKind,
+    kind: CodexServiceKind,
+) -> ScriptedCodexService {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
     let dependencies = test_codex_service_dependencies(
         folder.path(),
@@ -154,13 +186,13 @@ pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
         CodexServiceHome {
             codex_home: folder.path().join("home"),
             provider_account_id: None,
-            kind: CodexHomeKind::Account,
+            kind: home_kind,
         },
         CodexServiceSocket {
             path: socket.clone(),
             home_socket: socket,
         },
-        CodexServiceKind::Account,
+        kind,
         Arc::clone(&dependencies),
     );
     ScriptedCodexService {
@@ -218,19 +250,24 @@ impl CodexServiceEvents for UnheardEvents {
 
     fn recovered(&self, _service: &Arc<CodexService>, _cause: CodexServiceRecoveryCause) {}
 
-    fn crash_loop(&self, _service: &Arc<CodexService>) {}
+    fn crash_loop(&self, _service: &Arc<CodexService>, _start_failure: Option<Arc<CodexError>>) {}
 
     fn rate_limits_observed(&self, _service: &Arc<CodexService>) {}
 
     fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
 }
 
-/// Answers one connection's requests on `stream` as far as a start needs: the version, `hooks` as
-/// trusted, and no loaded conversation.
-pub(crate) async fn answer_as_codex_service(
-    stream: impl AsyncRead + AsyncWrite + Unpin,
-    hooks: Arc<CodexHookCommands>,
-) {
+/// Answers one connection's requests on `stream` as far as a start needs: the version, the hooks
+/// the daemon starts a terminal service with, as trusted, and no loaded conversation; a config
+/// write is refused, so a start that writes trust fails.
+pub(crate) async fn answer_as_codex_service(stream: impl AsyncRead + AsyncWrite + Unpin) {
+    let hooks = match read_terminal_service_hooks().expect("the daemon's hooks read") {
+        TerminalServiceHooks::Daemon(hooks) => vec![
+            listed_hook("preToolUse", &hooks.pre_tool_use),
+            listed_hook("postToolUse", &hooks.post_tool_use),
+        ],
+        TerminalServiceHooks::NoHooks | TerminalServiceHooks::ProgramReplaced => Vec::new(),
+    };
     // A probe that only connects ends before the upgrade.
     let Ok(mut socket) = tokio_tungstenite::accept_async(stream).await else {
         return;
@@ -243,16 +280,16 @@ pub(crate) async fn answer_as_codex_service(
         if request.get("id").is_none() {
             continue;
         }
-        let result = match request["method"].as_str() {
-            Some("initialize") => json!({"userAgent": "ai-sidekicks-daemon/0.130.0 (test)"}),
-            Some("hooks/list") => json!({"data": [{"hooks": [
-                listed_hook("preToolUse", &hooks.pre_tool_use),
-                listed_hook("postToolUse", &hooks.post_tool_use),
-            ]}]}),
-            Some("thread/loaded/list") => json!({"data": []}),
-            _ => json!({}),
+        let id = &request["id"];
+        let reply = match request["method"].as_str() {
+            Some("config/value/write") => json!({"id": id,
+                "error": {"code": -32603, "message": "the test service writes no config"}}),
+            Some("initialize") => json!({"id": id,
+                "result": {"userAgent": "ai-sidekicks-daemon/0.130.0 (test)"}}),
+            Some("hooks/list") => json!({"id": id, "result": {"data": [{"hooks": hooks}]}}),
+            Some("thread/loaded/list") => json!({"id": id, "result": {"data": []}}),
+            _ => json!({"id": id, "result": {}}),
         };
-        let reply = json!({"id": request["id"], "result": result});
         if socket
             .send(Message::Text(reply.to_string().into()))
             .await

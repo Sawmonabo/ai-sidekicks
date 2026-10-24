@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::provider::declaration::{
     ProviderDeclarationId, ProviderDeclarationText, ProviderPlaceSwitch, ProviderPlaceSwitches,
@@ -21,6 +22,7 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::session::id::SessionId;
 
 use super::CodexDriver;
+use crate::ipc::domain_error::DomainError;
 use crate::provider::driver::codex::auth_status::{
     CODEX_AUTH_PROBE_TIMEOUT, read_codex_auth_status,
 };
@@ -29,13 +31,14 @@ use crate::provider::driver::codex::capability_probe::probe_codex_service_capabi
 use crate::provider::driver::codex::compaction::{
     CodexCompactionTarget, dispatch_codex_compaction,
 };
-use crate::provider::driver::codex::lifecycle::intake::{CodexLifecycleCall, call_codex_lifecycle};
+use crate::provider::driver::codex::lifecycle::intake::call_codex_lifecycle;
 use crate::provider::driver::codex::model_windows::{
     join_codex_model_windows, read_codex_service_model_windows,
 };
 use crate::provider::driver::codex::service::command::read_codex_model_catalog_dump;
 use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::provider::driver::codex::session::starting_level::read_codex_starting_level;
 use crate::provider::driver::contract::{
     ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
@@ -295,11 +298,13 @@ impl CodexDriver {
         self.views.declared_output_speed(session_id)
     }
 
-    /// The terminal-reach switch with whether it is on, on the computer's one place.
+    /// The terminal-reach switch, one per place the computer has, each read from that place's
+    /// terminal service: on while it is up or on its way back up. The computer has one place, the
+    /// one a computer without a WSL 2 distribution names none for.
     pub(crate) fn read_rows(&self, _app_values: &ProviderRowValues) -> Vec<ProviderRow> {
         let switch = ProviderPlaceSwitch {
             place: None,
-            enabled: self.is_terminal_reach_on.load(Ordering::Acquire),
+            enabled: self.registry.is_terminal_service_on(),
         };
         vec![ProviderRow::Setting {
             id: terminal_reach_row_id(),
@@ -312,9 +317,11 @@ impl CodexDriver {
         }]
     }
 
-    /// Turns terminal reach on or off: on starts the service on the person's own folder, off
-    /// stops it once no terminal session is inside it. Another row is none of Codex's. Fails as
-    /// the service's start or stop fails.
+    /// Turns terminal reach on or off in `params.place`: on starts the terminal service on the
+    /// person's own folder unless it is on already, and the switch reads on only once it started;
+    /// off answers once the service left the folder, which retires it once no terminal session is
+    /// inside it. Another row is none of Codex's. Fails with `provider.place.notOffered` for a
+    /// place the computer does not have, and as the start or the home's resolve fails.
     pub(crate) async fn apply_row_value(
         &self,
         params: ApplyRowValueParams,
@@ -322,13 +329,25 @@ impl CodexDriver {
         if params.row_id != terminal_reach_row_id() {
             return Ok(());
         }
-        let is_on = matches!(params.value, Some(ProviderValue::Switch(true)));
-        self.is_terminal_reach_on.store(is_on, Ordering::Release);
-        if is_on {
-            self.registry.start_terminal_service().await
-        } else {
-            self.registry.stop_terminal_service().await
+        if params.place.is_some() {
+            return Err(DomainError::new(
+                "Codex reaches terminals in no other place on this computer.".to_owned(),
+                RefusalCode::ProviderPlaceNotOffered,
+            )
+            .into());
         }
+        if !matches!(params.value, Some(ProviderValue::Switch(true))) {
+            self.is_terminal_reach_on.store(false, Ordering::Release);
+            self.registry.stop_terminal_service().await?;
+            return Ok(());
+        }
+        if self.registry.is_terminal_service_on() {
+            return Ok(());
+        }
+        let started = self.registry.start_terminal_service().await;
+        self.is_terminal_reach_on
+            .store(started.is_ok(), Ordering::Release);
+        started
     }
 
     /// Deletes the account home's log rows from before `cutoff`, and, while no service holds the

@@ -151,7 +151,8 @@ async fn a_resume_whose_mode_update_fails_leaves_the_record_and_the_new_service_
 }
 
 // Killed by dropping the adoption's record of the service's process, by minting a sequence for
-// each session on one process, and by dropping the let-go's or the exit's removal.
+// each session on one process, by dropping the let-go's or the exit's removal, and by reusing the
+// sequence for a process that replaced the service's under the same pid.
 #[tokio::test(start_paused = true)]
 async fn an_established_session_is_kept_under_its_service_process_until_it_lets_go() {
     let mut session = TestCodexSession::start().await;
@@ -186,4 +187,14 @@ async fn an_established_session_is_kept_under_its_service_process_until_it_lets_
     );
     establishment.forget_service_process(&second.service);
     assert_eq!(session.processes.process_identity(&other_id), None);
+    // The service's process replaced by one the system gave the same pid.
+    second.report_process(4242);
+    let next_id = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+    establishment.record_service_process(next_id, &second.service);
+    let next = session
+        .processes
+        .process_identity(&next_id)
+        .expect("the next session's service process is recorded");
+    assert_eq!(next.process_id, 4242);
+    assert_ne!(next.spawn_sequence, identity.spawn_sequence);
 }
