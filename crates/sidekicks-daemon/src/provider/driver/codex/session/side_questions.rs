@@ -196,15 +196,16 @@ pub(crate) struct CodexSideQuestions {
     dispatch: Arc<RunInboundDispatch>,
     /// The driver's tasks, which its shutdown waits for; each answer is delivered on one.
     tasks: TaskTracker,
-    /// Never held across an await.
+    /// The live copies answering, by the copy's conversation. Never held across an await.
     questions: Mutex<HashMap<String, CodexSideQuestion>>,
-    /// The resting sessions' copies still answering, by the copy's conversation; each answer's
-    /// task takes its own out once it ends. Never held across an await.
-    resting_copies: Arc<Mutex<HashMap<String, CodexRestingCopyStop>>>,
+    /// Every copy from before its fork, by its side question: a live one's until its fork
+    /// answered, a resting one's until its answer's task ended. Taken before `questions` where
+    /// both are held. Never held across an await.
+    copy_stops: Arc<Mutex<HashMap<SideQuestionId, CodexCopyStop>>>,
 }
 
-/// What stops a resting session's copy when its session closes first.
-struct CodexRestingCopyStop {
+/// What stops a side question's copy when its session closes or the driver shuts down first.
+struct CodexCopyStop {
     session_id: SessionId,
     stop: CancellationToken,
 }
@@ -216,12 +217,13 @@ impl CodexSideQuestions {
             dispatch,
             tasks,
             questions: Mutex::new(HashMap::new()),
-            resting_copies: Arc::new(Mutex::new(HashMap::new())),
+            copy_stops: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     /// Asks `params`' question on a read-only copy of `record`'s conversation and answers once
-    /// Codex took its turn. Fails as the fork or the turn's request fails, and with
+    /// Codex took its turn; a copy whose session closed while it was forked is let go with no turn
+    /// started, and the ask answers `Ok`. Fails as the fork or the turn's request fails, and with
     /// `CodexError::Transport` when the copy does not run read-only; the copy is let go either way.
     pub(crate) async fn ask(
         &self,
@@ -233,18 +235,32 @@ impl CodexSideQuestions {
             compose_copy_fork(&record.thread_settings, record.thread_id.clone());
         // Frames of the copy that arrive before it is registered are held for it.
         let claim = service.begin_thread_claim();
-        let connection = service.connection()?;
-        let reply = connection.request(THREAD_FORK_METHOD, &fork).await?;
-        let copy_thread_id = read_thread(&reply, THREAD_FORK_METHOD)?.id;
-        self.lock().insert(
-            copy_thread_id.clone(),
-            CodexSideQuestion::new(
-                Arc::clone(&service),
-                record.provider_account_id.clone(),
-                params,
-                &copy_thread_id,
-            ),
+        self.enter_copy(params);
+        let forked = async {
+            let connection = service.connection()?;
+            let reply = connection.request(THREAD_FORK_METHOD, &fork).await?;
+            let copy_thread_id = read_thread(&reply, THREAD_FORK_METHOD)?.id;
+            Ok::<_, CodexError>((connection, reply, copy_thread_id))
+        }
+        .await;
+        let (connection, reply, copy_thread_id) = match forked {
+            Ok(forked) => forked,
+            Err(error) => {
+                lock_copy_stops(&self.copy_stops).remove(&params.side_question_id);
+                return Err(error);
+            }
+        };
+        let question = CodexSideQuestion::new(
+            Arc::clone(&service),
+            record.provider_account_id.clone(),
+            params,
+            &copy_thread_id,
         );
+        if !self.hand_over_live_copy(params.side_question_id, &copy_thread_id, question) {
+            drop(claim);
+            let_go_codex_thread(&service, &copy_thread_id).await;
+            return Ok(());
+        }
         service.register_thread(copy_thread_id.clone(), params.session_id);
         drop(claim);
         let started = match assert_active_permission_profile(
@@ -281,40 +297,31 @@ impl CodexSideQuestions {
         params: &AskSideQuestionParams,
         usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
     ) -> Result<(), CodexError> {
-        let (service, settings) = establishment.compose_resting_conversation(resume).await?;
-        let (events, frames) = CodexDetachedFrames::new();
-        let connection = service.open_detached_connection(events).await?;
-        let (fork, read_only_profile) = compose_copy_fork(&settings, resume.resume_handle.clone());
-        // An error from here drops the connection, which ends the copy.
-        let reply = connection.request(THREAD_FORK_METHOD, &fork).await?;
-        let copy_thread_id = read_thread(&reply, THREAD_FORK_METHOD)?.id;
-        assert_active_permission_profile(&reply, &read_only_profile, THREAD_FORK_METHOD)?;
-        let turn_id = start_turn(&connection, &copy_thread_id, &params.question).await?;
+        let stop = self.enter_copy(params);
+        // A stop before the turn started drops the connection, which ends the copy.
+        let opened = stop
+            .run_until_cancelled(open_resting_copy(establishment, resume, params))
+            .await;
+        let (service, copy) = match opened {
+            Some(Ok(opened)) => opened,
+            Some(Err(error)) => {
+                lock_copy_stops(&self.copy_stops).remove(&params.side_question_id);
+                return Err(error);
+            }
+            None => return Ok(()),
+        };
         let question = CodexSideQuestion::new(
             service,
             resume.provider_account_id.clone(),
             params,
-            &copy_thread_id,
-        );
-        let stop = CancellationToken::new();
-        lock_resting_copies(&self.resting_copies).insert(
-            copy_thread_id.clone(),
-            CodexRestingCopyStop {
-                session_id: params.session_id,
-                stop: stop.clone(),
-            },
+            &copy.thread_id,
         );
         self.tasks.spawn(answer_at_rest(
             Arc::clone(&self.dispatch),
             usage,
             question,
-            CodexRestingCopy {
-                connection,
-                frames,
-                thread_id: copy_thread_id,
-                turn_id,
-            },
-            Arc::clone(&self.resting_copies),
+            copy,
+            Arc::clone(&self.copy_stops),
             stop,
         ));
         Ok(())
@@ -347,7 +354,7 @@ impl CodexSideQuestions {
     /// Lets go of every copy `session_id`'s side questions still hold, once its conversation
     /// closed: a live session's off its service, and a resting one's turn stopped on its own task.
     pub(crate) async fn forget_session(&self, session_id: SessionId) {
-        lock_resting_copies(&self.resting_copies).retain(|_thread_id, copy| {
+        lock_copy_stops(&self.copy_stops).retain(|_side_question_id, copy| {
             let is_kept = copy.session_id != session_id;
             if !is_kept {
                 copy.stop.cancel();
@@ -375,12 +382,42 @@ impl CodexSideQuestions {
         }
     }
 
-    /// Stops every resting session's copy still answering, as the driver shuts down: each turn is
-    /// stopped on its own task and nothing is delivered, so no copy holds the driver's tasks open.
+    /// Stops every copy not yet handed to its session's service, as the driver shuts down: a
+    /// resting one's turn is stopped on its own task and nothing is delivered, so no copy holds the
+    /// driver's tasks open.
     pub(crate) fn stop_every_copy(&self) {
-        for (_thread_id, copy) in lock_resting_copies(&self.resting_copies).drain() {
+        for (_side_question_id, copy) in lock_copy_stops(&self.copy_stops).drain() {
             copy.stop.cancel();
         }
+    }
+
+    // Takes the live copy of `side_question_id` out of `copy_stops` and enters it as `question`
+    // under that lock, so a close after it finds it there; `false` when a close took it first.
+    fn hand_over_live_copy(
+        &self,
+        side_question_id: SideQuestionId,
+        copy_thread_id: &str,
+        question: CodexSideQuestion,
+    ) -> bool {
+        let mut copy_stops = lock_copy_stops(&self.copy_stops);
+        let is_entered = copy_stops.remove(&side_question_id).is_some();
+        if is_entered {
+            self.lock().insert(copy_thread_id.to_owned(), question);
+        }
+        is_entered
+    }
+
+    // Enters `params`' copy under its session before its fork, so a close meanwhile stops it.
+    fn enter_copy(&self, params: &AskSideQuestionParams) -> CancellationToken {
+        let stop = CancellationToken::new();
+        lock_copy_stops(&self.copy_stops).insert(
+            params.side_question_id,
+            CodexCopyStop {
+                session_id: params.session_id,
+                stop: stop.clone(),
+            },
+        );
+        stop
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<String, CodexSideQuestion>> {
@@ -434,6 +471,34 @@ async fn start_turn(
     read_turn_id(&reply, TURN_START_METHOD)
 }
 
+// Forks the resting session's stored conversation that `resume` names into a read-only copy on the
+// account's service, over a connection of its own, and starts its turn on `params`' question; the
+// service and the copy. Fails as `ask_at_rest` fails.
+async fn open_resting_copy(
+    establishment: &CodexSessionEstablishment,
+    resume: &ResumeSessionParams,
+    params: &AskSideQuestionParams,
+) -> Result<(Arc<CodexService>, CodexRestingCopy), CodexError> {
+    let (service, settings) = establishment.compose_resting_conversation(resume).await?;
+    let (events, frames) = CodexDetachedFrames::new();
+    let connection = service.open_detached_connection(events).await?;
+    let (fork, read_only_profile) = compose_copy_fork(&settings, resume.resume_handle.clone());
+    // An error from here drops the connection, which ends the copy.
+    let reply = connection.request(THREAD_FORK_METHOD, &fork).await?;
+    let thread_id = read_thread(&reply, THREAD_FORK_METHOD)?.id;
+    assert_active_permission_profile(&reply, &read_only_profile, THREAD_FORK_METHOD)?;
+    let turn_id = start_turn(&connection, &thread_id, &params.question).await?;
+    Ok((
+        service,
+        CodexRestingCopy {
+            connection,
+            frames,
+            thread_id,
+            turn_id,
+        },
+    ))
+}
+
 /// A resting session's copy: the connection of its own it runs on, where that connection's
 /// notifications arrive, and its conversation and turn.
 struct CodexRestingCopy {
@@ -445,20 +510,20 @@ struct CodexRestingCopy {
 
 // Reads a resting session's copy's frames until its turn ended and delivers its answer, its cost
 // filed through `usage`; once its connection dropped it is reported unanswered, and once `stop`
-// fired its turn is stopped and nothing is delivered. The copy leaves `resting_copies` and is let
-// go with its connection.
+// fired its turn is stopped and nothing is delivered. The copy leaves `copy_stops` and is let go
+// with its connection.
 async fn answer_at_rest(
     dispatch: Arc<RunInboundDispatch>,
     usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
     mut question: CodexSideQuestion,
     mut copy: CodexRestingCopy,
-    resting_copies: Arc<Mutex<HashMap<String, CodexRestingCopyStop>>>,
+    copy_stops: Arc<Mutex<HashMap<SideQuestionId, CodexCopyStop>>>,
     stop: CancellationToken,
 ) {
     let read = stop
         .run_until_cancelled(read_copy_turn(&mut question, &mut copy, &usage))
         .await;
-    lock_resting_copies(&resting_copies).remove(&copy.thread_id);
+    lock_copy_stops(&copy_stops).remove(&question.side_question_id);
     if let Some(turn) = read {
         deliver_answer(&dispatch, question, turn).await;
     } else {
@@ -492,12 +557,10 @@ async fn read_copy_turn(
     None
 }
 
-fn lock_resting_copies(
-    resting_copies: &Mutex<HashMap<String, CodexRestingCopyStop>>,
-) -> MutexGuard<'_, HashMap<String, CodexRestingCopyStop>> {
-    resting_copies
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
+fn lock_copy_stops(
+    copy_stops: &Mutex<HashMap<SideQuestionId, CodexCopyStop>>,
+) -> MutexGuard<'_, HashMap<SideQuestionId, CodexCopyStop>> {
+    copy_stops.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 // Delivers the copy's answer and lets the copy go off its session's service.

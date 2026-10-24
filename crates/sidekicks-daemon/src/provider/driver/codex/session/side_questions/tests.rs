@@ -18,11 +18,12 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_platforms::{ExistingSocket, bind_socket_listener};
+use tokio::sync::oneshot;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::TaskTracker;
 
-use super::CodexSideQuestions;
+use super::{CodexSideQuestions, lock_copy_stops};
 use crate::policy::execution_posture_service::compose_execution_posture;
 use crate::provider::driver::codex::permission_level::{
     CodexProfileFolders, compose_codex_profile_name,
@@ -133,9 +134,8 @@ where
 /// The service's side of a copy's connection.
 type CopySocket = WebSocketStream<interprocess::local_socket::tokio::Stream>;
 
-// Serves the copy's connection as Codex up to its turn's start: the connection's start and a fork
-// of the stored conversation under `profile`; answers the connection and the fork's params.
-async fn open_copy(listener: &Listener, profile: &str) -> (CopySocket, Map<String, Value>) {
+// Serves the copy's connection as Codex through the connection's start; answers the connection.
+async fn accept_copy(listener: &Listener) -> CopySocket {
     let stream = listener
         .accept()
         .await
@@ -150,6 +150,13 @@ async fn open_copy(listener: &Listener, profile: &str) -> (CopySocket, Map<Strin
         json!({"id": initialize["id"], "result": {"userAgent": "codex/0.163.0 (test)"}}),
     )
     .await;
+    socket
+}
+
+// Serves the copy's connection as Codex up to its turn's start: the connection's start and a fork
+// of the stored conversation under `profile`; answers the connection and the fork's params.
+async fn open_copy(listener: &Listener, profile: &str) -> (CopySocket, Map<String, Value>) {
+    let mut socket = accept_copy(listener).await;
     let fork = next_request(&mut socket).await;
     assert_eq!(fork["method"], "thread/fork");
     send(
@@ -345,5 +352,121 @@ async fn a_resting_copy_let_go_before_its_turn_ends_has_its_turn_stopped(#[case]
     assert_eq!(
         interrupt["params"],
         json!({"threadId": COPY_THREAD, "turnId": "copy-turn"})
+    );
+}
+
+// Serves the copy's connection as Codex up to its fork, whose reply it holds, telling `forked` once
+// the fork came; answers every message the daemon sent after it, once it let the connection go.
+async fn serve_held_fork(listener: Listener, forked: oneshot::Sender<()>) -> Vec<Message> {
+    let mut socket = accept_copy(&listener).await;
+    let fork = next_request(&mut socket).await;
+    assert_eq!(fork["method"], "thread/fork");
+    forked.send(()).expect("the test waits for the fork");
+    let mut later = Vec::new();
+    while let Some(Ok(message)) = socket.next().await {
+        later.push(message);
+    }
+    later
+}
+
+// Killed by entering the resting copy only once its fork answered: the close would miss it, and
+// the copy would start its turn on a connection kept open.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_resting_copy_whose_session_closes_during_its_fork_starts_no_turn() {
+    let session = TestCodexSession::start().await;
+    let Some(listener) = bind_test_listener(session.scripted.service.socket_path()) else {
+        return;
+    };
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let establishment = session.establishment(folder.path());
+    let tasks = TaskTracker::new();
+    let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), tasks.clone());
+    let session_id = session.task.record.session_id;
+    let params = resting_question(session_id);
+    let (forked, fork_came) = oneshot::channel();
+    let served = tokio::spawn(serve_held_fork(listener, forked));
+
+    let (asked, ()) = tokio::time::timeout(SERVE_WAIT, async {
+        tokio::join!(
+            side_questions.ask_at_rest(
+                &establishment,
+                params
+                    .resume
+                    .as_ref()
+                    .expect("the question is asked at rest"),
+                &params,
+                Arc::new(PortRegistration::new("usage")),
+            ),
+            async {
+                fork_came.await.expect("the service took the fork");
+                side_questions.forget_session(session_id).await;
+            },
+        )
+    })
+    .await
+    .expect("the ask ends once its copy is let go");
+    asked.expect("a copy let go before its turn asks nothing more");
+    let later = tokio::time::timeout(SERVE_WAIT, served)
+        .await
+        .expect("the daemon lets the copy's connection go")
+        .expect("the service served the copy");
+
+    assert!(
+        later
+            .iter()
+            .all(|message| !matches!(message, Message::Text(_))),
+        "the daemon sent nothing after the fork: {later:?}"
+    );
+    assert!(lock_copy_stops(&side_questions.copy_stops).is_empty());
+}
+
+// Killed by entering the live copy only once its fork answered: the close would miss it, and the
+// copy would start its turn on the session's service.
+#[tokio::test]
+async fn a_live_copy_whose_session_closes_during_its_fork_starts_no_turn() {
+    let mut session = TestCodexSession::start().await;
+    let tasks = TaskTracker::new();
+    let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), tasks.clone());
+    let session_id = session.task.record.session_id;
+    let params = AskSideQuestionParams {
+        resume: None,
+        ..resting_question(session_id)
+    };
+    let profile = compose_codex_profile_name(
+        PermissionLevel::Readonly,
+        &session.task.record.thread_settings.profile_folders,
+    );
+    let script = &mut session.scripted.script;
+
+    let (asked, ()) = tokio::time::timeout(SERVE_WAIT, async {
+        tokio::join!(side_questions.ask(&session.task.record, &params), async {
+            let fork = script.next_sent().await;
+            assert_eq!(fork["method"], "thread/fork");
+            side_questions.forget_session(session_id).await;
+            script.answer(
+                &fork,
+                &json!({
+                    "thread": {"id": COPY_THREAD, "sessionId": "codex-session"},
+                    "activePermissionProfile": {"id": profile},
+                }),
+            );
+            let unsubscribe = script.next_sent().await;
+            assert_eq!(unsubscribe["method"], "thread/unsubscribe");
+            assert_eq!(unsubscribe["params"]["threadId"], COPY_THREAD);
+            script.answer(&unsubscribe, &json!({}));
+        })
+    })
+    .await
+    .expect("the ask ends once its copy is let go");
+    asked.expect("a copy let go before its turn asks nothing more");
+
+    assert!(
+        side_questions.lock().is_empty(),
+        "the copy was never entered"
+    );
+    assert!(lock_copy_stops(&side_questions.copy_stops).is_empty());
+    assert!(
+        script.sent.try_recv().is_err(),
+        "the daemon sent nothing more"
     );
 }
