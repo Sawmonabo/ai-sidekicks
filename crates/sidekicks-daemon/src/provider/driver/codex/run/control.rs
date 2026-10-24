@@ -198,9 +198,9 @@ impl CodexRunControl {
     }
 
     /// Acts on the end of a step of the turn `turn_id`, on the session's task: a pause waiting
-    /// for it interrupts the turn, its answer settled off the task; when Codex refuses, a continue
-    /// that waited for the pause steers its messages into the turn that runs on. Never fails;
-    /// what fails is reported.
+    /// for it interrupts the turn, its answer settled off the task. The pause's mark holds until
+    /// the turn's end, which a continue asked for meanwhile waits for, whatever Codex answered.
+    /// Never fails; what fails is reported.
     pub(crate) fn observe_step_end(
         self: &Arc<Self>,
         record: &mut CodexSessionRecord,
@@ -214,7 +214,6 @@ impl CodexRunControl {
             .paused_run_id_by_interrupted_turn_id
             .insert(turn_id.to_owned(), run_id);
         record.interrupting_turn_ids.insert(turn_id.to_owned());
-        let control = Arc::clone(self);
         let inbound = record.inbound.clone();
         let connection = record.service.connection();
         let thread_id = record.thread_id.clone();
@@ -225,33 +224,21 @@ impl CodexRunControl {
                 Ok(connection) => interrupt_codex_turn(&connection, &thread_id, &turn_id).await,
                 Err(error) => Err(error),
             };
-            let is_stopped = interrupted.is_ok();
-            if let Err(error) = interrupted {
-                CodexTransportDiagnostic::PauseInterruptFailed {
-                    thread_id: thread_id.clone(),
-                    error: Box::new(error),
+            let answer = match interrupted {
+                Ok(answer) => Some(answer),
+                Err(error) => {
+                    CodexTransportDiagnostic::PauseInterruptFailed {
+                        thread_id,
+                        error: Box::new(error),
+                    }
+                    .report();
+                    None
                 }
-                .report();
-            }
-            let waiting = call_codex_session(&inbound, |reply| {
-                CodexSessionCall::RunControl(CodexRunControlCall::SettlePauseInterrupt {
-                    run_id,
-                    turn_id: turn_id.clone(),
-                    is_stopped,
-                    reply,
-                })
-            })
-            .await;
-            // A session that let its record go has no turn left to steer.
-            if let Ok(Some(params)) = waiting
-                && let Err(error) = control.steer_waiting(&inbound, &turn_id, params).await
-            {
-                CodexTransportDiagnostic::ContinueSteerFailed {
-                    thread_id,
-                    error: Box::new(error),
-                }
-                .report();
-            }
+            };
+            // A session whose task ended keeps no turn to settle.
+            let _unheard = inbound.push(CodexSessionInbound::Call(CodexSessionCall::RunControl(
+                CodexRunControlCall::SettlePauseInterrupt { turn_id, answer },
+            )));
         });
     }
 

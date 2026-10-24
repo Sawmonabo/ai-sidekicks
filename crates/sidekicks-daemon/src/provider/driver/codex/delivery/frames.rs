@@ -31,6 +31,7 @@ use crate::provider::driver::codex::run::routes::{CodexRunBinding, CodexRunRoute
 use crate::provider::driver::codex::server_requests::CodexAskKind;
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
 use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::provider::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::provider::driver::diagnostics::OnceReportedDiagnostics;
 use crate::provider::driver::run_control::RunToolBoundary;
@@ -391,8 +392,8 @@ impl CodexFrameDelivery {
 /// The run holding the turn `turn_id` and how: its live run, else the run an interrupt, a pause or
 /// a retry took the turn from, whose last frames still belong to it; `None` when no run holds it.
 /// A pause marks its turn before its interrupt goes and the mark leaves only once the turn's end
-/// was applied, so a marked turn reads paused even while it is still live: its end is the pause's,
-/// whether it arrives before or after the interrupt's answer.
+/// was applied, so a marked turn reads paused even while it is still live, its end read by its
+/// status as `read_turn_ending` says.
 pub(crate) fn find_turn_run_id(
     record: &CodexSessionRecord,
     turn_id: &str,
@@ -422,6 +423,28 @@ pub(crate) fn find_turn_run_id(
                 .get(turn_id)
                 .map(|run_id| (*run_id, CodexTurnEnding::Retried))
         })
+}
+
+// How the turn `turn_id`, which `find_turn_run_id` found standing `ending`, ended, by the status
+// its `turn/completed` reports. The daemon marks a turn before its interrupt goes, so a marked
+// turn that ends `interrupted` is the daemon's stop, never Codex's own: paused under a pause's
+// mark, else interrupted. A pause-marked turn that failed by itself ends as a live turn does, so
+// its failure surfaces; one that completed by itself is the step that landed, so it reads paused.
+fn read_turn_ending(
+    record: &CodexSessionRecord,
+    turn_id: &str,
+    ending: CodexTurnEnding,
+    status: Option<CodexTurnStatus>,
+) -> CodexTurnEnding {
+    match (ending, status) {
+        (CodexTurnEnding::Paused, Some(CodexTurnStatus::Failed)) => CodexTurnEnding::Live,
+        (CodexTurnEnding::Live, Some(CodexTurnStatus::Interrupted))
+            if record.interrupting_turn_ids.contains(turn_id) =>
+        {
+            CodexTurnEnding::Interrupted
+        }
+        (ending, _) => ending,
+    }
 }
 
 /// Reports a frame whose run no live route, interrupt or starting turn names.

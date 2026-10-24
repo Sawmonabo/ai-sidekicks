@@ -270,14 +270,7 @@ pub(crate) enum CodexTransportDiagnostic {
         /// The item.
         item_id: String,
     },
-    /// The messages a continue waited to steer in could not be delivered once its pause failed.
-    ContinueSteerFailed {
-        /// The conversation.
-        thread_id: String,
-        /// The steer's failure.
-        error: DiagnosticCause,
-    },
-    /// A pause's interrupt at the step boundary failed, so the turn runs on and no pause lands.
+    /// A pause's interrupt at the step boundary failed, so the turn runs on until its own end.
     PauseInterruptFailed {
         /// The conversation.
         thread_id: String,
@@ -534,11 +527,6 @@ impl CodexTransportDiagnostic {
                 None,
                 "the item's final text does not continue its streamed pieces, which stand",
                 [("threadId", json!(thread_id)), ("itemId", json!(item_id))],
-            ),
-            Self::ContinueSteerFailed { thread_id, error } => tracing::warn!(
-                thread_id = thread_id.as_str(),
-                error = &**error as &(dyn Error + 'static),
-                "the messages a Codex continue waited to steer in could not be delivered"
             ),
             Self::PauseInterruptFailed { thread_id, error } => tracing::warn!(
                 thread_id = thread_id.as_str(),

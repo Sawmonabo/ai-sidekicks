@@ -22,7 +22,9 @@ use crate::provider::driver::codex::run::start::read_codex_step_bound;
 use crate::provider::driver::codex::run::start::record::{
     CodexRunCallDependencies, route_accepted_turn,
 };
-use crate::provider::driver::codex::run::turn_interrupt::interrupt_codex_turn;
+use crate::provider::driver::codex::run::turn_interrupt::{
+    CodexTurnInterrupt, interrupt_codex_turn,
+};
 use crate::provider::driver::codex::session::calls::CodexSessionTask;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::fork::bind_codex_first_run;
@@ -144,9 +146,13 @@ async fn open_run(
                 let thread_id = thread_id.clone();
                 let turn_id = interrupted_turn_id.clone();
                 async move {
-                    interrupt_codex_turn(&connection, &thread_id, &turn_id)
-                        .await
-                        .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)
+                    match interrupt_codex_turn(&connection, &thread_id, &turn_id).await {
+                        // A turn that already ended has nothing left to stop.
+                        Ok(CodexTurnInterrupt::Stopped | CodexTurnInterrupt::AlreadyEnded) => {
+                            Ok(())
+                        }
+                        Err(error) => Err(Box::new(error) as Box<dyn Error + Send + Sync>),
+                    }
                 }
                 .boxed()
             }),

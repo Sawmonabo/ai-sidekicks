@@ -11,6 +11,7 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use tokio::sync::oneshot;
 
 use crate::provider::driver::codex::run::start::record::CodexRunCallDependencies;
+use crate::provider::driver::codex::run::turn_interrupt::CodexTurnInterrupt;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
@@ -59,16 +60,14 @@ pub(crate) enum CodexRunControlCall {
         /// Where its place goes.
         reply: oneshot::Sender<CodexContinuePlace>,
     },
-    /// Settles a pause's interrupt with Codex's answer.
+    /// Settles a pause's interrupt with Codex's answer: a turn Codex stopped leaves its run's
+    /// routes; one that already ended, or that runs on past a refused interrupt, keeps its route
+    /// and the pause's mark for its own end to settle.
     SettlePauseInterrupt {
-        /// The paused run.
-        run_id: RunId,
-        /// Its turn.
+        /// The paused turn.
         turn_id: String,
-        /// Whether Codex stopped the turn.
-        is_stopped: bool,
-        /// Where a continue that waited on the pause goes, when the turn runs on.
-        reply: oneshot::Sender<Option<ResumeRunParams>>,
+        /// How Codex answered, `None` when the interrupt failed.
+        answer: Option<CodexTurnInterrupt>,
     },
 }
 
@@ -130,22 +129,11 @@ pub(crate) fn run_codex_run_control_call(
         CodexRunControlCall::PlaceContinue { params, reply } => {
             let _unheard = reply.send(place_continue(record, params));
         }
-        CodexRunControlCall::SettlePauseInterrupt {
-            run_id,
-            turn_id,
-            is_stopped,
-            reply,
-        } => {
+        CodexRunControlCall::SettlePauseInterrupt { turn_id, answer } => {
             record.interrupting_turn_ids.remove(&turn_id);
-            let waiting = if is_stopped {
+            if answer == Some(CodexTurnInterrupt::Stopped) {
                 dependencies.run_routes.retire_turn_route(record, &turn_id);
-                None
-            } else {
-                // The turn runs on, so a continue that waited for its end steers into it instead.
-                record.paused_run_id_by_interrupted_turn_id.remove(&turn_id);
-                record.continues_awaiting_pause.remove(&run_id)
-            };
-            let _unheard = reply.send(waiting);
+            }
         }
     }
 }

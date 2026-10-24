@@ -278,14 +278,6 @@ pub(crate) fn take_blocked_codex_steers(
             .remove(turn_id)
             .unwrap_or_default(),
     );
-    // A turn still live whose interrupt is on the wire ended under that interrupt; a pause's turn
-    // already reads paused.
-    let ending =
-        if ending == CodexTurnEnding::Live && record.interrupting_turn_ids.contains(turn_id) {
-            CodexTurnEnding::Interrupted
-        } else {
-            ending
-        };
     let Some(unechoed) = record.unechoed_steers_by_turn_id.get_mut(turn_id) else {
         return CodexEndedTurnSteers::default();
     };
