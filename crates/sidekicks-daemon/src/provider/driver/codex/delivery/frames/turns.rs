@@ -188,7 +188,7 @@ impl CodexFrameDelivery {
         record.delivery.spawn_calls_by_thread_id.remove(&thread_id);
         let turn_run = self.turn_run_for(record, &turn_id);
         // A live turn ending interrupted is one Codex itself stopped, since the daemon's own
-        // interrupt takes the turn from its run first.
+        // interrupt takes the turn from its run first and a pause's turn reads paused.
         let is_stopped_by_codex = read_turn_status(members).and_then(CodexTurnStatus::read)
             == Some(CodexTurnStatus::Interrupted);
         let stopped_run = turn_run

@@ -393,12 +393,19 @@ impl CodexFrameDelivery {
 
 /// The run holding the turn `turn_id` and how: its live run, else the run an interrupt, a pause or
 /// a retry took the turn from, whose last frames still belong to it; `None` when no run holds it.
+/// A pause marks its turn before its interrupt goes and the mark leaves only once the turn's end
+/// was applied, so a marked turn reads paused even while it is still live: its end is the pause's,
+/// whether it arrives before or after the interrupt's answer.
 pub(crate) fn find_turn_run_id(
     record: &CodexSessionRecord,
     turn_id: &str,
 ) -> Option<(RunId, CodexTurnEnding)> {
+    let is_pausing = record
+        .paused_run_id_by_interrupted_turn_id
+        .contains_key(turn_id);
     record
         .active_turn_run(turn_id)
+        .filter(|_| !is_pausing)
         .map(|run_id| (run_id, CodexTurnEnding::Live))
         .or_else(|| {
             record
