@@ -20,6 +20,7 @@ use sidekicks_platforms::{
 
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
+use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::command_search::ProviderCommandSearch;
@@ -411,6 +412,9 @@ pub(crate) struct DriverServices {
     pub(crate) pending_compactions: PendingCompactionRegistry,
     /// Which provider process runs each session, which each driver writes at spawn and exit.
     pub(crate) processes: Arc<ProviderProcessRegistry>,
+    /// The processes serving the provider services the daemon holds a connection to, which each
+    /// driver's dial holds and the daemon's caller check reads.
+    pub(crate) provider_services: Arc<ProviderServiceProcesses>,
     /// Where each session's provider process runs, resolved at every spawn.
     pub(crate) spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
     /// Points a session's binding at the conversation a driver moved it onto.

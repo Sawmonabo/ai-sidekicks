@@ -1,6 +1,7 @@
 //! A Codex session live in the composed driver: its record on a scripted service, its task the
 //! driver's own, one run on a live turn, and the run queue's intake recorded.
 
+mod caller_check;
 mod intake;
 mod sessions;
 

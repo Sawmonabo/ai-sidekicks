@@ -24,6 +24,7 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::git::process::{GitLimits, GitRunner};
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
+use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::command_search::ProviderCommandSearch;
@@ -101,9 +102,9 @@ impl AttachmentResolver for NothingServed {
 }
 
 /// The shared services every driver's build takes, with every port unregistered, no spawn context,
-/// attachment or binding rebind served, the read pool on a database no test opens, and every folder
-/// under a relative one that no test makes. Called on a tokio runtime, which the spawner thread
-/// starts on.
+/// attachment or binding rebind served, the read pool on a database no test opens, every folder
+/// under a relative one that no test makes, and a set of held provider services of its own, which
+/// a test reads through its field. Called on a tokio runtime, which the spawner thread starts on.
 pub(crate) fn test_driver_services() -> DriverServices {
     let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
     let folder = PathBuf::from("driver-services");
@@ -135,6 +136,7 @@ pub(crate) fn test_driver_services() -> DriverServices {
         command_search: Arc::new(ProviderCommandSearch::new(spawner)),
         pending_compactions: PendingCompactionRegistry::default(),
         processes: Arc::new(ProviderProcessRegistry::default()),
+        provider_services: Arc::new(ProviderServiceProcesses::default()),
         spawn_contexts: Arc::new(NothingServed),
         runtime_bindings: Arc::new(NothingServed),
         shell_lines: Arc::new(ShellLineReadingBound::new(TEST_SHELL_LINE_LIMIT)),
