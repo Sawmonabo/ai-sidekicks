@@ -35,7 +35,6 @@ use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::delivery::frames::{
     CodexFrameDelivery, CodexFrameDeliveryDependencies, CodexFrameEffects,
 };
-use crate::provider::driver::codex::delivery::memory::CodexDeliveryMemory;
 use crate::provider::driver::codex::delivery::rows::CodexRowRun;
 use crate::provider::driver::codex::notification_routing::{
     CodexRoutedFrames, CodexSessionRouting,
@@ -69,8 +68,9 @@ use crate::provider::driver::codex::session::inbound::{
     drain_codex_session_inbound,
 };
 use crate::provider::driver::codex::session::slots::CodexSessionSlots;
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
+use crate::provider::driver::codex::session::state::{
+    CodexEstablishedConversation, CodexSessionRecord,
+};
 use crate::provider::driver::codex::thread::settings::CodexThreadSettings;
 use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
@@ -193,7 +193,7 @@ impl TestCodexSession {
         });
         let thread_settings = test_thread_settings(session_id);
         let mut routing = CodexSessionRouting::new(pending_compactions.clone());
-        let mut record = CodexSessionRecord {
+        let mut record = CodexSessionRecord::new(CodexEstablishedConversation {
             session_id,
             service: Arc::clone(&scripted.service),
             inbound,
@@ -201,11 +201,7 @@ impl TestCodexSession {
             binding_id: None,
             provider_account_id: None,
             turn_boundaries: Vec::new(),
-            turn_id_by_client_message_id: std::collections::HashMap::new(),
-            permission_profiles: CodexThreadPermissionProfiles::established(&thread_settings),
             thread_settings,
-            is_config_fork_owed: false,
-            left_thread_ids_awaiting_binding: Vec::new(),
             execution_posture: compose_execution_posture(
                 PermissionLevel::Readonly,
                 FilesystemPath::new("/".to_owned()).expect("the root is a path"),
@@ -214,19 +210,7 @@ impl TestCodexSession {
             output_speed_request: None,
             declared_output_speed: None,
             reasoning_effort: None,
-            unsettled_output_speed_runs: std::collections::HashMap::new(),
-            active_turns: Vec::new(),
-            settled_turn_ids: std::collections::VecDeque::new(),
-            interrupted_run_by_turn_id: Vec::new(),
-            interrupting_turn_ids: std::collections::HashSet::new(),
-            unechoed_steers_by_turn_id: std::collections::HashMap::new(),
-            last_steer_send: None,
-            pause_run_id_by_turn_id: std::collections::HashMap::new(),
-            paused_run_id_by_interrupted_turn_id: std::collections::HashMap::new(),
-            continues_awaiting_pause: std::collections::HashMap::new(),
-            turn_input_by_turn_id: std::collections::HashMap::new(),
-            delivery: CodexDeliveryMemory::new(),
-        };
+        });
         routing
             .bind_session_thread(
                 &delivery,

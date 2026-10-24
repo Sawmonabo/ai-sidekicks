@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::provider::compaction_wait::PendingCompactionRegistry;
@@ -21,6 +22,7 @@ use crate::provider::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::provider::driver::codex::output_speed::{
     compose_codex_service_tier, read_codex_declared_tier, resolve_codex_output_speed_level,
 };
+use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::session::calls::CodexSessionTask;
 use crate::provider::driver::codex::session::controls::update_codex_session_mode;
 use crate::provider::driver::codex::session::conversation_release::CodexConversationRelease;
@@ -30,7 +32,7 @@ use crate::provider::driver::codex::session::slots::let_go_codex_thread;
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
 use crate::provider::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
 use crate::provider::driver::codex::thread::settings::{
-    CodexServiceTierChange, compose_codex_thread_fork_params,
+    CodexServiceTierChange, CodexThreadSettings, compose_codex_thread_fork_params,
 };
 use crate::provider::driver::codex::thread::view::{
     assert_codex_thread_profile, read_thread, read_thread_reasoning_effort,
@@ -71,7 +73,7 @@ pub(crate) struct CodexForkDependencies {
 
 /// Where a fork keeps the conversation up to.
 #[derive(Clone, Copy)]
-enum CodexForkBoundary<'turn> {
+pub(crate) enum CodexForkBoundary<'turn> {
     /// The whole conversation.
     Whole,
     /// Every turn before this one.
@@ -81,9 +83,22 @@ enum CodexForkBoundary<'turn> {
 }
 
 /// A fork Codex answered: its reply and the new conversation's id.
-struct CodexForkReply {
-    reply: Box<RawValue>,
-    thread_id: String,
+pub(crate) struct CodexForkReply {
+    /// The reply as sent.
+    pub(crate) reply: Box<RawValue>,
+    /// The new conversation.
+    pub(crate) thread_id: String,
+}
+
+/// What a fork carries: the settings and output speed of the session it is for, and the
+/// conversation it forks.
+pub(crate) struct CodexForkSource<'source> {
+    /// Every setting the session holds.
+    pub(crate) settings: &'source CodexThreadSettings,
+    /// The output-speed level the session asks for.
+    pub(crate) output_speed_request: Option<String>,
+    /// The conversation forked.
+    pub(crate) thread_id: String,
 }
 
 /// Forks the session's conversation, whole or to just before `before_turn_id`, on the settings
@@ -118,7 +133,13 @@ async fn fork_onto_settings(
     // Frames of the fork that arrive before it is registered are held for it.
     let _claim = service.begin_thread_claim();
     let boundary = before_turn_id.map_or(CodexForkBoundary::Whole, CodexForkBoundary::BeforeTurn);
-    let forked = request_fork(task.record, dependencies, &connection, boundary).await?;
+    let forked = request_codex_fork(
+        record_fork_source(task.record),
+        &dependencies.tool_server_route,
+        &connection,
+        boundary,
+    )
+    .await?;
     if forked.thread_id == task.record.thread_id
         || task.routing.is_metered_thread(&forked.thread_id)
     {
@@ -127,7 +148,14 @@ async fn fork_onto_settings(
             cause: None,
         });
     }
-    let turn_ids = read_fork_or_let_go(task.record, &connection, &forked).await?;
+    let turn_ids = read_codex_fork_or_let_go(
+        &task.record.thread_settings,
+        task.record.session_mode,
+        &service,
+        &connection,
+        &forked,
+    )
+    .await?;
     let routed = move_record_to_fork(task, dependencies, &forked, binding_id).await?;
     task.record.turn_boundaries = turn_ids;
     Ok(routed)
@@ -161,9 +189,9 @@ pub(crate) async fn move_codex_session_to_fork(
     let service = Arc::clone(&task.record.service);
     let connection = service.connection()?;
     let _claim = service.begin_thread_claim();
-    let forked = request_fork(
-        task.record,
-        dependencies,
+    let forked = request_codex_fork(
+        record_fork_source(task.record),
+        &dependencies.tool_server_route,
         &connection,
         CodexForkBoundary::AfterTurn(&boundary_turn_id),
     )
@@ -175,7 +203,14 @@ pub(crate) async fn move_codex_session_to_fork(
     if task.routing.is_metered_thread(&forked.thread_id) {
         return Ok((degraded(REWIND_TARGET_ALREADY_REGISTERED), no_frames()));
     }
-    let turn_ids = read_fork_or_let_go(task.record, &connection, &forked).await?;
+    let turn_ids = read_codex_fork_or_let_go(
+        &task.record.thread_settings,
+        task.record.session_mode,
+        &service,
+        &connection,
+        &forked,
+    )
+    .await?;
     let routed =
         move_record_to_fork(task, dependencies, &forked, Some(params.binding_id.clone())).await?;
     if turn_ids.len() != position {
@@ -233,27 +268,28 @@ pub(crate) async fn bind_codex_first_run(
     Ok(())
 }
 
-// Sends `thread/fork` of the record's conversation with every setting it holds, its output speed
-// resolved afresh against the model's tier list, which can change.
-async fn request_fork(
-    record: &CodexSessionRecord,
-    dependencies: &CodexForkDependencies,
+/// Sends `thread/fork` of `source`'s conversation up to `boundary` with every setting it carries,
+/// its output speed resolved afresh against the model's tier list, which can change, and the tool
+/// servers on `tool_server_route` once its owner registered it. Fails as the catalog read or the
+/// request does, and with `CodexError::Transport` for a reply that names no conversation.
+pub(crate) async fn request_codex_fork(
+    source: CodexForkSource<'_>,
+    tool_server_route: &PortRegistration<Arc<dyn ToolServerRoute>>,
     connection: &CodexAppServerConnection,
     boundary: CodexForkBoundary<'_>,
 ) -> Result<CodexForkReply, CodexError> {
-    let settings = &record.thread_settings;
+    let settings = source.settings;
     let output_speed = resolve_codex_output_speed_level(
         || read_codex_service_model_catalog(connection),
         &settings.model,
-        record.output_speed_request.clone(),
+        source.output_speed_request,
     )
     .await
     .map_err(CodexError::Driver)?;
-    let route = dependencies
-        .tool_server_route
+    let route = tool_server_route
         .port()
         .map(|route| &**route as &dyn ToolServerRoute);
-    let mut fork = compose_codex_thread_fork_params(settings, route, record.thread_id.clone());
+    let mut fork = compose_codex_thread_fork_params(settings, route, source.thread_id);
     fork.exclude_turns = Some(true);
     fork.service_tier =
         compose_codex_service_tier(output_speed.as_deref()).map(CodexServiceTierChange);
@@ -267,21 +303,24 @@ async fn request_fork(
     Ok(CodexForkReply { reply, thread_id })
 }
 
-// Checks a new fork's profile, starts it in the session's mode and reads its turn ids, oldest
-// first; a fork that fails any of these is let go before the failure is returned.
-async fn read_fork_or_let_go(
-    record: &CodexSessionRecord,
+/// Checks a new fork runs under the profile `settings` asks for, starts it in `session_mode` and
+/// reads its turn ids, oldest first; a fork that fails any of these is let go on `service` before
+/// the failure is returned.
+pub(crate) async fn read_codex_fork_or_let_go(
+    settings: &CodexThreadSettings,
+    session_mode: SessionMode,
+    service: &CodexService,
     connection: &CodexAppServerConnection,
     forked: &CodexForkReply,
 ) -> Result<Vec<String>, CodexError> {
     let read = async {
-        assert_codex_thread_profile(&forked.reply, &record.thread_settings, THREAD_FORK_METHOD)?;
+        assert_codex_thread_profile(&forked.reply, settings, THREAD_FORK_METHOD)?;
         // A fork starts in the session's mode before the session moves onto it.
         update_codex_session_mode(
             connection,
             &forked.thread_id,
-            record.session_mode,
-            &record.thread_settings.model,
+            session_mode,
+            &settings.model,
             read_thread_reasoning_effort(&forked.reply).as_deref(),
         )
         .await?;
@@ -290,9 +329,18 @@ async fn read_fork_or_let_go(
     };
     let turn_ids = read.await;
     if turn_ids.is_err() {
-        let_go_codex_thread(&record.service, &forked.thread_id).await;
+        let_go_codex_thread(service, &forked.thread_id).await;
     }
     turn_ids
+}
+
+// What a fork of the record's own conversation carries.
+fn record_fork_source(record: &CodexSessionRecord) -> CodexForkSource<'_> {
+    CodexForkSource {
+        settings: &record.thread_settings,
+        output_speed_request: record.output_speed_request.clone(),
+        thread_id: record.thread_id.clone(),
+    }
 }
 
 // Moves the record onto its fork: the binding first, durable before anything lets go of the

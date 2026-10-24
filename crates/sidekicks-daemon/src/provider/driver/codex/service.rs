@@ -5,7 +5,7 @@
 //! service's hooks.
 
 pub(super) mod asks;
-mod command;
+pub(super) mod command;
 mod command_line;
 mod config_warnings;
 pub(super) mod home;

@@ -280,6 +280,41 @@ impl CodexServiceRegistry {
     }
 }
 
+#[cfg(test)]
+impl CodexServiceRegistry {
+    /// A registry holding `scripted`'s service as its home's, every account resolving to that
+    /// home.
+    pub(crate) fn holding(
+        scripted: &crate::provider::driver::codex::service::supervisor::test_service::ScriptedCodexService,
+    ) -> Arc<Self> {
+        let home = scripted.service.home().clone();
+        let registry = Arc::new(Self::new(
+            Arc::new(OneHome(home.clone())),
+            Arc::clone(&scripted.dependencies),
+        ));
+        registry
+            .lock()
+            .by_home
+            .insert(home.codex_home, Arc::clone(&scripted.service));
+        registry
+    }
+}
+
+/// A home resolver answering the one home a test names for every account.
+#[cfg(test)]
+pub(crate) struct OneHome(pub(crate) CodexServiceHome);
+
+#[cfg(test)]
+impl CodexHomeResolver for OneHome {
+    fn codex_home_for<'call>(
+        &'call self,
+        _provider_account_id: Option<&'call ProviderAccountId>,
+    ) -> BoxFuture<'call, Result<CodexServiceHome, DriverError>> {
+        let home = self.0.clone();
+        Box::pin(async move { Ok(home) })
+    }
+}
+
 /// Whether a planned restart may move the home's link off `first`: it names the first's socket,
 /// or nothing answers on it; a service answering in its place, Codex's managed daemon in use,
 /// keeps it. Fails with the link's read error and the connect's other failures.

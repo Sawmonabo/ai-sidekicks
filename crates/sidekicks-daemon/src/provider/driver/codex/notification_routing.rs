@@ -170,6 +170,30 @@ impl CodexSessionRouting {
         routed
     }
 
+    /// Binds the session's conversation `thread_id` again after a resume in place, its usage based
+    /// on what was already metered on it, since the provider's counter survives a resume, and
+    /// delivers the frames that waited for it.
+    pub(crate) async fn rebind_session_thread(
+        &mut self,
+        delivery: &CodexFrameDelivery,
+        record: &mut CodexSessionRecord,
+        thread_id: String,
+    ) -> CodexRoutedFrames {
+        let prior_emitted_cumulative = self
+            .accountant
+            .base_registers(&thread_id)
+            .unwrap_or_default();
+        self.bind_session_thread(
+            delivery,
+            record,
+            thread_id,
+            ThreadBaseEstablishment::Resume {
+                prior_emitted_cumulative,
+            },
+        )
+        .await
+    }
+
     /// Moves the session's conversation from `pre_fork_thread_id` onto its fork
     /// `forked_thread_id`, and delivers the frames that waited for the fork. The fork's usage is
     /// based on what was metered on the conversation it left, the only key that spend exists

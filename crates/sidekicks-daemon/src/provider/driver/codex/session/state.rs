@@ -174,6 +174,37 @@ pub(crate) struct CodexSessionRecord {
     pub(crate) delivery: CodexDeliveryMemory,
 }
 
+/// What an establishment knows of a session's conversation, from which its record starts with
+/// every per-turn register empty.
+pub(crate) struct CodexEstablishedConversation {
+    /// The session.
+    pub(crate) session_id: SessionId,
+    /// The service the conversation is loaded on.
+    pub(crate) service: Arc<CodexService>,
+    /// The queue the session's frames and asks go to.
+    pub(crate) inbound: CodexSessionInboundSender,
+    /// The conversation.
+    pub(crate) thread_id: String,
+    /// The binding whose resume handle names the conversation; `None` until the first run.
+    pub(crate) binding_id: Option<RuntimeBindingId>,
+    /// The account the conversation runs on.
+    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The conversation's turn ids, oldest first.
+    pub(crate) turn_boundaries: Vec<String>,
+    /// The settings the conversation was established with.
+    pub(crate) thread_settings: CodexThreadSettings,
+    /// The session's level and roots.
+    pub(crate) execution_posture: ExecutionPosture,
+    /// Build or Plan.
+    pub(crate) session_mode: SessionMode,
+    /// The output-speed level the session asks for.
+    pub(crate) output_speed_request: Option<String>,
+    /// The tier the establishment's reply declared.
+    pub(crate) declared_output_speed: Option<ProviderOutputSpeedState>,
+    /// The reasoning effort the establishment's reply named.
+    pub(crate) reasoning_effort: Option<String>,
+}
+
 /// The interrupted turns a session can keep were all taken, so one more interrupt is refused.
 #[derive(Clone, Copy, Debug, thiserror::Error)]
 #[error("the session already keeps {CODEX_INTERRUPTED_ROUTE_MEMORY} interrupted turns")]
@@ -181,6 +212,43 @@ pub(crate) struct CodexSessionRecord {
 pub(crate) struct InterruptedRouteMemoryFull;
 
 impl CodexSessionRecord {
+    /// The record of a conversation just established, under the profile its settings ask for.
+    pub(crate) fn new(established: CodexEstablishedConversation) -> Self {
+        Self {
+            session_id: established.session_id,
+            service: established.service,
+            inbound: established.inbound,
+            thread_id: established.thread_id,
+            binding_id: established.binding_id,
+            provider_account_id: established.provider_account_id,
+            turn_boundaries: established.turn_boundaries,
+            turn_id_by_client_message_id: HashMap::new(),
+            permission_profiles: CodexThreadPermissionProfiles::established(
+                &established.thread_settings,
+            ),
+            thread_settings: established.thread_settings,
+            is_config_fork_owed: false,
+            left_thread_ids_awaiting_binding: Vec::new(),
+            execution_posture: established.execution_posture,
+            session_mode: established.session_mode,
+            output_speed_request: established.output_speed_request,
+            declared_output_speed: established.declared_output_speed,
+            reasoning_effort: established.reasoning_effort,
+            unsettled_output_speed_runs: HashMap::new(),
+            active_turns: Vec::new(),
+            settled_turn_ids: VecDeque::new(),
+            interrupted_run_by_turn_id: Vec::new(),
+            interrupting_turn_ids: HashSet::new(),
+            unechoed_steers_by_turn_id: HashMap::new(),
+            last_steer_send: None,
+            pause_run_id_by_turn_id: HashMap::new(),
+            paused_run_id_by_interrupted_turn_id: HashMap::new(),
+            continues_awaiting_pause: HashMap::new(),
+            turn_input_by_turn_id: HashMap::new(),
+            delivery: CodexDeliveryMemory::new(),
+        }
+    }
+
     /// The run of the live turn `turn_id`, if it is live.
     pub(crate) fn active_turn_run(&self, turn_id: &str) -> Option<RunId> {
         find_run(&self.active_turns, turn_id)

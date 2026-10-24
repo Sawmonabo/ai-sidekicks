@@ -16,10 +16,10 @@ use sidekicks_platforms::{
 };
 use tokio::sync::mpsc;
 
-use super::OneHome;
 use crate::provider::driver::codex::service::command_line::compose_daemon_hook_commands;
 use crate::provider::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
 use crate::provider::driver::codex::service::record::LastingServiceRecordFile;
+use crate::provider::driver::codex::service::registry::OneHome;
 use crate::provider::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
 use crate::provider::driver::codex::service::supervisor::events::{
     CodexServiceEvents, CodexServiceRecoveryCause,

@@ -1,19 +1,15 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::future::BoxFuture;
 use rstest::rstest;
 use serde_json::{Value, json};
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::CAN_LINK_A_SOCKET;
 
-use super::{CodexHomeResolver, CodexServiceRegistry};
-use crate::provider::driver::codex::service::home::CodexServiceHome;
+use super::CodexServiceRegistry;
 use crate::provider::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
-use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -24,33 +20,6 @@ const TERMINAL_THREAD: &str = "terminal-thread-1";
 
 /// How long the test watches for a read that must not come yet.
 const QUIET_WAIT: Duration = Duration::from_millis(300);
-
-// Every account resolves to the one home a test names.
-struct OneHome(CodexServiceHome);
-
-impl CodexHomeResolver for OneHome {
-    fn codex_home_for<'call>(
-        &'call self,
-        _provider_account_id: Option<&'call ProviderAccountId>,
-    ) -> BoxFuture<'call, Result<CodexServiceHome, DriverError>> {
-        let home = self.0.clone();
-        Box::pin(async move { Ok(home) })
-    }
-}
-
-// A registry holding the scripted service as its home's.
-fn registry_holding(scripted: &ScriptedCodexService) -> Arc<CodexServiceRegistry> {
-    let home = scripted.service.home().clone();
-    let registry = Arc::new(CodexServiceRegistry::new(
-        Arc::new(OneHome(home.clone())),
-        Arc::clone(&scripted.dependencies),
-    ));
-    registry
-        .lock()
-        .by_home
-        .insert(home.codex_home, Arc::clone(&scripted.service));
-    registry
-}
 
 // Holds `THREAD` on the scripted service for a session, answering the first list read with one
 // running command.
@@ -96,7 +65,7 @@ async fn next_request(scripted: &mut ScriptedCodexService, method: &str) -> Valu
 #[tokio::test]
 async fn the_switch_off_stop_waits_for_a_held_conversation_to_let_go() {
     let mut scripted = start_scripted_codex_service();
-    let registry = registry_holding(&scripted);
+    let registry = CodexServiceRegistry::holding(&scripted);
     hold_with_a_running_command(&mut scripted).await;
 
     let stopping = {
@@ -119,7 +88,7 @@ async fn the_switch_off_stop_waits_for_a_held_conversation_to_let_go() {
 #[tokio::test]
 async fn the_switch_off_stop_waits_for_a_terminal_session_inside_to_end() {
     let mut scripted = start_scripted_codex_service();
-    let registry = registry_holding(&scripted);
+    let registry = CodexServiceRegistry::holding(&scripted);
     let inside = json!({"data": [TERMINAL_THREAD]});
 
     let stopping = {
@@ -155,7 +124,7 @@ async fn the_switch_off_stop_waits_for_a_terminal_session_inside_to_end() {
 #[tokio::test]
 async fn the_switch_off_stop_waits_for_a_reconnecting_service_to_come_back() {
     let mut scripted = start_scripted_codex_service();
-    let registry = registry_holding(&scripted);
+    let registry = CodexServiceRegistry::holding(&scripted);
     let connection = scripted.publish_reconnecting();
 
     let stopping = {
@@ -187,7 +156,7 @@ async fn a_restart_on_an_unmovable_socket_stops_the_first_once_its_held_conversa
         return;
     }
     let mut scripted = start_scripted_codex_service();
-    let registry = registry_holding(&scripted);
+    let registry = CodexServiceRegistry::holding(&scripted);
     hold_with_a_running_command(&mut scripted).await;
 
     let replacing = {
@@ -222,7 +191,7 @@ async fn a_failed_switch_off_wait_puts_the_service_back_only_into_an_empty_slot(
     #[case] is_slot_filled: bool,
 ) {
     let mut scripted = start_scripted_codex_service();
-    let registry = registry_holding(&scripted);
+    let registry = CodexServiceRegistry::holding(&scripted);
 
     let stopping = {
         let registry = Arc::clone(&registry);

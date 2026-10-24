@@ -774,22 +774,45 @@ pub(super) fn read_service_version(
     })
 }
 
-// The launch of a service on the native program the build runs, never the npm launcher, with the
-// launcher's variables set, in the dedicated empty working folder.
+// The launch of a service on the native program the build runs, with the launcher's variables
+// set, in the dedicated empty working folder.
 async fn compose_launch(
     service: &CodexService,
     executable: &ResolvedProviderExecutable,
     additional_config_overrides: Vec<String>,
     launch_socket: &Path,
 ) -> Result<CodexProcessLaunch, StartFailure> {
+    let arguments = compose_codex_service_arguments(&CodexServiceCommandLineInput {
+        listen_address: service.listen_address(launch_socket),
+        additional_config_overrides,
+    });
+    Ok(
+        compose_codex_native_launch(&service.dependencies().data_folder, executable, arguments)
+            .await?,
+    )
+}
+
+/// The launch of `executable`'s native Codex program, never the npm launcher, with `arguments`
+/// after the leading arguments the build's own start carries, the launcher's variables set, in the
+/// dedicated empty working folder under `data_folder`. Fails with `CodexError::Transport` when the
+/// program cannot be found or the folder made.
+pub(crate) async fn compose_codex_native_launch(
+    data_folder: &Path,
+    executable: &ResolvedProviderExecutable,
+    arguments: Vec<String>,
+) -> Result<CodexProcessLaunch, CodexError> {
+    let not_found = |error: Box<dyn std::error::Error + Send + Sync>| CodexError::Transport {
+        detail: "Codex's program could not be found.".to_owned(),
+        cause: Some(error),
+    };
     let start = executable.start.clone();
     let environment = executable.environment.clone();
     let native =
         tokio::task::spawn_blocking(move || resolve_codex_native_program(&start, &environment))
             .await
-            .map_err(|error| start_failed("Codex's program could not be found.", error))?
-            .map_err(|error| start_failed("Codex's program could not be found.", error))?;
-    let mut arguments: Vec<String> = if native.program == executable.start.program {
+            .map_err(|error| not_found(Box::new(error)))?
+            .map_err(|error| not_found(Box::new(error)))?;
+    let mut launch_arguments: Vec<String> = if native.program == executable.start.program {
         executable
             .start
             .leading_arguments
@@ -799,23 +822,17 @@ async fn compose_launch(
     } else {
         Vec::new()
     };
-    arguments.extend(compose_codex_service_arguments(
-        &CodexServiceCommandLineInput {
-            listen_address: service.listen_address(launch_socket),
-            additional_config_overrides,
-        },
-    ));
+    launch_arguments.extend(arguments);
     let mut environment = executable.environment.clone();
     native.set_launcher_environment(&mut environment);
-    let working_folder: PathBuf = service
-        .dependencies()
-        .data_folder
-        .join(CODEX_SERVICE_WORKING_FOLDER);
-    create_private_folder(&working_folder)
-        .map_err(|error| start_failed("The Codex service's folder could not be made.", error))?;
+    let working_folder: PathBuf = data_folder.join(CODEX_SERVICE_WORKING_FOLDER);
+    create_private_folder(&working_folder).map_err(|error| CodexError::Transport {
+        detail: "The Codex service's folder could not be made.".to_owned(),
+        cause: Some(Box::new(error)),
+    })?;
     Ok(CodexProcessLaunch {
         program: native.program,
-        arguments,
+        arguments: launch_arguments,
         environment,
         working_folder,
     })

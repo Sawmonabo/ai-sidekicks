@@ -7,12 +7,12 @@ use sidekicks_platforms::{
     CAN_LINK_A_SOCKET, ExistingSocket, bind_socket_listener, read_socket_link, replace_socket_link,
 };
 
-use super::OneHome;
 use super::stand_in::{
     CRASH_WAIT, FirstResolveOnly, another_daemon, is_running, send_signal, stand_in_services,
     this_daemon,
 };
 use crate::provider::driver::codex::service::home::CodexServiceKind;
+use crate::provider::driver::codex::service::registry::OneHome;
 use crate::provider::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
 use crate::provider::driver::codex::service::supervisor::CodexServiceSocket;
 use crate::provider::driver::codex::service::supervisor::test_service::{

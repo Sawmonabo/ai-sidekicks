@@ -11,7 +11,7 @@ pub(super) mod events;
 mod reconnect;
 pub(crate) mod routing;
 mod runner;
-mod start;
+pub(crate) mod start;
 #[cfg(test)]
 pub(crate) mod test_service;
 #[cfg(test)]
@@ -692,7 +692,8 @@ impl CodexService {
         self.lock_routing().start_connection();
     }
 
-    fn dependencies(&self) -> &CodexServiceDependencies {
+    /// What the service starts, connects and reports through.
+    pub(crate) fn dependencies(&self) -> &CodexServiceDependencies {
         &self.dependencies
     }
 
