@@ -237,12 +237,12 @@ pub(crate) struct CodexRunCallDependencies {
     pub(crate) disposal: Arc<dyn CodexSessionDisposal>,
 }
 
-/// Takes a turn's start on the record, on the session's task: refuses it once the session's close
-/// began, so no turn starts between the close's interrupts and its let-go, while a turn Codex
-/// started by itself runs as a run's, a turn the daemon starts while any turn is in flight, since
-/// Codex would fold it in, and a turn its run withdrew; owes a wait or a fork first where one is
-/// owed; else adopts the run's binding, resolves the turn's output speed against the model's tier
-/// list and puts the run first among the runs whose turn is starting.
+/// Takes a turn's start on the record, on the session's task: refuses a turn its run withdrew, any
+/// other once the session's close began, so no turn starts between the close's interrupts and its
+/// let-go, one while a turn Codex started by itself runs as a run's, and a turn the daemon starts
+/// while any turn is in flight, since Codex would fold it in; owes a wait or a fork first where one
+/// is owed; else adopts the run's binding, resolves the turn's output speed against the model's
+/// tier list and puts the run first among the runs whose turn is starting.
 pub(crate) async fn begin_codex_turn_start(
     task: &mut CodexSessionTask<'_>,
     dependencies: &CodexRunCallDependencies,
@@ -252,9 +252,6 @@ pub(crate) async fn begin_codex_turn_start(
     let session_id = record.session_id;
     let session_turn_in_flight =
         || CodexTurnBeginAnswer::Refused(CodexError::SessionTurnInFlight { session_id });
-    if task.routing.gate().is_intended_close_signaled() {
-        return CodexTurnBeginAnswer::Refused(closing_session_refusal(session_id));
-    }
     if begin
         .withdrawn
         .as_ref()
@@ -263,6 +260,9 @@ pub(crate) async fn begin_codex_turn_start(
         return CodexTurnBeginAnswer::Refused(CodexError::TurnWithdrawn {
             run_id: begin.run_id,
         });
+    }
+    if task.routing.gate().is_intended_close_signaled() {
+        return CodexTurnBeginAnswer::Refused(closing_session_refusal(session_id));
     }
     // Codex would fold a turn the daemon starts into one in flight, which the queue holds it for.
     if begin.turn.is_none() && record.is_turn_in_flight(None) {
