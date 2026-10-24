@@ -3,25 +3,25 @@
 //! descriptors that call reads, and where the right to attach is refused, each thread's wait
 //! channel or the terminal's own settings.
 
-use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, ErrorKind};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::os::unix::fs::{FileExt, FileTypeExt, MetadataExt};
 use std::path::Path;
-use std::sync::{Once, OnceLock};
+use std::sync::Once;
 
 use crate::input_wait::{InputTerminal, InputWaitReading};
-use crate::linux::pinned_process::{GROUP_FIELD, SESSION_FIELD};
+use crate::linux::input_wait::group::{GroupMember, list_group_members};
 use crate::linux::{read_process_file, read_process_stat_fields};
 use crate::posix::terminal::read_queued_bytes;
 use crate::spawner::Spawner;
 use crate::terminal::TerminalDevice;
 
-// The fields of a `stat` file, numbered as proc(5) numbers them, that hold a process's or a
-// thread's state letter and its controlling terminal's device.
+mod group;
+
+// The field of a `stat` file, numbered as proc(5) numbers them, that holds a thread's state
+// letter.
 const STATE_FIELD: usize = 3;
-const TERMINAL_FIELD: usize = 7;
 
 // The file Yama keeps its ptrace scope in; at 2 or 3 no reader may attach to a descendant.
 const PTRACE_SCOPE_PATH: &str = "/proc/sys/kernel/yama/ptrace_scope";
@@ -36,16 +36,32 @@ const POLL_INPUT: i16 = 0x001 | 0x040;
 // The most `pollfd` entries a `poll`'s set is read for, so a call's own count never sizes the read.
 const POLL_ENTRY_LIMIT: usize = 1024;
 
-// The wait channels a thread sleeps in while the terminal's line discipline waits for input, and
-// while an epoll set waits.
+// The wait channel a thread sleeps in while the terminal's line discipline waits for input.
 const TERMINAL_WAIT_CHANNEL: &str = "wait_woken";
-const EPOLL_WAIT_CHANNEL: &str = "do_epoll_wait";
+
+// The wait channels, a compiler clone's suffix cut, a thread shows while an epoll set waits, and
+// while `select`, `pselect6`, `poll` or `ppoll` waits; each later name stands where the kernel's
+// build inlined the ones before it.
+const EPOLL_WAIT_CHANNELS: [&str; 2] = ["ep_poll", "do_epoll_wait"];
+const SELECT_WAIT_CHANNELS: [&str; 6] = [
+    "poll_schedule_timeout",
+    "do_select",
+    "core_sys_select",
+    "compat_core_sys_select",
+    "do_poll",
+    "do_sys_poll",
+];
+
+// The links of the descriptors that deliver an event, which a `select` or `poll` may wait on.
+const EVENT_DESCRIPTOR_TARGETS: [&str; 4] = [
+    "anon_inode:[eventfd]",
+    "anon_inode:[timerfd]",
+    "anon_inode:[signalfd]",
+    "anon_inode:[pidfd]",
+];
 
 // Names the weaker reading in the service log once, the first time Yama refuses the reads.
 static WEAKER_READING_NOTED: Once = Once::new();
-
-// Whether the kernel lists a thread's children (`CONFIG_PROC_CHILDREN`), read once.
-static IS_CHILDREN_LISTED: OnceLock<bool> = OnceLock::new();
 
 /// Whether the terminal's foreground group waits on `terminal`'s input, takes input, and has echo
 /// off, read from `/proc` with no program started, so the spawner goes unused; a process or thread
@@ -60,12 +76,15 @@ pub async fn read_input_wait(
     // of the group running or stopped, and a thread blocked in `read`, `readv` or `pread64` on the
     // terminal, in an epoll wait on a set holding the terminal for input, or in `select`,
     // `pselect6`, `poll` or `ppoll` with the terminal in its read set. Where Yama refuses those
-    // reads, a thread sleeping where the line discipline or an epoll wait sleeps counts instead; a
-    // program whose descriptors or calls the daemon may not read, as `sudo`, waits when the
-    // terminal is set as a password prompt and a member sleeps.
+    // reads, a thread sleeping where the line discipline or an epoll wait sleeps counts instead,
+    // and one sleeping where `select` and `poll` sleep with no other source to wait on is marked
+    // as a `select` wait; a program whose descriptors or calls the daemon may not read, as `sudo`,
+    // waits when the terminal is set as a password prompt and a member sleeps.
+    let is_wait_channel_read = is_ptrace_admin_only()?;
     let mut accepts_input = false;
     let mut is_running_or_stopped = false;
     let mut is_waiting = false;
+    let mut is_in_select = false;
     let mut is_any_refused_sleeping = false;
     let mut is_refused = false;
     let members = list_group_members(
@@ -73,7 +92,7 @@ pub async fn read_input_wait(
         terminal.master.foreground_group,
     )?;
     for member in members {
-        let Some(process) = read_process(&member, terminal.device)? else {
+        let Some(process) = read_process(&member, terminal.device, is_wait_channel_read)? else {
             continue;
         };
         accepts_input |= !process.terminal_reads.is_empty();
@@ -83,10 +102,11 @@ pub async fn read_input_wait(
             let wait = if process.is_refused {
                 ThreadWait::Refused
             } else {
-                thread_wait(&process, thread, terminal)?
+                thread_wait(&process, thread, terminal, is_wait_channel_read)?
             };
             match wait {
                 ThreadWait::OnTerminal => is_waiting = true,
+                ThreadWait::InSelect => is_in_select = true,
                 ThreadWait::Elsewhere => {}
                 ThreadWait::Refused => {
                     is_refused = true;
@@ -99,10 +119,11 @@ pub async fn read_input_wait(
         is_refused && is_any_refused_sleeping && terminal.master.is_password_prompt();
     // An absent count is not known to be empty, so the command reads as not waiting.
     let is_nothing_queued = terminal.master.queued_input_bytes == Some(0);
+    let is_wait_possible = is_nothing_queued && !is_running_or_stopped;
+    let is_waiting = is_wait_possible && (is_waiting || is_password_wait);
     Ok(InputWaitReading {
-        is_waiting: is_nothing_queued && !is_running_or_stopped && (is_waiting || is_password_wait),
-        // The `select` and `poll` sets are read from the call's memory, so such a wait is above.
-        is_waiting_in_select: false,
+        is_waiting,
+        is_waiting_in_select: is_wait_possible && is_in_select && !is_waiting,
         accepts_input: accepts_input || is_password_wait,
         is_echo_off: !terminal.master.is_echo_on,
         is_password_prompt: terminal.master.is_password_prompt(),
@@ -126,9 +147,11 @@ pub(crate) fn read_queued_input_bytes(master: BorrowedFd<'_>) -> io::Result<u32>
 }
 
 /// Whether the terminal's foreground group may wait on `terminal`'s input, which on Linux is the
-/// whole reading, since no read of it is slow. Blocks and fails as [`read_input_wait`] does.
+/// whole reading, either wait, since no read of it is slow. Blocks and fails as
+/// [`read_input_wait`] does.
 pub async fn may_wait_for_input(spawner: &Spawner, terminal: &InputTerminal) -> io::Result<bool> {
-    Ok(read_input_wait(spawner, terminal).await?.is_waiting)
+    let reading = read_input_wait(spawner, terminal).await?;
+    Ok(reading.is_waiting || reading.is_waiting_in_select)
 }
 
 // What one process of the group shows.
@@ -144,6 +167,9 @@ struct ProcessReading {
     // Whether a socket, inotify or fanotify descriptor is open, a read of which sleeps where the
     // line discipline's does.
     holds_other_wait_source: bool,
+    // Whether a pipe or FIFO is open for reading, or an eventfd, timerfd, signalfd or pidfd is
+    // open, which a `select` or `poll` may wait on instead; read only where wait channels are.
+    holds_select_source: bool,
 }
 
 // One thread of a process.
@@ -156,144 +182,19 @@ struct ThreadReading {
 // Where one thread waits.
 enum ThreadWait {
     OnTerminal,
+    // Where `select` and `poll` sleep, with the terminal the one source its process could wait on.
+    InSelect,
     Elsewhere,
     // The kernel refused the reads that tell.
     Refused,
 }
 
-// One process of the foreground group, as the walk that found it read it.
-struct GroupMember {
-    process_id: u32,
-    thread_ids: Vec<u32>,
-    // Its controlling terminal's device, in `stat`'s old encoding.
-    controlling_terminal: Option<i64>,
-}
-
-// What a process the group walk reaches must show before it and its descendants are walked.
-#[derive(Clone, Copy)]
-enum WalkStart {
-    // The session leader, or a descendant of a process walked.
-    Descendant,
-    // A child of this process, which as a child subreaper takes in the orphans of every session.
-    OwnChild,
-    // The foreground group's own leader, which may have left the session leader's tree.
-    GroupLeader,
-}
-
-// The processes in group `group_id` among session leader `leader`'s descendants, this process's
-// own children in that session and theirs, and the group's leader with its descendants when it is
-// in the group but outside both; each process's `stat`, threads and children read once. A process
-// that ended during the walk is left out, and so are the children of one whose children the kernel
-// refuses to list. A `children` listing that races an exiting sibling drops a member for one
-// check, and an orphan a nearer subreaper took in or a process that left the session is missed;
-// the walk's cost grows with this process's direct children.
-fn list_group_members(leader: u32, group_id: u32) -> io::Result<Vec<GroupMember>> {
-    if !is_children_listed()? {
-        return Err(io::Error::new(
-            ErrorKind::Unsupported,
-            "the kernel lists no thread's children, so a terminal's foreground group is not found",
-        ));
-    }
-    let own_id = std::process::id();
-    // A stack, so the leader's tree is walked first and the group's leader last.
-    let mut pending = vec![(group_id, WalkStart::GroupLeader)];
-    pending.extend(
-        list_children(own_id, &list_thread_ids(own_id)?)?
-            .into_iter()
-            .map(|child| (child, WalkStart::OwnChild)),
-    );
-    pending.push((leader, WalkStart::Descendant));
-    let mut members = Vec::new();
-    let mut seen = HashSet::new();
-    while let Some((process_id, start)) = pending.pop() {
-        if !seen.insert(process_id) {
-            continue;
-        }
-        let Some([group, session, terminal]) =
-            read_process_stat_fields(process_id, [GROUP_FIELD, SESSION_FIELD, TERMINAL_FIELD])?
-        else {
-            continue;
-        };
-        let is_member = group.parse() == Ok(group_id);
-        let is_walked = match start {
-            WalkStart::Descendant => true,
-            WalkStart::OwnChild => session.parse() == Ok(leader),
-            WalkStart::GroupLeader => is_member,
-        };
-        if !is_walked {
-            continue;
-        }
-        let thread_ids = list_thread_ids(process_id)?;
-        pending.extend(
-            list_children(process_id, &thread_ids)?
-                .into_iter()
-                .map(|child| (child, WalkStart::Descendant)),
-        );
-        if is_member {
-            members.push(GroupMember {
-                process_id,
-                thread_ids,
-                controlling_terminal: terminal.parse().ok(),
-            });
-        }
-    }
-    Ok(members)
-}
-
-// Whether the kernel lists a thread's children, read from this thread's own listing once; until it
-// is known to, a missing listing could not tell an ended thread from an unbuilt file.
-fn is_children_listed() -> io::Result<bool> {
-    if let Some(is_listed) = IS_CHILDREN_LISTED.get() {
-        return Ok(*is_listed);
-    }
-    let own_listing = format!("/proc/self/task/{}/children", nix::unistd::gettid());
-    let is_listed = Path::new(&own_listing).try_exists()?;
-    Ok(*IS_CHILDREN_LISTED.get_or_init(|| is_listed))
-}
-
-// The children of process `process_id`, listed by each of its threads `thread_ids`; none for a
-// thread that ended or whose children the kernel refuses to list.
-fn list_children(process_id: u32, thread_ids: &[u32]) -> io::Result<Vec<u32>> {
-    let mut children = Vec::new();
-    for thread_id in thread_ids {
-        match read_process_file(process_id, &format!("task/{thread_id}/children")) {
-            Ok(Some(listed)) => children.extend(
-                String::from_utf8_lossy(&listed)
-                    .split_whitespace()
-                    .filter_map(|child| child.parse::<u32>().ok()),
-            ),
-            Ok(None) => {}
-            Err(error) if is_refusal(&error) => {}
-            Err(error) => return Err(error),
-        }
-    }
-    Ok(children)
-}
-
-// The ids of process `process_id`'s threads, none when it ended.
-fn list_thread_ids(process_id: u32) -> io::Result<Vec<u32>> {
-    let entries = match fs::read_dir(format!("/proc/{process_id}/task")) {
-        Ok(entries) => entries,
-        Err(error) if is_gone(&error) => return Ok(Vec::new()),
-        Err(error) => return Err(error),
-    };
-    let mut thread_ids = Vec::new();
-    for entry in entries {
-        if let Some(thread_id) = entry?
-            .file_name()
-            .to_str()
-            .and_then(|name| name.parse().ok())
-        {
-            thread_ids.push(thread_id);
-        }
-    }
-    Ok(thread_ids)
-}
-
-// What `member` shows of its threads and descriptors; `None` when it ended.
+// What `member` shows of its threads and descriptors, the sources a `select` may wait on only when
+// `is_wait_channel_read`; `None` when it ended.
 fn read_process(
     member: &GroupMember,
     device: TerminalDevice,
+    is_wait_channel_read: bool,
 ) -> io::Result<Option<ProcessReading>> {
     let process_id = member.process_id;
     let mut threads = Vec::new();
@@ -311,6 +212,7 @@ fn read_process(
         terminal_reads: Vec::new(),
         epoll_sets: Vec::new(),
         holds_other_wait_source: false,
+        holds_select_source: false,
     };
     let descriptors = match fs::read_dir(format!("/proc/{process_id}/fd")) {
         Ok(descriptors) => descriptors,
@@ -345,36 +247,69 @@ fn read_process(
             process.holds_other_wait_source = true;
         } else if target == "anon_inode:[eventpoll]" {
             process.epoll_sets.push(descriptor);
-        } else if is_terminal_descriptor(
-            &entry.path(),
-            &target,
-            member.controlling_terminal,
-            device,
-        )? && is_open_for_reading(process_id, descriptor)?
-        {
-            process.terminal_reads.push(descriptor);
+        } else if EVENT_DESCRIPTOR_TARGETS.contains(&target.as_ref()) {
+            process.holds_select_source |= is_wait_channel_read;
+        } else {
+            match read_descriptor_kind(&entry.path(), &target, member, device)? {
+                DescriptorKind::Terminal => {
+                    if is_open_for_reading(process_id, descriptor)? {
+                        process.terminal_reads.push(descriptor);
+                    }
+                }
+                // Its access mode is read only where wait channels are, so the system-call path
+                // pays no read for it.
+                DescriptorKind::Fifo => {
+                    process.holds_select_source |=
+                        is_wait_channel_read && is_open_for_reading(process_id, descriptor)?;
+                }
+                DescriptorKind::Other => {}
+            }
         }
     }
     Ok(Some(process))
 }
 
-// Whether the descriptor at `path`, open on `target`, is the terminal: a character device of its
-// device number, or `/dev/tty` in a process whose controlling terminal it is; not one closed since
-// the listing.
-fn is_terminal_descriptor(
+// What a descriptor of a process leads to, among the kinds a wait on the terminal tells apart.
+enum DescriptorKind {
+    // The terminal: a character device of its device number, or `/dev/tty` in a process whose
+    // controlling terminal it is.
+    Terminal,
+    // A pipe or a FIFO.
+    Fifo,
+    // Anything else, or a descriptor closed since the listing.
+    Other,
+}
+
+// The kind of the descriptor at `path`, open on `target`, of `member`.
+fn read_descriptor_kind(
     path: &Path,
     target: &str,
-    controlling_terminal: Option<i64>,
+    member: &GroupMember,
     device: TerminalDevice,
-) -> io::Result<bool> {
+) -> io::Result<DescriptorKind> {
     if target == "/dev/tty" {
-        return Ok(controlling_terminal == Some(encode_old_device(device)));
+        let is_terminal = member.controlling_terminal == Some(encode_old_device(device));
+        return Ok(if is_terminal {
+            DescriptorKind::Terminal
+        } else {
+            DescriptorKind::Other
+        });
     }
-    match fs::metadata(path) {
-        Ok(metadata) => Ok(metadata.file_type().is_char_device() && metadata.rdev() == device.0),
-        Err(error) if is_gone(&error) => Ok(false),
-        Err(error) => Err(error),
-    }
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if is_gone(&error) => return Ok(DescriptorKind::Other),
+        Err(error) => return Err(error),
+    };
+    let file_type = metadata.file_type();
+    Ok(
+        if file_type.is_char_device() && metadata.rdev() == device.0 {
+            DescriptorKind::Terminal
+        } else if file_type.is_fifo() {
+            DescriptorKind::Fifo
+        } else {
+            DescriptorKind::Other
+        },
+    )
 }
 
 // A device number in the old encoding `stat`'s `tty_nr` field writes it in.
@@ -401,11 +336,13 @@ fn is_open_for_reading(process_id: u32, descriptor: i32) -> io::Result<bool> {
     ))
 }
 
-// Where `thread` of `process` waits.
+// Where `thread` of `process` waits; its wait channel tells where its system call is refused and
+// `is_wait_channel_read`.
 fn thread_wait(
     process: &ProcessReading,
     thread: &ThreadReading,
     terminal: &InputTerminal,
+    is_wait_channel_read: bool,
 ) -> io::Result<ThreadWait> {
     let call = match read_process_file(
         process.process_id,
@@ -415,7 +352,7 @@ fn thread_wait(
         // The thread ended since its listing.
         Ok(None) => return Ok(ThreadWait::Elsewhere),
         Err(error) if is_refusal(&error) => {
-            return if is_ptrace_admin_only()? {
+            return if is_wait_channel_read {
                 note_weaker_reading();
                 wait_channel_wait(process, thread, terminal)
             } else {
@@ -606,8 +543,10 @@ fn read_memory(process_id: u32, address: u64, bytes: &mut [u8]) -> io::Result<bo
 
 // Where `thread` waits, read from its wait channel where Yama refuses its system call: in the line
 // discipline's sleep while its process holds the terminal for reading, no other source that sleeps
-// there and the master holds no unread output, so it is no writer; or in an epoll wait on a set
-// holding the terminal for input.
+// there and the master holds no unread output, so it is no writer; in an epoll wait on a set
+// holding the terminal for input; or in a `select` wait while its process holds the terminal for
+// reading, no other source such a wait may be on and no epoll set, and the master no unread output,
+// since a writer stalled on a full terminal waits there too.
 fn wait_channel_wait(
     process: &ProcessReading,
     thread: &ThreadReading,
@@ -621,32 +560,39 @@ fn wait_channel_wait(
         return Ok(ThreadWait::Elsewhere);
     };
     let channel = String::from_utf8_lossy(&channel);
-    let channel = channel.trim();
-    let is_on_terminal = if thread.state != 'S' {
-        false
-    } else if channel == TERMINAL_WAIT_CHANNEL {
-        !process.terminal_reads.is_empty()
-            && !process.holds_other_wait_source
-            && terminal.master.unread_output_bytes == 0
-    } else if channel == EPOLL_WAIT_CHANNEL {
-        let mut is_on_terminal = false;
+    // A compiler clone of a function shows as its name with a suffix, as `name.constprop.0`.
+    let channel = channel.trim().split('.').next().unwrap_or_default();
+    let is_terminal_alone_read = !process.terminal_reads.is_empty()
+        && !process.holds_other_wait_source
+        && terminal.master.unread_output_bytes == 0;
+    if thread.state != 'S' {
+        return Ok(ThreadWait::Elsewhere);
+    }
+    if channel == TERMINAL_WAIT_CHANNEL && is_terminal_alone_read {
+        return Ok(ThreadWait::OnTerminal);
+    }
+    if EPOLL_WAIT_CHANNELS.contains(&channel) {
         for epoll_set in &process.epoll_sets {
-            is_on_terminal |= epoll_set_waits_on_terminal(process, *epoll_set)?;
+            if epoll_set_waits_on_terminal(process, *epoll_set)? {
+                return Ok(ThreadWait::OnTerminal);
+            }
         }
-        is_on_terminal
-    } else {
-        false
-    };
-    Ok(if is_on_terminal {
-        ThreadWait::OnTerminal
-    } else {
-        ThreadWait::Elsewhere
-    })
+    }
+    let is_select_on_terminal_alone =
+        is_terminal_alone_read && !process.holds_select_source && process.epoll_sets.is_empty();
+    Ok(
+        if SELECT_WAIT_CHANNELS.contains(&channel) && is_select_on_terminal_alone {
+            ThreadWait::InSelect
+        } else {
+            ThreadWait::Elsewhere
+        },
+    )
 }
 
-// Whether Yama refuses the system-call and memory reads to every reader without the capability.
-// No Yama module, and so no scope file, refuses nothing.
-fn is_ptrace_admin_only() -> io::Result<bool> {
+/// Whether Yama refuses the system-call and memory reads to every reader without the capability,
+/// read anew each call, since the scope can be raised while the daemon runs. No Yama module, and
+/// so no scope file, refuses nothing.
+pub(crate) fn is_ptrace_admin_only() -> io::Result<bool> {
     let scope = match fs::read_to_string(PTRACE_SCOPE_PATH) {
         Ok(scope) => scope,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
@@ -679,8 +625,28 @@ fn is_gone(error: &io::Error) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProcessReading, select_reads_terminal};
+    use std::collections::HashMap;
+    use std::io;
+    use std::sync::Once;
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    use super::{
+        ProcessReading, ThreadWait, list_group_members, read_process, select_reads_terminal,
+        wait_channel_wait,
+    };
+    use crate::input_wait::{
+        InputTerminal, PIPE_HOLDING_SELECT_READER_SCRIPT, SELECT_READER_SCRIPT,
+    };
     use crate::posix::memory::page_bytes;
+    use crate::posix::terminal::inner::{
+        TEST_WINDOW_SIZE, end_inner_terminal, read_until_marker, start_inner_terminal,
+    };
+    use crate::posix::terminal::{read_terminal_master, terminal_options};
+    use crate::terminal::InnerTerminal;
+
+    // How long a reader's wait channel is read for a `select` wait before it reads as none.
+    const WAIT_BOUND: Duration = Duration::from_millis(500);
 
     // The terminal's descriptor the set marks, the last bit of the set's first byte.
     const TERMINAL_DESCRIPTOR: i32 = 7;
@@ -718,6 +684,7 @@ mod tests {
             terminal_reads: vec![TERMINAL_DESCRIPTOR],
             epoll_sets: Vec::new(),
             holds_other_wait_source: false,
+            holds_select_source: false,
         };
 
         let reads = select_reads_terminal(&process, 0x7fff_ffff, set as u64);
@@ -725,5 +692,81 @@ mod tests {
         unsafe { libc::munmap(pages, page) };
 
         assert!(reads.expect("the set is read"));
+    }
+
+    // Fails when a `select` reader on the terminal alone is not marked where its wait channel is
+    // the only reading, when one holding a pipe open for reading is, or when one is marked while
+    // the master holds unread output, as a writer stalled on a full terminal sleeps there too.
+    #[test]
+    fn a_select_reader_s_wait_channel_marks_it_only_on_the_terminal_alone() {
+        let alone = read_select_wait(SELECT_READER_SCRIPT, 0);
+        let pipe_holding = read_select_wait(PIPE_HOLDING_SELECT_READER_SCRIPT, 0);
+        let unread_output = read_select_wait(SELECT_READER_SCRIPT, 1);
+
+        assert!(
+            matches!(alone, ThreadWait::InSelect),
+            "on the terminal alone"
+        );
+        assert!(
+            matches!(pipe_holding, ThreadWait::Elsewhere),
+            "holding a pipe"
+        );
+        assert!(
+            matches!(unread_output, ThreadWait::Elsewhere),
+            "with unread output"
+        );
+    }
+
+    // Where the group of `script`'s terminal waits once it prints `ready`, as its threads' wait
+    // channels read with the master's unread output taken as `unread_output_bytes`: the first wait
+    // read within the bound, or none.
+    fn read_select_wait(script: &str, unread_output_bytes: u32) -> ThreadWait {
+        let options = terminal_options(
+            "/bin/sh".to_owned(),
+            vec!["-c".to_owned(), script.to_owned()],
+            None,
+            HashMap::new(),
+        );
+        let terminal =
+            start_inner_terminal(&options, TEST_WINDOW_SIZE).expect("the terminal starts");
+        let prompt = read_until_marker(&terminal.pty, "ready", Duration::from_secs(20));
+        let wait = prompt
+            .is_ok()
+            .then(|| read_group_wait(&terminal, unread_output_bytes));
+        end_inner_terminal(terminal);
+        prompt.expect("the command prompts");
+        wait.expect("the command prompted")
+            .expect("the wait channels read")
+    }
+
+    fn read_group_wait(
+        terminal: &InnerTerminal,
+        unread_output_bytes: u32,
+    ) -> io::Result<ThreadWait> {
+        let peer_failure_noted = Once::new();
+        let window_start = Instant::now();
+        loop {
+            let mut master = read_terminal_master(&terminal.pty, &peer_failure_noted)?;
+            master.unread_output_bytes = unread_output_bytes;
+            let input_terminal = InputTerminal {
+                device: terminal.device,
+                master,
+            };
+            for member in list_group_members(master.session_leader, master.foreground_group)? {
+                let Some(process) = read_process(&member, terminal.device, true)? else {
+                    continue;
+                };
+                for thread in &process.threads {
+                    let wait = wait_channel_wait(&process, thread, &input_terminal)?;
+                    if !matches!(wait, ThreadWait::Elsewhere) {
+                        return Ok(wait);
+                    }
+                }
+            }
+            if window_start.elapsed() >= WAIT_BOUND {
+                return Ok(ThreadWait::Elsewhere);
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
     }
 }

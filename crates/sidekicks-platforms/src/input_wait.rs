@@ -26,10 +26,11 @@ pub struct InputWaitReading {
     pub is_waiting: bool,
     /// Whether, when `is_waiting` is not set, a thread of the group waits in `select` or `poll`
     /// with the terminal among its readable descriptors as far as the read can tell, its process
-    /// holding no socket, no pipe or FIFO open for reading and no kqueue: a wait a consumer marks
-    /// only with the output's own evidence, a prompt-like last line, since macOS shows the call's
-    /// descriptors to no reader without root. Linux reads them and marks such a wait in
-    /// `is_waiting`, so this is `false` there and on Windows.
+    /// holding no socket, no pipe or FIFO open for reading and no kqueue, or on Linux no epoll set
+    /// or event descriptor and no output unread on the master: a wait a consumer marks only with
+    /// the output's own evidence, a prompt-like last line. It is set where the call's descriptors
+    /// are hidden, as macOS hides them from every reader without root and Linux where Yama's ptrace
+    /// scope is 2 or 3; elsewhere Linux reads them into `is_waiting`, and Windows never sets it.
     pub is_waiting_in_select: bool,
     /// Whether a process of the terminal's foreground group holds the terminal open for reading.
     pub accepts_input: bool,
@@ -40,6 +41,17 @@ pub struct InputWaitReading {
     /// typed is masked.
     pub is_password_prompt: bool,
 }
+
+/// A Python reader the tests start, which prints `ready` and waits in `select` on the terminal.
+#[cfg(all(test, unix))]
+pub(crate) const SELECT_READER_SCRIPT: &str = "exec python3 -c \"import select, sys; \
+     print('ready', flush=True); select.select([sys.stdin], [], [])\"";
+
+/// The same reader holding a pipe open for reading, which its wait may be on instead.
+#[cfg(all(test, unix))]
+pub(crate) const PIPE_HOLDING_SELECT_READER_SCRIPT: &str = "exec python3 -c \"import os, select, \
+     sys; read_end, write_end = os.pipe(); print('ready', flush=True); \
+     select.select([sys.stdin], [], [])\"";
 
 #[cfg(all(test, unix))]
 mod tests {
@@ -53,7 +65,9 @@ mod tests {
     use nix::unistd::Pid;
     use rstest::rstest;
 
-    use super::{InputTerminal, InputWaitReading};
+    use super::{
+        InputTerminal, InputWaitReading, PIPE_HOLDING_SELECT_READER_SCRIPT, SELECT_READER_SCRIPT,
+    };
     use crate::posix::terminal::inner::{
         TEST_WINDOW_SIZE, end_inner_terminal, read_until_marker, start_inner_terminal,
     };
@@ -68,21 +82,6 @@ mod tests {
 
     // How long a command that waits on nothing settles before it is read.
     const SETTLE: Duration = Duration::from_millis(300);
-
-    // How a `select` or `poll` reader's wait reads: Linux reads its descriptor set, macOS cannot.
-    const SELECT_WAIT: Wait = if cfg!(target_os = "linux") {
-        Wait::OnTerminal
-    } else {
-        Wait::InSelect
-    };
-
-    // How a `select` reader holding another source its wait may be on reads: Linux reads the set
-    // holds the terminal, macOS refuses the mark.
-    const OTHER_SOURCE_SELECT_WAIT: Wait = if cfg!(target_os = "linux") {
-        Wait::OnTerminal
-    } else {
-        Wait::None
-    };
 
     // Fails when a thread's run state is taken as a wait (`sleep 30` and the shell waiting on it
     // after `read -t` wait in the kernel too), when a stopped reader or one with input typed ahead
@@ -154,19 +153,17 @@ mod tests {
         reading(Wait::None, Echo::On)
     )]
     #[case::python_select(
-        "exec python3 -c \"import select, sys; print('ready', flush=True); \
-         select.select([sys.stdin], [], [])\"",
+        SELECT_READER_SCRIPT,
         "ready",
         Act::Nothing,
-        reading(SELECT_WAIT, Echo::On)
+        reading(select_wait(Wait::InSelect), Echo::On)
     )]
     // Its `select` holds the terminal, and a pipe open for reading its wait may be on instead.
     #[case::pipe_holding_select(
-        "exec python3 -c \"import os, select, sys; read_end, write_end = os.pipe(); \
-         print('ready', flush=True); select.select([sys.stdin], [], [])\"",
+        PIPE_HOLDING_SELECT_READER_SCRIPT,
         "ready",
         Act::Nothing,
-        reading(OTHER_SOURCE_SELECT_WAIT, Echo::On)
+        reading(select_wait(Wait::None), Echo::On)
     )]
     // The same with a FIFO a quiet writer holds open.
     #[case::fifo_holding_select(
@@ -174,7 +171,7 @@ mod tests {
          fifo = open('pipe'); print('ready', flush=True); select.select([sys.stdin], [], [])\"",
         "ready",
         Act::Nothing,
-        reading(OTHER_SOURCE_SELECT_WAIT, Echo::On)
+        reading(select_wait(Wait::None), Echo::On)
     )]
     // The same with a kqueue, whose knotes its wait may be on instead; Linux has no kqueue.
     #[cfg_attr(
@@ -184,7 +181,7 @@ mod tests {
              print('ready', flush=True); select.select([sys.stdin], [], [])\"",
             "ready",
             Act::Nothing,
-            reading(OTHER_SOURCE_SELECT_WAIT, Echo::On)
+            reading(select_wait(Wait::None), Echo::On)
         )
     )]
     // Bound to the loopback address, which no firewall prompt guards.
@@ -220,7 +217,7 @@ mod tests {
         "exec vim -u NONE -N -n",
         "~",
         Act::Nothing,
-        reading(SELECT_WAIT, Echo::Off)
+        reading(select_wait(Wait::InSelect), Echo::Off)
     )]
     #[tokio::test]
     async fn input_wait_reads_each_kind_of_reader(
@@ -410,6 +407,17 @@ mod tests {
         Off,
         // Off with line input on, as a password prompt sets it.
         OffAtPasswordPrompt,
+    }
+
+    // How a `select` or `poll` reader on the terminal reads: on the terminal where Linux reads the
+    // call's descriptor set, else as `hidden`, the reading where macOS, or Yama refusing the read
+    // on Linux, hides it.
+    fn select_wait(hidden: Wait) -> Wait {
+        #[cfg(target_os = "linux")]
+        if !crate::linux::input_wait::is_ptrace_admin_only().expect("the ptrace scope reads") {
+            return Wait::OnTerminal;
+        }
+        hidden
     }
 
     // A command holding its terminal for reading, waiting or not, with its echo as given.
