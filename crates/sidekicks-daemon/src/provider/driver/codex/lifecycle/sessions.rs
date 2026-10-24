@@ -218,10 +218,15 @@ impl CodexDriver {
     /// Refuses every establishment from now on, stops every service the driver dials, then waits
     /// for each transition in flight and lets each live record go, so its session's task ends, and
     /// waits for the driver's tasks to end. A record let go once its service stopped sends
-    /// nothing, no interrupt among it; a later daemon resumes the conversation by its handle.
+    /// nothing, no interrupt among it; a later daemon resumes the conversation by its handle. A
+    /// side question's copy of a resting session has its turn stopped first, since its service may
+    /// outlive the daemon.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent) {
         self.tasks.close();
         self.slots.refuse_establishing();
+        if let Some(parts) = self.parts.get() {
+            parts.side_questions.stop_every_copy();
+        }
         self.registry.shutdown(intent).await;
         for session_id in self.slots.held_sessions() {
             let claim = self.slots.claim_closing(session_id).await;

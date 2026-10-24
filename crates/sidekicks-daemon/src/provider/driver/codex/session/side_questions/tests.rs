@@ -6,6 +6,7 @@ use std::time::Duration;
 use futures::{SinkExt as _, StreamExt as _};
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
+use rstest::rstest;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
@@ -285,10 +286,21 @@ async fn a_side_question_on_a_resting_session_forks_its_stored_conversation_and_
     );
 }
 
-// Killed by a session's close that leaves its resting copy running: no interrupt is sent, the
-// copy's connection stays open and the driver's tasks never end.
+/// What lets a resting copy go before its turn ends.
+enum CopyEnd {
+    /// Its session closes.
+    SessionClosed,
+    /// The driver shuts down.
+    DriverShutDown,
+}
+
+// Killed by a session's close, or the driver's shutdown, that leaves its resting copy running: no
+// interrupt is sent, the copy's connection stays open and the driver's tasks never end.
+#[rstest]
+#[case::its_session_closes(CopyEnd::SessionClosed)]
+#[case::the_driver_shuts_down(CopyEnd::DriverShutDown)]
 #[tokio::test(flavor = "multi_thread")]
-async fn a_resting_copy_whose_session_closes_first_has_its_turn_stopped_and_is_let_go() {
+async fn a_resting_copy_let_go_before_its_turn_ends_has_its_turn_stopped(#[case] end: CopyEnd) {
     let session = TestCodexSession::start().await;
     let Some(listener) = bind_test_listener(session.scripted.service.socket_path()) else {
         return;
@@ -316,7 +328,10 @@ async fn a_resting_copy_whose_session_closes_first_has_its_turn_stopped_and_is_l
         )
         .await
         .expect("the copy takes the question");
-    side_questions.forget_session(session_id).await;
+    match end {
+        CopyEnd::SessionClosed => side_questions.forget_session(session_id).await,
+        CopyEnd::DriverShutDown => side_questions.stop_every_copy(),
+    }
     let interrupt = tokio::time::timeout(SERVE_WAIT, served)
         .await
         .expect("the daemon stops the copy's turn and lets its connection go")

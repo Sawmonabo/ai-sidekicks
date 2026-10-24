@@ -375,6 +375,14 @@ impl CodexSideQuestions {
         }
     }
 
+    /// Stops every resting session's copy still answering, as the driver shuts down: each turn is
+    /// stopped on its own task and nothing is delivered, so no copy holds the driver's tasks open.
+    pub(crate) fn stop_every_copy(&self) {
+        for (_thread_id, copy) in lock_resting_copies(&self.resting_copies).drain() {
+            copy.stop.cancel();
+        }
+    }
+
     fn lock(&self) -> MutexGuard<'_, HashMap<String, CodexSideQuestion>> {
         self.questions
             .lock()
