@@ -3,11 +3,12 @@
 //! and skips an untrusted one without a word, so the daemon lists the hooks, records the hash of
 //! each of its own that is not yet trusted, and lists again to confirm before any conversation.
 
-use std::collections::BTreeMap;
+use serde::Deserialize;
+use serde_json::{Map, Value, json};
 
-use serde::{Deserialize, Serialize};
-
-use crate::provider::driver::codex::app_server_protocol::HooksListParams;
+use crate::provider::driver::codex::app_server_protocol::{
+    ConfigValueWriteParams, HooksListParams, MergeStrategy,
+};
 use crate::provider::driver::codex::service::command_line::{CodexHookCommands, CodexListedHook};
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
@@ -57,20 +58,6 @@ struct DaemonHook<'reply> {
     is_trusted: bool,
 }
 
-// The `config/value/write` that records trusted hashes, merged into what the config holds.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct TrustedHashesWrite<'reply> {
-    key_path: &'static str,
-    value: BTreeMap<&'reply str, TrustedHash<'reply>>,
-    merge_strategy: &'static str,
-}
-
-#[derive(Serialize)]
-struct TrustedHash<'reply> {
-    trusted_hash: &'reply str,
-}
-
 /// Records the trusted hash of each of the daemon's `hook_commands` the terminal service lists
 /// untrusted, in one upsert, then lists the hooks again. Fails with `CodexError::Transport` when
 /// the service does not list a daemon hook with its key and hash, its reply cannot be read, or a
@@ -88,15 +75,14 @@ pub(crate) async fn trust_codex_daemon_hooks(
     hook_commands: &CodexHookCommands,
 ) -> Result<(), CodexError> {
     let reply = list_hooks(connection).await?;
-    let untrusted: BTreeMap<&str, TrustedHash<'_>> = read_daemon_hooks(&reply, hook_commands)?
+    // Each untrusted hook's key, naming its trusted hash, merged into what the config holds.
+    let untrusted: Map<String, Value> = read_daemon_hooks(&reply, hook_commands)?
         .into_iter()
         .filter(|hook| !hook.is_trusted)
         .map(|hook| {
             (
-                hook.key,
-                TrustedHash {
-                    trusted_hash: hook.current_hash,
-                },
+                hook.key.to_owned(),
+                json!({ "trusted_hash": hook.current_hash }),
             )
         })
         .collect();
@@ -106,10 +92,12 @@ pub(crate) async fn trust_codex_daemon_hooks(
     connection
         .request(
             CONFIG_VALUE_WRITE_METHOD,
-            &TrustedHashesWrite {
-                key_path: HOOK_STATE_KEY_PATH,
-                value: untrusted,
-                merge_strategy: "upsert",
+            &ConfigValueWriteParams {
+                key_path: HOOK_STATE_KEY_PATH.to_owned(),
+                value: Value::Object(untrusted),
+                merge_strategy: MergeStrategy::Upsert,
+                file_path: None,
+                expected_version: None,
             },
         )
         .await?;
