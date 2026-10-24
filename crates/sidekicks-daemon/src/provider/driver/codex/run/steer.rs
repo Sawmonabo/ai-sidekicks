@@ -30,6 +30,9 @@ use crate::provider::driver::codex::transport::connection::CodexAppServerConnect
 use crate::provider::driver::contract::{DriverError, bound_failure_detail};
 use crate::provider::driver::run_control::SteerTurnEndedError;
 
+#[cfg(test)]
+mod tests;
+
 /// Codex's request that adds input to a running turn.
 const CODEX_TURN_STEER_METHOD: &str = "turn/steer";
 
@@ -252,16 +255,22 @@ pub(crate) fn remember_blocked_codex_prompt(
 }
 
 /// Takes, on the session's task, the steers the person's own `userPromptSubmit` hook kept out of
-/// the turn `turn_id`, which ended, each with its hook's words. Codex echoes every steer its hooks
-/// let through and reports each hook run in the steers' order, so the steers still unechoed are
-/// the blocked ones; a block reported ahead of them is the turn's opening prompt's, never a steer.
+/// the turn `turn_id`, which ended, each with its hook's words, and lets go of the rest the turn
+/// still holds unechoed, unless the turn's interrupt takes them as the ones Codex dropped. Codex
+/// echoes every steer its hooks let through and reports each hook run in the steers' order, so
+/// the steers still unechoed are the blocked ones; a block reported ahead of them is the turn's
+/// opening prompt's, never a steer.
 pub(crate) fn take_blocked_codex_steers(
     record: &mut CodexSessionRecord,
     turn_id: &str,
 ) -> Vec<(QueueItemId, FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>)> {
-    let Some(blocked) = record.blocked_prompt_words_by_turn_id.remove(turn_id) else {
-        return Vec::new();
-    };
+    let blocked = record
+        .blocked_prompt_words_by_turn_id
+        .remove(turn_id)
+        .unwrap_or_default();
+    // The interrupt marked its turn before it went and keeps it for its end once Codex answered.
+    let is_interrupt_taking = record.interrupted_turn_run(turn_id).is_some()
+        || record.interrupting_turn_ids.contains(turn_id);
     let Some(unechoed) = record.unechoed_steers_by_turn_id.get_mut(turn_id) else {
         return Vec::new();
     };
@@ -276,7 +285,7 @@ pub(crate) fn take_blocked_codex_steers(
             )
         })
         .collect();
-    if unechoed.is_empty() {
+    if unechoed.is_empty() || !is_interrupt_taking {
         record.unechoed_steers_by_turn_id.remove(turn_id);
     }
     refused

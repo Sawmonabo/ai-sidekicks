@@ -126,8 +126,8 @@ pub(crate) struct CodexSessionRecord {
     /// Turns whose `turn/interrupt` is on the wire: no steer is sent into one.
     pub(crate) interrupting_turn_ids: HashSet<String>,
     /// The steers sent into each live turn whose `userMessage` echo has yet to arrive, by turn id,
-    /// each registered before its `turn/steer` is written: an echo takes one, and an interrupt
-    /// cancels what its turn still holds.
+    /// each registered before its `turn/steer` is written: an echo takes one, an interrupt cancels
+    /// what its turn still holds, and the turn's end lets go of the rest.
     pub(crate) unechoed_steers_by_turn_id: HashMap<String, Vec<QueueItemId>>,
     /// The words of each prompt the person's own `userPromptSubmit` hook kept out of a live turn,
     /// by turn id, in the order Codex reported them; each leaves with its turn's end.

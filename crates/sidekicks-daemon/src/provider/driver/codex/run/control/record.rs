@@ -136,6 +136,7 @@ pub(crate) fn run_codex_run_control_call(
             reply,
         } => {
             record.interrupting_turn_ids.remove(&turn_id);
+            forget_ended_turn_steers(record, &turn_id);
             let waiting = if is_stopped {
                 dependencies.run_routes.retire_turn_route(record, &turn_id);
                 None
@@ -168,8 +169,9 @@ fn begin_interrupt(
 }
 
 // A stopped turn leaves its run's routes and is kept for its coming end, a pause waiting on it
-// dropped; one whose end already arrived is owed nothing. Past the memory's bound the session is
-// let go rather than lose an end silently.
+// dropped; one whose end already arrived is owed nothing. A turn Codex did not stop whose end
+// already arrived lets go of its unechoed steers, which no take follows. Past the memory's bound
+// the session is let go rather than lose an end silently.
 fn settle_interrupt(
     record: &mut CodexSessionRecord,
     dependencies: &CodexRunCallDependencies,
@@ -179,6 +181,7 @@ fn settle_interrupt(
 ) {
     record.interrupting_turn_ids.remove(turn_id);
     if !is_stopped {
+        forget_ended_turn_steers(record, turn_id);
         return;
     }
     record.pause_run_id_by_turn_id.remove(turn_id);
@@ -197,6 +200,14 @@ fn settle_interrupt(
         return;
     }
     dependencies.run_routes.retire_turn_route(record, turn_id);
+}
+
+// The steers a turn whose end arrived while its interrupt was on the wire still holds unechoed,
+// kept at that end for the interrupt, let go once no take of them follows.
+fn forget_ended_turn_steers(record: &mut CodexSessionRecord, turn_id: &str) {
+    if record.is_turn_settled(turn_id) {
+        record.unechoed_steers_by_turn_id.remove(turn_id);
+    }
 }
 
 // A pause of the lead's live turn, taken at its next step's end. A helper's run, which holds no
