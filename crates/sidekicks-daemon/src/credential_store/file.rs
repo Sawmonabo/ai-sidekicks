@@ -119,6 +119,24 @@ pub(crate) enum PassAbandoned {
     Weaker,
 }
 
+/// Why the items file was not read under its lock: the file itself cannot be read or is not an
+/// items file, which no later call of this run changes, or the call is refused for another cause.
+pub(crate) enum ItemsReadFailure {
+    /// The file cannot be read or does not parse as an items file; it is left as it is.
+    Unreadable(KeychainRefusal),
+    /// The leftovers of a write cut short could not be removed, or the file is in another form
+    /// than the call opens.
+    Refused(KeychainRefusal),
+}
+
+impl From<ItemsReadFailure> for KeychainRefusal {
+    fn from(failure: ItemsReadFailure) -> Self {
+        match failure {
+            ItemsReadFailure::Unreadable(refusal) | ItemsReadFailure::Refused(refusal) => refusal,
+        }
+    }
+}
+
 // The file's text as read.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -236,25 +254,40 @@ impl SecretItemsFile {
             .expect("the items file's path ends in its name after the data folder")
             .to_path_buf();
         let removed = tokio::task::spawn_blocking(move || remove_leftovers_in(&folder)).await;
-        match removed {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(failure)) => Err(file_failure(failure)),
-            Err(interrupted) => Err(file_failure(interrupted)),
-        }
+        let failure: Box<dyn std::error::Error + Send + Sync> = match removed {
+            Ok(Ok(())) => return Ok(()),
+            Ok(Err(failure)) => failure.into(),
+            Err(interrupted) => interrupted.into(),
+        };
+        Err(KeychainRefusal::new(
+            KeychainRefusalCause::Unavailable,
+            "the leftovers of an items file write cut short could not be removed",
+        )
+        .with_failure(failure))
     }
 
     /// The form the file on disk names, or `None` when there is none. Fails with
-    /// [`KeychainRefusal`] when it cannot be read or is not an items file.
-    pub(crate) async fn form_on_disk(&self) -> Result<Option<ItemsForm>, KeychainRefusal> {
-        let _held = self.hold().await?;
-        Ok(self.read_text().await?.map(|text| text.form))
+    /// [`ItemsReadFailure`], `Unreadable` when the file cannot be read or is not an items file.
+    pub(crate) async fn form_on_disk(&self) -> Result<Option<ItemsForm>, ItemsReadFailure> {
+        let _held = self.hold().await.map_err(ItemsReadFailure::Refused)?;
+        let text = self
+            .read_text()
+            .await
+            .map_err(ItemsReadFailure::Unreadable)?;
+        Ok(text.map(|text| text.form))
     }
 
-    /// Every item of the sealed file with its blob, opening none. Fails with [`KeychainRefusal`]
-    /// when the file cannot be read or is plain.
-    pub(crate) async fn sealed_items(&self) -> Result<Vec<SealedItem>, KeychainRefusal> {
-        let _held = self.hold().await?;
-        let items = self.read_items(ItemsForm::Sealed).await?;
+    /// Every item of the sealed file with its blob, opening none. Fails with
+    /// [`ItemsReadFailure`], `Unreadable` when the file cannot be read or is not an items file and
+    /// `Refused` when it is plain.
+    pub(crate) async fn sealed_items(&self) -> Result<Vec<SealedItem>, ItemsReadFailure> {
+        let _held = self.hold().await.map_err(ItemsReadFailure::Refused)?;
+        let items = match self.read_text().await {
+            Ok(None) => Items::new(),
+            Ok(Some(read)) if read.form == ItemsForm::Sealed => read.items,
+            Ok(Some(_plain)) => return Err(ItemsReadFailure::Refused(self.other_form())),
+            Err(unreadable) => return Err(ItemsReadFailure::Unreadable(unreadable)),
+        };
         Ok(items
             .into_iter()
             .flat_map(|(service, entries)| {
@@ -267,15 +300,15 @@ impl SecretItemsFile {
             .collect())
     }
 
-    /// Seals into one new sealed file, written at once, every value of a plain file and every
-    /// blob of a sealed file whose key is weaker than `probe`'s, the start's fresh seal, each seal
-    /// and unseal given `time`. Never seals downward: the pass is abandoned, the file left as it
-    /// was, when a seal or unseal fails or runs out of `time`, or a new blob is weaker than
-    /// `probe`'s, than the blob it replaces, or bound to the boot state. A blob whose key the
-    /// daemon does not know is kept as it is. The pass runs in a task of its own that holds the file's
-    /// lock until it ends, so it lands whole even after its caller stops waiting, and a later call
-    /// on the file waits for it rather than starting another. Fails with [`KeychainRefusal`] when
-    /// the file cannot be read or written; the file is then left as it was.
+    /// Seals into one new sealed file, written at once, every value of a plain file and every blob
+    /// of a sealed file whose key is weaker than `probe`'s, the start's fresh seal, each seal and
+    /// unseal given `time`. Never seals downward: the pass is abandoned, the file left as it was,
+    /// when a seal or unseal fails or runs out of `time`, or a new blob is weaker than `probe`'s,
+    /// than the blob it replaces, or bound to the boot state. A blob whose key the daemon does not
+    /// know is kept as it is. The pass runs in a task of its own that holds the file's lock until
+    /// it ends, so it lands whole even after its caller stops waiting, and a later call on the file
+    /// waits for it rather than starting another. Fails with [`KeychainRefusal`] when the file
+    /// cannot be read or written; the file is then left as it was.
     pub(crate) async fn seal_again(
         self: &Arc<Self>,
         seal: Arc<dyn SecretSeal>,
@@ -385,15 +418,19 @@ impl SecretItemsFile {
         match self.read_text().await? {
             None => Ok(Items::new()),
             Some(read) if read.form == form => Ok(read.items),
-            Some(_other_form) => Err(KeychainRefusal::new(
-                KeychainRefusalCause::Unavailable,
-                format!(
-                    "{} keeps its secrets in another form than this call opens, so it is left as \
-                     it is",
-                    self.file_path.display()
-                ),
-            )),
+            Some(_other_form) => Err(self.other_form()),
         }
+    }
+
+    // The refusal of a call that finds the file in another form than it opens.
+    fn other_form(&self) -> KeychainRefusal {
+        KeychainRefusal::new(
+            KeychainRefusalCause::Unavailable,
+            format!(
+                "{} keeps its secrets in another form than this call opens, so it is left as it is",
+                self.file_path.display()
+            ),
+        )
     }
 
     // Replaces the file with `items` in `form` at once, written from a buffer sized before it is

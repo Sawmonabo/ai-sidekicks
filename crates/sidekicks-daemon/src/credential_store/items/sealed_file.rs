@@ -13,7 +13,7 @@ use sidekicks_platforms::{SealFailure, SealHeader};
 
 use super::{PlaceState, SecretItems, log_mismatch, random_value};
 use crate::credential_store::file::{
-    PassAbandoned, SealPass, SealedItem, credential_name, is_weaker,
+    ItemsReadFailure, PassAbandoned, SealPass, SealedItem, credential_name, is_weaker,
 };
 use crate::credential_store::place::SecretsPlace;
 use crate::credential_store::seal::SecretSeal;
@@ -122,8 +122,8 @@ impl SecretItems {
 
     // Opens one item of the sealed file per key it holds, the probe's blob having shown `probe`,
     // then seals again once each item sealed with a weaker key than the probe's; the caller accepts
-    // the sealed file once its record names it. A file that cannot be read latches the service as
-    // failing for the run. Fails with the refusal the caller answers with.
+    // the sealed file once its record names it. A file that cannot be read or parsed latches the
+    // service as failing for the run. Fails with the refusal the caller answers with.
     pub(super) async fn open_sealed(
         &self,
         state: &mut PlaceState,
@@ -132,19 +132,12 @@ impl SecretItems {
         let seal = self.seal_service()?;
         let mut samples = BTreeMap::new();
         let mut is_any_weaker = false;
-        // A file that cannot be read stays as it is and is not read again this run, so no call
-        // asks the service for it until a restart.
         let items = match self.items_file.sealed_items().await {
             Ok(items) => items,
-            Err(unreadable) => {
-                tracing::error!(
-                    error = &unreadable as &(dyn Error + 'static),
-                    file = %self.items_file.file_path().display(),
-                    "the sealed secrets file cannot be read, so every secret call is refused until \
-                     the next start"
-                );
-                return Err(state.latch_opening(DaemonSecretsFileUnopened::SealServiceFailing));
+            Err(ItemsReadFailure::Unreadable(unreadable)) => {
+                return Err(self.latch_unreadable(state, &unreadable));
             }
+            Err(ItemsReadFailure::Refused(refusal)) => return Err(refusal),
         };
         for item in items {
             if item.service == KeychainService::Probe.as_str() {
@@ -193,6 +186,22 @@ impl SecretItems {
             "systemd's credential service seals the daemon's secrets"
         );
         Ok(())
+    }
+
+    // Latches the service as failing for the run over an items file that cannot be read, which
+    // stays as it is and is not read again, so no call asks the service for it until a restart;
+    // answers the refusal for it.
+    pub(super) fn latch_unreadable(
+        &self,
+        state: &mut PlaceState,
+        unreadable: &KeychainRefusal,
+    ) -> KeychainRefusal {
+        tracing::error!(
+            error = unreadable as &(dyn Error + 'static),
+            file = %self.items_file.file_path().display(),
+            "the secrets file cannot be read, so every secret call is refused until the next start"
+        );
+        state.latch_opening(DaemonSecretsFileUnopened::SealServiceFailing)
     }
 
     // Seals a random value under this run's probe account, reads the key its blob names, opens it

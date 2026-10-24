@@ -4,14 +4,15 @@
 //!
 //! - **The pick.** A start with a place record keeps its place. One without picks the operating
 //!   system's store on macOS and Windows, the plain file for a Mac's service running while the
-//!   person is logged out, and on Linux what a fresh probe through systemd's credential service
-//!   shows: the sealed file where it seals bound to no boot state, a plain file found there sealed
-//!   once as a later start seals a plain record's, and the plain file where it would bind the seal
-//!   to the boot state, where no service listens, or where it refuses in one of the ways that mean
-//!   it cannot seal on this computer. Any other failure refuses that call, and the next call probes
-//!   again. The record is written before the place serves a call, so a refused first start records
-//!   nothing and no call is served from a place left unrecorded. A record that cannot be read
-//!   refuses every call and is left as it is.
+//!   person is logged out, and on Linux the sealed file where one is found, an items file that
+//!   cannot be read refusing every call until the next start, and otherwise what a fresh probe
+//!   through systemd's credential service shows: the sealed file where it seals bound to no boot
+//!   state, a plain file found there sealed once as a later start seals a plain record's, and the
+//!   plain file where it would bind the seal to the boot state, where no service listens, or where
+//!   it refuses in one of the ways that mean it cannot seal on this computer. Any other failure
+//!   refuses that call, and the next call probes again. The record is written before the place
+//!   serves a call, so a refused first start records nothing and no call is served from a place
+//!   left unrecorded. A record that cannot be read refuses every call and is left as it is.
 //! - **The check.** The operating system's store and a plain file: write a random value under a
 //!   fresh probe account, read it back, compare, then delete it, a failed delete only logged. The
 //!   sealed file: seal a random value, read the key its header names, open it and compare, then
@@ -55,7 +56,9 @@ use tokio::sync::RwLock;
 
 use self::sealed_file::{Probe, is_definite_refusal, log_boot_bound};
 use self::state::{PlaceState, PlaceView, Readiness, RecordState, Verdict};
-use crate::credential_store::file::{FileSecretKeychain, ItemsForm, SecretItemsFile};
+use crate::credential_store::file::{
+    FileSecretKeychain, ItemsForm, ItemsReadFailure, SecretItemsFile,
+};
 use crate::credential_store::os::{
     CredentialStoreAccess, OsCredentialStore, OsSecretKeychain, SEAL_CHECK_TIMEOUT_DIVISOR,
     SecretsOffer,
@@ -293,9 +296,22 @@ impl SecretItems {
         let place = if self.runs_while_logged_out {
             SecretsPlace::LoggedOutServiceFile
         } else if let Some(seal) = &self.seal {
+            // The file's form is read before any probe: a sealed file keeps its place, and one that
+            // cannot be read latches the service as failing for the run.
+            let form = match self.items_file.form_on_disk().await {
+                Ok(form) => form,
+                Err(ItemsReadFailure::Unreadable(unreadable)) => {
+                    return Err(self.latch_unreadable(state, &unreadable));
+                }
+                Err(ItemsReadFailure::Refused(refusal)) => return Err(refusal),
+            };
+            if form == Some(ItemsForm::Sealed) {
+                self.record(state, SecretsPlace::SealedFile).await?;
+                return self.settle_sealed(state).await;
+            }
             match self.probe(seal.as_ref()).await? {
                 Probe::Sealed(header) if !header.is_boot_bound() => {
-                    if self.items_file.form_on_disk().await? != Some(ItemsForm::Plain) {
+                    if form.is_none() {
                         self.open_sealed(state, header).await?;
                         self.record(state, SecretsPlace::SealedFile).await?;
                         return Ok(state.accept(SecretsPlace::SealedFile));
