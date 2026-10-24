@@ -10,9 +10,10 @@
 pub(crate) mod daemon_turns;
 pub(crate) mod record;
 
+use std::collections::HashMap;
 use std::error::Error;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
@@ -26,6 +27,7 @@ use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::provider::driver::attachments::AttachmentResolver;
 use crate::provider::driver::codex::attachments::resolve_codex_turn_message;
 use crate::provider::driver::codex::output_speed::CodexSettledOutputSpeed;
+use crate::provider::driver::codex::run::control::interrupt_codex_run;
 use crate::provider::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
 use crate::provider::driver::codex::run::start::record::{
     CodexAcceptedTurn, CodexTurnBegin, CodexTurnBeginAnswer, CodexTurnRequest, CodexTurnSend,
@@ -78,6 +80,8 @@ pub(crate) struct CodexRunStart {
     dependencies: CodexRunStartDependencies,
     /// Each session's turn starts and the requests sent apart from them, one at a time.
     turn_sends: KeyedLock<SessionId>,
+    /// The withdrawal of each run's turn start in flight; never held across an await.
+    withdrawals_by_run: Mutex<HashMap<RunId, Arc<AtomicBool>>>,
 }
 
 impl CodexRunStart {
@@ -90,6 +94,20 @@ impl CodexRunStart {
         Self {
             dependencies,
             turn_sends: KeyedLock::new(),
+            withdrawals_by_run: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Withdraws `run_id`'s turn start in flight, for its run's interrupt: a turn not yet sent
+    /// goes unsent, one Codex is starting is interrupted once its answer names it, and the start
+    /// fails with `CodexError::TurnWithdrawn`. `false` when no start of the run is in flight.
+    pub(crate) fn withdraw_turn_start(&self, run_id: RunId) -> bool {
+        match self.lock_withdrawals().get(&run_id) {
+            Some(withdrawn) => {
+                withdrawn.store(true, Ordering::Release);
+                true
+            }
+            None => false,
         }
     }
 
@@ -166,8 +184,9 @@ impl CodexRunStart {
     /// turn the daemon is stopping, every wait and the request within `deadline`. A refusal Codex
     /// answered leaves the session usable; any other failure may hide an accepted turn, so that
     /// turn is interrupted and the session's conversation let go before the failure is answered.
-    /// Fails as [`Self::start_run`] does, and with `CodexError::TurnWithdrawn`, nothing sent, once
-    /// `withdrawn` is set before the turn goes.
+    /// Fails as [`Self::start_run`] does, and with `CodexError::TurnWithdrawn` once `withdrawn`,
+    /// or the run's interrupt through [`Self::withdraw_turn_start`], withdrew the start: nothing
+    /// is sent before the turn goes, and a turn Codex started meanwhile is interrupted.
     pub(crate) async fn start_turn(
         &self,
         inbound: &CodexSessionInboundSender,
@@ -177,30 +196,65 @@ impl CodexRunStart {
         withdrawn: Option<Arc<AtomicBool>>,
         deadline: &CodexTurnEndDeadline,
     ) -> Result<(), CodexError> {
-        let hold = self.turn_sends.acquire(inbound.session_id()).await;
-        let begin = CodexTurnBegin {
-            run_id,
-            turn: Some(turn),
-            binding_id,
-            withdrawn,
-        };
-        let send = self.begin_turn(&hold, inbound, begin, deadline).await?;
-        let params = send
-            .params
-            .as_ref()
-            .expect("a run's own turn carries its params");
-        let replied = send
-            .connection
-            .request_within(TURN_START_METHOD, params, deadline.remaining())
+        let withdrawn = withdrawn.unwrap_or_default();
+        self.withdrawable(inbound, run_id, Arc::clone(&withdrawn), async {
+            let hold = self.turn_sends.acquire(inbound.session_id()).await;
+            let begin = CodexTurnBegin {
+                run_id,
+                turn: Some(turn),
+                binding_id,
+                withdrawn: Some(withdrawn),
+            };
+            let send = self.begin_turn(&hold, inbound, begin, deadline).await?;
+            let params = send
+                .params
+                .as_ref()
+                .expect("a run's own turn carries its params");
+            let replied = send
+                .connection
+                .request_within(TURN_START_METHOD, params, deadline.remaining())
+                .await
+                .and_then(|reply| read_turn_id(&reply, TURN_START_METHOD));
+            self.settle_turn(
+                inbound,
+                run_id,
+                send.accepted,
+                CodexTurnStartOutcome::of_request(replied),
+            )
             .await
-            .and_then(|reply| read_turn_id(&reply, TURN_START_METHOD));
-        self.settle_turn(
-            inbound,
-            run_id,
-            send.accepted,
-            CodexTurnStartOutcome::of_request(replied),
-        )
+        })
         .await
+    }
+
+    // Runs `run_id`'s turn start `start` where its run's interrupt can withdraw it through
+    // `withdrawn`: once the start routed the turn Codex named, a withdrawal that came meanwhile
+    // interrupts that turn and fails the start with `CodexError::TurnWithdrawn`, or with the
+    // interrupt's failure when the turn runs on.
+    async fn withdrawable(
+        &self,
+        inbound: &CodexSessionInboundSender,
+        run_id: RunId,
+        withdrawn: Arc<AtomicBool>,
+        start: impl Future<Output = Result<(), CodexError>>,
+    ) -> Result<(), CodexError> {
+        self.lock_withdrawals()
+            .insert(run_id, Arc::clone(&withdrawn));
+        let started = start.await;
+        {
+            let mut withdrawals = self.lock_withdrawals();
+            if withdrawals
+                .get(&run_id)
+                .is_some_and(|kept| Arc::ptr_eq(kept, &withdrawn))
+            {
+                withdrawals.remove(&run_id);
+            }
+        }
+        if started.is_err() || !withdrawn.load(Ordering::Acquire) {
+            return started;
+        }
+        // Its steers, if any reached the fresh turn, go back with the run's end.
+        interrupt_codex_run(inbound, run_id).await?;
+        Err(CodexError::TurnWithdrawn { run_id })
     }
 
     /// Runs `send` while no turn of `session_id` is being sent or awaits Codex's answer, holding
@@ -285,6 +339,12 @@ impl CodexRunStart {
                 detail: error.to_string(),
                 cause: Some(Box::new(error)),
             })
+    }
+
+    fn lock_withdrawals(&self) -> MutexGuard<'_, HashMap<RunId, Arc<AtomicBool>>> {
+        self.withdrawals_by_run
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     async fn record_settled_output_speed(&self, settled: CodexSettledOutputSpeed) {

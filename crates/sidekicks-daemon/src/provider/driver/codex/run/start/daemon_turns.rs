@@ -5,6 +5,7 @@
 
 use std::error::Error;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -14,6 +15,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::provider::driver::codex::DESCRIPTOR;
+use crate::provider::driver::codex::run::control::interrupt_codex_run;
 use crate::provider::driver::codex::run::routes::CodexRunBinding;
 use crate::provider::driver::codex::run::start::record::{CodexTurnBegin, CodexTurnStartOutcome};
 use crate::provider::driver::codex::run::start::{
@@ -78,43 +80,41 @@ impl CodexRunStart {
         let start = Arc::clone(self);
         let start_inbound = inbound.clone();
         let interrupt_inbound = inbound;
-        let run_id =
-            self.dependencies
-                .engine
-                .start_daemon_turn(DaemonTurnStartRequest {
-                    session_id,
-                    provider: DESCRIPTOR.provider_id(),
-                    admitted_provider_account_id: reading.provider_account_id,
-                    execution_posture: reading.execution_posture,
-                    is_provider_started: false,
-                    is_apart: false,
-                    start_turn: Box::new(move |run_id| {
-                        let start = Arc::clone(&start);
-                        let inbound = start_inbound.clone();
-                        let opening = Arc::clone(&opening);
-                        async move {
-                            start
-                                .open_daemon_turn(&inbound, run_id, opening)
-                                .await
-                                .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)
-                        }
-                        .boxed()
-                    }),
-                    // A turn that ended before its run could be recorded has nothing to stop.
-                    interrupt_turn: Box::new(move |run_id| {
-                        let inbound = interrupt_inbound.clone();
-                        async move {
-                            call_codex_session(&inbound, |reply| {
-                                CodexSessionCall::InterruptRunTurn { run_id, reply }
-                            })
+        let run_id = self
+            .dependencies
+            .engine
+            .start_daemon_turn(DaemonTurnStartRequest {
+                session_id,
+                provider: DESCRIPTOR.provider_id(),
+                admitted_provider_account_id: reading.provider_account_id,
+                execution_posture: reading.execution_posture,
+                is_provider_started: false,
+                is_apart: false,
+                start_turn: Box::new(move |run_id| {
+                    let start = Arc::clone(&start);
+                    let inbound = start_inbound.clone();
+                    let opening = Arc::clone(&opening);
+                    async move {
+                        start
+                            .open_daemon_turn(&inbound, run_id, opening)
                             .await
-                            .and_then(|interrupted| interrupted)
                             .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)
-                        }
-                        .boxed()
-                    }),
-                })
-                .await?;
+                    }
+                    .boxed()
+                }),
+                // A turn that ended before its run could be recorded has nothing to stop.
+                interrupt_turn: Box::new(move |run_id| {
+                    let inbound = interrupt_inbound.clone();
+                    async move {
+                        interrupt_codex_run(&inbound, run_id)
+                            .await
+                            .map(drop)
+                            .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)
+                    }
+                    .boxed()
+                }),
+            })
+            .await?;
         Ok(run_id)
     }
 
@@ -157,7 +157,7 @@ impl CodexRunStart {
     }
 
     // Sends the opening with the run waiting as the turn starting next, so the turn's first frames
-    // reach it even when they come before the reply.
+    // reach it even when they come before the reply; the run's interrupt withdraws it meanwhile.
     async fn send_daemon_turn(
         &self,
         inbound: &CodexSessionInboundSender,
@@ -165,27 +165,31 @@ impl CodexRunStart {
         binding_id: RuntimeBindingId,
         opening: CodexDaemonTurnOpening,
     ) -> Result<(), CodexError> {
-        let hold = self.turn_sends.acquire(inbound.session_id()).await;
-        let deadline = CodexTurnEndDeadline::new(CODEX_TURN_START_TIMEOUT);
-        let begin = CodexTurnBegin {
-            run_id,
-            turn: None,
-            binding_id,
-            withdrawn: None,
-        };
-        let send = self.begin_turn(&hold, inbound, begin, &deadline).await?;
-        let turn_id = opening(
-            Arc::clone(&send.connection),
-            send.thread_id.clone(),
-            deadline.remaining(),
-        )
-        .await;
-        self.settle_turn(
-            inbound,
-            run_id,
-            send.accepted,
-            CodexTurnStartOutcome::of_request(turn_id),
-        )
+        let withdrawn = Arc::new(AtomicBool::new(false));
+        self.withdrawable(inbound, run_id, Arc::clone(&withdrawn), async {
+            let hold = self.turn_sends.acquire(inbound.session_id()).await;
+            let deadline = CodexTurnEndDeadline::new(CODEX_TURN_START_TIMEOUT);
+            let begin = CodexTurnBegin {
+                run_id,
+                turn: None,
+                binding_id,
+                withdrawn: Some(withdrawn),
+            };
+            let send = self.begin_turn(&hold, inbound, begin, &deadline).await?;
+            let turn_id = opening(
+                Arc::clone(&send.connection),
+                send.thread_id.clone(),
+                deadline.remaining(),
+            )
+            .await;
+            self.settle_turn(
+                inbound,
+                run_id,
+                send.accepted,
+                CodexTurnStartOutcome::of_request(turn_id),
+            )
+            .await
+        })
         .await
     }
 }

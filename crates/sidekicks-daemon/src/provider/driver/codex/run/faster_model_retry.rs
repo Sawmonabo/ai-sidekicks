@@ -10,14 +10,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::text::FreeFormText;
 use tokio_util::sync::CancellationToken;
 
-use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::notification_routing::CodexRoutedFrames;
+use crate::provider::driver::codex::run::control::fail_codex_run;
 use crate::provider::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
 use crate::provider::driver::codex::run::start::record::{
     CodexRunCallDependencies, CodexTurnRequest,
@@ -36,11 +34,8 @@ use crate::provider::driver::codex::session::inbound::{
 use crate::provider::driver::codex::session::slots::CodexSessionSlots;
 use crate::provider::driver::codex::session::state::{CodexSessionRecord, CodexTurnInput};
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::provider::driver::contract::bound_failure_detail;
-use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::provider::driver::run_control::{FasterModelRetryOutcome, FasterModelRetryParams};
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery, RunInboundDispatch};
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::session::run::inbound::RunInboundDispatch;
 
 const NOT_LATEST_REJECTION: &str = "The turn is no longer the run's latest.";
 const REPLY_STARTED_REJECTION: &str = "The turn's reply has started.";
@@ -248,8 +243,14 @@ impl CodexFasterModelRetries {
                 Ok(rejected(INTERRUPTED_REJECTION))
             }
             Err(error) => {
-                self.fail_run(params.run_id, binding.binding_id, &error)
-                    .await;
+                fail_codex_run(
+                    &self.dependencies.dispatch,
+                    params.run_id,
+                    binding.binding_id,
+                    RETRY_FAILED,
+                    &error,
+                )
+                .await;
                 self.dependencies.run_routes.forget_run(params.run_id);
                 Err(retry_failure(error))
             }
@@ -326,43 +327,6 @@ impl CodexFasterModelRetries {
             )
             .await?;
         Ok(true)
-    }
-
-    // Ends the run failed with the retry's failure.
-    async fn fail_run(&self, run_id: RunId, binding_id: RuntimeBindingId, error: &CodexError) {
-        let detail = format!("{RETRY_FAILED}: {error}");
-        let fallback = FreeFormText::new(format!("{RETRY_FAILED}."))
-            .expect("the retry's failure words are within the cap");
-        let change = RunStateChange {
-            failure_category: Some(RunFailureCategory::ProviderFailure),
-            ..RunStateChange::new(
-                run_id,
-                RunStateEntry::Failed {
-                    intended_close: None,
-                    failure_cause: None,
-                    provider_failure_detail: Some(bound_failure_detail(&detail, fallback)),
-                    process_exit: None,
-                },
-            )
-        };
-        Box::pin(dispatch_delivery(
-            &self.dependencies.dispatch,
-            DeliveryOrigin {
-                provider: DESCRIPTOR.provider_id(),
-                provider_account_id: None,
-                raw_wire_type: None,
-            },
-            InboundDelivery::RunLifecycle {
-                binding: DeliveryBinding {
-                    binding_id,
-                    operation: None,
-                },
-                change,
-                turn_end: None,
-                is_daemon_interrupt_end: false,
-            },
-        ))
-        .await;
     }
 
     // The end of a turn the retry stopped forgets no run, so the binding of a run the interrupt
@@ -494,17 +458,21 @@ mod tests {
         Refused,
         /// The run's interrupt arrives as the turn's start reaches the session's task.
         Withdrawn,
+        /// The run's interrupt arrives while `turn/start` waits for Codex's answer.
+        WithdrawnWhileStarting,
     }
 
     // Kills: `Applied` answered once the fork alone is established, before `turn/start` on it
-    // answered (the refused case then answers `Applied`); and a retry the interrupt stops while
-    // its turn's start is under way sending the turn anyway.
+    // answered (the refused case then answers `Applied`); a retry the interrupt stops while its
+    // turn's start is under way sending the turn anyway; and a withdrawal that came while Codex
+    // was starting the turn leaving the named turn running (no `turn/interrupt` naming it).
     #[tokio::test]
     async fn a_retry_applies_only_once_the_turn_on_the_fork_starts() {
         for turn_on_fork in [
             TurnOnFork::Started,
             TurnOnFork::Refused,
             TurnOnFork::Withdrawn,
+            TurnOnFork::WithdrawnWhileStarting,
         ] {
             let mut session = TestCodexSession::start().await;
             let binding_id = session.record_binding().await;
@@ -552,6 +520,8 @@ mod tests {
             });
             let task = &mut session.task;
             let script = &mut session.scripted.script;
+            let (start_sent, start_seen) = tokio::sync::oneshot::channel::<()>();
+            let (withdrawal_set, withdrawal_seen) = tokio::sync::oneshot::channel::<()>();
             let service = async {
                 let interrupt = script.next_sent().await;
                 assert_eq!(interrupt["method"], "turn/interrupt");
@@ -569,7 +539,26 @@ mod tests {
                 assert_eq!(started["method"], "turn/start");
                 assert_eq!(started["params"]["threadId"], "thread-2");
                 assert_eq!(started["params"]["input"][0]["text"], "Fix the build.");
-                if turn_on_fork == TurnOnFork::Refused {
+                if turn_on_fork == TurnOnFork::WithdrawnWhileStarting {
+                    start_sent
+                        .send(())
+                        .expect("the session's task waits for the start");
+                    withdrawal_seen
+                        .await
+                        .expect("the interrupt withdrew the start");
+                    script.answer(&started, &turn_reply("turn-2"));
+                    let interrupt = script.next_sent().await;
+                    assert_eq!(interrupt["method"], "turn/interrupt");
+                    assert_eq!(
+                        interrupt["params"]["turnId"], "turn-2",
+                        "the turn Codex named is stopped"
+                    );
+                    script.answer(&interrupt, &json!({}));
+                    let listed = script.next_sent().await;
+                    assert_eq!(listed["method"], "thread/backgroundTerminals/list");
+                    script.answer(&listed, &json!({"data": []}));
+                    script.send(&turn_completed("thread-2", "turn-2", "interrupted"));
+                } else if turn_on_fork == TurnOnFork::Refused {
                     script.send(&json!({
                         "jsonrpc": "2.0",
                         "id": started["id"],
@@ -602,6 +591,27 @@ mod tests {
                     Box::pin(async { tokio::join!(retry, service, session_task).0 }),
                 )
                 .await
+            } else if turn_on_fork == TurnOnFork::WithdrawnWhileStarting {
+                let interrupt = async {
+                    start_seen.await.expect("the service saw the start");
+                    let mut cancel = std::pin::pin!(retries.cancel(run_id));
+                    assert!(futures::poll!(&mut cancel).is_pending());
+                    withdrawal_set
+                        .send(())
+                        .expect("the service waits for the withdrawal");
+                    cancel.await.expect("the session reads")
+                };
+                tokio::time::timeout(
+                    bound,
+                    Box::pin(async {
+                        tokio::join!(
+                            task.drive(async { tokio::join!(retry, interrupt).0 }),
+                            service
+                        )
+                        .0
+                    }),
+                )
+                .await
             } else {
                 tokio::time::timeout(
                     bound,
@@ -632,12 +642,12 @@ mod tests {
                     );
                     assert_eq!(session.task.record.active_turn_run("turn-2"), Some(run_id));
                 }
-                TurnOnFork::Withdrawn => assert_eq!(
+                TurnOnFork::Withdrawn | TurnOnFork::WithdrawnWhileStarting => assert_eq!(
                     retried.expect("a stopped retry answers"),
                     FasterModelRetryOutcome::Rejected {
                         rejection_reason: INTERRUPTED_REJECTION.to_owned(),
                     },
-                    "a retry stopped during its turn's start sends no turn"
+                    "a retry its run's interrupt stops during its turn's start is rejected"
                 ),
             }
         }

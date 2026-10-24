@@ -30,7 +30,6 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use tokio::sync::oneshot;
 use tokio_util::task::TaskTracker;
 
 use crate::policy::destructive_git::covers_destructive_git;
@@ -40,15 +39,13 @@ use crate::provider::driver::codex::delivery::ask_action::read_codex_ask_action;
 use crate::provider::driver::codex::delivery::asks::questions::read_codex_question_prompts;
 use crate::provider::driver::codex::delivery::frames::CodexFrameDelivery;
 use crate::provider::driver::codex::rules::CodexRulesError;
-use crate::provider::driver::codex::run::steer::send_codex_steer;
+use crate::provider::driver::codex::run::steer::steer_codex_run;
 use crate::provider::driver::codex::server_requests::{
     CodexAskKind, CodexAskOwner, CodexInboundServerRequest, CodexRoutedMethod,
     CodexServerRequestAnswer, CodexServerRequestDecision,
 };
 use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::session::inbound::{
-    CodexSessionCall, CodexSessionInbound, CodexSessionInboundSender,
-};
+use crate::provider::driver::codex::session::inbound::CodexSessionInboundSender;
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
 use crate::provider::driver::codex::transport::diagnostics::{
     CodexDeliveryPort, CodexTransportDiagnostic,
@@ -56,7 +53,6 @@ use crate::provider::driver::codex::transport::diagnostics::{
 use crate::provider::driver::contract::{
     DriverError, ProviderRequestAnswer, RespondToRequestParams,
 };
-use crate::provider::driver::run_control::SteerTurnEndedError;
 use crate::provider::inbound_json::decode_inbound_json;
 use crate::provider::port::permission_ask::{
     PermissionAskPort, ProviderAskAction, ProviderAskRule, ProviderPermissionAnswer,
@@ -640,35 +636,10 @@ async fn steer_after_answer(
 ) -> Result<(), DriverError> {
     let message_id =
         QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id");
-    let (reply, replied) = oneshot::channel();
-    let registered = if inbound.push(CodexSessionInbound::Call(CodexSessionCall::RegisterSteer {
-        run_id,
-        expected_turn_id: Some(turn_id),
-        message_id,
-        reply,
-    })) {
-        replied.await.ok()
-    } else {
-        None
-    };
-    // A session whose task ended has no turn left to steer.
-    let registered = registered.unwrap_or(Err(SteerTurnEndedError { run_id }.into()));
-    let sent = match registered {
-        Ok(send) => {
-            let registered_turn_id = send.turn_id().to_owned();
-            let sent = send_codex_steer(send, vec![compose_codex_text_input(text)]).await;
-            if sent.is_err() {
-                // The session's task takes it back; one that ended has nothing to take back.
-                let _unheard =
-                    inbound.push(CodexSessionInbound::Call(CodexSessionCall::WithdrawSteer {
-                        turn_id: registered_turn_id,
-                        message_id,
-                    }));
-            }
-            sent.map(drop)
-        }
-        Err(error) => Err(error),
-    };
+    let input = async { Ok(vec![compose_codex_text_input(text)]) };
+    let sent = steer_codex_run(inbound, run_id, Some(turn_id), message_id, input)
+        .await
+        .map(drop);
     match sent {
         Err(DriverError::SteerTurnEnded(ended)) => {
             report_owner_failure(

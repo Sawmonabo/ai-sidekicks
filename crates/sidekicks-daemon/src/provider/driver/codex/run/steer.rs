@@ -16,6 +16,9 @@ use tokio::sync::oneshot;
 use crate::provider::driver::codex::app_server_protocol::{TurnSteerParams, UserInput};
 use crate::provider::driver::codex::intervention::CodexSteerAcknowledgment;
 use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::codex::session::inbound::{
+    CodexSessionCall, CodexSessionInbound, CodexSessionInboundSender,
+};
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
 use crate::provider::driver::codex::thread::view::read_steered_turn_id;
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
@@ -103,26 +106,52 @@ pub(crate) fn register_codex_steer(
     })
 }
 
-impl CodexSteerSend {
-    /// The live turn the steer was registered on, which a withdrawal names.
-    #[expect(
-        dead_code,
-        reason = "the Codex run's steer withdraws a steer whose send failed from its turn"
-    )]
-    pub(crate) fn turn_id(&self) -> &str {
-        &self.turn_id
+/// Steers one message into `run_id`'s live turn, off the session's task: registers it on the
+/// session's task before anything is written, waits for its `input`, writes it once the steer
+/// before it was answered, and takes it back when Codex did not take it. `expected_turn_id`, where
+/// the caller pins one, is the turn the steer names. Answers the turn it targeted and the turn
+/// Codex acknowledged. Fails with `SteerTurnEnded` when the run has no live turn, an interrupt is
+/// stopping it, its session's task ended or Codex refused it for its turn, and as `input` and the
+/// request fail.
+pub(crate) async fn steer_codex_run(
+    inbound: &CodexSessionInboundSender,
+    run_id: RunId,
+    expected_turn_id: Option<String>,
+    message_id: QueueItemId,
+    input: impl Future<Output = Result<Vec<UserInput>, DriverError>>,
+) -> Result<CodexSteerAcknowledgment, DriverError> {
+    let (reply, replied) = oneshot::channel();
+    let registered = if inbound.push(CodexSessionInbound::Call(CodexSessionCall::RegisterSteer {
+        run_id,
+        expected_turn_id,
+        message_id,
+        reply,
+    })) {
+        replied.await.ok()
+    } else {
+        None
+    };
+    // A session whose task ended has no turn left to steer.
+    let send = registered.unwrap_or_else(|| Err(SteerTurnEndedError { run_id }.into()))?;
+    let turn_id = send.turn_id.clone();
+    // A steer whose input failed is dropped unsent, which lets the next one go.
+    let sent = match input.await {
+        Ok(input) => send_codex_steer(send, input).await,
+        Err(error) => Err(error),
+    };
+    if sent.is_err() {
+        // The session's task takes it back; one that ended has nothing to take back.
+        let _unheard = inbound.push(CodexSessionInbound::Call(CodexSessionCall::WithdrawSteer {
+            turn_id,
+            message_id,
+        }));
     }
+    sent
 }
 
-/// Writes a registered steer with `input` once the steer before it was answered, and answers the
-/// turn it targeted and the turn Codex acknowledged. Fails with `SteerTurnEnded` when Codex
-/// refused it because its turn had ended or is not one a steer reaches, and as the request fails;
-/// either way the caller withdraws it with [`withdraw_codex_steer`].
-#[expect(
-    dead_code,
-    reason = "the Codex run's steer writes each registered steer off the session's task"
-)]
-pub(crate) async fn send_codex_steer(
+// Writes a registered steer with `input` once the steer before it was answered; a refusal because
+// its turn had ended or is not one a steer reaches fails with `SteerTurnEnded`.
+async fn send_codex_steer(
     send: CodexSteerSend,
     input: Vec<UserInput>,
 ) -> Result<CodexSteerAcknowledgment, DriverError> {
@@ -160,13 +189,6 @@ pub(crate) async fn send_codex_steer(
 
 /// Takes back a steer Codex did not take, on the session's task: it is no longer waited for on
 /// its turn, so no interrupt lists it as cancelled.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex run's steer withdraws a steer whose send failed"
-    )
-)]
 pub(crate) fn withdraw_codex_steer(
     record: &mut CodexSessionRecord,
     turn_id: &str,
@@ -179,6 +201,33 @@ pub(crate) fn withdraw_codex_steer(
     if unechoed.is_empty() {
         record.unechoed_steers_by_turn_id.remove(turn_id);
     }
+}
+
+/// Takes the steer `client_message_id` Codex echoed on the turn `turn_id` out of the steers the
+/// turn has yet to echo, on the session's task, answering the message's id the first time only,
+/// so its message is taken once; an echo of anything else answers `None`.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Codex session's frame intake takes each steer echoed on its turn"
+    )
+)]
+pub(crate) fn take_echoed_codex_steer(
+    record: &mut CodexSessionRecord,
+    turn_id: &str,
+    client_message_id: &str,
+) -> Option<QueueItemId> {
+    let echoed = QueueItemId::new(client_message_id).ok()?;
+    let unechoed = record.unechoed_steers_by_turn_id.get_mut(turn_id)?;
+    let at = unechoed
+        .iter()
+        .position(|message_id| *message_id == echoed)?;
+    let message_id = unechoed.remove(at);
+    if unechoed.is_empty() {
+        record.unechoed_steers_by_turn_id.remove(turn_id);
+    }
+    Some(message_id)
 }
 
 // Codex refuses a steer whose turn ended before it arrived, and the turn's end reaches the daemon

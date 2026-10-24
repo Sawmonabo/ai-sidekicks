@@ -16,6 +16,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
@@ -50,6 +51,7 @@ use crate::provider::driver::codex::run::start::record::{
     CodexBindingAdoptions, CodexRunCallDependencies, CodexSessionDisposal,
 };
 use crate::provider::driver::codex::run::start::{CodexRunStart, CodexRunStartDependencies};
+use crate::provider::driver::codex::run::steer::take_echoed_codex_steer;
 use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndWaiters;
 use crate::provider::driver::codex::server_requests::{
     CodexAskKind, CodexInboundServerRequest, CodexServerRequestDecision,
@@ -126,6 +128,8 @@ pub(crate) struct TestCodexTask {
     pub(crate) run_routes: Arc<CodexRunRoutes>,
     /// What the open of a turn Codex started acts through.
     pub(crate) self_started: CodexSelfStartedTurnDependencies,
+    /// The steers taken on their echo, in the order taken.
+    pub(crate) taken_steers: Vec<QueueItemId>,
     items: mpsc::UnboundedReceiver<CodexSessionInbound>,
 }
 
@@ -280,6 +284,7 @@ impl TestCodexSession {
                 calls,
                 run_routes,
                 self_started,
+                taken_steers: Vec::new(),
                 items,
             },
             bindings,
@@ -396,11 +401,22 @@ impl TestCodexTask {
         self.waiters.settle(&self.record);
     }
 
-    // The turns a frame ended leave the record, as the session's intake leaves them.
+    // The steers a frame echoed are taken and the turns it ended leave the record, as the
+    // session's intake does.
     fn apply(&mut self, routed: CodexRoutedFrames) {
         for dispatch in routed.dispatches {
+            for taken in dispatch.taken_messages {
+                if let Some(message_id) = take_echoed_codex_steer(
+                    &mut self.record,
+                    &taken.turn_id,
+                    &taken.client_message_id,
+                ) {
+                    self.taken_steers.push(message_id);
+                }
+            }
             for ended in dispatch.turns_ended {
                 self.record.remove_active_turn(&ended.turn_id);
+                self.record.forget_interrupted_run(&ended.turn_id);
                 self.record.remember_settled_turn(ended.turn_id);
             }
         }
@@ -561,7 +577,7 @@ impl CodexSessionDisposal for NoDisposal {
 }
 
 /// Binds no file: the tests' messages carry none.
-struct NoAttachments;
+pub(crate) struct NoAttachments;
 
 impl AttachmentResolver for NoAttachments {
     fn resolve_attachments(

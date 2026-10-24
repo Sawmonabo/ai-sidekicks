@@ -27,7 +27,7 @@ use crate::provider::port::tool_server_route::ToolServerRoute;
 use crate::provider::port::usage_sink::UsageSink;
 use crate::session::run::engine::RunEngine;
 use crate::session::run::inbound::RunInboundDispatch;
-use crate::session::run::pause::RunPauseControl;
+use crate::session::run::pause::{ContinuedMessages, RunPauseControl};
 
 /// The run queue's intake of a message the provider took into a run's turn.
 pub(crate) trait MessageTakenListener: Send + Sync {
@@ -117,6 +117,12 @@ pub(crate) struct DriverPorts {
         reason = "the Codex driver settles a continued run's kept messages through it"
     )]
     pub(crate) run_pauses: Arc<PortRegistration<Arc<RunPauseControl>>>,
+    /// The messages waiting for paused runs, as the run queue holds them.
+    #[expect(
+        dead_code,
+        reason = "the Codex driver settles a continued run's kept messages against it"
+    )]
+    pub(crate) continued_messages: Arc<PortRegistration<Arc<dyn ContinuedMessages>>>,
 }
 
 impl DriverPorts {
@@ -142,6 +148,7 @@ impl DriverPorts {
             tool_server_route: Arc::new(PortRegistration::new("tool server route")),
             callback_tool_host: Arc::new(PortRegistration::new("callback tool host")),
             run_pauses: Arc::new(PortRegistration::new("run pauses")),
+            continued_messages: Arc::new(PortRegistration::new("continued messages")),
         }
     }
 }

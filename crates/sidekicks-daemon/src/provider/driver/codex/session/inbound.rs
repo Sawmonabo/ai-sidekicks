@@ -19,6 +19,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
 use crate::provider::driver::codex::output_speed::CodexSettledOutputSpeed;
+use crate::provider::driver::codex::run::control::record::CodexRunControlCall;
 use crate::provider::driver::codex::run::faster_model_retry::CodexRetryStopAnswer;
 use crate::provider::driver::codex::run::start::record::{
     CodexAcceptedTurn, CodexTurnBegin, CodexTurnBeginAnswer, CodexTurnStartOutcome,
@@ -158,13 +159,8 @@ pub(crate) enum CodexSessionCall {
         /// Where the reading goes.
         reply: oneshot::Sender<CodexSessionReading>,
     },
-    /// Stops the newest live turn of a run.
-    InterruptRunTurn {
-        /// The run.
-        run_id: RunId,
-        /// Where the stop's failure goes; `Ok` with no live turn.
-        reply: oneshot::Sender<Result<(), CodexError>>,
-    },
+    /// A call of run control: an interrupt, a pause or a continue.
+    RunControl(CodexRunControlCall),
     /// Marks a held turn retried and takes its route, before its interrupt goes out.
     StopTurnForRetry {
         /// The run.

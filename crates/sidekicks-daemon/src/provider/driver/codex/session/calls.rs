@@ -13,6 +13,7 @@ use tokio::sync::oneshot;
 use crate::provider::driver::codex::notification_routing::{
     CodexRoutedFrames, CodexSessionRouting,
 };
+use crate::provider::driver::codex::run::control::record::run_codex_run_control_call;
 use crate::provider::driver::codex::run::faster_model_retry::{
     fork_codex_session_for_retry, restore_codex_retried_turn, stop_codex_turn_for_retry,
 };
@@ -23,7 +24,6 @@ use crate::provider::driver::codex::run::steer::{register_codex_steer, withdraw_
 use crate::provider::driver::codex::run::turn_end_waiters::{
     CodexTurnEndDeadline, CodexTurnEndWaiters, CodexTurnWait,
 };
-use crate::provider::driver::codex::run::turn_interrupt::interrupt_codex_turn;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::fork::config_change::run_codex_config_fork;
 use crate::provider::driver::codex::session::fork::{
@@ -150,18 +150,8 @@ pub(crate) async fn run_codex_session_call(
         CodexSessionCall::ReadSession { thread_id, reply } => {
             let _unheard = reply.send(read_codex_session(task, thread_id.as_deref()));
         }
-        CodexSessionCall::InterruptRunTurn { run_id, reply } => {
-            let record = &*task.record;
-            let interrupted = match record.newest_active_turn_for_run(run_id) {
-                Some(turn_id) => match record.service.connection() {
-                    Ok(connection) => {
-                        interrupt_codex_turn(&connection, &record.thread_id, turn_id).await
-                    }
-                    Err(error) => Err(error),
-                },
-                None => Ok(()),
-            };
-            let _unheard = reply.send(interrupted);
+        CodexSessionCall::RunControl(call) => {
+            run_codex_run_control_call(call, task.record, &dependencies.runs);
         }
         CodexSessionCall::StopTurnForRetry {
             run_id,

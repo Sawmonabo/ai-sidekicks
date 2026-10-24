@@ -254,9 +254,12 @@ impl CodexSessionRecord {
     }
 
     /// Lets go of an interrupted turn whose end arrived.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's frame intake lets go of an interrupted turn at its end"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex session's frame intake lets go of an interrupted turn at its end"
+        )
     )]
     pub(crate) fn forget_interrupted_run(&mut self, turn_id: &str) {
         self.interrupted_run_by_turn_id
