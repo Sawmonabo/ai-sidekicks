@@ -169,10 +169,11 @@ impl CodexServiceRecovery {
     }
 
     /// Ends every turn the service's sessions held with its process, in the order a kept message
-    /// needs: each run's turns ended first, then the turns' safety holds, then the held presses of
-    /// `Allow once` released, and only then the queue told the process is gone, which settles the
-    /// messages the process kept. The conversations stay to be resumed. With no `exit` read, a
-    /// lasting service a former daemon started, each run fails as a provider failure.
+    /// needs: the sessions taken out of the daemon's provider processes, each run's turns ended,
+    /// then the turns' safety holds, then the held presses of `Allow once` released, and only then
+    /// the queue told the process is gone, which settles the messages the process kept. The
+    /// conversations stay to be resumed. With no `exit` read, a lasting service a former daemon
+    /// started, each run fails as a provider failure.
     pub(crate) async fn end_turns_on_exit(
         &self,
         service: &Arc<CodexService>,
@@ -181,6 +182,9 @@ impl CodexServiceRecovery {
         if let Some(exit) = &exit {
             self.lock().last_exit.insert(service.id(), exit.clone());
         }
+        self.dependencies
+            .establishment
+            .forget_service_process(service);
         for inbound in service.attached_sessions() {
             let session_id = inbound.session_id();
             let Ok(dropped) =
