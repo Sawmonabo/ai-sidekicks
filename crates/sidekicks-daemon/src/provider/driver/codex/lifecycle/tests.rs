@@ -2,6 +2,7 @@
 //! driver's own, one run on a live turn, and the run queue's intake recorded.
 
 mod intake;
+mod sessions;
 
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
