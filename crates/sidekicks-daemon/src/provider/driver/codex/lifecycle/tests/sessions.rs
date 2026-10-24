@@ -14,11 +14,14 @@ use crate::provider::driver::codex::run::start::record::CodexTurnRequest;
 use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::inbound::codex_session_inbound;
+use crate::provider::driver::codex::session::slots::closing_session_refusal;
 use crate::provider::driver::codex::session::state::CodexTurnMessage;
-use crate::provider::driver::codex::session::test_session::turn_reply;
+use crate::provider::driver::codex::session::test_session::{
+    TEST_THREAD, turn_completed, turn_reply,
+};
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::provider::driver::session_control::CloseSessionParams;
-use crate::provider::driver::test_registry::terminal_events;
+use crate::provider::driver::test_registry::{new_run_id, terminal_events};
 
 /// How long a close may take before the test counts it as stuck.
 const CLOSE_BOUND: Duration = Duration::from_secs(10);
@@ -161,6 +164,80 @@ async fn a_close_interrupts_a_turn_whose_start_codex_answers_after_the_close_beg
             Err(CodexError::TurnWithdrawn { .. })
         ),
         "the close withdrew the start before Codex named its turn"
+    );
+}
+
+// Real time under a timeout, as above. A turn start the close's interrupt has been answered for,
+// sent before the close claims the slot, its turn's end still on its way. Killed by leaving the
+// close's mark unread where the record takes a turn's start: the start would wait for the stopped
+// turn, then send `turn/start` on a conversation the close lets go, which Codex would run on.
+#[tokio::test]
+async fn a_turn_start_after_the_close_s_interrupt_is_refused_and_starts_no_turn() {
+    let LiveCodexSession {
+        driver,
+        session_id,
+        binding_id,
+        mut scripted,
+        ..
+    } = LiveCodexSession::start(&[]).await;
+    let parts = Arc::clone(driver.parts().expect("the driver composes"));
+    let inbound = parts
+        .slots
+        .require_live(session_id)
+        .expect("the session is live");
+
+    let close = driver.close_session(CloseSessionParams { session_id });
+    tokio::pin!(close);
+    let mut refused = None;
+    let mut methods = Vec::new();
+    let deadline = tokio::time::sleep(CLOSE_BOUND);
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            () = &mut deadline => panic!("the close ends within its bound"),
+            closed = &mut close => {
+                closed.expect("the session closes");
+                break;
+            }
+            sent = scripted.script.next_sent() => {
+                if sent["method"] == "turn/interrupt" {
+                    scripted.script.answer(&sent, &json!({}));
+                    let deadline = CodexTurnEndDeadline::new(CODEX_TURN_START_TIMEOUT);
+                    let start = parts.run_start.start_turn(
+                        &inbound,
+                        new_run_id(),
+                        binding_id.clone(),
+                        turn_request(),
+                        None,
+                        &deadline,
+                    );
+                    refused = Some(
+                        tokio::time::timeout(CLOSE_BOUND, start)
+                            .await
+                            .expect("the start is answered before the interrupted turn ends"),
+                    );
+                    scripted
+                        .script
+                        .send(&turn_completed(TEST_THREAD, TEST_TURN, "interrupted"));
+                } else {
+                    answer_stopping_request(&scripted.script, &sent);
+                }
+                methods.push(sent);
+            }
+        }
+    }
+
+    let refusal = refused
+        .expect("the close interrupted the turn")
+        .expect_err("the closing session refuses the start");
+    assert_eq!(
+        refusal.to_string(),
+        closing_session_refusal(session_id).to_string()
+    );
+    assert_interrupted_before_let_go(&methods, TEST_TURN);
+    assert!(
+        !methods.iter().any(|sent| sent["method"] == "turn/start"),
+        "no turn started on the closing session"
     );
 }
 

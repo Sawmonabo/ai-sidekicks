@@ -127,7 +127,7 @@ impl CodexSessionSlots {
             .map(|claim| claim.1)
         {
             Some(CodexSessionSlotState::Closing) => {
-                format!("Codex session \"{session_id}\" is being torn down.")
+                return Err(closing_session_refusal(session_id));
             }
             Some(CodexSessionSlotState::Establishing | CodexSessionSlotState::Live) => format!(
                 "Codex session \"{session_id}\" is being re-established; the conversation it \
@@ -275,6 +275,15 @@ impl CodexSessionClaim<'_> {
 impl Drop for CodexSessionClaim<'_> {
     fn drop(&mut self) {
         self.slots.leave(self.session_id, self.claim_id);
+    }
+}
+
+/// The refusal of run control on `session_id` once its close began: a `CodexError::Transport`
+/// saying the session is being torn down.
+pub(crate) fn closing_session_refusal(session_id: SessionId) -> CodexError {
+    CodexError::Transport {
+        detail: format!("Codex session \"{session_id}\" is being torn down."),
+        cause: None,
     }
 }
 
