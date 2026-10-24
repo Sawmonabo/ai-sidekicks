@@ -353,6 +353,60 @@ async fn a_sealed_file_under_a_plain_record_moves_the_record_and_seals_nothing()
     );
 }
 
+/// A pass sealing a plain file that runs past a call's time keeps running once that call refuses,
+/// and a later call waits for it and is served from the sealed file, one pass having run.
+/// Mutation: run the pass inside the call's time, so each call drops it and starts it over.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_seal_pass_longer_than_a_call_lands_once() {
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    std::fs::write(folder.path().join(RECORD), NO_SEAL_SERVICE).expect("the test writes it");
+    let plain = SecretItemsFile::new(folder.path()).keychain(WORKFLOW);
+    for account in [EARLIER, "second", "third"] {
+        plain
+            .write(account, &SecretString::from("earlier value"))
+            .await
+            .expect("the test fills the file");
+    }
+    let seal = TestSeal::new();
+    // Three items' seals, 360 ms in all, outlast the 300 ms call; the probe's are not delayed.
+    seal.delay_seals_under(WORKFLOW, Duration::from_millis(120));
+    let items = secret_items(
+        folder.path(),
+        &TestStoreAccess::sealing(Arc::clone(&seal)),
+        false,
+        Duration::from_millis(300),
+    );
+    let keychain = items.keychain(KeychainService::WorkflowSecrets);
+
+    let scenario = async {
+        let first = keychain
+            .read(EARLIER)
+            .await
+            .map_err(|refusal| refusal.cause());
+        seal.wait_for_seals(4).await;
+        let later = keychain
+            .read(EARLIER)
+            .await
+            .map_err(|refusal| refusal.cause());
+        (first, later)
+    };
+    let (first, later) = tokio::time::timeout(Duration::from_secs(5), scenario)
+        .await
+        .expect("every call answers within its time");
+
+    assert_eq!(first.err(), Some(KeychainRefusalCause::Unavailable));
+    assert_eq!(
+        later.map(|kept| kept.map(|kept| kept.expose_secret().to_owned())),
+        Ok(Some("earlier value".to_owned()))
+    );
+    assert_eq!(seal.seals(), 5, "two probes and one seal per item");
+    assert_eq!(
+        read_text(&folder.path().join(RECORD)).as_deref(),
+        Some(SEALED)
+    );
+    assert_eq!(form(folder.path()).as_deref(), Some("sealed"));
+}
+
 /// A sealed file whose key changed refuses read, write and the account list, latched for the run
 /// with no further seal or unseal, while one whose service is gone checks again at each call and is
 /// served once it returns. Mutations: drop the latch, so the next call probes again; latch every

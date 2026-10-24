@@ -33,7 +33,7 @@ use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_platforms::{SealFailure, SealHeader, SealKey};
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::sync::{Mutex, MutexGuard, oneshot};
 use zeroize::Zeroizing;
 
 use crate::cleanup_failures::CleanupFailures;
@@ -272,9 +272,34 @@ impl SecretItemsFile {
     /// blob of a sealed file whose key is weaker than `probe`'s, the start's fresh seal. Never
     /// seals downward: the pass is abandoned, the file left as it was, when a seal fails or a new
     /// blob is weaker than `probe`'s, than the blob it replaces, or bound to the boot state. A blob
-    /// whose key the daemon does not know is kept as it is. Fails with [`KeychainRefusal`] when
-    /// the file cannot be read or written; the file is then left as it was.
-    pub(crate) async fn seal_again(&self, probe: SealHeader) -> Result<SealPass, KeychainRefusal> {
+    /// whose key the daemon does not know is kept as it is. The pass runs in a task of its own that
+    /// holds the file's lock until it ends, so it lands whole even after its caller stops waiting,
+    /// and a later call on the file waits for it rather than starting another. Fails with
+    /// [`KeychainRefusal`] when the file cannot be read or written; the file is then left as it
+    /// was.
+    pub(crate) async fn seal_again(
+        self: &Arc<Self>,
+        probe: SealHeader,
+    ) -> Result<SealPass, KeychainRefusal> {
+        // The caller holds the receiver while it waits and drops it when it stops waiting.
+        let (still_waiting, _caller_waits) = oneshot::channel::<()>();
+        let items_file = Arc::clone(self);
+        tokio::spawn(async move {
+            let pass = items_file.seal_held(probe).await;
+            if still_waiting.is_closed() {
+                tracing::info!(
+                    pass = ?pass.as_ref().ok(),
+                    "the items file's seal pass ended after its caller stopped waiting"
+                );
+            }
+            pass
+        })
+        .await
+        .unwrap_or_else(|interrupted| Err(file_failure(interrupted)))
+    }
+
+    // The pass `seal_again` runs, holding the file's lock from its read through its write.
+    async fn seal_held(&self, probe: SealHeader) -> Result<SealPass, KeychainRefusal> {
         let seal = self
             .seal
             .as_ref()

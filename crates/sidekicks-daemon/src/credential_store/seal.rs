@@ -44,9 +44,9 @@ impl SecretSeal for CredentialSeal {
 
 /// A seal a test hands the daemon: each blob carries a real header naming the key it is set to seal
 /// with, then the name and value, so a blob opened under another name refuses as systemd's does.
-/// It counts its calls, can hold the next seal until the test releases it, and is switched by the
-/// test: absent or refusing, keeping another value than it is given, or no longer opening the
-/// blobs it sealed so far, as a lost key does.
+/// It counts its calls, can hold the next seal until the test releases it or delay the seals of
+/// some names, and is switched by the test: absent or refusing, keeping another value than it is
+/// given, or no longer opening the blobs it sealed so far, as a lost key does.
 #[cfg(test)]
 pub(crate) struct TestSeal {
     /// The seals asked for, those still held included.
@@ -85,6 +85,8 @@ struct TestSealSettings {
     keeps_another_value: bool,
     // The generation each new blob carries; a blob of an earlier one no longer opens.
     generation: u32,
+    // How long each seal of a name starting with the text waits before it answers.
+    delay: Option<(&'static str, std::time::Duration)>,
 }
 
 #[cfg(test)]
@@ -101,6 +103,7 @@ impl TestSeal {
                 pcr_mask: 0,
                 keeps_another_value: false,
                 generation: 0,
+                delay: None,
             }),
         })
     }
@@ -125,6 +128,11 @@ impl TestSeal {
     /// Stops opening every blob sealed so far, as a key that is gone does; later blobs open.
     pub(crate) fn forget_the_blobs_sealed_so_far(&self) {
         self.settings().generation += 1;
+    }
+
+    /// Delays every later seal of a name starting with `prefix` by `delay`.
+    pub(crate) fn delay_seals_under(&self, prefix: &'static str, delay: std::time::Duration) {
+        self.settings().delay = Some((prefix, delay));
     }
 
     /// Holds the next seal until the returned sender sends or drops.
@@ -191,9 +199,13 @@ impl SecretSeal for TestSeal {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take();
-        let sealed = {
+        let (sealed, delay) = {
             let settings = self.settings();
-            if let Some(failure) = test_failure(settings.answer) {
+            let delay = settings
+                .delay
+                .filter(|(prefix, _)| name.starts_with(prefix))
+                .map(|(_, delay)| delay);
+            let sealed = if let Some(failure) = test_failure(settings.answer) {
                 Err(failure)
             } else {
                 let kept = if settings.keeps_another_value {
@@ -207,12 +219,16 @@ impl SecretSeal for TestSeal {
                     settings.pcr_mask,
                     payload.as_bytes(),
                 ))
-            }
+            };
+            (sealed, delay)
         };
         Box::pin(async move {
             if let Some(held) = held {
                 // A dropped sender releases the seal as a sent one does.
                 drop(held.await);
+            }
+            if let Some(delay) = delay {
+                tokio::time::sleep(delay).await;
             }
             sealed
         })
