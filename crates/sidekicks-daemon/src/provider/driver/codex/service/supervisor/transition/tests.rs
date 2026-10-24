@@ -177,16 +177,17 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
     &["Disconnect { is_process_gone: false }", "ReportDropped", "Dial { dial: 3, attempt: 0 }",
         "Publish(Reconnecting)"],
 )]
-#[case::a_drop_whose_process_ended_is_a_crash(
+// Killed by counting the end in the crash window, which leaves a crash loop no exit to name.
+#[case::a_drop_whose_unread_process_ended_restarts_it_with_no_crash_counted(
     CodexServiceKind::Account,
     vec![
         at_once(|_| SupervisorEvent::Start),
         boxed(started(1, CodexServiceKind::Account)),
         boxed(dropped(1, 10, true)),
     ],
-    "Restarting { wait: 2 }",
-    &["Disconnect { is_process_gone: true }", "ReportProcessExited",
-        "WaitToRestart { ticket: 2, wait: 0ns }", "Publish(Restarting)"],
+    "Starting { launch: 2, recovery: Some(Crash) }",
+    &["Disconnect { is_process_gone: true }", "ReportProcessExited", "Launch { launch: 2 }",
+        "Publish(Starting)"],
 )]
 #[case::a_joined_service_whose_process_ended_is_redialed(
     CodexServiceKind::Joined,

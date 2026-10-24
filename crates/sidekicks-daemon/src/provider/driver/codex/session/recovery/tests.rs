@@ -135,8 +135,8 @@ fn test_recovery(
     ))
 }
 
-fn exit_code_one() -> ProcessExit {
-    serde_json::from_value(json!({"exitCode": 1, "outputTail": "the service ended"}))
+fn exit_code(code: u8) -> ProcessExit {
+    serde_json::from_value(json!({"exitCode": code, "outputTail": "the service ended"}))
         .expect("the test writes an exit")
 }
 
@@ -162,7 +162,7 @@ async fn a_process_exit_ends_the_paused_run_and_releases_its_presses_before_the_
 
     session
         .task
-        .drive(recovery.end_turns_on_exit(&service, Some(exit_code_one())))
+        .drive(recovery.end_turns_on_exit(&service, Some(exit_code(1))))
         .await;
 
     assert_eq!(
@@ -182,10 +182,11 @@ async fn a_process_exit_ends_the_paused_run_and_releases_its_presses_before_the_
     );
 }
 
-// Killed by a notice after a crash restart, and by the person's restart telling no session it
-// brought back. Runs in real time under a bound, since the notices are written to the database.
+// Killed by a notice after a crash restart, by the person's restart telling no session it
+// brought back, and by a crash loop naming an exit older than its newest. Runs in real time under
+// a bound, since the notices are written to the database.
 #[tokio::test]
-async fn only_the_persons_restart_of_a_crash_loop_tells_the_session_it_brought_back() {
+async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_the_session() {
     tokio::time::timeout(Duration::from_secs(30), async {
         let mut session = TestCodexSession::start().await;
         session.scripted.report_version("codex-cli 0.163.0");
@@ -214,13 +215,16 @@ async fn only_the_persons_restart_of_a_crash_loop_tells_the_session_it_brought_b
             database
                 .reader()
                 .prepare(
-                    "SELECT json_extract(payload, '$.kind') FROM session_events
+                    "SELECT json_extract(payload, '$.kind'), json_extract(payload, '$.exitCode')
+                     FROM session_events
                      WHERE session_id = ?1 AND type = 'session.notice.posted' ORDER BY sequence",
                 )
                 .and_then(|mut statement| {
                     statement
-                        .query_map([session_id.text().as_str()], |row| row.get::<_, String>(0))?
-                        .collect::<Result<Vec<String>, _>>()
+                        .query_map([session_id.text().as_str()], |row| {
+                            Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
+                        })?
+                        .collect::<Result<Vec<_>, _>>()
                 })
                 .expect("the test reads the session's notices")
         };
@@ -229,14 +233,16 @@ async fn only_the_persons_restart_of_a_crash_loop_tells_the_session_it_brought_b
             .task
             .drive(recovery.recover(&service, CodexServiceRecoveryCause::Crash))
             .await;
-        assert_eq!(notices(&session.database), Vec::<String>::new());
+        assert_eq!(notices(&session.database), Vec::new());
 
         session
             .task
             .drive(async {
-                recovery
-                    .end_turns_on_exit(&service, Some(exit_code_one()))
-                    .await;
+                for code in [1, 137] {
+                    recovery
+                        .end_turns_on_exit(&service, Some(exit_code(code)))
+                        .await;
+                }
                 recovery.crash_loop(&service).await;
                 recovery
                     .recover(&service, CodexServiceRecoveryCause::PersonRestart)
@@ -245,7 +251,10 @@ async fn only_the_persons_restart_of_a_crash_loop_tells_the_session_it_brought_b
             .await;
         assert_eq!(
             notices(&session.database),
-            ["providerCrashLoop", "providerRestarted"]
+            [
+                ("providerCrashLoop".to_owned(), Some(137)),
+                ("providerRestarted".to_owned(), None),
+            ]
         );
         service_side.abort();
     })

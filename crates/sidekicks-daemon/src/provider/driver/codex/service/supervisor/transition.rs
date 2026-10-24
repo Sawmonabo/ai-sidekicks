@@ -275,9 +275,11 @@ impl Supervision {
 
     // The process ended on its own at `at`: a restart after the crash window's wait, or the
     // crash loop that leaves it down; a replaced service is never restarted and its record goes.
+    // With no `at`, a lasting service a former daemon started whose end the daemon could not
+    // read, it starts again at once and no crash is counted, since a crash loop names its end.
     fn crash(
         &mut self,
-        at: SystemTime,
+        at: Option<SystemTime>,
         mut actions: Vec<SupervisorAction>,
     ) -> (SupervisorState, Vec<SupervisorAction>) {
         actions.push(SupervisorAction::ReportProcessExited);
@@ -286,6 +288,9 @@ impl Supervision {
             actions.push(SupervisorAction::Publish(CodexServiceAvailability::Stopped));
             return (SupervisorState::Stopped, actions);
         }
+        let Some(at) = at else {
+            return self.start(Some(CodexServiceRecoveryCause::Crash), actions);
+        };
         match self.crash_window.record_crash(at) {
             CrashOutcome::RestartAfter(wait) => {
                 let ticket = self.mint_ticket();
@@ -320,7 +325,7 @@ impl Supervision {
             Some(CodexServiceRecoveryCause::Crash | CodexServiceRecoveryCause::PersonRestart)
         ) {
             actions.push(SupervisorAction::ReportStartFailed(failure));
-            return self.crash(at, actions);
+            return self.crash(Some(at), actions);
         }
         actions.push(SupervisorAction::Publish(
             CodexServiceAvailability::StartFailed(failure),
@@ -580,8 +585,8 @@ impl Supervision {
                     ..
                 },
             ) if dropped == dial => match process_gone_at {
-                Some(gone_at) if self.kind.is_daemons_own() => self.crash(
-                    gone_at,
+                Some(_) if self.kind.is_daemons_own() => self.crash(
+                    None,
                     vec![Action::Disconnect {
                         is_process_gone: true,
                     }],
@@ -604,7 +609,7 @@ impl Supervision {
                 if ended == launch =>
             {
                 self.crash(
-                    at,
+                    Some(at),
                     vec![Action::Disconnect {
                         is_process_gone: true,
                     }],
@@ -715,13 +720,12 @@ impl Supervision {
                     process_gone_at,
                 },
             ) if failed == dial => match (self.kind, process_gone_at) {
-                (CodexServiceKind::Account | CodexServiceKind::Terminal, Some(gone_at)) => self
-                    .crash(
-                        gone_at,
-                        vec![Action::Disconnect {
-                            is_process_gone: true,
-                        }],
-                    ),
+                (CodexServiceKind::Account | CodexServiceKind::Terminal, Some(_)) => self.crash(
+                    None,
+                    vec![Action::Disconnect {
+                        is_process_gone: true,
+                    }],
+                ),
                 // Nothing answers where Codex's own service was: the folder is free to start the
                 // daemon's own, and that service's end is the conversations' crash.
                 (CodexServiceKind::Joined, _) if !is_listening => self.start(
@@ -741,7 +745,7 @@ impl Supervision {
                 if ended == launch =>
             {
                 self.crash(
-                    at,
+                    Some(at),
                     vec![
                         Action::CancelPending,
                         Action::Disconnect {
