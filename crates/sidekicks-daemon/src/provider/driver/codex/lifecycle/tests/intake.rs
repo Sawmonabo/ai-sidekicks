@@ -247,9 +247,10 @@ async fn a_retry_gives_its_held_turns_unechoed_steer_back_once_its_new_turn_runs
         );
         script.answer(&started, &turn_reply("turn-2"));
     };
-    let (retried, ()) = tokio::time::timeout(Duration::from_secs(10), async {
-        tokio::join!(retry, service)
-    })
+    let (retried, ()) = tokio::time::timeout(
+        Duration::from_secs(10),
+        Box::pin(async { tokio::join!(retry, service) }),
+    )
     .await
     .expect("the retry settles");
 
