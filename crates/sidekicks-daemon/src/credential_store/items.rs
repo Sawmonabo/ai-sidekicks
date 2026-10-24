@@ -1,49 +1,60 @@
 //! The daemon's secrets for one run: the place picked for them, the check that the place keeps what
-//! it is given, the move of the items file's secrets into a Secret Service once one runs and its
-//! default collection is unlocked, and the erase of every item the app made.
+//! it is given, the one seal of a Linux plain file once systemd's credential service seals for it,
+//! and the erase of every item the app made.
 //!
 //! - **The pick.** A start with a place record keeps its place. One without picks the operating
-//!   system's store when it can be reached, else the items file because no Secret Service runs, and
-//!   a Mac's service running while the person is logged out picks the file because of that. The
-//!   record is written only once the place passes its check, so a refused first start records
-//!   nothing. A record that cannot be read refuses every call and is left as it is. A store picked
-//!   for this run is opened at each call that needs it and is never traded for the file.
-//! - **The check.** Write a random value under a fresh probe account, read it back, compare, then
-//!   delete it, a failed delete only logged. A store that keeps another value refuses every call
-//!   until the next start; one locked or not reached refuses that call, and the next call checks
-//!   again.
-//! - **The move.** While the file holds the secrets because no Secret Service ran, each secret call
-//!   that finds one running, and each of the store's signals, asks for a settling run, and the call
-//!   is served from the file. The run moves the items only once the Secret Service's default
-//!   collection exists and is unlocked, so no move raises an unlock prompt, and once the store
-//!   passes its check, made outside the place's lock. Only the copy and the deletes hold the calls
-//!   behind them, so none writes to a place the move is leaving, and each store call of the copy
-//!   answers within the store's quick-answer limit. A refusal before the move records its
-//!   direction leaves the file serving; one after leaves the recorded move, which the next call
-//!   finishes. A store that keeps another value stops the move until the next start.
+//!   system's store on macOS and Windows, the plain file for a Mac's service running while the
+//!   person is logged out, and on Linux what a fresh probe through systemd's credential service
+//!   shows: the sealed file where it seals bound to no boot state, the plain file where it would
+//!   bind the seal to the boot state, where no service listens, or where it refuses in one of the
+//!   ways that mean it cannot seal on this computer. Any other failure refuses that call, and the
+//!   next call probes again. The record is written only once the place passes its check, so a
+//!   refused first start records nothing. A record that cannot be read refuses every call and is
+//!   left as it is.
+//! - **The check.** The operating system's store and a plain file: write a random value under a
+//!   fresh probe account, read it back, compare, then delete it, a failed delete only logged. The
+//!   sealed file: seal a random value, read the key its header names, open it and compare, then
+//!   open one existing item per key the file holds. A place that keeps another value refuses every
+//!   call until the next start; one locked, missing or not answering refuses that call, and the
+//!   next call checks again.
+//! - **A sealed file that cannot be opened** is left byte for byte and refuses every call needing a
+//!   secret, with the cause the status read names: the service gone or failing, the chip not
+//!   available (an item sealed with the chip fails while the probe sealed without it), each checked
+//!   again at the next call, or the key changed (an item fails under the key the probe opens with),
+//!   latched until the next start.
+//! - **Sealing again.** A later start whose probe seals bound to no boot state seals a plain file's
+//!   items once and records the sealed file, and seals again once each item sealed with a weaker
+//!   key than the probe's. A pass that would seal any item downward is abandoned and the file kept.
 //!
-//! Every call answers within its one time, its waits for the place and a check included, and a
-//! call with no answer in that time reads `locked`.
+//! Every call answers within its one time, its waits for the place and a check included; a call
+//! with no answer in that time reads `locked` from the operating system's store, where a prompt
+//! can hold it, and `unavailable` from either file.
 
 mod erase;
-mod settling;
 #[cfg(test)]
 mod tests;
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
-use secrecy::SecretString;
+use secrecy::{ExposeSecret as _, SecretString};
+use sidekicks_contracts::daemon::status::{DaemonSecretsFileUnopened, DaemonSecretsPlainReason};
 use sidekicks_contracts::keychain::KeychainRefusalCause;
+use sidekicks_platforms::{SealFailure, SealHeader, SealKey};
 use tokio::sync::RwLock;
 
-use crate::credential_store::file::{FileSecretKeychain, SecretItemsFile};
-use crate::credential_store::items::settling::SettleRuns;
-use crate::credential_store::os::{CredentialStoreAccess, OsCredentialStore, OsSecretKeychain};
-use crate::credential_store::place::{self, PlaceRecord, SecretsFileReason, SecretsPlace};
+use crate::credential_store::file::{
+    FileSecretKeychain, ItemsForm, SealPass, SecretItemsFile, credential_name, is_weaker,
+};
+use crate::credential_store::os::{
+    CredentialStoreAccess, OsCredentialStore, OsSecretKeychain, SecretsOffer,
+};
+use crate::credential_store::place::{self, PlaceRecord, SecretsPlace};
+use crate::credential_store::seal::SecretSeal;
 use crate::credential_store::service::KeychainService;
 use crate::credential_store::{KeychainRefusal, SecretKeychain, holds_value};
 use crate::random_hex::random_hex;
@@ -52,6 +63,15 @@ use crate::random_hex::random_hex;
 const PROBE_VALUE_BYTES: usize = 32;
 const PROBE_ACCOUNT_BYTES: usize = 8;
 
+// The refusals a first start reads as systemd's credential service unable to seal on this
+// computer, read there and nowhere else: no such user, and a system error for a key it cannot make
+// (no chip and a temporary `/var/lib/systemd`, as in most containers) or a build without the
+// cryptography it needs. The numbers are Linux's, as the service writes them.
+const NO_SUCH_USER: &str = "io.systemd.Credentials.NoSuchUser";
+const SYSTEM_ERROR: &str = "io.systemd.System";
+const LINUX_ENOTRECOVERABLE: i64 = 131;
+const LINUX_EOPNOTSUPP: i64 = 95;
+
 /// What the daemon's start hands its secret items.
 pub(crate) struct SecretItemsStart {
     /// The daemon's data folder, which holds the place record and the items file.
@@ -59,7 +79,7 @@ pub(crate) struct SecretItemsStart {
     /// Whether this is a Mac's service running while the person is logged out, which cannot reach
     /// the login keychain.
     pub(crate) runs_while_logged_out: bool,
-    /// This machine's credential store.
+    /// What this machine offers for the secrets.
     pub(crate) access: Arc<dyn CredentialStoreAccess>,
     /// How long one secret call may take, every wait included.
     pub(crate) call_timeout: Duration,
@@ -72,12 +92,17 @@ pub(crate) struct SecretItems {
     record_path: PathBuf,
     /// Whether this is a Mac's service running while the person is logged out.
     runs_while_logged_out: bool,
-    /// This machine's credential store.
-    access: Arc<dyn CredentialStoreAccess>,
-    /// The calls on the operating system's store.
-    os_store: Arc<OsCredentialStore>,
-    /// The items file.
-    items_file: Arc<SecretItemsFile>,
+    /// What holds the secrets, in words for the service log.
+    description: String,
+    /// The calls on the operating system's store, where the machine offers one.
+    os_store: Option<Arc<OsCredentialStore>>,
+    /// systemd's credential service, where the machine offers it.
+    seal: Option<Arc<dyn SecretSeal>>,
+    /// The items file kept plain.
+    plain_file: Arc<SecretItemsFile>,
+    /// The items file sealed through `seal`, at the same path; only one of the two serves calls
+    /// in a run, the place's lock held over the one pass that turns the plain file sealed.
+    sealed_file: Option<Arc<SecretItemsFile>>,
     /// The check's account for this run, fresh at each start, so a leftover from another build is
     /// never touched.
     probe_account: String,
@@ -85,8 +110,6 @@ pub(crate) struct SecretItems {
     call_timeout: Duration,
     /// The place and its check, read by every call and written by a pick, a check and a move.
     state: RwLock<PlaceState>,
-    /// Whether a settling run is under way, so only one runs at a time.
-    settle_runs: Mutex<SettleRuns>,
 }
 
 // What this run knows of the place.
@@ -96,9 +119,8 @@ struct PlaceState {
     // Where calls go, once picked.
     picked: Option<SecretsPlace>,
     verdict: Verdict,
-    // Whether the move is stopped until the next start: a Secret Service kept another value than
-    // its check wrote, or the erase emptied the places.
-    is_move_stopped: bool,
+    // Why the sealed file could not be opened at the last check, while it could not.
+    cannot_open: Option<DaemonSecretsFileUnopened>,
 }
 
 // The place record as this run read it.
@@ -118,7 +140,10 @@ enum Verdict {
     #[default]
     Unchecked,
     Accepted,
+    // The place kept another value than the check gave it.
     Mismatch,
+    // An item of the sealed file does not open under the key the probe opens with.
+    KeyChanged,
 }
 
 // What a call may do now.
@@ -128,11 +153,20 @@ enum Readiness {
     Unsettled,
 }
 
-// A check's outcome.
+// A write-read-delete check's outcome.
 enum Check {
     Accepted,
     Mismatch,
     Refused(KeychainRefusal),
+}
+
+// What a fresh probe through systemd's credential service showed.
+enum Probe {
+    // It sealed and opened the probe's value; the header of the blob it sealed.
+    Sealed(SealHeader),
+    // It kept another value than the probe gave it.
+    Mismatch,
+    Failed(SealFailure),
 }
 
 impl PlaceState {
@@ -145,43 +179,32 @@ impl PlaceState {
             }
             RecordState::Absent | RecordState::Present(_) => {}
         }
-        let Some(place) = self.picked else {
-            return Readiness::Unsettled;
-        };
-        match self.verdict {
-            Verdict::Mismatch => Readiness::Refused(mismatch()),
-            Verdict::Unchecked => Readiness::Unsettled,
-            Verdict::Accepted => Readiness::Ready(place),
-        }
-    }
-
-    // Whether a settling run may move the items: they sit in the file because no Secret Service
-    // ran, and no Secret Service has kept another value this run.
-    fn is_waiting_to_move(&self, place: SecretsPlace) -> bool {
-        !self.is_move_stopped
-            && place
-                == SecretsPlace::File {
-                    reason: SecretsFileReason::NoSecretService,
-                }
-    }
-
-    // Whether a run made with no person's call may settle the place: only a file kept because no
-    // Secret Service ran, picked or recorded with no move under way, and waiting to move, so such a
-    // run never writes the check's probe into a Secret Service.
-    fn can_settle_in_background(&self) -> bool {
-        match (self.picked, &self.record) {
-            (Some(place), _) => self.is_waiting_to_move(place),
-            (None, RecordState::Present(record)) if record.moving_to.is_none() => {
-                self.is_waiting_to_move(record.place)
+        match (self.verdict, self.picked) {
+            (Verdict::Mismatch, _) => Readiness::Refused(mismatch()),
+            (Verdict::KeyChanged, _) => {
+                Readiness::Refused(cannot_open(DaemonSecretsFileUnopened::KeyChanged))
             }
-            (
-                None,
-                RecordState::Present(_)
-                | RecordState::Unread
-                | RecordState::Unreadable(_)
-                | RecordState::Absent,
-            ) => false,
+            (Verdict::Accepted, Some(place)) => Readiness::Ready(place),
+            (Verdict::Unchecked | Verdict::Accepted, _) => Readiness::Unsettled,
         }
+    }
+
+    // Records that `place` passed its check.
+    fn accept(&mut self, place: SecretsPlace) -> SecretsPlace {
+        self.picked = Some(place);
+        self.verdict = Verdict::Accepted;
+        self.cannot_open = None;
+        place
+    }
+
+    // Records that the sealed file cannot be opened for `cause`, and the refusal for it.
+    fn refuse_opening(&mut self, cause: DaemonSecretsFileUnopened) -> KeychainRefusal {
+        self.picked = Some(SecretsPlace::SealedFile);
+        self.cannot_open = Some(cause);
+        if cause == DaemonSecretsFileUnopened::KeyChanged {
+            self.verdict = Verdict::KeyChanged;
+        }
+        cannot_open(cause)
     }
 }
 
@@ -189,25 +212,40 @@ impl PlaceState {
     not(test),
     expect(
         dead_code,
-        reason = "the daemon's start builds the secret items, settles them in the background, \
-                  hands each feature its keychain and status its file, and the erase calls them"
+        reason = "the daemon's start builds the secret items, hands each feature its keychain and \
+                  status its file, and the erase and the relink call them"
     )
 )]
 impl SecretItems {
-    /// The secret items of the data folder and store `start` names, nothing picked or checked
+    /// The secret items of the data folder and offer `start` names, nothing picked or checked
     /// yet. Fails with the random source's error when it gives no bytes for the probe account.
     pub(crate) fn new(start: SecretItemsStart) -> Result<Arc<Self>, getrandom::Error> {
+        let SecretItemsStart {
+            data_folder,
+            runs_while_logged_out,
+            access,
+            call_timeout,
+        } = start;
         let probe_account = format!("store-verify-{}", random_hex(PROBE_ACCOUNT_BYTES)?);
+        let (os_store, seal) = match access.offer() {
+            SecretsOffer::OperatingSystem(open) => {
+                (Some(OsCredentialStore::new(open, call_timeout)), None)
+            }
+            SecretsOffer::SealService(seal) => (None, Some(seal)),
+        };
         Ok(Arc::new(Self {
-            record_path: place::record_path(&start.data_folder),
-            runs_while_logged_out: start.runs_while_logged_out,
-            os_store: OsCredentialStore::new(Arc::clone(&start.access), start.call_timeout),
-            access: start.access,
-            items_file: SecretItemsFile::new(&start.data_folder),
+            record_path: place::record_path(&data_folder),
+            runs_while_logged_out,
+            description: access.description(),
+            os_store,
+            plain_file: SecretItemsFile::new(&data_folder),
+            sealed_file: seal
+                .as_ref()
+                .map(|seal| SecretItemsFile::sealed(&data_folder, Arc::clone(seal))),
+            seal,
             probe_account,
-            call_timeout: start.call_timeout,
+            call_timeout,
             state: RwLock::new(PlaceState::default()),
-            settle_runs: Mutex::new(SettleRuns::default()),
         }))
     }
 
@@ -216,8 +254,15 @@ impl SecretItems {
         ItemsKeychain {
             items: Arc::clone(self),
             service,
-            os: self.os_store.keychain(service.as_str()),
-            file: self.items_file.keychain(service.as_str()),
+            os: self
+                .os_store
+                .as_ref()
+                .map(|store| store.keychain(service.as_str())),
+            plain: self.plain_file.keychain(service.as_str()),
+            sealed: self
+                .sealed_file
+                .as_ref()
+                .map(|file| file.keychain(service.as_str())),
         }
     }
 
@@ -229,19 +274,21 @@ impl SecretItems {
             .filter(|service| service.is_moved())
             .map(KeychainService::as_str)
             .collect();
-        self.items_file
+        self.plain_file
             .holds_items(&moved_services)
             .await
-            .then(|| self.items_file.file_path().to_path_buf())
+            .then(|| self.plain_file.file_path().to_path_buf())
     }
 
     // Serves one call within the call's time: waits for the place, settles it when it is not, then
-    // runs `call` on it while no move can start, asking for a settling run when the items wait for
-    // a Secret Service that now runs.
+    // runs `call` on the keychain of the place while no move can start.
     async fn serve<'call, Answer: Send>(
         self: &'call Arc<Self>,
-        service: KeychainService,
-        call: impl FnOnce(SecretsPlace) -> BoxFuture<'call, Result<Answer, KeychainRefusal>> + Send,
+        keychain: &'call ItemsKeychain,
+        call: impl FnOnce(
+            &'call dyn SecretKeychain,
+        ) -> BoxFuture<'call, Result<Answer, KeychainRefusal>>
+        + Send,
     ) -> Result<Answer, KeychainRefusal> {
         let answer = tokio::time::timeout(self.call_timeout, async {
             let (state, place) = loop {
@@ -255,10 +302,7 @@ impl SecretItems {
                 let mut state = self.state.write().await;
                 self.settle_held(&mut state).await?;
             };
-            if state.is_waiting_to_move(place) && self.access.check_reachable().await.is_ok() {
-                self.nudge();
-            }
-            let answer = call(place).await;
+            let answer = call(keychain.at(place)?).await;
             drop(state);
             answer
         })
@@ -271,9 +315,9 @@ impl SecretItems {
         });
         if let Err(refusal) = &answer {
             tracing::warn!(
-                service = service.as_str(),
+                service = keychain.service.as_str(),
                 error = refusal as &(dyn Error + 'static),
-                "A keychain call was refused"
+                "a keychain call was refused"
             );
         }
         answer
@@ -290,7 +334,7 @@ impl SecretItems {
             Err(refusal) => {
                 tracing::error!(
                     error = &refusal as &(dyn Error + 'static),
-                    "The secrets' place record cannot be read, so every secret call is refused \
+                    "the secrets' place record cannot be read, so every secret call is refused \
                      until it is fixed"
                 );
                 RecordState::Unreadable(refusal.reason().to_owned())
@@ -302,109 +346,319 @@ impl SecretItems {
     // the place calls go to. Fails with the refusal the caller answers with.
     async fn settle_held(&self, state: &mut PlaceState) -> Result<SecretsPlace, KeychainRefusal> {
         self.read_record_once(state).await;
-        if let RecordState::Unreadable(reason) = &state.record {
-            return Err(unreadable_record(reason));
-        }
-        let place = match state.picked {
-            Some(place) => place,
-            None => self.pick(state).await?,
-        };
-        match state.verdict {
-            Verdict::Mismatch => Err(mismatch()),
-            Verdict::Accepted => Ok(place),
-            Verdict::Unchecked => match self.check(place).await {
-                Check::Accepted => {
-                    if matches!(state.record, RecordState::Absent) {
-                        let record = PlaceRecord::settled(place);
-                        place::write_record(&self.record_path, &record).await?;
-                        state.record = RecordState::Present(record);
-                    }
-                    state.verdict = Verdict::Accepted;
-                    Ok(place)
-                }
-                Check::Mismatch => {
-                    state.verdict = Verdict::Mismatch;
-                    tracing::error!(
-                        place = ?place,
-                        "The secrets' place kept another value than the one written, so every \
-                         secret call is refused until the next start"
-                    );
-                    Err(mismatch())
-                }
-                Check::Refused(refusal) => Err(refusal),
-            },
-        }
-    }
-
-    // Picks this run's place from the record, finishing a move the record names first, or with no
-    // record from what this machine offers now, and logs it.
-    async fn pick(&self, state: &mut PlaceState) -> Result<SecretsPlace, KeychainRefusal> {
-        let recorded = match &state.record {
+        let record = match &state.record {
+            RecordState::Unreadable(reason) => return Err(unreadable_record(reason)),
             RecordState::Present(record) => Some(*record),
-            RecordState::Unread | RecordState::Unreadable(_) | RecordState::Absent => None,
+            RecordState::Unread | RecordState::Absent => None,
         };
-        let place = match recorded {
-            Some(record) => match record.moving_to {
-                Some(destination) => {
-                    match self.check(destination).await {
-                        Check::Accepted => {}
-                        Check::Mismatch => return Err(mismatch()),
-                        Check::Refused(refusal) => return Err(refusal),
-                    }
-                    let to = |service| self.place_keychain(destination, service);
-                    self.move_items(state, record, destination, &to).await?;
-                    destination
-                }
-                None => record.place,
-            },
-            None => {
-                if self.runs_while_logged_out {
-                    SecretsPlace::File {
-                        reason: SecretsFileReason::LoggedOutService,
-                    }
-                } else {
-                    match self.access.check_reachable().await {
-                        Ok(()) => SecretsPlace::OperatingSystem,
-                        Err(unreachable) => {
-                            tracing::warn!(
-                                error = &unreachable as &(dyn Error + 'static),
-                                file = %self.items_file.file_path().display(),
-                                "No Secret Service answers, so the secrets are kept in the items \
-                                 file until one runs and its default collection is unlocked"
-                            );
-                            SecretsPlace::File {
-                                reason: SecretsFileReason::NoSecretService,
-                            }
-                        }
-                    }
-                }
+        match (state.verdict, state.picked) {
+            (Verdict::Mismatch, _) => return Err(mismatch()),
+            (Verdict::KeyChanged, _) => {
+                return Err(cannot_open(DaemonSecretsFileUnopened::KeyChanged));
             }
+            (Verdict::Accepted, Some(place)) => return Ok(place),
+            (Verdict::Unchecked | Verdict::Accepted, _) => {}
+        }
+        let place = match record {
+            Some(
+                record @ PlaceRecord {
+                    moving_to: Some(destination),
+                    ..
+                },
+            ) => self.finish_move(state, record, destination).await?,
+            Some(record) => self.settle_recorded(state, record.place).await?,
+            None => self.settle_first(state).await?,
         };
-        state.picked = Some(place);
-        let store = self.access.description().await;
         tracing::info!(
             place = ?place,
             is_recorded = matches!(state.record, RecordState::Present(_)),
-            store,
-            "The daemon's secrets have their place"
+            store = self.description,
+            "the daemon's secrets have their place"
         );
         Ok(place)
     }
 
-    // Moves every item from `record`'s place into `destination`, already checked, through the
-    // keychains `to` gives. On success the destination serves, checked, and a file left behind is
-    // deleted. Fails with the refusal, leaving `state` as it was when the move stopped before
-    // recording its direction, and otherwise the recorded move, which the next call finishes.
-    async fn move_items(
+    // Picks the place at a first start, checks it and records it once it passes.
+    async fn settle_first(&self, state: &mut PlaceState) -> Result<SecretsPlace, KeychainRefusal> {
+        let place = if self.runs_while_logged_out {
+            SecretsPlace::LoggedOutServiceFile
+        } else if let Some(seal) = &self.seal {
+            match self.probe(seal.as_ref()).await? {
+                Probe::Sealed(header) if !header.is_boot_bound() => {
+                    let place = self.open_sealed(state, header).await?;
+                    self.record(state, place).await?;
+                    return Ok(place);
+                }
+                Probe::Sealed(header) => {
+                    log_boot_bound(header);
+                    plain_file(DaemonSecretsPlainReason::BootBound)
+                }
+                Probe::Failed(SealFailure::NoService(failure)) => {
+                    tracing::warn!(
+                        error = &failure as &(dyn Error + 'static),
+                        file = %self.plain_file.file_path().display(),
+                        "systemd's credential service is not running, so the secrets are kept \
+                         plain in the items file"
+                    );
+                    plain_file(DaemonSecretsPlainReason::NoSealService)
+                }
+                Probe::Failed(failure) if is_definite_refusal(&failure) => {
+                    tracing::warn!(
+                        error = &failure as &(dyn Error + 'static),
+                        file = %self.plain_file.file_path().display(),
+                        "systemd's credential service cannot seal on this computer, so the \
+                         secrets are kept plain in the items file"
+                    );
+                    plain_file(DaemonSecretsPlainReason::SealFailed)
+                }
+                Probe::Failed(failure) => return Err(seal_refused(failure)),
+                Probe::Mismatch => {
+                    state.verdict = Verdict::Mismatch;
+                    log_mismatch();
+                    return Err(mismatch());
+                }
+            }
+        } else {
+            SecretsPlace::OperatingSystem
+        };
+        self.check_written(state, place).await?;
+        self.record(state, place).await?;
+        Ok(place)
+    }
+
+    // Checks the place `recorded` names, sealing a Linux plain file once the service seals for it.
+    async fn settle_recorded(
+        &self,
+        state: &mut PlaceState,
+        recorded: SecretsPlace,
+    ) -> Result<SecretsPlace, KeychainRefusal> {
+        let reason = match recorded {
+            SecretsPlace::OperatingSystem | SecretsPlace::LoggedOutServiceFile => {
+                return self.check_written(state, recorded).await;
+            }
+            SecretsPlace::SealedFile => return self.settle_sealed(state).await,
+            SecretsPlace::PlainFile { reason } => reason,
+        };
+        let Some(seal) = &self.seal else {
+            return self.check_written(state, recorded).await;
+        };
+        // A pass that sealed the file and stopped before its record leaves the sealed form under
+        // this record, which moves with no seal.
+        if self.plain_file.form_on_disk().await? == Some(ItemsForm::Sealed) {
+            self.record(state, SecretsPlace::SealedFile).await?;
+            return self.settle_sealed(state).await;
+        }
+        match self.probe(seal.as_ref()).await? {
+            Probe::Sealed(header) if !header.is_boot_bound() => {
+                if let Some(place) = self.seal_plain_file(state, header).await? {
+                    return Ok(place);
+                }
+            }
+            Probe::Sealed(header) => {
+                log_boot_bound(header);
+                if reason != DaemonSecretsPlainReason::BootBound {
+                    self.record(state, plain_file(DaemonSecretsPlainReason::BootBound))
+                        .await?;
+                    return self
+                        .check_written(state, plain_file(DaemonSecretsPlainReason::BootBound))
+                        .await;
+                }
+            }
+            Probe::Failed(failure) => tracing::info!(
+                error = &failure as &(dyn Error + 'static),
+                "systemd's credential service did not seal the check's value, so the secrets \
+                 stay plain until a later start"
+            ),
+            Probe::Mismatch => log_mismatch(),
+        }
+        self.check_written(state, recorded).await
+    }
+
+    // Seals the plain file's items once, the probe's blob having shown `header`, and records the
+    // sealed file; `None` when the pass was abandoned and the plain file stays.
+    async fn seal_plain_file(
+        &self,
+        state: &mut PlaceState,
+        header: SealHeader,
+    ) -> Result<Option<SecretsPlace>, KeychainRefusal> {
+        let sealed_file = self.sealed_file()?;
+        match sealed_file.seal_again(header).await? {
+            SealPass::Unchanged | SealPass::Sealed => {}
+            SealPass::Abandoned(why) => {
+                tracing::warn!(why, "the secrets stay plain: sealing them was abandoned");
+                return Ok(None);
+            }
+        }
+        self.record(state, SecretsPlace::SealedFile).await?;
+        tracing::info!(key = ?header.key(), "the daemon's secrets were sealed");
+        self.open_sealed(state, header).await.map(Some)
+    }
+
+    // Probes the service for the recorded sealed file and opens it.
+    async fn settle_sealed(&self, state: &mut PlaceState) -> Result<SecretsPlace, KeychainRefusal> {
+        let Some(seal) = &self.seal else {
+            return Err(state.refuse_opening(DaemonSecretsFileUnopened::SealServiceMissing));
+        };
+        match self.probe(seal.as_ref()).await? {
+            Probe::Sealed(header) => self.open_sealed(state, header).await,
+            Probe::Failed(SealFailure::NoService(failure)) => {
+                tracing::warn!(
+                    error = &failure as &(dyn Error + 'static),
+                    "systemd's credential service is not running, so the sealed secrets cannot \
+                     be opened"
+                );
+                Err(state.refuse_opening(DaemonSecretsFileUnopened::SealServiceMissing))
+            }
+            Probe::Failed(failure) => {
+                tracing::warn!(
+                    error = &failure as &(dyn Error + 'static),
+                    "systemd's credential service did not seal the check's value, so the sealed \
+                     secrets cannot be opened now"
+                );
+                Err(state.refuse_opening(DaemonSecretsFileUnopened::SealServiceFailing))
+            }
+            Probe::Mismatch => {
+                state.verdict = Verdict::Mismatch;
+                log_mismatch();
+                state.refuse_opening(DaemonSecretsFileUnopened::SealServiceFailing);
+                Err(mismatch())
+            }
+        }
+    }
+
+    // Opens one item of the sealed file per key it holds, the probe's blob having shown `probe`,
+    // then seals again once each item sealed with a weaker key than the probe's.
+    async fn open_sealed(
+        &self,
+        state: &mut PlaceState,
+        probe: SealHeader,
+    ) -> Result<SecretsPlace, KeychainRefusal> {
+        let (seal, sealed_file) = (self.seal()?, self.sealed_file()?);
+        let mut samples = BTreeMap::new();
+        let mut is_any_weaker = false;
+        for item in sealed_file.sealed_items().await? {
+            if item.service == KeychainService::Probe.as_str() {
+                continue;
+            }
+            let key = item.header().map(SealHeader::key);
+            is_any_weaker |= key.is_some_and(|key| is_weaker(key, probe.key()));
+            samples.entry(key.map(key_rank)).or_insert(item);
+        }
+        for item in samples.into_values() {
+            let Err(failure) = seal.unseal(&item.name(), item.blob.expose_secret()).await else {
+                continue;
+            };
+            let cause = match &failure {
+                SealFailure::NoService(_) => DaemonSecretsFileUnopened::SealServiceMissing,
+                SealFailure::Failed(_) | SealFailure::Broken(_) => {
+                    DaemonSecretsFileUnopened::SealServiceFailing
+                }
+                SealFailure::Refused { .. } => match item.header().map(SealHeader::key) {
+                    Some(item_key) if is_weaker(probe.key(), item_key) => {
+                        DaemonSecretsFileUnopened::ChipUnavailable
+                    }
+                    Some(_) | None => DaemonSecretsFileUnopened::KeyChanged,
+                },
+            };
+            tracing::error!(
+                error = &failure as &(dyn Error + 'static),
+                service = item.service,
+                key = ?item.header().map(SealHeader::key),
+                probe_key = ?probe.key(),
+                cause = ?cause,
+                "an item of the sealed secrets does not open, so every secret call is refused"
+            );
+            return Err(state.refuse_opening(cause));
+        }
+        if is_any_weaker {
+            match sealed_file.seal_again(probe).await? {
+                SealPass::Unchanged | SealPass::Sealed => {}
+                SealPass::Abandoned(why) => tracing::warn!(
+                    why,
+                    "the items sealed with a weaker key stay as they are: sealing them again was \
+                     abandoned"
+                ),
+            }
+        }
+        tracing::info!(
+            key = ?probe.key(),
+            pcr_mask = probe.pcr_mask(),
+            "systemd's credential service seals the daemon's secrets"
+        );
+        Ok(state.accept(SecretsPlace::SealedFile))
+    }
+
+    // Seals a random value under this run's probe account, reads the key its blob names, opens it
+    // and compares. Fails with [`KeychainRefusal`] only when the system gives no random bytes.
+    async fn probe(&self, seal: &dyn SecretSeal) -> Result<Probe, KeychainRefusal> {
+        let value = random_value()?;
+        let name = credential_name(KeychainService::Probe.as_str(), &self.probe_account);
+        let blob = match seal.seal(&name, &value).await {
+            Ok(blob) => blob,
+            Err(failure) => return Ok(Probe::Failed(failure)),
+        };
+        let Some(header) = SealHeader::read(&blob) else {
+            return Ok(Probe::Failed(SealFailure::Broken(
+                "the check's sealed value names no key the daemon knows",
+            )));
+        };
+        Ok(match seal.unseal(&name, &blob).await {
+            Ok(opened) if holds_value(Some(&opened), &value) => Probe::Sealed(header),
+            Ok(_other) => Probe::Mismatch,
+            Err(failure) => Probe::Failed(failure),
+        })
+    }
+
+    // Runs the write-read-delete check on `place` and accepts it once it passes.
+    async fn check_written(
+        &self,
+        state: &mut PlaceState,
+        place: SecretsPlace,
+    ) -> Result<SecretsPlace, KeychainRefusal> {
+        match self.check(place).await {
+            Check::Accepted => Ok(state.accept(place)),
+            Check::Mismatch => {
+                state.verdict = Verdict::Mismatch;
+                log_mismatch();
+                Err(mismatch())
+            }
+            Check::Refused(refusal) => Err(refusal),
+        }
+    }
+
+    // Records `place` when the record names another, keeping this run's record in step.
+    async fn record(
+        &self,
+        state: &mut PlaceState,
+        place: SecretsPlace,
+    ) -> Result<(), KeychainRefusal> {
+        let record = PlaceRecord::settled(place);
+        if !matches!(&state.record, RecordState::Present(present) if *present == record) {
+            place::write_record(&self.record_path, &record).await?;
+            state.record = RecordState::Present(record);
+        }
+        Ok(())
+    }
+
+    // Finishes the move `record` names into `destination`, checked first. On success the
+    // destination serves, checked, and a file left behind is deleted. Fails with the refusal,
+    // leaving `state` as it was when the move stopped before recording its direction, and otherwise
+    // the recorded move, which the next call finishes.
+    async fn finish_move(
         &self,
         state: &mut PlaceState,
         record: PlaceRecord,
         destination: SecretsPlace,
-        to: &(dyn Fn(KeychainService) -> Box<dyn SecretKeychain> + Sync),
-    ) -> Result<(), KeychainRefusal> {
+    ) -> Result<SecretsPlace, KeychainRefusal> {
+        match self.check(destination).await {
+            Check::Accepted => {}
+            Check::Mismatch => return Err(mismatch()),
+            Check::Refused(refusal) => return Err(refusal),
+        }
         let from = |service| self.place_keychain(record.place, service);
+        let to = |service| self.place_keychain(destination, service);
         if let Err(stopped) =
-            place::move_items(&self.record_path, record, destination, &from, to).await
+            place::move_items(&self.record_path, record, destination, &from, &to).await
         {
             if stopped.record != record {
                 *state = PlaceState {
@@ -414,40 +668,30 @@ impl SecretItems {
             }
             return Err(stopped.refusal);
         }
-        if matches!(record.place, SecretsPlace::File { .. })
-            && let Err(refusal) = self.items_file.remove_all().await
+        if matches!(record.place, SecretsPlace::LoggedOutServiceFile)
+            && let Err(refusal) = self.plain_file.remove_all().await
         {
             tracing::warn!(
                 error = &refusal as &(dyn Error + 'static),
-                "The items file the secrets left could not be deleted"
+                "the items file the secrets left could not be deleted"
             );
         }
-        *state = PlaceState {
-            record: RecordState::Present(PlaceRecord::settled(destination)),
-            picked: Some(destination),
-            verdict: Verdict::Accepted,
-            is_move_stopped: false,
-        };
-        tracing::info!(place = ?destination, "The daemon's secrets moved");
-        Ok(())
+        state.record = RecordState::Present(PlaceRecord::settled(destination));
+        tracing::info!(place = ?destination, "the daemon's secrets moved");
+        Ok(state.accept(destination))
     }
 
     // Writes a random value under this run's probe account in `place`, reads it back, compares
     // and deletes it.
     async fn check(&self, place: SecretsPlace) -> Check {
-        let value = match random_hex(PROBE_VALUE_BYTES) {
-            Ok(value) => SecretString::from(value),
-            Err(failure) => {
-                return Check::Refused(
-                    KeychainRefusal::new(
-                        KeychainRefusalCause::Unavailable,
-                        "the system gave no random bytes for the store's check",
-                    )
-                    .with_failure(failure),
-                );
-            }
+        let value = match random_value() {
+            Ok(value) => value,
+            Err(refusal) => return Check::Refused(refusal),
         };
-        let keychain = self.place_keychain(place, KeychainService::Probe);
+        let keychain = match self.place_keychain(place, KeychainService::Probe) {
+            Ok(keychain) => keychain,
+            Err(refusal) => return Check::Refused(refusal),
+        };
         if let Err(refusal) = keychain.write(&self.probe_account, &value).await {
             return Check::Refused(refusal);
         }
@@ -458,7 +702,7 @@ impl SecretItems {
         if let Err(refusal) = keychain.remove(&self.probe_account).await {
             tracing::warn!(
                 error = &refusal as &(dyn Error + 'static),
-                "The store check's item could not be deleted; an erase removes it"
+                "the store check's item could not be deleted; an erase removes it"
             );
         }
         if holds_value(kept.as_ref(), &value) {
@@ -468,16 +712,36 @@ impl SecretItems {
         }
     }
 
-    // The keychain of `service` in `place`.
+    // The keychain of `service` in `place`. Fails with [`KeychainRefusal`] where this machine
+    // does not offer the place.
     fn place_keychain(
         &self,
         place: SecretsPlace,
         service: KeychainService,
-    ) -> Box<dyn SecretKeychain> {
-        match place {
-            SecretsPlace::OperatingSystem => Box::new(self.os_store.keychain(service.as_str())),
-            SecretsPlace::File { .. } => Box::new(self.items_file.keychain(service.as_str())),
-        }
+    ) -> Result<Box<dyn SecretKeychain>, KeychainRefusal> {
+        Ok(match place {
+            SecretsPlace::OperatingSystem => Box::new(
+                self.os_store
+                    .as_ref()
+                    .ok_or_else(not_offered)?
+                    .keychain(service.as_str()),
+            ),
+            SecretsPlace::SealedFile => Box::new(self.sealed_file()?.keychain(service.as_str())),
+            SecretsPlace::PlainFile { .. } | SecretsPlace::LoggedOutServiceFile => {
+                Box::new(self.plain_file.keychain(service.as_str()))
+            }
+        })
+    }
+
+    // systemd's credential service. Fails with [`KeychainRefusal`] where it is not offered.
+    fn seal(&self) -> Result<&dyn SecretSeal, KeychainRefusal> {
+        self.seal.as_deref().ok_or_else(not_offered)
+    }
+
+    // The sealed items file. Fails with [`KeychainRefusal`] where systemd's credential service is
+    // not offered.
+    fn sealed_file(&self) -> Result<&Arc<SecretItemsFile>, KeychainRefusal> {
+        self.sealed_file.as_ref().ok_or_else(not_offered)
     }
 }
 
@@ -488,19 +752,24 @@ pub(crate) struct ItemsKeychain {
     items: Arc<SecretItems>,
     /// The service the items are filed under.
     service: KeychainService,
-    /// The service's items in the operating system's store.
-    os: OsSecretKeychain,
-    /// The service's items in the items file.
-    file: FileSecretKeychain,
+    /// The service's items in the operating system's store, where the machine offers one.
+    os: Option<OsSecretKeychain>,
+    /// The service's items in the plain items file.
+    plain: FileSecretKeychain,
+    /// The service's items in the sealed items file, where systemd's credential service is
+    /// offered.
+    sealed: Option<FileSecretKeychain>,
 }
 
 impl ItemsKeychain {
-    // The service's keychain in `place`.
-    fn at(&self, place: SecretsPlace) -> &dyn SecretKeychain {
-        match place {
-            SecretsPlace::OperatingSystem => &self.os,
-            SecretsPlace::File { .. } => &self.file,
-        }
+    // The service's keychain in `place`. Fails with [`KeychainRefusal`] where this machine does
+    // not offer the place.
+    fn at(&self, place: SecretsPlace) -> Result<&dyn SecretKeychain, KeychainRefusal> {
+        Ok(match place {
+            SecretsPlace::OperatingSystem => self.os.as_ref().ok_or_else(not_offered)?,
+            SecretsPlace::SealedFile => self.sealed.as_ref().ok_or_else(not_offered)?,
+            SecretsPlace::PlainFile { .. } | SecretsPlace::LoggedOutServiceFile => &self.plain,
+        })
     }
 }
 
@@ -510,9 +779,10 @@ impl SecretKeychain for ItemsKeychain {
         account: &'call str,
         value: &'call SecretString,
     ) -> BoxFuture<'call, Result<(), KeychainRefusal>> {
-        Box::pin(self.items.serve(self.service, move |place| {
-            self.at(place).write(account, value)
-        }))
+        Box::pin(
+            self.items
+                .serve(self, move |keychain| keychain.write(account, value)),
+        )
     }
 
     fn read<'call>(
@@ -521,7 +791,7 @@ impl SecretKeychain for ItemsKeychain {
     ) -> BoxFuture<'call, Result<Option<SecretString>, KeychainRefusal>> {
         Box::pin(
             self.items
-                .serve(self.service, move |place| self.at(place).read(account)),
+                .serve(self, move |keychain| keychain.read(account)),
         )
     }
 
@@ -531,16 +801,70 @@ impl SecretKeychain for ItemsKeychain {
     ) -> BoxFuture<'call, Result<bool, KeychainRefusal>> {
         Box::pin(
             self.items
-                .serve(self.service, move |place| self.at(place).remove(account)),
+                .serve(self, move |keychain| keychain.remove(account)),
         )
     }
 
     fn accounts(&self) -> BoxFuture<'_, Result<Vec<String>, KeychainRefusal>> {
-        Box::pin(
-            self.items
-                .serve(self.service, move |place| self.at(place).accounts()),
-        )
+        Box::pin(self.items.serve(self, |keychain| keychain.accounts()))
     }
+}
+
+// A plain Linux file kept for `reason`.
+fn plain_file(reason: DaemonSecretsPlainReason) -> SecretsPlace {
+    SecretsPlace::PlainFile { reason }
+}
+
+// Whether `failure` is one a first start reads as the service unable to seal on this computer.
+fn is_definite_refusal(failure: &SealFailure) -> bool {
+    match failure {
+        SealFailure::Refused { error, errno } => {
+            error == NO_SUCH_USER
+                || (error == SYSTEM_ERROR
+                    && matches!(*errno, Some(LINUX_ENOTRECOVERABLE | LINUX_EOPNOTSUPP)))
+        }
+        SealFailure::NoService(_) | SealFailure::Failed(_) | SealFailure::Broken(_) => false,
+    }
+}
+
+// Orders the keys a sampled item may name, so one item per key is opened.
+fn key_rank(key: SealKey) -> u8 {
+    match key {
+        SealKey::SystemKey => 0,
+        SealKey::Chip => 1,
+        SealKey::ChipWithPublicKey => 2,
+        SealKey::ChipPinned => 3,
+        SealKey::ChipWithPublicKeyPinned => 4,
+    }
+}
+
+// A random value for a check.
+fn random_value() -> Result<SecretString, KeychainRefusal> {
+    random_hex(PROBE_VALUE_BYTES)
+        .map(SecretString::from)
+        .map_err(|failure| {
+            KeychainRefusal::new(
+                KeychainRefusalCause::Unavailable,
+                "the system gave no random bytes for the store's check",
+            )
+            .with_failure(failure)
+        })
+}
+
+fn log_boot_bound(header: SealHeader) {
+    tracing::warn!(
+        key = ?header.key(),
+        pcr_mask = header.pcr_mask(),
+        "systemd's credential service binds each seal to the boot state, which a Secure Boot \
+         update changes, so the secrets stay plain until a later start seals them unbound"
+    );
+}
+
+fn log_mismatch() {
+    tracing::error!(
+        "the secrets' place kept another value than the one written, so every secret call is \
+         refused until the next start"
+    );
 }
 
 fn unreadable_record(reason: &str) -> KeychainRefusal {
@@ -551,5 +875,37 @@ fn mismatch() -> KeychainRefusal {
     KeychainRefusal::new(
         KeychainRefusalCause::Unavailable,
         "the store kept another value than the one written, so it is not used until the next start",
+    )
+}
+
+fn cannot_open(cause: DaemonSecretsFileUnopened) -> KeychainRefusal {
+    let why = match cause {
+        DaemonSecretsFileUnopened::SealServiceMissing => {
+            "systemd's credential service is not running"
+        }
+        DaemonSecretsFileUnopened::SealServiceFailing => {
+            "systemd's credential service does not answer"
+        }
+        DaemonSecretsFileUnopened::ChipUnavailable => "the security chip cannot be used",
+        DaemonSecretsFileUnopened::KeyChanged => "the key they were sealed with is gone",
+    };
+    KeychainRefusal::new(
+        KeychainRefusalCause::Unavailable,
+        format!("the sealed secrets cannot be opened: {why}"),
+    )
+}
+
+fn seal_refused(failure: SealFailure) -> KeychainRefusal {
+    KeychainRefusal::new(
+        KeychainRefusalCause::Unavailable,
+        "systemd's credential service did not seal the check's value",
+    )
+    .with_failure(failure)
+}
+
+fn not_offered() -> KeychainRefusal {
+    KeychainRefusal::new(
+        KeychainRefusalCause::Unavailable,
+        "the secrets are recorded in a place this computer does not offer",
     )
 }

@@ -1,6 +1,7 @@
-//! Where the daemon keeps its secrets: each one an item in the operating system's credential
-//! store, or, where that store cannot be used, in the daemon's one items file, and which of the two
-//! this machine uses.
+//! Where the daemon keeps its secrets: on macOS and Windows each one an item in the operating
+//! system's credential store, on Linux each one an item in the daemon's one items file, sealed to
+//! this computer by systemd's credential service, or plain where that service cannot seal for it,
+//! and on a Mac whose service runs while the person is logged out the same file, plain.
 //!
 //! A feature keeps its values through a [`SecretKeychain`], one keychain service's items addressed
 //! by account, and holds no store code, so its rules run in tests without a real store. A refused
@@ -56,7 +57,7 @@ pub(crate) trait SecretKeychain: Send + Sync {
     /// not have kept it (a locked login keychain or a policy on the Windows credential store can
     /// drop it without an error). Fails with an `unavailable` refusal when it kept another value or
     /// none, naming neither.
-    fn seal<'call>(
+    fn write_verified<'call>(
         &'call self,
         account: &'call str,
         value: &'call SecretString,

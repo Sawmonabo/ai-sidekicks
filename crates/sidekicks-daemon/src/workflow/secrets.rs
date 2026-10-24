@@ -49,7 +49,9 @@ impl WorkflowSecretStore {
         value: &WorkflowSecretValue,
     ) -> Result<(), KeychainRefusal> {
         let sealed = SecretString::from(value.as_str());
-        self.keychain.seal(secret_id.text().as_str(), &sealed).await
+        self.keychain
+            .write_verified(secret_id.text().as_str(), &sealed)
+            .await
     }
 
     /// The secret's value, or `None` when the keychain holds none, which the step that asked

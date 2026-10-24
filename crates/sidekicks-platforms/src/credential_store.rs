@@ -16,7 +16,6 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 use keyring_core::Entry;
 use keyring_core::error::PlatformError;
@@ -91,9 +90,6 @@ pub struct CredentialStore {
 }
 
 impl CredentialStore {
-    /// How long the store is given for an answer that must never wait on the person.
-    pub const QUICK_ANSWER_LIMIT: Duration = Duration::from_secs(2);
-
     /// Opens this system's credential store. Fails with [`CredentialStoreError`] when the store
     /// cannot be built.
     #[cfg(not(target_os = "linux"))]
@@ -267,17 +263,6 @@ impl CredentialStoreError {
     /// broken.
     pub fn is_locked(&self) -> bool {
         self.is_locked
-    }
-
-    /// The refusal of a machine whose secrets are not kept in a credential store, as on Linux,
-    /// whose secrets systemd's credential service seals.
-    pub fn not_offered() -> Self {
-        Self {
-            is_locked: false,
-            failure: StoreFailure::Refused {
-                message: "this computer keeps its secrets in no credential store".to_owned(),
-            },
-        }
     }
 
     /// The refusal of a store that cannot be used, which a test's store answers with `reason`.

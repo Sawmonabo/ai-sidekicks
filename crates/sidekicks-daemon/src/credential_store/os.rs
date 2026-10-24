@@ -22,6 +22,7 @@ use secrecy::SecretString;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_platforms::{CredentialStore, CredentialStoreError, SecretStoreOffer};
 
+use crate::credential_store::seal::SecretSeal;
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
 use crate::keyed_lock::KeyedLock;
 
@@ -29,30 +30,36 @@ use crate::keyed_lock::KeyedLock;
 #[expect(dead_code, reason = "the daemon's start passes it")]
 pub(crate) const KEYCHAIN_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// This machine's credential store as the daemon reaches it: whether the machine offers one,
-/// opening it, and what holds its items; a test supplies a store of its own.
+/// What this machine offers for the daemon's secrets, and what holds them in words for the service
+/// log; a test supplies an offer of its own.
 pub(crate) trait CredentialStoreAccess: Send + Sync {
-    /// Whether the machine offers an operating-system credential store. Fails with
-    /// [`NoCredentialStore`] where its secrets are sealed by systemd's credential service instead.
-    fn check_reachable(&self) -> BoxFuture<'_, Result<(), NoCredentialStore>>;
-
-    /// Whether the store takes items without raising an unlock prompt, which an offered store
-    /// always does. Fails with [`NoCredentialStore`] where the machine offers none.
-    fn is_unlocked(&self) -> BoxFuture<'_, Result<bool, NoCredentialStore>>;
-
-    /// Opens the store, blocking while it does. Fails with [`CredentialStoreError`] when it cannot
-    /// be built, or where the machine offers none.
-    fn open(&self) -> Result<CredentialStore, CredentialStoreError>;
+    /// The machine's offer: the operating system's credential store on macOS and Windows,
+    /// systemd's credential service on Linux.
+    fn offer(&self) -> SecretsOffer;
 
     /// What holds the secrets, in words for the service log.
-    fn description(&self) -> BoxFuture<'_, String>;
+    fn description(&self) -> String;
 }
 
-/// The machine offers no operating-system credential store: its secrets are sealed by systemd's
-/// credential service.
-#[derive(Debug, thiserror::Error)]
-#[error("this computer keeps its secrets in no credential store")]
-pub(crate) struct NoCredentialStore;
+/// What this machine offers for the daemon's secrets.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start hands the machine's offer to the secret items"
+    )
+)]
+pub(crate) enum SecretsOffer {
+    /// The operating system's credential store, which `StoreOpen` opens.
+    OperatingSystem(StoreOpen),
+    /// systemd's credential service, which seals each secret into the items file.
+    SealService(Arc<dyn SecretSeal>),
+}
+
+/// Opens the operating system's credential store, blocking while it does. Fails with
+/// [`CredentialStoreError`] when the store cannot be built.
+pub(crate) type StoreOpen =
+    Arc<dyn Fn() -> Result<CredentialStore, CredentialStoreError> + Send + Sync>;
 
 /// What this machine offers for the daemon's secrets, through the platforms crate.
 #[cfg_attr(
@@ -65,34 +72,26 @@ pub(crate) struct SystemCredentialStore {
 }
 
 impl CredentialStoreAccess for SystemCredentialStore {
-    fn check_reachable(&self) -> BoxFuture<'_, Result<(), NoCredentialStore>> {
-        let offered = match &self.offer {
-            SecretStoreOffer::OperatingSystem(_) => Ok(()),
-            SecretStoreOffer::SealService(_) => Err(NoCredentialStore),
-        };
-        Box::pin(async move { offered })
-    }
-
-    fn is_unlocked(&self) -> BoxFuture<'_, Result<bool, NoCredentialStore>> {
-        Box::pin(async move { self.check_reachable().await.map(|()| true) })
-    }
-
-    fn open(&self) -> Result<CredentialStore, CredentialStoreError> {
+    fn offer(&self) -> SecretsOffer {
         match &self.offer {
-            SecretStoreOffer::OperatingSystem(opener) => opener.open(),
-            SecretStoreOffer::SealService(_) => Err(CredentialStoreError::not_offered()),
+            SecretStoreOffer::OperatingSystem(opener) => {
+                let opener = *opener;
+                SecretsOffer::OperatingSystem(Arc::new(move || opener.open()))
+            }
+            SecretStoreOffer::SealService(seal) => {
+                SecretsOffer::SealService(Arc::new(seal.clone()))
+            }
         }
     }
 
-    fn description(&self) -> BoxFuture<'_, String> {
-        let description = match &self.offer {
+    fn description(&self) -> String {
+        match &self.offer {
             SecretStoreOffer::OperatingSystem(opener) => opener.description().to_owned(),
             SecretStoreOffer::SealService(seal) => format!(
                 "systemd's credential service at {}",
                 seal.socket_path().display()
             ),
-        };
-        Box::pin(async move { description })
+        }
     }
 }
 
@@ -100,7 +99,7 @@ impl CredentialStoreAccess for SystemCredentialStore {
 /// shared by every service's keychain on it; see the module doc.
 pub(crate) struct OsCredentialStore {
     /// Opens the store.
-    access: Arc<dyn CredentialStoreAccess>,
+    open: StoreOpen,
     /// The store once opened.
     opened: Mutex<Option<CredentialStore>>,
     /// Held by each call on an entry, by service and account, until the store answers; a listing
@@ -111,11 +110,11 @@ pub(crate) struct OsCredentialStore {
 }
 
 impl OsCredentialStore {
-    /// The calls on the store `access` opens, each answered within `call_timeout`, its wait for the
+    /// The calls on the store `open` opens, each answered within `call_timeout`, its wait for the
     /// entry included.
-    pub(crate) fn new(access: Arc<dyn CredentialStoreAccess>, call_timeout: Duration) -> Arc<Self> {
+    pub(crate) fn new(open: StoreOpen, call_timeout: Duration) -> Arc<Self> {
         Arc::new(Self {
-            access,
+            open,
             opened: Mutex::new(None),
             entries: Arc::new(KeyedLock::new()),
             call_timeout,
@@ -125,20 +124,9 @@ impl OsCredentialStore {
     /// The items filed under `service` in this store, sharing its per-entry lock with every other
     /// service's, each call answered within the store's time.
     pub(crate) fn keychain(self: &Arc<Self>, service: &str) -> OsSecretKeychain {
-        self.keychain_within(service, self.call_timeout)
-    }
-
-    /// The items filed under `service`, as [`Self::keychain`], each call answered within
-    /// `call_timeout` instead of the store's time.
-    pub(crate) fn keychain_within(
-        self: &Arc<Self>,
-        service: &str,
-        call_timeout: Duration,
-    ) -> OsSecretKeychain {
         OsSecretKeychain {
             store: Arc::clone(self),
             service: service.to_owned(),
-            call_timeout,
         }
     }
 
@@ -148,7 +136,7 @@ impl OsCredentialStore {
         self: &Arc<Self>,
         service: &str,
     ) -> Result<(), KeychainRefusal> {
-        self.call(service, "", self.call_timeout, |credentials, service, _| {
+        self.call(service, "", |credentials, service, _| {
             credentials.accounts(service).map(drop)
         })
         .await
@@ -161,7 +149,7 @@ impl OsCredentialStore {
         self: &Arc<Self>,
         service: &str,
     ) -> Result<(), KeychainRefusal> {
-        self.call(service, "", self.call_timeout, |credentials, service, _| {
+        self.call(service, "", |credentials, service, _| {
             for item in credentials.accounts(service)? {
                 item.remove()?;
             }
@@ -171,14 +159,13 @@ impl OsCredentialStore {
     }
 
     // Runs `operation` on the entry under `service` and `account` once every earlier call on it has
-    // answered, on a blocking thread, and answers `locked` when that takes longer than
-    // `call_timeout`. The entry stays held until the store answers even after the caller stops
+    // answered, on a blocking thread, and answers `locked` when that takes longer than the store's
+    // time. The entry stays held until the store answers even after the caller stops
     // waiting; a call still queued for the entry then leaves the queue.
     async fn call<Answer: Send + 'static>(
         self: &Arc<Self>,
         service: &str,
         account: &str,
-        call_timeout: Duration,
         operation: impl FnOnce(&CredentialStore, &str, &str) -> Result<Answer, CredentialStoreError>
         + Send
         + 'static,
@@ -202,6 +189,7 @@ impl OsCredentialStore {
                 );
             },
         );
+        let call_timeout = self.call_timeout;
         match tokio::time::timeout(call_timeout, held_call).await {
             Ok(Ok(Some(Ok(Ok(answer))))) => Ok(answer),
             Ok(Ok(Some(Ok(Err(refused))))) => {
@@ -232,69 +220,74 @@ impl OsCredentialStore {
         if let Some(credentials) = opened.as_ref() {
             return Ok(credentials.clone());
         }
-        let credentials = self.access.open()?;
+        let credentials = (self.open)()?;
         *opened = Some(credentials.clone());
         Ok(credentials)
     }
 }
 
-/// A credential store a test hands the daemon: one store it opens, and whether the machine offers
-/// it, whether it takes items without a prompt and whether it opens, each switched by the test.
+/// What a test hands the daemon: the operating system's store over one store, which the test
+/// switches between opening and not, or systemd's credential service as a test's seal.
 #[cfg(test)]
 pub(crate) struct TestStoreAccess {
-    /// The store each open answers with.
-    pub(crate) credentials: CredentialStore,
-    /// Whether the machine offers the store.
-    pub(crate) is_reachable: std::sync::atomic::AtomicBool,
-    /// Whether the store takes items without a prompt.
-    pub(crate) is_unlocked: std::sync::atomic::AtomicBool,
+    /// What the test offers.
+    offer: TestOffer,
     /// Whether the store opens.
-    pub(crate) opens: std::sync::atomic::AtomicBool,
+    pub(crate) opens: Arc<std::sync::atomic::AtomicBool>,
+}
+
+// What a test's access offers.
+#[cfg(test)]
+enum TestOffer {
+    Store(CredentialStore),
+    Seal(Arc<crate::credential_store::seal::TestSeal>),
 }
 
 #[cfg(test)]
 impl TestStoreAccess {
-    /// A store over `credentials` that is offered, takes items without a prompt and opens.
+    /// The operating system's store over `credentials`, which opens.
     pub(crate) fn new(credentials: CredentialStore) -> Arc<Self> {
+        Self::offering(TestOffer::Store(credentials))
+    }
+
+    /// systemd's credential service as `seal`.
+    pub(crate) fn sealing(seal: Arc<crate::credential_store::seal::TestSeal>) -> Arc<Self> {
+        Self::offering(TestOffer::Seal(seal))
+    }
+
+    fn offering(offer: TestOffer) -> Arc<Self> {
         Arc::new(Self {
-            credentials,
-            is_reachable: std::sync::atomic::AtomicBool::new(true),
-            is_unlocked: std::sync::atomic::AtomicBool::new(true),
-            opens: std::sync::atomic::AtomicBool::new(true),
+            offer,
+            opens: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         })
     }
 }
 
 #[cfg(test)]
 impl CredentialStoreAccess for TestStoreAccess {
-    fn check_reachable(&self) -> BoxFuture<'_, Result<(), NoCredentialStore>> {
-        let is_reachable = self.is_reachable.load(std::sync::atomic::Ordering::SeqCst);
-        Box::pin(async move {
-            if is_reachable {
-                Ok(())
-            } else {
-                Err(NoCredentialStore)
+    fn offer(&self) -> SecretsOffer {
+        match &self.offer {
+            TestOffer::Store(credentials) => {
+                let (credentials, opens) = (credentials.clone(), Arc::clone(&self.opens));
+                SecretsOffer::OperatingSystem(Arc::new(move || {
+                    if opens.load(std::sync::atomic::Ordering::SeqCst) {
+                        Ok(credentials.clone())
+                    } else {
+                        Err(CredentialStoreError::unusable(
+                            "the test's store does not open",
+                        ))
+                    }
+                }))
             }
-        })
-    }
-
-    fn is_unlocked(&self) -> BoxFuture<'_, Result<bool, NoCredentialStore>> {
-        let is_unlocked = self.is_unlocked.load(std::sync::atomic::Ordering::SeqCst);
-        Box::pin(async move { Ok(is_unlocked) })
-    }
-
-    fn open(&self) -> Result<CredentialStore, CredentialStoreError> {
-        if self.opens.load(std::sync::atomic::Ordering::SeqCst) {
-            Ok(self.credentials.clone())
-        } else {
-            Err(CredentialStoreError::unusable(
-                "the test's store does not open",
-            ))
+            TestOffer::Seal(seal) => SecretsOffer::SealService(Arc::clone(seal) as _),
         }
     }
 
-    fn description(&self) -> BoxFuture<'_, String> {
-        Box::pin(async { "the test's store".to_owned() })
+    fn description(&self) -> String {
+        match &self.offer {
+            TestOffer::Store(_) => "the test's store".to_owned(),
+            TestOffer::Seal(_) => "the test's seal".to_owned(),
+        }
     }
 }
 
@@ -304,8 +297,6 @@ pub(crate) struct OsSecretKeychain {
     store: Arc<OsCredentialStore>,
     /// The keychain service the items are filed under.
     service: String,
-    /// How long a caller waits for each call, the wait for the entry included.
-    call_timeout: Duration,
 }
 
 impl SecretKeychain for OsSecretKeychain {
@@ -318,7 +309,6 @@ impl SecretKeychain for OsSecretKeychain {
         Box::pin(self.store.call(
             &self.service,
             account,
-            self.call_timeout,
             move |credentials, service, account| credentials.write(service, account, &value),
         ))
     }
@@ -327,39 +317,33 @@ impl SecretKeychain for OsSecretKeychain {
         &'call self,
         account: &'call str,
     ) -> BoxFuture<'call, Result<Option<SecretString>, KeychainRefusal>> {
-        Box::pin(self.store.call(
-            &self.service,
-            account,
-            self.call_timeout,
-            CredentialStore::read,
-        ))
+        Box::pin(
+            self.store
+                .call(&self.service, account, CredentialStore::read),
+        )
     }
 
     fn remove<'call>(
         &'call self,
         account: &'call str,
     ) -> BoxFuture<'call, Result<bool, KeychainRefusal>> {
-        Box::pin(self.store.call(
-            &self.service,
-            account,
-            self.call_timeout,
-            CredentialStore::remove,
-        ))
+        Box::pin(
+            self.store
+                .call(&self.service, account, CredentialStore::remove),
+        )
     }
 
     fn accounts(&self) -> BoxFuture<'_, Result<Vec<String>, KeychainRefusal>> {
-        Box::pin(self.store.call(
-            &self.service,
-            "",
-            self.call_timeout,
-            |credentials, service, _| {
-                Ok(credentials
-                    .accounts(service)?
-                    .iter()
-                    .map(|item| item.account().to_owned())
-                    .collect())
-            },
-        ))
+        Box::pin(
+            self.store
+                .call(&self.service, "", |credentials, service, _| {
+                    Ok(credentials
+                        .accounts(service)?
+                        .iter()
+                        .map(|item| item.account().to_owned())
+                        .collect())
+                }),
+        )
     }
 }
 
@@ -372,7 +356,7 @@ mod tests {
     use sidekicks_contracts::keychain::KeychainRefusalCause;
     use sidekicks_platforms::{BlockingCredentialStore, CredentialStore};
 
-    use super::{OsCredentialStore, TestStoreAccess};
+    use super::OsCredentialStore;
     use crate::credential_store::SecretKeychain;
     use crate::credential_store::service::KeychainService;
 
@@ -381,8 +365,8 @@ mod tests {
         blocking_store: &Arc<BlockingCredentialStore>,
         call_timeout: Duration,
     ) -> Arc<OsCredentialStore> {
-        let access = TestStoreAccess::new(CredentialStore::from_store(blocking_store.clone()));
-        OsCredentialStore::new(access, call_timeout)
+        let credentials = CredentialStore::from_store(blocking_store.clone());
+        OsCredentialStore::new(Arc::new(move || Ok(credentials.clone())), call_timeout)
     }
 
     /// A call the store does not answer in time reads `locked`; a second call on the same entry

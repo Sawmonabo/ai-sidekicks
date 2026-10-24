@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
-use sidekicks_platforms::SealFailure;
+use sidekicks_platforms::{SealFailure, SealHeader, SealKey};
 use tokio::sync::{Mutex, MutexGuard};
 use zeroize::Zeroizing;
 
@@ -51,12 +51,48 @@ const LEFTOVER_REMOVAL: &str = "removing the leftovers of a write cut short";
 // sealed blobs in a sealed one.
 type Items = BTreeMap<String, BTreeMap<String, SecretString>>;
 
-// How the file keeps its values, as its `form` names it.
+/// How the items file keeps its values, as its `form` names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-enum ItemsForm {
+pub(crate) enum ItemsForm {
+    /// Each value as given.
     Plain,
+    /// Each value sealed to this computer by systemd's credential service.
     Sealed,
+}
+
+/// One item of a sealed file as it is stored: its service, its account and its sealed blob, read
+/// without opening it.
+pub(crate) struct SealedItem {
+    /// The keychain service it is filed under.
+    pub(crate) service: String,
+    /// The account it is filed under.
+    pub(crate) account: String,
+    /// The blob, which only systemd's credential service opens.
+    pub(crate) blob: SecretString,
+}
+
+impl SealedItem {
+    /// The name the item is sealed under.
+    pub(crate) fn name(&self) -> String {
+        credential_name(&self.service, &self.account)
+    }
+
+    /// What the blob's header says, or `None` when it names no key the daemon knows.
+    pub(crate) fn header(&self) -> Option<SealHeader> {
+        SealHeader::read(self.blob.expose_secret())
+    }
+}
+
+/// What sealing a file's items again did.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum SealPass {
+    /// Nothing needed sealing again; the file is as it was.
+    Unchanged,
+    /// Every item that needed it was sealed again and the file replaced with the sealed form.
+    Sealed,
+    /// A seal failed or came back weaker than allowed, so the file is left as it was.
+    Abandoned(&'static str),
 }
 
 // The file's text as read.
@@ -98,14 +134,6 @@ impl SecretItemsFile {
     }
 
     /// The sealed items file in `data_folder`, each value put through `seal`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start opens the sealed file where systemd's credential service \
-                      seals"
-        )
-    )]
     pub(crate) fn sealed(data_folder: &Path, seal: Arc<dyn SecretSeal>) -> Arc<Self> {
         Self::with_seal(data_folder, Some(seal))
     }
@@ -193,31 +221,129 @@ impl SecretItemsFile {
         }
     }
 
-    // Every service's stored values in the file, nothing when it does not exist yet. A file that
-    // cannot be read, or is in another form than this run keeps, refuses the call and is left as it
-    // is.
-    async fn read_items(&self) -> Result<Items, KeychainRefusal> {
+    /// The form the file on disk names, or `None` when there is none. Fails with
+    /// [`KeychainRefusal`] when it cannot be read or is not an items file.
+    pub(crate) async fn form_on_disk(&self) -> Result<Option<ItemsForm>, KeychainRefusal> {
+        let _held = self.hold().await?;
+        Ok(self.read_text().await?.map(|text| text.form))
+    }
+
+    /// Every item of the sealed file with its blob, opening none. Fails with [`KeychainRefusal`]
+    /// when the file cannot be read or is in another form than this run keeps.
+    pub(crate) async fn sealed_items(&self) -> Result<Vec<SealedItem>, KeychainRefusal> {
+        let _held = self.hold().await?;
+        let items = self.read_items().await?;
+        Ok(items
+            .into_iter()
+            .flat_map(|(service, entries)| {
+                entries.into_iter().map(move |(account, blob)| SealedItem {
+                    service: service.clone(),
+                    account,
+                    blob,
+                })
+            })
+            .collect())
+    }
+
+    /// Seals into one new sealed file, written at once, every value of a plain file and every
+    /// blob of a sealed file whose key is weaker than `probe`'s, the start's fresh seal. Never
+    /// seals downward: the pass is abandoned, the file left as it was, when a seal fails or a new
+    /// blob is weaker than `probe`'s, than the blob it replaces, or bound to the boot state. A blob
+    /// whose key the daemon does not know is kept as it is. Fails with [`KeychainRefusal`] when
+    /// the file cannot be read or written; the file is then left as it was.
+    pub(crate) async fn seal_again(&self, probe: SealHeader) -> Result<SealPass, KeychainRefusal> {
+        let seal = self
+            .seal
+            .as_ref()
+            .expect("only the sealed items file is sealed again");
+        let _held = self.hold().await?;
+        let Some(text) = self.read_text().await? else {
+            return Ok(SealPass::Unchanged);
+        };
+        let mut sealed = Items::new();
+        let mut is_changed = false;
+        for (service, entries) in text.items {
+            for (account, stored) in entries {
+                let name = credential_name(&service, &account);
+                let (value, floor) = match text.form {
+                    ItemsForm::Plain => (stored, probe.key()),
+                    ItemsForm::Sealed => match SealHeader::read(stored.expose_secret()) {
+                        Some(old) if is_weaker(old.key(), probe.key()) => {
+                            match seal.unseal(&name, stored.expose_secret()).await {
+                                Ok(value) => (value, probe.key()),
+                                Err(_failure) => {
+                                    return Ok(SealPass::Abandoned("an item did not open"));
+                                }
+                            }
+                        }
+                        Some(_) | None => {
+                            sealed
+                                .entry(service.clone())
+                                .or_default()
+                                .insert(account, stored);
+                            continue;
+                        }
+                    },
+                };
+                let Ok(blob) = seal.seal(&name, &value).await else {
+                    return Ok(SealPass::Abandoned("a seal failed"));
+                };
+                match SealHeader::read(&blob) {
+                    Some(new) if !is_weaker(new.key(), floor) && !new.is_boot_bound() => {}
+                    Some(_) | None => {
+                        return Ok(SealPass::Abandoned(
+                            "a new seal is weaker than allowed or bound to the boot state",
+                        ));
+                    }
+                }
+                sealed
+                    .entry(service.clone())
+                    .or_default()
+                    .insert(account, SecretString::from(blob));
+                is_changed = true;
+            }
+        }
+        if !is_changed && text.form == ItemsForm::Sealed {
+            return Ok(SealPass::Unchanged);
+        }
+        self.write_items(&sealed).await?;
+        Ok(SealPass::Sealed)
+    }
+
+    // The file's text in whatever form it names, `None` when it does not exist yet. A file that
+    // cannot be read refuses the call and is left as it is.
+    async fn read_text(&self) -> Result<Option<ItemsText>, KeychainRefusal> {
         let text = match tokio::fs::read(&self.file_path).await.none_if_missing() {
             Ok(Some(text)) => Zeroizing::new(text),
-            Ok(None) => return Ok(Items::new()),
+            Ok(None) => return Ok(None),
             Err(failure) => return Err(file_failure(failure)),
         };
         match serde_json::from_slice::<ItemsText>(&text) {
-            Ok(read) if read.form == self.form() => Ok(read.items),
-            Ok(_other_form) => Err(KeychainRefusal::new(
-                KeychainRefusalCause::Unavailable,
-                format!(
-                    "{} keeps its secrets in another form than this run opens, so it is left as \
-                     it is",
-                    self.file_path.display()
-                ),
-            )),
+            Ok(read) => Ok(Some(read)),
             // The parser's message can quote the file's text, which holds secret values, so it is
             // never kept.
             Err(_quotes_the_text) => Err(KeychainRefusal::new(
                 KeychainRefusalCause::Unavailable,
                 format!(
                     "{} is not an items file, so it is left as it is",
+                    self.file_path.display()
+                ),
+            )),
+        }
+    }
+
+    // Every service's stored values in the file, nothing when it does not exist yet. A file that
+    // cannot be read, or is in another form than this run keeps, refuses the call and is left as it
+    // is.
+    async fn read_items(&self) -> Result<Items, KeychainRefusal> {
+        match self.read_text().await? {
+            None => Ok(Items::new()),
+            Some(read) if read.form == self.form() => Ok(read.items),
+            Some(_other_form) => Err(KeychainRefusal::new(
+                KeychainRefusalCause::Unavailable,
+                format!(
+                    "{} keeps its secrets in another form than this run opens, so it is left as \
+                     it is",
                     self.file_path.display()
                 ),
             )),
@@ -415,13 +541,19 @@ impl SecretKeychain for FileSecretKeychain {
     }
 }
 
-// The name an item is sealed under: its service, then the SHA-256 of its account in hexadecimal, so
-// every name is one systemd accepts and a blob opens only in its own item's place.
-fn credential_name(service: &str, account: &str) -> String {
+/// The name an item is sealed under: its service, then the SHA-256 of its account in hexadecimal,
+/// so every name is one systemd accepts and a blob opens only in its own item's place.
+pub(crate) fn credential_name(service: &str, account: &str) -> String {
     format!(
         "{service}.{}",
         base16ct::lower::encode_string(&Sha256::digest(account.as_bytes()))
     )
+}
+
+/// Whether `key` is weaker than `than`: the system key alone beside a key that holds the security
+/// chip.
+pub(crate) fn is_weaker(key: SealKey, than: SealKey) -> bool {
+    !key.uses_chip() && than.uses_chip()
 }
 
 // The refusal for a seal that failed, kept as the source; nothing on Linux can be unlocked.

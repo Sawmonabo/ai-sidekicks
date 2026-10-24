@@ -325,6 +325,45 @@ impl SealHeader {
     pub fn is_boot_bound(self) -> bool {
         self.pcr_mask != 0
     }
+
+    /// A blob in base64 whose header [`Self::read`] reads as `key` bound to `pcr_mask`, followed by
+    /// `payload`, for a test's seal.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn test_blob(key: SealKey, pcr_mask: u64, payload: &[u8]) -> String {
+        let id = SealKey::IDS
+            .iter()
+            .find_map(|(id, known)| (*known == key).then_some(*id))
+            .expect("every key has an id");
+        let mut bytes = test_header(id, pcr_mask);
+        bytes.extend_from_slice(payload);
+        STANDARD.encode(bytes)
+    }
+
+    /// The payload of a blob [`Self::test_blob`] made, or `None` when `blob` is not one.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn test_blob_payload(blob: &str) -> Option<Vec<u8>> {
+        let bytes = STANDARD.decode(blob).ok()?;
+        bytes.get(TEST_HEADER_BYTES..).map(<[u8]>::to_vec)
+    }
+}
+
+// The bytes of a test blob's header: the fixed header, a 12-byte vector, the padding to the chip's
+// header, its PCR mask and the rest of it.
+#[cfg(any(test, feature = "test-support"))]
+const TEST_HEADER_BYTES: usize = 96;
+
+// A test blob's header with `id` as its key id and `pcr_mask` where a chip's header starts.
+#[cfg(any(test, feature = "test-support"))]
+fn test_header(id: [u8; KEY_ID_BYTES], pcr_mask: u64) -> Vec<u8> {
+    let mut bytes = id.to_vec();
+    for size in [32_u32, 16, 12, 16] {
+        bytes.extend_from_slice(&size.to_le_bytes());
+    }
+    bytes.extend_from_slice(&[0; 12]);
+    bytes.extend_from_slice(&[0; 4]);
+    bytes.extend_from_slice(&pcr_mask.to_le_bytes());
+    bytes.extend_from_slice(&[0; 40]);
+    bytes
 }
 
 // One varlink call: the method and its parameters.
@@ -433,7 +472,7 @@ mod tests {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::{UnixListener, UnixStream};
 
-    use super::{CredentialSeal, REPLY_LIMIT, SealFailure, SealHeader, SealKey};
+    use super::{CredentialSeal, REPLY_LIMIT, SealFailure, SealHeader, SealKey, test_header};
 
     const NAME: &str = "ai-sidekicks-workflow-secrets.0a1b";
 
@@ -628,18 +667,8 @@ mod tests {
         assert_eq!(second.expect("the second call is sealed"), "U0VDT05E");
     }
 
-    // A blob in base64 with `id` as its key id, a 12-byte vector, and after it `pcr_mask` where a
-    // chip's header starts.
     fn blob(id: [u8; 16], pcr_mask: u64) -> String {
-        let mut bytes = id.to_vec();
-        for size in [32_u32, 16, 12, 16] {
-            bytes.extend_from_slice(&size.to_le_bytes());
-        }
-        bytes.extend_from_slice(&[0; 12]);
-        bytes.extend_from_slice(&[0; 4]);
-        bytes.extend_from_slice(&pcr_mask.to_le_bytes());
-        bytes.extend_from_slice(&[0; 40]);
-        STANDARD.encode(bytes)
+        STANDARD.encode(test_header(id, pcr_mask))
     }
 
     fn id(key: SealKey) -> [u8; 16] {
