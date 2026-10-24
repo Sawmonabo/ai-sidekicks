@@ -29,6 +29,7 @@ use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::provider::compaction_wait::PendingCompactionRegistry;
 use crate::provider::driver::SessionSpawnContextResolver;
+use crate::provider::driver::codex::account_home_logs::AccountHomeLogExpiry;
 use crate::provider::driver::codex::commands::{CodexCommandSource, CodexProviderCommandCache};
 use crate::provider::driver::codex::delivery::asks::attribution::CodexAskIntake;
 use crate::provider::driver::codex::delivery::asks::{
@@ -106,6 +107,7 @@ pub(crate) struct CodexDriver {
     ports: Arc<DriverPorts>,
     helper_roles_folder: PathBuf,
     is_terminal_reach_on: Arc<AtomicBool>,
+    log_expiry: AccountHomeLogExpiry,
     registry: Arc<CodexServiceRegistry>,
     release: Arc<CodexConversationRelease>,
     slots: Arc<CodexSessionSlots>,
@@ -219,6 +221,7 @@ impl CodexDriver {
                 repositories: Arc::clone(&services.ports.repositories),
             }),
             is_terminal_reach_on,
+            log_expiry: AccountHomeLogExpiry::default(),
             registry,
             release,
             config_forks: Arc::new(CodexConfigForks::new(Arc::clone(&slots), tasks.clone())),
