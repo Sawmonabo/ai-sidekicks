@@ -412,6 +412,7 @@ impl CodexService {
                 code: CODEX_INVALID_REQUEST_CODE,
                 message: message.clone(),
                 reason: Some(CODEX_DRAINING_REASON.to_owned()),
+                data: None,
             });
         }
         Ok(())

@@ -26,6 +26,7 @@ use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::provider::driver::attachments::AttachmentResolver;
 use crate::provider::driver::codex::attachments::resolve_codex_turn_message;
+use crate::provider::driver::codex::input_limit::message_too_large_refusal;
 use crate::provider::driver::codex::output_speed::CodexSettledOutputSpeed;
 use crate::provider::driver::codex::run::control::interrupt_codex_run;
 use crate::provider::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
@@ -179,9 +180,10 @@ impl CodexRunStart {
     /// turn the daemon is stopping, every wait and the request within `deadline`. A refusal Codex
     /// answered leaves the session usable; any other failure may hide an accepted turn, so that
     /// turn is interrupted and the session's conversation let go before the failure is answered.
-    /// Fails as [`Self::start_run`] does, and with `CodexError::TurnWithdrawn` once `withdrawn`,
-    /// or the run's interrupt through [`Self::withdraw_turn_start`], withdrew the start: nothing
-    /// is sent before the turn goes, and a turn Codex started meanwhile is interrupted.
+    /// Fails as [`Self::start_run`] does, with `session.message.tooLarge` when the input passes
+    /// Codex's limit, and with `CodexError::TurnWithdrawn` once `withdrawn`, or the run's
+    /// interrupt through [`Self::withdraw_turn_start`], withdrew the start: nothing is sent before
+    /// the turn goes, and a turn Codex started meanwhile is interrupted.
     pub(crate) async fn start_turn(
         &self,
         inbound: &CodexSessionInboundSender,
@@ -217,6 +219,10 @@ impl CodexRunStart {
                 CodexTurnStartOutcome::of_request(replied),
             )
             .await
+            .map_err(|error| {
+                message_too_large_refusal(&error)
+                    .map_or(error, |refusal| CodexError::Driver(refusal.into()))
+            })
         })
         .await
     }

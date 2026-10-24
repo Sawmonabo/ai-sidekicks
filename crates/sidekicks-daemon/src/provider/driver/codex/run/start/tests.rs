@@ -1,17 +1,24 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use rstest::rstest;
+use serde_json::{Value, json};
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use crate::provider::driver::codex::run::routes::CodexRunBinding;
 use crate::provider::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::provider::driver::codex::run::start::record::CodexTurnRequest;
+use crate::provider::driver::codex::run::steer::steer_codex_run;
 use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::provider::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
 use crate::provider::driver::codex::session::state::CodexTurnMessage;
 use crate::provider::driver::codex::session::test_session::{
     TestCodexSession, new_run_id, turn_reply, turn_started,
 };
+use crate::provider::driver::contract::DriverError;
 
 /// How long a test waits before it counts a hold on the session's task as a deadlock.
 const DEADLOCK_BOUND: Duration = Duration::from_secs(10);
@@ -172,4 +179,115 @@ async fn a_turn_start_codex_leaves_unanswered_fails_at_the_starts_deadline() {
         ),
         "{started:?}"
     );
+}
+
+/// The request a person's message went out in, and the refusal Codex answers it with.
+#[derive(Clone, Copy, Debug)]
+enum InputRefusal {
+    /// `turn/start` refused past Codex's input limit.
+    StartTooLarge,
+    /// `turn/steer` refused past Codex's input limit.
+    SteerTooLarge,
+    /// `turn/start` refused with the limit's `data` under another code.
+    StartOtherCode,
+    /// `turn/start` refused as `-32602` for another input error.
+    StartOtherInputError,
+}
+
+// Kills: the `-32602` check dropped (the other code is refused as too large), the
+// `input_error_code` check dropped (the other input error is), the error answer's `data` not
+// carried from the connection (neither request is), and either request's refusal left unread.
+#[rstest]
+#[case::start_too_large(InputRefusal::StartTooLarge)]
+#[case::steer_too_large(InputRefusal::SteerTooLarge)]
+#[case::start_other_code(InputRefusal::StartOtherCode)]
+#[case::start_other_input_error(InputRefusal::StartOtherInputError)]
+#[tokio::test]
+async fn a_message_past_codexs_input_limit_is_refused_as_too_large(#[case] refusal: InputRefusal) {
+    let mut session = TestCodexSession::start().await;
+    let binding_id = session.record_binding().await;
+    let run_id = new_run_id();
+    let run_start = Arc::clone(&session.run_start);
+    let inbound = session.task.record.inbound.clone();
+    let deadline = CodexTurnEndDeadline::new(CODEX_TURN_START_TIMEOUT);
+    let (code, input_error_code) = match refusal {
+        InputRefusal::StartTooLarge | InputRefusal::SteerTooLarge => (-32602, "input_too_large"),
+        InputRefusal::StartOtherCode => (-32600, "input_too_large"),
+        InputRefusal::StartOtherInputError => (-32602, "input_empty"),
+    };
+    let is_steer = matches!(refusal, InputRefusal::SteerTooLarge);
+    if is_steer {
+        session
+            .task
+            .record
+            .add_active_turn("turn-1".to_owned(), run_id);
+    }
+    let request = async {
+        if is_steer {
+            let message_id =
+                QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id");
+            steer_codex_run(&inbound, run_id, None, message_id, async { Ok(Vec::new()) })
+                .await
+                .map(|_acknowledged| ())
+        } else {
+            run_start
+                .start_turn(
+                    &inbound,
+                    run_id,
+                    binding_id,
+                    turn_request(),
+                    None,
+                    &deadline,
+                )
+                .await
+                .map_err(DriverError::from)
+        }
+    };
+    let task = &mut session.task;
+    let script = &mut session.scripted.script;
+    let flow = async {
+        task.handle_next().await;
+        let sent = script.next_sent().await;
+        let method = if is_steer { "turn/steer" } else { "turn/start" };
+        assert_eq!(sent["method"], method);
+        script.send(&json!({
+            "jsonrpc": "2.0",
+            "id": sent["id"],
+            "error": {
+                "code": code,
+                "message": "Input exceeds the maximum length of 1048576 characters.",
+                "data": {
+                    "input_error_code": input_error_code,
+                    "max_chars": 1_048_576,
+                    "actual_chars": 1_048_577,
+                },
+            },
+        }));
+        if !is_steer {
+            task.handle_next().await;
+        }
+    };
+    let (refused, ()) = tokio::time::timeout(
+        DEADLOCK_BOUND,
+        Box::pin(async { tokio::join!(request, flow) }),
+    )
+    .await
+    .expect("the request is answered");
+    let refused = refused.expect_err("Codex refused the message");
+    match refusal {
+        InputRefusal::StartTooLarge | InputRefusal::SteerTooLarge => {
+            let DriverError::Refused(refused) = refused else {
+                panic!("the message is refused as too large: {refused:?}");
+            };
+            assert_eq!(refused.code, RefusalCode::SessionMessageTooLarge);
+            assert_eq!(
+                refused.detail.map(Value::Object),
+                Some(json!({"limit": 1_048_576, "observed": 1_048_577}))
+            );
+        }
+        InputRefusal::StartOtherCode | InputRefusal::StartOtherInputError => assert!(
+            matches!(refused, DriverError::Internal(_)),
+            "a refusal that is not the input limit stays Codex's: {refused:?}"
+        ),
+    }
 }

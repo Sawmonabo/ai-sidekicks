@@ -6,7 +6,7 @@
 use std::error::Error;
 use std::time::Duration;
 
-use serde_json::json;
+use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
@@ -132,6 +132,8 @@ pub(crate) enum CodexError {
         message: String,
         /// The `reason` member of the error answer's `data`, when it sent one as text.
         reason: Option<String>,
+        /// The error answer's `data`, as the service sent it.
+        data: Option<Value>,
     },
     /// The build takes `thread/fork` but refuses its boundary member, which the static rollback
     /// flag cannot see, since a build the driver admits may predate it.

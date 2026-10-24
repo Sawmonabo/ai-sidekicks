@@ -18,6 +18,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::oneshot;
 
 use crate::provider::driver::codex::app_server_protocol::{TurnSteerParams, UserInput};
+use crate::provider::driver::codex::input_limit::message_too_large_refusal;
 use crate::provider::driver::codex::intervention::CodexSteerAcknowledgment;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::inbound::{
@@ -115,7 +116,8 @@ pub(crate) fn register_codex_steer(
 /// before it was answered, and takes it back when Codex did not take it. `expected_turn_id`, where
 /// the caller pins one, is the turn the steer names. Answers the turn it targeted and the turn
 /// Codex acknowledged. Fails with `SteerTurnEnded` when the run has no live turn, an interrupt is
-/// stopping it, its session's task ended or Codex refused it for its turn, and as `input` and the
+/// stopping it, its session's task ended or Codex refused it for its turn, with
+/// `session.message.tooLarge` when its text passes Codex's input limit, and as `input` and the
 /// request fail.
 pub(crate) async fn steer_codex_run(
     inbound: &CodexSessionInboundSender,
@@ -187,7 +189,10 @@ async fn send_codex_steer(
             run_id: send.run_id,
         }
         .into()),
-        Err(error) => Err(error.into()),
+        Err(error) => {
+            Err(message_too_large_refusal(&error)
+                .map_or_else(|| error.into(), DriverError::Refused))
+        }
     }
 }
 
