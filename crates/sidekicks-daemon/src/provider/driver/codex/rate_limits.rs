@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::mem;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 use sidekicks_contracts::event::usage::UsageRateLimitUpdatedPayload;
@@ -14,8 +14,9 @@ use sidekicks_contracts::provider::account::record::{CredentialGeneration, Provi
 use sidekicks_contracts::wire::integer::SafeSignedInt;
 use sidekicks_contracts::wire::number::Number;
 use sidekicks_contracts::wire::text::BoundedText;
-use tokio::sync::Mutex;
 
+use crate::keyed_lock::KeyedLock;
+use crate::mutex_lock::lock;
 use crate::provider::driver::SessionSpawnContextResolver;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::app_server_protocol::GetAccountRateLimitsParams;
@@ -37,8 +38,10 @@ pub(crate) struct CodexRateLimitFiling {
     dispatch: Arc<RunInboundDispatch>,
     /// Reads the account's credential generation.
     spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
-    /// What was last filed, shared by every clone and held through each filing.
+    /// What was last filed, shared by every clone. Never held across an await.
     filed: Arc<Mutex<FiledRateLimits>>,
+    /// Held per account through each filing, shared by every clone.
+    filings: Arc<KeyedLock<ProviderAccountId>>,
 }
 
 // The rows last filed for each account, and whether a reading with no account to file under was
@@ -60,6 +63,7 @@ impl CodexRateLimitFiling {
             dispatch,
             spawn_contexts,
             filed: Arc::default(),
+            filings: Arc::new(KeyedLock::new()),
         }
     }
 
@@ -94,16 +98,16 @@ impl CodexRateLimitFiling {
     /// A service on the machine's default home names no account, which a row requires, so its
     /// readings stay unfiled, logged once.
     pub(crate) async fn file(&self, service: &CodexService) {
-        // Held through the filing, so a reading one clone is filing is not filed again by another.
-        let mut filed = self.filed.lock().await;
         let Some(provider_account_id) = service.home().provider_account_id.clone() else {
-            if !mem::replace(&mut filed.is_unfiled_reading_logged, true) {
+            if !mem::replace(&mut lock(&self.filed).is_unfiled_reading_logged, true) {
                 tracing::debug!(
                     "the default home's rate limits name no account, so no usage row is filed"
                 );
             }
             return;
         };
+        // Held through the filing, so a reading one clone is filing is not filed again by another.
+        let _filing = self.filings.acquire(provider_account_id.clone()).await;
         let credential_generation = match self
             .spawn_contexts
             .read_credential_generation(provider_account_id.clone())
@@ -123,12 +127,18 @@ impl CodexRateLimitFiling {
             &provider_account_id,
             credential_generation,
         );
-        let filed_rows = filed
-            .rows_by_account
-            .entry(provider_account_id.clone())
-            .or_default();
+        let changed: Vec<UsageRateLimitUpdatedPayload> = select_changed_codex_rate_limit_rows(
+            lock(&self.filed)
+                .rows_by_account
+                .get(&provider_account_id)
+                .map_or(&[], Vec::as_slice),
+            &rows,
+        )
+        .into_iter()
+        .cloned()
+        .collect();
         let mut answered = Vec::new();
-        for row in select_changed_codex_rate_limit_rows(filed_rows, &rows) {
+        for row in changed {
             let outcome = Box::pin(dispatch_delivery(
                 &self.dispatch,
                 DeliveryOrigin {
@@ -142,10 +152,17 @@ impl CodexRateLimitFiling {
             ))
             .await;
             if outcome.is_some() {
-                answered.push(row.clone());
+                answered.push(row);
             }
         }
-        keep_filed_codex_rate_limit_rows(filed_rows, rows, &answered);
+        keep_filed_codex_rate_limit_rows(
+            lock(&self.filed)
+                .rows_by_account
+                .entry(provider_account_id)
+                .or_default(),
+            rows,
+            &answered,
+        );
     }
 }
 
