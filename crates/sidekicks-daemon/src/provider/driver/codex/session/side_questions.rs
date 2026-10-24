@@ -424,10 +424,10 @@ impl CodexSideQuestions {
     }
 
     /// Stops every copy, as the driver shuts down, and every copy asked for after it: a live one's
-    /// turn and a resting one's are stopped on their own tasks and nothing is delivered, and one
-    /// still forking or starting its turn is let go by its ask, so no copy holds the driver's
-    /// tasks open or runs on with no reader.
-    pub(crate) fn stop_every_copy(&self) {
+    /// turn and a resting one's are stopped and let go before this answers, since their services
+    /// may outlive the daemon, and nothing is delivered; one still forking or starting its turn is
+    /// let go by its ask, so no copy holds the driver's tasks open or runs on with no reader.
+    pub(crate) async fn stop_every_copy(&self) {
         {
             let mut copy_stops = lock_copy_stops(&self.copy_stops);
             copy_stops.is_closed = true;
@@ -435,9 +435,11 @@ impl CodexSideQuestions {
                 copy.stop.cancel();
             }
         }
-        for (thread_id, question) in self.take_live_copies(|_question| true) {
-            self.tasks.spawn(let_go_live_copy(thread_id, question));
-        }
+        let let_go = self
+            .take_live_copies(|_question| true)
+            .into_iter()
+            .map(|(thread_id, question)| let_go_live_copy(thread_id, question));
+        futures::future::join_all(let_go).await;
     }
 
     // Stops the live copies `is_stopped` picks, and takes out each whose turn started, to be let

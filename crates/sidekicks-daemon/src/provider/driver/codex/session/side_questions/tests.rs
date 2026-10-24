@@ -18,6 +18,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::record::Record;
 use tokio::sync::oneshot;
 use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::TaskTracker;
 
 use super::{CodexSideQuestions, lock_copy_stops};
@@ -41,7 +42,7 @@ const STORED_THREAD: &str = "stored-thread";
 pub(crate) const COPY_THREAD: &str = "copy-thread";
 
 /// The copy's one turn.
-pub(crate) const COPY_TURN: &str = COPY_TURN;
+pub(crate) const COPY_TURN: &str = "copy-turn";
 
 /// The copy's answer.
 const ANSWER: &str = "It reads the worktree.";
@@ -176,13 +177,22 @@ async fn serve_copy(listener: Listener, profile: String) -> Map<String, Value> {
     fork
 }
 
-/// Serves the copy's connection as Codex through its turn's start and never ends the turn; answers
-/// the interrupt the daemon sent once it let the connection go.
+/// Serves the copy's connection as Codex through its turn's start and never ends the turn, and
+/// answers each later request, the let-go of the conversation among them, so a stop does not wait
+/// out its bound; answers the interrupt the daemon sent once it let the connection go.
 pub(crate) async fn serve_unended_copy(listener: Listener, profile: String) -> Value {
     let (mut socket, _fork) = open_copy(&listener, &profile).await;
     let interrupt = next_socket_request(&mut socket).await;
     send_on_socket(&mut socket, json!({"id": interrupt["id"], "result": {}})).await;
-    while let Some(Ok(_message)) = socket.next().await {}
+    while let Some(Ok(message)) = socket.next().await {
+        let Message::Text(text) = message else {
+            continue;
+        };
+        let request: Value = serde_json::from_str(&text).expect("the daemon sends JSON");
+        if request.get("id").is_some() {
+            send_on_socket(&mut socket, json!({"id": request["id"], "result": {}})).await;
+        }
+    }
     interrupt
 }
 
@@ -303,7 +313,7 @@ async fn a_resting_copy_let_go_before_its_turn_ends_has_its_turn_stopped(#[case]
         .expect("the copy takes the question");
     match end {
         CopyEnd::SessionClosed => side_questions.forget_session(session_id).await,
-        CopyEnd::DriverShutDown => side_questions.stop_every_copy(),
+        CopyEnd::DriverShutDown => side_questions.stop_every_copy().await,
     }
     let interrupt = tokio::time::timeout(SERVE_WAIT, served)
         .await
@@ -526,7 +536,7 @@ enum LiveTurn {
 async fn end_copies(side_questions: &CodexSideQuestions, end: &CopyEnd, session_id: SessionId) {
     match end {
         CopyEnd::SessionClosed => side_questions.forget_session(session_id).await,
-        CopyEnd::DriverShutDown => side_questions.stop_every_copy(),
+        CopyEnd::DriverShutDown => side_questions.stop_every_copy().await,
     }
 }
 
@@ -643,7 +653,7 @@ async fn a_side_question_asked_after_the_driver_stopped_every_copy_forks_nothing
     let session_id = session.task.record.session_id;
     let params = resting_question(session_id, Path::new("/"));
 
-    side_questions.stop_every_copy();
+    side_questions.stop_every_copy().await;
     tokio::time::timeout(
         SERVE_WAIT,
         side_questions.ask_at_rest(
