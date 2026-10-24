@@ -467,50 +467,20 @@ mod tests {
     use minidumper::{LoopAction, MinidumpBinary, ServerHandler};
     use rstest::rstest;
 
-    use sidekicks_platforms::{create_new_file, entry_identity, is_name_lost, open_file_identity};
+    use sidekicks_platforms::{entry_identity, open_file_identity};
 
     use super::{
-        CRASH_FILE_MODE, DumpWriter, PANIC_RECORD_MAX_BYTES, PanicRecord, PanicRecordSendError,
-        panic_record_bytes, send_within,
+        DumpWriter, PANIC_RECORD_MAX_BYTES, PanicRecord, PanicRecordSendError, panic_record_bytes,
+        send_within,
     };
-    use crate::daemon::crash::reports::remove_monitor_leftovers;
 
-    // A crash pass that removes a partial dump in the instant between its create and its lock
-    // leaves the lock holding a file with no name, which the check answers lost; the monitor's
-    // create answers a dump file its name still names, held locked. Killed by a check that always
-    // answers "still named".
-    #[test]
-    fn a_dump_file_a_crash_pass_took_before_its_lock_is_lost() {
-        let scratch = tempfile::tempdir().expect("a scratch folder");
-        let taken = scratch.path().join("taken.dmp.partial");
-        let file = create_new_file(&taken, CRASH_FILE_MODE).expect("the dump's file is made");
-        assert!(remove_monitor_leftovers(scratch.path()).is_empty());
-        file.lock().expect("the dump's file locks");
-
-        assert!(is_name_lost(&taken, &file).expect("the check answers"));
-
-        drop(file);
-        let writer = DumpWriter {
-            dumps_folder: scratch.path().to_path_buf(),
-            panic: Mutex::new(None),
-            writing: Mutex::new(None),
-        };
-        let (file, path) = writer
-            .create_minidump_file()
-            .expect("the dump's file is made");
-        assert_eq!(
-            entry_identity(&path).expect("the name reads").identity,
-            open_file_identity(&file).expect("the file reads")
-        );
-        let probe = fs::File::open(&path).expect("the dump's file opens");
-        assert!(matches!(probe.try_lock(), Err(TryLockError::WouldBlock)));
-    }
-
-    // A dump is held locked while it is written, so a crash pass leaves it. A dump whose write
+    // A dump's file is one its name names, held locked while it is written, so a crash pass leaves
+    // it. A dump whose write
     // fails, as a full disk fails it, and one whose finish fails after its panic record was
     // written, the finished name taken by a folder, leave neither the partial dump nor the record.
-    // Killed by the dump's lock dropped, by a failed write that keeps its partial dump, and by a
-    // failed finish that keeps the dump or the record it wrote.
+    // Killed by the dump's lock dropped, by a file answered under a name that no longer names it,
+    // by a failed write that keeps its partial dump, and by a failed finish that keeps the dump or
+    // the record it wrote.
     #[rstest]
     #[case::write_fails(false)]
     #[case::finish_fails(true)]
@@ -524,6 +494,10 @@ mod tests {
         let (file, path) = writer
             .create_minidump_file()
             .expect("the dump's file is made");
+        assert_eq!(
+            entry_identity(&path).expect("the name reads").identity,
+            open_file_identity(&file).expect("the file reads")
+        );
         let probe = fs::File::open(&path).expect("the dump's file opens");
         assert!(matches!(probe.try_lock(), Err(TryLockError::WouldBlock)));
         drop(probe);

@@ -65,11 +65,11 @@ pub fn create_held_file<Name: AsRef<Path>>(
     })
 }
 
-/// Whether the name `path` no longer names the open file `file`, as a sweep that removed it leaves
-/// it: nothing is there, another entry is, or the name is refused while `file` is marked for
-/// deletion, as Windows refuses a removed name another handle still holds. Fails with any other
-/// error reading the name or the file, a refusal of a file not so marked among them.
-pub fn is_name_lost(path: &Path, file: &File) -> io::Result<bool> {
+// Whether the name `path` no longer names the open file `file`, as a sweep that removed it leaves
+// it: nothing is there, another entry is, or the name is refused while `file` is marked for
+// deletion, as Windows refuses a removed name another handle still holds. Fails with any other
+// error reading the name or the file, a refusal of a file not so marked among them.
+fn is_name_lost(path: &Path, file: &File) -> io::Result<bool> {
     let named = entry_identity(path).map(|named| named.identity);
     is_named_identity_lost(named, open_file_identity(file)?, || {
         is_marked_for_deletion(file)
@@ -127,14 +127,75 @@ pub fn remove_unless_held(path: &Path) -> io::Result<bool> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::{self, File, TryLockError};
     use std::io;
 
     use rstest::rstest;
 
-    use super::is_named_identity_lost;
+    use super::{
+        HELD_CREATE_ATTEMPTS, create_held_file, is_named_identity_lost, remove_unless_held,
+    };
     use crate::entry_identity::EntryIdentity;
+    use crate::{create_new_file, entry_identity, open_file_identity};
 
     const HELD: EntryIdentity = EntryIdentity { volume: 1, file: 7 };
+
+    // A sweep that removes a file in the instant between its create and its lock costs that try its
+    // name: the create tries a fresh one and answers a file its name still names, held locked, or
+    // fails once every try lost, leaving no file. Killed by a lost name answered as kept, by the
+    // retry dropped and by the bound removed.
+    #[rstest]
+    #[case::lost_once(1)]
+    #[case::lost_every_time(HELD_CREATE_ATTEMPTS)]
+    fn a_held_create_tries_a_fresh_name_when_a_sweep_took_one(#[case] lost: usize) {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let name = |call: usize| scratch.path().join(format!("held-{call}"));
+        let mut calls = 0;
+
+        let made = create_held_file(|| {
+            if calls == HELD_CREATE_ATTEMPTS {
+                return Err(io::Error::other("a create past the bound"));
+            }
+            let path = name(calls);
+            calls += 1;
+            let file = create_new_file(&path, 0o600)?;
+            if calls <= lost {
+                // The sweep wins the window: the file is not yet locked, so it goes.
+                assert!(
+                    !remove_unless_held(&path)?,
+                    "the sweep found the file unheld"
+                );
+            }
+            Ok((file, path))
+        });
+
+        let left: Vec<_> = fs::read_dir(scratch.path())
+            .expect("the scratch folder lists")
+            .map(|entry| entry.expect("an entry reads").path())
+            .collect();
+        if lost < HELD_CREATE_ATTEMPTS {
+            let (file, path) = made.expect("a fresh name is kept");
+            assert_eq!(calls, lost + 1);
+            assert_eq!(path, name(lost));
+            assert_eq!(left, [name(lost)]);
+            assert_eq!(
+                entry_identity(&path).expect("the name reads").identity,
+                open_file_identity(&file).expect("the file reads")
+            );
+            let probe = File::open(&path).expect("the made file opens");
+            assert!(matches!(probe.try_lock(), Err(TryLockError::WouldBlock)));
+        } else {
+            let failure = made.expect_err("every name was lost");
+            assert!(failure.removal_failure.is_none(), "{failure}");
+            assert_eq!(failure.failure.kind(), io::ErrorKind::Other);
+            assert!(
+                failure.failure.to_string().starts_with("every name"),
+                "{failure}"
+            );
+            assert!(left.is_empty(), "{left:?}");
+            assert_eq!(calls, HELD_CREATE_ATTEMPTS);
+        }
+    }
 
     // A name is lost when nothing or another entry is there, or when it is refused while the held
     // file is marked for deletion; a refusal of an unmarked file is a real one and is answered, as

@@ -364,7 +364,7 @@ fn list_finished_dumps(folder: &Path) -> io::Result<Vec<(PathBuf, u64)>> {
 // writes the record only while holding it. The folder is listed once, and a partial dump's lock is
 // tried for its own entry and at most once more for the files beside it. Runs on past a check or a
 // removal that fails, answering each failure.
-pub(super) fn remove_monitor_leftovers(folder: &Path) -> Vec<io::Error> {
+fn remove_monitor_leftovers(folder: &Path) -> Vec<io::Error> {
     let entries = match fs::read_dir(folder).none_if_missing() {
         Ok(Some(entries)) => entries,
         Ok(None) => return Vec::new(),
