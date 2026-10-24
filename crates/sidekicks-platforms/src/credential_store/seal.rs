@@ -24,7 +24,7 @@ use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::Semaphore;
 
-use crate::connect_unix_domain_socket;
+use crate::{connect_unix_domain_socket, found_no_listener};
 
 // The calls one client runs at once; the socket lets one user hold sixteen connections, which this
 // user's other programs share.
@@ -138,10 +138,7 @@ impl CredentialSeal {
         let mut connection = connect_unix_domain_socket(&self.socket_path)
             .await
             .map_err(|failure| {
-                if matches!(
-                    failure.kind(),
-                    io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
-                ) {
+                if found_no_listener(&failure) {
                     SealFailure::NoService(failure)
                 } else {
                     SealFailure::Failed(failure)

@@ -76,6 +76,28 @@ fn resting_session(session_id: SessionId) -> ResumeSessionParams {
     }
 }
 
+// A side question asked on `session_id` at rest.
+fn resting_question(session_id: SessionId) -> AskSideQuestionParams {
+    AskSideQuestionParams {
+        session_id,
+        side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),
+        question: "What does this read?".to_owned(),
+        resume: Some(resting_session(session_id)),
+    }
+}
+
+// The read-only profile a copy whose working folder sits in `folder` runs under.
+fn read_only_profile(folder: &Path) -> String {
+    compose_codex_profile_name(
+        PermissionLevel::Readonly,
+        &CodexProfileFolders {
+            working_directory: folder.join("work"),
+            git_common_folder: None,
+            deny_paths: Vec::new(),
+        },
+    )
+}
+
 // The next request the daemon sent on `socket`, skipping its notifications.
 async fn next_request<Stream>(socket: &mut WebSocketStream<Stream>) -> Value
 where
@@ -107,10 +129,12 @@ where
         .expect("the daemon reads");
 }
 
-// Serves the copy's connection as Codex: its start, a fork of the stored conversation under
-// `profile`, one turn and its answer; answers the fork's params once the daemon let the
-// connection go.
-async fn serve_copy(listener: Listener, profile: String) -> Map<String, Value> {
+/// The service's side of a copy's connection.
+type CopySocket = WebSocketStream<interprocess::local_socket::tokio::Stream>;
+
+// Serves the copy's connection as Codex up to its turn's start: the connection's start and a fork
+// of the stored conversation under `profile`; answers the connection and the fork's params.
+async fn open_copy(listener: &Listener, profile: &str) -> (CopySocket, Map<String, Value>) {
     let stream = listener
         .accept()
         .await
@@ -144,6 +168,18 @@ async fn serve_copy(listener: Listener, profile: String) -> Map<String, Value> {
             "status": "inProgress"}}}),
     )
     .await;
+    let fork = fork["params"]
+        .as_object()
+        .expect("the fork's params are an object")
+        .clone();
+    (socket, fork)
+}
+
+// Serves the copy's connection as Codex: its start, a fork of the stored conversation under
+// `profile`, one turn and its answer; answers the fork's params once the daemon let the
+// connection go.
+async fn serve_copy(listener: Listener, profile: String) -> Map<String, Value> {
+    let (mut socket, fork) = open_copy(&listener, &profile).await;
     send(
         &mut socket,
         json!({"jsonrpc": "2.0", "method": "item/completed", "params": {
@@ -163,10 +199,17 @@ async fn serve_copy(listener: Listener, profile: String) -> Map<String, Value> {
     .await;
     // The copy is let go with its connection once it answered.
     while let Some(Ok(_message)) = socket.next().await {}
-    fork["params"]
-        .as_object()
-        .expect("the fork's params are an object")
-        .clone()
+    fork
+}
+
+// Serves the copy's connection as Codex through its turn's start and never ends the turn; answers
+// the interrupt the daemon sent once it let the connection go.
+async fn serve_unended_copy(listener: Listener, profile: String) -> Value {
+    let (mut socket, _fork) = open_copy(&listener, &profile).await;
+    let interrupt = next_request(&mut socket).await;
+    send(&mut socket, json!({"id": interrupt["id"], "result": {}})).await;
+    while let Some(Ok(_message)) = socket.next().await {}
+    interrupt
 }
 
 // Killed by refusing a session with no live record, as before it was built, and by forking
@@ -183,27 +226,17 @@ async fn a_side_question_on_a_resting_session_forks_its_stored_conversation_and_
     let tasks = TaskTracker::new();
     let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), tasks.clone());
     let session_id = session.task.record.session_id;
-    let resume = resting_session(session_id);
-    let params = AskSideQuestionParams {
-        session_id,
-        side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),
-        question: "What does this read?".to_owned(),
-        resume: Some(resume.clone()),
-    };
-    let profile = compose_codex_profile_name(
-        PermissionLevel::Readonly,
-        &CodexProfileFolders {
-            working_directory: folder.path().join("work"),
-            git_common_folder: None,
-            deny_paths: Vec::new(),
-        },
-    );
+    let params = resting_question(session_id);
+    let profile = read_only_profile(folder.path());
     let served = tokio::spawn(serve_copy(listener, profile.clone()));
 
     side_questions
         .ask_at_rest(
             &establishment,
-            &resume,
+            params
+                .resume
+                .as_ref()
+                .expect("the question is asked at rest"),
             &params,
             Arc::new(PortRegistration::new("usage")),
         )
@@ -249,5 +282,53 @@ async fn a_side_question_on_a_resting_session_forks_its_stored_conversation_and_
             .iter()
             .any(|thread_id| thread_id == COPY_THREAD),
         "the copy was never registered on the session's service"
+    );
+}
+
+// Killed by a session's close that leaves its resting copy running: no interrupt is sent, the
+// copy's connection stays open and the driver's tasks never end.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_resting_copy_whose_session_closes_first_has_its_turn_stopped_and_is_let_go() {
+    let session = TestCodexSession::start().await;
+    let Some(listener) = bind_test_listener(session.scripted.service.socket_path()) else {
+        return;
+    };
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let establishment = session.establishment(folder.path());
+    let tasks = TaskTracker::new();
+    let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), tasks.clone());
+    let session_id = session.task.record.session_id;
+    let params = resting_question(session_id);
+    let served = tokio::spawn(serve_unended_copy(
+        listener,
+        read_only_profile(folder.path()),
+    ));
+
+    side_questions
+        .ask_at_rest(
+            &establishment,
+            params
+                .resume
+                .as_ref()
+                .expect("the question is asked at rest"),
+            &params,
+            Arc::new(PortRegistration::new("usage")),
+        )
+        .await
+        .expect("the copy takes the question");
+    side_questions.forget_session(session_id).await;
+    let interrupt = tokio::time::timeout(SERVE_WAIT, served)
+        .await
+        .expect("the daemon stops the copy's turn and lets its connection go")
+        .expect("the service served the copy");
+    tasks.close();
+    tokio::time::timeout(SERVE_WAIT, tasks.wait())
+        .await
+        .expect("the copy's task ends");
+
+    assert_eq!(interrupt["method"], "turn/interrupt");
+    assert_eq!(
+        interrupt["params"],
+        json!({"threadId": COPY_THREAD, "turnId": "copy-turn"})
     );
 }
