@@ -3,6 +3,7 @@
 //! conversations, and the messages a continue sent that Codex took.
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 
@@ -186,16 +187,23 @@ impl CodexDriver {
         parts.hand_off.forget_session(session_id);
         // Before the claim, which refuses run control while it holds the slot; a transition in
         // flight runs no turn.
-        if let Ok(inbound) = parts.slots.require_live(session_id) {
-            stop_closing_turns(parts, &inbound).await;
-        }
+        let mut runs = match parts.slots.require_live(session_id) {
+            Ok(inbound) => stop_closing_turns(parts, &inbound).await,
+            Err(_no_record) => Vec::new(),
+        };
         let claim = parts.slots.claim_closing(session_id).await;
         if let Some(inbound) = claim.live() {
-            // A task that let its record go first holds no run.
-            let runs =
+            // A task that let its record go first holds no run. A run whose interrupted turn
+            // already ended is held no more, and its end is the close's all the same.
+            let held =
                 call_codex_lifecycle(&inbound, |reply| CodexLifecycleCall::BeginClose { reply })
                     .await
                     .unwrap_or_default();
+            for run_id in held {
+                if !runs.contains(&run_id) {
+                    runs.push(run_id);
+                }
+            }
             for run_id in runs {
                 if let Err(error) = parts.engine.end_turn_on_close(run_id).await {
                     tracing::warn!(
@@ -316,14 +324,17 @@ impl CodexDriver {
 // a turn running once no client is subscribed: a live turn is interrupted, and a start in flight is
 // withdrawn, its turn interrupted once Codex names it. Codex answers an interrupt once the turn
 // stopped, so the close waits for each answer and for the session to go idle within the let-go's
-// bound, and past it goes on, logged.
-async fn stop_closing_turns(parts: &CodexDriverParts, inbound: &CodexSessionInboundSender) {
+// bound, and past it goes on, logged. Answers the runs it interrupted.
+async fn stop_closing_turns(
+    parts: &CodexDriverParts,
+    inbound: &CodexSessionInboundSender,
+) -> Vec<RunId> {
     let session_id = inbound.session_id();
     // A task that let its record go first holds no run.
     let Ok(runs) =
         call_codex_lifecycle(inbound, |reply| CodexLifecycleCall::BeginClose { reply }).await
     else {
-        return;
+        return Vec::new();
     };
     let stopped = tokio::time::timeout(CODEX_LET_GO_TIMEOUT, async {
         futures::future::join_all(runs.iter().map(|run_id| async move {
@@ -347,4 +358,5 @@ async fn stop_closing_turns(parts: &CodexDriverParts, inbound: &CodexSessionInbo
             "a closing codex session's turns did not stop within the close's bound"
         );
     }
+    runs
 }

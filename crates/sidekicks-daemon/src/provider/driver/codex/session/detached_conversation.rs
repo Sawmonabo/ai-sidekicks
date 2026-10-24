@@ -11,7 +11,9 @@ use std::time::Duration;
 use serde_json::value::RawValue;
 use tokio::sync::mpsc;
 
-use crate::provider::driver::codex::run::turn_interrupt::interrupt_codex_turn;
+use crate::provider::driver::codex::run::turn_interrupt::{
+    CodexTurnInterrupt, interrupt_codex_turn,
+};
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::transport::connection::{
     CodexAppServerConnection, CodexConnectionEvents, CodexForgottenRequest,
@@ -85,7 +87,8 @@ pub(crate) async fn stop_detached_turn(
     })
     .await;
     match stopped {
-        Ok(Ok(())) => {}
+        // A turn that already ended has nothing left to stop.
+        Ok(Ok(CodexTurnInterrupt::Stopped | CodexTurnInterrupt::AlreadyEnded)) => {}
         Ok(Err(error)) => tracing::info!(
             error = &error as &(dyn Error + 'static),
             "a codex throwaway turn could not be stopped"

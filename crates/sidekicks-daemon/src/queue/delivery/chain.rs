@@ -132,8 +132,10 @@ impl MessageRefusedListener for QueueDelivery {
 
 /// Gives back a message the daemon handed `session_id`'s provider and the provider then let go
 /// unsent, on the session's chain: its hand is forgotten, so it waits again, and its run is handed
-/// its waiting messages again. `message_id` is the provider's own; one that is no queue item id,
-/// or names a message not handed, is dropped.
+/// its waiting messages again, which a provider that takes messages at once takes now; one that
+/// takes them at a tool boundary has the message wait for its run's next boundary or its continue.
+/// `message_id` is the provider's own; one that is no queue item id, or names a message not
+/// handed, is dropped.
 impl MessageGivenBackListener for QueueDelivery {
     fn message_given_back(&self, session_id: SessionId, message_id: &str) {
         let Ok(item_id) = QueueItemId::new(message_id) else {
@@ -411,8 +413,9 @@ impl QueueDelivery {
 
     // A handed message the provider let go unsent: its hand goes, so it waits again, and its run
     // is handed its waiting messages again from a task of its own under the session lock, which a
-    // job on the chain never takes. A run that takes no message now, a pausing one among them, is
-    // handed nothing, so its continue reads the message.
+    // job on the chain never takes. That hand serves a provider that takes messages at once; one
+    // that takes them at a tool boundary, or a run that takes no message now, a pausing one among
+    // them, is handed nothing, so the message waits for the run's next boundary or its continue.
     fn settle_given_back(&self, session_id: SessionId, item_id: QueueItemId) {
         let Some(run_id) = self
             .lock_state()

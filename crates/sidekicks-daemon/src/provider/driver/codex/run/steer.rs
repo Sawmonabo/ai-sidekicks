@@ -4,8 +4,8 @@
 //! each once Codex answered the one before, in the order they were registered; and none is sent
 //! into a turn that ended or that an interrupt is stopping. A steer the person's own
 //! `userPromptSubmit` hook keeps out of its turn is never echoed; at the turn's end it is paired
-//! with the words of the hook handlers that refused it, the steers a pause stopped the turn under
-//! go back to the queue, and those a retry stopped it under are kept for the retry to take.
+//! with the words of the hook handlers that refused it, and the steers a pause or a retry stopped
+//! the turn under go back to the queue.
 
 use std::sync::{Arc, LazyLock};
 
@@ -58,7 +58,6 @@ static BLOCKED_STEER_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX
 pub(crate) struct CodexSteerSend {
     connection: Arc<CodexAppServerConnection>,
     thread_id: String,
-    run_id: RunId,
     turn_id: String,
     targeted_turn_id: String,
     message_id: QueueItemId,
@@ -107,7 +106,6 @@ pub(crate) fn register_codex_steer(
     Ok(CodexSteerSend {
         connection,
         thread_id: record.thread_id.clone(),
-        run_id,
         targeted_turn_id: expected_turn_id.unwrap_or_else(|| turn_id.clone()),
         turn_id,
         message_id,
@@ -118,12 +116,12 @@ pub(crate) fn register_codex_steer(
 
 /// Steers one message into `run_id`'s live turn, off the session's task: registers it on the
 /// session's task before anything is written, waits for its `input`, writes it once the steer
-/// before it was answered, and takes it back when Codex did not take it. `expected_turn_id`, where
-/// the caller pins one, is the turn the steer names. Answers the turn it targeted and the turn
-/// Codex acknowledged. Fails with `SteerTurnEnded` when the run has no live turn, an interrupt is
-/// stopping it, its session's task ended or Codex refused it for its turn, with
-/// `session.message.tooLarge` when its text passes Codex's input limit, and as `input` and the
-/// request fail.
+/// before it was answered, and takes it back when Codex surely did not take it: refused, or never
+/// sent; one whose answer never came keeps its place. `expected_turn_id`, where the caller pins
+/// one, is the turn the steer names. Answers the turn it targeted and the turn Codex acknowledged.
+/// Fails with `SteerTurnEnded` when the run has no live turn, an interrupt is stopping it, its
+/// session's task ended or Codex refused it for its turn, with `session.message.tooLarge` when its
+/// text passes Codex's input limit, and as `input` and the request fail.
 pub(crate) async fn steer_codex_run(
     inbound: &CodexSessionInboundSender,
     run_id: RunId,
@@ -146,26 +144,33 @@ pub(crate) async fn steer_codex_run(
     let send = registered.unwrap_or_else(|| Err(SteerTurnEndedError { run_id }.into()))?;
     let turn_id = send.turn_id.clone();
     // A steer whose input failed is dropped unsent, which lets the next one go.
-    let sent = match input.await {
-        Ok(input) => send_codex_steer(send, input).await,
-        Err(error) => Err(error),
+    let (error, is_untaken) = match input.await {
+        Ok(input) => match send_codex_steer(send, input).await {
+            Ok(acknowledged) => return Ok(acknowledged),
+            // One whose answer never came may have been taken, its prompt hook run, so it keeps
+            // its place among the turn's steers.
+            Err(error) => {
+                let is_untaken = !matches!(error, CodexError::Unanswered { .. });
+                (read_steer_failure(run_id, error), is_untaken)
+            }
+        },
+        Err(error) => (error, true),
     };
-    if sent.is_err() {
+    if is_untaken {
         // The session's task takes it back; one that ended has nothing to take back.
         let _unheard = inbound.push(CodexSessionInbound::Call(CodexSessionCall::WithdrawSteer {
             turn_id,
             message_id,
         }));
     }
-    sent
+    Err(error)
 }
 
-// Writes a registered steer with `input` once the steer before it was answered; a refusal because
-// its turn had ended or is not one a steer reaches fails with `SteerTurnEnded`.
+// Writes a registered steer with `input` once the steer before it was answered.
 async fn send_codex_steer(
     send: CodexSteerSend,
     input: Vec<UserInput>,
-) -> Result<CodexSteerAcknowledgment, DriverError> {
+) -> Result<CodexSteerAcknowledgment, CodexError> {
     if let Some(previous) = send.previous {
         previous.await;
     }
@@ -185,20 +190,19 @@ async fn send_codex_steer(
         )
         .await;
     drop(send.answered);
-    match reply {
-        Ok(reply) => Ok(CodexSteerAcknowledgment {
-            targeted_turn_id: send.targeted_turn_id,
-            acknowledged_turn_id: read_steered_turn_id(&reply),
-        }),
-        Err(error) if is_steer_turn_gone(&error) => Err(SteerTurnEndedError {
-            run_id: send.run_id,
-        }
-        .into()),
-        Err(error) => {
-            Err(message_too_large_refusal(&error)
-                .map_or_else(|| error.into(), DriverError::Refused))
-        }
+    Ok(CodexSteerAcknowledgment {
+        targeted_turn_id: send.targeted_turn_id,
+        acknowledged_turn_id: read_steered_turn_id(&reply?),
+    })
+}
+
+// A steer's failed send as the driver reports it: a refusal because its turn had ended or is not
+// one a steer reaches fails with `SteerTurnEnded`, and one past Codex's input limit is refused.
+fn read_steer_failure(run_id: RunId, error: CodexError) -> DriverError {
+    if is_steer_turn_gone(&error) {
+        return SteerTurnEndedError { run_id }.into();
     }
+    message_too_large_refusal(&error).map_or_else(|| error.into(), DriverError::Refused)
 }
 
 /// Takes back a steer Codex did not take, on the session's task: it is no longer waited for on
@@ -252,7 +256,7 @@ pub(crate) fn remember_codex_prompt_hook_run(
 }
 
 /// What an ended turn's unechoed steers come to: those the person's own hook refused, each with its
-/// words, and those a pause stopped the turn under, which the queue gives back.
+/// words, and those a pause or a retry stopped the turn under, which the queue gives back.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct CodexEndedTurnSteers {
     /// The refused steers' messages and their hooks' words, in send order.
@@ -263,8 +267,8 @@ pub(crate) struct CodexEndedTurnSteers {
 
 /// Takes, on the session's task, the steers the turn `turn_id`, which ended `ending`, still holds
 /// unechoed: those the person's own `userPromptSubmit` hook kept out of it, each with its hook's
-/// words, and, when a pause stopped it, the rest as dropped. An interrupt's or a retry's turn keeps
-/// the rest for the interrupt or the retry to take, and a turn that ended by itself lets them go. Codex runs
+/// words, and, when a pause or a retry stopped it, the rest as dropped. An interrupt's turn keeps
+/// the rest for the interrupt to take, and a turn that ended by itself lets them go. Codex runs
 /// the hook on the turn's opening prompt and then on each steer it took, in order, so the steer at
 /// place `p` is refused when the prompt after the opening's `p`th one was.
 pub(crate) fn take_blocked_codex_steers(
@@ -278,14 +282,6 @@ pub(crate) fn take_blocked_codex_steers(
             .remove(turn_id)
             .unwrap_or_default(),
     );
-    // A turn still live whose interrupt is on the wire ended under that interrupt; a pause's turn
-    // already reads paused.
-    let ending =
-        if ending == CodexTurnEnding::Live && record.interrupting_turn_ids.contains(turn_id) {
-            CodexTurnEnding::Interrupted
-        } else {
-            ending
-        };
     let Some(unechoed) = record.unechoed_steers_by_turn_id.get_mut(turn_id) else {
         return CodexEndedTurnSteers::default();
     };
@@ -301,16 +297,14 @@ pub(crate) fn take_blocked_codex_steers(
         false
     });
     let dropped = match ending {
-        CodexTurnEnding::Interrupted | CodexTurnEnding::Retried if !unechoed.steers.is_empty() => {
+        CodexTurnEnding::Interrupted if !unechoed.steers.is_empty() => {
             return CodexEndedTurnSteers {
                 refused,
                 dropped: Vec::new(),
             };
         }
-        CodexTurnEnding::Paused => unechoed.message_ids(),
-        CodexTurnEnding::Live | CodexTurnEnding::Interrupted | CodexTurnEnding::Retried => {
-            Vec::new()
-        }
+        CodexTurnEnding::Paused | CodexTurnEnding::Retried => unechoed.message_ids(),
+        CodexTurnEnding::Live | CodexTurnEnding::Interrupted => Vec::new(),
     };
     record.unechoed_steers_by_turn_id.remove(turn_id);
     CodexEndedTurnSteers { refused, dropped }

@@ -19,7 +19,7 @@ use crate::provider::driver::codex::delivery::failure_cause::{
 };
 use crate::provider::driver::codex::delivery::frames::{
     CodexFrameDelivery, CodexFrameDispatch, CodexPromptHookRun, CodexRunMove, CodexTurnEnding,
-    CodexTurnMove, CodexTurnRun, report_unattributed,
+    CodexTurnMove, CodexTurnRun, read_turn_ending, report_unattributed,
 };
 use crate::provider::driver::codex::delivery::memory::{
     CodexTurnErrorReading, read_codex_error_kind,
@@ -145,9 +145,9 @@ impl CodexFrameDelivery {
 
     // The turn's end: rows still held for their start go out, a switch still waiting for its
     // sentence goes without one, the reviewer's warning on a turn it stopped is flagged, and a
-    // live turn's run ends through the terminal gate. An interrupted turn's end is written by the
-    // run engine, a paused one's by run control, and a retried one's run goes on in the turn the
-    // retry sends.
+    // live turn's run ends through the terminal gate, as does a pause's turn that failed by itself.
+    // An interrupted turn's end is written by the run engine, a paused one's by run control, and a
+    // retried one's run goes on in the turn the retry sends.
     pub(super) async fn deliver_turn_completed(
         &self,
         record: &mut CodexSessionRecord,
@@ -179,11 +179,17 @@ impl CodexFrameDelivery {
             self.send_row(record, reroute).await;
         }
         record.delivery.spawn_calls_by_thread_id.remove(&thread_id);
-        let turn_run = self.turn_run_for(record, &turn_id);
-        // A live turn ending interrupted is one Codex itself stopped, since the daemon's own
-        // interrupt takes the turn from its run first and a pause's turn reads paused.
-        let is_stopped_by_codex = read_turn_status(members).and_then(CodexTurnStatus::read)
-            == Some(CodexTurnStatus::Interrupted);
+        let status = read_turn_status(members).and_then(CodexTurnStatus::read);
+        let turn_run = self
+            .turn_run_for(record, &turn_id)
+            .map(|turn_run| CodexTurnRun {
+                ending: read_turn_ending(record, &turn_id, turn_run.ending, status),
+                ..turn_run
+            });
+        let turn_ending = turn_run.as_ref().map(|turn_run| turn_run.ending);
+        // A live turn ending interrupted is one Codex itself stopped, since a turn the daemon
+        // interrupted reads interrupted or paused.
+        let is_stopped_by_codex = status == Some(CodexTurnStatus::Interrupted);
         let stopped_run = turn_run
             .as_ref()
             .filter(|turn_run| turn_run.ending == CodexTurnEnding::Live && is_stopped_by_codex)
@@ -237,6 +243,12 @@ impl CodexFrameDelivery {
         record.delivery.safety_hold_run_by_turn_id.remove(&turn_id);
         record.delivery.forget_turn(&turn_id);
         record.turn_input_by_turn_id.remove(&turn_id);
+        // A pause's turn that failed by itself leaves nothing to pause, nor to continue.
+        if turn_ending == Some(CodexTurnEnding::Live)
+            && let Some(run_id) = record.paused_run_id_by_interrupted_turn_id.remove(&turn_id)
+        {
+            record.continues_awaiting_pause.remove(&run_id);
+        }
     }
 
     async fn deliver_terminal(

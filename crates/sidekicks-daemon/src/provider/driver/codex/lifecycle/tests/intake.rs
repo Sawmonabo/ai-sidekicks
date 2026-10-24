@@ -6,18 +6,21 @@ use std::time::Duration;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
-use sidekicks_contracts::run::queue::{MessageContent, QueueItemId, QueueItemNotDeliveredReason};
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
 use crate::mutex_lock::lock;
-use crate::provider::driver::codex::intervention::CodexSteerRunRequest;
+use crate::provider::driver::codex::session::calls::call_codex_session;
+use crate::provider::driver::codex::session::inbound::CodexSessionCall;
 use crate::provider::driver::codex::session::test_session::{
     TEST_THREAD, fork_reply, no_turns, test_thread_settings, turn_completed, turn_reply,
 };
 use crate::provider::driver::run_control::{
     FasterModelRetryOutcome, FasterModelRetryParams, PauseRunParams,
 };
+use crate::provider::driver::test_registry::terminal_events;
 use crate::session::run::engine::tests::stored_run_state;
 
 // Real time under a timeout, since the run engine writes the turn's end through the database
@@ -120,7 +123,7 @@ async fn a_refused_steer_pairs_with_its_own_prompt_and_an_unrun_one_is_dropped()
     );
 }
 
-/// Which reaches the session first once a pause's interrupt stopped its turn.
+/// Which reaches the session first once a pause's interrupt went out.
 #[derive(Clone, Copy, Debug)]
 enum PauseOrder {
     /// The turn's end, ahead of Codex's answer to the interrupt.
@@ -129,18 +132,43 @@ enum PauseOrder {
     SettleFirst,
 }
 
-// Real time under a timeout, as above. A steer still unechoed when a pause stops its turn goes back
-// to the queue, never refused, and the run reads paused, whether the turn's end reaches the
-// session before or after it settles the interrupt's answer. Killed by reading a live turn ahead
-// of the pause's mark in `find_turn_run_id` (the end-first run reads interrupted), and by dropping
-// the `message_given_back` call from the session task's turn end.
+/// How the turn a pause's interrupt went out for ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PauseEnd {
+    /// The interrupt stopped it, a steer still unechoed in it.
+    Stopped,
+    /// It completed by itself first, so Codex refuses the interrupt as of no active turn.
+    CompletedByItself,
+    /// It failed by itself first, so Codex refuses the interrupt as of no active turn.
+    FailedByItself,
+}
+
+// Real time under a timeout, as above. A pause's turn reads by its own end, whichever of its end
+// and the interrupt's answer the session takes first: one the interrupt stopped reads paused and
+// gives its unechoed steer back to the queue, never refused; one that completed by itself is the
+// step that landed and reads paused too; one that failed by itself ends its run failed, its
+// failure surfacing. Each ends with its turn's route retired and no second end once every answer
+// landed. Killed by reading a pause-marked turn paused whatever its status (the failed run reads
+// paused), by settling an already-ended answer as a stop (the settle-first by-itself run's route
+// is retired before its end), by reading a live turn ahead of the pause's mark in
+// `find_turn_run_id` (the end-first stopped run reads interrupted), and by dropping the
+// `message_given_back` call from the session task's turn end.
 #[rstest]
-#[case::end_first(PauseOrder::EndFirst)]
-#[case::settle_first(PauseOrder::SettleFirst)]
+#[case::end_first(PauseOrder::EndFirst, PauseEnd::Stopped)]
+#[case::settle_first(PauseOrder::SettleFirst, PauseEnd::Stopped)]
+#[case::end_first_completed_by_itself(PauseOrder::EndFirst, PauseEnd::CompletedByItself)]
+#[case::settle_first_completed_by_itself(PauseOrder::SettleFirst, PauseEnd::CompletedByItself)]
+#[case::end_first_failed_by_itself(PauseOrder::EndFirst, PauseEnd::FailedByItself)]
 #[tokio::test]
-async fn a_paused_turn_reads_paused_and_gives_its_unechoed_steer_back(#[case] order: PauseOrder) {
-    let steer = new_message_id();
-    let mut session = LiveCodexSession::start(&[steer]).await;
+async fn a_pause_marked_turn_reads_by_its_own_end(
+    #[case] order: PauseOrder,
+    #[case] end: PauseEnd,
+) {
+    let steers = match end {
+        PauseEnd::Stopped => vec![new_message_id()],
+        PauseEnd::CompletedByItself | PauseEnd::FailedByItself => Vec::new(),
+    };
+    let mut session = LiveCodexSession::start(&steers).await;
     let parts = Arc::clone(session.driver.parts().expect("the driver composes"));
     // As the run engine moves the run before it asks the driver to pause it.
     session
@@ -173,48 +201,174 @@ async fn a_paused_turn_reads_paused_and_gives_its_unechoed_steer_back(#[case] or
         .await
         .expect("the step's end interrupts the turn");
     assert_eq!(interrupt["method"], "turn/interrupt");
-    let ended = turn_completed(TEST_THREAD, TEST_TURN, "interrupted");
+    let (ended, answer, expected_state) = match end {
+        PauseEnd::Stopped => (
+            turn_completed(TEST_THREAD, TEST_TURN, "interrupted"),
+            json!({"jsonrpc": "2.0", "id": interrupt["id"], "result": {}}),
+            "paused",
+        ),
+        PauseEnd::CompletedByItself => (
+            turn_completed(TEST_THREAD, TEST_TURN, "completed"),
+            no_active_turn_refusal(&interrupt),
+            "paused",
+        ),
+        PauseEnd::FailedByItself => {
+            let mut failed = turn_completed(TEST_THREAD, TEST_TURN, "failed");
+            failed["params"]["turn"]["error"] = json!({"message": "The model is overloaded."});
+            (failed, no_active_turn_refusal(&interrupt), "failed")
+        }
+    };
     match order {
         PauseOrder::EndFirst => {
+            // The end is read off the socket ahead of the answer, so the session takes it first.
             script.send(&ended);
-            script.answer(&interrupt, &json!({}));
+            script.send(&answer);
         }
         PauseOrder::SettleFirst => {
-            script.answer(&interrupt, &json!({}));
-            // The settle retires the stopped turn's route, the run's last.
-            tokio::time::timeout(Duration::from_secs(10), async {
-                while parts.run_routes.session_id_for(session.run_id).is_some() {
-                    tokio::task::yield_now().await;
-                }
-            })
-            .await
-            .expect("the session settles the interrupt's answer");
-            script.send(&ended);
+            script.send(&answer);
+            let live_turn_runs = live_turn_runs_once_settled(&mut session).await;
+            // A stop retires the turn's route, the run's last; an end already reached leaves it
+            // for that end to retire.
+            let kept_live: &[RunId] = match end {
+                PauseEnd::Stopped => &[],
+                PauseEnd::CompletedByItself | PauseEnd::FailedByItself => &[session.run_id],
+            };
+            assert_eq!(live_turn_runs, kept_live);
+            session.scripted.script.send(&ended);
         }
     }
     let mut changes = session.followers.change_count(&session.session_id);
-    while stored_run_state(&session.database, &session.run_id).0 != "paused" {
+    while stored_run_state(&session.database, &session.run_id).0 != expected_state {
         tokio::time::timeout(Duration::from_secs(10), changes.changed())
             .await
-            .expect("the session's task reports the run paused")
+            .expect("the session's task reports the run's end")
             .expect("the followers stay open");
     }
-    while lock(&session.queue.given_back).is_empty() {
-        tokio::time::timeout(Duration::from_secs(10), session.queue.changed.notified())
-            .await
-            .expect("the session's task gives the steer back");
+    if end == PauseEnd::Stopped {
+        while lock(&session.queue.given_back).is_empty() {
+            tokio::time::timeout(Duration::from_secs(10), session.queue.changed.notified())
+                .await
+                .expect("the session's task gives the steer back");
+        }
     }
+    // The interrupt's answer, read off the socket after the end here, has landed too.
+    let live_turn_runs = live_turn_runs_once_settled(&mut session).await;
 
-    assert_eq!(*lock(&session.queue.given_back), [steer.to_string()]);
+    assert_eq!(live_turn_runs, Vec::new());
+
+    let terminal_types: Vec<String> = terminal_events(&session.database, session.run_id)
+        .into_iter()
+        .map(|(event_type, _intended_close)| event_type)
+        .collect();
+    match end {
+        PauseEnd::Stopped | PauseEnd::CompletedByItself => {
+            assert_eq!(terminal_types, Vec::<String>::new());
+        }
+        PauseEnd::FailedByItself => assert_eq!(terminal_types, ["agent.run.failed"]),
+    }
+    let given_back: Vec<String> = steers.iter().map(ToString::to_string).collect();
+    assert_eq!(*lock(&session.queue.given_back), given_back);
     assert!(lock(&session.queue.refused).is_empty());
 }
 
-// Real time under a timeout, as above. A steer still unechoed when a faster-model retry stops its
-// turn goes back to the queue only once the turn sent again on the fork runs as the run's, and the
-// queue's next hand of it steers into that turn. Killed by giving the steer back at the held
-// turn's end (it is back before the new turn's start is answered), and by giving back none.
+// Codex's refusal of an interrupt whose turn already ended.
+fn no_active_turn_refusal(interrupt: &Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": interrupt["id"],
+        "error": {"code": -32600, "message": "no active turn to interrupt"},
+    })
+}
+
+// The runs whose turns are live once the session settled a pause's interrupt answered ahead of the
+// turn's end. A request Codex sends after the answer is read off the socket after it, and the
+// test's runtime polls woken tasks in the order they woke, so the pause's task has queued its
+// settle by the time that request is answered; a reading asked after that is answered after the
+// settle.
+async fn live_turn_runs_once_settled(session: &mut LiveCodexSession) -> Vec<RunId> {
+    let script = &mut session.scripted.script;
+    script.send(&json!({
+        "jsonrpc": "2.0",
+        "id": "after-the-answer",
+        "method": "item/tool/call",
+        "params": {
+            "threadId": TEST_THREAD,
+            "turnId": TEST_TURN,
+            "callId": "call-1",
+            "tool": "lookup",
+            "arguments": {},
+        },
+    }));
+    loop {
+        let sent = tokio::time::timeout(Duration::from_secs(10), script.next_sent())
+            .await
+            .expect("the session answers the request after the interrupt's answer");
+        if sent["id"] == "after-the-answer" {
+            break;
+        }
+    }
+    let parts = session.driver.parts().expect("the driver composes");
+    let inbound = parts
+        .slots
+        .require_live(session.session_id)
+        .expect("the session is live");
+    call_codex_session(&inbound, |reply| CodexSessionCall::ReadSession {
+        thread_id: None,
+        reply,
+    })
+    .await
+    .expect("the session reads")
+    .live_turn_runs
+}
+
+// Real time under a timeout, as above. The person's interrupt whose turn's end reaches the session
+// ahead of Codex's answer to it ends no run as one Codex stopped by itself: the driver writes no
+// end, which the run engine writes for the person's interrupt, and the steer the turn dropped is
+// answered to the interrupt. Killed by dropping the read of the turns being interrupted from the
+// turn's end (the driver ends the run interrupted as Codex's own stop).
 #[tokio::test]
-async fn a_retry_gives_its_held_turns_unechoed_steer_back_once_its_new_turn_runs() {
+async fn an_interrupts_turn_ending_ahead_of_its_answer_is_the_interrupts() {
+    let steer = new_message_id();
+    let mut session = LiveCodexSession::start(&[steer]).await;
+    let parts = Arc::clone(session.driver.parts().expect("the driver composes"));
+    let script = &mut session.scripted.script;
+
+    let interrupt = parts.run_control.interrupt_run(session.run_id);
+    tokio::pin!(interrupt);
+    let dropped = loop {
+        tokio::select! {
+            dropped = &mut interrupt => break dropped.expect("the interrupt stops the turn"),
+            sent = tokio::time::timeout(Duration::from_secs(10), script.next_sent()) => {
+                let sent = sent.expect("the interrupt goes out");
+                if sent["method"] == "turn/interrupt" {
+                    // The end is read off the socket ahead of the answer.
+                    script.send(&turn_completed(TEST_THREAD, TEST_TURN, "interrupted"));
+                    script.answer(&sent, &json!({}));
+                } else {
+                    answer_stopping_request(script, &sent);
+                }
+            }
+        }
+    };
+
+    assert_eq!(dropped, [steer]);
+    assert_eq!(
+        terminal_events(&session.database, session.run_id),
+        Vec::new()
+    );
+    assert_eq!(
+        stored_run_state(&session.database, &session.run_id).0,
+        "running"
+    );
+}
+
+// Real time under a timeout, as above. A steer still unechoed when a faster-model retry stops its
+// turn goes back to the queue at that turn's end, ahead of the turn sent again on the fork, and
+// nothing steers it meanwhile: Codex takes a given-back message at its run's next tool boundary.
+// Killed by the retried turn's end keeping its steers rather than dropping them, and by dropping
+// the `message_given_back` call from the session task's turn end.
+#[tokio::test]
+async fn a_retry_gives_its_held_turns_unechoed_steer_back_at_that_turns_end() {
     let steer = new_message_id();
     let mut session = LiveCodexSession::retriable(&[steer]).await;
     let parts = Arc::clone(session.driver.parts().expect("the driver composes"));
@@ -237,13 +391,15 @@ async fn a_retry_gives_its_held_turns_unechoed_steer_back_once_its_new_turn_runs
                 }
                 Some("thread/turns/list") => script.answer(&sent, &no_turns()),
                 Some("turn/start") => break sent,
+                Some("turn/steer") => panic!("nothing steers the given-back message"),
                 _ => answer_stopping_request(script, &sent),
             }
         };
         assert_eq!(started["params"]["threadId"], "thread-2");
-        assert!(
-            lock(&queue.given_back).is_empty(),
-            "nothing goes back before the new turn runs"
+        assert_eq!(
+            *lock(&queue.given_back),
+            [steer.to_string()],
+            "the held turn's end gave it back"
         );
         script.answer(&started, &turn_reply("turn-2"));
     };
@@ -259,39 +415,13 @@ async fn a_retry_gives_its_held_turns_unechoed_steer_back_once_its_new_turn_runs
         FasterModelRetryOutcome::Applied {}
     );
     assert_eq!(*lock(&session.queue.given_back), [steer.to_string()]);
-    let steered = parts.run_control.steer_run(CodexSteerRunRequest {
-        run_id: session.run_id,
-        content: MessageContent::new("also check the tests".to_owned()).expect("the words"),
-        skills: Vec::new(),
-        attachments: Vec::new(),
-        expected_turn_id: None,
-        client_idempotency_key: steer,
-    });
-    let service = async {
-        let sent = script.next_sent().await;
-        assert_eq!(sent["method"], "turn/steer");
-        assert_eq!(sent["params"]["threadId"], "thread-2");
-        assert_eq!(sent["params"]["expectedTurnId"], "turn-2");
-        script.answer(&sent, &json!({"turnId": "turn-2"}));
-    };
-    let (acknowledged, ()) = tokio::time::timeout(Duration::from_secs(10), async {
-        tokio::join!(steered, service)
-    })
-    .await
-    .expect("the steer is answered");
-    assert_eq!(
-        acknowledged
-            .expect("the new turn takes the steer")
-            .targeted_turn_id,
-        "turn-2"
-    );
 }
 
-// Real time under a timeout, as above. An interrupt that stops a retry before it forks answers the
-// steer its held turn dropped, which is never given back besides. Killed by answering the stopped
-// retry's interrupt with no steers.
+// Real time under a timeout, as above. An interrupt that stops a retry before it forks answers no
+// steer, since the held turn's end gave the one it dropped back to the queue, once. Killed by the
+// retried turn's end keeping its steers rather than dropping them.
 #[tokio::test]
-async fn an_interrupt_that_stops_a_retry_answers_its_held_turns_unechoed_steer() {
+async fn an_interrupt_that_stops_a_retry_answers_no_steer_its_held_turns_end_gave_back() {
     let steer = new_message_id();
     let mut session = LiveCodexSession::retriable(&[steer]).await;
     let parts = Arc::clone(session.driver.parts().expect("the driver composes"));
@@ -327,8 +457,8 @@ async fn an_interrupt_that_stops_a_retry_answers_its_held_turns_unechoed_steer()
             rejection_reason: "The run was interrupted.".to_owned(),
         }
     );
-    assert_eq!(dropped.expect("the interrupt stops the retry"), [steer]);
-    assert!(lock(&session.queue.given_back).is_empty());
+    assert_eq!(dropped.expect("the interrupt stops the retry"), Vec::new());
+    assert_eq!(*lock(&session.queue.given_back), [steer.to_string()]);
 }
 
 // A retry of the session's run on [`TEST_TURN`] onto the faster model.

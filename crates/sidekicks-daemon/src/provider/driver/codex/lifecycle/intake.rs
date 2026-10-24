@@ -388,9 +388,9 @@ pub(crate) struct CodexRoutedFramesIntake<'parts> {
 /// Applies what a delivery reported on `record`'s session, in delivery order: each
 /// context-window reading filed on its run before any turn's end retires the route, each steer
 /// Codex echoed taken from the queue once, each prompt's hook runs remembered, and for each ended
-/// turn its blocked steers refused and those a pause dropped given back, its end recorded where no
-/// run moved, its route retired, its pause or continue acted on and its owed fork let go; then the
-/// spend it metered recorded.
+/// turn its blocked steers refused and those a pause or a retry dropped given back, its end
+/// recorded where no run moved, its route retired, its pause or continue acted on and its owed
+/// fork let go; then the spend it metered recorded.
 pub(crate) async fn apply_codex_routed_frames(
     intake: &CodexRoutedFramesIntake<'_>,
     record: &mut CodexSessionRecord,
