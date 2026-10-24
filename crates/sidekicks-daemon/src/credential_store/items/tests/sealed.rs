@@ -416,6 +416,54 @@ async fn a_changed_key_is_latched_and_a_missing_service_is_checked_again() {
     );
 }
 
+/// The status read names the cause the run holds while a call checks the sealed file again, and
+/// waits for none of it. Mutation: read the place through the run's lock with a fallback, so a
+/// read during the check drops the cause.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_status_keeps_the_cause_while_a_call_checks_again() {
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    std::fs::write(folder.path().join(RECORD), SEALED).expect("the test writes the record");
+    let seal = TestSeal::new();
+    file_before(folder.path(), &seal, Before::Sealed(SealKey::Chip)).await;
+    SealNow::forgets(SealKey::SystemKey).apply(&seal);
+    let items = secret_items(
+        folder.path(),
+        &TestStoreAccess::sealing(Arc::clone(&seal)),
+        false,
+        Duration::from_secs(5),
+    );
+
+    let first = write_and_read(&items, "secret", "value").await;
+    let seals = seal.seals();
+    let release = seal.hold_next_seal();
+    let status_while_checking = async {
+        seal.wait_for_seals(seals + 1).await;
+        let status_now = status(&items).await;
+        drop(release);
+        status_now
+    };
+    let scenario = async {
+        tokio::join!(
+            write_and_read(&items, "secret", "value"),
+            status_while_checking
+        )
+    };
+    let (second, status_now) = tokio::time::timeout(Duration::from_secs(5), scenario)
+        .await
+        .expect("every call answers within its time");
+
+    assert_eq!(first, Err(KeychainRefusalCause::Unavailable));
+    assert_eq!(second, Err(KeychainRefusalCause::Unavailable));
+    assert_eq!(
+        status_now,
+        Some((
+            Protection::SealedWithChip,
+            None,
+            Some(Unopened::ChipUnavailable)
+        ))
+    );
+}
+
 /// A service that keeps another value than the probe gave it is refused for the run, nothing
 /// recorded and no items file written. Mutations: drop the probe's compare; drop its latch.
 #[tokio::test]

@@ -3,21 +3,23 @@
 //! data folder, readable by this account alone (mode 0600). The file holds each item under its
 //! keychain service and account, so every service's items share it, and names its form: `sealed`,
 //! each value sealed to this computer by systemd's credential service under its own name, or
-//! `plain`, each value as given. A run opens the file in one form and refuses a file in the other or
-//! in none. It exists exactly while it holds an item: the write that removes the last one deletes
-//! it.
+//! `plain`, each value as given. A run opens the file in one form and refuses a file in the other
+//! or in none. It exists exactly while it holds an item: the write that removes the last one
+//! deletes it.
 //!
 //! Every call reads the disk, so no copy of a value stays in memory past the call, and the calls on
 //! one file run one at a time, every service's keychain on it sharing one lock, so two writes never
 //! lose each other; another process writes the file only while the daemon is stopped, as the data
-//! folder's lock ensures. A value is sealed before that lock is taken and opened after it is let
-//! go, so a slow seal never holds another call's file access. A write or a removal holds its item
-//! from its seal through its file write in a task of its own, so it lands whole even after its
-//! caller stops waiting, and before the next call on that item. Each write replaces the whole file
-//! at once, and the first call on the file deletes the temporary files a write cut short left
-//! behind, since each holds every value. An items file that cannot be read refuses every call and
-//! is never rewritten, because rewriting it would lose every secret it holds. The text read and the
-//! text written are held in buffers that wipe themselves when dropped.
+//! folder's lock ensures. A write seals its value before that lock is taken and a read opens its
+//! value after the lock is let go; only the pass that seals the file again holds the lock across
+//! its seals, so a call waits for it, while the status read takes the file without the lock and
+//! never waits. A write or a removal holds its item from its seal through its file write in a task
+//! of its own, so it lands whole even after its caller stops waiting, and before the next call on
+//! that item. Each write replaces the whole file at once, and the first call on the file deletes
+//! the temporary files a write cut short left behind, since each holds every value. An items file
+//! that cannot be read refuses every call and is never rewritten, because rewriting it would lose
+//! every secret it holds. The text read and the text written are held in buffers that wipe
+//! themselves when dropped.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -82,6 +84,15 @@ impl SealedItem {
     pub(crate) fn header(&self) -> Option<SealHeader> {
         SealHeader::read(self.blob.expose_secret())
     }
+}
+
+/// The items file as the status read takes it, no value kept.
+pub(crate) struct ItemsSnapshot {
+    /// The form the file names.
+    pub(crate) form: ItemsForm,
+    /// The key each item of the services asked for is sealed with, one per item: `None` for a
+    /// plain item or a key the daemon does not know.
+    pub(crate) keys: Vec<Option<SealKey>>,
 }
 
 /// What sealing a file's items again did.
@@ -161,18 +172,30 @@ impl SecretItemsFile {
         }
     }
 
-    /// Whether the file holds an item filed under one of `services`; a file that cannot be read
-    /// counts as holding one, since it may.
-    pub(crate) async fn holds_items(&self, services: &[&str]) -> bool {
-        let _held = self.calls.lock().await;
-        match self.read_items().await {
-            Ok(items) => services.iter().any(|service| {
-                items
-                    .get(*service)
-                    .is_some_and(|entries| !entries.is_empty())
-            }),
-            Err(_unreadable) => true,
-        }
+    /// The file as it stands on disk, read without its lock, so the read waits for no call and,
+    /// while a pass seals the file again, sees the file that pass started from, since each write
+    /// replaces the whole file at once. `None` when there is none. Fails with [`KeychainRefusal`]
+    /// when it cannot be read or is not an items file.
+    pub(crate) async fn snapshot(
+        &self,
+        services: &[&str],
+    ) -> Result<Option<ItemsSnapshot>, KeychainRefusal> {
+        Ok(self.read_text().await?.map(|text| {
+            let form = text.form;
+            let keys = text
+                .items
+                .into_iter()
+                .filter(|(service, _)| services.contains(&service.as_str()))
+                .flat_map(|(_, entries)| entries.into_values())
+                .map(|stored| match form {
+                    ItemsForm::Sealed => {
+                        SealHeader::read(stored.expose_secret()).map(SealHeader::key)
+                    }
+                    ItemsForm::Plain => None,
+                })
+                .collect();
+            ItemsSnapshot { form, keys }
+        }))
     }
 
     /// Deletes the file, every item in it with it, and the leftovers of any write cut short; one
@@ -440,7 +463,7 @@ impl SecretItemsFile {
                     tracing::warn!(
                         service = logged_service,
                         is_answered = answer.is_ok(),
-                        "An items file write landed after its caller stopped waiting"
+                        "an items file write landed after its caller stopped waiting"
                     );
                 },
             )

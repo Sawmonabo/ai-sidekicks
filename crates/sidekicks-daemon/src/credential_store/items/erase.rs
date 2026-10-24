@@ -8,8 +8,8 @@ use std::sync::Arc;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 
 use crate::credential_store::KeychainRefusal;
-use crate::credential_store::items::PlaceState;
 use crate::credential_store::items::SecretItems;
+use crate::credential_store::items::state::RecordState;
 use crate::credential_store::os::OsCredentialStore;
 use crate::credential_store::place::{self, SecretsPlace};
 use crate::credential_store::service::KeychainService;
@@ -73,22 +73,22 @@ impl SecretItems {
     /// refused, or when a step runs out of its time.
     pub(crate) async fn empty_place(&self) -> Result<SecretsPlace, KeychainRefusal> {
         let mut state = self.within_call_time(self.state.write()).await?;
-        if state.cannot_open.is_none() {
+        if state.view().cannot_open.is_none() {
             match self.within_call_time(self.settle_held(&mut state)).await? {
                 Ok(place) => return Ok(place),
-                Err(refusal) if state.cannot_open.is_none() => return Err(refusal),
+                Err(refusal) if state.view().cannot_open.is_none() => return Err(refusal),
                 Err(_cannot_open) => {}
             }
         }
         tracing::warn!(
-            cause = ?state.cannot_open,
+            cause = ?state.view().cannot_open,
             file = %self.plain_file.file_path().display(),
             "the sealed secrets cannot be opened, so the relink deletes them and picks their place \
              again"
         );
         self.plain_file.remove_all().await?;
         place::remove_record(&self.record_path).await?;
-        *state = PlaceState::default();
+        state.reset(RecordState::Absent);
         self.within_call_time(self.settle_held(&mut state)).await?
     }
 

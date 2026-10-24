@@ -35,26 +35,25 @@
 
 mod erase;
 mod sealed_file;
+mod state;
+mod status;
 #[cfg(test)]
 mod tests;
 
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
 use secrecy::SecretString;
-use sidekicks_contracts::daemon::status::{
-    DaemonSecretsFile, DaemonSecretsFileUnopened, DaemonSecretsPlainReason, DaemonSecretsProtection,
-};
-use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::daemon::status::{DaemonSecretsFileUnopened, DaemonSecretsPlainReason};
 use sidekicks_contracts::keychain::KeychainRefusalCause;
-use sidekicks_contracts::wire::text::TextError;
-use sidekicks_platforms::{SealFailure, SealHeader, SealKey};
+use sidekicks_platforms::SealFailure;
 use tokio::sync::RwLock;
 
 use self::sealed_file::{Probe, is_definite_refusal, log_boot_bound};
+use self::state::{PlaceState, PlaceView, Readiness, RecordState, Verdict};
 use crate::credential_store::file::{FileSecretKeychain, ItemsForm, SecretItemsFile};
 use crate::credential_store::os::{
     CredentialStoreAccess, OsCredentialStore, OsSecretKeychain, SEAL_CHECK_TIMEOUT_DIVISOR,
@@ -111,47 +110,9 @@ pub(crate) struct SecretItems {
     seal_check_timeout: Duration,
     /// The place and its check, read by every call and written by a pick, a check and a move.
     state: RwLock<PlaceState>,
-}
-
-// What this run knows of the place.
-#[derive(Default)]
-struct PlaceState {
-    record: RecordState,
-    // Where calls go, once picked.
-    picked: Option<SecretsPlace>,
-    verdict: Verdict,
-    // Why the sealed file could not be opened at the last check, while it could not.
-    cannot_open: Option<DaemonSecretsFileUnopened>,
-}
-
-// The place record as this run read it.
-#[derive(Default)]
-enum RecordState {
-    #[default]
-    Unread,
-    // Why it cannot be read.
-    Unreadable(String),
-    Absent,
-    Present(PlaceRecord),
-}
-
-// The picked place's check.
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum Verdict {
-    #[default]
-    Unchecked,
-    Accepted,
-    // The place kept another value than the check gave it.
-    Mismatch,
-    // An item of the sealed file does not open under the key the probe opens with.
-    KeyChanged,
-}
-
-// What a call may do now.
-enum Readiness {
-    Ready(SecretsPlace),
-    Refused(KeychainRefusal),
-    Unsettled,
+    /// The place picked and why the sealed file cannot be opened, which `state` writes and the
+    /// status read takes without waiting for a call that holds `state`.
+    view: Arc<Mutex<PlaceView>>,
 }
 
 // A write-read-delete check's outcome.
@@ -159,45 +120,6 @@ enum Check {
     Accepted,
     Mismatch,
     Refused(KeychainRefusal),
-}
-
-impl PlaceState {
-    // What a call may do with the place as it stands.
-    fn readiness(&self) -> Readiness {
-        match &self.record {
-            RecordState::Unread => return Readiness::Unsettled,
-            RecordState::Unreadable(reason) => {
-                return Readiness::Refused(unreadable_record(reason));
-            }
-            RecordState::Absent | RecordState::Present(_) => {}
-        }
-        match (self.verdict, self.picked) {
-            (Verdict::Mismatch, _) => Readiness::Refused(mismatch()),
-            (Verdict::KeyChanged, _) => {
-                Readiness::Refused(cannot_open(DaemonSecretsFileUnopened::KeyChanged))
-            }
-            (Verdict::Accepted, Some(place)) => Readiness::Ready(place),
-            (Verdict::Unchecked | Verdict::Accepted, _) => Readiness::Unsettled,
-        }
-    }
-
-    // Records that `place` passed its check, once its record names it.
-    fn accept(&mut self, place: SecretsPlace) -> SecretsPlace {
-        self.picked = Some(place);
-        self.verdict = Verdict::Accepted;
-        self.cannot_open = None;
-        place
-    }
-
-    // Records that the sealed file cannot be opened for `cause`, and the refusal for it.
-    fn refuse_opening(&mut self, cause: DaemonSecretsFileUnopened) -> KeychainRefusal {
-        self.picked = Some(SecretsPlace::SealedFile);
-        self.cannot_open = Some(cause);
-        if cause == DaemonSecretsFileUnopened::KeyChanged {
-            self.verdict = Verdict::KeyChanged;
-        }
-        cannot_open(cause)
-    }
 }
 
 #[cfg_attr(
@@ -225,6 +147,7 @@ impl SecretItems {
             }
             SecretsOffer::SealService(seal) => (None, Some(seal)),
         };
+        let view = Arc::new(Mutex::new(PlaceView::default()));
         Ok(Arc::new(Self {
             record_path: place::record_path(&data_folder),
             runs_while_logged_out,
@@ -238,7 +161,8 @@ impl SecretItems {
             probe_account,
             call_timeout,
             seal_check_timeout: call_timeout / SEAL_CHECK_TIMEOUT_DIVISOR,
-            state: RwLock::new(PlaceState::default()),
+            state: RwLock::new(PlaceState::new(Arc::clone(&view))),
+            view,
         }))
     }
 
@@ -256,100 +180,6 @@ impl SecretItems {
                 .sealed_file
                 .as_ref()
                 .map(|file| file.keychain(service.as_str())),
-        }
-    }
-
-    /// The items file for the status read: its path, how its secrets are protected, why a Linux
-    /// plain file is plain and, while the sealed file cannot be opened, why. `None` while the
-    /// secrets are in the operating system's store or the file holds no item a move would carry.
-    /// Calls no seal and opens no item; a file that cannot be read counts as holding one. Fails
-    /// with the path's [`TextError`] when the file's path is no wire path.
-    pub(crate) async fn secrets_file(&self) -> Result<Option<DaemonSecretsFile>, TextError> {
-        let moved_services: Vec<&str> = KeychainService::ALL
-            .into_iter()
-            .filter(|service| service.is_moved())
-            .map(KeychainService::as_str)
-            .collect();
-        // A call settling the place holds the state; the record on disk answers meanwhile.
-        let (picked, cannot_open) = match self.state.try_read() {
-            Ok(state) => (state.picked, state.cannot_open),
-            Err(_settling) => (None, None),
-        };
-        let place = match picked {
-            Some(place) => Some(place),
-            None => match place::read_record(&self.record_path).await {
-                Ok(Some(record)) => Some(record.place),
-                Ok(None) => None,
-                Err(_unreadable) => None,
-            },
-        };
-        let is_sealed = match place {
-            Some(SecretsPlace::OperatingSystem) => return Ok(None),
-            Some(SecretsPlace::SealedFile) => true,
-            Some(SecretsPlace::PlainFile { .. } | SecretsPlace::LoggedOutServiceFile) => false,
-            None => matches!(
-                self.plain_file.form_on_disk().await,
-                Ok(Some(ItemsForm::Sealed))
-            ),
-        };
-        let (protection, reason) = if is_sealed {
-            let Some(protection) = self.sealed_protection(&moved_services, cannot_open).await
-            else {
-                return Ok(None);
-            };
-            (protection, None)
-        } else if self.plain_file.holds_items(&moved_services).await {
-            let reason = match place {
-                Some(SecretsPlace::PlainFile { reason }) => Some(reason),
-                Some(
-                    SecretsPlace::OperatingSystem
-                    | SecretsPlace::SealedFile
-                    | SecretsPlace::LoggedOutServiceFile,
-                )
-                | None => None,
-            };
-            (DaemonSecretsProtection::Plain, reason)
-        } else {
-            return Ok(None);
-        };
-        Ok(Some(DaemonSecretsFile {
-            path: FilesystemPath::new(self.plain_file.file_path().to_string_lossy().into_owned())?,
-            protection,
-            reason,
-            cannot_open: cannot_open.filter(|_| is_sealed),
-        }))
-    }
-
-    // How the sealed file's items are protected, by the weakest key any of them names, a key the
-    // daemon does not know or a file that cannot be read counting as the system key; `None` while
-    // it holds no item of `services` and opens.
-    async fn sealed_protection(
-        &self,
-        services: &[&str],
-        cannot_open: Option<DaemonSecretsFileUnopened>,
-    ) -> Option<DaemonSecretsProtection> {
-        let Some(sealed_file) = &self.sealed_file else {
-            return cannot_open.map(|_| DaemonSecretsProtection::SealedWithSystemKey);
-        };
-        let keys: Option<Vec<Option<SealKey>>> = match sealed_file.sealed_items().await {
-            Ok(items) => Some(
-                items
-                    .iter()
-                    .filter(|item| services.contains(&item.service.as_str()))
-                    .map(|item| item.header().map(SealHeader::key))
-                    .collect(),
-            ),
-            Err(_unreadable) => None,
-        };
-        match keys {
-            Some(keys) if keys.is_empty() && cannot_open.is_none() => None,
-            Some(keys)
-                if !keys.is_empty()
-                    && keys.iter().all(|key| key.is_some_and(SealKey::uses_chip)) =>
-            {
-                Some(DaemonSecretsProtection::SealedWithChip)
-            }
-            Some(_) | None => Some(DaemonSecretsProtection::SealedWithSystemKey),
         }
     }
 
@@ -400,8 +230,7 @@ impl SecretItems {
     // it, since a prompt can, and `unavailable` from either file, which nothing unlocks. A call
     // that ran out before the place was picked counts the store this run would pick first.
     fn timeout_cause(&self) -> KeychainRefusalCause {
-        let picked = self.state.try_read().ok().and_then(|state| state.picked);
-        let is_os_store = match picked {
+        let is_os_store = match PlaceView::read(&self.view).picked {
             Some(place) => place == SecretsPlace::OperatingSystem,
             None => self.os_store.is_some() && !self.runs_while_logged_out,
         };
@@ -435,19 +264,15 @@ impl SecretItems {
     // the place calls go to. Fails with the refusal the caller answers with.
     async fn settle_held(&self, state: &mut PlaceState) -> Result<SecretsPlace, KeychainRefusal> {
         self.read_record_once(state).await;
-        let record = match &state.record {
-            RecordState::Unreadable(reason) => return Err(unreadable_record(reason)),
-            RecordState::Present(record) => Some(*record),
-            RecordState::Unread | RecordState::Absent => None,
-        };
-        match (state.verdict, state.picked) {
-            (Verdict::Mismatch, _) => return Err(mismatch()),
-            (Verdict::KeyChanged, _) => {
-                return Err(cannot_open(DaemonSecretsFileUnopened::KeyChanged));
-            }
-            (Verdict::Accepted, Some(place)) => return Ok(place),
-            (Verdict::Unchecked | Verdict::Accepted, _) => {}
+        match state.readiness() {
+            Readiness::Ready(place) => return Ok(place),
+            Readiness::Refused(refusal) => return Err(refusal),
+            Readiness::Unsettled => {}
         }
+        let record = match &state.record {
+            RecordState::Present(record) => Some(*record),
+            RecordState::Unread | RecordState::Unreadable(_) | RecordState::Absent => None,
+        };
         let place = match record {
             Some(
                 record @ PlaceRecord {
@@ -624,10 +449,7 @@ impl SecretItems {
             place::move_items(&self.record_path, record, destination, &from, &to).await
         {
             if stopped.record != record {
-                *state = PlaceState {
-                    record: RecordState::Present(stopped.record),
-                    ..PlaceState::default()
-                };
+                state.reset(RecordState::Present(stopped.record));
             }
             return Err(stopped.refusal);
         }
