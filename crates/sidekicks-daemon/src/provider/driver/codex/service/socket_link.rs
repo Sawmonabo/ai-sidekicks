@@ -8,10 +8,11 @@
 //! socket itself and there is no link.
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use sidekicks_platforms::{
-    connect_unix_domain_socket, read_socket_link, remove_socket_link, replace_socket_link,
+    ProcessRecord, connect_unix_domain_socket, read_socket_link, remove_socket_link,
+    replace_socket_link, unix_domain_listener_process,
 };
 
 /// Whether a service listens on `socket`: nothing there, and a socket file or link no one listens
@@ -43,23 +44,27 @@ pub(crate) async fn clear_blocking_socket_link(home_link: &Path) -> io::Result<b
 }
 
 /// Points `home_link` at `real_socket`, where a service's socket really is, unless another service
-/// answers through it: a link naming nothing, an ended socket or `real_socket` itself ends up
-/// naming `real_socket`. A link naming one of `ended_sockets`, the sockets of services the caller
-/// found ended, is moved without a connect, which a process still closing its listener answers.
-/// Answers whether it names `real_socket` once done; fails with the link's read error, the
-/// connect's other failures and the move's error.
+/// answers through it: a link naming nothing, a socket no one listens on or `real_socket` itself
+/// ends up naming `real_socket`. The listener is read through a connect, since a later Codex binds
+/// the same socket path, and a listener that is one of `ended_services`, the processes of services
+/// the caller found ended, is moved off as if none listened. Answers whether it names
+/// `real_socket` once done; fails with the link's read error, the listener's read error and the
+/// move's error.
 pub(crate) async fn restore_socket_link(
     home_link: &Path,
     real_socket: &Path,
-    ended_sockets: &[PathBuf],
+    ended_services: &[ProcessRecord],
 ) -> io::Result<bool> {
-    let target = read_socket_link(home_link)?;
-    if target.as_deref() == Some(real_socket) {
+    if read_socket_link(home_link)?.as_deref() == Some(real_socket) {
         return Ok(true);
     }
-    let is_ended = target.is_some_and(|target| ended_sockets.contains(&target));
-    if !is_ended && is_listening(home_link).await? {
-        return Ok(false);
+    if let Some(listener) = unix_domain_listener_process(home_link).await? {
+        let is_ended = listener
+            .record()?
+            .is_none_or(|listener| ended_services.contains(&listener));
+        if !is_ended {
+            return Ok(false);
+        }
     }
     let home_link = home_link.to_owned();
     let real_socket = real_socket.to_owned();
@@ -99,4 +104,68 @@ pub(crate) fn clear_socket_link_of(
         return Ok(false);
     }
     remove_socket_link(home_link)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use sidekicks_platforms::{
+        ExistingSocket, ProcessRecord, bind_socket_listener, pin_running_process, read_socket_link,
+        replace_socket_link,
+    };
+
+    use super::restore_socket_link;
+
+    // Fails when the link is moved off a live listener of another identity, which takes a later
+    // Codex's socket from it, as a compare by process id alone does; when the identity check is
+    // dropped, which leaves the link on the listener of a service found ended; or when a link
+    // whose listener is gone is left.
+    #[tokio::test]
+    async fn the_link_moves_only_off_an_ended_service_or_a_socket_no_one_listens_on() {
+        // The socket paths must fit the system's bound on socket paths.
+        let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder");
+        let home_link = folder.path().join("home.sock");
+        let held_socket = folder.path().join("held.sock");
+        let real_socket = folder.path().join("real.sock");
+        let listener =
+            bind_socket_listener(&held_socket, ExistingSocket::Refuse).expect("the listener binds");
+        replace_socket_link(&home_link, &held_socket).expect("the link names the held socket");
+        let own = pin_running_process(std::process::id())
+            .expect("this process reads")
+            .expect("this process runs")
+            .record()
+            .expect("this process's record reads")
+            .expect("this process has a record");
+        // The same id under another start: another process, which a compare by id alone takes.
+        let other: ProcessRecord = serde_json::from_value(serde_json::json!({
+            "id": own.id(),
+            "start": own.start().wrapping_add(1),
+            "boot": "another boot",
+        }))
+        .expect("another record reads");
+
+        let kept = restore_socket_link(&home_link, &real_socket, &[other])
+            .await
+            .expect("a held link reads");
+        let kept_target = read_socket_link(&home_link).expect("the link reads");
+        let moved_off_ended = restore_socket_link(&home_link, &real_socket, &[own])
+            .await
+            .expect("a link held by an ended service reads");
+        let moved_off_ended_target = read_socket_link(&home_link).expect("the link reads");
+        replace_socket_link(&home_link, &held_socket).expect("the link names the held socket");
+        drop(listener);
+        let moved_off_nothing = restore_socket_link(&home_link, &real_socket, &[])
+            .await
+            .expect("a link no one listens on reads");
+        let moved_off_nothing_target = read_socket_link(&home_link).expect("the link reads");
+
+        assert!(!kept, "the link was moved off a live listener");
+        assert_eq!(kept_target, Some(held_socket.clone()));
+        assert!(moved_off_ended, "the link was left on an ended service");
+        assert_eq!(moved_off_ended_target, Some(real_socket.clone()));
+        assert!(
+            moved_off_nothing,
+            "the link was left on a socket no one listens on"
+        );
+        assert_eq!(moved_off_nothing_target, Some(real_socket));
+    }
 }
