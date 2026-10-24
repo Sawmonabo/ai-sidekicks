@@ -432,8 +432,8 @@ fn is_record_orphaned(
 }
 
 // Whether a monitor holds the partial dump named `name` in `folder`, as `held` recorded it earlier
-// in the pass or as its lock answers now, recorded for the rest of the pass; one no monitor holds is
-// removed under the pass's own lock.
+// in the pass or as its lock answers now, recorded for the rest of the pass; one no monitor holds
+// is removed under the pass's own lock.
 fn is_partial_dump_held(
     folder: &Path,
     name: String,

@@ -30,18 +30,18 @@ pub struct AtomicWriteError {
 /// holds its temporary file locked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LeftoverSweep {
-    /// A sweep removes leftovers there, so the temporary file is held locked from its creation until
-    /// it takes the target's name, and the sweep never takes a live write's.
+    /// A sweep removes leftovers there, so the temporary file is held locked from its creation
+    /// until it takes the target's name, and the sweep never takes a live write's.
     Swept,
-    /// No sweep runs there, so the temporary file takes no lock, which would guard nothing and which
-    /// some file systems refuse.
+    /// No sweep runs there, so the temporary file takes no lock, which would guard nothing and
+    /// which some file systems refuse.
     Unswept,
 }
 
 /// Replaces `target` with `contents`, a new file made with `mode` less the umask (unused on
 /// Windows), written through a temporary file `<name>.<random>.tmp` beside it, held locked only
-/// where `sweep` says a sweep covers the folder. `target` ends in a file name and its folder exists.
-/// Blocks; a failure removes the temporary file and leaves the old file in place.
+/// where `sweep` says a sweep covers the folder. `target` ends in a file name and its folder
+/// exists. Blocks; a failure removes the temporary file and leaves the old file in place.
 pub fn replace_file_atomically(
     target: &Path,
     contents: &[u8],
