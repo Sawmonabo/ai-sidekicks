@@ -28,8 +28,9 @@ use crate::provider::driver::codex::transport::diagnostics::{
 
 const THREAD_UNSUBSCRIBE_METHOD: &str = "thread/unsubscribe";
 
-/// How long a close's `thread/unsubscribe` waits; short, so a wedged service cannot hold a close.
-const CODEX_UNSUBSCRIBE_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a close's interrupts and its `thread/unsubscribe` each wait; short, so a wedged service
+/// cannot hold a close.
+pub(crate) const CODEX_LET_GO_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// One session's slot: its live record's queue, the claims published on it, oldest first, and how
 /// many closes it has seen.
@@ -306,7 +307,7 @@ pub(crate) async fn let_go_codex_thread(service: &CodexService, thread_id: &str)
             &ThreadUnsubscribeParams {
                 thread_id: thread_id.to_owned(),
             },
-            CODEX_UNSUBSCRIBE_TIMEOUT,
+            CODEX_LET_GO_TIMEOUT,
         )
         .await;
     if let Err(error) = unsubscribed {
