@@ -213,18 +213,84 @@ pub struct DaemonStatusReadResponse {
     #[schemars(with = "UniqueList<DaemonWslDistribution, 1, { usize::MAX }>")]
     #[garde(dive)]
     pub wsl: Option<UniqueList<DaemonWslDistribution, 1, { usize::MAX }>>,
-    /// The file the service keeps its secrets in, readable by this account alone: present while it
-    /// holds them, from the first item written into it until the last leaves it. That is on Linux
-    /// where the place record keeps them in the file, since no Secret Service ran when the place
-    /// was picked, and on a Mac from the logged-out service's takeover until uninstall moves them
-    /// back, including after it is turned off in Login Items & Extensions.
+    /// The file the service keeps its secrets in, how they are protected and, while they cannot be
+    /// opened, why: present while it holds an item or cannot be opened. That is on Linux, and on a
+    /// Mac from the logged-out service's takeover until uninstall moves them back, including after
+    /// it is turned off in Login Items & Extensions.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FilesystemPath")]
-    pub secrets_file: Option<FilesystemPath>,
+    #[schemars(with = "DaemonSecretsFile")]
+    pub secrets_file: Option<DaemonSecretsFile>,
+}
+
+/// The file the service keeps its secrets in, how they are protected, why a plain file is plain on
+/// Linux, and why a sealed file cannot be opened while it cannot.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DaemonSecretsFile {
+    /// The file's path; only this account can read it.
+    pub path: FilesystemPath,
+    /// How the secrets in it are protected: for a sealed file, by the weakest key any of them is
+    /// sealed with.
+    pub protection: DaemonSecretsProtection,
+    /// Why a plain file on Linux is plain; absent for a sealed file and on a Mac.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "DaemonSecretsPlainReason")]
+    pub reason: Option<DaemonSecretsPlainReason>,
+    /// Why the sealed file cannot be opened; absent while it opens and for a plain file.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "DaemonSecretsFileUnopened")]
+    pub cannot_open: Option<DaemonSecretsFileUnopened>,
+}
+
+/// How the secrets in the file are protected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum DaemonSecretsProtection {
+    /// Each sealed by systemd's credential service with the security chip and the system key.
+    SealedWithChip,
+    /// Each sealed by systemd's credential service with the system key alone.
+    SealedWithSystemKey,
+    /// Kept as given.
+    Plain,
+}
+
+/// Why the file on Linux keeps its secrets plain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum DaemonSecretsPlainReason {
+    /// systemd's credential service is absent: systemd older than 256, or no systemd.
+    NoSealService,
+    /// The service refused to seal at the first start, as in most containers.
+    SealFailed,
+    /// The service would bind each seal to the boot state, which a Secure Boot update changes.
+    BootBound,
+}
+
+/// Why the sealed file cannot be opened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum DaemonSecretsFileUnopened {
+    /// systemd's credential service is gone: systemd was removed or downgraded below 256.
+    SealServiceMissing,
+    /// The service does not answer, or answers with a failure.
+    SealServiceFailing,
+    /// The security chip the secrets were sealed with cannot be used now.
+    ChipUnavailable,
+    /// The key the secrets were sealed with is gone: the chip cleared or replaced, the Secure
+    /// Boot settings, the account or the machine id changed.
+    KeyChanged,
 }
 
 pattern_text! {
@@ -328,6 +394,10 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DaemonRelayStatus>(),
         Definition::read::<DaemonWslDistributionStatus>(),
         Definition::read::<DaemonWslDistribution>(),
+        Definition::read::<DaemonSecretsProtection>(),
+        Definition::read::<DaemonSecretsPlainReason>(),
+        Definition::read::<DaemonSecretsFileUnopened>(),
+        Definition::read::<DaemonSecretsFile>(),
         Definition::read::<DaemonStatusReadResponse>().checked(),
         Definition::read::<CrashModuleFileName>(),
         Definition::read::<CrashStackFrame>(),

@@ -8,7 +8,7 @@ use futures::FutureExt as _;
 use jiff::Timestamp;
 use sidekicks_contracts::daemon::status::{
     DAEMON_STATUS_TEXT_MAX_LEN, DaemonMemoryReading, DaemonProcessState, DaemonProcessorReading,
-    DaemonStatusRead, DaemonStatusReadResponse,
+    DaemonSecretsFile, DaemonSecretsProtection, DaemonStatusRead, DaemonStatusReadResponse,
 };
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
@@ -112,7 +112,14 @@ async fn read_status(deps: &StatusMethodsDeps) -> Result<DaemonStatusReadRespons
         .secret_items
         .secrets_file()
         .await
-        .map(|path| FilesystemPath::new(path.to_string_lossy().into_owned()))
+        .map(|path| {
+            FilesystemPath::new(path.to_string_lossy().into_owned()).map(|path| DaemonSecretsFile {
+                path,
+                protection: DaemonSecretsProtection::Plain,
+                reason: None,
+                cannot_open: None,
+            })
+        })
         .transpose()
         .map_err(|error| HandlerError::Internal(Box::new(error)))?;
     Ok(DaemonStatusReadResponse {

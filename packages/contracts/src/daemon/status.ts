@@ -58,6 +58,56 @@ export interface DaemonRelayStatus {
   pinRefused: boolean;
 }
 
+/** How the secrets in the service's file are protected. */
+export type DaemonSecretsProtection = "sealedWithChip" | "sealedWithSystemKey" | "plain";
+const DAEMON_SECRETS_PROTECTIONS: readonly DaemonSecretsProtection[] = Object.freeze([
+  "sealedWithChip",
+  "sealedWithSystemKey",
+  "plain",
+]);
+/** Why the file on Linux keeps its secrets plain. */
+export type DaemonSecretsPlainReason = "noSealService" | "sealFailed" | "bootBound";
+const DAEMON_SECRETS_PLAIN_REASONS: readonly DaemonSecretsPlainReason[] = Object.freeze([
+  "noSealService",
+  "sealFailed",
+  "bootBound",
+]);
+/** Why the sealed file cannot be opened. */
+export type DaemonSecretsFileUnopened =
+  | "sealServiceMissing"
+  | "sealServiceFailing"
+  | "chipUnavailable"
+  | "keyChanged";
+const DAEMON_SECRETS_FILE_UNOPENED: readonly DaemonSecretsFileUnopened[] = Object.freeze([
+  "sealServiceMissing",
+  "sealServiceFailing",
+  "chipUnavailable",
+  "keyChanged",
+]);
+
+/**
+ * The file the service keeps its secrets in, how they are protected, why a plain file is plain on
+ * Linux, and why a sealed file cannot be opened while it cannot.
+ */
+export interface DaemonSecretsFile {
+  path: string;
+  /** For a sealed file, the weakest key any of its secrets is sealed with. */
+  protection: DaemonSecretsProtection;
+  /** Absent for a sealed file and on a Mac. */
+  reason?: DaemonSecretsPlainReason | undefined;
+  /** Absent while the file opens and for a plain file. */
+  cannotOpen?: DaemonSecretsFileUnopened | undefined;
+}
+
+const DaemonSecretsFileSchema: z.ZodType<DaemonSecretsFile> = z
+  .object({
+    path: StatusPathSchema,
+    protection: z.enum(DAEMON_SECRETS_PROTECTIONS),
+    reason: z.enum(DAEMON_SECRETS_PLAIN_REASONS).optional(),
+    cannotOpen: z.enum(DAEMON_SECRETS_FILE_UNOPENED).optional(),
+  })
+  .strict();
+
 /** `daemon.status.read` takes nothing. */
 export type DaemonStatusReadRequest = Record<string, never>;
 /** Parses a {@link DaemonStatusReadRequest}. */
@@ -91,11 +141,12 @@ export interface DaemonStatusReadResponse {
   relay?: DaemonRelayStatus | undefined;
   /**
    * The file the service keeps its secrets in, readable by this account alone: present only on
-   * Linux where no Secret Service answers, and on a Mac while the secrets are in `secrets.json`,
-   * from the approved logged-out service's takeover until uninstall moves them back, including
-   * after it is turned off in Login Items & Extensions; absent while it waits for approval.
+   * Linux while it holds an item or cannot be opened, and on a Mac while the secrets are in
+   * `secrets.json`, from the approved logged-out service's takeover until uninstall moves them
+   * back, including after it is turned off in Login Items & Extensions; absent while it waits for
+   * approval.
    */
-  secretsFile?: string | undefined;
+  secretsFile?: DaemonSecretsFile | undefined;
 }
 
 /** Parses a {@link DaemonStatusReadResponse}. */
@@ -133,7 +184,7 @@ export const DaemonStatusReadResponseSchema: z.ZodType<DaemonStatusReadResponse>
       })
       .strict()
       .optional(),
-    secretsFile: StatusPathSchema.optional(),
+    secretsFile: DaemonSecretsFileSchema.optional(),
   })
   .strict();
 

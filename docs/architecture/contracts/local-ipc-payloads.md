@@ -154,15 +154,25 @@ interface DaemonStatusReadResponse {
   // `daemon.lock` taken at start. A second daemon cannot hold it, so the status read says which
   // directory is held, not merely that something is.
   dataDirectory: string;
-  // The path of the file the daemon keeps its secrets in, mode 0600, present ONLY on Linux while
-  // the file holds an item or cannot be opened, and on a Mac while its secrets are in
-  // `secrets.json`: from the approved logged-out service's takeover until `sidekicks daemon
-  // uninstall` moves them back, including after that service is turned off in Login Items &
-  // Extensions, and never while it waits for approval. Settings › Runtime then shows the notice
-  // for the file's place, or why the sealed file cannot be opened, with this path in its own row
-  // under the notice's line (Spec-020 §Daemon Secrets).
-  // Absent on every other machine.
-  secretsFile?: string;
+  // The file the daemon keeps its secrets in, mode 0600, present ONLY on Linux while the file
+  // holds an item or cannot be opened, and on a Mac while its secrets are in `secrets.json`: from
+  // the approved logged-out service's takeover until `sidekicks daemon uninstall` moves them back,
+  // including after that service is turned off in Login Items & Extensions, and never while it
+  // waits for approval. Settings › Runtime then shows the notice for the file's place, or why the
+  // sealed file cannot be opened, with `path` in its own row under the notice's line (Spec-020
+  // §Daemon Secrets). Absent on every other machine.
+  secretsFile?: {
+    path: string;
+    // For a sealed file, the weakest key any item is sealed with.
+    protection: "sealedWithChip" | "sealedWithSystemKey" | "plain";
+    // Why a plain file on Linux is plain: systemd's credential service is absent, it refused to
+    // seal at the first start, or it would bind each seal to the Secure Boot state. Absent for a
+    // sealed file and on a Mac.
+    reason?: "noSealService" | "sealFailed" | "bootBound";
+    // Why the sealed file cannot be opened: the service is gone, it does not answer, the chip
+    // cannot be used, or the key changed. Absent while it opens and for a plain file.
+    cannotOpen?: "sealServiceMissing" | "sealServiceFailing" | "chipUnavailable" | "keyChanged";
+  };
   // healthy, rebuilding, degraded or blocked, per session (persistence-payloads.md §Plan-012,
   // T12.4)
   recovery: DaemonRecoveryStatus;
