@@ -353,6 +353,13 @@ pub(crate) async fn remove_codex_project_rule(
 /// does not trust it or its `.codex` is the Codex home. A rule Codex asks on (`prompt`) is neither
 /// and is left out. Fails with `Unloadable` naming the first file Codex refuses, or one that did
 /// not finish in time, since Codex then drops every rule file's rules.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the standing-rules list, which reads a project's Codex rules for the rule list"
+    )
+)]
 pub(crate) async fn read_codex_project_rules(
     sources: &CodexRuleSources<'_>,
 ) -> Result<Vec<CodexProjectRule>, CodexRulesError> {
@@ -622,7 +629,8 @@ fn compose_rule_lines(rule: &ProviderAskRule) -> Result<Vec<String>, CodexRulesE
                 .iter()
                 .map(|protocol| {
                     format!(
-                        "network_rule(host={host}, protocol=\"{protocol}\", decision=\"{decision}\")"
+                        "network_rule(host={host}, \
+                         protocol=\"{protocol}\", decision=\"{decision}\")"
                     )
                 })
                 .collect())
