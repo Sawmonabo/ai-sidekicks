@@ -47,7 +47,7 @@ use crate::provider::driver::run_control::{
     SteerTurnEndedError, WithdrawQueuedMessageResult,
 };
 use crate::provider::driver::session_control::ProviderSessionHandle;
-use crate::provider::driver::test_registry::registry_of_first_provider;
+use crate::provider::driver::test_registry::{new_run_id, registry_of_first_provider};
 use crate::provider::runtime_binding::store::RuntimeBindingStore;
 use crate::queue::changes::QueueChangeSignals;
 use crate::queue::delivery::{ProviderProcessIdentity, ProviderProcessIds};
@@ -299,10 +299,6 @@ fn queue_over(
         followers: Arc::clone(&log.followers),
         read_damaged_from_sequence,
     })
-}
-
-fn new_run_id() -> RunId {
-    RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
 }
 
 fn client_key() -> ClientUuid {
