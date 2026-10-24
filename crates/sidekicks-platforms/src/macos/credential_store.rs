@@ -1,6 +1,6 @@
 //! The macOS side of the credential store: the login keychain, its entries built with the store's
-//! own settings, its search by service, and a locked keychain read from the Security framework's
-//! status code.
+//! own settings, its search by service, what holds its items, and a locked keychain read from the
+//! Security framework's status code.
 
 use std::error::Error;
 use std::sync::Arc;

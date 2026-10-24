@@ -154,16 +154,32 @@ interface DaemonStatusReadResponse {
   // `daemon.lock` taken at start. A second daemon cannot hold it, so the status read says which
   // directory is held, not merely that something is.
   dataDirectory: string;
-  // The path of the file the daemon keeps its secrets in, mode 0600, present ONLY on Linux where no
-  // Secret Service answers and on a Mac while its secrets are in `secrets.json`: from the approved
-  // logged-out service's takeover until `sidekicks daemon uninstall` moves them back, including
-  // after that service is turned off in Login Items & Extensions, and never while it waits for
-  // approval. Settings › Runtime then shows `Secrets are
-  // kept unencrypted in <path>, readable by this account alone, because no Secret Service is
-  // running.`, or on that Mac the same line ending `because the service runs while you are logged
-  // out.`, and once the service is turned off in Login Items & Extensions, `because the service was
-  // set up to run while you are logged out.` Absent on every other machine.
-  secretsFile?: string;
+  // The file the daemon keeps its secrets in, mode 0600, present ONLY on Linux while the file
+  // holds an item or cannot be opened, and on a Mac while its secrets are in `secrets.json`: from
+  // the approved logged-out service's takeover until `sidekicks daemon uninstall` moves them back,
+  // including after that service is turned off in Login Items & Extensions, and never while it
+  // waits for approval. Settings › Runtime then shows the notice for the file's place, or why the
+  // sealed file cannot be opened, with `path` in its own row under the notice's line (Spec-020
+  // §Daemon Secrets). Absent on every other machine.
+  // A union tagged by `protection`.
+  secretsFile?:
+    | {
+        // A sealed file, by the weakest key any item is sealed with.
+        protection: "sealedWithChip" | "sealedWithSystemKey";
+        path: string;
+        // Why it cannot be opened: the service is gone or cannot open the key form that sealed an
+        // item, it does not answer or the items file cannot be read, the chip cannot be used, or
+        // the key changed. Absent while it opens.
+        cannotOpen?: "sealServiceMissing" | "sealServiceFailing" | "chipUnavailable" | "keyChanged";
+      }
+    | {
+        protection: "plain";
+        path: string;
+        // Why a plain file on Linux is plain: systemd's credential service is absent, it refused
+        // to seal at the first start, or it would bind each seal to the Secure Boot state. Absent
+        // on a Mac.
+        reason?: "noSealService" | "sealFailed" | "bootBound";
+      };
   // healthy, rebuilding, degraded or blocked, per session (persistence-payloads.md §Plan-012,
   // T12.4)
   recovery: DaemonRecoveryStatus;

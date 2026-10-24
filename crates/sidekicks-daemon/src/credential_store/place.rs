@@ -2,10 +2,13 @@
 //! every item from one place to the other.
 //!
 //! The record, `secrets-place.json` (mode 0600), names the place picked at the first start that
-//! accepted one, so a later start keeps it whatever it finds: a Linux start before login finds no
-//! Secret Service, and picking again would strand the items kept in it. It sits in the data folder,
-//! never in the database or the settings file, which a backup holds, so a restore onto another
-//! machine carries no pick, and an erase removes it with the folder.
+//! accepted one, so a later start keeps it whatever it finds: a start whose credential service is
+//! gone or failing would otherwise pick the plain file and strand the sealed items. A later start
+//! changes it in one way only, from a Linux plain file to the sealed file once systemd's credential
+//! service seals without binding to the boot state, and the relink removes it with a sealed file
+//! that cannot be opened, so the place is picked again. It sits in the data folder, never in the
+//! database or the settings file, which a backup holds, so a restore onto another machine carries
+//! no pick, and an erase removes it with the folder.
 //!
 //! During a move it also names the move's direction. A move first writes each item at its
 //! destination and reads it back, then records the direction, then deletes each item from its
@@ -16,6 +19,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sidekicks_contracts::daemon::status::DaemonSecretsPlainReason;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 
 use crate::credential_store::service::KeychainService;
@@ -29,27 +33,26 @@ const RECORD_FILE_MODE: u32 = 0o600;
 
 /// Where the daemon's secrets are kept.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub(crate) enum SecretsPlace {
     /// The operating system's credential store.
     OperatingSystem,
-    /// The daemon's items file, and why.
-    File {
-        /// Why the file holds the secrets.
-        reason: SecretsFileReason,
+    /// The items file on Linux, each item sealed by systemd's credential service.
+    SealedFile,
+    /// The items file on Linux, each item plain, and why.
+    PlainFile {
+        /// Why the file is plain.
+        reason: DaemonSecretsPlainReason,
     },
-}
-
-/// Why the daemon's items file holds the secrets.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum SecretsFileReason {
-    /// No Secret Service ran on Linux when the place was picked; the items move into one once one
-    /// runs and its default collection is unlocked.
-    NoSecretService,
-    /// The Mac's service runs while the person is logged out, where the login keychain cannot be
-    /// reached; the items move back only when that service is uninstalled.
-    LoggedOutService,
+    /// The plain items file of a Mac's service running while the person is logged out, where the
+    /// login keychain cannot be reached; the items move back only when that service is
+    /// uninstalled.
+    LoggedOutServiceFile,
 }
 
 /// The record in the data folder: the place, and during a move its destination.
@@ -107,6 +110,16 @@ pub(crate) async fn write_record(path: &Path, record: &PlaceRecord) -> Result<()
         .map_err(|failure| record_failure(path, failure))
 }
 
+/// Removes the record at `path`; one already gone is no failure. Fails with [`KeychainRefusal`]
+/// when the file system refuses.
+pub(crate) async fn remove_record(path: &Path) -> Result<(), KeychainRefusal> {
+    tokio::fs::remove_file(path)
+        .await
+        .none_if_missing()
+        .map(drop)
+        .map_err(|failure| record_failure(path, failure))
+}
+
 /// A move stopped by a refused call, and the record as it left it: the record it started from when
 /// it stopped before recording its direction, else the record naming the move.
 pub(crate) struct MoveStopped {
@@ -116,6 +129,10 @@ pub(crate) struct MoveStopped {
     pub(crate) record: PlaceRecord,
 }
 
+/// A place's keychain of one service, or the refusal of a place this machine does not offer.
+pub(crate) type PlaceKeychain<'place> =
+    dyn Fn(KeychainService) -> Result<Box<dyn SecretKeychain>, KeychainRefusal> + Sync + 'place;
+
 /// Moves every item from the keychains `from` gives to those `to` gives, as the module doc says,
 /// recording at `path` the move from `record.place` to `destination`. Fails with [`MoveStopped`] at
 /// the first call refused: before any item is deleted the record is left as it was, and after, it
@@ -124,22 +141,23 @@ pub(crate) async fn move_items(
     path: &Path,
     record: PlaceRecord,
     destination: SecretsPlace,
-    from: &(dyn Fn(KeychainService) -> Box<dyn SecretKeychain> + Sync),
-    to: &(dyn Fn(KeychainService) -> Box<dyn SecretKeychain> + Sync),
+    from: &PlaceKeychain<'_>,
+    to: &PlaceKeychain<'_>,
 ) -> Result<(), MoveStopped> {
     let mut copied = Vec::new();
     for service in KeychainService::ALL
         .into_iter()
         .filter(|service| service.is_moved())
     {
-        let (source, target) = (from(service), to(service));
+        let source = from(service).map_err(stopped_at(record))?;
+        let target = to(service).map_err(stopped_at(record))?;
         for account in source.accounts().await.map_err(stopped_at(record))? {
             // A listed account with no value holds nothing to move.
             let Some(value) = source.read(&account).await.map_err(stopped_at(record))? else {
                 continue;
             };
             target
-                .seal(&account, &value)
+                .write_verified(&account, &value)
                 .await
                 .map_err(stopped_at(record))?;
             copied.push((service, account));
@@ -156,6 +174,7 @@ pub(crate) async fn move_items(
     }
     for (service, account) in copied {
         from(service)
+            .map_err(stopped_at(moving))?
             .remove(&account)
             .await
             .map_err(stopped_at(moving))?;
@@ -185,14 +204,14 @@ fn unreadable(
     .with_failure(failure)
 }
 
-// The refusal for a record that cannot be written.
+// The refusal for a record that cannot be written or removed.
 fn record_failure(
     path: &Path,
     failure: impl Into<Box<dyn std::error::Error + Send + Sync>>,
 ) -> KeychainRefusal {
     KeychainRefusal::new(
         KeychainRefusalCause::Unavailable,
-        format!("{} could not be written", path.display()),
+        format!("{} could not be written or removed", path.display()),
     )
     .with_failure(failure)
 }

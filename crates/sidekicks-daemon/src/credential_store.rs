@@ -1,6 +1,7 @@
-//! Where the daemon keeps its secrets: each one an item in the operating system's credential
-//! store, or, where that store cannot be used, in the daemon's one items file, and which of the two
-//! this machine uses.
+//! Where the daemon keeps its secrets: on macOS and Windows each one an item in the operating
+//! system's credential store, on Linux each one an item in the daemon's one items file, sealed to
+//! this computer by systemd's credential service, or plain where that service cannot seal for it,
+//! and on a Mac whose service runs while the person is logged out the same file, plain.
 //!
 //! A feature keeps its values through a [`SecretKeychain`], one keychain service's items addressed
 //! by account, and holds no store code, so its rules run in tests without a real store. A refused
@@ -11,6 +12,7 @@ pub(crate) mod file;
 pub(crate) mod items;
 pub(crate) mod os;
 pub(crate) mod place;
+pub(crate) mod seal;
 pub(crate) mod service;
 
 use std::borrow::Cow;
@@ -48,15 +50,14 @@ pub(crate) trait SecretKeychain: Send + Sync {
         account: &'call str,
     ) -> BoxFuture<'call, Result<bool, KeychainRefusal>>;
 
-    /// Every account this service files an item under. Fails with an `unavailable` refusal for an
-    /// item the store cannot name, since it could not be moved.
+    /// Every account this service files an item under.
     fn accounts(&self) -> BoxFuture<'_, Result<Vec<String>, KeychainRefusal>>;
 
     /// Writes `value` under `account` and reads it back, since a keychain that accepts a write may
     /// not have kept it (a locked login keychain or a policy on the Windows credential store can
     /// drop it without an error). Fails with an `unavailable` refusal when it kept another value or
     /// none, naming neither.
-    fn seal<'call>(
+    fn write_verified<'call>(
         &'call self,
         account: &'call str,
         value: &'call SecretString,

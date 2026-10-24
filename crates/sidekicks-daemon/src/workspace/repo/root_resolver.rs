@@ -512,7 +512,7 @@ mod tests {
     use rstest::rstest;
     use sidekicks_contracts::repo::folders::RepoMountRootResolutionReason;
     use sidekicks_platforms::{
-        CAN_OPEN_INSIDE_UNREADABLE_FOLDER, Spawner, is_superuser, make_folder_unreadable, real_path,
+        CAN_OPEN_INSIDE_UNREADABLE_FOLDER, Spawner, is_superuser, make_unreadable, real_path,
     };
 
     use super::{RepoRootResolution, RepoRootResolver};
@@ -602,7 +602,7 @@ mod tests {
 
         // Held to the test's end, then dropped before the temporary folder is removed.
         let _unreadable = matches!(pick, Pick::UnreadableRoot)
-            .then(|| make_folder_unreadable(&main).expect("the root is made unreadable"));
+            .then(|| make_unreadable(&main).expect("the root is made unreadable"));
         let _held = matches!(pick, Pick::HeldRead).then(|| stall_reads_of(&main, 0));
         let (resolver, path, expected): (_, PathBuf, Result<_, (_, bool)>) = match pick {
             Pick::LinkedWorktree => (
