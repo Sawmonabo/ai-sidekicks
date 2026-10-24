@@ -28,6 +28,7 @@ use crate::policy::execution_posture_service::compose_execution_posture;
 use crate::provider::driver::codex::permission_level::{
     CodexProfileFolders, compose_codex_profile_name,
 };
+use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::session::test_session::{TestCodexSession, turn_reply};
 use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::provider::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
@@ -565,13 +566,25 @@ async fn end_copies(side_questions: &CodexSideQuestions, end: &CopyEnd, session_
     }
 }
 
-// Answers, as the service, the live copy's turn stopped and then the copy let go.
-async fn answer_copy_stopped(script: &mut ScriptedService) {
+// Answers, as the service, the live copy's turn stopped and then the copy let go, the copy off
+// `session_id`'s routing on `service` before its turn is stopped.
+async fn answer_copy_stopped(
+    script: &mut ScriptedService,
+    service: &CodexService,
+    session_id: SessionId,
+) {
     let interrupt = script.next_sent().await;
     assert_eq!(interrupt["method"], "turn/interrupt");
     assert_eq!(
         interrupt["params"],
         json!({"threadId": COPY_THREAD, "turnId": "copy-turn"})
+    );
+    assert!(
+        !service
+            .threads_of(&session_id)
+            .iter()
+            .any(|thread_id| thread_id == COPY_THREAD),
+        "the stopped turn's end would reach the session"
     );
     script.answer(&interrupt, &json!({}));
     let unsubscribe = script.next_sent().await;
@@ -601,6 +614,7 @@ async fn a_live_copy_let_go_before_its_turn_ends_has_its_turn_stopped_first(
         &session.task.record.thread_settings.profile_folders,
     );
     let script = &mut session.scripted.script;
+    let service = &*session.scripted.service;
 
     let (asked, ()) = tokio::time::timeout(SERVE_WAIT, async {
         tokio::join!(side_questions.ask(&session.task.record, &params), async {
@@ -618,7 +632,7 @@ async fn a_live_copy_let_go_before_its_turn_ends_has_its_turn_stopped_first(
             if let LiveTurn::Starting = turn {
                 end_copies(&side_questions, &end, session_id).await;
                 script.answer(&start, &turn_reply("copy-turn"));
-                answer_copy_stopped(script).await;
+                answer_copy_stopped(script, service, session_id).await;
             } else {
                 script.answer(&start, &turn_reply("copy-turn"));
             }
@@ -632,7 +646,7 @@ async fn a_live_copy_let_go_before_its_turn_ends_has_its_turn_stopped_first(
             SERVE_WAIT,
             futures::future::join(
                 end_copies(&side_questions, &end, session_id),
-                answer_copy_stopped(script),
+                answer_copy_stopped(script, service, session_id),
             ),
         )
         .await

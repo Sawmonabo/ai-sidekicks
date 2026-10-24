@@ -661,9 +661,11 @@ fn lock_copy_stops(copy_stops: &Mutex<CodexCopyStops>) -> MutexGuard<'_, CodexCo
     copy_stops.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-// Stops the live copy's turn where it started, as a throwaway turn is stopped, then lets the copy
-// go off its session's service.
+// Takes the live copy off its session's routing, stops its turn where it started, as a throwaway
+// turn is stopped, then lets the copy go off its session's service.
 async fn let_go_live_copy(thread_id: String, question: CodexSideQuestion) {
+    // The copy's frames, its stopped turn's end among them, reach no session.
+    question.service.release_thread(&thread_id);
     // A service with no connection runs no turn of the copy's.
     if let Some(turn_id) = question.turn_id
         && let Ok(connection) = question.service.connection()
