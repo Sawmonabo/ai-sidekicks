@@ -16,7 +16,6 @@ pub(super) mod inbound;
 pub(super) mod purge;
 pub(super) mod side_questions;
 pub(super) mod slots;
-pub(super) mod spawn_context;
 pub(super) mod state;
 #[cfg(test)]
 pub(super) mod test_session;
