@@ -44,8 +44,9 @@ pub(super) enum Verdict {
     Accepted,
     // The place kept another value than the check gave it.
     Mismatch,
-    // An item of the sealed file does not open under the key the probe opens with.
-    KeyChanged,
+    // The sealed file cannot be opened for the cause until the next start: an item does not open
+    // under the key the probe opens with, or the service kept another value than the probe gave.
+    Latched(DaemonSecretsFileUnopened),
 }
 
 // What a call may do now.
@@ -88,9 +89,7 @@ impl PlaceState {
         }
         match (self.verdict, self.view().picked) {
             (Verdict::Mismatch, _) => Readiness::Refused(mismatch()),
-            (Verdict::KeyChanged, _) => {
-                Readiness::Refused(cannot_open(DaemonSecretsFileUnopened::KeyChanged))
-            }
+            (Verdict::Latched(cause), _) => Readiness::Refused(cannot_open(cause)),
             (Verdict::Accepted, Some(place)) => Readiness::Ready(place),
             (Verdict::Unchecked | Verdict::Accepted, _) => Readiness::Unsettled,
         }
@@ -106,15 +105,27 @@ impl PlaceState {
         place
     }
 
-    // Records that the sealed file cannot be opened for `cause`, and the refusal for it.
+    // Records that the sealed file cannot be opened for `cause`, latched for the run when the key
+    // changed and checked again at the next call otherwise, and the refusal for it.
     pub(super) fn refuse_opening(&mut self, cause: DaemonSecretsFileUnopened) -> KeychainRefusal {
+        if cause == DaemonSecretsFileUnopened::KeyChanged {
+            return self.latch_opening(cause);
+        }
         *lock(&self.view) = PlaceView {
             picked: Some(SecretsPlace::SealedFile),
             cannot_open: Some(cause),
         };
-        if cause == DaemonSecretsFileUnopened::KeyChanged {
-            self.verdict = Verdict::KeyChanged;
-        }
+        cannot_open(cause)
+    }
+
+    // Records that the sealed file cannot be opened for `cause` until the next start, and the
+    // refusal for it.
+    pub(super) fn latch_opening(&mut self, cause: DaemonSecretsFileUnopened) -> KeychainRefusal {
+        *lock(&self.view) = PlaceView {
+            picked: Some(SecretsPlace::SealedFile),
+            cannot_open: Some(cause),
+        };
+        self.verdict = Verdict::Latched(cause);
         cannot_open(cause)
     }
 

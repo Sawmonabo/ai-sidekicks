@@ -11,7 +11,7 @@ use sidekicks_contracts::daemon::status::DaemonSecretsFileUnopened;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_platforms::{SealFailure, SealHeader, SealKey};
 
-use super::{PlaceState, SecretItems, Verdict, log_mismatch, mismatch, random_value};
+use super::{PlaceState, SecretItems, log_mismatch, random_value};
 use crate::credential_store::file::{SealPass, SealedItem, credential_name, is_weaker};
 use crate::credential_store::place::SecretsPlace;
 use crate::credential_store::seal::SecretSeal;
@@ -98,10 +98,8 @@ impl SecretItems {
                 Err(state.refuse_opening(DaemonSecretsFileUnopened::SealServiceFailing))
             }
             Probe::Mismatch => {
-                state.verdict = Verdict::Mismatch;
                 log_mismatch();
-                state.refuse_opening(DaemonSecretsFileUnopened::SealServiceFailing);
-                Err(mismatch())
+                Err(state.latch_opening(DaemonSecretsFileUnopened::SealServiceFailing))
             }
         }
     }

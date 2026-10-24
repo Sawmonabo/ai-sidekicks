@@ -8,42 +8,31 @@ use std::time::Duration;
 use rstest::rstest;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::json;
-use sidekicks_contracts::daemon::status::DaemonSecretsPlainReason as Reason;
+use sidekicks_contracts::daemon::status::{
+    DaemonSecretsFileUnopened as Unopened, DaemonSecretsPlainReason as Reason,
+};
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_platforms::{SealKey, SecretStoreOffer, secret_store_offer};
 
-use super::{ITEMS, RECORD, WORKFLOW, read_text, secret_items, write_and_read};
+use super::{
+    Before, EARLIER, HELD_CALL_TIMEOUT, ITEMS, RECORD, SEALED, Status, WORKFLOW, file_before,
+    read_text, secret_items, status, write_and_read,
+};
 use crate::credential_store::SecretKeychain;
 use crate::credential_store::file::SecretItemsFile;
-use crate::credential_store::items::{SecretItems, SecretItemsStart};
+use crate::credential_store::items::{SecretItems, SecretItemsStart, cannot_open};
 use crate::credential_store::os::{SystemCredentialStore, TestStoreAccess};
 use crate::credential_store::place::SecretsPlace;
 use crate::credential_store::seal::{TestSeal, TestSealAnswer};
 use crate::credential_store::service::KeychainService;
 use crate::random_hex::random_hex;
 
-const SEALED: &str = r#"{"place":{"kind":"sealedFile"}}"#;
 const NO_SEAL_SERVICE: &str = r#"{"place":{"kind":"plainFile","reason":"noSealService"}}"#;
 const SEAL_FAILED: &str = r#"{"place":{"kind":"plainFile","reason":"sealFailed"}}"#;
 const BOOT_BOUND: &str = r#"{"place":{"kind":"plainFile","reason":"bootBound"}}"#;
 
 // The mask of a seal bound to PCR 7, the Secure Boot state.
 const PCR_7: u64 = 1 << 7;
-
-// A call time whose check's share a held seal outlasts, the call still answering in it.
-const HELD_CALL_TIMEOUT: Duration = Duration::from_millis(600);
-
-// The item each case files before the start, beside the one its call writes.
-const EARLIER: &str = "earlier";
-
-// What the items file holds before the start.
-#[derive(Clone, Copy)]
-enum Before {
-    Nothing,
-    Plain,
-    // One item sealed with the key.
-    Sealed(SealKey),
-}
 
 // How the test's seal answers from the start on.
 #[derive(Clone, Copy)]
@@ -105,28 +94,8 @@ enum After {
     Form(&'static str),
 }
 
-// The status read's secrets file as the wire sends it, its path left out.
-type Status = Option<serde_json::Value>;
-
 const fn refuses(error: &'static str, errno: Option<i64>) -> SealNow {
     SealNow::answers(TestSealAnswer::Refuses { error, errno })
-}
-
-// Files `before` in `folder` through `seal`, sealing with its key at the time.
-async fn file_before(folder: &Path, seal: &Arc<TestSeal>, before: Before) {
-    let seal = match before {
-        Before::Nothing => return,
-        Before::Plain => None,
-        Before::Sealed(key) => {
-            seal.seal_with(key, 0);
-            Some(Arc::clone(seal) as _)
-        }
-    };
-    SecretItemsFile::new(folder)
-        .keychain(WORKFLOW, seal)
-        .write(EARLIER, &SecretString::from("earlier value"))
-        .await
-        .expect("the test fills the file");
 }
 
 // The items file's form, `None` when there is none.
@@ -134,20 +103,6 @@ fn form(folder: &Path) -> Option<String> {
     let text = read_text(&folder.join(ITEMS))?;
     let file: serde_json::Value = serde_json::from_str(&text).expect("the file is JSON");
     file["form"].as_str().map(str::to_owned)
-}
-
-async fn status(items: &SecretItems) -> Status {
-    items
-        .secrets_file()
-        .await
-        .expect("the path is a wire path")
-        .map(|file| {
-            let mut wire = serde_json::to_value(file).expect("the status writes");
-            wire.as_object_mut()
-                .expect("the secrets file is an object")
-                .remove("path");
-            wire
-        })
 }
 
 /// Every Linux pick: a first start through the probe (sealed bound to no boot state, a plain file
@@ -230,6 +185,11 @@ async fn status(items: &SecretItems) -> Status {
     Some(SEALED), Before::Sealed(SealKey::Chip), SealNow::serves(SealKey::Chip),
     Ok(()), Some(SEALED), After::Form("sealed"),
     Some(json!({"protection":"sealedWithChip"}))
+)]
+#[case::recorded_sealed_with_mixed_keys(
+    Some(SEALED), Before::Mixed, SealNow::serves(SealKey::SystemKey),
+    Ok(()), Some(SEALED), After::Form("sealed"),
+    Some(json!({"protection":"sealedWithSystemKey"}))
 )]
 #[case::recorded_sealed_without_the_service(
     Some(SEALED), Before::Sealed(SealKey::Chip), SealNow::answers(TestSealAnswer::Absent),
@@ -316,7 +276,7 @@ async fn the_start_picks_and_keeps_the_linux_secrets_place(
         After::Unchanged => assert_eq!(std::fs::read(folder.path().join(ITEMS)).ok(), bytes_before),
         After::Form(expected) => assert_eq!(form(folder.path()).as_deref(), Some(expected)),
     }
-    if matches!(before, Before::Plain | Before::Sealed(_)) && served.is_ok() {
+    if !matches!(before, Before::Nothing) && served.is_ok() {
         let earlier = items
             .keychain(KeychainService::WorkflowSecrets)
             .read(EARLIER)
@@ -331,9 +291,10 @@ async fn the_start_picks_and_keeps_the_linux_secrets_place(
 }
 
 /// A pass that sealed the file and stopped before its record leaves a sealed file under a plain
-/// record: the next start moves the record with no seal but the probe's, and the file is left
-/// byte for byte. Mutation: read the form through the plain file's reader, which refuses it, or
-/// seal the file again.
+/// record: the next start moves the record to the sealed file, seals nothing but the probe, and
+/// leaves the file byte for byte, even with the service gone, when the status names it missing.
+/// Mutations: drop the form check, so the plain record stays and its check refuses the sealed
+/// form; seal the file again.
 #[tokio::test]
 async fn a_sealed_file_under_a_plain_record_moves_the_record_and_seals_nothing() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
@@ -342,6 +303,7 @@ async fn a_sealed_file_under_a_plain_record_moves_the_record_and_seals_nothing()
     file_before(folder.path(), &seal, Before::Sealed(SealKey::Chip)).await;
     let bytes_before = std::fs::read(folder.path().join(ITEMS)).expect("the file is there");
     let seals_before = seal.seals();
+    seal.answer(TestSealAnswer::Absent);
     let items = secret_items(
         folder.path(),
         &TestStoreAccess::sealing(Arc::clone(&seal)),
@@ -349,17 +311,18 @@ async fn a_sealed_file_under_a_plain_record_moves_the_record_and_seals_nothing()
         Duration::from_secs(5),
     );
 
-    let earlier = items
+    let read = items
         .keychain(KeychainService::WorkflowSecrets)
         .read(EARLIER)
         .await
-        .expect("the sealed file opens");
+        .map_err(|refusal| refusal.cause());
 
+    assert_eq!(read.err(), Some(KeychainRefusalCause::Unavailable));
     assert_eq!(
-        earlier.as_ref().map(ExposeSecret::expose_secret),
-        Some("earlier value")
+        seal.seals() - seals_before,
+        1,
+        "only the probe asks to seal"
     );
-    assert_eq!(seal.seals() - seals_before, 1, "only the probe seals");
     assert_eq!(
         read_text(&folder.path().join(RECORD)).as_deref(),
         Some(SEALED)
@@ -367,6 +330,10 @@ async fn a_sealed_file_under_a_plain_record_moves_the_record_and_seals_nothing()
     assert_eq!(
         std::fs::read(folder.path().join(ITEMS)).expect("the file is there"),
         bytes_before
+    );
+    assert_eq!(
+        status(&items).await,
+        Some(json!({"protection":"sealedWithChip","cannotOpen":"sealServiceMissing"}))
     );
 }
 
@@ -424,17 +391,26 @@ async fn a_seal_pass_longer_than_a_call_lands_once() {
     assert_eq!(form(folder.path()).as_deref(), Some("sealed"));
 }
 
-/// A sealed file whose key changed refuses read, write and the account list, latched for the run
-/// with no further seal or unseal, while one whose service is gone checks again at each call and is
-/// served once it returns. Mutations: drop the latch, so the next call probes again; latch every
-/// cause, so the returned service is never used.
+/// A sealed file whose key changed, or whose service keeps another value than the probe gave it,
+/// refuses read, write and the account list with the cause's words, latched for the run with no
+/// further seal or unseal, the status naming the cause, until the relink empties the place and
+/// picks it again. Mutations: drop the latch, so the next call probes again; answer the service's
+/// other value with the mismatch's words and no cause.
+#[rstest]
+#[case::key_changed(Unopened::KeyChanged)]
+#[case::service_keeps_another_value(Unopened::SealServiceFailing)]
 #[tokio::test]
-async fn a_changed_key_is_latched_and_a_missing_service_is_checked_again() {
+async fn a_latched_cause_refuses_every_call_until_the_relink(#[case] cause: Unopened) {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     std::fs::write(folder.path().join(RECORD), SEALED).expect("the test writes the record");
     let seal = TestSeal::new();
     file_before(folder.path(), &seal, Before::Sealed(SealKey::Chip)).await;
-    seal.forget_the_blobs_sealed_so_far();
+    match cause {
+        Unopened::KeyChanged => seal.forget_the_blobs_sealed_so_far(),
+        Unopened::SealServiceFailing | Unopened::SealServiceMissing | Unopened::ChipUnavailable => {
+            seal.keep_another_value(true)
+        }
+    }
     let items = secret_items(
         folder.path(),
         &TestStoreAccess::sealing(Arc::clone(&seal)),
@@ -443,47 +419,45 @@ async fn a_changed_key_is_latched_and_a_missing_service_is_checked_again() {
     );
     let keychain = items.keychain(KeychainService::WorkflowSecrets);
 
-    let read = keychain
-        .read(EARLIER)
-        .await
-        .map_err(|refusal| refusal.cause());
+    let read = keychain.read(EARLIER).await.err();
     let calls = (seal.seals(), seal.unseals());
     let write = keychain
         .write("secret", &SecretString::from("value"))
         .await
-        .map_err(|refusal| refusal.cause());
-    let accounts = keychain.accounts().await.map_err(|refusal| refusal.cause());
+        .err();
+    let accounts = keychain.accounts().await.err();
 
-    assert_eq!(read.err(), Some(KeychainRefusalCause::Unavailable));
-    assert_eq!(write, Err(KeychainRefusalCause::Unavailable));
-    assert_eq!(accounts.err(), Some(KeychainRefusalCause::Unavailable));
+    let words = cannot_open(cause);
+    for refusal in [read, write, accounts] {
+        let refusal = refusal.expect("the latched cause refuses the call");
+        assert_eq!(refusal.cause(), KeychainRefusalCause::Unavailable);
+        assert_eq!(refusal.reason(), words.reason());
+    }
     assert_eq!(
         (seal.seals(), seal.unseals()),
         calls,
         "the latch calls no seal"
     );
-
-    let folder = tempfile::tempdir().expect("the test makes a folder");
-    std::fs::write(folder.path().join(RECORD), SEALED).expect("the test writes the record");
-    let seal = TestSeal::new();
-    file_before(folder.path(), &seal, Before::Sealed(SealKey::Chip)).await;
-    seal.answer(TestSealAnswer::Absent);
-    let items = secret_items(
-        folder.path(),
-        &TestStoreAccess::sealing(Arc::clone(&seal)),
-        false,
-        Duration::from_secs(5),
-    );
-
-    let missing = write_and_read(&items, "secret", "value").await;
-    seal.answer(TestSealAnswer::Serves);
-    let served = write_and_read(&items, "secret", "value").await;
-
-    assert_eq!(missing, Err(KeychainRefusalCause::Unavailable));
-    assert_eq!(served, Ok(Some("value".to_owned())));
+    let cause_word = serde_json::to_value(cause).expect("the cause writes");
     assert_eq!(
         status(&items).await,
-        Some(json!({"protection":"sealedWithChip"}))
+        Some(json!({"protection":"sealedWithChip","cannotOpen":cause_word}))
+    );
+
+    seal.keep_another_value(false);
+    let place = items
+        .empty_place()
+        .await
+        .expect("the place is picked again");
+
+    assert_eq!(place, SecretsPlace::SealedFile);
+    assert!(
+        !folder.path().join(ITEMS).exists(),
+        "the file and its items are gone"
+    );
+    assert_eq!(
+        read_text(&folder.path().join(RECORD)).as_deref(),
+        Some(SEALED)
     );
 }
 
@@ -528,93 +502,6 @@ async fn the_status_keeps_the_cause_while_a_call_checks_again() {
     assert_eq!(
         status_now,
         Some(json!({"protection":"sealedWithChip","cannotOpen":"chipUnavailable"}))
-    );
-}
-
-/// A service that keeps another value than the probe gave it is refused for the run, nothing
-/// recorded and no items file written. Mutations: drop the probe's compare; drop its latch.
-#[tokio::test]
-async fn a_seal_keeping_another_value_is_refused_for_the_run() {
-    let folder = tempfile::tempdir().expect("the test makes a folder");
-    let seal = TestSeal::new();
-    seal.keep_another_value(true);
-    let items = secret_items(
-        folder.path(),
-        &TestStoreAccess::sealing(Arc::clone(&seal)),
-        false,
-        Duration::from_secs(5),
-    );
-
-    let first = write_and_read(&items, "secret", "value").await;
-    seal.keep_another_value(false);
-    let second = write_and_read(&items, "secret", "value").await;
-
-    assert_eq!(first, Err(KeychainRefusalCause::Unavailable));
-    assert_eq!(second, Err(KeychainRefusalCause::Unavailable));
-    assert!(!folder.path().join(RECORD).exists());
-    assert!(!folder.path().join(ITEMS).exists());
-}
-
-/// A probe that gets no answer in time refuses that call `unavailable`, since nothing on Linux can
-/// be unlocked, and the next call probes again and is served. Mutations: answer every time-out
-/// `locked`; keep the time-out's refusal for the run.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_seal_with_no_answer_in_time_refuses_that_call_unavailable() {
-    let folder = tempfile::tempdir().expect("the test makes a folder");
-    let seal = TestSeal::new();
-    let release = seal.hold_next_seal();
-    let items = secret_items(
-        folder.path(),
-        &TestStoreAccess::sealing(Arc::clone(&seal)),
-        false,
-        Duration::from_millis(300),
-    );
-
-    let scenario = async {
-        let timed_out = write_and_read(&items, "secret", "value").await;
-        drop(release);
-        let served = write_and_read(&items, "secret", "value").await;
-        (timed_out, served)
-    };
-    let (timed_out, served) = tokio::time::timeout(Duration::from_secs(5), scenario)
-        .await
-        .expect("every call answers within its time");
-
-    assert_eq!(timed_out, Err(KeychainRefusalCause::Unavailable));
-    assert_eq!(served, Ok(Some("value".to_owned())));
-}
-
-/// A recorded sealed file whose service gives no answer within the check's time refuses that call
-/// `unavailable`, and the status names the service failing. Mutations: drop the probe's own time,
-/// so the call's time runs out and drops the settle before it records why; skip recording the
-/// cause.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_sealed_file_whose_service_gives_no_answer_reads_as_failing() {
-    let folder = tempfile::tempdir().expect("the test makes a folder");
-    std::fs::write(folder.path().join(RECORD), SEALED).expect("the test writes the record");
-    let seal = TestSeal::new();
-    file_before(folder.path(), &seal, Before::Sealed(SealKey::Chip)).await;
-    let release = seal.hold_next_seal();
-    let items = secret_items(
-        folder.path(),
-        &TestStoreAccess::sealing(Arc::clone(&seal)),
-        false,
-        HELD_CALL_TIMEOUT,
-    );
-
-    let scenario = async {
-        let timed_out = write_and_read(&items, "secret", "value").await;
-        (timed_out, status(&items).await)
-    };
-    let (timed_out, status_after) = tokio::time::timeout(Duration::from_secs(5), scenario)
-        .await
-        .expect("every call answers within its time");
-    drop(release);
-
-    assert_eq!(timed_out, Err(KeychainRefusalCause::Unavailable));
-    assert_eq!(
-        status_after,
-        Some(json!({"protection":"sealedWithChip","cannotOpen":"sealServiceFailing"}))
     );
 }
 
