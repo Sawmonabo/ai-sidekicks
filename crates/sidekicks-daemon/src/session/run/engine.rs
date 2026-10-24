@@ -339,6 +339,9 @@ pub(crate) struct RunEngine {
     // Where a test holds a resume's read of its run, once the run is held as being resumed.
     #[cfg(test)]
     resume_read_pause: PausePoint,
+    // Where a test holds a restart's settle of a run between its facts' read and its write.
+    #[cfg(test)]
+    restart_facts_pause: PausePoint,
 }
 
 impl RunEngine {
@@ -371,6 +374,8 @@ impl RunEngine {
             cut_pause: PausePoint::default(),
             #[cfg(test)]
             resume_read_pause: PausePoint::default(),
+            #[cfg(test)]
+            restart_facts_pause: PausePoint::default(),
         }
     }
 

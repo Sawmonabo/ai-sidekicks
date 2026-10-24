@@ -622,3 +622,95 @@ async fn a_restart_settle_is_refused_by_an_interrupt_asked_for_after_its_read() 
     );
     assert!(stored_events(&database, &run_id).is_empty());
 }
+
+// What lands between a restart settle's read of a run's facts and its write.
+#[derive(Clone, Copy, Debug)]
+enum LandedMeanwhile {
+    // The person asks to interrupt the running run.
+    PersonsInterrupt,
+    // A message starts the queued run.
+    QueuedRunStarted,
+}
+
+// Killed by the settle answering its first refusal rather than reading the run and its facts
+// again, which answers the interrupt asked meanwhile with an error (`interrupt_asked`), and by its
+// change written from whatever state the run has moved to, which fails the run a message started
+// meanwhile (`queued_run_started`).
+#[rstest]
+#[case::interrupt_asked(LandedMeanwhile::PersonsInterrupt, ("interrupted", 2), 1)]
+#[case::queued_run_started(LandedMeanwhile::QueuedRunStarted, ("starting", 0), 0)]
+#[tokio::test]
+async fn a_restart_settle_meets_what_landed_after_its_read(
+    #[case] landed: LandedMeanwhile,
+    #[case] expected_state: (&str, i64),
+    #[case] expected_event_count: usize,
+) {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    let run = match landed {
+        LandedMeanwhile::PersonsInterrupt => {
+            insert_running_run(&database, session_id, run_id);
+            running_at(session_id, run_id, 1)
+        }
+        LandedMeanwhile::QueuedRunStarted => {
+            database
+                .reader()
+                .execute(
+                    "INSERT INTO runs (run_id, session_id, state, run_version)
+                     VALUES (?1, ?2, 'queued', 0)",
+                    params![run_id.text().as_str(), session_id.text().as_str()],
+                )
+                .expect("the test queues the run");
+            LiveRun {
+                run: RunRead {
+                    state: RunState::Queued,
+                    ..running_at(session_id, run_id, 0).run
+                },
+                ..running_at(session_id, run_id, 0)
+            }
+        }
+    };
+    let engine = test_engine(&database, log.service, home.path());
+    let paused = engine.restart_facts_pause.arm();
+    let mut settling = Box::pin(engine.settle_run_after_restart(&run, "not resumed", None));
+
+    tokio::select! {
+        settled = &mut settling => panic!("the settle passed its pause: {settled:?}"),
+        reached = paused.reached => reached.expect("the settle holds after its read"),
+    }
+    match landed {
+        LandedMeanwhile::PersonsInterrupt => {
+            record_interrupt(
+                &database,
+                run_id,
+                r#"{"pending":"nextTurn"}"#,
+                "accepted",
+                true,
+            );
+        }
+        LandedMeanwhile::QueuedRunStarted => {
+            database
+                .reader()
+                .execute(
+                    "UPDATE runs SET state = 'starting' WHERE run_id = ?1",
+                    [run_id.text().as_str()],
+                )
+                .expect("the test starts the run");
+        }
+    }
+    paused.release.send(()).expect("the settle waits");
+    settling.await.expect("the settle meets what landed");
+
+    let (state, version) = expected_state;
+    assert_eq!(
+        stored_run_state(&database, &run_id),
+        (state.to_owned(), version)
+    );
+    assert_eq!(
+        stored_events(&database, &run_id).len(),
+        expected_event_count
+    );
+}

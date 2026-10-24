@@ -349,6 +349,8 @@ impl RunEngine {
                     Ok::<_, RunEngineError>(read_restart_facts(reader, &facts_of)?)
                 })
                 .await?;
+            #[cfg(test)]
+            self.restart_facts_pause.pass().await;
             match self
                 .settle_run_from_facts(&read, &facts, failure_detail, hold)
                 .await

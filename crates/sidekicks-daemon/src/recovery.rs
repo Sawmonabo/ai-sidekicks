@@ -3,6 +3,7 @@
 
 pub mod database_file;
 pub(crate) mod projection_rebuild;
+pub(crate) mod restart_settle;
 pub(crate) mod session_write_refusal;
 pub(crate) mod status;
 pub(crate) mod write_gate;
