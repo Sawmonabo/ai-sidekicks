@@ -43,7 +43,7 @@ use crate::provider::driver::codex::thread::settings::{
     CodexThreadSettings, CodexTurnStartParams, compose_codex_thread_fork_params,
 };
 use crate::provider::driver::codex::thread::view::{
-    assert_active_permission_profile, read_thread, read_turn_id,
+    TURN_START_METHOD, assert_active_permission_profile, read_thread, read_turn_id,
 };
 use crate::provider::driver::codex::token_usage::read_codex_token_usage;
 use crate::provider::driver::codex::transport::connection::{
@@ -62,8 +62,6 @@ use crate::session::run::inbound::rows::SessionScopedRow;
 use crate::session::run::inbound::{InboundDelivery, RunInboundDispatch};
 
 const THREAD_FORK_METHOD: &str = "thread/fork";
-
-const TURN_START_METHOD: &str = "turn/start";
 
 /// The item type of the copy's reply.
 const CODEX_AGENT_MESSAGE_ITEM_TYPE: &str = "agentMessage";
@@ -738,4 +736,4 @@ async fn deliver_answer(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

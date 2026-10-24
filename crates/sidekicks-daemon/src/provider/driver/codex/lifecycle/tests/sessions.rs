@@ -6,47 +6,35 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use interprocess::local_socket::tokio::Listener;
-use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
-use sidekicks_contracts::agent::definition::binding::ProviderToken;
-use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::session::controls::methods::{
-    PermissionLevel, SessionMode, SideQuestionId,
-};
+use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::record::Record;
 
 use super::super::CodexDriver;
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
 use crate::database::writer::test_file::TestDatabase;
 use crate::events::log_service::tests::open_log;
-use crate::policy::execution_posture_service::{
-    ExecutionPostureService, compose_execution_posture,
-};
-use crate::provider::driver::codex::permission_level::{
-    CodexProfileFolders, compose_codex_profile_name,
-};
+use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::provider::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::provider::driver::codex::run::start::record::CodexTurnRequest;
 use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::provider::driver::codex::service::registry::CodexServiceRegistry;
 use crate::provider::driver::codex::service::supervisor::test_service::{
-    ScriptedCodexService, bind_test_listener, next_socket_request, send_on_socket,
-    start_scripted_codex_service,
+    ScriptedCodexService, bind_test_listener, start_scripted_codex_service,
 };
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::inbound::codex_session_inbound;
+use crate::provider::driver::codex::session::side_questions::tests::{
+    COPY_THREAD, COPY_TURN, read_only_profile, resting_question, serve_unended_copy,
+};
 use crate::provider::driver::codex::session::slots::closing_session_refusal;
 use crate::provider::driver::codex::session::state::CodexTurnMessage;
 use crate::provider::driver::codex::session::test_session::{
     OneFolder, TEST_THREAD, TestDaemonTurnBindings, UnreadRunStates, turn_completed, turn_reply,
 };
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::driver::session_control::{
-    AskSideQuestionParams, CloseSessionParams, ResumeSessionParams,
-};
+use crate::provider::driver::session_control::{AskSideQuestionParams, CloseSessionParams};
 use crate::provider::driver::test_registry::{
     new_run_id, new_session_id, terminal_events, test_driver_services,
 };
@@ -56,12 +44,6 @@ use crate::session::run::inbound::RunInboundDispatch;
 
 /// How long a close may take before the test counts it as stuck.
 const CLOSE_BOUND: Duration = Duration::from_secs(10);
-
-/// The read-only copy the service forks a resting session's conversation into for a side question.
-const COPY_THREAD: &str = "copy-thread";
-
-/// The copy's one turn.
-const COPY_TURN: &str = "copy-turn";
 
 // Real time under a timeout, since the run engine writes the run's end through the database
 // writer. Killed by dropping the interrupt from `close_session` and by sending it after the
@@ -361,7 +343,7 @@ async fn the_daemons_stop_stops_the_turn_of_a_resting_sessions_side_question() {
     ));
 
     driver
-        .ask_side_question(resting_question(folder.path()))
+        .ask_side_question(resting_question(new_session_id(), folder.path()))
         .await
         .expect("the copy takes the question");
     tokio::time::timeout(CLOSE_BOUND, driver.shutdown(DaemonStopIntent::Restart))
@@ -414,80 +396,6 @@ async fn driver_holding(
     let mut driver = CodexDriver::new(&services);
     driver.registry = CodexServiceRegistry::holding(scripted);
     driver
-}
-
-// A side question on a session at rest whose stored conversation is `stored-thread`, at Ask on the
-// person's own sign-in.
-fn resting_question(folder: &Path) -> AskSideQuestionParams {
-    let session_id = new_session_id();
-    AskSideQuestionParams {
-        session_id,
-        side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),
-        question: "What does this read?".to_owned(),
-        resume: Some(ResumeSessionParams {
-            session_id,
-            agent_id: AgentId::new(&mint_uuid_v7().to_string())
-                .expect("a minted UUID is an agent id"),
-            resume_handle: "stored-thread".to_owned(),
-            model: ProviderToken::new("gpt-5".to_owned()).expect("the model fits"),
-            larger_window: None,
-            mode: SessionMode::Build,
-            execution_posture: Some(compose_execution_posture(
-                PermissionLevel::Ask,
-                FilesystemPath::new(folder.display().to_string()).expect("the folder is a path"),
-            )),
-            output_speed: None,
-            options: Vec::new(),
-            row_values: Record::default(),
-            callback_tools: None,
-            subagent_policy: None,
-            tool_servers: None,
-            output_schema: None,
-            provider_account_id: None,
-            on_mcp_server_status: None,
-        }),
-    }
-}
-
-// The read-only profile a copy of a session running in `folder`'s `work` runs under.
-fn read_only_profile(folder: &Path) -> String {
-    compose_codex_profile_name(
-        PermissionLevel::Readonly,
-        &CodexProfileFolders {
-            working_directory: folder.join("work"),
-            git_common_folder: None,
-            deny_paths: Vec::new(),
-        },
-    )
-}
-
-// Serves a side question's copy as Codex through its turn's start under `profile`, and never ends
-// the turn; answers the interrupt the daemon sent.
-async fn serve_unended_copy(listener: Listener, profile: String) -> Value {
-    let stream = listener
-        .accept()
-        .await
-        .expect("the daemon dials the service");
-    let mut socket = tokio_tungstenite::accept_async(stream)
-        .await
-        .expect("the daemon upgrades its connection");
-    loop {
-        let request = next_socket_request(&mut socket).await;
-        let result = match request["method"].as_str() {
-            Some("initialize") => json!({"userAgent": "codex/0.163.0 (test)"}),
-            Some("thread/fork") => json!({
-                "thread": {"id": COPY_THREAD, "sessionId": "codex-session"},
-                "activePermissionProfile": {"id": profile},
-            }),
-            Some("turn/start") => turn_reply(COPY_TURN),
-            Some("turn/interrupt") => {
-                send_on_socket(&mut socket, json!({"id": request["id"], "result": {}})).await;
-                return request;
-            }
-            method => panic!("the copy sent {method:?}"),
-        };
-        send_on_socket(&mut socket, json!({"id": request["id"], "result": result})).await;
-    }
 }
 
 // That `turn_id` was interrupted once, before the conversation was unsubscribed.

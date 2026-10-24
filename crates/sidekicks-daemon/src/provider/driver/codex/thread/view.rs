@@ -153,6 +153,9 @@ pub(crate) fn read_steered_turn_id(reply: &RawValue) -> Option<String> {
         .filter(|turn_id| !turn_id.is_empty())
 }
 
+/// The request that starts a turn on a thread.
+pub(crate) const TURN_START_METHOD: &str = "turn/start";
+
 /// Reads the id of the turn the `method` reply `reply` names. Fails with `CodexError::Transport`
 /// naming `method` when it carries none.
 pub(crate) fn read_turn_id(reply: &RawValue, method: &str) -> Result<String, CodexError> {

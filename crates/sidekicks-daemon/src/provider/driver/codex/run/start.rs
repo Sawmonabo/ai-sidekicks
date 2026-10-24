@@ -42,7 +42,7 @@ use crate::provider::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInboundSender,
 };
 use crate::provider::driver::codex::session::slots::CodexSessionSlots;
-use crate::provider::driver::codex::thread::view::read_turn_id;
+use crate::provider::driver::codex::thread::view::{TURN_START_METHOD, read_turn_id};
 use crate::provider::driver::codex::transport::diagnostics::{
     CodexDeliveryPort, CodexTransportDiagnostic,
 };
@@ -54,8 +54,6 @@ use crate::session::run::engine::RunEngine;
 /// How long a turn's start may take before it counts as not started. `turn/start` answers once
 /// Codex accepted the turn, so it matches the ordinary request deadline.
 pub(crate) const CODEX_TURN_START_TIMEOUT: Duration = Duration::from_secs(60);
-
-const TURN_START_METHOD: &str = "turn/start";
 
 /// What starting turns acts through.
 pub(crate) struct CodexRunStartDependencies {

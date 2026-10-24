@@ -38,7 +38,7 @@ use crate::provider::driver::codex::session::detached_conversation::{
 };
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::thread::settings::CodexTurnStartParams;
-use crate::provider::driver::codex::thread::view::{read_thread, read_turn_id};
+use crate::provider::driver::codex::thread::view::{TURN_START_METHOD, read_thread, read_turn_id};
 use crate::provider::driver::codex::transport::connection::{
     CodexAppServerConnection, read_codex_object,
 };
@@ -54,8 +54,6 @@ const THREAD_START_METHOD: &str = "thread/start";
 const THREAD_READ_METHOD: &str = "thread/read";
 
 const THREAD_NAME_SET_METHOD: &str = "thread/name/set";
-
-const TURN_START_METHOD: &str = "turn/start";
 
 /// The item type of the pass's reply.
 const CODEX_AGENT_MESSAGE_ITEM_TYPE: &str = "agentMessage";

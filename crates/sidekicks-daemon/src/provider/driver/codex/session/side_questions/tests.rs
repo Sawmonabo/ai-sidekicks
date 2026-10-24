@@ -1,9 +1,8 @@
-use std::io;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::{SinkExt as _, StreamExt as _};
+use futures::StreamExt as _;
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use rstest::rstest;
@@ -17,10 +16,8 @@ use sidekicks_contracts::session::controls::methods::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::record::Record;
-use sidekicks_platforms::{ExistingSocket, bind_socket_listener};
 use tokio::sync::oneshot;
 use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::TaskTracker;
 
 use super::{CodexSideQuestions, lock_copy_stops};
@@ -29,6 +26,9 @@ use crate::provider::driver::codex::permission_level::{
     CodexProfileFolders, compose_codex_profile_name,
 };
 use crate::provider::driver::codex::service::supervisor::CodexService;
+use crate::provider::driver::codex::service::supervisor::test_service::{
+    bind_test_listener, next_socket_request, send_on_socket,
+};
 use crate::provider::driver::codex::session::test_session::{TestCodexSession, turn_reply};
 use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::provider::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
@@ -38,7 +38,10 @@ use crate::provider::port::registration::PortRegistration;
 const STORED_THREAD: &str = "stored-thread";
 
 /// The copy the service forks from it.
-const COPY_THREAD: &str = "copy-thread";
+pub(crate) const COPY_THREAD: &str = "copy-thread";
+
+/// The copy's one turn.
+pub(crate) const COPY_TURN: &str = COPY_TURN;
 
 /// The copy's answer.
 const ANSWER: &str = "It reads the worktree.";
@@ -46,17 +49,8 @@ const ANSWER: &str = "It reads the worktree.";
 /// How long the test waits for the copy to be served and let go.
 const SERVE_WAIT: Duration = Duration::from_secs(10);
 
-// A listener at `socket`, or `None` where the system binds no local socket for a test.
-fn bind_test_listener(socket: &Path) -> Option<Listener> {
-    match bind_socket_listener(socket, ExistingSocket::Refuse) {
-        Ok(listener) => Some(listener),
-        Err(error) if error.kind() == io::ErrorKind::Unsupported => None,
-        Err(error) => panic!("the test's socket does not listen: {error}"),
-    }
-}
-
-// The resume material of `session_id` at rest on the person's own sign-in.
-fn resting_session(session_id: SessionId) -> ResumeSessionParams {
+// The resume material of `session_id` at rest in `folder` on the person's own sign-in.
+fn resting_session(session_id: SessionId, folder: &Path) -> ResumeSessionParams {
     ResumeSessionParams {
         session_id,
         agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
@@ -66,7 +60,7 @@ fn resting_session(session_id: SessionId) -> ResumeSessionParams {
         mode: SessionMode::Build,
         execution_posture: Some(compose_execution_posture(
             PermissionLevel::Ask,
-            FilesystemPath::new("/".to_owned()).expect("the root is a path"),
+            FilesystemPath::new(folder.display().to_string()).expect("the folder is a path"),
         )),
         output_speed: None,
         options: Vec::new(),
@@ -80,18 +74,19 @@ fn resting_session(session_id: SessionId) -> ResumeSessionParams {
     }
 }
 
-// A side question asked on `session_id` at rest.
-fn resting_question(session_id: SessionId) -> AskSideQuestionParams {
+/// A side question asked on `session_id` at rest in `folder`, its stored conversation
+/// `stored-thread`, at Ask on the person's own sign-in.
+pub(crate) fn resting_question(session_id: SessionId, folder: &Path) -> AskSideQuestionParams {
     AskSideQuestionParams {
         session_id,
         side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),
         question: "What does this read?".to_owned(),
-        resume: Some(resting_session(session_id)),
+        resume: Some(resting_session(session_id, folder)),
     }
 }
 
-// The read-only profile a copy whose working folder sits in `folder` runs under.
-fn read_only_profile(folder: &Path) -> String {
+/// The read-only profile a copy whose working folder is `folder`'s `work` runs under.
+pub(crate) fn read_only_profile(folder: &Path) -> String {
     compose_codex_profile_name(
         PermissionLevel::Readonly,
         &CodexProfileFolders {
@@ -100,37 +95,6 @@ fn read_only_profile(folder: &Path) -> String {
             deny_paths: Vec::new(),
         },
     )
-}
-
-// The next request the daemon sent on `socket`, skipping its notifications.
-async fn next_request<Stream>(socket: &mut WebSocketStream<Stream>) -> Value
-where
-    Stream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-{
-    loop {
-        let message = socket
-            .next()
-            .await
-            .expect("the daemon keeps the connection")
-            .expect("the daemon's message reads");
-        let Message::Text(text) = message else {
-            continue;
-        };
-        let request: Value = serde_json::from_str(&text).expect("the daemon sends JSON");
-        if request.get("id").is_some() {
-            return request;
-        }
-    }
-}
-
-async fn send<Stream>(socket: &mut WebSocketStream<Stream>, message: Value)
-where
-    Stream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-{
-    socket
-        .send(Message::Text(message.to_string().into()))
-        .await
-        .expect("the daemon reads");
 }
 
 /// The service's side of a copy's connection.
@@ -145,9 +109,9 @@ async fn accept_copy(listener: &Listener) -> CopySocket {
     let mut socket = tokio_tungstenite::accept_async(stream)
         .await
         .expect("the daemon upgrades its connection");
-    let initialize = next_request(&mut socket).await;
+    let initialize = next_socket_request(&mut socket).await;
     assert_eq!(initialize["method"], "initialize");
-    send(
+    send_on_socket(
         &mut socket,
         json!({"id": initialize["id"], "result": {"userAgent": "codex/0.163.0 (test)"}}),
     )
@@ -159,9 +123,9 @@ async fn accept_copy(listener: &Listener) -> CopySocket {
 // of the stored conversation under `profile`; answers the connection and the fork's params.
 async fn open_copy(listener: &Listener, profile: &str) -> (CopySocket, Map<String, Value>) {
     let mut socket = accept_copy(listener).await;
-    let fork = next_request(&mut socket).await;
+    let fork = next_socket_request(&mut socket).await;
     assert_eq!(fork["method"], "thread/fork");
-    send(
+    send_on_socket(
         &mut socket,
         json!({"id": fork["id"], "result": {
             "thread": {"id": COPY_THREAD, "sessionId": "codex-session"},
@@ -169,12 +133,12 @@ async fn open_copy(listener: &Listener, profile: &str) -> (CopySocket, Map<Strin
         }}),
     )
     .await;
-    let turn = next_request(&mut socket).await;
+    let turn = next_socket_request(&mut socket).await;
     assert_eq!(turn["method"], "turn/start");
     assert_eq!(turn["params"]["threadId"], COPY_THREAD);
-    send(
+    send_on_socket(
         &mut socket,
-        json!({"id": turn["id"], "result": {"turn": {"id": "copy-turn", "items": [],
+        json!({"id": turn["id"], "result": {"turn": {"id": COPY_TURN, "items": [],
             "status": "inProgress"}}}),
     )
     .await;
@@ -190,20 +154,20 @@ async fn open_copy(listener: &Listener, profile: &str) -> (CopySocket, Map<Strin
 // connection go.
 async fn serve_copy(listener: Listener, profile: String) -> Map<String, Value> {
     let (mut socket, fork) = open_copy(&listener, &profile).await;
-    send(
+    send_on_socket(
         &mut socket,
         json!({"jsonrpc": "2.0", "method": "item/completed", "params": {
             "threadId": COPY_THREAD,
-            "turnId": "copy-turn",
+            "turnId": COPY_TURN,
             "item": {"type": "agentMessage", "id": "item-1", "text": ANSWER},
         }}),
     )
     .await;
-    send(
+    send_on_socket(
         &mut socket,
         json!({"jsonrpc": "2.0", "method": "turn/completed", "params": {
             "threadId": COPY_THREAD,
-            "turn": {"id": "copy-turn", "items": [], "status": "completed"},
+            "turn": {"id": COPY_TURN, "items": [], "status": "completed"},
         }}),
     )
     .await;
@@ -212,12 +176,12 @@ async fn serve_copy(listener: Listener, profile: String) -> Map<String, Value> {
     fork
 }
 
-// Serves the copy's connection as Codex through its turn's start and never ends the turn; answers
-// the interrupt the daemon sent once it let the connection go.
-async fn serve_unended_copy(listener: Listener, profile: String) -> Value {
+/// Serves the copy's connection as Codex through its turn's start and never ends the turn; answers
+/// the interrupt the daemon sent once it let the connection go.
+pub(crate) async fn serve_unended_copy(listener: Listener, profile: String) -> Value {
     let (mut socket, _fork) = open_copy(&listener, &profile).await;
-    let interrupt = next_request(&mut socket).await;
-    send(&mut socket, json!({"id": interrupt["id"], "result": {}})).await;
+    let interrupt = next_socket_request(&mut socket).await;
+    send_on_socket(&mut socket, json!({"id": interrupt["id"], "result": {}})).await;
     while let Some(Ok(_message)) = socket.next().await {}
     interrupt
 }
@@ -236,7 +200,7 @@ async fn a_side_question_on_a_resting_session_forks_its_stored_conversation_and_
     let tasks = TaskTracker::new();
     let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), tasks.clone());
     let session_id = session.task.record.session_id;
-    let params = resting_question(session_id);
+    let params = resting_question(session_id, Path::new("/"));
     let profile = read_only_profile(folder.path());
     let served = tokio::spawn(serve_copy(listener, profile.clone()));
 
@@ -319,7 +283,7 @@ async fn a_resting_copy_let_go_before_its_turn_ends_has_its_turn_stopped(#[case]
     let tasks = TaskTracker::new();
     let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), tasks.clone());
     let session_id = session.task.record.session_id;
-    let params = resting_question(session_id);
+    let params = resting_question(session_id, Path::new("/"));
     let served = tokio::spawn(serve_unended_copy(
         listener,
         read_only_profile(folder.path()),
@@ -353,7 +317,7 @@ async fn a_resting_copy_let_go_before_its_turn_ends_has_its_turn_stopped(#[case]
     assert_eq!(interrupt["method"], "turn/interrupt");
     assert_eq!(
         interrupt["params"],
-        json!({"threadId": COPY_THREAD, "turnId": "copy-turn"})
+        json!({"threadId": COPY_THREAD, "turnId": COPY_TURN})
     );
 }
 
@@ -377,10 +341,10 @@ async fn serve_held_reply(
     release: oneshot::Receiver<()>,
 ) -> Vec<Value> {
     let mut socket = accept_copy(&listener).await;
-    let fork = next_request(&mut socket).await;
+    let fork = next_socket_request(&mut socket).await;
     assert_eq!(fork["method"], "thread/fork");
     if let HeldReply::TurnStart = held {
-        send(
+        send_on_socket(
             &mut socket,
             json!({"id": fork["id"], "result": {
                 "thread": {"id": COPY_THREAD, "sessionId": "codex-session"},
@@ -388,15 +352,15 @@ async fn serve_held_reply(
             }}),
         )
         .await;
-        let turn = next_request(&mut socket).await;
+        let turn = next_socket_request(&mut socket).await;
         assert_eq!(turn["method"], "turn/start");
         reached
             .send(())
             .expect("the test waits for the turn's start");
         release.await.expect("the test releases the turn's start");
-        send(
+        send_on_socket(
             &mut socket,
-            json!({"id": turn["id"], "result": {"turn": {"id": "copy-turn", "items": [],
+            json!({"id": turn["id"], "result": {"turn": {"id": COPY_TURN, "items": [],
                 "status": "inProgress"}}}),
         )
         .await;
@@ -410,7 +374,7 @@ async fn serve_held_reply(
         };
         let request: Value = serde_json::from_str(&text).expect("the daemon sends JSON");
         if request["method"] == "turn/interrupt" {
-            send(&mut socket, json!({"id": request["id"], "result": {}})).await;
+            send_on_socket(&mut socket, json!({"id": request["id"], "result": {}})).await;
         }
         later.push(json!({"method": request["method"], "params": request["params"]}));
     }
@@ -426,7 +390,7 @@ async fn serve_held_reply(
     HeldReply::TurnStart,
     json!([{
         "method": "turn/interrupt",
-        "params": {"threadId": COPY_THREAD, "turnId": "copy-turn"},
+        "params": {"threadId": COPY_THREAD, "turnId": COPY_TURN},
     }]),
 )]
 #[tokio::test(flavor = "multi_thread")]
@@ -443,7 +407,7 @@ async fn a_resting_copy_whose_session_closes_while_it_opens_leaves_no_turn_runni
     let tasks = TaskTracker::new();
     let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), tasks.clone());
     let session_id = session.task.record.session_id;
-    let params = resting_question(session_id);
+    let params = resting_question(session_id, Path::new("/"));
     let (reached, held_came) = oneshot::channel();
     let (release, released) = oneshot::channel();
     let is_start_held = matches!(held, HeldReply::TurnStart);
@@ -505,7 +469,7 @@ async fn a_live_copy_whose_session_closes_during_its_fork_starts_no_turn() {
     let session_id = session.task.record.session_id;
     let params = AskSideQuestionParams {
         resume: None,
-        ..resting_question(session_id)
+        ..resting_question(session_id, Path::new("/"))
     };
     let profile = compose_codex_profile_name(
         PermissionLevel::Readonly,
@@ -577,7 +541,7 @@ async fn answer_copy_stopped(
     assert_eq!(interrupt["method"], "turn/interrupt");
     assert_eq!(
         interrupt["params"],
-        json!({"threadId": COPY_THREAD, "turnId": "copy-turn"})
+        json!({"threadId": COPY_THREAD, "turnId": COPY_TURN})
     );
     assert!(
         !service
@@ -607,7 +571,7 @@ async fn a_live_copy_let_go_before_its_turn_ends_has_its_turn_stopped_first(
     let session_id = session.task.record.session_id;
     let params = AskSideQuestionParams {
         resume: None,
-        ..resting_question(session_id)
+        ..resting_question(session_id, Path::new("/"))
     };
     let profile = compose_codex_profile_name(
         PermissionLevel::Readonly,
@@ -631,10 +595,10 @@ async fn a_live_copy_let_go_before_its_turn_ends_has_its_turn_stopped_first(
             assert_eq!(start["method"], "turn/start");
             if let LiveTurn::Starting = turn {
                 end_copies(&side_questions, &end, session_id).await;
-                script.answer(&start, &turn_reply("copy-turn"));
+                script.answer(&start, &turn_reply(COPY_TURN));
                 answer_copy_stopped(script, service, session_id).await;
             } else {
-                script.answer(&start, &turn_reply("copy-turn"));
+                script.answer(&start, &turn_reply(COPY_TURN));
             }
         })
     })
@@ -677,7 +641,7 @@ async fn a_side_question_asked_after_the_driver_stopped_every_copy_forks_nothing
     let establishment = session.establishment(folder.path());
     let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), TaskTracker::new());
     let session_id = session.task.record.session_id;
-    let params = resting_question(session_id);
+    let params = resting_question(session_id, Path::new("/"));
 
     side_questions.stop_every_copy();
     tokio::time::timeout(
@@ -701,7 +665,7 @@ async fn a_side_question_asked_after_the_driver_stopped_every_copy_forks_nothing
             &session.task.record,
             &AskSideQuestionParams {
                 resume: None,
-                ..resting_question(session_id)
+                ..resting_question(session_id, Path::new("/"))
             },
         ),
     )
