@@ -90,7 +90,7 @@ pub(crate) fn register_codex_steer(
         .unechoed_steers_by_turn_id
         .entry(turn_id.clone())
         .or_default()
-        .push(message_id);
+        .register(message_id);
     let previous = record.last_steer_send.take();
     let (answered, answer) = oneshot::channel::<()>();
     let waited = previous.clone();
@@ -207,12 +207,8 @@ pub(crate) fn withdraw_codex_steer(
     turn_id: &str,
     message_id: QueueItemId,
 ) {
-    let Some(unechoed) = record.unechoed_steers_by_turn_id.get_mut(turn_id) else {
-        return;
-    };
-    unechoed.retain(|unechoed_id| *unechoed_id != message_id);
-    if unechoed.is_empty() {
-        record.unechoed_steers_by_turn_id.remove(turn_id);
+    if let Some(unechoed) = record.unechoed_steers_by_turn_id.get_mut(turn_id) {
+        unechoed.withdraw(message_id);
     }
 }
 
@@ -225,15 +221,11 @@ pub(crate) fn take_echoed_codex_steer(
     client_message_id: &str,
 ) -> Option<QueueItemId> {
     let echoed = QueueItemId::new(client_message_id).ok()?;
-    let unechoed = record.unechoed_steers_by_turn_id.get_mut(turn_id)?;
-    let at = unechoed
-        .iter()
-        .position(|message_id| *message_id == echoed)?;
-    let message_id = unechoed.remove(at);
-    if unechoed.is_empty() {
-        record.unechoed_steers_by_turn_id.remove(turn_id);
-    }
-    Some(message_id)
+    record
+        .unechoed_steers_by_turn_id
+        .get_mut(turn_id)?
+        .take_echoed(echoed)
+        .then_some(echoed)
 }
 
 /// Remembers, on the session's task, one run of the person's own `userPromptSubmit` hook on a
@@ -261,14 +253,13 @@ pub(crate) fn remember_codex_prompt_hook_run(
 /// Takes, on the session's task, the steers the person's own `userPromptSubmit` hook kept out of
 /// the turn `turn_id`, which ended, each with its hook's words, and lets go of the rest the turn
 /// still holds unechoed, unless the turn's interrupt takes them as the ones Codex dropped. Codex
-/// echoes every steer its hooks let through and reports each prompt's hook runs in the steers'
-/// order, so the steers still unechoed are the refused ones; a refusal reported ahead of them is
-/// the turn's opening prompt's, never a steer.
+/// runs the hook on the turn's opening prompt and then on each steer it took, in order, so the
+/// steer at place `p` is refused when the prompt after the opening's `p`th one was.
 pub(crate) fn take_blocked_codex_steers(
     record: &mut CodexSessionRecord,
     turn_id: &str,
 ) -> Vec<(QueueItemId, FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>)> {
-    let refusals = read_refused_prompt_words(
+    let prompts = read_refused_prompt_words(
         &record
             .prompt_hook_runs_by_turn_id
             .remove(turn_id)
@@ -280,27 +271,28 @@ pub(crate) fn take_blocked_codex_steers(
     let Some(unechoed) = record.unechoed_steers_by_turn_id.get_mut(turn_id) else {
         return Vec::new();
     };
-    let opening_refusals = refusals.len().saturating_sub(unechoed.len());
-    let refused: Vec<_> = unechoed
-        .drain(..refusals.len() - opening_refusals)
-        .zip(&refusals[opening_refusals..])
-        .map(|(message_id, words)| {
-            (
-                message_id,
-                bound_failure_detail(words, BLOCKED_STEER_FALLBACK.clone()),
-            )
-        })
-        .collect();
-    if unechoed.is_empty() || !is_interrupt_taking {
+    let mut refused = Vec::new();
+    unechoed.steers.retain(|(place, message_id)| {
+        let Some(Some(words)) = prompts.get(place + 1) else {
+            return true;
+        };
+        refused.push((
+            *message_id,
+            bound_failure_detail(words, BLOCKED_STEER_FALLBACK.clone()),
+        ));
+        false
+    });
+    if unechoed.steers.is_empty() || !is_interrupt_taking {
         record.unechoed_steers_by_turn_id.remove(turn_id);
     }
     refused
 }
 
-// The words of each prompt a hook handler blocked or stopped, in order. Codex reports one run per
+// Each prompt's refusal in order, the opening's first: the words of every handler that ran on it
+// where one blocked or stopped it, `None` where all let it through. Codex reports one run per
 // handler for every prompt, in the handlers' configured order, and a handler's run id is the same
 // on every prompt, so a run id the current prompt already holds starts the next prompt.
-fn read_refused_prompt_words(hook_runs: &[CodexPromptHookRun]) -> Vec<String> {
+fn read_refused_prompt_words(hook_runs: &[CodexPromptHookRun]) -> Vec<Option<String>> {
     let mut prompts: Vec<Vec<&CodexPromptHookRun>> = Vec::new();
     for hook_run in hook_runs {
         match prompts.last_mut() {
@@ -312,18 +304,18 @@ fn read_refused_prompt_words(hook_runs: &[CodexPromptHookRun]) -> Vec<String> {
     }
     prompts
         .into_iter()
-        .filter(|prompt| {
-            prompt
-                .iter()
-                .any(|hook_run| hook_run.is_blocked || hook_run.is_stopped)
-        })
         .map(|prompt| {
             prompt
                 .iter()
-                .flat_map(|hook_run| &hook_run.words)
-                .map(String::as_str)
-                .collect::<Vec<_>>()
-                .join("\n")
+                .any(|hook_run| hook_run.is_blocked || hook_run.is_stopped)
+                .then(|| {
+                    prompt
+                        .iter()
+                        .flat_map(|hook_run| &hook_run.words)
+                        .map(String::as_str)
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
         })
         .collect()
 }

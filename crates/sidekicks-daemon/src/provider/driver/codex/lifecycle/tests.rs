@@ -199,9 +199,13 @@ impl LiveCodexSession {
             record.add_active_turn(TEST_TURN.to_owned(), run_id);
             parts.run_routes.bind_run(run_id, session_id);
             if !steers.is_empty() {
-                record
+                let unechoed = record
                     .unechoed_steers_by_turn_id
-                    .insert(TEST_TURN.to_owned(), steers.to_vec());
+                    .entry(TEST_TURN.to_owned())
+                    .or_default();
+                for steer in steers {
+                    unechoed.register(*steer);
+                }
             }
         }
         let mut routed = CodexRoutedFrames::default();

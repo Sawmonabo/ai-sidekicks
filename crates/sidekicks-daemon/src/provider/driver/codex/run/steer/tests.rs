@@ -9,6 +9,7 @@ use super::take_blocked_codex_steers;
 use crate::provider::driver::codex::run::control::record::{
     CodexRunControlCall, run_codex_run_control_call,
 };
+use crate::provider::driver::codex::session::state::CodexUnechoedSteers;
 use crate::provider::driver::codex::session::test_session::TestCodexSession;
 use crate::provider::driver::test_registry::new_run_id;
 
@@ -38,7 +39,9 @@ async fn a_turns_end_lets_go_of_the_steers_no_interrupt_takes(#[case] end: TurnE
     record.add_active_turn("turn-1".to_owned(), run_id);
     record
         .unechoed_steers_by_turn_id
-        .insert("turn-1".to_owned(), vec![steer]);
+        .entry("turn-1".to_owned())
+        .or_default()
+        .register(steer);
     match end {
         TurnEnd::ByItself => {}
         TurnEnd::Interrupted => {
@@ -56,7 +59,10 @@ async fn a_turns_end_lets_go_of_the_steers_no_interrupt_takes(#[case] end: TurnE
     record.remember_settled_turn("turn-1".to_owned());
 
     assert!(refused.is_empty(), "no hook blocked the steer");
-    let kept = record.unechoed_steers_by_turn_id.get("turn-1").cloned();
+    let kept = record
+        .unechoed_steers_by_turn_id
+        .get("turn-1")
+        .map(CodexUnechoedSteers::message_ids);
     match end {
         TurnEnd::ByItself => assert_eq!(kept, None, "nothing takes the steer"),
         TurnEnd::Interrupted => {

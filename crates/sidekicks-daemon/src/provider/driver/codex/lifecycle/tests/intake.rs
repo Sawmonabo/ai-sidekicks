@@ -1,5 +1,6 @@
 //! What a live session's task applies of what its frames report.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -9,6 +10,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use super::{LiveCodexSession, TEST_TURN};
 use crate::mutex_lock::lock;
 use crate::provider::driver::codex::session::test_session::{TEST_THREAD, turn_completed};
+use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
 
 // Real time under a timeout, since the run engine writes the turn's end through the database
 // writer. Two handlers run on each prompt: the opening prompt's second blocks, the first steer
@@ -21,31 +23,18 @@ use crate::provider::driver::codex::session::test_session::{TEST_THREAD, turn_co
 // second's words).
 #[tokio::test]
 async fn the_steers_a_prompt_hook_refused_are_refused_with_its_words_and_never_taken() {
-    let new_id = || QueueItemId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an id");
-    let (echoed, blocked, stopped) = (new_id(), new_id(), new_id());
+    let (echoed, blocked, stopped) = (new_message_id(), new_message_id(), new_message_id());
     let session = LiveCodexSession::start(&[echoed, blocked, stopped]).await;
-    let hook_completed = |handler: &str, status: &str, words: &str| {
-        json!({
-            "jsonrpc": "2.0",
-            "method": "hook/completed",
-            "params": {
-                "threadId": TEST_THREAD,
-                "turnId": TEST_TURN,
-                "run": {
-                    "id": format!("user-prompt-submit:{handler}:/hooks.json"),
-                    "eventName": "userPromptSubmit",
-                    "status": status,
-                    "entries": if words.is_empty() { json!([]) } else { json!([{"text": words}]) },
-                },
-            },
-        })
-    };
     let script = &session.scripted.script;
 
-    script.send(&hook_completed("0", "completed", ""));
-    script.send(&hook_completed("1", "blocked", "the opening is blocked"));
-    script.send(&hook_completed("0", "completed", ""));
-    script.send(&hook_completed("1", "completed", ""));
+    script.send(&prompt_hook_completed("0", "completed", ""));
+    script.send(&prompt_hook_completed(
+        "1",
+        "blocked",
+        "the opening is blocked",
+    ));
+    script.send(&prompt_hook_completed("0", "completed", ""));
+    script.send(&prompt_hook_completed("1", "completed", ""));
     script.send(&json!({
         "jsonrpc": "2.0",
         "method": "item/completed",
@@ -60,10 +49,14 @@ async fn the_steers_a_prompt_hook_refused_are_refused_with_its_words_and_never_t
             },
         },
     }));
-    script.send(&hook_completed("0", "blocked", "no secrets in prompts"));
-    script.send(&hook_completed("1", "blocked", "keys stay home"));
-    script.send(&hook_completed("0", "completed", ""));
-    script.send(&hook_completed("1", "stopped", "stop here"));
+    script.send(&prompt_hook_completed(
+        "0",
+        "blocked",
+        "no secrets in prompts",
+    ));
+    script.send(&prompt_hook_completed("1", "blocked", "keys stay home"));
+    script.send(&prompt_hook_completed("0", "completed", ""));
+    script.send(&prompt_hook_completed("1", "stopped", "stop here"));
     script.send(&turn_completed(TEST_THREAD, TEST_TURN, "completed"));
     while lock(&session.queue.refused).len() < 2 {
         tokio::time::timeout(Duration::from_secs(10), session.queue.changed.notified())
@@ -71,17 +64,8 @@ async fn the_steers_a_prompt_hook_refused_are_refused_with_its_words_and_never_t
             .expect("the session's task reports the refusals");
     }
 
-    let refused: Vec<(String, String)> = lock(&session.queue.refused)
-        .iter()
-        .map(|(message_id, reason)| {
-            let QueueItemNotDeliveredReason::RefusedByHook { words } = reason else {
-                panic!("each steer is refused by its hook");
-            };
-            (message_id.clone(), words.as_str().to_owned())
-        })
-        .collect();
     assert_eq!(
-        refused,
+        refused_words(&session),
         [
             (
                 blocked.to_string(),
@@ -91,6 +75,92 @@ async fn the_steers_a_prompt_hook_refused_are_refused_with_its_words_and_never_t
         ]
     );
     assert_eq!(*lock(&session.queue.taken), [echoed.to_string()]);
+}
+
+// Real time under a timeout, as above. The opening prompt and the first steer are refused, and the
+// second steer, whose hook never ran, is still unechoed when the person's interrupt stops the
+// turn. Killed by pairing the refusals from the tail, which refuses the first steer with the
+// opening's words and the second with the first's.
+#[tokio::test]
+async fn a_refused_steer_pairs_with_its_own_prompt_and_an_unrun_one_is_dropped() {
+    let (blocked, unrun) = (new_message_id(), new_message_id());
+    let mut session = LiveCodexSession::start(&[blocked, unrun]).await;
+    let parts = Arc::clone(session.driver.parts().expect("the driver composes"));
+    let script = &mut session.scripted.script;
+    script.send(&prompt_hook_completed(
+        "0",
+        "blocked",
+        "the opening is blocked",
+    ));
+    script.send(&prompt_hook_completed("0", "blocked", "keys stay home"));
+
+    let interrupt = parts.run_control.interrupt_run(session.run_id);
+    tokio::pin!(interrupt);
+    let dropped = loop {
+        tokio::select! {
+            dropped = &mut interrupt => break dropped.expect("the interrupt stops the turn"),
+            sent = tokio::time::timeout(Duration::from_secs(10), script.next_sent()) => {
+                answer_stopping_request(script, &sent.expect("the interrupt goes out"));
+            }
+        }
+    };
+
+    assert_eq!(dropped, [unrun]);
+    assert_eq!(
+        refused_words(&session),
+        [(blocked.to_string(), "keys stay home".to_owned())]
+    );
+}
+
+fn new_message_id() -> QueueItemId {
+    QueueItemId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an id")
+}
+
+// One run of the person's `userPromptSubmit` hook handler `handler` on a prompt of the test turn,
+// ending `status` with `words`.
+fn prompt_hook_completed(handler: &str, status: &str, words: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "method": "hook/completed",
+        "params": {
+            "threadId": TEST_THREAD,
+            "turnId": TEST_TURN,
+            "run": {
+                "id": format!("user-prompt-submit:{handler}:/hooks.json"),
+                "eventName": "userPromptSubmit",
+                "status": status,
+                "entries": if words.is_empty() { json!([]) } else { json!([{"text": words}]) },
+            },
+        },
+    })
+}
+
+// Answers what stopping a turn sends: an interrupt, with its turn's end as Codex sends it on the
+// abort, the running-command list as empty, and the rest with nothing.
+fn answer_stopping_request(script: &ScriptedService, sent: &Value) {
+    match sent["method"].as_str() {
+        Some("turn/interrupt") => {
+            script.answer(sent, &json!({}));
+            script.send(&turn_completed(TEST_THREAD, TEST_TURN, "interrupted"));
+        }
+        Some("thread/backgroundTerminals/list") => {
+            script.answer(sent, &json!({"data": [], "nextCursor": null}));
+        }
+        _ => script.answer(sent, &json!({})),
+    }
+}
+
+// Each message the queue was told a hook refused, with the hook's words.
+fn refused_words(session: &LiveCodexSession) -> Vec<(String, String)> {
+    lock(&session.queue.refused)
+        .iter()
+        .map(|(message_id, reason)| {
+            let QueueItemNotDeliveredReason::RefusedByHook { words } = reason else {
+                panic!("each steer is refused by its hook");
+            };
+            (message_id.clone(), words.as_str().to_owned())
+        })
+        .collect()
 }
 
 // Real time under a timeout, since the run engine writes the row through the database writer.

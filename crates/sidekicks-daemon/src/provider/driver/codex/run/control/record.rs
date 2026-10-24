@@ -120,6 +120,7 @@ pub(crate) fn run_codex_run_control_call(
             let dropped = record
                 .unechoed_steers_by_turn_id
                 .remove(&turn_id)
+                .map(|unechoed| unechoed.message_ids())
                 .unwrap_or_default();
             let _unheard = reply.send(dropped);
         }
