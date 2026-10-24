@@ -1,8 +1,9 @@
 //! Which process is at the other end of a local connection, and a process's parent, on Windows:
-//! the peer of an `AF_UNIX` connection is read from the socket, while the daemon's named pipe and a
-//! process's parent are not read yet.
+//! the peer of an `AF_UNIX` connection is read from the socket, while the daemon's named pipe, the
+//! listener of a socket path and a process's parent are not read yet.
 
 use std::io::{self, ErrorKind};
+use std::path::Path;
 use std::ptr;
 use std::sync::Arc;
 
@@ -74,6 +75,17 @@ pub fn unix_domain_peer_process(stream: &UnixDomainStream) -> io::Result<Option<
         Err(error) if win32_code(&error) == Some(ERROR_INVALID_PARAMETER) => Ok(None),
         Err(error) => Err(error),
     }
+}
+
+/// Reads no listener of a socket path: Windows has no pinned listener read yet. Always fails with
+/// `Unsupported`.
+pub fn unix_domain_listener_process(
+    _socket_path: &Path,
+) -> impl Future<Output = io::Result<Option<PinnedProcess>>> {
+    std::future::ready(Err(io::Error::new(
+        ErrorKind::Unsupported,
+        "Windows reads no socket path's listening process yet",
+    )))
 }
 
 /// Reads no parent: Windows has no caller check yet. Always fails with `Unsupported`.

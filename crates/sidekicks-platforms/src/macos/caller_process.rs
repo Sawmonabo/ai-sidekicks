@@ -42,7 +42,9 @@ pub fn read_peer_process(stream: &Stream) -> io::Result<Option<PinnedProcess>> {
     };
     if status != 0 {
         let error = io::Error::last_os_error();
-        if error.kind() == io::ErrorKind::NotConnected {
+        // `EINVAL` is the answer for a peer whose process has ended.
+        if error.kind() == io::ErrorKind::NotConnected || error.raw_os_error() == Some(libc::EINVAL)
+        {
             return Ok(None);
         }
         return Err(error);
