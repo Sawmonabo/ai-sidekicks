@@ -134,7 +134,7 @@ async fn a_shell_mode_the_daemon_never_confirmed_starts_nothing() {
     assert!(!output.status.success(), "{output:?}");
     assert!(output.stdout.is_empty(), "{output:?}");
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("The shell mode started no shell"),
+        String::from_utf8_lossy(&output.stderr).contains("the shell mode started no shell"),
         "{output:?}"
     );
 }
