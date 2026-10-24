@@ -85,22 +85,42 @@ async fn a_handed_message_the_provider_settles_reads_its_settlement_and_lets_its
     assert_eq!(steers.load(Ordering::SeqCst), 2);
 }
 
-// A handed message its provider let go unsent waits again: a running run is handed it again, and
-// a pausing one is handed nothing, so its continue reads it. Killed by keeping the hand, and by
-// giving it back without handing the run's waiting messages again.
+// A handed message its provider let go unsent waits again: a running run whose provider takes
+// messages at once is handed it again, while a pausing one, or one whose provider takes messages
+// at a tool boundary, is handed nothing, so the run's continue or its next boundary takes it.
+// Killed by keeping the hand, and by giving it back without handing the run's waiting messages
+// again (the at-once running case).
 #[rstest]
-#[case::running(RunState::Running)]
-#[case::pausing(RunState::Pausing)]
+#[case::running(HANDS_AT_ONCE, RunState::Running)]
+#[case::pausing(HANDS_AT_ONCE, RunState::Pausing)]
+#[case::at_a_tool_boundary(HANDS_AT_TOOL_BOUNDARY, RunState::Running)]
 #[tokio::test]
-async fn a_message_the_provider_gives_back_waits_again_and_a_running_run_takes_it(
+async fn a_message_the_provider_gives_back_waits_again_and_an_at_once_running_run_takes_it(
+    #[case] handing: MessageHanding,
     #[case] state: RunState,
 ) {
-    let mut driver = driver_handing(HANDS_AT_ONCE);
+    let mut driver = driver_handing(handing);
     let steers = count_steers(&mut driver);
     let fixture = fixture(driver).await;
     let item = insert_item(&fixture).await;
-    hand(&fixture).await;
+    match handing.hands_at {
+        HandMoment::AtOnce => hand(&fixture).await,
+        HandMoment::AtToolBoundary => {
+            let deps = &fixture.delivery.shared.deps;
+            let driver =
+                read_run_driver::<DeliveryError>(&deps.pool, &deps.providers, fixture.run_id)
+                    .await
+                    .expect("the run's driver is read");
+            let hold = fixture.session_lock.hold_session(fixture.session_id).await;
+            fixture
+                .delivery
+                .hand_at_boundary(&hold, fixture.run_id, driver, handing)
+                .await
+                .expect("the boundary's steer is queued");
+        }
+    }
     settle(&fixture).await;
+    assert!(fixture.delivery.is_handed(&item.id));
     set_run_state(&fixture, state);
 
     fixture
@@ -117,7 +137,7 @@ async fn a_message_the_provider_gives_back_waits_again_and_a_running_run_takes_i
         stored_item(&fixture, item.id).state,
         RecordedQueueItemState::Queued
     );
-    if state == RunState::Running {
+    if state == RunState::Running && handing.hands_at == HandMoment::AtOnce {
         assert!(fixture.delivery.is_handed(&item.id));
         assert_eq!(steers.load(Ordering::SeqCst), 2);
     } else {

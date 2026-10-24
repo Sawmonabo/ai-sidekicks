@@ -7,12 +7,11 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{MessageContent, QueueItemId, QueueItemNotDeliveredReason};
+use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
 use crate::mutex_lock::lock;
-use crate::provider::driver::codex::intervention::CodexSteerRunRequest;
 use crate::provider::driver::codex::session::calls::call_codex_session;
 use crate::provider::driver::codex::session::inbound::CodexSessionCall;
 use crate::provider::driver::codex::session::test_session::{
@@ -364,11 +363,12 @@ async fn an_interrupts_turn_ending_ahead_of_its_answer_is_the_interrupts() {
 }
 
 // Real time under a timeout, as above. A steer still unechoed when a faster-model retry stops its
-// turn goes back to the queue only once the turn sent again on the fork runs as the run's, and the
-// queue's next hand of it steers into that turn. Killed by giving the steer back at the held
-// turn's end (it is back before the new turn's start is answered), and by giving back none.
+// turn goes back to the queue at that turn's end, ahead of the turn sent again on the fork, and
+// nothing steers it meanwhile: Codex takes a given-back message at its run's next tool boundary.
+// Killed by the retried turn's end keeping its steers rather than dropping them, and by dropping
+// the `message_given_back` call from the session task's turn end.
 #[tokio::test]
-async fn a_retry_gives_its_held_turns_unechoed_steer_back_once_its_new_turn_runs() {
+async fn a_retry_gives_its_held_turns_unechoed_steer_back_at_that_turns_end() {
     let steer = new_message_id();
     let mut session = LiveCodexSession::retriable(&[steer]).await;
     let parts = Arc::clone(session.driver.parts().expect("the driver composes"));
@@ -391,13 +391,15 @@ async fn a_retry_gives_its_held_turns_unechoed_steer_back_once_its_new_turn_runs
                 }
                 Some("thread/turns/list") => script.answer(&sent, &no_turns()),
                 Some("turn/start") => break sent,
+                Some("turn/steer") => panic!("nothing steers the given-back message"),
                 _ => answer_stopping_request(script, &sent),
             }
         };
         assert_eq!(started["params"]["threadId"], "thread-2");
-        assert!(
-            lock(&queue.given_back).is_empty(),
-            "nothing goes back before the new turn runs"
+        assert_eq!(
+            *lock(&queue.given_back),
+            [steer.to_string()],
+            "the held turn's end gave it back"
         );
         script.answer(&started, &turn_reply("turn-2"));
     };
@@ -413,39 +415,13 @@ async fn a_retry_gives_its_held_turns_unechoed_steer_back_once_its_new_turn_runs
         FasterModelRetryOutcome::Applied {}
     );
     assert_eq!(*lock(&session.queue.given_back), [steer.to_string()]);
-    let steered = parts.run_control.steer_run(CodexSteerRunRequest {
-        run_id: session.run_id,
-        content: MessageContent::new("also check the tests".to_owned()).expect("the words"),
-        skills: Vec::new(),
-        attachments: Vec::new(),
-        expected_turn_id: None,
-        client_idempotency_key: steer,
-    });
-    let service = async {
-        let sent = script.next_sent().await;
-        assert_eq!(sent["method"], "turn/steer");
-        assert_eq!(sent["params"]["threadId"], "thread-2");
-        assert_eq!(sent["params"]["expectedTurnId"], "turn-2");
-        script.answer(&sent, &json!({"turnId": "turn-2"}));
-    };
-    let (acknowledged, ()) = tokio::time::timeout(Duration::from_secs(10), async {
-        tokio::join!(steered, service)
-    })
-    .await
-    .expect("the steer is answered");
-    assert_eq!(
-        acknowledged
-            .expect("the new turn takes the steer")
-            .targeted_turn_id,
-        "turn-2"
-    );
 }
 
-// Real time under a timeout, as above. An interrupt that stops a retry before it forks answers the
-// steer its held turn dropped, which is never given back besides. Killed by answering the stopped
-// retry's interrupt with no steers.
+// Real time under a timeout, as above. An interrupt that stops a retry before it forks answers no
+// steer, since the held turn's end gave the one it dropped back to the queue, once. Killed by the
+// retried turn's end keeping its steers rather than dropping them.
 #[tokio::test]
-async fn an_interrupt_that_stops_a_retry_answers_its_held_turns_unechoed_steer() {
+async fn an_interrupt_that_stops_a_retry_answers_no_steer_its_held_turns_end_gave_back() {
     let steer = new_message_id();
     let mut session = LiveCodexSession::retriable(&[steer]).await;
     let parts = Arc::clone(session.driver.parts().expect("the driver composes"));
@@ -481,8 +457,8 @@ async fn an_interrupt_that_stops_a_retry_answers_its_held_turns_unechoed_steer()
             rejection_reason: "The run was interrupted.".to_owned(),
         }
     );
-    assert_eq!(dropped.expect("the interrupt stops the retry"), [steer]);
-    assert!(lock(&session.queue.given_back).is_empty());
+    assert_eq!(dropped.expect("the interrupt stops the retry"), Vec::new());
+    assert_eq!(*lock(&session.queue.given_back), [steer.to_string()]);
 }
 
 // A retry of the session's run on [`TEST_TURN`] onto the faster model.

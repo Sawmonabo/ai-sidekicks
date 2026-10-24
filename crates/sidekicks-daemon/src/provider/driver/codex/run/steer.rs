@@ -4,8 +4,8 @@
 //! each once Codex answered the one before, in the order they were registered; and none is sent
 //! into a turn that ended or that an interrupt is stopping. A steer the person's own
 //! `userPromptSubmit` hook keeps out of its turn is never echoed; at the turn's end it is paired
-//! with the words of the hook handlers that refused it, the steers a pause stopped the turn under
-//! go back to the queue, and those a retry stopped it under are kept for the retry to take.
+//! with the words of the hook handlers that refused it, and the steers a pause or a retry stopped
+//! the turn under go back to the queue.
 
 use std::sync::{Arc, LazyLock};
 
@@ -252,7 +252,7 @@ pub(crate) fn remember_codex_prompt_hook_run(
 }
 
 /// What an ended turn's unechoed steers come to: those the person's own hook refused, each with its
-/// words, and those a pause stopped the turn under, which the queue gives back.
+/// words, and those a pause or a retry stopped the turn under, which the queue gives back.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct CodexEndedTurnSteers {
     /// The refused steers' messages and their hooks' words, in send order.
@@ -263,8 +263,8 @@ pub(crate) struct CodexEndedTurnSteers {
 
 /// Takes, on the session's task, the steers the turn `turn_id`, which ended `ending`, still holds
 /// unechoed: those the person's own `userPromptSubmit` hook kept out of it, each with its hook's
-/// words, and, when a pause stopped it, the rest as dropped. An interrupt's or a retry's turn keeps
-/// the rest for the interrupt or the retry to take, and a turn that ended by itself lets them go. Codex runs
+/// words, and, when a pause or a retry stopped it, the rest as dropped. An interrupt's turn keeps
+/// the rest for the interrupt to take, and a turn that ended by itself lets them go. Codex runs
 /// the hook on the turn's opening prompt and then on each steer it took, in order, so the steer at
 /// place `p` is refused when the prompt after the opening's `p`th one was.
 pub(crate) fn take_blocked_codex_steers(
@@ -293,16 +293,14 @@ pub(crate) fn take_blocked_codex_steers(
         false
     });
     let dropped = match ending {
-        CodexTurnEnding::Interrupted | CodexTurnEnding::Retried if !unechoed.steers.is_empty() => {
+        CodexTurnEnding::Interrupted if !unechoed.steers.is_empty() => {
             return CodexEndedTurnSteers {
                 refused,
                 dropped: Vec::new(),
             };
         }
-        CodexTurnEnding::Paused => unechoed.message_ids(),
-        CodexTurnEnding::Live | CodexTurnEnding::Interrupted | CodexTurnEnding::Retried => {
-            Vec::new()
-        }
+        CodexTurnEnding::Paused | CodexTurnEnding::Retried => unechoed.message_ids(),
+        CodexTurnEnding::Live | CodexTurnEnding::Interrupted => Vec::new(),
     };
     record.unechoed_steers_by_turn_id.remove(turn_id);
     CodexEndedTurnSteers { refused, dropped }

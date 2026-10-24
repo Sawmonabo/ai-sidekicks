@@ -24,9 +24,8 @@ enum TurnEnd {
 }
 
 // Kills: the turn's end keeping the steers no interrupt takes (by itself), letting go of those an
-// interrupt or a retry still takes as dropped (interrupted, and retried, which gives them back
-// once its new turn runs), and a pause letting its steers go rather than dropping them for the
-// queue.
+// interrupt still takes as dropped, and a pause or a retry letting its steers go rather than
+// dropping them for the queue.
 #[rstest]
 #[case::by_itself(TurnEnd::ByItself)]
 #[case::interrupted(TurnEnd::Interrupted)]
@@ -68,15 +67,11 @@ async fn a_turns_end_drops_or_lets_go_of_the_steers_no_interrupt_takes(#[case] e
             assert_eq!(steers.dropped, Vec::new(), "nothing takes the steer");
             assert_eq!(kept, None);
         }
-        TurnEnd::Interrupted | TurnEnd::Retried => {
+        TurnEnd::Interrupted => {
             assert_eq!(steers.dropped, Vec::new());
-            assert_eq!(
-                kept,
-                Some(vec![steer]),
-                "the interrupt or retry takes it as dropped"
-            );
+            assert_eq!(kept, Some(vec![steer]), "the interrupt takes it as dropped");
         }
-        TurnEnd::Paused => {
+        TurnEnd::Paused | TurnEnd::Retried => {
             assert_eq!(steers.dropped, [steer], "the queue is given it back");
             assert_eq!(kept, None);
         }
