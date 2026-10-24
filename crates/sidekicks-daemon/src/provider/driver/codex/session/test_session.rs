@@ -436,9 +436,11 @@ impl TestCodexTask {
         self.handle(item).await;
     }
 
-    /// Handles `item` as the session's task does: a frame observed, routed and delivered, a call
-    /// run on the record, and what each delivered applied through the session's intake; the waits
-    /// settled after each.
+    /// Handles `item` on the record: a frame observed, routed and delivered, a call run on it, and
+    /// what each delivered applied through the session's intake; the waits settled after each.
+    /// Unlike the session's task it keeps no side question's frames apart, records no settled
+    /// output speed, acts on no step's end (so no pause is taken), refreshes no skills, delivers no
+    /// streamed text when it falls due and shows no view.
     pub(crate) async fn handle(&mut self, item: CodexSessionInbound) {
         match item {
             CodexSessionInbound::Frame { method, params } => {
