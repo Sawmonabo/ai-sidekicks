@@ -288,15 +288,7 @@ impl CodexSessionEstablishment {
         started: &mut Option<Arc<CodexService>>,
     ) -> Result<(DriverResumeResult, CodexEstablishedSession), CodexError> {
         let settings = self
-            .compose_thread_settings(CodexSettingsRequest {
-                session_id: params.session_id,
-                model: params.model.as_str(),
-                larger_window: params.larger_window,
-                execution_posture: params.execution_posture.as_ref(),
-                subagent_policy: params.subagent_policy.as_ref(),
-                tool_servers: params.tool_servers.as_deref(),
-                provider_account_id: params.provider_account_id.as_ref(),
-            })
+            .compose_thread_settings(compose_resume_settings_request(params))
             .await?;
         let execution_posture = require_execution_posture(params.execution_posture.as_ref())?;
         let service = Arc::clone(
@@ -367,6 +359,22 @@ impl CodexSessionEstablishment {
                 is_resumed: true,
             },
         ))
+    }
+
+    /// The account's service, started, and the settings a resting session's stored conversation
+    /// runs under, composed from its resume material as a resume composes them. Fails as the
+    /// composition or the service's start fails.
+    pub(crate) async fn compose_resting_conversation(
+        &self,
+        params: &ResumeSessionParams,
+    ) -> Result<(Arc<CodexService>, CodexThreadSettings), CodexError> {
+        let settings = self
+            .compose_thread_settings(compose_resume_settings_request(params))
+            .await?;
+        let service = self
+            .start_service(params.provider_account_id.as_ref())
+            .await?;
+        Ok((service, settings))
     }
 
     /// Opens an established conversation on its service: its routing band binds it, its usage
@@ -701,6 +709,19 @@ struct CodexResumedThread {
 /// Refuses a create whose larger window the service's catalog does not offer `model` at that
 /// figure now, so a picker row read before the catalog changed starts no conversation. A failed
 /// catalog read, or an unreadable row for the model, fails as itself.
+// What a resume composes its conversation's settings from.
+fn compose_resume_settings_request(params: &ResumeSessionParams) -> CodexSettingsRequest<'_> {
+    CodexSettingsRequest {
+        session_id: params.session_id,
+        model: params.model.as_str(),
+        larger_window: params.larger_window,
+        execution_posture: params.execution_posture.as_ref(),
+        subagent_policy: params.subagent_policy.as_ref(),
+        tool_servers: params.tool_servers.as_deref(),
+        provider_account_id: params.provider_account_id.as_ref(),
+    }
+}
+
 async fn confirm_larger_window(
     service: &CodexService,
     model: &str,

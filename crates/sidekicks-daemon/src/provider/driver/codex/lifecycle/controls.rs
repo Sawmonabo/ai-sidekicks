@@ -5,6 +5,7 @@
 
 use std::error::Error;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
@@ -94,13 +95,31 @@ impl CodexDriver {
         Ok(())
     }
 
-    /// Asks a side question on a read-only copy of the live conversation. Fails with
-    /// `CodexError::Transport` with no live record, and as the ask fails.
+    /// Asks a side question on a read-only copy of the session's conversation: the live one, else
+    /// the stored one `params.resume` names, forked on the account's service. Fails with
+    /// `CodexError::Transport` with neither a live record nor a resume handle, and as the ask
+    /// fails.
     pub(crate) async fn ask_side_question(
         &self,
         params: AskSideQuestionParams,
     ) -> Result<(), DriverError> {
-        let inbound = self.slots.require_live(params.session_id)?;
+        let inbound = match (self.slots.require_live(params.session_id), &params.resume) {
+            (Ok(inbound), _) => inbound,
+            (Err(_no_live_record), Some(resume)) => {
+                let parts = self.parts()?;
+                parts
+                    .side_questions
+                    .ask_at_rest(
+                        &parts.establishment,
+                        resume,
+                        &params,
+                        Arc::clone(&parts.ports.usage),
+                    )
+                    .await?;
+                return Ok(());
+            }
+            (Err(refusal), None) => return Err(refusal.into()),
+        };
         call_codex_lifecycle(&inbound, |reply| CodexLifecycleCall::AskSideQuestion {
             params: Box::new(params),
             reply,

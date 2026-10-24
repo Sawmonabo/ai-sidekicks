@@ -8,12 +8,10 @@ mod lockdown;
 #[cfg(test)]
 mod tests;
 
-use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
-use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::mpsc;
@@ -30,16 +28,18 @@ use crate::provider::driver::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_TURN_COMPLETED_METHOD,
 };
 use crate::provider::driver::codex::lifecycle::views::CodexConversationView;
-use crate::provider::driver::codex::run::turn_interrupt::interrupt_codex_turn;
 use crate::provider::driver::codex::service::command::run_codex_command;
 use crate::provider::driver::codex::service::home::CodexServiceKind;
 use crate::provider::driver::codex::service::supervisor::start::compose_codex_native_launch;
 use crate::provider::driver::codex::service::supervisor::{CodexService, CodexServiceDependencies};
+use crate::provider::driver::codex::session::detached_conversation::{
+    CodexDetachedFrame, CodexDetachedFrames, stop_detached_turn,
+};
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::thread::settings::CodexTurnStartParams;
 use crate::provider::driver::codex::thread::view::{read_thread, read_turn_id};
 use crate::provider::driver::codex::transport::connection::{
-    CodexAppServerConnection, CodexConnectionEvents, CodexForgottenRequest, read_codex_object,
+    CodexAppServerConnection, read_codex_object,
 };
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::session_control::NameSessionParams;
@@ -79,9 +79,6 @@ const CODEX_SERVER_LIST_DEADLINE: Duration = Duration::from_secs(10);
 
 /// How long either pass's turn may take to answer.
 const CODEX_NAMING_DEADLINE: Duration = Duration::from_secs(90);
-
-/// How long a title turn the pass leaves early may take to stop, its start's answer included.
-const CODEX_TITLE_INTERRUPT_DEADLINE: Duration = Duration::from_secs(30);
 
 /// Codex's small model, which its own terminal names a conversation with where the account's
 /// catalog offers it.
@@ -223,14 +220,12 @@ async fn name_on_service(
     prompt: String,
     cancel: CancellationToken,
 ) -> Result<Option<String>, CodexError> {
-    let (sender, mut frames) = mpsc::unbounded_channel();
+    let (events, mut frames) = CodexDetachedFrames::new();
     let service = &conversation.service;
     let connection = tokio::select! {
         biased;
         () = cancel.cancelled() => return Ok(None),
-        connection = service
-            .open_detached_connection(Arc::new(TitleConnectionEvents { frames: sender })) =>
-                connection?,
+        connection = service.open_detached_connection(events) => connection?,
     };
     // The throwaway conversation is ephemeral, so it ends with the connection, dropped here.
     draw_title(
@@ -283,7 +278,7 @@ enum TitleThread {
 // once the start named it.
 async fn draw_title(
     connection: &CodexAppServerConnection,
-    frames: &mut mpsc::UnboundedReceiver<(String, Box<RawValue>)>,
+    frames: &mut mpsc::UnboundedReceiver<CodexDetachedFrame>,
     request: &TitleRequest<'_>,
     cancel: &CancellationToken,
 ) -> Result<Option<String>, CodexError> {
@@ -314,7 +309,7 @@ async fn draw_title(
         biased;
         reply = &mut start => reply?,
         () = cancel.cancelled() => {
-            stop_title_turn(connection, &title_thread_id, async {
+            stop_detached_turn(connection, &title_thread_id, async {
                 read_turn_id(&(&mut start).await?, TURN_START_METHOD)
             })
             .await;
@@ -331,7 +326,7 @@ async fn draw_title(
         ) => answered.ok(),
     };
     let Some(answer) = answered else {
-        stop_title_turn(connection, &title_thread_id, async { Ok(turn_id) }).await;
+        stop_detached_turn(connection, &title_thread_id, async { Ok(turn_id) }).await;
         return Ok(None);
     };
     Ok(answer.as_deref().and_then(read_title))
@@ -416,7 +411,7 @@ async fn start_title_thread(
 // The last answer the title conversation `title_thread_id` gave once its turn completed, or once
 // its connection dropped.
 async fn read_title_answer(
-    frames: &mut mpsc::UnboundedReceiver<(String, Box<RawValue>)>,
+    frames: &mut mpsc::UnboundedReceiver<CodexDetachedFrame>,
     title_thread_id: &str,
 ) -> Option<String> {
     let mut answer = None;
@@ -442,31 +437,6 @@ async fn read_title_answer(
         }
     }
     answer
-}
-
-// Stops the title turn `turn_id` names within the interrupt's own bound, so a pass that leaves
-// early leaves no turn spending the account's tokens; a failure is logged, as the pass answers no
-// name either way.
-async fn stop_title_turn(
-    connection: &CodexAppServerConnection,
-    title_thread_id: &str,
-    turn_id: impl Future<Output = Result<String, CodexError>>,
-) {
-    let stopped = tokio::time::timeout(CODEX_TITLE_INTERRUPT_DEADLINE, async {
-        interrupt_codex_turn(connection, title_thread_id, &turn_id.await?).await
-    })
-    .await;
-    match stopped {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => tracing::info!(
-            error = &error as &(dyn std::error::Error + 'static),
-            "a codex title turn could not be stopped"
-        ),
-        Err(elapsed) => tracing::info!(
-            error = &elapsed as &(dyn std::error::Error + 'static),
-            "a codex title turn was not stopped within its bound"
-        ),
-    }
 }
 
 /// The model and effort a title turn runs on.
@@ -644,25 +614,4 @@ struct ThreadReadReply {
 #[derive(Deserialize)]
 struct ReadThread {
     name: Option<String>,
-}
-
-// A title connection's notifications, handed to its pass in arrival order.
-struct TitleConnectionEvents {
-    frames: mpsc::UnboundedSender<(String, Box<RawValue>)>,
-}
-
-impl CodexConnectionEvents for TitleConnectionEvents {
-    // A pass that already ended has no use for a late frame.
-    fn notification(&self, method: &str, params: Box<RawValue>) {
-        let _unread = self.frames.send((method.to_owned(), params));
-    }
-
-    // A drop ends the pass's requests and its wait for the answer.
-    fn dropped(&self, _reason: &str) {}
-
-    // The pass's conversation asks for nothing.
-    fn held_requests_dropped(&self, _dropped: Vec<CodexForgottenRequest>) {}
-
-    // The pass's request fails with Codex's own words.
-    fn service_draining(&self, _message: &str) {}
 }

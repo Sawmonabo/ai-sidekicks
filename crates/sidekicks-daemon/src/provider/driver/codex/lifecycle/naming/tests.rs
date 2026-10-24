@@ -1,14 +1,12 @@
 #[cfg(unix)]
 mod one_shot;
 
-use std::sync::Arc;
-
 use rstest::rstest;
 use serde_json::{Value, json};
-use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::{TitleConnectionEvents, TitleRequest, draw_title};
+use super::{TitleRequest, draw_title};
+use crate::provider::driver::codex::session::detached_conversation::CodexDetachedFrames;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::transport::connection::CodexConnectionHandlers;
 use crate::provider::driver::codex::transport::connection::scripted_service::{
@@ -38,11 +36,11 @@ fn start_pass(
     tokio::task::JoinHandle<Result<Option<String>, CodexError>>,
     ScriptedService,
 ) {
-    let (sender, mut frames) = mpsc::unbounded_channel();
+    let (events, mut frames) = CodexDetachedFrames::new();
     let (connection, script) = connect_scripted_service(
         MESSAGE_LIMIT,
         CodexConnectionHandlers {
-            events: Arc::new(TitleConnectionEvents { frames: sender }),
+            events,
             responder: None,
         },
     );
