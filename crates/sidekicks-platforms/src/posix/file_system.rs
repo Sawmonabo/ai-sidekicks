@@ -97,8 +97,8 @@ impl Drop for UnremovableFile {
     }
 }
 
-/// Whether this process runs as root, which reads and lists a folder whatever its mode, so a test
-/// of an unreadable folder has nothing to show.
+/// Whether this process runs as root, which reads a file and lists a folder whatever its mode, so
+/// a test of an unreadable file or folder has nothing to show.
 #[cfg(any(test, feature = "test-support"))]
 pub fn is_superuser() -> bool {
     nix::unistd::geteuid().is_root()

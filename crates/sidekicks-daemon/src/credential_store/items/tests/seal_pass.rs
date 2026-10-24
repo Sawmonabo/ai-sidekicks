@@ -130,13 +130,16 @@ enum PassRefusal {
     ItemSeal,
     // The file cannot be read once the probe passes.
     FileRead,
+    // The items' seals come back weaker than the probe's.
+    Weaker,
 }
 
-/// A pass the service or the file refuses starts no other this run: at a first start a refused
-/// item seal records the plain file for the seal's failure and serves it; under a plain record a
-/// file that fails the pass refuses that call, and the next is served plain with no pass. Mutation:
-/// never set `is_pass_refused`, so the plain record's second call seals the item again; answer a
-/// refused first start's pass as the weaker one, so each call refuses.
+/// A pass the service or the file refuses, or that comes back weaker, starts no other this run: at
+/// a first start a refused or weaker item seal records the plain file for the seal's failure and
+/// serves it, accepted for the run; under a plain record a file that fails the pass refuses that
+/// call, and the next is served plain with no pass. Mutation: never set `is_pass_refused`, so the
+/// plain record's second call seals the item again; answer a weaker pass as one with no answer, so
+/// each call refuses.
 #[rstest]
 #[case::first_start_whose_item_seal_refuses(
     None, PassRefusal::ItemSeal, true, Some(SEAL_FAILED), 0,
@@ -145,6 +148,10 @@ enum PassRefusal {
 #[case::plain_record_whose_file_fails_the_pass(
     Some(NO_SEAL_SERVICE), PassRefusal::FileRead, false, Some(NO_SEAL_SERVICE), 1,
     Some(json!({"protection":"plain","reason":"noSealService"}))
+)]
+#[case::first_start_whose_item_seals_come_back_weaker(
+    None, PassRefusal::Weaker, true, Some(SEAL_FAILED), 0,
+    Some(json!({"protection":"plain","reason":"sealFailed"}))
 )]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_refused_seal_pass_starts_no_other_this_run(
@@ -165,8 +172,12 @@ async fn a_refused_seal_pass_starts_no_other_this_run(
     }
     let seal = TestSeal::new();
     file_before(folder.path(), &seal, Before::Plain).await;
-    if refusal == PassRefusal::ItemSeal {
-        seal.refuse_seals_under(WORKFLOW);
+    match refusal {
+        PassRefusal::ItemSeal => seal.refuse_seals_under(WORKFLOW),
+        // The probe's blob is built with the chip once asked for; the items' then come back
+        // under the system key alone, below the probe's floor.
+        PassRefusal::Weaker => seal.seal_with(SealKey::Chip, 0),
+        PassRefusal::FileRead => {}
     }
     let items = secret_items(
         folder.path(),
@@ -184,6 +195,9 @@ async fn a_refused_seal_pass_starts_no_other_this_run(
         let darkened = (refusal == PassRefusal::FileRead).then(|| {
             make_unreadable(&folder.path().join(ITEMS)).expect("the file is made unreadable")
         });
+        if refusal == PassRefusal::Weaker {
+            seal.seal_with(SealKey::SystemKey, 0);
+        }
         drop(release);
         darkened
     };
@@ -264,4 +278,107 @@ async fn a_cause_is_forgotten_once_the_items_open_again() {
         Some(json!({"protection":"sealedWithSystemKey","cannotOpen":"sealServiceMissing"}))
     );
     assert_eq!(status_after.get("cannotOpen"), None, "{status_after}");
+}
+
+/// An erase whose items file a pass still holds refuses within its own time, the file kept, so the
+/// data folder stays and the erase can run again. Mutation: drop `within_call_time` from the
+/// removal in `erase_all`, so the erase waits for the pass and deletes the file.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_erase_refuses_within_its_time_while_a_pass_holds_the_file() {
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    std::fs::write(folder.path().join(RECORD), NO_SEAL_SERVICE).expect("the test writes it");
+    let plain = SecretItemsFile::new(folder.path()).keychain(WORKFLOW, None);
+    let accounts = [
+        EARLIER, "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth",
+        "tenth",
+    ];
+    for account in accounts {
+        plain
+            .write(account, &SecretString::from("earlier value"))
+            .await
+            .expect("the test fills the file");
+    }
+    let seal = TestSeal::new();
+    // Ten items' seals, each inside the check's 200 ms and 1.5 s in all, outlast the 600 ms
+    // call and the erase's own 600 ms after it; the probe's is not delayed.
+    seal.delay_seals_under(WORKFLOW, Duration::from_millis(150));
+    let items = secret_items(
+        folder.path(),
+        &TestStoreAccess::sealing(Arc::clone(&seal)),
+        false,
+        HELD_CALL_TIMEOUT,
+    );
+    let keychain = items.keychain(KeychainService::WorkflowSecrets);
+
+    let scenario = async {
+        let first = keychain.read(EARLIER).await.err();
+        let erased = items.erase_all().await.err();
+        let is_file_kept = folder.path().join(ITEMS).is_file();
+        seal.wait_for_seals(accounts.len() + 1).await;
+        (first, erased, is_file_kept)
+    };
+    let (first, erased, is_file_kept) = tokio::time::timeout(Duration::from_secs(5), scenario)
+        .await
+        .expect("every call answers within its time");
+
+    assert_eq!(
+        first.map(|refusal| refusal.cause()),
+        Some(KeychainRefusalCause::Unavailable)
+    );
+    let erased = erased.expect("the erase refuses while the pass holds the file");
+    assert_eq!(erased.cause(), KeychainRefusalCause::Unavailable);
+    assert!(
+        erased
+            .reason()
+            .starts_with("a step on the secrets gave no answer within"),
+        "{erased}"
+    );
+    assert!(is_file_kept, "the items file stays for the next erase");
+}
+
+/// A re-seal of a sealed file that fails on the file refuses that call and starts no other this
+/// run: the next call probes once, seals no item, and is served from the file as it is. Mutation:
+/// drop the `inspect_err` on `open_sealed`'s re-seal, so the second call seals the items again and
+/// is refused again. A read-only folder refuses the write on POSIX alone.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_re_seal_that_fails_on_the_file_starts_no_other_this_run() {
+    // Root writes into a folder whatever its mode.
+    if is_superuser() {
+        return;
+    }
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    std::fs::write(folder.path().join(RECORD), SEALED).expect("the test writes the record");
+    let seal = TestSeal::new();
+    file_before(folder.path(), &seal, Before::Sealed(SealKey::SystemKey)).await;
+    seal.seal_with(SealKey::Chip, 0);
+    let held = sidekicks_platforms::UnremovableFile::create_in(folder.path(), "held")
+        .expect("the folder is made read-only");
+    let items = secret_items(
+        folder.path(),
+        &TestStoreAccess::sealing(Arc::clone(&seal)),
+        false,
+        Duration::from_secs(5),
+    );
+    let keychain = items.keychain(KeychainService::WorkflowSecrets);
+
+    let first = keychain.read(EARLIER).await;
+    let seals = seal.seals();
+    let second = keychain.read(EARLIER).await;
+    drop(held);
+
+    assert!(first.is_err(), "the failed re-seal refuses the call");
+    assert_eq!(
+        second
+            .expect("the sealed file serves as it is")
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        Some("earlier value")
+    );
+    assert_eq!(
+        seal.seals() - seals,
+        1,
+        "the probe alone seals; no pass runs"
+    );
+    assert_eq!(form(folder.path()).as_deref(), Some("sealed"));
 }

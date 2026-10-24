@@ -29,9 +29,10 @@
 //!   items once and records the sealed file, and seals again once each item sealed with a weaker
 //!   key than the probe's. A pass that would seal any item downward is abandoned and the file kept.
 //!   Each seal of a pass takes the probe's share of the call's time: one that runs out ends the
-//!   pass and refuses the call, and the next call seals again. A pass the service or the file
-//!   refuses starts no other until the next start, a first start then recording the plain file for
-//!   the seal's failure.
+//!   pass; sealing a plain file then refuses the call, and the next call seals again. A pass the
+//!   service or the file refuses starts no other until the next start, and one that comes back
+//!   weaker leaves the plain file accepted for the run, a first start then recording the plain file
+//!   for the seal's failure.
 //!
 //! Every call answers within its one time, its waits for the place and a check included; a call
 //! with no answer in that time reads `locked` from the operating system's store, where a prompt
@@ -326,9 +327,6 @@ impl SecretItems {
                         && let Some(place) = self.seal_plain_file(state, header).await?
                     {
                         return Ok(place);
-                    }
-                    if !state.is_pass_refused {
-                        return Err(sealing_abandoned());
                     }
                     SecretsPlace::PlainFile {
                         reason: DaemonSecretsPlainReason::SealFailed,
@@ -708,13 +706,6 @@ fn seal_refused(failure: SealFailure) -> KeychainRefusal {
         "systemd's credential service did not seal the check's value",
     )
     .with_failure(failure)
-}
-
-fn sealing_abandoned() -> KeychainRefusal {
-    KeychainRefusal::new(
-        KeychainRefusalCause::Unavailable,
-        "sealing the plain items file was abandoned, so the next call tries again",
-    )
 }
 
 fn not_offered() -> KeychainRefusal {

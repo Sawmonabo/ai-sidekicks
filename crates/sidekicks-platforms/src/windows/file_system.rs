@@ -153,9 +153,9 @@ impl UnremovableFile {
     }
 }
 
-/// Whether this process reads a folder whatever its access list says: never on Windows, since a
-/// deny entry binds an administrator too unless a read asks for backup rights, which none here
-/// does.
+/// Whether this process reads a file or folder whatever its access list says: never on Windows,
+/// since a deny entry binds an administrator too unless a read asks for backup rights, which none
+/// here does.
 #[cfg(any(test, feature = "test-support"))]
 pub fn is_superuser() -> bool {
     false

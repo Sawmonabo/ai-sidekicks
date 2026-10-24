@@ -42,9 +42,10 @@ pub(super) enum Probe {
 
 impl SecretItems {
     // Seals the plain file's items once, the probe's blob having shown `header`, and records the
-    // sealed file; `None` when the pass was abandoned and the plain file stays, the state noting a
-    // refused pass so none starts again this run. Fails with the refusal the caller answers with
-    // when a seal gave no answer in time or the file failed, the latter noted as refused too.
+    // sealed file; `None` when the pass was refused, the state noting it so none starts again this
+    // run, or came back weaker: the plain file stays and the caller accepts it for the run. Fails
+    // with the refusal the caller answers with when a seal gave no answer in time or the file
+    // failed, the latter noted as refused too.
     pub(super) async fn seal_plain_file(
         &self,
         state: &mut PlaceState,
@@ -175,10 +176,7 @@ impl SecretItems {
                 .inspect_err(|_refusal| state.is_pass_refused = true)?;
             match pass {
                 SealPass::Unchanged | SealPass::Sealed => {}
-                SealPass::Abandoned(abandoned) => {
-                    log_abandoned(&abandoned);
-                    state.is_pass_refused |= matches!(abandoned, PassAbandoned::Refused(_));
-                }
+                SealPass::Abandoned(abandoned) => log_abandoned(&abandoned),
             }
         }
         tracing::info!(
@@ -291,15 +289,15 @@ fn log_abandoned(abandoned: &PassAbandoned) {
     match abandoned {
         PassAbandoned::Refused(failure) => tracing::warn!(
             error = failure as &(dyn Error + 'static),
-            "systemd's credential service refused a seal of the items, so their file stays as it \
-             was until the next start"
+            "systemd's credential service refused to seal or open an item, so the items file stays \
+             as it was until the next start"
         ),
         PassAbandoned::NoAnswer => tracing::warn!(
             "a seal of the items gave no answer in time, so their file stays as it was"
         ),
         PassAbandoned::Weaker => tracing::warn!(
             "a new seal of the items is weaker than allowed or bound to the boot state, so their \
-             file stays as it was"
+             file stays as it was until the next start"
         ),
     }
 }

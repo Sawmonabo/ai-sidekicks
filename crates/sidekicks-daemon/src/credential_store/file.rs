@@ -255,7 +255,7 @@ impl SecretItemsFile {
             .expect("the items file's path ends in its name after the data folder")
             .to_path_buf();
         let removed = tokio::task::spawn_blocking(move || remove_leftovers_in(&folder)).await;
-        let failure: Box<dyn std::error::Error + Send + Sync> = match removed {
+        let failure: Box<dyn Error + Send + Sync> = match removed {
             Ok(Ok(())) => return Ok(()),
             Ok(Err(failure)) => failure.into(),
             Err(interrupted) => interrupted.into(),
@@ -696,7 +696,7 @@ fn seal_failure(failure: SealFailure) -> KeychainRefusal {
 }
 
 // The refusal for a failure of the file system or of the file's write, kept as the source.
-fn file_failure(failure: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> KeychainRefusal {
+fn file_failure(failure: impl Into<Box<dyn Error + Send + Sync>>) -> KeychainRefusal {
     KeychainRefusal::new(
         KeychainRefusalCause::Unavailable,
         "the items file could not be used",
