@@ -49,7 +49,9 @@ use crate::provider::driver::codex::transport::diagnostics::{
     CodexDeliveryPort, CodexTransportDiagnostic,
 };
 use crate::provider::driver::codex::turn_evidence::CodexTurnStatus;
+use crate::provider::driver::contract::bound_failure_detail;
 use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
+use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::provider::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::provider::driver::session_control::{DriverResumeResult, ProviderBuildChange};
 use crate::provider::port::registration::PortRegistration;
@@ -254,9 +256,14 @@ impl CodexServiceRecovery {
     }
 
     /// Tells every session on a service that stays down after its crash window filled, naming how
-    /// its process last ended, the newest end recovery read. A loop of failed restarts after an
-    /// end the daemon could not read draws no banner, since the notice names an end.
-    pub(crate) async fn crash_loop(&self, service: &Arc<CodexService>) {
+    /// its process last ended, the newest end recovery read, else, for a loop of failed restarts
+    /// after an end the daemon could not read, `start_failure`, the failure of the restart that
+    /// filled the window. A loop with neither, whose ends no wait read, posts nothing.
+    pub(crate) async fn crash_loop(
+        &self,
+        service: &Arc<CodexService>,
+        start_failure: Option<&CodexError>,
+    ) {
         let sessions: HashSet<SessionId> = service
             .attached_sessions()
             .iter()
@@ -269,16 +276,24 @@ impl CodexServiceRecovery {
                 .insert(service.id(), sessions.clone());
             state.last_exit.get(&service.id()).cloned()
         };
-        let Some(exit) = exit else {
-            tracing::warn!(
-                codex_home = %service.home().codex_home.display(),
-                "a codex service stays down after a crash loop whose ending was never read"
-            );
-            return;
-        };
-        let (exit_code, signal) = match exit {
-            ProcessExit::Code(ended) => (Some(ended.exit_code), None),
-            ProcessExit::Signal(ended) => (None, Some(ended.signal)),
+        let (exit_code, signal, start_failure) = match (exit, start_failure) {
+            (Some(ProcessExit::Code(ended)), _) => (Some(ended.exit_code), None, None),
+            (Some(ProcessExit::Signal(ended)), _) => (None, Some(ended.signal), None),
+            (None, Some(failure)) => (
+                None,
+                None,
+                Some(bound_failure_detail(
+                    &failure.to_string(),
+                    UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
+                )),
+            ),
+            (None, None) => {
+                tracing::warn!(
+                    codex_home = %service.home().codex_home.display(),
+                    "a codex service stays down after a crash loop whose ends no wait read"
+                );
+                return;
+            }
         };
         for session_id in sessions {
             self.post_notice(
@@ -289,6 +304,7 @@ impl CodexServiceRecovery {
                     provider: DESCRIPTOR.provider_id(),
                     exit_code,
                     signal: signal.clone(),
+                    start_failure: start_failure.clone(),
                 },
             )
             .await;

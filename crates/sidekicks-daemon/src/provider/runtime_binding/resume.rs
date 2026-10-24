@@ -1,6 +1,8 @@
-//! Rebuilding a run's leg from its stored binding: which of a session's bindings is its leg, and
-//! the resume params composed from that binding's stored legs and the session as it stands now.
+//! Rebuilding a run's leg from its stored binding: which of a session's bindings is its leg, read
+//! by session id with no live record, and the resume params composed from that binding's stored
+//! legs and the session as it stands now.
 
+use rusqlite::named_params;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
@@ -12,9 +14,14 @@ use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
+use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use crate::database::stored_column::text_column;
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::session_control::ResumeSessionParams;
-use crate::provider::runtime_binding::store::RuntimeBinding;
+use crate::provider::runtime_binding::store::{
+    RuntimeBinding, RuntimeBindingStoreError, read_bindings_of_runs,
+};
+use crate::session::run::ids::SESSION_RUN_IDS_SQL;
 
 /// The function legs a resume injects fresh, apart from the stored legs, so leaving out the
 /// status sink is a choice at the call.
@@ -85,11 +92,28 @@ pub(crate) fn compose_resume_session_params(
     })
 }
 
-/// The newest of a session's `bindings` with a conversation to resume, the session's leg, by when
-/// each was recorded and then by id; `None` when none has one.
-pub(crate) fn select_session_leg(bindings: &[RuntimeBinding]) -> Option<&RuntimeBinding> {
-    bindings
-        .iter()
-        .filter(|binding| binding.resume_handle.is_some())
-        .max_by(|left, right| (&left.created_at, &left.id).cmp(&(&right.created_at, &right.id)))
+/// The session's leg, its newest binding with a conversation to resume, by when each was recorded
+/// and then by id, read through `pool`: the account it runs on and the handle of its conversation,
+/// at rest as live; `None` for a session that never ran. Fails as the pool or SQLite fails, or a
+/// stored row does not read.
+pub(crate) async fn read_session_leg(
+    pool: &DatabaseReadPool,
+    session_id: SessionId,
+) -> Result<Option<RuntimeBinding>, RuntimeBindingStoreError> {
+    pool.read(ReadLength::Short, move |reader| {
+        let run_ids = reader
+            .prepare_cached(SESSION_RUN_IDS_SQL)?
+            .query_map(
+                named_params! { "@sessionId": session_id.text().as_str() },
+                |row| text_column(row, 0, |text| RunId::new(&text)),
+            )?
+            .collect::<rusqlite::Result<Vec<RunId>>>()?;
+        Ok(read_bindings_of_runs(reader, &run_ids)?
+            .into_iter()
+            .filter(|binding| binding.resume_handle.is_some())
+            .max_by(|left, right| {
+                (&left.created_at, &left.id).cmp(&(&right.created_at, &right.id))
+            }))
+    })
+    .await
 }

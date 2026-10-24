@@ -43,6 +43,7 @@ use crate::provider::driver::codex::transport::connection::{
 };
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::session_control::NameSessionParams;
+use crate::provider::runtime_binding::resume::read_session_leg;
 use crate::provider::spawned_version::ResolvedProviderExecutable;
 
 const CONFIG_READ_METHOD: &str = "config/read";
@@ -100,16 +101,17 @@ const TITLE_INSTRUCTIONS: &str = "Name this coding session from its first exchan
 impl CodexDriver {
     /// The session's name from its first exchange: on the session's live service, a name the
     /// person's own terminal gave its conversation first, else a pass there; with no live leg, a
-    /// failed pass or no name, a one-shot pass of Codex's program. `None` when both gave no name,
-    /// or once `cancel` fired. Fails only as the one-shot pass's launch cannot be composed or the
-    /// MCP servers it disables cannot be listed.
+    /// failed pass or no name, a one-shot pass of Codex's program on the account the session's
+    /// leg runs on. `None` when both gave no name, the session never ran, or once `cancel` fired.
+    /// Fails as the stored leg cannot be read, the one-shot pass's launch cannot be composed or
+    /// the MCP servers it disables cannot be listed.
     pub(crate) async fn name_session(
         &self,
         params: NameSessionParams,
     ) -> Result<Option<String>, DriverError> {
         let cancel = params.cancel;
         let prompt = compose_title_prompt(&params.first_message, &params.first_reply);
-        // The one-shot pass runs on the live session's own account, else on the person's own.
+        // The one-shot pass runs on the session's own account, live or at rest.
         let (service, session_model) =
             if let Some(conversation) = self.views.conversation(params.session_id) {
                 let service = Arc::clone(&conversation.service);
@@ -136,9 +138,18 @@ impl CodexDriver {
                 }
                 (service, Some(session_model))
             } else {
+                let leg = tokio::select! {
+                    () = cancel.cancelled() => return Ok(None),
+                    leg = read_session_leg(&self.reads, params.session_id) => leg?,
+                };
+                // A session that never ran has no exchange to name.
+                let Some(leg) = leg else {
+                    return Ok(None);
+                };
+                let account = leg.spawn_config.provider_account_id;
                 tokio::select! {
                     () = cancel.cancelled() => return Ok(None),
-                    service = self.registry.service_for(None) => (service?, None),
+                    service = self.registry.service_for(account.as_ref()) => (service?, None),
                 }
             };
         tokio::select! {
@@ -148,23 +159,36 @@ impl CodexDriver {
         }
     }
 
-    /// Tells Codex the name the session goes by on its live conversation. Fails as Codex refuses
-    /// it, an archived conversation among them, and with `CodexError::Transport` for a session
-    /// with no live conversation, whose handle the call does not carry.
+    /// Tells Codex the name the session goes by: on its live conversation, else on its stored
+    /// one, on the service of the account its leg ran on, started for the call; a session that
+    /// never ran has no conversation to name and answers at once. Fails as the stored leg cannot be
+    /// read, the service cannot start, or Codex refuses the name, an archived conversation among
+    /// them.
     pub(crate) async fn tell_session_name(
         &self,
         session_id: SessionId,
         name: String,
     ) -> Result<(), DriverError> {
-        let Some(CodexConversationView {
+        let (service, thread_id) = if let Some(CodexConversationView {
             service, thread_id, ..
         }) = self.views.conversation(session_id)
-        else {
-            return Err(CodexError::Transport {
-                detail: format!("No live Codex session for \"{session_id}\" to rename."),
-                cause: None,
-            }
-            .into());
+        {
+            (service, thread_id)
+        } else {
+            let Some(leg) = read_session_leg(&self.reads, session_id).await? else {
+                return Ok(());
+            };
+            let Some(thread_id) = leg.resume_handle else {
+                return Ok(());
+            };
+            let service = self
+                .registry
+                .service_for(leg.spawn_config.provider_account_id.as_ref())
+                .await?;
+            service
+                .ensure_started(service.dependencies().startup_timeout)
+                .await?;
+            (service, thread_id)
         };
         service
             .connection()?

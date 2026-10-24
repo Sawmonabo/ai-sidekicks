@@ -219,10 +219,13 @@ impl ServiceRunner {
                     .events
                     .process_exited(service, exit.as_ref());
             }
-            SupervisorAction::ReportCrashLoop => {
+            SupervisorAction::ReportCrashLoop(start_failure) => {
                 clear_home_socket_link(service, service.physical_socket()).await;
                 report_crash_loop(service);
-                service.dependencies.events.crash_loop(service);
+                service
+                    .dependencies
+                    .events
+                    .crash_loop(service, start_failure);
             }
             SupervisorAction::RetireRecord => {
                 let retiring = Arc::clone(service);

@@ -60,16 +60,17 @@ impl SessionSpawnContextResolver for FolderContexts {
     fn resolve_spawn_context(
         &self,
         _session_id: SessionId,
-        _provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: Option<ProviderAccountId>,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn std::error::Error + Send + Sync>>> {
         let working_directory = self.work.clone();
+        let account_folders = provider_account_id.and(self.account_folders.clone());
         async move {
             Ok(SessionSpawnContext {
                 working_directory,
                 git_common_folder: None,
                 every_project_rows: Vec::new(),
                 project_rows: Vec::new(),
-                account_folders: None,
+                account_folders,
             })
         }
         .boxed()

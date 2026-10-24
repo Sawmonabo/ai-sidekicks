@@ -17,6 +17,7 @@ pub(super) mod fork;
 pub(super) mod helper_roles;
 pub(super) mod history;
 pub(super) mod inbound;
+pub(super) mod lifecycle_call;
 pub(super) mod purge;
 pub(super) mod recovery;
 pub(super) mod rewind;

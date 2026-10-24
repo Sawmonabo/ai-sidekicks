@@ -2,11 +2,12 @@
 //! conversation, a move to a new build, its close and the daemon's stop, the purge of its
 //! conversations, and the messages a continue sent that Codex took.
 
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 
 use super::{CODEX_SERVICE_STARTUP_TIMEOUT, CodexDriver, CodexDriverParts};
-use crate::provider::driver::codex::lifecycle::intake::{CodexLifecycleCall, call_codex_lifecycle};
+use crate::provider::driver::codex::lifecycle::intake::call_codex_lifecycle;
 use crate::provider::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnWait};
 use crate::provider::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::provider::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
@@ -14,6 +15,7 @@ use crate::provider::driver::codex::session::history::read_codex_turn_id_by_clie
 use crate::provider::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInboundSender,
 };
+use crate::provider::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::provider::driver::codex::session::purge::purge_codex_conversations;
 use crate::provider::driver::codex::session::slots::CODEX_LET_GO_TIMEOUT;
 use crate::provider::driver::contract::DriverError;
@@ -232,11 +234,26 @@ impl CodexDriver {
     }
 
     /// Whether a run on `session_id` brings a Codex service up: `false` while the session's
-    /// conversation is loaded on a service that runs.
-    pub(crate) fn starts_process(&self, session_id: SessionId) -> bool {
-        self.views
-            .service(session_id)
-            .is_none_or(|service| service.connection().is_err())
+    /// conversation is loaded on a service that runs, or, with none loaded, while the service of
+    /// `provider_account_id`, the account the run is admitted against, runs. A home that cannot
+    /// be resolved reads as a start, which then fails on it.
+    pub(crate) async fn starts_process(
+        &self,
+        session_id: SessionId,
+        provider_account_id: Option<ProviderAccountId>,
+    ) -> bool {
+        let service = match self.views.service(session_id) {
+            Some(service) => service,
+            None => match self
+                .registry
+                .service_for(provider_account_id.as_ref())
+                .await
+            {
+                Ok(service) => service,
+                Err(_) => return true,
+            },
+        };
+        service.connection().is_err()
     }
 
     /// The messages of a continue Codex holds in the session's conversation. A continue sends its

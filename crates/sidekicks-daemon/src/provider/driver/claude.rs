@@ -6,6 +6,7 @@ use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::config::McpTransport;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ObservedProviderOptions, ProviderRow, ProviderSessionOption,
 };
@@ -340,7 +341,12 @@ impl ProviderDriver for ClaudeDriver {
         Some(CLAUDE_PICTURE_BASE64_LIMIT)
     }
 
-    fn starts_process(&self, session_id: SessionId) -> BoxFuture<'_, bool> {
+    // Each Claude Code session runs a process of its own, so the account weighs nothing here.
+    fn starts_process(
+        &self,
+        session_id: SessionId,
+        _provider_account_id: Option<ProviderAccountId>,
+    ) -> BoxFuture<'_, bool> {
         ready(self.starts_process(session_id)).boxed()
     }
 
@@ -349,6 +355,7 @@ impl ProviderDriver for ClaudeDriver {
     fn resolve_skill_picks(
         &self,
         _session_id: SessionId,
+        _provider_account_id: Option<ProviderAccountId>,
         picks: Vec<QueuedSkillPick>,
     ) -> BoxFuture<'_, Result<Vec<PickedSkill>, DriverError>> {
         ready(Ok(picks.into_iter().map(picked_skill_of).collect())).boxed()
@@ -584,6 +591,7 @@ mod tests {
         let skills = driver
             .resolve_skill_picks(
                 session_id,
+                None,
                 vec![
                     pick("review", "/skills/review"),
                     pick("deploy", "/skills/deploy"),

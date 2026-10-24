@@ -7,6 +7,7 @@ use std::sync::Arc;
 use sidekicks_contracts::run::control::ProcessExit;
 
 use crate::provider::driver::codex::service::supervisor::CodexService;
+use crate::provider::driver::codex::session::errors::CodexError;
 
 /// Why a service's conversations need resuming.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,8 +31,9 @@ pub(crate) trait CodexServiceEvents: Send + Sync {
     /// The service runs again, or its connection does; every conversation it held needs resuming.
     fn recovered(&self, service: &Arc<CodexService>, cause: CodexServiceRecoveryCause);
 
-    /// The crash window filled, so the service stays down until the person restarts it.
-    fn crash_loop(&self, service: &Arc<CodexService>);
+    /// The crash window filled, so the service stays down until the person restarts it;
+    /// `start_failure` is the failure of the restart that filled it, where a failed restart did.
+    fn crash_loop(&self, service: &Arc<CodexService>, start_failure: Option<Arc<CodexError>>);
 
     /// The account's rate-limit readings changed on a push from the service.
     fn rate_limits_observed(&self, service: &Arc<CodexService>);

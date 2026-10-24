@@ -15,6 +15,7 @@ use super::{CodexRunEnds, CodexServiceRecovery, CodexServiceRecoveryDependencies
 use crate::provider::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::provider::driver::codex::service::registry::CodexServiceRegistry;
 use crate::provider::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
+use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::test_session::{
     OneFolder, TEST_THREAD, TestCodexSession, fork_reply, no_turns,
 };
@@ -136,6 +137,13 @@ fn test_recovery(
     ))
 }
 
+fn restart_failure() -> CodexError {
+    CodexError::Transport {
+        detail: "The Codex service could not be started.".to_owned(),
+        cause: None,
+    }
+}
+
 fn exit_code(code: u8) -> ProcessExit {
     serde_json::from_value(json!({"exitCode": code, "outputTail": "the service ended"}))
         .expect("the test writes an exit")
@@ -184,7 +192,8 @@ async fn a_process_exit_ends_the_paused_run_and_releases_its_presses_before_the_
 }
 
 // Killed by a notice after a crash restart, by the person's restart telling no session it
-// brought back, and by a crash loop naming an exit older than its newest. Runs in real time under
+// brought back, by a crash loop naming an exit older than its newest, and by one naming its
+// restart's failure where it read an exit. Runs in real time under
 // a bound, since the notices are written to the database.
 #[tokio::test]
 async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_the_session() {
@@ -244,7 +253,10 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
                         .end_turns_on_exit(&service, Some(exit_code(code)))
                         .await;
                 }
-                recovery.crash_loop(&service).await;
+                // The exit read wins over the failure of the restart that filled the window.
+                recovery
+                    .crash_loop(&service, Some(&restart_failure()))
+                    .await;
                 recovery
                     .recover(&service, CodexServiceRecoveryCause::PersonRestart)
                     .await;
@@ -261,4 +273,62 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
     })
     .await
     .expect("the recovery ends within the bound");
+}
+
+// Killed by posting nothing for a loop of failed restarts after an end no wait read, the warning
+// it once logged instead, and by naming an ending the daemon never read. Real time under a bound,
+// since the notice is written to the database.
+#[tokio::test]
+async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failure() {
+    tokio::time::timeout(Duration::from_secs(30), async {
+        let mut session = TestCodexSession::start().await;
+        let folder = tempfile::tempdir().expect("the test makes a folder");
+        let steps = Arc::new(Steps::default());
+        let recovery = test_recovery(&session, folder.path(), &steps);
+        let service = Arc::clone(&session.scripted.service);
+        let session_id = session.task.record.session_id;
+
+        session
+            .task
+            .drive(async {
+                recovery.end_turns_on_exit(&service, None).await;
+                recovery
+                    .crash_loop(&service, Some(&restart_failure()))
+                    .await;
+            })
+            .await;
+
+        let notices = session
+            .database
+            .reader()
+            .prepare(
+                "SELECT json_extract(payload, '$.kind'), json_extract(payload, '$.startFailure'),
+                        json_extract(payload, '$.exitCode') IS NULL
+                           AND json_extract(payload, '$.signal') IS NULL
+                 FROM session_events
+                 WHERE session_id = ?1 AND type = 'session.notice.posted' ORDER BY sequence",
+            )
+            .and_then(|mut statement| {
+                statement
+                    .query_map([session_id.text().as_str()], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<String>>(1)?,
+                            row.get::<_, bool>(2)?,
+                        ))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .expect("the test reads the session's notices");
+        assert_eq!(
+            notices,
+            [(
+                "providerCrashLoop".to_owned(),
+                Some(restart_failure().to_string()),
+                true
+            )]
+        );
+    })
+    .await
+    .expect("the crash loop is told within the bound");
 }

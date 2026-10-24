@@ -278,8 +278,6 @@ mod tests {
             task.handle_next().await;
             assert!(task.record.active_turns.is_empty(), "the turn ended");
             assert_eq!(task.record.thread_id, "thread-1");
-            // The session's intake notes the turn's end, which lets the owed fork go.
-            task.calls.runs.config_forks.note_turn_settled(&task.record);
             tokio::join!(
                 task.handle_next(),
                 answer_fork(script, "thread-2", &settings)

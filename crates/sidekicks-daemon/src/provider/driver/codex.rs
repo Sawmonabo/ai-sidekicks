@@ -9,6 +9,7 @@ use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ObservedProviderOptions, ProviderRow, ProviderSessionOption,
 };
@@ -316,16 +317,22 @@ impl ProviderDriver for CodexDriver {
         CODEX_MESSAGE_HANDING
     }
 
-    fn starts_process(&self, session_id: SessionId) -> BoxFuture<'_, bool> {
-        ready(self.starts_process(session_id)).boxed()
+    fn starts_process(
+        &self,
+        session_id: SessionId,
+        provider_account_id: Option<ProviderAccountId>,
+    ) -> BoxFuture<'_, bool> {
+        self.starts_process(session_id, provider_account_id).boxed()
     }
 
     fn resolve_skill_picks(
         &self,
         session_id: SessionId,
+        provider_account_id: Option<ProviderAccountId>,
         picks: Vec<QueuedSkillPick>,
     ) -> BoxFuture<'_, Result<Vec<PickedSkill>, DriverError>> {
-        self.resolve_skill_picks(session_id, picks).boxed()
+        self.resolve_skill_picks(session_id, provider_account_id, picks)
+            .boxed()
     }
 
     // Codex holds no run on a refusal or a usage-credits choice.

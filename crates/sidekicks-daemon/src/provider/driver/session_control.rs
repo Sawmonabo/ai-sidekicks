@@ -168,16 +168,14 @@ pub(crate) struct NameSessionParams {
 /// needs.
 pub(crate) const NAME_SESSION_REPLY_MAX_BYTES: usize = 960;
 
-/// Params of `update_permission_level`: the level the session moves to and the roots it opens to
-/// writes, applied by the provider from its next request without a relaunch.
+/// Params of `update_permission_level`: the posture the session moves to, composed by the daemon,
+/// whose level and writable roots the provider applies from its next request without a relaunch.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct UpdatePermissionLevelParams {
     /// The session.
     pub(crate) session_id: SessionId,
-    /// The level it moves to.
-    pub(crate) level: PermissionLevel,
-    /// The roots the level opens to writes.
-    pub(crate) writable_roots: Vec<PathBuf>,
+    /// The posture it moves to.
+    pub(crate) execution_posture: ExecutionPosture,
 }
 
 /// Params of `revoke_rule`: a revoked rule taken out of force at one session's provider, out of

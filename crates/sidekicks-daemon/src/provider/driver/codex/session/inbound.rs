@@ -19,7 +19,6 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
-use crate::provider::driver::codex::lifecycle::intake::CodexLifecycleCall;
 use crate::provider::driver::codex::output_speed::CodexSettledOutputSpeed;
 use crate::provider::driver::codex::run::control::record::CodexRunControlCall;
 use crate::provider::driver::codex::run::faster_model_retry::CodexRetryStopAnswer;
@@ -33,6 +32,7 @@ use crate::provider::driver::codex::server_requests::{
 };
 use crate::provider::driver::codex::session::calls::CodexSessionReading;
 use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::provider::driver::codex::session::recovery::{
     CodexDroppedTurns, CodexInPlaceResumeCall,
 };
@@ -76,13 +76,6 @@ pub(crate) enum CodexSessionInbound {
         /// Whether it is held, rather than let go of.
         is_held: bool,
     },
-    /// Answered once every item before it was handled, so a caller knows the frames a reply
-    /// trailed have been drained.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's recovery waits for the frames a reply trailed"
-    )]
-    Barrier(oneshot::Sender<()>),
     /// A call the driver makes on the session's record, run on the session's task in its place
     /// among the frames.
     Call(CodexSessionCall),
@@ -93,11 +86,6 @@ pub(crate) enum CodexSessionInbound {
 
 /// A call on a session's record, each answering on its own `reply`; a dropped `reply` means the
 /// session's task let the record go first.
-#[expect(
-    dead_code,
-    reason = "the Codex run's steer, start and retry, the waits of undo and `Allow once`, the \
-              config forks and the rewind send these calls"
-)]
 pub(crate) enum CodexSessionCall {
     /// Registers a steer on the run's live turn before it is written.
     RegisterSteer {
@@ -380,10 +368,6 @@ pub(crate) async fn drain_codex_session_inbound(
             }
             CodexSessionInbound::HeldThread { thread_id, is_held } => {
                 handler.held_thread(thread_id, is_held);
-            }
-            CodexSessionInbound::Barrier(reached) => {
-                // A caller that stopped waiting needs no answer.
-                let _unheard = reached.send(());
             }
             CodexSessionInbound::Call(call) => handler.call(call).await,
             CodexSessionInbound::Lifecycle(call) => handler.lifecycle(call).await,

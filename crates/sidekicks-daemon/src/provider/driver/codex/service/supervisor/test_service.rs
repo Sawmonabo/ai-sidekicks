@@ -34,6 +34,7 @@ use crate::provider::driver::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
 use crate::provider::driver::codex::session::conversation_release::CodexConversationRelease;
+use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::provider::driver::codex::transport::connection::scripted_service::{
     ScriptedService, connect_scripted_service,
@@ -249,7 +250,7 @@ impl CodexServiceEvents for UnheardEvents {
 
     fn recovered(&self, _service: &Arc<CodexService>, _cause: CodexServiceRecoveryCause) {}
 
-    fn crash_loop(&self, _service: &Arc<CodexService>) {}
+    fn crash_loop(&self, _service: &Arc<CodexService>, _start_failure: Option<Arc<CodexError>>) {}
 
     fn rate_limits_observed(&self, _service: &Arc<CodexService>) {}
 

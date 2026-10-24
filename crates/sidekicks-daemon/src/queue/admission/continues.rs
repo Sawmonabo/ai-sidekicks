@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
@@ -25,9 +26,15 @@ impl QueueAdmission {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), QueueError> {
-        let (provider, driver) = self.read_session_driver(session_id).await?;
+        let (provider, provider_account_id, driver) = self.read_session_driver(session_id).await?;
         if !self
-            .admit_continue(&provider, driver.as_ref(), session_id, run_id)
+            .admit_continue(
+                &provider,
+                provider_account_id,
+                driver.as_ref(),
+                session_id,
+                run_id,
+            )
             .await?
         {
             return Ok(());
@@ -197,6 +204,7 @@ impl QueueAdmission {
     async fn admit_continue(
         &self,
         provider: &ProviderId,
+        provider_account_id: Option<ProviderAccountId>,
         driver: &dyn ProviderDriver,
         session_id: SessionId,
         run_id: RunId,
@@ -206,7 +214,7 @@ impl QueueAdmission {
             return Ok(true);
         }
         match self
-            .take_place(provider, driver, session_id, run_id)
+            .take_place(provider, provider_account_id, driver, session_id, run_id)
             .await?
         {
             Placed::Admitted => Ok(true),

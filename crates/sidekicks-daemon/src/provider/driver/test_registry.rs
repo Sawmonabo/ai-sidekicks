@@ -1,12 +1,13 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build
 //! takes, the table's first providers answered by stand-in drivers, and a run bound to the first
-//! one; and the run ids the drivers' tests mint and the run ends they read back.
+//! one; the run ids the drivers' tests mint, the run ends they read back, and the run queue's
+//! intake as a driver tells it.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -16,23 +17,26 @@ use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::Spawner;
 use tokio::runtime::Handle;
+use tokio::sync::Notify;
 
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::git::process::{GitLimits, GitRunner};
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
 use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
+use crate::mutex_lock::lock;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::command_search::ProviderCommandSearch;
 use crate::provider::compaction_wait::PendingCompactionRegistry;
 use crate::provider::driver::attachments::{AttachmentResolver, ProviderAttachment};
 use crate::provider::driver::contract::ProviderDriver;
-use crate::provider::driver::ports::DriverPorts;
+use crate::provider::driver::ports::{DriverPorts, MessageRefusedListener, MessageTakenListener};
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::{
     DriverServices, PROVIDERS, ProviderAccountFolders, ProviderRegistration, SessionSpawnContext,
@@ -228,4 +232,34 @@ pub(crate) fn terminal_events(
         .expect("the run's events read")
         .collect::<Result<_, _>>()
         .expect("each event reads")
+}
+
+/// What the run queue's intake was told, telling a waiter at each.
+#[derive(Default)]
+pub(crate) struct RecordedQueue {
+    /// The messages told taken, in order.
+    pub(crate) taken: Mutex<Vec<String>>,
+    /// The messages told refused, each with why, in order.
+    pub(crate) refused: Mutex<Vec<(String, QueueItemNotDeliveredReason)>>,
+    /// Tells a waiter at each.
+    pub(crate) changed: Notify,
+}
+
+impl MessageTakenListener for RecordedQueue {
+    fn message_taken(&self, _session_id: SessionId, message_id: &str, _run_id: RunId) {
+        lock(&self.taken).push(message_id.to_owned());
+        self.changed.notify_one();
+    }
+}
+
+impl MessageRefusedListener for RecordedQueue {
+    fn message_refused(
+        &self,
+        _session_id: SessionId,
+        message_id: &str,
+        reason: QueueItemNotDeliveredReason,
+    ) {
+        lock(&self.refused).push((message_id.to_owned(), reason));
+        self.changed.notify_one();
+    }
 }

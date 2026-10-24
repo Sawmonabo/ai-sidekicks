@@ -16,7 +16,6 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
@@ -39,12 +38,18 @@ use crate::provider::driver::codex::delivery::frames::{
     CodexFrameDelivery, CodexFrameDeliveryDependencies, CodexFrameEffects,
 };
 use crate::provider::driver::codex::delivery::rows::CodexRowRun;
-use crate::provider::driver::codex::lifecycle::intake::CodexLifecycleCall;
+use crate::provider::driver::codex::lifecycle::intake::{
+    CodexRoutedFramesIntake, apply_codex_routed_frames, observe_codex_session_frame,
+};
 use crate::provider::driver::codex::notification_routing::{
     CodexRoutedFrames, CodexSessionRouting,
 };
 use crate::provider::driver::codex::permission_level::{
     CodexProfileFolders, compose_codex_profile_name,
+};
+use crate::provider::driver::codex::run::control::{CodexRunControl, CodexRunControlDependencies};
+use crate::provider::driver::codex::run::faster_model_retry::{
+    CodexFasterModelRetries, CodexFasterModelRetryDependencies,
 };
 use crate::provider::driver::codex::run::routes::CodexRunRoutes;
 use crate::provider::driver::codex::run::self_started_turns::{
@@ -54,7 +59,6 @@ use crate::provider::driver::codex::run::start::record::{
     CodexBindingAdoptions, CodexRunCallDependencies, CodexSessionDisposal,
 };
 use crate::provider::driver::codex::run::start::{CodexRunStart, CodexRunStartDependencies};
-use crate::provider::driver::codex::run::steer::take_echoed_codex_steer;
 use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndWaiters;
 use crate::provider::driver::codex::server_requests::{
     CodexAskKind, CodexInboundServerRequest, CodexServerRequestDecision,
@@ -75,6 +79,7 @@ use crate::provider::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundHandler, CodexSessionInboundSender,
     codex_session_inbound, drain_codex_session_inbound,
 };
+use crate::provider::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::provider::driver::codex::session::slots::CodexSessionSlots;
 use crate::provider::driver::codex::session::state::{
     CodexEstablishedConversation, CodexSessionRecord,
@@ -83,9 +88,11 @@ use crate::provider::driver::codex::thread::settings::CodexThreadSettings;
 use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::ports::DriverPorts;
 use crate::provider::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, RunToolBoundary,
 };
+use crate::provider::driver::test_registry::RecordedQueue;
 use crate::provider::driver::{
     PROVIDERS, ProviderAccountFolders, SessionSpawnContext, SessionSpawnContextResolver,
 };
@@ -95,8 +102,8 @@ use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::provider::runtime_binding::store::{RuntimeBindingSpawnConfig, RuntimeBindingStore};
 use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
 use crate::provider::spawn_environment::ReservedEnvironmentNames;
-use crate::session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
 use crate::session::run::engine::tests::test_engine;
+use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine};
 use crate::session::run::epochs::{EpochBinding, ExecutionEpochs};
 use crate::session::run::inbound::RunInboundDispatch;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -124,6 +131,8 @@ pub(crate) struct TestCodexSession {
     pub(crate) database: TestDatabase,
     /// Which provider process runs each session, as the test's establishments record it.
     pub(crate) processes: Arc<ProviderProcessRegistry>,
+    /// What the session's intake told the run queue.
+    pub(crate) queue: Arc<RecordedQueue>,
     epochs: Arc<Mutex<ExecutionEpochs>>,
     _home: TempDir,
 }
@@ -143,8 +152,12 @@ pub(crate) struct TestCodexTask {
     pub(crate) run_routes: Arc<CodexRunRoutes>,
     /// What the open of a turn Codex started acts through.
     pub(crate) self_started: CodexSelfStartedTurnDependencies,
-    /// The steers taken on their echo, in the order taken.
-    pub(crate) taken_steers: Vec<QueueItemId>,
+    /// The driver's ports the session's intake tells, the queue's intake among them.
+    pub(crate) ports: Arc<DriverPorts>,
+    /// The run engine an ended turn's end is recorded in.
+    pub(crate) engine: Arc<RunEngine>,
+    /// Run control on the session, which an ended turn's pause or continue is acted on through.
+    pub(crate) run_control: Arc<CodexRunControl>,
     items: mpsc::UnboundedReceiver<CodexSessionInbound>,
 }
 
@@ -247,6 +260,30 @@ impl TestCodexSession {
                 as Arc<dyn DaemonTurnBindingResolver>,
             reads,
         };
+        let retries = Arc::new(CodexFasterModelRetries::new(
+            CodexFasterModelRetryDependencies {
+                slots: Arc::clone(&slots),
+                run_routes: Arc::clone(&run_routes),
+                run_start: Arc::clone(&run_start),
+                dispatch: Arc::clone(&dispatch),
+            },
+        ));
+        let ports = Arc::new(DriverPorts::new());
+        let queue = Arc::new(RecordedQueue::default());
+        assert!(ports.message_taken.register(queue.clone()).is_ok());
+        assert!(ports.message_refused.register(queue.clone()).is_ok());
+        let run_control = Arc::new(CodexRunControl::new(CodexRunControlDependencies {
+            slots: Arc::clone(&slots),
+            config_forks: Arc::clone(&calls.runs.config_forks),
+            run_routes: Arc::clone(&run_routes),
+            run_start: Arc::clone(&run_start),
+            retries,
+            attachments: Arc::new(NoAttachments),
+            dispatch: Arc::clone(&dispatch),
+            run_pauses: Arc::clone(&ports.run_pauses),
+            continued_messages: Arc::clone(&ports.continued_messages),
+            tasks: TaskTracker::new(),
+        }));
         Self {
             scripted,
             task: TestCodexTask {
@@ -256,7 +293,9 @@ impl TestCodexSession {
                 calls,
                 run_routes,
                 self_started,
-                taken_steers: Vec::new(),
+                ports,
+                engine,
+                run_control,
                 items,
             },
             bindings,
@@ -266,6 +305,7 @@ impl TestCodexSession {
             daemon_turn_bindings,
             database,
             processes: Arc::new(ProviderProcessRegistry::default()),
+            queue,
             epochs,
             _home: home,
         }
@@ -395,8 +435,9 @@ impl TestCodexTask {
         self.handle(item).await;
     }
 
-    /// Handles `item` as the session's task does: a frame routed and delivered, a turn's end
-    /// remembered, a call run on the record; the waits settled after each.
+    /// Handles `item` as the session's task does: a frame observed, routed and delivered, a call
+    /// run on the record, and what each delivered applied through the session's intake; the waits
+    /// settled after each.
     pub(crate) async fn handle(&mut self, item: CodexSessionInbound) {
         match item {
             CodexSessionInbound::Frame { method, params } => {
@@ -412,12 +453,13 @@ impl TestCodexTask {
                     &params,
                 )
                 .await;
+                observe_codex_session_frame(&mut self.record, &method, &params);
                 let delivery = Arc::clone(&self.calls.forks.delivery);
                 let routed = self
                     .routing
                     .route_notification(&delivery, &mut self.record, method, params)
                     .await;
-                self.apply(routed);
+                self.apply(routed).await;
             }
             CodexSessionInbound::Call(call) => {
                 let routed = Box::pin(run_codex_session_call(
@@ -430,9 +472,9 @@ impl TestCodexTask {
                     &self.calls,
                 ))
                 .await;
-                self.apply(routed);
+                self.apply(routed).await;
             }
-            CodexSessionInbound::HeldThread { .. } | CodexSessionInbound::Barrier(_) => {}
+            CodexSessionInbound::HeldThread { .. } => {}
             CodexSessionInbound::Ask { .. }
             | CodexSessionInbound::AsksWithdrawn { .. }
             | CodexSessionInbound::Lifecycle(_) => {
@@ -442,25 +484,21 @@ impl TestCodexTask {
         self.waiters.settle(&self.record);
     }
 
-    // The steers a frame echoed are taken and the turns it ended leave the record, as the
-    // session's intake does.
-    fn apply(&mut self, routed: CodexRoutedFrames) {
-        for dispatch in routed.dispatches {
-            for taken in dispatch.taken_messages {
-                if let Some(message_id) = take_echoed_codex_steer(
-                    &mut self.record,
-                    &taken.turn_id,
-                    &taken.client_message_id,
-                ) {
-                    self.taken_steers.push(message_id);
-                }
-            }
-            for ended in dispatch.turns_ended {
-                self.record.remove_active_turn(&ended.turn_id);
-                self.record.forget_interrupted_run(&ended.turn_id);
-                self.record.remember_settled_turn(ended.turn_id);
-            }
-        }
+    // What a frame's delivery reported, applied as the session's intake applies it.
+    async fn apply(&mut self, routed: CodexRoutedFrames) {
+        apply_codex_routed_frames(
+            &CodexRoutedFramesIntake {
+                ports: &self.ports,
+                engine: &self.engine,
+                run_routes: &self.run_routes,
+                run_control: &self.run_control,
+                config_forks: &self.calls.runs.config_forks,
+                delivery: &self.calls.forks.delivery,
+            },
+            &mut self.record,
+            routed,
+        )
+        .await;
     }
 
     /// Runs `flow` while handling each item of the session's queue as the session's task does,

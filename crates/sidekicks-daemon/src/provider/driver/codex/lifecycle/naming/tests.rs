@@ -1,5 +1,6 @@
 #[cfg(unix)]
 mod one_shot;
+mod rest;
 
 use rstest::rstest;
 use serde_json::{Value, json};
