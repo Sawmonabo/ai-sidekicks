@@ -75,6 +75,7 @@ use crate::provider::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, RunToolBoundary,
 };
 use crate::provider::port::registration::PortRegistration;
+use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::provider::runtime_binding::store::{RuntimeBindingSpawnConfig, RuntimeBindingStore};
 use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
 use crate::session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
@@ -235,7 +236,7 @@ impl TestCodexSession {
             forks: CodexForkDependencies {
                 delivery,
                 release: Arc::clone(&scripted.dependencies.release),
-                bindings: Arc::clone(&bindings),
+                bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingRebinder>,
                 tool_server_route: Arc::new(PortRegistration::new("tool server route")),
                 pending_compactions,
             },
@@ -243,7 +244,7 @@ impl TestCodexSession {
                 run_routes: Arc::clone(&run_routes),
                 config_forks: Arc::clone(&config_forks),
                 adoptions: Arc::new(CodexBindingAdoptions::default()),
-                bindings: Arc::clone(&bindings),
+                bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingRebinder>,
                 disposal: Arc::new(NoDisposal),
             },
         };

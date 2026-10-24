@@ -181,7 +181,8 @@ async fn open_run(
     let adoption = runs.adoptions.adopt(record, binding.binding_id.clone());
     // The run already runs, so a failed write leaves those conversations owed to the next one.
     if adoption.is_first_binding()
-        && let Err(error) = bind_codex_first_run(record, &runs.bindings, &binding.binding_id).await
+        && let Err(error) =
+            bind_codex_first_run(record, runs.bindings.as_ref(), &binding.binding_id).await
     {
         tracing::error!(
             session_id = %session_id,

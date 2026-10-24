@@ -41,8 +41,8 @@ use crate::provider::driver::session_control::{MoveSessionToForkParams, MoveSess
 use crate::provider::left_conversations::LeftConversation;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::tool_server_route::ToolServerRoute;
-use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder as _;
-use crate::provider::runtime_binding::store::{RuntimeBindingRebind, RuntimeBindingStore};
+use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
+use crate::provider::runtime_binding::store::RuntimeBindingRebind;
 
 const THREAD_FORK_METHOD: &str = "thread/fork";
 
@@ -62,7 +62,7 @@ pub(crate) struct CodexForkDependencies {
     /// Where each conversation the session leaves is held until no command of it runs.
     pub(crate) release: Arc<CodexConversationRelease>,
     /// The runtime bindings, each pointed at the conversation its session moved onto.
-    pub(crate) bindings: Arc<RuntimeBindingStore>,
+    pub(crate) bindings: Arc<dyn RuntimeBindingRebinder>,
     /// The route to the daemon's tool servers, once its owner registered it.
     pub(crate) tool_server_route: Arc<PortRegistration<Arc<dyn ToolServerRoute>>>,
     /// The compaction waits, whose wait on a conversation the session leaves ends.
@@ -211,7 +211,7 @@ pub(crate) async fn move_codex_session_to_fork(
 )]
 pub(crate) async fn bind_codex_first_run(
     record: &mut CodexSessionRecord,
-    bindings: &RuntimeBindingStore,
+    bindings: &dyn RuntimeBindingRebinder,
     binding_id: &RuntimeBindingId,
 ) -> Result<(), CodexError> {
     if record.left_thread_ids_awaiting_binding.is_empty() {
@@ -373,7 +373,7 @@ async fn record_fork_in_binding(
     let mut left_thread_ids = record.left_thread_ids_awaiting_binding.clone();
     left_thread_ids.push(pre_fork_thread_id.to_owned());
     let rebound = rebind(
-        &dependencies.bindings,
+        dependencies.bindings.as_ref(),
         RuntimeBindingRebind {
             binding_id: binding_id.clone(),
             resume_handle: forked_thread_id.to_owned(),
@@ -390,7 +390,7 @@ async fn record_fork_in_binding(
 }
 
 async fn rebind(
-    bindings: &RuntimeBindingStore,
+    bindings: &dyn RuntimeBindingRebinder,
     rebind: RuntimeBindingRebind,
 ) -> Result<(), CodexError> {
     bindings

@@ -39,7 +39,7 @@ use crate::provider::driver::codex::transport::connection::CodexAppServerConnect
 use crate::provider::driver::codex::transport::diagnostics::{
     CodexTeardownStep, CodexTransportDiagnostic,
 };
-use crate::provider::runtime_binding::store::RuntimeBindingStore;
+use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
 
 /// One run's turn to start: the person's messages with their skills and files, in send order, and
 /// what the turn carries.
@@ -232,7 +232,7 @@ pub(crate) struct CodexRunCallDependencies {
     /// The sessions' binding adoptions.
     pub(crate) adoptions: Arc<CodexBindingAdoptions>,
     /// The runtime bindings, where a session's first run records the conversations it left.
-    pub(crate) bindings: Arc<RuntimeBindingStore>,
+    pub(crate) bindings: Arc<dyn RuntimeBindingRebinder>,
     /// Lets a session whose start had an unknown outcome go.
     pub(crate) disposal: Arc<dyn CodexSessionDisposal>,
 }
@@ -294,7 +294,7 @@ pub(crate) async fn begin_codex_turn_start(
         .adopt(record, begin.binding_id.clone());
     if adoption.is_first_binding()
         && let Err(error) =
-            bind_codex_first_run(record, &dependencies.bindings, &begin.binding_id).await
+            bind_codex_first_run(record, dependencies.bindings.as_ref(), &begin.binding_id).await
     {
         dependencies.adoptions.undo(record, adoption);
         return CodexTurnBeginAnswer::Refused(error);
