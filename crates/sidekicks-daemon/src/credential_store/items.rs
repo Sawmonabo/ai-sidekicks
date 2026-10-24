@@ -28,6 +28,10 @@
 //! - **Sealing again.** A later start whose probe seals bound to no boot state seals a plain file's
 //!   items once and records the sealed file, and seals again once each item sealed with a weaker
 //!   key than the probe's. A pass that would seal any item downward is abandoned and the file kept.
+//!   Each seal of a pass takes the probe's share of the call's time: one that runs out ends the
+//!   pass and refuses the call, and the next call seals again. A pass the service or the file
+//!   refuses starts no other until the next start, a first start then recording the plain file for
+//!   the seal's failure.
 //!
 //! Every call answers within its one time, its waits for the place and a check included; a call
 //! with no answer in that time reads `locked` from the operating system's store, where a prompt
