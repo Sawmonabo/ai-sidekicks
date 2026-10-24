@@ -22,8 +22,8 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{
     AgentRunRefusalChoiceRequestedPayload, AgentRunRefusalChoiceResolveRequest,
     AgentRunRefusalChoiceResolvedPayload, AgentRunUsageCreditsChoiceResolveRequest,
-    AgentRunUsageCreditsChoiceResolvedPayload, RunRefusalChoice, RunRefusalChoiceSettlement,
-    RunUsageCreditsChoiceSettlement,
+    AgentRunUsageCreditsChoiceResolvedPayload, RunRefusalChoice, RunRefusalChoiceCanceled,
+    RunRefusalChoiceSettlement, RunUsageCreditsChoiceSettlement, RunUsageCreditsChoiceUnanswered,
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
@@ -32,7 +32,9 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::session_scope::SessionScopedSql;
 use crate::database::statement::{StatementBindings, WriteStatement, named_bindings, text_binding};
-use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
+use crate::events::session::appender::{
+    SessionEventAppender, SessionEventDraft, SessionEventDraftError, SessionEventLinkage,
+};
 use crate::ipc::handlers::driver::resolution::{LiveRunDriverError, resolve_live_run_driver};
 use crate::ipc::registry::HandlerError;
 use crate::keyed_lock::KeyedLock;
@@ -49,6 +51,7 @@ use crate::session::run::read::{
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateEntry,
+    refused_statement_index,
 };
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
@@ -565,13 +568,7 @@ impl ProviderChoiceResolver {
         let run_id = change.run_id;
         let new_state = change.entry.state();
         let companions = RunStateChangeCompanions {
-            statements: vec![WriteStatement {
-                sql: Cow::Borrowed(SELECT_SETTLEMENT_SINCE_SQL),
-                bindings: StatementBindings::Named(settlement_bindings(
-                    session_id, run_id, dialog, pending,
-                )),
-                expected_row_count: Some(0),
-            }],
+            statements: vec![settlement_guard(session_id, run_id, dialog, pending)],
             preceding_events: vec![SessionEventDraft::of_session(session_id, settlement)?],
             ..RunStateChangeCompanions::default()
         };
@@ -601,6 +598,112 @@ fn lock_held(
     held_answers: &Mutex<HashMap<RunId, HeldAnswer>>,
 ) -> MutexGuard<'_, HashMap<RunId, HeldAnswer>> {
     held_answers.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The settle of one choice a run's end let go: the guard that no settlement followed its request
+/// since it was read, and the settlement's event.
+pub(crate) struct OpenChoiceSettlement {
+    /// Refuses the write once a settlement followed the request.
+    pub(crate) guard: WriteStatement,
+    /// The `*.resolved` event that settles it.
+    pub(crate) event: SessionEventDraft,
+}
+
+/// The settle of each choice of `run_id`, a run of `session_id`, still unsettled when the run ends
+/// in `end`, read on `reader`: `canceled` and `interrupted` for an interrupted end, `runEnded` for
+/// any other. Fails when the read fails or an event breaks a check of its type.
+pub(crate) fn read_open_choice_settlements(
+    reader: &Connection,
+    session_id: SessionId,
+    run_id: RunId,
+    end: RunState,
+) -> Result<Vec<OpenChoiceSettlement>, RunEngineError> {
+    let is_interrupted = end == RunState::Interrupted;
+    let mut settlements = Vec::new();
+    for dialog in [ChoiceDialog::Refusal, ChoiceDialog::UsageCredits] {
+        let Some(pending) = latest_request(reader, session_id, run_id, dialog)? else {
+            continue;
+        };
+        if is_settled_since(reader, session_id, run_id, dialog, &pending)? {
+            continue;
+        }
+        let event = match dialog {
+            ChoiceDialog::Refusal => {
+                SessionEvent::AgentRunRefusalChoiceResolved(AgentRunRefusalChoiceResolvedPayload {
+                    session_id,
+                    run_id,
+                    choice: RunRefusalChoiceSettlement::Canceled(if is_interrupted {
+                        RunRefusalChoiceCanceled::Canceled
+                    } else {
+                        RunRefusalChoiceCanceled::RunEnded
+                    }),
+                    device_id: None,
+                })
+            }
+            ChoiceDialog::UsageCredits => SessionEvent::AgentRunUsageCreditsChoiceResolved(
+                AgentRunUsageCreditsChoiceResolvedPayload {
+                    session_id,
+                    run_id,
+                    choice: RunUsageCreditsChoiceSettlement::Unanswered(if is_interrupted {
+                        RunUsageCreditsChoiceUnanswered::Interrupted
+                    } else {
+                        RunUsageCreditsChoiceUnanswered::RunEnded
+                    }),
+                    device_id: None,
+                },
+            ),
+        };
+        settlements.push(OpenChoiceSettlement {
+            guard: settlement_guard(session_id, run_id, dialog, &pending),
+            event: SessionEventDraft::of_session(session_id, &event)?,
+        });
+    }
+    Ok(settlements)
+}
+
+/// Settles each choice `run_id` still holds unsettled once it reads ended, in one write through
+/// `appender`, read again once when one was settled since its read: for a request that committed
+/// after the run's end had read its open choices. A run still live is left to its own end. Fails
+/// as the reads or the write fail.
+#[expect(dead_code, reason = "the daemon's recovery pass at start")]
+pub(crate) async fn settle_open_choices_of_ended_run(
+    pool: &DatabaseReadPool,
+    appender: &SessionEventAppender,
+    run_id: RunId,
+) -> Result<(), RunEngineError> {
+    let mut is_read_again = false;
+    loop {
+        let settlements = pool
+            .read(ReadLength::Short, move |reader| {
+                let Some(run) = RunStateReader::new(reader)
+                    .read_run(&run_id)?
+                    .filter(|run| run.state.is_terminal())
+                else {
+                    return Ok::<_, RunEngineError>(Vec::new());
+                };
+                read_open_choice_settlements(reader, run.session_id, run_id, run.state)
+            })
+            .await?;
+        let (guards, mut events): (Vec<_>, Vec<_>) = settlements
+            .into_iter()
+            .map(|settlement| (settlement.guard, settlement.event))
+            .unzip();
+        let Some(last) = events.pop() else {
+            return Ok(());
+        };
+        let linkage = SessionEventLinkage {
+            transactional_prelude: guards,
+            preceding_events: events,
+            ..SessionEventLinkage::default()
+        };
+        match appender.append(last, linkage).await {
+            Ok(_receipt) => return Ok(()),
+            Err(error) if refused_statement_index(&error).is_some() && !is_read_again => {
+                is_read_again = true;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
 }
 
 /// The runs of `session_id`, or of every session when it is `None`, that have ended while a choice
@@ -651,6 +754,22 @@ fn is_settled_since(
     reader
         .prepare_cached(SELECT_SETTLEMENT_SINCE_SQL)?
         .exists(named_bindings(&bindings).as_slice())
+}
+
+// Refuses a settlement's write once the log settled `pending` since it was read.
+fn settlement_guard(
+    session_id: SessionId,
+    run_id: RunId,
+    dialog: ChoiceDialog,
+    pending: &PendingChoice,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(SELECT_SETTLEMENT_SINCE_SQL),
+        bindings: StatementBindings::Named(settlement_bindings(
+            session_id, run_id, dialog, pending,
+        )),
+        expected_row_count: Some(0),
+    }
 }
 
 // The settlement read's bindings, which its read and its guard share.

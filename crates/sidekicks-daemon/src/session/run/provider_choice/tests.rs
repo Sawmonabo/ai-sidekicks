@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use futures::FutureExt as _;
 use rstest::rstest;
 use rusqlite::params;
+use serde_json::json;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::id::RunId;
@@ -40,7 +41,9 @@ use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
 use crate::session::run::engine::RunEngine;
-use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
+use crate::session::run::engine::tests::{
+    append, insert_running_run, stored_run_state, test_engine,
+};
 use crate::session::run::pause::tests::unanswered;
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
@@ -310,4 +313,63 @@ async fn an_answer_is_refused_by_the_run_then_its_choice_then_its_driver(#[case]
         _ => panic!("expected {refusal:?}, got {answered:?}"),
     }
     assert_eq!(fixture.settlements(), 0);
+}
+
+// A run whose provider process exits with both its choices open settles each `runEnded` in the
+// write that ends it, just before its end. Killed by leaving the choices out of the run end's
+// settle (`questions/run_end.rs`, the loop over `choices` deleted), which leaves both open.
+#[tokio::test]
+async fn a_process_exit_settles_each_open_choice_in_the_runs_end() {
+    let fixture = fixture(MockProviderDriver::new(), WAITING_ON_THE_CHOICE).await;
+    let refusal_requested: SessionEvent = serde_json::from_value(json!({
+        "type": "agent.run.refusalChoice.requested",
+        "payload": {
+            "sessionId": fixture.session_id,
+            "runId": fixture.run_id,
+            "refusedModel": "a model",
+            "fallbackModel": "another model",
+        },
+    }))
+    .expect("the test writes a refusal choice's request");
+    append(&fixture.engine, fixture.session_id, &refusal_requested).await;
+
+    fixture
+        .engine
+        .end_turn_on_process_exit(
+            fixture.run_id,
+            serde_json::from_value(json!({ "exitCode": 1, "outputTail": "the provider stopped" }))
+                .expect("the test's exit reads as one"),
+        )
+        .await
+        .expect("the run ends on its process's exit");
+
+    let newest: Vec<(String, Option<String>)> = fixture
+        .database
+        .reader()
+        .prepare(
+            "SELECT type, json_extract(payload, '$.choice') FROM session_events
+              WHERE session_id = ?1 ORDER BY sequence DESC LIMIT 3",
+        )
+        .expect("the test reads the log")
+        .query_map([fixture.session_id.text().as_str()], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .expect("the log reads")
+        .collect::<Result<_, _>>()
+        .expect("each event reads");
+    assert_eq!(
+        newest,
+        [
+            ("agent.run.failed".to_owned(), None),
+            (
+                "agent.run.usageCreditsChoice.resolved".to_owned(),
+                Some("runEnded".to_owned())
+            ),
+            (
+                "agent.run.refusalChoice.resolved".to_owned(),
+                Some("runEnded".to_owned())
+            ),
+        ]
+    );
+    assert_eq!(fixture.state(), "failed");
 }

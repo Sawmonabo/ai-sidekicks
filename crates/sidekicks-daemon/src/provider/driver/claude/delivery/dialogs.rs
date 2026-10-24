@@ -670,7 +670,7 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
                             session_id: held.session_id,
                             run_id,
                             choice: RunRefusalChoiceSettlement::Canceled(
-                                RunRefusalChoiceCanceled::Value,
+                                RunRefusalChoiceCanceled::Canceled,
                             ),
                             device_id: None,
                         },

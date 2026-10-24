@@ -15,7 +15,6 @@ use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeSignedInt;
-use crate::wire::literal;
 use crate::wire::text::FreeFormText;
 
 /// The person's answer when the provider's safety check refuses a turn and names a fallback model:
@@ -83,19 +82,26 @@ pub struct AgentRunRefusalChoiceRequestedPayload {
     pub retracted_message_ids: Option<Vec<FreeFormText<EVENT_FIELD_MAX_LEN>>>,
 }
 
-literal! {
-    /// The settlement the daemon records for an interrupt or a message sent while the
-    /// retry-or-edit choice waits; the driver maps the provider's own cancel answer to it.
-    pub enum RunRefusalChoiceCanceled = "canceled";
+/// How the retry-or-edit choice ended with no answer: `canceled` is an interrupt or a message sent
+/// while it waits, or an interrupted end of its run, and the driver maps the provider's own cancel
+/// answer to it; `runEnded` is any other end of its run, a restart of the background service
+/// among them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum RunRefusalChoiceCanceled {
+    /// An interrupt or a message sent while it waited, or its run's interrupted end.
+    Canceled,
+    /// Any other end of its run.
+    RunEnded,
 }
 
-/// How the retry-or-edit choice settled: the person's answer, or canceled.
+/// How the retry-or-edit choice settled: the person's answer, or an end with none.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum RunRefusalChoiceSettlement {
     /// The person's answer.
     Answered(RunRefusalChoice),
-    /// An interrupt or a message sent while it waited.
+    /// An end with no answer.
     Canceled(RunRefusalChoiceCanceled),
 }
 
@@ -185,15 +191,18 @@ pub struct AgentRunUsageCreditsChoiceRequestedPayload {
 }
 
 /// How the switch-or-credits choice ended with no answer: `interrupted` is an interrupt or an
-/// undo while it waits, which ends the turn on that model, and `unanswered` is the provider
-/// settling it when a message is sent while it waits.
+/// undo while it waits, which ends the turn on that model, or an interrupted end of its run;
+/// `unanswered` is the provider settling it when a message is sent while it waits; `runEnded` is
+/// any other end of its run, a restart of the background service among them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum RunUsageCreditsChoiceUnanswered {
-    /// An interrupt or an undo while it waited.
+    /// An interrupt or an undo while it waited, or its run's interrupted end.
     Interrupted,
     /// A message sent while it waited.
     Unanswered,
+    /// Any other end of its run.
+    RunEnded,
 }
 
 /// How the switch-or-credits choice settled: the person's answer, or an end with none.
@@ -237,6 +246,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RunRefusalChoice>(),
         Definition::read::<AgentRunRefusalChoiceResolveRequest>().checked(),
         Definition::read::<AgentRunRefusalChoiceRequestedPayload>().checked(),
+        Definition::read::<RunRefusalChoiceCanceled>(),
         Definition::read::<RunRefusalChoiceSettlement>(),
         Definition::read::<AgentRunRefusalChoiceResolvedPayload>().checked(),
         Definition::read::<RunUsageCreditsChoice>(),
