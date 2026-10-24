@@ -7,7 +7,7 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 
 use super::{CODEX_SERVICE_STARTUP_TIMEOUT, CodexDriver, CodexDriverParts};
-use crate::provider::driver::codex::lifecycle::intake::{CodexLifecycleCall, call_codex_lifecycle};
+use crate::provider::driver::codex::lifecycle::intake::call_codex_lifecycle;
 use crate::provider::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnWait};
 use crate::provider::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::provider::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
@@ -15,6 +15,7 @@ use crate::provider::driver::codex::session::history::read_codex_turn_id_by_clie
 use crate::provider::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInboundSender,
 };
+use crate::provider::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::provider::driver::codex::session::purge::purge_codex_conversations;
 use crate::provider::driver::codex::session::slots::CODEX_LET_GO_TIMEOUT;
 use crate::provider::driver::contract::DriverError;

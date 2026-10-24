@@ -12,10 +12,8 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
-use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
@@ -51,77 +49,21 @@ use crate::provider::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundHandler, CodexSessionInboundReceiver,
     CodexSessionInboundSender, drain_codex_session_inbound,
 };
+use crate::provider::driver::codex::session::lifecycle_call::{
+    CodexCompactionReading, CodexLifecycleCall,
+};
 use crate::provider::driver::codex::session::slots::{CodexSessionLetGo, let_go_codex_session};
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
 use crate::provider::driver::codex::thread::permission_profiles;
 use crate::provider::driver::codex::transport::connection::{
-    CodexAppServerConnection, CodexForgottenRequest, read_codex_object,
+    CodexForgottenRequest, read_codex_object,
 };
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::ports::DriverPorts;
-use crate::provider::driver::session_control::{
-    AskSideQuestionParams, UpdatePermissionLevelParams,
-};
 use crate::session::run::engine::RunEngine;
 
 /// Codex's signal that the skills it lists for a conversation changed.
 const CODEX_SKILLS_CHANGED_METHOD: &str = "skills/changed";
-
-/// A call of the driver's own on a session's record, each answering on its own `reply`; a dropped
-/// `reply` means the session's task let the record go first.
-pub(crate) enum CodexLifecycleCall {
-    /// Marks the session's close intended, so a turn that ends now ends as closed, and answers the
-    /// runs the record still holds.
-    BeginClose {
-        /// Where the runs go, each once.
-        reply: oneshot::Sender<Vec<RunId>>,
-    },
-    /// Lets the record go: its routes and waits first, then its conversation.
-    LetGo {
-        /// How the record stopped being its session's.
-        exit: CodexRecordExit,
-        /// Answered once it is gone.
-        reply: oneshot::Sender<()>,
-    },
-    /// Moves the conversation to another permission level from its next turn.
-    MoveLevel {
-        /// The level and its roots.
-        params: UpdatePermissionLevelParams,
-        /// Where the move's failure goes.
-        reply: oneshot::Sender<Result<(), CodexError>>,
-    },
-    /// Moves the conversation between Build and Plan from its next turn.
-    MoveMode {
-        /// The mode.
-        mode: SessionMode,
-        /// Where the move's failure goes.
-        reply: oneshot::Sender<Result<(), CodexError>>,
-    },
-    /// Asks a side question on a read-only copy of the conversation.
-    AskSideQuestion {
-        /// The question.
-        params: Box<AskSideQuestionParams>,
-        /// Where the ask's failure goes.
-        reply: oneshot::Sender<Result<(), CodexError>>,
-    },
-    /// Reads the conversation a compaction runs on.
-    ReadCompaction {
-        /// Where the reading goes.
-        reply: oneshot::Sender<CodexCompactionReading>,
-    },
-}
-
-/// The conversation a compaction runs on, as the session's task read it.
-pub(crate) struct CodexCompactionReading {
-    /// The connection, or why the service has none.
-    pub(crate) connection: Result<Arc<CodexAppServerConnection>, CodexError>,
-    /// The account the conversation runs on.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
-    /// The conversation.
-    pub(crate) thread_id: String,
-    /// The compaction wait's key for it.
-    pub(crate) wait_key: String,
-}
 
 /// Runs the driver's own call `compose` builds on the session's task `inbound` reaches and
 /// answers its reply. Fails with `CodexError::Transport` once the session's task let its record

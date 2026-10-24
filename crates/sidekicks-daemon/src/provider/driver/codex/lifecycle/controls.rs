@@ -29,13 +29,14 @@ use crate::provider::driver::codex::capability_probe::probe_codex_service_capabi
 use crate::provider::driver::codex::compaction::{
     CodexCompactionTarget, dispatch_codex_compaction,
 };
-use crate::provider::driver::codex::lifecycle::intake::{CodexLifecycleCall, call_codex_lifecycle};
+use crate::provider::driver::codex::lifecycle::intake::call_codex_lifecycle;
 use crate::provider::driver::codex::model_windows::{
     join_codex_model_windows, read_codex_service_model_windows,
 };
 use crate::provider::driver::codex::service::command::read_codex_model_catalog_dump;
 use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::provider::driver::codex::session::starting_level::read_codex_starting_level;
 use crate::provider::driver::contract::{
     ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,

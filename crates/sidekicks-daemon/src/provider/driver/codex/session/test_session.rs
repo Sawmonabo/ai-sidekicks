@@ -39,8 +39,7 @@ use crate::provider::driver::codex::delivery::frames::{
 };
 use crate::provider::driver::codex::delivery::rows::CodexRowRun;
 use crate::provider::driver::codex::lifecycle::intake::{
-    CodexLifecycleCall, CodexRoutedFramesIntake, apply_codex_routed_frames,
-    observe_codex_session_frame,
+    CodexRoutedFramesIntake, apply_codex_routed_frames, observe_codex_session_frame,
 };
 use crate::provider::driver::codex::notification_routing::{
     CodexRoutedFrames, CodexSessionRouting,
@@ -80,6 +79,7 @@ use crate::provider::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundHandler, CodexSessionInboundSender,
     codex_session_inbound, drain_codex_session_inbound,
 };
+use crate::provider::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::provider::driver::codex::session::slots::CodexSessionSlots;
 use crate::provider::driver::codex::session::state::{
     CodexEstablishedConversation, CodexSessionRecord,
@@ -474,7 +474,7 @@ impl TestCodexTask {
                 .await;
                 self.apply(routed).await;
             }
-            CodexSessionInbound::HeldThread { .. } | CodexSessionInbound::Barrier(_) => {}
+            CodexSessionInbound::HeldThread { .. } => {}
             CodexSessionInbound::Ask { .. }
             | CodexSessionInbound::AsksWithdrawn { .. }
             | CodexSessionInbound::Lifecycle(_) => {
