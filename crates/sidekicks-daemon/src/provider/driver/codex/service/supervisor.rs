@@ -468,8 +468,8 @@ impl CodexService {
         not(test),
         expect(
             dead_code,
-            reason = "the Codex session's restart brings back a service left down after a \
-                      crash loop"
+            reason = "the `session.restart` handler brings back a service left down after a \
+                      crash loop through the driver"
         )
     )]
     pub(crate) fn restart(&self) {

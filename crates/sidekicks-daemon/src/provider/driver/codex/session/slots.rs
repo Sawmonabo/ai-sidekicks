@@ -78,7 +78,8 @@ impl CodexSessionSlots {
         not(test),
         expect(
             dead_code,
-            reason = "the Codex driver builds the slots its sessions are claimed in"
+            reason = "the daemon's start registers the driver, which builds the slots its \
+                      sessions are claimed in"
         )
     )]
     pub(crate) fn new() -> Self {

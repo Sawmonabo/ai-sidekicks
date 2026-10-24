@@ -58,7 +58,10 @@ impl CodexSessionGoals {
     /// starts began, or the turn-start deadline passed. Only the objective is sent; its status and
     /// token budget are Codex's own. Fails with `CodexError::SessionTurnInFlight`, nothing sent,
     /// while a turn runs, starts or outlives the request deadline ending, and as the request fails.
-    #[expect(dead_code, reason = "the Codex driver's session goal set")]
+    #[expect(
+        dead_code,
+        reason = "the `session.goal.update` handler sets a goal through the driver"
+    )]
     pub(crate) async fn set(
         &self,
         params: SetSessionGoalParams,
@@ -97,7 +100,10 @@ impl CodexSessionGoals {
     /// Clears the session's goal on its conversation; Codex answering that it had none still
     /// applies. Fails with `CodexError::SessionTurnInFlight`, nothing sent, while a turn the daemon
     /// is stopping outlives the request deadline, and as the request fails.
-    #[expect(dead_code, reason = "the Codex driver's session goal clear")]
+    #[expect(
+        dead_code,
+        reason = "the `session.goal.clear` handler clears a goal through the driver"
+    )]
     pub(crate) async fn clear(
         &self,
         params: ClearSessionGoalParams,
