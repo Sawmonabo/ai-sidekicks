@@ -410,7 +410,7 @@ async fn a_latched_cause_refuses_every_call_until_the_relink(#[case] cause: Unop
     match cause {
         Unopened::KeyChanged => seal.forget_the_blobs_sealed_so_far(),
         Unopened::SealServiceFailing | Unopened::SealServiceMissing | Unopened::ChipUnavailable => {
-            seal.keep_another_value(true)
+            seal.keep_another_value(true);
         }
     }
     let items = secret_items(
