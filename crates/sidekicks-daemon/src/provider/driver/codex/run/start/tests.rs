@@ -16,7 +16,7 @@ use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::provider::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
 use crate::provider::driver::codex::session::state::CodexTurnMessage;
 use crate::provider::driver::codex::session::test_session::{
-    TestCodexSession, new_run_id, turn_reply, turn_started,
+    TEST_THREAD, TestCodexSession, new_run_id, turn_completed, turn_reply, turn_started,
 };
 use crate::provider::driver::contract::DriverError;
 
@@ -179,6 +179,64 @@ async fn a_turn_start_codex_leaves_unanswered_fails_at_the_starts_deadline() {
         ),
         "{started:?}"
     );
+}
+
+// Kills: the interrupt on a withdrawal dropped, which leaves the turn Codex started running and
+// answers the start as started, and the start answered before the turn's interrupt.
+#[tokio::test]
+async fn a_start_withdrawn_in_flight_interrupts_the_turn_codex_named() {
+    let mut session = TestCodexSession::start().await;
+    let binding_id = session.record_binding().await;
+    let run_id = new_run_id();
+    session.task.run_routes.bind_run_delivery(
+        run_id,
+        CodexRunBinding {
+            session_id: session.task.record.session_id,
+            binding_id: binding_id.clone(),
+            agent_id: session.daemon_turn_bindings.agent_id,
+            step_bound: None,
+        },
+    );
+    let run_start = Arc::clone(&session.run_start);
+    let inbound = session.task.record.inbound.clone();
+    let deadline = CodexTurnEndDeadline::new(CODEX_TURN_START_TIMEOUT);
+    let start = run_start.start_turn(
+        &inbound,
+        run_id,
+        binding_id,
+        turn_request(),
+        None,
+        &deadline,
+    );
+    let task = &mut session.task;
+    let script = &mut session.scripted.script;
+    let service_side = async {
+        let sent = script.next_sent().await;
+        assert_eq!(sent["method"], "turn/start");
+        assert!(
+            run_start.withdraw_turn_start(run_id),
+            "the run's start is in flight"
+        );
+        script.answer(&sent, &turn_reply("turn-9"));
+        let interrupt = script.next_sent().await;
+        assert_eq!(interrupt["method"], "turn/interrupt");
+        assert_eq!(interrupt["params"]["turnId"], "turn-9");
+        script.answer(&interrupt, &json!({}));
+        let listed = script.next_sent().await;
+        assert_eq!(listed["method"], "thread/backgroundTerminals/list");
+        script.answer(&listed, &json!({"data": []}));
+        script.send(&turn_completed(TEST_THREAD, "turn-9", "interrupted"));
+    };
+    let (started, ()) = tokio::time::timeout(
+        DEADLOCK_BOUND,
+        Box::pin(async { tokio::join!(task.drive(start), service_side) }),
+    )
+    .await
+    .expect("the start and the interrupt settle");
+    let Err(CodexError::TurnWithdrawn { run_id: withdrawn }) = started else {
+        panic!("the start is withdrawn: {started:?}");
+    };
+    assert_eq!(withdrawn, run_id);
 }
 
 /// The request a person's message went out in, and the refusal Codex answers it with.
