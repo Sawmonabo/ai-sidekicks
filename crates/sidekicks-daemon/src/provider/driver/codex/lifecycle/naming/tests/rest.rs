@@ -6,8 +6,6 @@ use std::time::Duration;
 use futures::future::BoxFuture;
 use serde_json::json;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
@@ -18,7 +16,7 @@ use crate::provider::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
 use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::test_registry::test_driver_services;
+use crate::provider::driver::test_registry::{new_session_id, test_driver_services};
 use crate::provider::runtime_binding::test_store::record_session_leg;
 
 /// The statements the driver's read pool caches.
@@ -73,10 +71,6 @@ fn driver_on_account(
     driver
 }
 
-fn new_session_id() -> SessionId {
-    SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
-}
-
 // Killed by resolving the resting session's service on the default account, which has no home
 // here, and by dropping the stored handle from `thread/name/set`.
 #[tokio::test]
@@ -103,8 +97,8 @@ async fn a_resting_session_is_renamed_on_its_stored_accounts_service_with_its_st
     told.await.expect("Codex takes the name");
 }
 
-// Killed by refusing a session with no stored leg, as the rename once refused every session at
-// rest. A request sent would wait for the answer the script never gives, past the test's bound.
+// Killed by refusing a session with no stored leg. A request sent would wait for the answer the
+// script never gives, past the test's bound.
 #[tokio::test]
 async fn a_session_that_never_ran_renames_with_nothing_sent() {
     let scripted = start_scripted_codex_service();

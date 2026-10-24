@@ -10,6 +10,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_platforms::PathRules;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::provider::driver::claude::session::conversation_file::conversation_file_of;
@@ -34,7 +35,7 @@ use crate::provider::driver::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsRequest, build_claude_spawn_bound_legs,
 };
 use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::session_control::NameSessionParams;
+use crate::provider::driver::session_control::{NameSessionParams, run_naming_pass_until};
 use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
 
 /// The model a naming pass runs on when no process of the session is live: the small model
@@ -57,17 +58,12 @@ pub(crate) async fn name_claude_session(
     rest_account: Option<ProviderAccountId>,
     params: NameSessionParams,
 ) -> Result<Option<String>, DriverError> {
-    let stop = params.cancel.child_token();
-    let pass = draw_claude_title(live, starts, sources, rest_account, params, &stop);
-    tokio::pin!(pass);
-    tokio::select! {
-        named = &mut pass => named,
-        () = tokio::time::sleep(CLAUDE_NAMING_DEADLINE) => {
-            // Awaited on, so the one-turn process ends as a stop ends it.
-            stop.cancel();
-            pass.await
-        }
-    }
+    let cancel = params.cancel.clone();
+    let deadline = Instant::now() + CLAUDE_NAMING_DEADLINE;
+    run_naming_pass_until(&cancel, deadline, |stop| async move {
+        draw_claude_title(live, starts, sources, rest_account, params, &stop).await
+    })
+    .await
 }
 
 // The title verb on `live`, else the one-turn pass, both ended by `stop`.

@@ -409,8 +409,9 @@ mod tests {
     use crate::provider::driver::claude::frame_routing::ClaudeRoutedObservation;
     use crate::provider::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
     use crate::provider::driver::claude::session::process::ClaudeStreamFrame;
-    use crate::provider::driver::claude::session::scripted::{binding_id, mint_session_id};
+    use crate::provider::driver::claude::session::scripted::binding_id;
     use crate::provider::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+    use crate::provider::driver::test_registry::new_session_id;
     use crate::provider::thread_frame_router::ThreadFrameRoute;
     use crate::session::run::inbound::InboundDelivery;
 
@@ -476,7 +477,7 @@ mod tests {
     // by a caller dispatching its delivery itself rather than in its place among the frames.
     #[tokio::test(start_paused = true)]
     async fn arrivals_are_handled_whole_in_the_order_they_came() {
-        let (sender, receiver) = claude_session_arrivals(mint_session_id());
+        let (sender, receiver) = claude_session_arrivals(new_session_id());
         sender.push(frame("first frame"));
         sender.push(ClaudeSessionArrival::Request(
             ClaudeInboundRequestEvent::Cancel {

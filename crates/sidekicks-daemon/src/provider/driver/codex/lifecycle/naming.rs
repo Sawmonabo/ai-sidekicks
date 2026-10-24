@@ -43,7 +43,7 @@ use crate::provider::driver::codex::transport::connection::{
     CodexAppServerConnection, read_codex_object,
 };
 use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::session_control::NameSessionParams;
+use crate::provider::driver::session_control::{NameSessionParams, run_naming_pass_until};
 use crate::provider::runtime_binding::resume::read_session_leg;
 use crate::provider::spawned_version::ResolvedProviderExecutable;
 
@@ -146,6 +146,7 @@ impl CodexDriver {
             } else {
                 let leg = tokio::select! {
                     () = cancel.cancelled() => return Ok(None),
+                    () = tokio::time::sleep_until(deadline) => return Ok(None),
                     leg = read_session_leg(&self.reads, params.session_id) => leg?,
                 };
                 // A session that never ran has no exchange to name.
@@ -155,6 +156,7 @@ impl CodexDriver {
                 let account = leg.spawn_config.provider_account_id;
                 tokio::select! {
                     () = cancel.cancelled() => return Ok(None),
+                    () = tokio::time::sleep_until(deadline) => return Ok(None),
                     service = self.registry.service_for(account.as_ref()) => (service?, None),
                 }
             };
@@ -317,17 +319,10 @@ async fn draw_title(
     cancel: &CancellationToken,
     deadline: Instant,
 ) -> Result<Option<String>, CodexError> {
-    let stop = cancel.child_token();
-    let drawn = draw_title_until_stopped(connection, frames, request, &stop);
-    tokio::pin!(drawn);
-    tokio::select! {
-        drawn = &mut drawn => drawn,
-        () = tokio::time::sleep_until(deadline) => {
-            // Awaited on, so the turn is stopped as a cancel stops it.
-            stop.cancel();
-            drawn.await
-        }
-    }
+    run_naming_pass_until(cancel, deadline, |stop| async move {
+        draw_title_until_stopped(connection, frames, request, &stop).await
+    })
+    .await
 }
 
 // `draw_title` until `stop` fires: a turn the pass leaves before it ends is stopped first, one
@@ -558,11 +553,12 @@ async fn name_in_one_shot(
             cause: Some(Box::new(error)),
         })?;
     let dependencies = service.dependencies();
-    let executable = dependencies
-        .program
-        .resolve(service.home())
-        .await
-        .map_err(CodexError::Driver)?;
+    let executable = tokio::select! {
+        () = tokio::time::sleep_until(deadline) => return Ok(None),
+        executable = dependencies.program.resolve(service.home()) => {
+            executable.map_err(CodexError::Driver)?
+        }
+    };
     let server_names = list_mcp_server_names(
         dependencies,
         &executable,
@@ -571,7 +567,10 @@ async fn name_in_one_shot(
     .await?;
     // The catalog is read on the service where it is up; the one-shot pass starts none.
     let connection = service.connection().ok();
-    let title_model = choose_title_model(connection.as_deref(), session_model).await;
+    let title_model = tokio::select! {
+        () = tokio::time::sleep_until(deadline) => return Ok(None),
+        title_model = choose_title_model(connection.as_deref(), session_model) => title_model,
+    };
     let mut overrides = lockdown::compose_title_overrides(&server_names);
     overrides.extend(
         title_model

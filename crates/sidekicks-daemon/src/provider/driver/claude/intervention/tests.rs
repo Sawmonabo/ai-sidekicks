@@ -21,11 +21,8 @@ use crate::provider::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterruptPayload, InterruptPendingChoice,
     InterventionResultStatus, SteerPayload,
 };
+use crate::provider::driver::test_registry::new_message_id;
 use crate::provider::port::permission_ask::ProviderPermissionAnswer;
-
-fn message_id() -> QueueItemId {
-    QueueItemId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is a queue item id")
-}
 
 fn steer(
     run_id: RunId,
@@ -210,7 +207,7 @@ async fn an_interrupt_answers_the_queue_items_claude_code_dropped() {
     let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
     declare_cancel_queued(&session);
-    let dropped = message_id();
+    let dropped = new_message_id();
     session.channel.answer(
         "interrupt",
         ScriptedAnswer::Reply(json!({"cancelled": [dropped.to_string(), "no-queue-item"]})),
@@ -337,7 +334,7 @@ async fn a_helper_move_cut_mid_write_stops_the_process_in_place_of_the_interrupt
 async fn steers_are_written_in_the_order_handed_over() {
     let session = Arc::new(ScriptedSession::new().await);
     let run_id = session.hold_lead_turn("lead");
-    let (first, second) = (message_id(), message_id());
+    let (first, second) = (new_message_id(), new_message_id());
     let slow_file = session.attachments.slow_file(Duration::from_secs(5));
 
     let first_steer = tokio::spawn({
@@ -378,12 +375,12 @@ async fn a_send_now_is_written_with_the_now_mark_and_a_plain_steer_without_it() 
 
     apply(
         &session,
-        steer(run_id, &message_id(), "now", Vec::new(), true),
+        steer(run_id, &new_message_id(), "now", Vec::new(), true),
     )
     .await;
     apply(
         &session,
-        steer(run_id, &message_id(), "next", Vec::new(), false),
+        steer(run_id, &new_message_id(), "next", Vec::new(), false),
     )
     .await;
 
@@ -409,7 +406,7 @@ async fn a_send_now_waits_for_the_open_ask_and_keeps_the_rows_behind_it() {
     });
     session.request("ask", &open_ask);
     settle().await;
-    let (now, next) = (message_id(), message_id());
+    let (now, next) = (new_message_id(), new_message_id());
 
     let held_now = apply(&session, steer(run_id, &now, "now", Vec::new(), true)).await;
     let held_next = apply(&session, steer(run_id, &next, "next", Vec::new(), false)).await;
@@ -448,7 +445,7 @@ async fn a_send_now_waits_for_the_open_ask_and_keeps_the_rows_behind_it() {
     let run_id = taken_back.hold_lead_turn("lead");
     taken_back.request("ask", &open_ask);
     settle().await;
-    let (now, next) = (message_id(), message_id());
+    let (now, next) = (new_message_id(), new_message_id());
     apply(&taken_back, steer(run_id, &now, "now", Vec::new(), true)).await;
     apply(&taken_back, steer(run_id, &next, "next", Vec::new(), false)).await;
 
@@ -468,7 +465,7 @@ async fn a_send_now_waits_for_the_open_ask_and_keeps_the_rows_behind_it() {
 async fn a_steer_taken_before_its_write_returns_is_reported_under_its_run() {
     let session = Arc::new(ScriptedSession::new().await);
     let run_id = session.hold_lead_turn("lead");
-    let steered = message_id();
+    let steered = new_message_id();
     let release_write = session.channel.hold_next_user_write();
 
     let steering = tokio::spawn({
@@ -527,7 +524,7 @@ async fn a_released_send_now_settles_its_runs_choice_behind_the_frames_queued_be
     settle().await;
     apply(
         &session,
-        steer(run_id, &message_id(), "now", Vec::new(), true),
+        steer(run_id, &new_message_id(), "now", Vec::new(), true),
     )
     .await;
     // The session's task waits on the turn's opening while the next frame queues behind it.

@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use super::{CODEX_NAMING_DEADLINE, TitleRequest, draw_title};
 use crate::provider::driver::codex::session::detached_conversation::CodexDetachedFrames;
 use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::codex::session::test_session::turn_reply;
 use crate::provider::driver::codex::transport::connection::CodexConnectionHandlers;
 use crate::provider::driver::codex::transport::connection::scripted_service::{
     ScriptedService, connect_scripted_service,
@@ -121,10 +122,6 @@ async fn next_turn_start(script: &mut ScriptedService) -> Value {
     turn
 }
 
-fn turn_reply() -> Value {
-    json!({"turn": {"id": TITLE_TURN, "items": [], "status": "inProgress"}})
-}
-
 // Every config key Codex's own terminal sets on a throwaway structured conversation, with the two
 // servers the config read named disabled.
 fn locked_down_config() -> Value {
@@ -211,7 +208,7 @@ async fn a_title_pass_reads_the_config_then_starts_locked_down_and_reads_a_cappe
     }
     let turn = next_turn_start(&mut script).await;
     assert_eq!(turn["params"].get("effort").and_then(Value::as_str), effort);
-    script.answer(&turn, &turn_reply());
+    script.answer(&turn, &turn_reply(TITLE_TURN));
     let answer = json!({"title": title}).to_string();
     script.send(&json!({
         "jsonrpc": "2.0",
@@ -291,7 +288,7 @@ async fn a_title_pass_canceled_during_its_turns_start_interrupts_the_turn() {
     cancel.cancel();
     // The pass takes the cancel while the start still waits for its answer.
     tokio::task::yield_now().await;
-    script.answer(&turn, &turn_reply());
+    script.answer(&turn, &turn_reply(TITLE_TURN));
 
     let interrupt = script.next_sent().await;
     assert_eq!(interrupt["method"], "turn/interrupt");

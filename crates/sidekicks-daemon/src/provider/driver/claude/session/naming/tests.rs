@@ -1,18 +1,18 @@
+//! A naming pass on a resting Claude Code session whose one turn never answers.
+
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use std::time::Duration;
-
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use super::CLAUDE_NAMING_DEADLINE;
 use crate::provider::driver::claude::lifecycle::ClaudeDriver;
 use crate::provider::driver::claude::session::scripted::driver::ScriptedDriver;
-use crate::provider::driver::claude::session::scripted::mint_session_id;
 use crate::provider::driver::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeModelCatalogReading, ClaudeReplyReserveReads,
     ClaudeSessionFolderReadRequest,
@@ -27,6 +27,7 @@ use crate::provider::driver::claude::spawn::launch::one_turn::{
 };
 use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult};
 use crate::provider::driver::session_control::NameSessionParams;
+use crate::provider::driver::test_registry::new_session_id;
 use crate::provider::runtime_binding::test_store::record_session_leg;
 
 /// What a naming pass at rest never starts.
@@ -107,7 +108,7 @@ async fn a_naming_pass_whose_one_turn_never_answers_ends_with_none_at_its_deadli
     let fixture = ScriptedDriver::new();
     let one_turn = Arc::new(UnansweredOneTurn::default());
     let driver = ClaudeDriver::with_starts(&fixture.services, Arc::clone(&one_turn) as _);
-    let session_id = mint_session_id();
+    let session_id = new_session_id();
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
     record_session_leg(
         &fixture.database,

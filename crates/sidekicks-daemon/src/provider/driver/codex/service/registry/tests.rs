@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rstest::rstest;
-use serde_json::{Value, json};
+use serde_json::json;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::CAN_LINK_A_SOCKET;
 use tokio::task::JoinHandle;
@@ -33,7 +33,9 @@ async fn hold_with_a_running_command(scripted: &mut ScriptedCodexService) {
             .let_go(&service, THREAD.to_owned(), session_id)
             .await;
     });
-    let list = next_request(scripted, "thread/backgroundTerminals/list").await;
+    let list = scripted
+        .next_request("thread/backgroundTerminals/list")
+        .await;
     scripted
         .script
         .answer(&list, &json!({"data": [{"processId": "41"}]}));
@@ -46,19 +48,14 @@ async fn let_the_hold_go(scripted: &mut ScriptedCodexService) {
         .script
         .send(&json!({"jsonrpc": "2.0", "method": "thread/status/changed",
         "params": {"threadId": THREAD, "status": {"type": "idle"}}}));
-    let list = next_request(scripted, "thread/backgroundTerminals/list").await;
+    let list = scripted
+        .next_request("thread/backgroundTerminals/list")
+        .await;
     scripted.script.answer(&list, &json!({"data": []}));
-    let unsubscribe = next_request(scripted, "thread/unsubscribe").await;
+    let unsubscribe = scripted.next_request("thread/unsubscribe").await;
     scripted
         .script
         .answer(&unsubscribe, &json!({"status": "unsubscribed"}));
-}
-
-// The next request the connection sent, which must be `method`.
-async fn next_request(scripted: &mut ScriptedCodexService, method: &str) -> Value {
-    let request = scripted.script.next_sent().await;
-    assert_eq!(request["method"], method, "{request}");
-    request
 }
 
 // Turns the folder's terminal service off, which answers before the service is free: it leaves
@@ -87,7 +84,7 @@ async fn the_switch_off_retires_once_a_held_conversation_lets_go() {
 
     let retiring = switch_off(&registry).await;
     let_the_hold_go(&mut scripted).await;
-    let loaded = next_request(&mut scripted, "thread/loaded/list").await;
+    let loaded = scripted.next_request("thread/loaded/list").await;
     let is_retired_before_the_read = retiring.is_finished();
     scripted.script.answer(&loaded, &json!({"data": []}));
     retiring.await.expect("the retirement ends");
@@ -105,9 +102,9 @@ async fn the_switch_off_retires_once_a_terminal_session_inside_ends() {
     let inside = json!({"data": [TERMINAL_THREAD]});
 
     let retiring = switch_off(&registry).await;
-    let first_read = next_request(&mut scripted, "thread/loaded/list").await;
+    let first_read = scripted.next_request("thread/loaded/list").await;
     scripted.script.answer(&first_read, &inside);
-    let armed_read = next_request(&mut scripted, "thread/loaded/list").await;
+    let armed_read = scripted.next_request("thread/loaded/list").await;
     scripted.script.answer(&armed_read, &inside);
     let read_before_the_unload =
         tokio::time::timeout(QUIET_WAIT, scripted.script.next_sent()).await;
@@ -116,7 +113,7 @@ async fn the_switch_off_retires_once_a_terminal_session_inside_ends() {
         .script
         .send(&json!({"jsonrpc": "2.0", "method": "thread/closed",
             "params": {"threadId": TERMINAL_THREAD}}));
-    let last_read = next_request(&mut scripted, "thread/loaded/list").await;
+    let last_read = scripted.next_request("thread/loaded/list").await;
     scripted.script.answer(&last_read, &json!({"data": []}));
     retiring.await.expect("the retirement ends");
 
@@ -141,7 +138,7 @@ async fn the_switch_off_retires_a_reconnecting_service_once_it_is_back() {
         tokio::time::timeout(QUIET_WAIT, scripted.script.next_sent()).await;
     let is_retired_while_reconnecting = retiring.is_finished();
     scripted.publish_up(connection);
-    let loaded = next_request(&mut scripted, "thread/loaded/list").await;
+    let loaded = scripted.next_request("thread/loaded/list").await;
     scripted.script.answer(&loaded, &json!({"data": []}));
     retiring.await.expect("the retirement ends");
 
@@ -170,7 +167,7 @@ async fn a_restart_on_an_unmovable_socket_stops_the_first_once_its_held_conversa
         tokio::spawn(async move { registry.replace(&first).await.map(|_second| ()) })
     };
     let_the_hold_go(&mut scripted).await;
-    let loaded = next_request(&mut scripted, "thread/loaded/list").await;
+    let loaded = scripted.next_request("thread/loaded/list").await;
     let is_replaced_before_the_read = replacing.is_finished();
     scripted.script.answer(&loaded, &json!({"data": []}));
     let replaced = replacing.await.expect("the restart ends");
@@ -199,7 +196,7 @@ async fn a_failed_switch_off_wait_puts_the_service_back_only_into_an_empty_slot(
     let registry = CodexServiceRegistry::holding(&scripted);
 
     let retiring = switch_off(&registry).await;
-    let loaded = next_request(&mut scripted, "thread/loaded/list").await;
+    let loaded = scripted.next_request("thread/loaded/list").await;
     let filling = if is_slot_filled {
         Some(registry.service_for(None).await.expect("the home resolves"))
     } else {

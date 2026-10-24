@@ -3,6 +3,7 @@
 //! scripts, a service of the daemon's own kind published as up and holding a connection on a
 //! `ScriptedService`, its frames and asks routed as a dialed one's are.
 
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -10,11 +11,13 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use futures::{SinkExt as _, StreamExt as _};
+use interprocess::local_socket::tokio::Listener;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::ProcessExit;
-use sidekicks_platforms::{ProgramStart, Spawner};
+use sidekicks_platforms::{ExistingSocket, ProgramStart, Spawner, bind_socket_listener};
 use tempfile::TempDir;
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::TaskTracker;
 
@@ -89,6 +92,13 @@ impl ScriptedCodexService {
             process_id,
             spawn_sequence: self.dependencies.processes.mint_spawn_sequence(),
         });
+    }
+
+    /// The next request the service's connection sent, which must be `method`.
+    pub(crate) async fn next_request(&mut self, method: &str) -> Value {
+        let request = self.script.next_sent().await;
+        assert_eq!(request["method"], method, "{request}");
+        request
     }
 
     /// Publishes the service up again on `connection`.
@@ -320,4 +330,45 @@ pub(crate) fn drop_service_connection(service: &Arc<CodexService>) {
         .connection_handlers(dial)
         .events
         .dropped("the test dropped the connection");
+}
+
+/// A listener at `socket`, or `None` where the system binds no local socket for a test.
+pub(crate) fn bind_test_listener(socket: &Path) -> Option<Listener> {
+    match bind_socket_listener(socket, ExistingSocket::Refuse) {
+        Ok(listener) => Some(listener),
+        Err(error) if error.kind() == io::ErrorKind::Unsupported => None,
+        Err(error) => panic!("the test's socket does not listen: {error}"),
+    }
+}
+
+/// The next request the daemon sent on `socket`, its notifications skipped.
+pub(crate) async fn next_socket_request<Stream>(socket: &mut WebSocketStream<Stream>) -> Value
+where
+    Stream: AsyncRead + AsyncWrite + Unpin,
+{
+    loop {
+        let message = socket
+            .next()
+            .await
+            .expect("the daemon keeps the connection")
+            .expect("the daemon's message reads");
+        let Message::Text(text) = message else {
+            continue;
+        };
+        let request: Value = serde_json::from_str(&text).expect("the daemon sends JSON");
+        if request.get("id").is_some() {
+            return request;
+        }
+    }
+}
+
+/// Sends `message` to the daemon on `socket`.
+pub(crate) async fn send_on_socket<Stream>(socket: &mut WebSocketStream<Stream>, message: Value)
+where
+    Stream: AsyncRead + AsyncWrite + Unpin,
+{
+    socket
+        .send(Message::Text(message.to_string().into()))
+        .await
+        .expect("the daemon reads");
 }

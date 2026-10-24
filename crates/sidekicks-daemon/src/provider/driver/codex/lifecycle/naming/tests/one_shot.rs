@@ -9,7 +9,9 @@ use sidekicks_platforms::{LeftoverSweep, replace_file_atomically};
 use tokio::time::Instant;
 
 use super::locked_down_config;
-use crate::provider::driver::codex::lifecycle::naming::{CODEX_NAMING_DEADLINE, name_in_one_shot};
+use crate::provider::driver::codex::lifecycle::naming::{
+    CODEX_NAMING_DEADLINE, CODEX_SERVER_LIST_DEADLINE, name_in_one_shot,
+};
 use crate::provider::driver::codex::service::home::{
     CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
@@ -17,6 +19,7 @@ use crate::provider::driver::codex::service::supervisor::test_service::{
     TestCodexProgram, UnheardEvents, script_codex_service, test_codex_service_dependencies,
 };
 use crate::provider::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
+use crate::provider::driver::codex::transport::connection::CODEX_REQUEST_TIMEOUT;
 use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
 
 // A stand-in for Codex's program in `folder`: `codex mcp list --json` prints `listing` and exits
@@ -143,4 +146,38 @@ async fn a_one_shot_pass_disables_every_listed_server_or_runs_no_exec(
         assert!(named.is_err(), "an unread list fails the pass");
         assert!(!arguments_file.exists(), "`exec` never ran");
     }
+}
+
+// Real time through the server list, then the clock stops while the catalog read waits. Killed by
+// reading the catalog outside the pass's deadline: the pass would wait out the read's own bound,
+// past the test's.
+#[tokio::test]
+async fn a_one_shot_pass_whose_catalog_never_answers_ends_at_its_deadline_with_nothing_run() {
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let arguments_file = folder.path().join("arguments");
+    let program = write_stand_in(folder.path(), "[]", 0, &arguments_file);
+    let (service, mut script) = service_running(folder.path(), program);
+    let unanswered = tokio::spawn(async move {
+        let listed = script.next_sent().await;
+        assert_eq!(listed["method"], "model/list");
+        tokio::time::pause();
+        // Kept, so the connection stays open with the read unanswered.
+        script
+    });
+
+    let named = tokio::time::timeout(
+        CODEX_REQUEST_TIMEOUT,
+        name_in_one_shot(
+            &service,
+            "Name this.",
+            Some("gpt-5"),
+            Instant::now() + CODEX_SERVER_LIST_DEADLINE,
+        ),
+    )
+    .await
+    .expect("the pass ends at its deadline, before the catalog read's own bound");
+
+    assert_eq!(named.expect("a pass past its deadline names nothing"), None);
+    assert!(!arguments_file.exists(), "`exec` never ran");
+    drop(unanswered.await.expect("the catalog read was sent"));
 }

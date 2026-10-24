@@ -26,14 +26,13 @@ use crate::provider::driver::codex::session::background_terminals::{
 };
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::inbound::CodexSessionInbound;
+use crate::provider::driver::codex::session::slots::THREAD_UNSUBSCRIBE_METHOD;
 use crate::provider::driver::codex::transport::connection::read_codex_object;
 use crate::provider::driver::codex::transport::diagnostics::{
     CodexTeardownStep, CodexTransportDiagnostic,
 };
 
 const THREAD_RESUME_METHOD: &str = "thread/resume";
-
-const THREAD_UNSUBSCRIBE_METHOD: &str = "thread/unsubscribe";
 
 /// The item type of a command Codex runs.
 const CODEX_COMMAND_ITEM_TYPE: &str = "commandExecution";

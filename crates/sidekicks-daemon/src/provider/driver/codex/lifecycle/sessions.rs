@@ -168,9 +168,9 @@ impl CodexDriver {
         Ok(())
     }
 
-    /// Closes the session: its command list, side questions and asks go, and the turns of a live
-    /// record are stopped; then, after any transition in flight settles, its close is marked on
-    /// its record so a turn that ends now ends as closed, each run the record held ends as the
+    /// Closes the session: its command list, side questions and asks go, and a live record's close
+    /// is marked, so a turn that ends now ends as closed and no turn starts, and its turns are
+    /// stopped; then, after any transition in flight settles, each run the record held ends as the
     /// daemon's intended close, and the record is let go; the conversations it moved off are
     /// released last. A session with no record needs nothing more.
     pub(crate) async fn close_session(
@@ -311,12 +311,12 @@ impl CodexDriver {
     }
 }
 
-// Marks the close on the live record `inbound` reaches, so a turn that ends now ends as closed,
-// then interrupts each run it holds through run control, since Codex keeps a turn running once no
-// client is subscribed: a live turn is interrupted, and a start in flight is withdrawn, its turn
-// interrupted once Codex names it. Codex answers an interrupt once the turn stopped, so the close
-// waits for each answer and for the session to go idle within the let-go's bound, and past it goes
-// on, logged.
+// Marks the close on the live record `inbound` reaches, so a turn that ends now ends as closed and
+// a turn start is refused, then interrupts each run it holds through run control, since Codex keeps
+// a turn running once no client is subscribed: a live turn is interrupted, and a start in flight is
+// withdrawn, its turn interrupted once Codex names it. Codex answers an interrupt once the turn
+// stopped, so the close waits for each answer and for the session to go idle within the let-go's
+// bound, and past it goes on, logged.
 async fn stop_closing_turns(parts: &CodexDriverParts, inbound: &CodexSessionInboundSender) {
     let session_id = inbound.session_id();
     // A task that let its record go first holds no run.

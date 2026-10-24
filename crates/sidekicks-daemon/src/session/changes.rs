@@ -7,12 +7,11 @@
 use std::error::Error;
 use std::sync::Arc;
 
-use rusqlite::{Connection, OptionalExtension as _, named_params};
+use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::json;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::events::{
     SessionLifecycleChangePayload, SessionMarkChangePayload, SessionRenameOrigin,
     SessionRenamedPayload,
@@ -44,7 +43,7 @@ use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::session_control::CloseSessionParams;
 use crate::session::not_found::session_not_found;
-use crate::session::run::ids::SESSION_RUN_IDS_SQL;
+use crate::session::run::ids::read_session_run_ids;
 use crate::session::run::state_change::refused_statement_index;
 use crate::text_cut::cut_to_code_points;
 
@@ -733,13 +732,7 @@ fn read_session_providers(
     session_id: &SessionId,
 ) -> rusqlite::Result<Vec<ProviderId>> {
     let snapshot = reader.unchecked_transaction()?;
-    let run_ids = snapshot
-        .prepare_cached(SESSION_RUN_IDS_SQL)?
-        .query_map(
-            named_params! { "@sessionId": session_id.text().as_str() },
-            |row| text_column(row, 0, |text| RunId::new(&text)),
-        )?
-        .collect::<rusqlite::Result<Vec<RunId>>>()?;
+    let run_ids = read_session_run_ids(&snapshot, session_id)?;
     let run_ids_json = serde_json::Value::from(
         run_ids
             .iter()

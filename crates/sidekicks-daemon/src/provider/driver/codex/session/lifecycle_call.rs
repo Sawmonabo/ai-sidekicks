@@ -33,7 +33,7 @@ pub(crate) enum CodexLifecycleCall {
     },
     /// Moves the conversation to another permission level from its next turn.
     MoveLevel {
-        /// The level and its roots.
+        /// The posture it moves to.
         params: UpdatePermissionLevelParams,
         /// Where the move's failure goes.
         reply: oneshot::Sender<Result<(), CodexError>>,

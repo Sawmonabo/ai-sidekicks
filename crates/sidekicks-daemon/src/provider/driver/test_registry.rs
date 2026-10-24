@@ -1,7 +1,7 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build
 //! takes, the table's first providers answered by stand-in drivers, and a run bound to the first
-//! one; the run ids the drivers' tests mint, the run ends they read back, and the run queue's
-//! intake as a driver tells it.
+//! one; the run, session and message ids the drivers' tests mint, the run ends they read back,
+//! and the run queue's intake as a driver tells it.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -17,7 +17,7 @@ use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
+use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::Spawner;
@@ -210,6 +210,16 @@ pub(crate) fn bind_run_to_first_provider(
 /// A minted run id.
 pub(crate) fn new_run_id() -> RunId {
     RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
+}
+
+/// A minted session id.
+pub(crate) fn new_session_id() -> SessionId {
+    SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
+}
+
+/// A minted id of a queued message.
+pub(crate) fn new_message_id() -> QueueItemId {
+    QueueItemId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is a queue item id")
 }
 
 /// Each terminal event of `run_id` in `database`, in order, with whether its end was the daemon's

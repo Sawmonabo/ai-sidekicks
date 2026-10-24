@@ -2,7 +2,7 @@
 //! by session id with no live record, and the resume params composed from that binding's stored
 //! legs and the session as it stands now.
 
-use rusqlite::{Connection, named_params};
+use rusqlite::Connection;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
@@ -15,13 +15,12 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
-use crate::database::stored_column::text_column;
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::session_control::ResumeSessionParams;
 use crate::provider::runtime_binding::store::{
     RuntimeBinding, RuntimeBindingStoreError, read_bindings_of_runs,
 };
-use crate::session::run::ids::SESSION_RUN_IDS_SQL;
+use crate::session::run::ids::read_session_run_ids;
 
 /// The function legs a resume injects fresh, apart from the stored legs, so leaving out the
 /// status sink is a choice at the call.
@@ -117,12 +116,5 @@ pub(crate) fn read_session_bindings(
     reader: &Connection,
     session_id: SessionId,
 ) -> rusqlite::Result<Vec<RuntimeBinding>> {
-    let run_ids = reader
-        .prepare_cached(SESSION_RUN_IDS_SQL)?
-        .query_map(
-            named_params! { "@sessionId": session_id.text().as_str() },
-            |row| text_column(row, 0, |text| RunId::new(&text)),
-        )?
-        .collect::<rusqlite::Result<Vec<RunId>>>()?;
-    read_bindings_of_runs(reader, &run_ids)
+    read_bindings_of_runs(reader, &read_session_run_ids(reader, &session_id)?)
 }
