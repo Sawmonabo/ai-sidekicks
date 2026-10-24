@@ -371,16 +371,6 @@ impl QueueDelivery {
         Ok(())
     }
 
-    /// Settles a message the provider recorded as taken by `run_id`, on the session's chain:
-    /// `message_id` is the provider's own, and one that is no queue item id is dropped.
-    #[expect(dead_code, reason = "the provider's event delivery")]
-    pub(crate) fn message_taken(&self, session_id: SessionId, message_id: &str, run_id: RunId) {
-        let Ok(item_id) = QueueItemId::new(message_id) else {
-            return;
-        };
-        self.push(session_id, ChainJob::MessageTaken { item_id, run_id });
-    }
-
     // Forgets the hand of each of `cancelled` the provider was handed, as the provider gave them
     // back with an interrupt; each stays waiting. An id never handed is ignored.
     fn give_back(&self, cancelled: &[QueueItemId]) {

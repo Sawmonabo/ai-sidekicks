@@ -194,6 +194,10 @@ pub(crate) struct CodexProjectRuleFiles {
 impl CodexProjectRuleFiles {
     /// Takes a revoked `rule` back out of `project_folder`'s own rule file; a rule the file no
     /// longer holds is already out of force. Fails as [`remove_codex_project_rule`] does otherwise.
+    #[expect(
+        dead_code,
+        reason = "the standing-rules list, which revokes a project's Codex rule from the rule list"
+    )]
     pub(crate) async fn revoke(
         &self,
         project_folder: &Path,

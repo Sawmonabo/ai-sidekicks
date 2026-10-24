@@ -1,5 +1,5 @@
-//! Readers of a Codex thread's replies: the thread and its turns, the reasoning effort and the
-//! permission profile a start, resume or fork runs under, and the turn a turn request names.
+//! Readers of a Codex thread's replies: the thread, the reasoning effort and the permission profile
+//! a start, resume or fork runs under, and the turn a turn request names.
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -10,18 +10,12 @@ use crate::provider::driver::codex::thread::settings::CodexThreadSettings;
 use crate::provider::driver::codex::transport::connection::read_codex_object;
 
 /// A thread as a thread reply names it.
-#[expect(
-    dead_code,
-    reason = "the Codex session start keeps the thread's id and session and replays its turns"
-)]
 #[derive(Debug)]
 pub(crate) struct CodexThreadView {
     /// The thread's id, never empty.
     pub(crate) id: String,
     /// The Codex session the thread belongs to.
     pub(crate) session_id: String,
-    /// The thread's turns as sent, unread; `None` when the reply listed none.
-    pub(crate) turns: Option<Box<RawValue>>,
 }
 
 // Each reader names only the member it reads, so a member of another type fails only its reader.
@@ -60,7 +54,6 @@ pub(crate) fn read_active_permission_profile(profile: &RawValue) -> Option<Strin
 struct ThreadMembers {
     id: Option<String>,
     session_id: Option<String>,
-    turns: Option<Box<RawValue>>,
 }
 
 // A turn, read by its id.
@@ -103,11 +96,7 @@ pub(crate) fn read_thread(reply: &RawValue, method: &str) -> Result<CodexThreadV
             cause: None,
         });
     };
-    Ok(CodexThreadView {
-        id,
-        session_id,
-        turns: thread.turns,
-    })
+    Ok(CodexThreadView { id, session_id })
 }
 
 /// The reasoning effort a start, resume or fork reply names, or `None` for none or an empty one.

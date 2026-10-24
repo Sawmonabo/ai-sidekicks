@@ -1,7 +1,6 @@
 //! Waiting on a session's turns: an undo, a faster-model retry, a start, a goal set or clear and
 //! `Allow once` wait, after the daemon sent `turn/interrupt`, which Codex answers on acceptance,
-//! for the turn's `turn/completed`; `Allow once` also waits for a turn still starting to run, and
-//! a fork onto a changed config for the session to go idle.
+//! for the turn's `turn/completed`, and a fork onto a changed config for the session to go idle.
 //! The waits live beside the record on the session's task, which settles them after each frame;
 //! each is bound by a deadline, so a turn that never ends or starts cannot hold anything forever.
 //! A turn its service dropped ends the wait as not ended, and a session's close refuses it.
@@ -32,8 +31,6 @@ pub(crate) enum CodexTurnWait {
     },
     /// No turn the daemon is stopping still ending, and none Codex started running with no run.
     StoppedTurns,
-    /// A turn to run.
-    LiveTurn,
     /// A turn to run, start or open its run.
     TurnInFlight,
     /// No turn to run, start, still end or open its run, so the session is idle.
@@ -52,7 +49,6 @@ impl CodexTurnWait {
             Self::StoppedTurns => {
                 !record.ending_turn_ids().is_empty() || !record.delivery.unowned_turn_ids.is_empty()
             }
-            Self::LiveTurn => record.active_turns.is_empty(),
             Self::TurnInFlight => !record.is_turn_in_flight(None),
             Self::Idle => record.is_turn_in_flight(None),
         }

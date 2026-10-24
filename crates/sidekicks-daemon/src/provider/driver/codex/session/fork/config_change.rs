@@ -46,7 +46,8 @@ impl CodexConfigForks {
         not(test),
         expect(
             dead_code,
-            reason = "the Codex driver builds the config forks its sessions share"
+            reason = "the daemon's start registers the driver, which builds the config forks \
+                      its sessions share"
         )
     )]
     pub(crate) fn new(slots: Arc<CodexSessionSlots>, tasks: TaskTracker) -> Self {

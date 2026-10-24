@@ -18,6 +18,7 @@ use tokio::sync::{oneshot, watch};
 use tracing::Instrument as _;
 
 use crate::provider::driver::contract::{DriverError, ProviderDriver};
+use crate::provider::driver::ports::{MessageRefusedListener, MessageTakenListener};
 use crate::queue::delivery::state::{DeliveryState, HandRoute};
 use crate::queue::delivery::withdraw::{LateWithdraw, WithdrawJob};
 use crate::queue::delivery::{DeliveryError, QueueDelivery, steer_of};
@@ -93,19 +94,23 @@ pub(super) enum ChainJob {
     },
 }
 
-impl QueueDelivery {
-    /// Settles a message the daemon handed `session_id`'s provider and the provider then refused,
-    /// on the session's chain: it reads not delivered for `reason` and its hand is let go, so a
-    /// retry sends it again. `message_id` is the provider's own; one that is no queue item id, or
-    /// names a message not handed, is dropped.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex driver's delivery of a steer the person's prompt hook refused"
-        )
-    )]
-    pub(crate) fn refuse_handed(
+/// Settles a message the provider recorded as taken by `run_id`, on the session's chain:
+/// `message_id` is the provider's own, and one that is no queue item id is dropped.
+impl MessageTakenListener for QueueDelivery {
+    fn message_taken(&self, session_id: SessionId, message_id: &str, run_id: RunId) {
+        let Ok(item_id) = QueueItemId::new(message_id) else {
+            return;
+        };
+        self.push(session_id, ChainJob::MessageTaken { item_id, run_id });
+    }
+}
+
+/// Settles a message the daemon handed `session_id`'s provider and the provider then refused, on
+/// the session's chain: it reads not delivered for `reason` and its hand is let go, so a retry
+/// sends it again. `message_id` is the provider's own; one that is no queue item id, or names a
+/// message not handed, is dropped.
+impl MessageRefusedListener for QueueDelivery {
+    fn message_refused(
         &self,
         session_id: SessionId,
         message_id: &str,
@@ -116,7 +121,9 @@ impl QueueDelivery {
         };
         self.push(session_id, ChainJob::Refused { item_id, reason });
     }
+}
 
+impl QueueDelivery {
     /// Pushes `job` onto the chain of `session_id` in `state`, the caller's own hold on the
     /// delivery's mutex, and starts the chain's drain when it had none.
     pub(super) fn push_job(&self, state: &mut DeliveryState, session_id: SessionId, job: ChainJob) {

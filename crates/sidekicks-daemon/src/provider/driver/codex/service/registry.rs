@@ -65,8 +65,8 @@ struct RegisteredServices {
 
 #[expect(
     dead_code,
-    reason = "the Codex driver's sessions, recovery and terminal switch reach services through \
-              the registry"
+    reason = "the daemon's start registers the driver, whose sessions, recovery and terminal \
+              switch reach services through the registry"
 )]
 impl CodexServiceRegistry {
     /// A registry resolving homes through `homes`, whose services share `dependencies`.

@@ -71,10 +71,6 @@ struct OutboundError<'message> {
     error: &'message Value,
 }
 
-#[expect(
-    dead_code,
-    reason = "the Codex ask delivery answers, finds and lets go of the asks held for the person"
-)]
 impl CodexAppServerConnection {
     /// Answers an ask held for the person with `answer`, in the asking method's own shape. Fails
     /// with `CodexError::Transport` when no ask is held under `request_id` or another answer to it
@@ -118,12 +114,6 @@ impl CodexAppServerConnection {
         self.shared.send_answer(&id, method, &result).await?;
         answering.is_sent = true;
         Ok(())
-    }
-
-    /// Whether this connection holds an ask under `request_id` for the person. `request_id` is the
-    /// request id's JSON text, as `CodexInboundServerRequest::request_id` carries it.
-    pub(crate) fn holds_request(&self, request_id: &str) -> bool {
-        self.shared.lock_state().held.contains_key(request_id)
     }
 
     /// Lets go of a held ask Codex settled itself, so no answer is sent for it later. Answers who
