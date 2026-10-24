@@ -61,13 +61,19 @@ type SessionNoticeSettingsIgnored = {
 
 // session.notice.posted of kind `providerCrashLoop`: the provider process crashed for the fifth
 // time within three minutes and the daemon stopped restarting it. It draws the banner `Claude Code
-// ended unexpectedly · exit code 137 · Restart ×` and no flow row. It carries exactly one of the
-// exit code and the signal the daemon observed, as `agent.run.failed`'s `processExit` does.
+// ended unexpectedly · exit code 137 · Restart ×` and no flow row, or, for a lasting Codex service
+// whose five crashes were all failed starts, `Codex could not start · <the start's failure, one
+// line> · Restart ×`. It carries exactly one of the exit code, the signal and the start's failure
+// the daemon observed; the first two as `agent.run.failed`'s `processExit` does.
 type SessionNoticeProviderCrashLoop = {
   sessionId: SessionId;
   kind: "providerCrashLoop";
   provider: ProviderId;
-} & ({ exitCode: number; signal?: never } | { signal: string; exitCode?: never });
+} & (
+  | { exitCode: number; signal?: never; startFailure?: never }
+  | { signal: string; exitCode?: never; startFailure?: never }
+  | { startFailure: string; exitCode?: never; signal?: never }
+);
 
 // session.notice.posted of kind `providerRestarted`: the person's `Restart` brought back a provider
 // the crash loop stopped. Written on every session that showed the banner, it ends the banner on
