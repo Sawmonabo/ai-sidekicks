@@ -427,6 +427,15 @@ impl DumpWriter {
             })
             .and_then(|()| rename_replacing(&dump.path, &finished));
         let Err(failure) = placed else {
+            // Unlocked at once, since Windows locks out a crash pass's read until then and may
+            // release a lock left to the close late; the dump is finished and the close releases
+            // the lock anyway, so a failed unlock is only told.
+            if let Err(failure) = dump.file.unlock() {
+                write_error_line(&format!(
+                    "the finished crash dump could not be unlocked: {}",
+                    describe_error(&failure)
+                ));
+            }
             return Ok(());
         };
         let leftovers = [

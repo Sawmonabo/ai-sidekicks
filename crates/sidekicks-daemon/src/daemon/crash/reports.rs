@@ -4,7 +4,8 @@
 //! message and place join the report built from its crash, each path in them cut to its file name,
 //! each credential scrubbed and each id hashed with a key this install keeps, so a forwarded report
 //! names no folder, no secret and no id anyone could confirm. A dump still being written, the
-//! monitor's or Crashpad's in its `new` folder, is passed over. A dump that does not build is named
+//! monitor's or Crashpad's in its `new` folder, is passed over, and so is a finished dump its
+//! monitor still holds locked, until the next pass. A dump that does not build is named
 //! in the service log and deleted. Every pass also deletes what a write cut short left: a partial
 //! dump no monitor holds locked while writing it, a panic record with neither its dump nor such a
 //! partial dump in the dumps folder, a panic record's temporary file whose partial dump no monitor
@@ -332,7 +333,8 @@ pub(crate) fn read_crash_reports(data_folder: &Path) -> io::Result<Vec<CrashRepo
 }
 
 // Every finished dump under `folder`, at any depth, with its size in bytes, Crashpad's `new` folder
-// passed over.
+// and a dump a monitor still holds locked passed over, since Windows refuses its read until the
+// monitor unlocks it.
 fn list_finished_dumps(folder: &Path) -> io::Result<Vec<(PathBuf, u64)>> {
     if fs::symlink_metadata(folder).none_if_missing()?.is_none() {
         return Ok(Vec::new());
@@ -350,6 +352,7 @@ fn list_finished_dumps(folder: &Path) -> io::Result<Vec<(PathBuf, u64)>> {
                 .path()
                 .extension()
                 .is_some_and(|extension| extension == DUMP_EXTENSION)
+            && !is_held(entry.path())?
         {
             let bytes = entry.metadata().map_err(io::Error::from)?.len();
             dumps.push((entry.into_path(), bytes));
@@ -451,7 +454,7 @@ fn is_partial_dump_held(
     Ok(is_partial_held)
 }
 
-// Whether a monitor holds the partial dump at `path` locked while it writes it; one gone is not.
+// Whether a monitor holds the dump at `path` locked while it writes it; one gone is not.
 fn is_held(path: &Path) -> io::Result<bool> {
     let Some(file) = File::open(path).none_if_missing()? else {
         return Ok(false);

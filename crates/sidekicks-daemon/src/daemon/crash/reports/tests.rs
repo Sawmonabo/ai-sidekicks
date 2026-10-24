@@ -232,13 +232,14 @@ async fn crashes_become_stripped_reports_and_none_while_off() {
 // and a panic record's temporary file whose partial dump no monitor holds, and a key's, a report's
 // or a panic hook record's temporary file a process ended mid-write left, are deleted by a pass
 // whether reports are kept or not; a partial dump a monitor holds locked, and the panic record and
-// its temporary file written beside it, stay. A file that cannot be removed, a folder in a partial
-// dump's place or in a finished dump's panic record's or, with reports off, a report's, is answered
-// beside the pass, which runs on: it still deletes the other finished dumps, and with reports off
-// every other report. Killed by a pass that reads only finished dumps, by a temporary file kept or
-// taken while its dump is held, by a sweep left out of either branch or kept to reports, by a held
-// dump or its record taken for a leftover, and by a removal failure that stops the pass or goes
-// unanswered.
+// its temporary file written beside it, stay, and so does a finished dump its monitor has not yet
+// unlocked. A file that cannot be removed, a folder in a partial dump's place or in a finished
+// dump's panic record's or, with reports off, a report's, is answered beside the pass, which runs
+// on: it still deletes the other finished dumps, and with reports off every other report. Killed by
+// a pass that reads only finished dumps, by a temporary file kept or taken while its dump is held,
+// by a sweep left out of either branch or kept to reports, by a held dump or its record taken for a
+// leftover, by a finished dump read or removed while its monitor holds it, and by a removal failure
+// that stops the pass or goes unanswered.
 #[rstest]
 #[case::reports_kept(true)]
 #[case::reports_off(false)]
@@ -268,6 +269,11 @@ async fn a_pass_deletes_what_a_failed_dump_left(#[case] is_kept: bool) {
     fs::create_dir_all(dumps.join(format!("sub/stuck{PANIC_RECORD_SUFFIX}/inside")))
         .expect("the stuck record folder is made");
     fs::write(dumps.join(format!("late.{DUMP_EXTENSION}")), b"a dump").expect("written");
+    let finished_held = dumps.join(format!("finished-held.{DUMP_EXTENSION}"));
+    let finishing = fs::File::create(&finished_held).expect("the finished dump is made");
+    finishing
+        .lock()
+        .expect("the test holds the dump as a monitor does until it unlocks it");
     let key_leftover = data_folder.join(format!("{REPORT_KEY_FILE_NAME}.a1b2c3.tmp"));
     fs::write(&key_leftover, b"part of a key").expect("written");
     let report_leftover = reports.join("old.json.a1b2c3.tmp");
@@ -305,6 +311,7 @@ async fn a_pass_deletes_what_a_failed_dump_left(#[case] is_kept: bool) {
         partial("held"),
         record("held"),
         record_temporary("held"),
+        finished_held,
         partial("stuck"),
         dumps.join("sub"),
     ];
@@ -331,6 +338,7 @@ async fn a_pass_deletes_what_a_failed_dump_left(#[case] is_kept: bool) {
         "removals failed: {failures}"
     );
     drop(held);
+    drop(finishing);
 }
 
 // A key another pass made first stands, and the pass answers it in place of its own, leaving

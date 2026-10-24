@@ -54,10 +54,9 @@ pub fn replace_file_atomically(
         drop(held);
         return Err(remove_temporary_after(failure, temporary_path));
     }
-    // The temporary name is the target's now, so nothing is left to remove; the lock goes with the
-    // handle.
+    // The temporary name is the target's now, so nothing is left to remove.
     temporary_path.disable_cleanup(true);
-    drop(held);
+    release(held);
     Ok(())
 }
 
@@ -128,9 +127,30 @@ fn create_file_atomically_through(
     write: impl FnOnce(&mut File, &[u8]) -> io::Result<()>,
 ) -> Result<(), AtomicWriteError> {
     let (held, temporary_path) = write_temporary(target, contents, mode, sweep, write)?;
-    let linked = temporary_path.persist_noclobber(target);
-    drop(held);
-    linked.map_err(|refused| remove_temporary_after(refused.error, refused.path))
+    match temporary_path.persist_noclobber(target) {
+        Ok(()) => {
+            release(held);
+            Ok(())
+        }
+        Err(refused) => {
+            drop(held);
+            Err(remove_temporary_after(refused.error, refused.path))
+        }
+    }
+}
+
+// Unlocks a file that has taken the target's name at once, since Windows locks out every other
+// handle's read until then and may release a lock left to the close late. The write is done, and
+// the close releases the lock anyway, so a failed unlock is logged and is not the caller's.
+fn release(held: Option<File>) {
+    if let Some(file) = held
+        && let Err(failure) = file.unlock()
+    {
+        tracing::warn!(
+            error = &failure as &(dyn std::error::Error + 'static),
+            "a crash-safe write's file could not be unlocked after its rename"
+        );
+    }
 }
 
 // The folder a write to `target` makes its temporary file in, and the file's name up to its random
