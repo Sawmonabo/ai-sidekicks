@@ -44,9 +44,13 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use secrecy::SecretString;
-use sidekicks_contracts::daemon::status::{DaemonSecretsFileUnopened, DaemonSecretsPlainReason};
+use sidekicks_contracts::daemon::status::{
+    DaemonSecretsFile, DaemonSecretsFileUnopened, DaemonSecretsPlainReason, DaemonSecretsProtection,
+};
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
-use sidekicks_platforms::SealFailure;
+use sidekicks_contracts::wire::text::TextError;
+use sidekicks_platforms::{SealFailure, SealHeader, SealKey};
 use tokio::sync::RwLock;
 
 use self::sealed_file::{Probe, is_definite_refusal, log_boot_bound};
@@ -249,18 +253,98 @@ impl SecretItems {
         }
     }
 
-    /// The items file's path while it holds an item a move would carry, for the status read; a
-    /// file that cannot be read counts, since it may hold one.
-    pub(crate) async fn secrets_file(&self) -> Option<PathBuf> {
+    /// The items file for the status read: its path, how its secrets are protected, why a Linux
+    /// plain file is plain and, while the sealed file cannot be opened, why. `None` while the
+    /// secrets are in the operating system's store or the file holds no item a move would carry.
+    /// Calls no seal and opens no item; a file that cannot be read counts as holding one. Fails
+    /// with the path's [`TextError`] when the file's path is no wire path.
+    pub(crate) async fn secrets_file(&self) -> Result<Option<DaemonSecretsFile>, TextError> {
         let moved_services: Vec<&str> = KeychainService::ALL
             .into_iter()
             .filter(|service| service.is_moved())
             .map(KeychainService::as_str)
             .collect();
-        self.plain_file
-            .holds_items(&moved_services)
-            .await
-            .then(|| self.plain_file.file_path().to_path_buf())
+        // A call settling the place holds the state; the record on disk answers meanwhile.
+        let (picked, cannot_open) = match self.state.try_read() {
+            Ok(state) => (state.picked, state.cannot_open),
+            Err(_settling) => (None, None),
+        };
+        let place = match picked {
+            Some(place) => Some(place),
+            None => match place::read_record(&self.record_path).await {
+                Ok(Some(record)) => Some(record.place),
+                Ok(None) => None,
+                Err(_unreadable) => None,
+            },
+        };
+        let is_sealed = match place {
+            Some(SecretsPlace::OperatingSystem) => return Ok(None),
+            Some(SecretsPlace::SealedFile) => true,
+            Some(SecretsPlace::PlainFile { .. } | SecretsPlace::LoggedOutServiceFile) => false,
+            None => matches!(
+                self.plain_file.form_on_disk().await,
+                Ok(Some(ItemsForm::Sealed))
+            ),
+        };
+        let (protection, reason) = if is_sealed {
+            let Some(protection) = self.sealed_protection(&moved_services, cannot_open).await
+            else {
+                return Ok(None);
+            };
+            (protection, None)
+        } else if self.plain_file.holds_items(&moved_services).await {
+            let reason = match place {
+                Some(SecretsPlace::PlainFile { reason }) => Some(reason),
+                Some(
+                    SecretsPlace::OperatingSystem
+                    | SecretsPlace::SealedFile
+                    | SecretsPlace::LoggedOutServiceFile,
+                )
+                | None => None,
+            };
+            (DaemonSecretsProtection::Plain, reason)
+        } else {
+            return Ok(None);
+        };
+        Ok(Some(DaemonSecretsFile {
+            path: FilesystemPath::new(self.plain_file.file_path().to_string_lossy().into_owned())?,
+            protection,
+            reason,
+            cannot_open: cannot_open.filter(|_| is_sealed),
+        }))
+    }
+
+    // How the sealed file's items are protected, by the weakest key any of them names, a key the
+    // daemon does not know or a file that cannot be read counting as the system key; `None` while
+    // it holds no item of `services` and opens.
+    async fn sealed_protection(
+        &self,
+        services: &[&str],
+        cannot_open: Option<DaemonSecretsFileUnopened>,
+    ) -> Option<DaemonSecretsProtection> {
+        let Some(sealed_file) = &self.sealed_file else {
+            return cannot_open.map(|_| DaemonSecretsProtection::SealedWithSystemKey);
+        };
+        let keys: Option<Vec<Option<SealKey>>> = match sealed_file.sealed_items().await {
+            Ok(items) => Some(
+                items
+                    .iter()
+                    .filter(|item| services.contains(&item.service.as_str()))
+                    .map(|item| item.header().map(SealHeader::key))
+                    .collect(),
+            ),
+            Err(_unreadable) => None,
+        };
+        match keys {
+            Some(keys) if keys.is_empty() && cannot_open.is_none() => None,
+            Some(keys)
+                if !keys.is_empty()
+                    && keys.iter().all(|key| key.is_some_and(SealKey::uses_chip)) =>
+            {
+                Some(DaemonSecretsProtection::SealedWithChip)
+            }
+            Some(_) | None => Some(DaemonSecretsProtection::SealedWithSystemKey),
+        }
     }
 
     // Serves one call within the call's time: waits for the place, settles it when it is not, then

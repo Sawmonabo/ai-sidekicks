@@ -199,7 +199,14 @@ async fn the_start_picks_and_keeps_the_secrets_place(
             Some(items_file)
         );
     }
-    assert_eq!(items.secrets_file().await.is_some(), has_secrets_file);
+    assert_eq!(
+        items
+            .secrets_file()
+            .await
+            .expect("the path is a wire path")
+            .is_some(),
+        has_secrets_file
+    );
     assert_eq!(
         stored(&credentials, WORKFLOW, "secret").is_some(),
         is_in_store
