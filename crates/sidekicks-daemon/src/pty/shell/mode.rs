@@ -71,6 +71,6 @@ fn write_fallback_notice(
 
 // Writes why the mode started no shell to standard error, and answers the failure's exit code.
 fn fail(why: &str) -> ExitCode {
-    write_error_line(&format!("The shell mode started no shell: {why}"));
+    write_error_line(&format!("the shell mode started no shell: {why}"));
     ExitCode::FAILURE
 }

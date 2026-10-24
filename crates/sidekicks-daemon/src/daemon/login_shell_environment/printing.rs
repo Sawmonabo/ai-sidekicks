@@ -39,7 +39,7 @@ pub(crate) fn run_environment_mode(token: &str) -> ExitCode {
     match print_environment(&CaptureMarkers::new(token), &mut io::stdout().lock()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            write_error_line(&format!("The environment could not be printed: {error}"));
+            write_error_line(&format!("the environment could not be printed: {error}"));
             ExitCode::FAILURE
         }
     }

@@ -264,6 +264,7 @@ async fn a_pass_deletes_what_a_failed_dump_left(#[case] is_kept: bool) {
     fs::write(record("held"), b"{}").expect("written");
     fs::write(record_temporary("held"), b"{").expect("written");
     fs::create_dir_all(partial("stuck").join("inside")).expect("the stuck folder is made");
+    fs::write(record("stuck"), b"{}").expect("written");
     fs::write(dumps.join(format!("sub/stuck.{DUMP_EXTENSION}")), b"a dump").expect("written");
     fs::create_dir_all(dumps.join(format!("sub/stuck{PANIC_RECORD_SUFFIX}/inside")))
         .expect("the stuck record folder is made");
@@ -312,6 +313,7 @@ async fn a_pass_deletes_what_a_failed_dump_left(#[case] is_kept: bool) {
         record_temporary("held"),
         finished_held,
         partial("stuck"),
+        record("stuck"),
         dumps.join("sub"),
     ];
     kept.sort();

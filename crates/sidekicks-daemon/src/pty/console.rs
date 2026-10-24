@@ -33,7 +33,7 @@ pub(crate) fn run_console_mode(arguments: &[&str]) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             write_error_line(&format!(
-                "The console mode failed: {}",
+                "the console mode failed: {}",
                 describe_error(&error)
             ));
             ExitCode::FAILURE

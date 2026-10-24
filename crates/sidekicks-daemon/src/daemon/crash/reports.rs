@@ -5,8 +5,8 @@
 //! each credential scrubbed and each id hashed with a key this install keeps, so a forwarded report
 //! names no folder, no secret and no id anyone could confirm. A dump still being written, the
 //! monitor's or Crashpad's in its `new` folder, is passed over, and so is a finished dump its
-//! monitor still holds locked, until the next pass. A dump that does not build is named
-//! in the service log and deleted. Every pass also deletes what a write cut short left: a partial
+//! monitor still holds locked, until the next pass. A dump that does not build is named in the
+//! service log and deleted. Every pass also deletes what a write cut short left: a partial
 //! dump no monitor holds locked while writing it, a panic record with neither its dump nor such a
 //! partial dump in the dumps folder, a panic record's temporary file whose partial dump no monitor
 //! holds, and a temporary file of the key, of a report or of a panic hook's record that no write
@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::fs::{self, OpenOptions, TryLockError};
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
@@ -38,8 +38,8 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_platforms::{
-    LeftoverSweep, atomic_write_target_of, create_file_atomically, remove_atomic_write_leftovers,
-    remove_unless_held, replace_file_atomically,
+    LeftoverSweep, atomic_write_target_of, create_file_atomically, is_held,
+    remove_atomic_write_leftovers, remove_unless_held, replace_file_atomically,
 };
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
@@ -209,7 +209,15 @@ pub(crate) async fn build_crash_reports(
             failures.extend(remove_atomic_write_leftovers(&swept_reports, |_target| {
                 true
             }));
-            list_finished_dumps(&listed_folder).map(|dumps| (dumps, failures))
+            // A listing that fails still answers the removals that failed before it.
+            match list_finished_dumps(&listed_folder) {
+                Ok(dumps) => Ok((dumps, failures)),
+                Err(listing) => Err(CleanupFailures::new(
+                    listing,
+                    failures,
+                    "the crash pass's removals",
+                )),
+            }
         })
         .await??;
     let mut pass = CrashReportPass::default();
@@ -333,8 +341,8 @@ pub(crate) fn read_crash_reports(data_folder: &Path) -> io::Result<Vec<CrashRepo
 }
 
 // Every finished dump under `folder`, at any depth, with its size in bytes, Crashpad's `new` folder
-// and a dump a monitor still holds locked passed over, since Windows refuses its read until the
-// monitor unlocks it.
+// and a dump a monitor still holds locked passed over, so no pass reads a dump Windows refuses
+// until its monitor unlocks it or removes one its monitor is still finishing.
 fn list_finished_dumps(folder: &Path) -> io::Result<Vec<(PathBuf, u64)>> {
     if fs::symlink_metadata(folder).none_if_missing()?.is_none() {
         return Ok(Vec::new());
@@ -442,23 +450,17 @@ fn is_partial_dump_held(
     if let Some(&is_partial_held) = held.get(&name) {
         return Ok(is_partial_held);
     }
-    let is_partial_held = remove_unless_held(&folder.join(&name))?;
+    // A lock that cannot be read is recorded as held, so its siblings are kept and the partial
+    // dump is opened once per pass on the failure path too.
+    let is_partial_held = match remove_unless_held(&folder.join(&name)) {
+        Ok(is_partial_held) => is_partial_held,
+        Err(failure) => {
+            held.insert(name, true);
+            return Err(failure);
+        }
+    };
     held.insert(name, is_partial_held);
     Ok(is_partial_held)
-}
-
-// Whether a monitor holds the dump at `path` locked while it writes it; one gone is not. Opened for
-// writing too, since NFS grants an exclusive lock only on such a handle.
-fn is_held(path: &Path) -> io::Result<bool> {
-    let opened = OpenOptions::new().read(true).write(true).open(path);
-    let Some(file) = opened.none_if_missing()? else {
-        return Ok(false);
-    };
-    match file.try_lock() {
-        Ok(()) => Ok(false),
-        Err(TryLockError::WouldBlock) => Ok(true),
-        Err(TryLockError::Error(failure)) => Err(failure),
-    }
 }
 
 // Deletes the dump at `dump` and the panic record beside it.

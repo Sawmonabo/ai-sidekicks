@@ -58,7 +58,7 @@ pub(crate) fn install_panic_hook(data_folder: &Path, log_file: Option<ArcFileLog
     std::panic::set_hook(Box::new(move |panic| {
         let (message, place) = panic_message_and_place(panic);
         let report = scrub_credentials(&describe_panic(&message, &place));
-        tracing::error!(report = %report, "The background service panicked and stops");
+        tracing::error!(report = %report, "the background service panicked and stops");
         if let Some(monitor) = CRASH_MONITOR.get()
             && let Err(error) = send_panic_record(
                 monitor,
@@ -76,7 +76,7 @@ pub(crate) fn install_panic_hook(data_folder: &Path, log_file: Option<ArcFileLog
         if let Err(error) = write_crash_record(&crash_reports, &report) {
             tracing::error!(
                 error = &error as &(dyn std::error::Error + 'static),
-                "The panic's crash record could not be written"
+                "the panic's crash record could not be written"
             );
         }
         if let Some(mut log_file) = log_file.clone()
@@ -84,7 +84,7 @@ pub(crate) fn install_panic_hook(data_folder: &Path, log_file: Option<ArcFileLog
         {
             // The log's file is what failed, so standard error alone is left to say so.
             write_error_line(&format!(
-                "The service log could not be flushed before the panic's end: {error}"
+                "the service log could not be flushed before the panic's end: {error}"
             ));
         }
         std::process::abort();

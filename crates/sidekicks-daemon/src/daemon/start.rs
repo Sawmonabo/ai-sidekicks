@@ -119,12 +119,12 @@ fn report_start_failure(error: &ServiceStartError) {
     if tracing::dispatcher::has_been_set() {
         tracing::error!(
             error = error as &(dyn Error + 'static),
-            "The background service could not start"
+            "the background service could not start"
         );
         return;
     }
     let report = format!(
-        "The background service could not start: {}",
+        "the background service could not start: {}",
         describe_error(error)
     );
     write_error_line(&report);

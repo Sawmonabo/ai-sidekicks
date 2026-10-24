@@ -76,8 +76,8 @@ pub fn create_file_atomically(
 /// Removes every temporary file a write left in `folder` to a target whose file name `is_target`
 /// takes, as a process ended mid-write leaves one, running on past a removal that fails. A live
 /// write to a [`LeftoverSweep::Swept`] folder holds its temporary file locked, and the sweep keeps
-/// every file held so. Blocks; answers
-/// the folder's listing failure or each removal's, none once every leftover is gone.
+/// every file held so. Blocks; answers the folder's listing failure or each removal's, none once
+/// every leftover is gone.
 pub fn remove_atomic_write_leftovers(
     folder: &Path,
     is_target: impl Fn(&str) -> bool,

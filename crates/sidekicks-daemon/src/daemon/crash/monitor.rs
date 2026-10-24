@@ -55,8 +55,8 @@ const PANIC_RECORD_SEND_BOUND: Duration = Duration::from_secs(2);
 // system the channel runs on.
 const PANIC_RECORD_MAX_BYTES: usize = 60 * 1024;
 
-/// The suffix of a dump being written.
-pub(crate) const DUMP_IN_PROGRESS_SUFFIX: &str = ".partial";
+// The suffix of a dump being written.
+const DUMP_IN_PROGRESS_SUFFIX: &str = ".partial";
 
 /// The file name of the dump `<stem>.dmp` while it is being written.
 pub(crate) fn partial_dump_name(stem: &str) -> String {
@@ -488,9 +488,9 @@ mod tests {
     };
 
     // A dump's file is one its name names, held locked while it is written, so a crash pass leaves
-    // it. A dump whose write
-    // fails, as a full disk fails it, and one whose finish fails after its panic record was
-    // written, the finished name taken by a folder, leave neither the partial dump nor the record.
+    // it. A dump whose write fails, as a full disk fails it, and one whose finish fails after its
+    // panic record was written, the finished name taken by a folder, leave neither the partial dump
+    // nor the record.
     // Killed by the dump's lock dropped, by a file answered under a name that no longer names it,
     // by a failed write that keeps its partial dump, and by a failed finish that keeps the dump or
     // the record it wrote.

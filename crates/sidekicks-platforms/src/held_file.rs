@@ -125,6 +125,26 @@ pub fn remove_unless_held(path: &Path) -> io::Result<bool> {
     Ok(false)
 }
 
+/// Whether another handle holds the file at `path` locked, as a writer holds one it is writing; a
+/// file already gone is not held. Opens the file read-only and probes with a shared lock released
+/// at once, so the probe never keeps a later read of the file waiting and never needs write access
+/// to it. Fails with the open's or the lock's error.
+pub fn is_held(path: &Path) -> io::Result<bool> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(missing) if missing.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(failure) => return Err(failure),
+    };
+    match file.try_lock_shared() {
+        Ok(()) => {
+            file.unlock()?;
+            Ok(false)
+        }
+        Err(TryLockError::WouldBlock) => Ok(true),
+        Err(TryLockError::Error(failure)) => Err(failure),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs::{self, File, TryLockError};
@@ -195,6 +215,29 @@ mod tests {
             assert!(left.is_empty(), "{left:?}");
             assert_eq!(calls, HELD_CREATE_ATTEMPTS);
         }
+    }
+
+    // A lost attempt whose own removal fails is answered at once with both failures, with no
+    // further try. Killed by that arm deleted, which makes a second call.
+    #[test]
+    fn a_lost_attempt_whose_removal_fails_is_answered_at_once() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let folder = scratch.path().join("taken");
+        fs::create_dir(&folder).expect("the folder is made");
+        fs::write(folder.join("inside"), b"kept").expect("written");
+        let mut calls = 0;
+
+        let failure = create_held_file(|| {
+            calls += 1;
+            let file = File::create(scratch.path().join("held")).expect("the file is made");
+            Ok((file, folder.clone()))
+        })
+        .expect_err("the lost name's failed removal is answered");
+
+        assert_eq!(calls, 1);
+        assert!(failure.failure.to_string().starts_with("every name"));
+        assert!(failure.removal_failure.is_some());
+        assert!(folder.join("inside").exists());
     }
 
     // A name is lost when nothing or another entry is there, or when it is refused while the held

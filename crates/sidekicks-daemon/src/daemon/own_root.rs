@@ -15,7 +15,7 @@ pub(crate) fn become_own_root() -> Result<(), ExitCode> {
         return Ok(());
     };
     let report = format!(
-        "The background service could not start: {}",
+        "the background service could not start: {}",
         describe_error(&error)
     );
     write_error_line(&report);

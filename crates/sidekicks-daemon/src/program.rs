@@ -76,7 +76,7 @@ fn run_database_shell(
 ) -> ExitCode {
     if let Err(error) = sidekicks_platforms::set_binary_standard_streams() {
         write_error_line(&format!(
-            "The database shell's standard streams could not be made binary: {error}"
+            "the database shell's standard streams could not be made binary: {error}"
         ));
         return ExitCode::FAILURE;
     }
@@ -91,7 +91,7 @@ fn run_database_shell(
         Ok(shell_arguments) => shell_arguments,
         Err(error) => {
             write_error_line(&format!(
-                "The database shell's arguments cannot be passed: {error}"
+                "the database shell's arguments cannot be passed: {error}"
             ));
             return ExitCode::FAILURE;
         }
