@@ -83,7 +83,7 @@ async fn hold_with_a_running_command(
             .let_go(&service, THREAD.to_owned(), session_id)
             .await;
     });
-    let list = next_request(scripted, "thread/backgroundTerminals/list").await;
+    let list = next_thread_request(scripted, "thread/backgroundTerminals/list").await;
     scripted
         .script
         .answer(&list, &json!({"data": [{"processId": "41"}]}));
@@ -92,9 +92,8 @@ async fn hold_with_a_running_command(
 }
 
 // The next request the connection sent, which must be `method` on `THREAD`.
-async fn next_request(scripted: &mut ScriptedCodexService, method: &str) -> Value {
-    let request = scripted.script.next_sent().await;
-    assert_eq!(request["method"], method, "{request}");
+async fn next_thread_request(scripted: &mut ScriptedCodexService, method: &str) -> Value {
+    let request = scripted.next_request(method).await;
     assert_eq!(request["params"]["threadId"], THREAD, "{request}");
     request
 }
@@ -121,7 +120,7 @@ async fn a_held_conversation_lets_go_only_once_no_command_runs() {
         &json!({"threadId": THREAD, "turnId": "turn-1",
             "item": {"type": "commandExecution", "id": "item-2"}}),
     ));
-    let after_command = next_request(&mut scripted, "thread/backgroundTerminals/list").await;
+    let after_command = next_thread_request(&mut scripted, "thread/backgroundTerminals/list").await;
     scripted
         .script
         .answer(&after_command, &json!({"data": [{"processId": "41"}]}));
@@ -129,9 +128,9 @@ async fn a_held_conversation_lets_go_only_once_no_command_runs() {
         "thread/status/changed",
         &json!({"threadId": THREAD, "status": {"type": "idle"}}),
     ));
-    let after_idle = next_request(&mut scripted, "thread/backgroundTerminals/list").await;
+    let after_idle = next_thread_request(&mut scripted, "thread/backgroundTerminals/list").await;
     scripted.script.answer(&after_idle, &json!({"data": []}));
-    let unsubscribe = next_request(&mut scripted, "thread/unsubscribe").await;
+    let unsubscribe = next_thread_request(&mut scripted, "thread/unsubscribe").await;
     scripted
         .script
         .answer(&unsubscribe, &json!({"status": "unsubscribed"}));
@@ -164,24 +163,25 @@ async fn ending_a_session_terminates_every_listed_command_then_cleans_then_unsub
 
     let release = Arc::clone(&scripted.dependencies.release);
     let forgotten = tokio::spawn(async move { release.forget_session(&session_id).await });
-    let first_page = next_request(&mut scripted, "thread/backgroundTerminals/list").await;
+    let first_page = next_thread_request(&mut scripted, "thread/backgroundTerminals/list").await;
     scripted.script.answer(
         &first_page,
         &json!({"data": [{"processId": "41"}], "nextCursor": "page-2"}),
     );
-    let second_page = next_request(&mut scripted, "thread/backgroundTerminals/list").await;
+    let second_page = next_thread_request(&mut scripted, "thread/backgroundTerminals/list").await;
     scripted
         .script
         .answer(&second_page, &json!({"data": [{"processId": "42"}]}));
     let mut terminated = Vec::new();
     for _command in 0..2 {
-        let terminate = next_request(&mut scripted, "thread/backgroundTerminals/terminate").await;
+        let terminate =
+            next_thread_request(&mut scripted, "thread/backgroundTerminals/terminate").await;
         terminated.push(terminate["params"]["processId"].clone());
         scripted.script.answer(&terminate, &json!({}));
     }
-    let clean = next_request(&mut scripted, "thread/backgroundTerminals/clean").await;
+    let clean = next_thread_request(&mut scripted, "thread/backgroundTerminals/clean").await;
     scripted.script.answer(&clean, &json!({}));
-    let after_clean = next_request(&mut scripted, "thread/backgroundTerminals/list").await;
+    let after_clean = next_thread_request(&mut scripted, "thread/backgroundTerminals/list").await;
     scripted
         .script
         .answer(&after_clean, &json!({"data": [{"processId": "42"}]}));

@@ -26,7 +26,8 @@ use crate::provider::driver::codex::transport::diagnostics::{
     CodexTeardownStep, CodexTransportDiagnostic,
 };
 
-const THREAD_UNSUBSCRIBE_METHOD: &str = "thread/unsubscribe";
+/// The request that lets a conversation go from a connection.
+pub(crate) const THREAD_UNSUBSCRIBE_METHOD: &str = "thread/unsubscribe";
 
 /// How long a close's interrupts and its `thread/unsubscribe` each wait; short, so a wedged service
 /// cannot hold a close.

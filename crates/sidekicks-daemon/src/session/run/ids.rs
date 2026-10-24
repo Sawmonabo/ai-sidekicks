@@ -2,10 +2,12 @@
 
 use std::borrow::Cow;
 
+use rusqlite::{Connection, named_params};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
+use crate::database::stored_column::text_column;
 
 /// The ids, in one `runId` column, of the runs of the session the `@sessionId` parameter names:
 /// the rows the rebuild wrote, every run its events name, so a run the rebuild never reached past
@@ -16,6 +18,21 @@ pub(crate) const SESSION_RUN_IDS_SQL: &str = "
   SELECT run_id FROM session_events WHERE session_id = @sessionId AND run_id IS NOT NULL
   UNION
   SELECT run_id FROM run_execution_contexts WHERE session_id = @sessionId";
+
+/// The ids of `session_id`'s runs, as [`SESSION_RUN_IDS_SQL`] finds them, read on `reader`, inside
+/// the caller's snapshot where it holds one. Fails as SQLite fails or a stored id does not read.
+pub(crate) fn read_session_run_ids(
+    reader: &Connection,
+    session_id: &SessionId,
+) -> rusqlite::Result<Vec<RunId>> {
+    reader
+        .prepare_cached(SESSION_RUN_IDS_SQL)?
+        .query_map(
+            named_params! { "@sessionId": session_id.text().as_str() },
+            |row| text_column(row, 0, |text| RunId::new(&text)),
+        )?
+        .collect()
+}
 
 /// Reads a row only while the `@runId` parameter names a run of the `@sessionId` session.
 pub(crate) const RUN_IN_SESSION_SQL: &str =
