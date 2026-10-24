@@ -74,7 +74,6 @@ impl CodexFrameDelivery {
         &self,
         record: &mut CodexSessionRecord,
         members: &Map<String, Value>,
-        dispatch: &mut CodexFrameDispatch,
     ) {
         if read_non_empty_string(members, "threadId") != Some(record.thread_id.as_str()) {
             return;
@@ -100,12 +99,6 @@ impl CodexFrameDelivery {
             .delivery
             .assign_turn_epoch(&turn_id, || self.mint_turn_epoch());
         self.open_turn(record, &turn_id, &turn_run).await;
-        dispatch.turns_started.push(CodexTurnMove {
-            turn_id,
-            run_id: turn_run.run_id,
-            ending: turn_run.ending,
-            turn_end: None,
-        });
     }
 
     // Opens the turn's execution and its numbered turn on the run, once.
