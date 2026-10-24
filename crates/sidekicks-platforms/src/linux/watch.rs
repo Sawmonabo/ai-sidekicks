@@ -1,8 +1,10 @@
 //! The wake a folder's arrival watch and a file's append watch wait on, as Linux raises it: an
 //! inotify watch through `notify`, `IN_MOVED_TO` on the folder, which `IN_DELETE_SELF` or
-//! `IN_MOVE_SELF` ends, and `IN_MODIFY` on a file's inode, whatever becomes of its name.
+//! `IN_MOVE_SELF` ends, and `IN_MODIFY` on an open file's inode, whatever becomes of its name.
 
+use std::fs::File;
 use std::io::{self, ErrorKind};
+use std::os::fd::AsRawFd;
 use std::path::Path;
 
 use notify::event::{ModifyKind, RenameMode};
@@ -33,12 +35,16 @@ impl ChangeWake {
         })
     }
 
-    /// Wakes when the file at `path` is written, after its name is removed or replaced too. Fails
+    /// Wakes when the open `file` is written, after its name is removed or replaced too. Fails
     /// with the system's error when the file cannot be watched.
-    pub(crate) fn on_file_appends(path: &Path) -> io::Result<Self> {
-        Self::on_path(path, EventKindMask::MODIFY_DATA, |kind| {
-            matches!(kind, EventKind::Modify(ModifyKind::Data(_)))
-        })
+    pub(crate) fn on_file_appends(file: &File) -> io::Result<Self> {
+        // The kernel follows the descriptor's own link to the open file, whatever its name holds.
+        let descriptor_path = format!("/proc/self/fd/{}", file.as_raw_fd());
+        Self::on_path(
+            Path::new(&descriptor_path),
+            EventKindMask::MODIFY_DATA,
+            |kind| matches!(kind, EventKind::Modify(ModifyKind::Data(_))),
+        )
     }
 
     // A watch on `path` for the inotify events `kinds` asks for, waking on those `is_wake` keeps

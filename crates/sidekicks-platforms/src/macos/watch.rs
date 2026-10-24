@@ -33,8 +33,9 @@ pub(crate) struct ChangeWake {
     queue: AsyncFd<WatchQueue>,
     // The changes this watch asked for that end it.
     endings: FilterFlag,
-    // The descriptor the filter watches, which only marks the vnode and stays open as long.
-    _watched: File,
+    // The folder's descriptor the filter watches, which only marks its vnode and stays open as
+    // long; a file's watch is on the descriptor its reader holds.
+    _watched_folder: Option<File>,
 }
 
 // A kqueue the reactor can wait on.
@@ -51,28 +52,38 @@ impl ChangeWake {
     /// runtime's reactor; fails with the system's error when the folder cannot be opened or
     /// watched.
     pub(crate) fn on_folder_renames(folder: &Path) -> io::Result<Self> {
-        Self::on_vnode(folder, FilterFlag::NOTE_WRITE | ENDING_CHANGES)
-    }
-
-    /// Wakes when the file at `path` grows or is written, after its name is removed or replaced
-    /// too. Needs a tokio runtime's reactor; fails with the system's error when the file cannot be
-    /// opened or watched.
-    pub(crate) fn on_file_appends(path: &Path) -> io::Result<Self> {
-        Self::on_vnode(
-            path,
-            FilterFlag::NOTE_EXTEND | FilterFlag::NOTE_WRITE | FilterFlag::NOTE_REVOKE,
-        )
-    }
-
-    // A vnode filter for `changes` on `path`, opened only to be watched.
-    fn on_vnode(path: &Path, changes: FilterFlag) -> io::Result<Self> {
         let watched = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_EVTONLY)
-            .open(path)?;
+            .open(folder)?;
+        Self::on_vnode(
+            watched.as_raw_fd(),
+            FilterFlag::NOTE_WRITE | ENDING_CHANGES,
+            Some(watched),
+        )
+    }
+
+    /// Wakes when the open `file` grows or is written, after its name is removed or replaced too.
+    /// Needs a tokio runtime's reactor; fails with the system's error when the file cannot be
+    /// watched.
+    pub(crate) fn on_file_appends(file: &File) -> io::Result<Self> {
+        Self::on_vnode(
+            file.as_raw_fd(),
+            FilterFlag::NOTE_EXTEND | FilterFlag::NOTE_WRITE | FilterFlag::NOTE_REVOKE,
+            None,
+        )
+    }
+
+    // A vnode filter for `changes` on `descriptor`, which `watched_folder` holds open when the
+    // watch opened it.
+    fn on_vnode(
+        descriptor: RawFd,
+        changes: FilterFlag,
+        watched_folder: Option<File>,
+    ) -> io::Result<Self> {
         let queue = Kqueue::new().map_err(io::Error::from)?;
         let filter = KEvent::new(
-            usize::try_from(watched.as_raw_fd()).map_err(io::Error::other)?,
+            usize::try_from(descriptor).map_err(io::Error::other)?,
             EventFilter::EVFILT_VNODE,
             EvFlags::EV_ADD | EvFlags::EV_CLEAR,
             changes,
@@ -91,7 +102,7 @@ impl ChangeWake {
         Ok(Self {
             queue,
             endings: changes & ENDING_CHANGES,
-            _watched: watched,
+            _watched_folder: watched_folder,
         })
     }
 

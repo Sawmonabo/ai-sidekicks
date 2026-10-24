@@ -2,6 +2,7 @@
 //! raise here: both serve a command's wrapper, which runs on macOS and Linux.
 
 use std::convert::Infallible;
+use std::fs::File;
 use std::future::Ready;
 use std::io::{self, ErrorKind};
 use std::path::Path;
@@ -16,7 +17,7 @@ impl ChangeWake {
     }
 
     /// Watches no file. Always fails with `Unsupported`.
-    pub(crate) fn on_file_appends(_path: &Path) -> io::Result<Self> {
+    pub(crate) fn on_file_appends(_file: &File) -> io::Result<Self> {
         Err(unwatched())
     }
 

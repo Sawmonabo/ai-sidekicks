@@ -80,10 +80,13 @@ impl FileAppendWatch {
     /// when the file cannot be opened or watched, `NotFound` when its name is already gone, and
     /// with `Unsupported` on Windows.
     pub async fn watch(path: &Path) -> io::Result<Self> {
-        let wake = ChangeWake::on_file_appends(path)?;
-        let file = File::open(path).await?;
+        // Opened once and watched through that descriptor, so the wakes and the reads follow one
+        // file whatever is renamed over its name meanwhile; a file no read has used yet hands its
+        // descriptor back at once.
+        let file = File::open(path).await?.into_std().await;
+        let wake = ChangeWake::on_file_appends(&file)?;
         Ok(Self {
-            file,
+            file: File::from_std(file),
             offset: 0,
             wake,
         })
@@ -160,7 +163,7 @@ mod tests {
     use rstest::rstest;
     use tokio::time::{sleep, timeout};
 
-    use super::{FileAppendWatch, FolderArrivalWatch};
+    use super::{ChangeWake, FileAppendWatch, FolderArrivalWatch};
     use crate::atomic_replace::TEMPORARY_FILE_SUFFIX;
 
     // How long a change may take to be seen.
@@ -295,6 +298,29 @@ mod tests {
                 .expect("the file reads"),
             b"after"
         );
+    }
+
+    // Fails when a file's wake watches what its name holds rather than the open file: a file renamed
+    // over the name after the open and before the wake is made would take the wakes.
+    #[tokio::test]
+    async fn file_change_wake_follows_its_open_file_not_its_name() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let path = folder.path().join("output");
+        let mut writer = fs::File::create(&path).expect("the file is made");
+        let file = fs::File::open(&path).expect("the file opens");
+        let other = path.with_extension("other");
+        fs::write(&other, b"other").expect("another file is written");
+        fs::rename(&other, &path).expect("the other file is renamed over the name");
+        let mut wake = ChangeWake::on_file_appends(&file).expect("the open file is watched");
+
+        let (changed, ()) = tokio::join!(timeout(SEEN_WITHIN, wake.changed()), async {
+            sleep(CHANGE_DELAY).await;
+            writer.write_all(b"after").expect("the append is written");
+        });
+
+        changed
+            .expect("the append is seen in time")
+            .expect("the watch reads");
     }
 
     // Fails when a file whose name is gone before the watch fails as anything but missing.
