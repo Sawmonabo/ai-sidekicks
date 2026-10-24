@@ -211,7 +211,7 @@ struct ErrorAnswer {
     code: i64,
     message: String,
     reason: Option<String>,
-    data: Option<Value>,
+    data: Option<Box<Value>>,
 }
 
 // The members of a frame the connection reads, each kept raw so one unreadable member never
@@ -562,7 +562,7 @@ impl ConnectionShared {
                         .and_then(|error| read_member::<String>(error.message.as_deref()))
                         .unwrap_or_default(),
                     reason,
-                    data,
+                    data: data.map(Box::new),
                 })
             }
             None => Ok(frame.result.unwrap_or_else(|| RawValue::NULL.to_owned())),

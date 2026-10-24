@@ -132,8 +132,8 @@ pub(crate) enum CodexError {
         message: String,
         /// The `reason` member of the error answer's `data`, when it sent one as text.
         reason: Option<String>,
-        /// The error answer's `data`, as the service sent it.
-        data: Option<Value>,
+        /// The error answer's `data`, as the service sent it, boxed so the error stays small.
+        data: Option<Box<Value>>,
     },
     /// The build takes `thread/fork` but refuses its boundary member, which the static rollback
     /// flag cannot see, since a build the driver admits may predate it.
