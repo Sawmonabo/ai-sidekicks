@@ -36,7 +36,9 @@ use crate::provider::command_search::ProviderCommandSearch;
 use crate::provider::compaction_wait::PendingCompactionRegistry;
 use crate::provider::driver::attachments::{AttachmentResolver, ProviderAttachment};
 use crate::provider::driver::contract::ProviderDriver;
-use crate::provider::driver::ports::{DriverPorts, MessageRefusedListener, MessageTakenListener};
+use crate::provider::driver::ports::{
+    DriverPorts, MessageGivenBackListener, MessageRefusedListener, MessageTakenListener,
+};
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::{
     DriverServices, PROVIDERS, ProviderAccountFolders, ProviderRegistration, SessionSpawnContext,
@@ -241,6 +243,8 @@ pub(crate) struct RecordedQueue {
     pub(crate) taken: Mutex<Vec<String>>,
     /// The messages told refused, each with why, in order.
     pub(crate) refused: Mutex<Vec<(String, QueueItemNotDeliveredReason)>>,
+    /// The messages told given back, in order.
+    pub(crate) given_back: Mutex<Vec<String>>,
     /// Tells a waiter at each.
     pub(crate) changed: Notify,
 }
@@ -260,6 +264,13 @@ impl MessageRefusedListener for RecordedQueue {
         reason: QueueItemNotDeliveredReason,
     ) {
         lock(&self.refused).push((message_id.to_owned(), reason));
+        self.changed.notify_one();
+    }
+}
+
+impl MessageGivenBackListener for RecordedQueue {
+    fn message_given_back(&self, _session_id: SessionId, message_id: &str) {
+        lock(&self.given_back).push(message_id.to_owned());
         self.changed.notify_one();
     }
 }

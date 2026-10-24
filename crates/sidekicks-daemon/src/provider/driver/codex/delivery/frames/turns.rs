@@ -103,6 +103,7 @@ impl CodexFrameDelivery {
         dispatch.turns_started.push(CodexTurnMove {
             turn_id,
             run_id: turn_run.run_id,
+            ending: turn_run.ending,
             turn_end: None,
         });
     }
@@ -235,6 +236,7 @@ impl CodexFrameDelivery {
                 dispatch.turns_ended.push(CodexTurnMove {
                     turn_id: turn_id.clone(),
                     run_id: turn_run.run_id,
+                    ending: turn_run.ending,
                     turn_end,
                 });
             }

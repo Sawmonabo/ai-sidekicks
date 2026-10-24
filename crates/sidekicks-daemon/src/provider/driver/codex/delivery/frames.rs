@@ -127,6 +127,8 @@ pub(crate) struct CodexTurnMove {
     pub(crate) turn_id: String,
     /// Its run.
     pub(crate) run_id: RunId,
+    /// How the turn's run stood when the frame arrived.
+    pub(crate) ending: CodexTurnEnding,
     /// The end the run engine records for an ended turn that moves no run: a paused or retried
     /// turn's; `None` for a start, and for an end the run's own move or its interrupt records.
     pub(crate) turn_end: Option<ProviderTurnEnd>,

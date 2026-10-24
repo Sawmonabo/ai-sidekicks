@@ -74,6 +74,55 @@ pub(crate) struct CodexUnsettledOutputSpeedRun {
     pub(crate) awaits_settings_notice: bool,
 }
 
+/// The steers sent into one live turn that Codex has yet to echo, each at its place among the
+/// steers the turn took, which is its prompt's place among the turn's prompts after the opening.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CodexUnechoedSteers {
+    /// Each unechoed steer's place and message, in send order.
+    pub(crate) steers: Vec<(usize, QueueItemId)>,
+    /// How many steers the turn took, which is the next one's place.
+    pub(crate) next_place: usize,
+}
+
+impl CodexUnechoedSteers {
+    /// Registers `message_id` at the turn's next place.
+    pub(crate) fn register(&mut self, message_id: QueueItemId) {
+        self.steers.push((self.next_place, message_id));
+        self.next_place += 1;
+    }
+
+    /// Takes back `message_id`, which Codex did not take: it holds no prompt, so every later
+    /// steer moves down one place.
+    pub(crate) fn withdraw(&mut self, message_id: QueueItemId) {
+        let Some(at) = self.steers.iter().position(|(_, held)| *held == message_id) else {
+            return;
+        };
+        let (place, _) = self.steers.remove(at);
+        for (later, _) in &mut self.steers {
+            if *later > place {
+                *later -= 1;
+            }
+        }
+        self.next_place -= 1;
+    }
+
+    /// Takes `message_id` out once Codex echoed it, the rest keeping their places; `false` when
+    /// it is not held.
+    pub(crate) fn take_echoed(&mut self, message_id: QueueItemId) -> bool {
+        let held = self.steers.len();
+        self.steers.retain(|(_, unechoed)| *unechoed != message_id);
+        self.steers.len() < held
+    }
+
+    /// The unechoed steers' messages, in send order.
+    pub(crate) fn message_ids(&self) -> Vec<QueueItemId> {
+        self.steers
+            .iter()
+            .map(|(_, message_id)| *message_id)
+            .collect()
+    }
+}
+
 /// Everything the driver keeps for one live Codex session. The session's task holds it and every
 /// change to it is made there, in the order the session's frames and calls arrive.
 pub(crate) struct CodexSessionRecord {
@@ -128,8 +177,9 @@ pub(crate) struct CodexSessionRecord {
     pub(crate) interrupting_turn_ids: HashSet<String>,
     /// The steers sent into each live turn whose `userMessage` echo has yet to arrive, by turn id,
     /// each registered before its `turn/steer` is written: an echo takes one, an interrupt cancels
-    /// what its turn still holds, and the turn's end lets go of the rest.
-    pub(crate) unechoed_steers_by_turn_id: HashMap<String, Vec<QueueItemId>>,
+    /// what its turn still holds, and the turn's end lets go of the rest. A turn's entry stays
+    /// until its end, so its places count every steer the turn took.
+    pub(crate) unechoed_steers_by_turn_id: HashMap<String, CodexUnechoedSteers>,
     /// Every run of the person's own `userPromptSubmit` hook handlers on a live turn's prompts,
     /// by turn id, in the order Codex reported them; each leaves with its turn's end.
     pub(crate) prompt_hook_runs_by_turn_id: HashMap<String, Vec<CodexPromptHookRun>>,

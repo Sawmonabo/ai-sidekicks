@@ -52,8 +52,8 @@ impl CodexConnectionEvents for RecordedEvents {
 enum TestResponder {
     // Holds every ask, notifying once it is held.
     Hold(Arc<Notify>),
-    // Allows every tool call with one text item.
-    AllowToolCall(String),
+    // Accepts every elicitation with one text answer.
+    AcceptElicitation(String),
     // Fails every ask.
     Fail,
 }
@@ -70,11 +70,9 @@ impl CodexServerRequestResponder for TestResponder {
                     on_held: Some(Box::new(move || held.notify_one())),
                 })
             }
-            Self::AllowToolCall(text) => {
-                let payload: Map<String, Value> = serde_json::from_value(
-                    json!({ "contentItems": [{ "type": "inputText", "text": text }] }),
-                )
-                .expect("the payload is an object");
+            Self::AcceptElicitation(text) => {
+                let payload: Map<String, Value> = serde_json::from_value(json!({ "answer": text }))
+                    .expect("the payload is an object");
                 Ok(CodexServerRequestDecision::Answer(
                     CodexServerRequestAnswer::Allow {
                         is_for_session: false,
@@ -327,22 +325,23 @@ async fn a_server_request_nothing_decides_is_refused(
 
 #[tokio::test]
 async fn an_answer_past_the_limit_is_refused_and_a_refusal_past_it_sends_nothing() {
-    let responder = TestResponder::AllowToolCall("x".repeat(400));
+    let responder = TestResponder::AcceptElicitation("x".repeat(400));
     let (_connection, mut service, _events) = connect(300, Some(Arc::new(responder)));
+    let method = "mcpServer/elicitation/request";
 
-    service.send(&json!({ "jsonrpc": "2.0", "id": 1, "method": "item/tool/call", "params": {} }));
+    service.send(&json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": {} }));
     assert_eq!(
         service.next_sent().await,
         json!({
             "jsonrpc": "2.0",
             "id": 1,
-            "result": CodexRoutedMethod::ToolCall
+            "result": CodexRoutedMethod::ElicitationRequest
                 .compose_refused_result(CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON),
         })
     );
 
     let long_id = "i".repeat(300);
-    service.send(&json!({ "jsonrpc": "2.0", "id": long_id, "method": "item/tool/call" }));
+    service.send(&json!({ "jsonrpc": "2.0", "id": long_id, "method": method }));
     service.send(&json!({ "jsonrpc": "2.0", "id": 2, "method": "currentTime/read" }));
     assert_eq!(service.next_sent().await["id"], json!(2));
     assert!(service.sent.try_recv().is_err(), "nothing else was sent");

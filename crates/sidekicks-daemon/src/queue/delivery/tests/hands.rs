@@ -23,7 +23,9 @@ use super::{
 use crate::ipc::handlers::driver::resolution::read_run_driver;
 use crate::provider::driver::contract::MockProviderDriver;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
-use crate::provider::driver::ports::{MessageRefusedListener as _, MessageTakenListener as _};
+use crate::provider::driver::ports::{
+    MessageGivenBackListener as _, MessageRefusedListener as _, MessageTakenListener as _,
+};
 use crate::provider::driver::run_control::RunToolBoundary;
 use crate::queue::delivery::{DeliveryError, InterruptHoldRelease};
 use crate::queue::store::{QueueItemRecord, RecordedQueueItemState};
@@ -81,6 +83,48 @@ async fn a_handed_message_the_provider_settles_reads_its_settlement_and_lets_its
     assert!(!fixture.delivery.is_handed(&item.id));
     assert!(fixture.delivery.is_handed(&next.id));
     assert_eq!(steers.load(Ordering::SeqCst), 2);
+}
+
+// A handed message its provider let go unsent waits again: a running run is handed it again, and
+// a pausing one is handed nothing, so its continue reads it. Killed by keeping the hand, and by
+// giving it back without handing the run's waiting messages again.
+#[rstest]
+#[case::running(RunState::Running)]
+#[case::pausing(RunState::Pausing)]
+#[tokio::test]
+async fn a_message_the_provider_gives_back_waits_again_and_a_running_run_takes_it(
+    #[case] state: RunState,
+) {
+    let mut driver = driver_handing(HANDS_AT_ONCE);
+    let steers = count_steers(&mut driver);
+    let fixture = fixture(driver).await;
+    let item = insert_item(&fixture).await;
+    hand(&fixture).await;
+    settle(&fixture).await;
+    set_run_state(&fixture, state);
+
+    fixture
+        .delivery
+        .message_given_back(fixture.session_id, item.id.text().as_str());
+    settle(&fixture).await;
+    let tasks = &fixture.delivery.shared.tasks;
+    tasks.close();
+    timeout(WAIT, tasks.wait())
+        .await
+        .expect("the hand after the give-back ends");
+
+    assert_eq!(
+        stored_item(&fixture, item.id).state,
+        RecordedQueueItemState::Queued
+    );
+    if state == RunState::Running {
+        assert!(fixture.delivery.is_handed(&item.id));
+        assert_eq!(steers.load(Ordering::SeqCst), 2);
+    } else {
+        assert!(!fixture.delivery.is_handed(&item.id));
+        assert_eq!(steers.load(Ordering::SeqCst), 1);
+        assert_eq!(continued_ids(&fixture).await, [item.id]);
+    }
 }
 
 // Killed by a hand that joins the chain from a task of its own: a gate joined as soon as the

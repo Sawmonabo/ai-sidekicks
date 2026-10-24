@@ -120,6 +120,7 @@ pub(crate) fn run_codex_run_control_call(
             let dropped = record
                 .unechoed_steers_by_turn_id
                 .remove(&turn_id)
+                .map(|unechoed| unechoed.message_ids())
                 .unwrap_or_default();
             let _unheard = reply.send(dropped);
         }
@@ -136,7 +137,6 @@ pub(crate) fn run_codex_run_control_call(
             reply,
         } => {
             record.interrupting_turn_ids.remove(&turn_id);
-            forget_ended_turn_steers(record, &turn_id);
             let waiting = if is_stopped {
                 dependencies.run_routes.retire_turn_route(record, &turn_id);
                 None

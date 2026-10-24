@@ -371,7 +371,7 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
 
 /// What applying a delivery's report acts through, borrowed from the driver's parts.
 pub(crate) struct CodexRoutedFramesIntake<'parts> {
-    /// The queue's intake of taken and refused messages, and the usage record.
+    /// The queue's intake of taken, refused and given-back messages, and the usage record.
     pub(crate) ports: &'parts DriverPorts,
     /// The run engine an ended turn's end is recorded in.
     pub(crate) engine: &'parts Arc<RunEngine>,
@@ -388,8 +388,9 @@ pub(crate) struct CodexRoutedFramesIntake<'parts> {
 /// Applies what a delivery reported on `record`'s session, in delivery order: each
 /// context-window reading filed on its run before any turn's end retires the route, each steer
 /// Codex echoed taken from the queue once, each prompt's hook runs remembered, and for each ended
-/// turn its blocked steers refused, its end recorded where no run moved, its route retired, its pause or
-/// continue acted on and its owed fork let go; then the spend it metered recorded.
+/// turn its blocked steers refused and those a pause or a retry dropped given back, its end
+/// recorded where no run moved, its route retired, its pause or continue acted on and its owed
+/// fork let go; then the spend it metered recorded.
 pub(crate) async fn apply_codex_routed_frames(
     intake: &CodexRoutedFramesIntake<'_>,
     record: &mut CodexSessionRecord,
@@ -420,14 +421,19 @@ pub(crate) async fn apply_codex_routed_frames(
         }
         for ended in dispatch.turns_ended {
             // Before the queue registers its intake there is no queue to tell.
-            let refused = take_blocked_codex_steers(record, &ended.turn_id);
+            let steers = take_blocked_codex_steers(record, &ended.turn_id, ended.ending);
             if let Some(listener) = intake.ports.message_refused.port() {
-                for (message_id, words) in refused {
+                for (message_id, words) in steers.refused {
                     listener.message_refused(
                         session_id,
                         &message_id.to_string(),
                         QueueItemNotDeliveredReason::RefusedByHook { words },
                     );
+                }
+            }
+            if let Some(listener) = intake.ports.message_given_back.port() {
+                for message_id in steers.dropped {
+                    listener.message_given_back(session_id, &message_id.to_string());
                 }
             }
             if let Some(turn_end) = ended.turn_end {

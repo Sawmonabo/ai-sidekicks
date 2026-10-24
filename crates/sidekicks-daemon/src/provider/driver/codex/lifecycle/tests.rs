@@ -72,23 +72,30 @@ pub(super) struct LiveCodexSession {
 impl LiveCodexSession {
     /// The session with `steers` sent into its turn and not yet echoed.
     pub(super) async fn start(steers: &[QueueItemId]) -> Self {
-        Self::open(Some(steers), &[]).await
+        Self::open(Some(steers), &[], false).await
+    }
+
+    /// The session with `steers` sent into its turn and not yet echoed, a faster-model retry
+    /// having taken that turn from its run to stop it.
+    pub(super) async fn retried(steers: &[QueueItemId]) -> Self {
+        Self::open(Some(steers), &[], true).await
     }
 
     /// The session with no turn running, its run bound but not started.
     pub(super) async fn idle() -> Self {
-        Self::open(None, &[]).await
+        Self::open(None, &[], false).await
     }
 
     /// The session running on [`TEST_TURN`] with `released`, notifications Codex sent before its
     /// task ran, routed as one batch its task applies first.
     pub(super) async fn with_released(released: &[Value]) -> Self {
-        Self::open(Some(&[]), released).await
+        Self::open(Some(&[]), released, false).await
     }
 
-    // The session, its run on a turn with `steers` unechoed in it where they are given, and
-    // `released` routed for its task to apply first.
-    async fn open(steers: Option<&[QueueItemId]>, released: &[Value]) -> Self {
+    // The session, its run on a turn with `steers` unechoed in it where they are given, that turn
+    // taken from its run for a retry where `is_retried`, and `released` routed for its task to
+    // apply first.
+    async fn open(steers: Option<&[QueueItemId]>, released: &[Value], is_retried: bool) -> Self {
         let scripted = start_scripted_codex_service();
         let database = TestDatabase::new();
         let log = open_log(&database, None).await;
@@ -123,6 +130,7 @@ impl LiveCodexSession {
         );
         assert!(ports.message_taken.register(queue.clone()).is_ok());
         assert!(ports.message_refused.register(queue.clone()).is_ok());
+        assert!(ports.message_given_back.register(queue.clone()).is_ok());
         let driver = CodexDriver::new(&services);
         let parts = Arc::clone(driver.parts().expect("the driver composes"));
 
@@ -178,10 +186,22 @@ impl LiveCodexSession {
             record.add_active_turn(TEST_TURN.to_owned(), run_id);
             parts.run_routes.bind_run(run_id, session_id);
             if !steers.is_empty() {
-                record
+                let unechoed = record
                     .unechoed_steers_by_turn_id
-                    .insert(TEST_TURN.to_owned(), steers.to_vec());
+                    .entry(TEST_TURN.to_owned())
+                    .or_default();
+                for steer in steers {
+                    unechoed.register(*steer);
+                }
             }
+        }
+        if is_retried {
+            // As the retry's stop marks its turn before its interrupt goes.
+            record
+                .delivery
+                .retried_run_id_by_turn_id
+                .insert(TEST_TURN.to_owned(), run_id);
+            parts.run_routes.retire_turn_route(&mut record, TEST_TURN);
         }
         let mut routed = CodexRoutedFrames::default();
         for frame in released {
