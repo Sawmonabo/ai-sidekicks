@@ -127,10 +127,10 @@ fn test_recovery(
             reviewer_denials,
             process_gone,
             session_relaunched,
-            rate_limits: CodexRateLimitFiling {
-                dispatch: Arc::clone(&session.dispatch),
-                spawn_contexts: Arc::new(OneFolder(folder.join("work"))),
-            },
+            rate_limits: CodexRateLimitFiling::new(
+                Arc::clone(&session.dispatch),
+                Arc::new(OneFolder(folder.join("work"))),
+            ),
             tasks: TaskTracker::new(),
         },
     ))

@@ -294,10 +294,8 @@ impl CodexDriver {
                 processes: Arc::clone(&self.processes),
             },
         ));
-        let rate_limits = || CodexRateLimitFiling {
-            dispatch: Arc::clone(&dispatch),
-            spawn_contexts: Arc::clone(&self.spawn_contexts),
-        };
+        let rate_limits =
+            CodexRateLimitFiling::new(Arc::clone(&dispatch), Arc::clone(&self.spawn_contexts));
         let recovery = Arc::new(CodexServiceRecovery::new(
             CodexServiceRecoveryDependencies {
                 slots: Arc::clone(&self.slots),
@@ -309,7 +307,7 @@ impl CodexDriver {
                 reviewer_denials: Arc::clone(&ports.reviewer_denials),
                 process_gone: Arc::clone(&ports.process_gone),
                 session_relaunched: Arc::clone(&ports.session_relaunched),
-                rate_limits: rate_limits(),
+                rate_limits: rate_limits.clone(),
                 tasks: self.tasks.clone(),
             },
         ));
@@ -387,7 +385,7 @@ impl CodexDriver {
                 daemon_turn_bindings,
                 reads: Arc::clone(&self.reads),
             },
-            rate_limits: rate_limits(),
+            rate_limits,
             engine,
             ports: Arc::clone(ports),
             registry: Arc::clone(&self.registry),
