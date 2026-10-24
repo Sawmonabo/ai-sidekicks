@@ -9,7 +9,9 @@ use rstest::rstest;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::json;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
-use sidekicks_platforms::{BlockingCredentialStore, CredentialStore, SealKey, secret_store_offer};
+use sidekicks_platforms::{
+    BlockingCredentialStore, CredentialStore, SealKey, SecretStoreOffer, secret_store_offer,
+};
 
 use super::{SecretItems, SecretItemsStart};
 use crate::credential_store::SecretKeychain;
@@ -585,18 +587,21 @@ async fn the_erase_deletes_every_item_the_app_made_and_nothing_else() {
     assert!(!folder.path().join(ITEMS).exists());
 }
 
-/// Each item round-trips through this machine's own credential store, the login keychain or the
-/// Credential Manager.
+/// Each item round-trips through this machine's own credential store, the login keychain on macOS
+/// or the Credential Manager on Windows; Linux runs the sealed file's live test instead.
 #[tokio::test]
-#[ignore = "needs this machine's real credential store"]
+#[ignore = "needs the login keychain on macOS or the Credential Manager on Windows"]
 async fn an_item_round_trips_through_this_machines_credential_store() {
+    let offer = secret_store_offer();
+    assert!(
+        matches!(offer, SecretStoreOffer::OperatingSystem(_)),
+        "this machine offers its own credential store only on macOS and Windows"
+    );
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let items = SecretItems::new(SecretItemsStart {
         data_folder: folder.path().to_path_buf(),
         runs_while_logged_out: false,
-        access: Arc::new(SystemCredentialStore {
-            offer: secret_store_offer(),
-        }),
+        access: Arc::new(SystemCredentialStore { offer }),
         call_timeout: Duration::from_secs(30),
     })
     .expect("the system gives random bytes");

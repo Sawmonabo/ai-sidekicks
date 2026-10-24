@@ -111,12 +111,14 @@ fn form(folder: &Path) -> Option<String> {
 /// nothing recorded), and a later start keeping its record (a sealed file that cannot open refused
 /// with its cause and left byte for byte, a chip item failing under a probe without the chip read
 /// as the chip off, an item failing under the probe's own key as the key changed, a plain file
-/// sealed once the service seals unbound, an item sealed with the system key sealed again with the
-/// chip). Mutations: drop the allow-list (any refusal then picks the plain file); read every
-/// refusal as definite; read a bound probe as sealed; read every failing item as `keyChanged`, or
-/// every chip item as `chipUnavailable`; keep a plain record when the service seals; skip the
-/// upward re-seal; write the record before the open; open a first start's plain file as sealed,
-/// which refuses it on its form.
+/// sealed once the service seals unbound, its reason recorded again from the probe, an item sealed
+/// with the system key sealed again with the chip, a file mixing keys read by the weakest).
+/// Mutations: drop the allow-list (any refusal then picks the plain file); read every refusal as
+/// definite; read a bound probe as sealed; read every failing item as `keyChanged`, or every chip
+/// item as `chipUnavailable`; keep a plain record when the service seals; keep a plain record's
+/// reason when the probe gives another; skip the upward re-seal; write the record before the open;
+/// open a first start's plain file as sealed, which refuses it on its form; read the protection
+/// from any chip item rather than every one.
 #[rstest]
 #[case::first_start_sealed_with_the_chip(
     None, Before::Nothing, SealNow::serves(SealKey::Chip),
@@ -233,8 +235,8 @@ fn form(folder: &Path) -> Option<String> {
 )]
 #[case::recorded_plain_without_the_service(
     Some(BOOT_BOUND), Before::Plain, SealNow::answers(TestSealAnswer::Absent),
-    Ok(()), Some(BOOT_BOUND), After::Form("plain"),
-    Some(json!({"protection":"plain","reason":"bootBound"}))
+    Ok(()), Some(NO_SEAL_SERVICE), After::Form("plain"),
+    Some(json!({"protection":"plain","reason":"noSealService"}))
 )]
 #[tokio::test]
 async fn the_start_picks_and_keeps_the_linux_secrets_place(

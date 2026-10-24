@@ -308,7 +308,7 @@ impl SecretItems {
                 }
                 Probe::Sealed(header) => {
                     log_boot_bound(header);
-                    plain_file(DaemonSecretsPlainReason::BootBound)
+                    plain_file_place(DaemonSecretsPlainReason::BootBound)
                 }
                 Probe::Failed(SealFailure::NoService(failure)) => {
                     tracing::warn!(
@@ -317,7 +317,7 @@ impl SecretItems {
                         "systemd's credential service is not running, so the secrets are kept \
                          plain in the items file"
                     );
-                    plain_file(DaemonSecretsPlainReason::NoSealService)
+                    plain_file_place(DaemonSecretsPlainReason::NoSealService)
                 }
                 Probe::Failed(failure) if is_definite_refusal(&failure) => {
                     tracing::warn!(
@@ -326,7 +326,7 @@ impl SecretItems {
                         "systemd's credential service cannot seal on this computer, so the \
                          secrets are kept plain in the items file"
                     );
-                    plain_file(DaemonSecretsPlainReason::SealFailed)
+                    plain_file_place(DaemonSecretsPlainReason::SealFailed)
                 }
                 Probe::Failed(failure) => return Err(seal_refused(failure)),
                 Probe::NoAnswer => return Err(self.no_answer()),
@@ -344,7 +344,8 @@ impl SecretItems {
         Ok(state.accept(place))
     }
 
-    // Checks the place `recorded` names, sealing a Linux plain file once the service seals for it.
+    // Checks the place `recorded` names, sealing a Linux plain file once the service seals for it
+    // and recording a plain file's reason again when this start's probe gives another.
     async fn settle_recorded(
         &self,
         state: &mut PlaceState,
@@ -368,35 +369,56 @@ impl SecretItems {
             self.record(state, SecretsPlace::SealedFile).await?;
             return self.settle_sealed(state).await;
         }
-        match self.probe(seal.as_ref()).await? {
+        // The reason this start's probe gives, where it gives one.
+        let reason_now = match self.probe(seal.as_ref()).await? {
             Probe::Sealed(header) if !header.is_boot_bound() => {
                 if let Some(place) = self.seal_plain_file(state, header).await? {
                     return Ok(place);
                 }
+                None
             }
             Probe::Sealed(header) => {
                 log_boot_bound(header);
-                if reason != DaemonSecretsPlainReason::BootBound {
-                    let place = plain_file(DaemonSecretsPlainReason::BootBound);
-                    self.record(state, place).await?;
-                    self.check_written(state, place).await?;
-                    return Ok(state.accept(place));
-                }
+                Some(DaemonSecretsPlainReason::BootBound)
             }
-            Probe::Failed(failure) => tracing::info!(
-                error = &failure as &(dyn Error + 'static),
-                "systemd's credential service did not seal the check's value, so the secrets \
-                 stay plain until a later start"
-            ),
-            Probe::NoAnswer => tracing::info!(
-                timeout = ?self.seal_check_timeout,
-                "systemd's credential service gave no answer in time, so the secrets stay plain \
-                 until a later start"
-            ),
-            Probe::Mismatch => log_mismatch(),
-        }
-        self.check_written(state, recorded).await?;
-        Ok(state.accept(recorded))
+            Probe::Failed(SealFailure::NoService(failure)) => {
+                tracing::info!(
+                    error = &failure as &(dyn Error + 'static),
+                    "systemd's credential service is not running, so the secrets stay plain"
+                );
+                Some(DaemonSecretsPlainReason::NoSealService)
+            }
+            Probe::Failed(failure) => {
+                tracing::info!(
+                    error = &failure as &(dyn Error + 'static),
+                    "systemd's credential service did not seal the check's value, so the secrets \
+                     stay plain until a later start"
+                );
+                None
+            }
+            Probe::NoAnswer => {
+                tracing::info!(
+                    timeout = ?self.seal_check_timeout,
+                    "systemd's credential service gave no answer in time, so the secrets stay \
+                     plain until a later start"
+                );
+                None
+            }
+            Probe::Mismatch => {
+                log_mismatch();
+                None
+            }
+        };
+        let place = match reason_now {
+            Some(now) if now != reason => {
+                let place = plain_file_place(now);
+                self.record(state, place).await?;
+                place
+            }
+            Some(_) | None => recorded,
+        };
+        self.check_written(state, place).await?;
+        Ok(state.accept(place))
     }
 
     // Runs the write-read-delete check on `place`; the caller accepts it once its record names
@@ -516,7 +538,7 @@ impl SecretItems {
             ),
             SecretsPlace::SealedFile => Box::new(
                 self.items_file
-                    .keychain(service.as_str(), Some(Arc::clone(self.seal()?))),
+                    .keychain(service.as_str(), Some(Arc::clone(self.seal_service()?))),
             ),
             SecretsPlace::PlainFile { .. } | SecretsPlace::LoggedOutServiceFile => {
                 Box::new(self.items_file.keychain(service.as_str(), None))
@@ -525,7 +547,7 @@ impl SecretItems {
     }
 
     // systemd's credential service. Fails with [`KeychainRefusal`] where it is not offered.
-    fn seal(&self) -> Result<&Arc<dyn SecretSeal>, KeychainRefusal> {
+    fn seal_service(&self) -> Result<&Arc<dyn SecretSeal>, KeychainRefusal> {
         self.seal.as_ref().ok_or_else(not_offered)
     }
 }
@@ -596,7 +618,7 @@ impl SecretKeychain for ItemsKeychain {
 }
 
 // A plain Linux file kept for `reason`.
-fn plain_file(reason: DaemonSecretsPlainReason) -> SecretsPlace {
+fn plain_file_place(reason: DaemonSecretsPlainReason) -> SecretsPlace {
     SecretsPlace::PlainFile { reason }
 }
 

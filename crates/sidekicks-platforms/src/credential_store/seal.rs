@@ -204,8 +204,8 @@ pub enum SealFailure {
     Broken(&'static str),
 }
 
-/// The key a blob was sealed with, by the key id at the start of its header.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// The key a blob was sealed with, by the key id at the start of its header, ordered as declared.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SealKey {
     /// This computer's system key alone, scoped to the user (`HOST_SCOPED`).
     SystemKey,
@@ -559,7 +559,11 @@ mod tests {
     )]
     #[case::unseal(
         Method::Unseal,
-        format!("{{\"parameters\":{{\"data\":\"{}\"}}}}\0", STANDARD.encode("hunter2")).into_bytes(),
+        format!(
+            "{{\"parameters\":{{\"data\":\"{}\"}}}}\0",
+            STANDARD.encode("hunter2")
+        )
+        .into_bytes(),
         json!({
             "method": "io.systemd.Credentials.Decrypt",
             "parameters": {"name": NAME, "blob": "QkxPQg==", "scope": "user"},

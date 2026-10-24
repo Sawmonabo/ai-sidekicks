@@ -9,7 +9,7 @@ use std::sync::Arc;
 use secrecy::ExposeSecret as _;
 use sidekicks_contracts::daemon::status::DaemonSecretsFileUnopened;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
-use sidekicks_platforms::{SealFailure, SealHeader, SealKey};
+use sidekicks_platforms::{SealFailure, SealHeader};
 
 use super::{PlaceState, SecretItems, log_mismatch, random_value};
 use crate::credential_store::file::{SealPass, SealedItem, credential_name, is_weaker};
@@ -46,7 +46,7 @@ impl SecretItems {
         state: &mut PlaceState,
         header: SealHeader,
     ) -> Result<Option<SecretsPlace>, KeychainRefusal> {
-        let seal = Arc::clone(self.seal()?);
+        let seal = Arc::clone(self.seal_service()?);
         match self.items_file.seal_again(seal, header).await? {
             SealPass::Unchanged | SealPass::Sealed => {}
             SealPass::Abandoned(why) => {
@@ -112,7 +112,7 @@ impl SecretItems {
         state: &mut PlaceState,
         probe: SealHeader,
     ) -> Result<(), KeychainRefusal> {
-        let seal = self.seal()?;
+        let seal = self.seal_service()?;
         let mut samples = BTreeMap::new();
         let mut is_any_weaker = false;
         for item in self.items_file.sealed_items().await? {
@@ -121,7 +121,7 @@ impl SecretItems {
             }
             let key = item.header().map(SealHeader::key);
             is_any_weaker |= key.is_some_and(|key| is_weaker(key, probe.key()));
-            samples.entry(key.map(key_rank)).or_insert(item);
+            samples.entry(key).or_insert(item);
         }
         let opened = tokio::time::timeout(
             self.seal_check_timeout,
@@ -244,17 +244,6 @@ pub(super) fn is_definite_refusal(failure: &SealFailure) -> bool {
                     && matches!(*errno, Some(LINUX_ENOTRECOVERABLE | LINUX_EOPNOTSUPP)))
         }
         SealFailure::NoService(_) | SealFailure::Failed(_) | SealFailure::Broken(_) => false,
-    }
-}
-
-// Orders the keys a sampled item may name, so one item per key is opened.
-fn key_rank(key: SealKey) -> u8 {
-    match key {
-        SealKey::SystemKey => 0,
-        SealKey::Chip => 1,
-        SealKey::ChipWithPublicKey => 2,
-        SealKey::ChipPinned => 3,
-        SealKey::ChipWithPublicKeyPinned => 4,
     }
 }
 

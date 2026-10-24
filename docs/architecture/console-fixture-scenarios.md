@@ -243,7 +243,7 @@ Each scenario is a screen state to reach and what must be true once it is reache
 | Providers, keychain locked | A pasted token that could not be sealed because this machine's keychain is locked, the token form saying so and asking for the token again once it is unlocked, and nothing stored anywhere else |
 | Providers, keychain unusable | A pasted token that could not be sealed because this machine's keychain cannot be used right now, the token form saying so and asking for the token again once it can be |
 | Providers, token in a file | On a machine whose `daemon.status.read` carries `secretsFile` with its `protection` plain, the paste field's line reading `Stored unencrypted. Only this account can read it.`, and a token that registers settling with `Token saved. Stored unencrypted.` |
-| Providers, token sealed | On a Linux computer whose `daemon.status.read` carries `secretsFile` sealed, the paste field's line reading `Sealed to this computer. Never shown again.`, and a token that registers settling with `Token saved. Sealed to this computer.` |
+| Providers, token sealed | On a Linux computer whose `daemon.status.read` carries `secretsFile` with its `protection` `sealedWithChip` or `sealedWithSystemKey`, the paste field's line reading `Sealed to this computer. Never shown again.`, and a token that registers settling with `Token saved. Sealed to this computer.` |
 | Providers, import settled | One import finished with what it read, the other refused with a try-again |
 | Providers, import unread files | An import that settled with files it could not read, whose row unfolds their paths |
 | Providers, import part failed | An import that settled with some sessions failed, each unfolding with its reason |
