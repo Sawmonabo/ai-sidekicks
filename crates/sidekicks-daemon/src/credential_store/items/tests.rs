@@ -1,3 +1,5 @@
+mod sealed;
+
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;

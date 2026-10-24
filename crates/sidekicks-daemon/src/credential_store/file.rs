@@ -620,7 +620,9 @@ mod tests {
     use secrecy::{ExposeSecret, SecretString};
     use sidekicks_contracts::keychain::KeychainRefusalCause;
 
-    use super::SecretItemsFile;
+    use sidekicks_platforms::{SealHeader, SealKey};
+
+    use super::{SealPass, SecretItemsFile};
     use crate::credential_store::SecretKeychain;
     use crate::credential_store::seal::TestSeal;
 
@@ -780,6 +782,41 @@ mod tests {
         assert_eq!(
             kept.as_ref().map(ExposeSecret::expose_secret),
             Some("second")
+        );
+    }
+
+    /// A pass sealing a plain file again whose new blob would be weaker than the start's probe or
+    /// bound to the boot state is abandoned, the plain file left byte for byte. Mutation: drop the
+    /// pass's floor check, so the file is sealed downward.
+    #[rstest]
+    #[case::weaker_key(SealKey::SystemKey, 0)]
+    #[case::bound_to_the_boot_state(SealKey::Chip, 1 << 7)]
+    #[tokio::test]
+    async fn a_pass_that_would_seal_downward_is_abandoned(
+        #[case] key: SealKey,
+        #[case] pcr_mask: u64,
+    ) {
+        let folder = tempfile::tempdir().expect("the test makes a folder");
+        items_file(&folder, None)
+            .keychain(SERVICE)
+            .write("secret", &SecretString::from("value"))
+            .await
+            .expect("the test fills the file");
+        let bytes_before = std::fs::read(folder.path().join("secrets.json")).expect("it is there");
+        let seal = TestSeal::new();
+        seal.seal_with(key, pcr_mask);
+        let probe = SealHeader::read(&SealHeader::test_blob(SealKey::Chip, 0, b"probe"))
+            .expect("the test blob has a header");
+
+        let pass = items_file(&folder, Some(&seal))
+            .seal_again(probe)
+            .await
+            .expect("the file reads");
+
+        assert!(matches!(pass, SealPass::Abandoned(_)), "{pass:?}");
+        assert_eq!(
+            std::fs::read(folder.path().join("secrets.json")).expect("it is there"),
+            bytes_before
         );
     }
 
