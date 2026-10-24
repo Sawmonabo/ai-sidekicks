@@ -166,6 +166,7 @@ impl SecretItems {
         if let Some(cause) = cause {
             return Err(state.refuse_opening(cause));
         }
+        state.clear_opening();
         if is_any_weaker && !state.is_pass_refused {
             let pass = self
                 .items_file

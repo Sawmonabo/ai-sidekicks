@@ -123,6 +123,11 @@ impl PlaceState {
         cannot_open(cause)
     }
 
+    // Forgets why the sealed file could not be opened, once each item it samples opens.
+    pub(super) fn clear_opening(&mut self) {
+        lock(&self.view).cannot_open = None;
+    }
+
     // Records that the sealed file cannot be opened for `cause` until the next start, and the
     // refusal for it.
     pub(super) fn latch_opening(&mut self, cause: DaemonSecretsFileUnopened) -> KeychainRefusal {

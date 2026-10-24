@@ -8,7 +8,7 @@ use rstest::rstest;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::json;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
-use sidekicks_platforms::{is_superuser, make_unreadable};
+use sidekicks_platforms::{SealKey, is_superuser, make_unreadable};
 
 use super::sealed::{NO_SEAL_SERVICE, SEAL_FAILED, form};
 use super::{
@@ -19,7 +19,7 @@ use crate::credential_store::SecretKeychain;
 use crate::credential_store::file::SecretItemsFile;
 use crate::credential_store::items::sealed_file::pass_unanswered;
 use crate::credential_store::os::TestStoreAccess;
-use crate::credential_store::seal::TestSeal;
+use crate::credential_store::seal::{TestSeal, TestSealAnswer};
 use crate::credential_store::service::KeychainService;
 
 /// A pass sealing a plain file that runs past a call's time keeps running once that call refuses,
@@ -214,4 +214,54 @@ async fn a_refused_seal_pass_starts_no_other_this_run(
         record_after
     );
     assert_eq!(status(&items).await, status_after);
+}
+
+/// A cause the run checks again is forgotten once every sampled item opens, so a call that runs out
+/// of time while its pass seals the items again leaves the status naming none. Mutation: drop
+/// `clear_opening` from `open_sealed`, so the status keeps the cause from the earlier call.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cause_is_forgotten_once_the_items_open_again() {
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    std::fs::write(folder.path().join(RECORD), SEALED).expect("the test writes the record");
+    let seal = TestSeal::new();
+    seal.seal_with(SealKey::SystemKey, 0);
+    let sealed =
+        SecretItemsFile::new(folder.path()).keychain(WORKFLOW, Some(Arc::clone(&seal) as _));
+    for account in [EARLIER, "second", "third", "fourth"] {
+        sealed
+            .write(account, &SecretString::from("earlier value"))
+            .await
+            .expect("the test fills the file");
+    }
+    seal.answer(TestSealAnswer::Absent);
+    let items = secret_items(
+        folder.path(),
+        &TestStoreAccess::sealing(Arc::clone(&seal)),
+        false,
+        Duration::from_millis(900),
+    );
+    let keychain = items.keychain(KeychainService::WorkflowSecrets);
+
+    let missing = keychain.read(EARLIER).await.err();
+    let status_missing = status(&items).await;
+    seal.answer(TestSealAnswer::Serves);
+    seal.seal_with(SealKey::Chip, 0);
+    // Four items' seals again, each inside the check's 300 ms and 1 s in all, outlast the 900 ms
+    // call; the probe's are not delayed.
+    seal.delay_seals_under(WORKFLOW, Duration::from_millis(250));
+    let ran_out = tokio::time::timeout(Duration::from_secs(5), keychain.read(EARLIER))
+        .await
+        .expect("the call answers within its time")
+        .err();
+    let status_after = status(&items).await.expect("the file holds items");
+
+    assert!(
+        missing.is_some() && ran_out.is_some(),
+        "both calls are refused"
+    );
+    assert_eq!(
+        status_missing,
+        Some(json!({"protection":"sealedWithSystemKey","cannotOpen":"sealServiceMissing"}))
+    );
+    assert_eq!(status_after.get("cannotOpen"), None, "{status_after}");
 }

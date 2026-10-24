@@ -23,6 +23,7 @@
 //! themselves when dropped.
 
 use std::collections::BTreeMap;
+use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -321,10 +322,16 @@ impl SecretItemsFile {
         tokio::spawn(async move {
             let pass = items_file.seal_held(seal.as_ref(), probe, time).await;
             if still_waiting.is_closed() {
-                tracing::info!(
-                    pass = ?pass.as_ref().ok(),
-                    "the items file's seal pass ended after its caller stopped waiting"
-                );
+                match &pass {
+                    Ok(pass) => tracing::info!(
+                        pass = ?pass,
+                        "the items file's seal pass ended after its caller stopped waiting"
+                    ),
+                    Err(refusal) => tracing::warn!(
+                        error = refusal as &(dyn Error + 'static),
+                        "the items file's seal pass failed after its caller stopped waiting"
+                    ),
+                }
             }
             pass
         })
@@ -527,12 +534,16 @@ impl SecretItemsFile {
             .run_held(
                 (service.to_owned(), account.to_owned()),
                 change,
-                move |answer| {
-                    tracing::warn!(
+                move |answer| match answer {
+                    Ok(_) => tracing::warn!(
                         service = logged_service,
-                        is_answered = answer.is_ok(),
                         "an items file write landed after its caller stopped waiting"
-                    );
+                    ),
+                    Err(refusal) => tracing::warn!(
+                        service = logged_service,
+                        error = refusal as &(dyn Error + 'static),
+                        "an items file write failed after its caller stopped waiting"
+                    ),
                 },
             )
             .await;
