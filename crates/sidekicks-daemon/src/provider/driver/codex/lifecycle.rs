@@ -347,9 +347,6 @@ impl CodexDriver {
             ask_intake: CodexAskIntake {
                 hand_off: Arc::clone(&hand_off),
                 run_routes: Arc::clone(&self.run_routes),
-                // The callback-tool host answers Codex's calls on no driver port yet.
-                callback_tools: Arc::new(PortRegistration::new("callback tools")),
-                tasks: self.tasks.clone(),
             },
             side_questions: CodexSideQuestions::new(Arc::clone(&dispatch), self.tasks.clone()),
             interventions: CodexInterventionDispatcher::new(Arc::clone(&run_control) as _),

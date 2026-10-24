@@ -82,3 +82,48 @@ async fn a_steer_the_prompt_hook_blocked_is_refused_with_its_words_and_never_tak
     assert_eq!(words.as_str(), "no secrets in prompts");
     assert_eq!(*lock(&session.queue.taken), [echoed.to_string()]);
 }
+
+// The daemon declares no dynamic tool, so a tool call Codex sends anyway is refused with the ask's
+// refusal, never held. Killed by holding a tool call as an approval or a question is held.
+#[tokio::test]
+async fn a_dynamic_tool_call_is_refused_as_a_tool_the_daemon_does_not_serve() {
+    let mut session = LiveCodexSession::start(&[]).await;
+
+    session.scripted.script.send(&json!({
+        "jsonrpc": "2.0",
+        "id": "tool-call-1",
+        "method": "item/tool/call",
+        "params": {
+            "threadId": TEST_THREAD,
+            "turnId": TEST_TURN,
+            "callId": "call-1",
+            "tool": "lookup",
+            "arguments": {},
+        },
+    }));
+    let answer = loop {
+        let sent =
+            tokio::time::timeout(Duration::from_secs(10), session.scripted.script.next_sent())
+                .await
+                .expect("the session answers the tool call");
+        if sent["id"] == "tool-call-1" {
+            break sent;
+        }
+    };
+
+    let refusal = "The daemon serves no tool for the provider's \"item/tool/call\" request.";
+    assert_eq!(
+        answer,
+        json!({
+            "jsonrpc": "2.0",
+            "id": "tool-call-1",
+            "result": {
+                "success": false,
+                "contentItems": [{
+                    "type": "inputText",
+                    "text": refusal,
+                }],
+            },
+        })
+    );
+}

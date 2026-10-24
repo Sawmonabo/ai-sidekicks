@@ -10,10 +10,8 @@ use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::id::SessionId;
 
 use crate::provider::driver::codex::app_server_protocol::SERVER_REQUEST_METHODS;
-use crate::provider::driver::codex::ask_option_sets::ProviderAskOption;
 use crate::provider::driver::codex::delivery::elicitation_form::compose_codex_elicitation_content;
 use crate::provider::driver::codex::delivery::question_answers::compose_codex_user_input_answers;
 use crate::provider::driver::codex::event_normalizer::is_codex_tool_call_approval_elicitation;
@@ -344,8 +342,8 @@ pub(crate) struct CodexInboundServerRequest {
     pub(crate) params: Box<RawValue>,
 }
 
-/// The port the daemon binds to answer routed asks: the callback-tool host for a tool call, the
-/// approval pipeline otherwise. With none bound every routed ask answers its own refusal.
+/// The port the daemon binds to answer routed asks. With none bound every routed ask answers its
+/// own refusal.
 pub(crate) trait CodexServerRequestResponder: Send + Sync {
     /// Answers or holds one ask; a failure leaves the ask undecided, so it is refused. Called on
     /// the connection's reader in arrival order, so whatever it does before it returns happens
@@ -354,33 +352,6 @@ pub(crate) trait CodexServerRequestResponder: Send + Sync {
         &self,
         request: CodexInboundServerRequest,
     ) -> BoxFuture<'static, Result<CodexServerRequestDecision, DriverError>>;
-}
-
-/// One routed ask with the session and run it belongs to. `run_id` is `None`, never invented,
-/// when the ask cannot be attributed to a run.
-#[expect(
-    dead_code,
-    reason = "the Codex session attributes each routed ask to its run"
-)]
-#[derive(Debug)]
-pub(crate) struct CodexSessionServerRequest {
-    /// The ask.
-    pub(crate) request: CodexInboundServerRequest,
-    /// The session.
-    pub(crate) session_id: SessionId,
-    /// The run that raised it, when one can be named.
-    pub(crate) run_id: Option<RunId>,
-    /// The choices the ask offers, when it offers a set the driver could read.
-    pub(crate) options: Option<Vec<ProviderAskOption>>,
-}
-
-/// The session-scoped responder the daemon binds on a Codex session.
-pub(crate) trait CodexSessionServerRequestResponder: Send + Sync {
-    /// Answers or holds one ask; a failure leaves the ask undecided, so it is refused.
-    fn answer(
-        &self,
-        request: CodexSessionServerRequest,
-    ) -> BoxFuture<'_, Result<CodexServerRequestDecision, DriverError>>;
 }
 
 /// The turn a routed ask names. An over-long id is never resolved, since a cut prefix could match
