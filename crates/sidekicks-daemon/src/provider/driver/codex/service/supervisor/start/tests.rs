@@ -8,8 +8,7 @@ use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::{Value, json};
 use sidekicks_platforms::{
-    ExistingSocket, RunningProgramPath, Spawner, bind_socket_listener, connect_unix_domain_socket,
-    read_running_program_path,
+    ExistingSocket, Spawner, bind_socket_listener, connect_unix_domain_socket,
 };
 use tokio::io::AsyncReadExt as _;
 use tokio_tungstenite::tungstenite::Message;
@@ -17,7 +16,6 @@ use tokio_util::sync::CancellationToken;
 
 use super::kept_records::retire_former_service;
 use super::{StartFailure, StartedService, start_codex_service};
-use crate::provider::driver::codex::service::command_line::compose_daemon_hook_commands;
 use crate::provider::driver::codex::service::home::{
     CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
@@ -222,15 +220,9 @@ async fn a_start_on_a_free_listener_no_pid_file_names_joins_it() {
     let Some(listener) = bind_test_listener(&socket) else {
         return;
     };
-    let RunningProgramPath::OnDisk(program) =
-        read_running_program_path().expect("the program reads")
-    else {
-        panic!("the test program was replaced");
-    };
-    let hooks = Arc::new(compose_daemon_hook_commands(&program).expect("the hooks compose"));
     tokio::spawn(async move {
         while let Ok(stream) = listener.accept().await {
-            tokio::spawn(answer_as_codex_service(stream, Arc::clone(&hooks)));
+            tokio::spawn(answer_as_codex_service(stream));
         }
     });
 

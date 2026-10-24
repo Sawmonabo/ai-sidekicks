@@ -31,6 +31,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::Spawner;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
 use crate::provider::driver::codex::server_requests::CodexServerRequestResponder;
@@ -68,7 +69,9 @@ use crate::provider::driver::codex::usage_limit_signal::CodexRateLimitObservatio
 use crate::provider::driver::codex::version::CODEX_CLIENT_NAME;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::spawned_version::{ResolvedProviderExecutable, SpawnedProviderVersionReading};
+use crate::queue::delivery::ProviderProcessIdentity;
 
 /// The ask that reads whether the service may run a sandboxed command on Windows.
 const WINDOWS_SANDBOX_READINESS_METHOD: &str = "windowsSandbox/readiness";
@@ -90,6 +93,8 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) spawner: Spawner,
     /// The serving processes of the connections the daemon holds, for the caller check.
     pub(crate) provider_services: Arc<ProviderServiceProcesses>,
+    /// The daemon's provider processes, whose one spawn count each process pinned draws from.
+    pub(crate) processes: Arc<ProviderProcessRegistry>,
     /// Resolves the Codex command at each start.
     pub(crate) program: Arc<dyn CodexProgramResolver>,
     /// The daemon's data folder, where the lasting service's record and the services' working
@@ -108,6 +113,9 @@ pub(crate) struct CodexServiceDependencies {
     /// The drains of the lasting services another took the home's link from, which outlive the
     /// service that asked them and end with the registry's shutdown.
     pub(crate) drains: LastingServiceDrains,
+    /// The driver's tracked tasks, which the driver's shutdown waits for: a switch-off's wait to
+    /// retire a service, and a joined service's check that Codex's managed daemon is free.
+    pub(crate) tasks: TaskTracker,
 }
 
 /// The socket one service listens on.
@@ -157,7 +165,8 @@ struct WindowsSandboxReadinessReply {
 struct LiveService {
     connection: Option<Arc<CodexAppServerConnection>>,
     version: Option<SpawnedProviderVersionReading>,
-    process_id: Option<u32>,
+    // Minted where the process is pinned, so a later process on a reused pid is another.
+    process: Option<ProviderProcessIdentity>,
 }
 
 /// One Codex service and the daemon's connection on it.
@@ -277,7 +286,13 @@ impl CodexService {
 
     /// The process the daemon started or re-pinned, while it runs.
     pub(crate) fn process_id(&self) -> Option<u32> {
-        self.lock_live().process_id
+        self.process_identity().map(|identity| identity.process_id)
+    }
+
+    /// The identity of the process the daemon started or re-pinned, while it runs: its pid and
+    /// the spawn sequence drawn when it was pinned.
+    pub(crate) fn process_identity(&self) -> Option<ProviderProcessIdentity> {
+        self.lock_live().process
     }
 
     /// The version the running service reported at its last connect, with the build resolved at
@@ -442,6 +457,23 @@ impl CodexService {
         Ok(connection)
     }
 
+    /// Whether the service is up or on its way back up: starting, reconnecting or restarting.
+    pub(crate) fn is_serving(&self) -> bool {
+        matches!(
+            *self.availability.borrow(),
+            CodexServiceAvailability::Up
+                | CodexServiceAvailability::Starting
+                | CodexServiceAvailability::Reconnecting
+                | CodexServiceAvailability::Restarting
+        )
+    }
+
+    /// Answers once the service is shut down for good with the daemon.
+    pub(crate) async fn when_shut_down(&self) {
+        self.wait_for(|availability| matches!(availability, CodexServiceAvailability::ShutDown))
+            .await;
+    }
+
     /// Stops the service and answers once it is stopped: the daemon's own process ends, a joined
     /// one is only disconnected.
     pub(crate) async fn stop(&self) {
@@ -459,8 +491,7 @@ impl CodexService {
     /// under a restart a lasting service is only disconnected and keeps running in its record.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent) {
         self.send(SupervisorEvent::Shutdown { intent });
-        self.wait_for(|availability| matches!(availability, CodexServiceAvailability::ShutDown))
-            .await;
+        self.when_shut_down().await;
     }
 
     /// The person's restart of a service left down: forgets the crash window and starts it.
@@ -499,14 +530,12 @@ impl CodexService {
         self.ensure_started(self.dependencies.startup_timeout).await
     }
 
-    /// The daemon's last conversation on the service closed, so Codex's managed daemon it joined
-    /// may be free to take over.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's close tells the service its last conversation closed"
-    )]
-    pub(crate) fn last_conversation_closed(&self) {
-        self.send(SupervisorEvent::LastConversationClosed);
+    // On a joined service the daemon holds no session on any more, Codex's managed daemon it
+    // joined may be free to take over, so the service checks; any other is told nothing.
+    fn last_conversation_closed(&self) {
+        if self.kind() == CodexServiceKind::Joined && self.lock_routing().attached().is_empty() {
+            self.send(SupervisorEvent::LastConversationClosed);
+        }
     }
 
     /// Sends a session's frames and asks to `sender` from now on, and first the config warnings
@@ -524,9 +553,12 @@ impl CodexService {
         routing.attach(sender);
     }
 
-    /// Stops sending a session its frames.
+    /// Stops sending a session its frames; the last session the daemon held on a joined service
+    /// leaving has it check whether Codex's managed daemon it joined is free.
     pub(crate) fn detach_session(&self, session_id: &SessionId) {
-        self.lock_routing().detach(session_id);
+        if self.lock_routing().detach(session_id) {
+            self.last_conversation_closed();
+        }
     }
 
     /// Queues `item` for one session; answers whether an attached session's queue took it.
@@ -778,7 +810,7 @@ impl CodexConnectionEvents for ServiceConnectionEvents {
                 dial: self.dial,
                 at: std::time::Instant::now(),
                 wall_at: SystemTime::now(),
-                process_gone_at: None,
+                is_unwaited_process_gone: false,
             });
         }
     }

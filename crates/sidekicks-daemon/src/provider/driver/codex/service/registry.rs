@@ -16,6 +16,7 @@ use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::{CAN_LINK_A_SOCKET, read_socket_link};
 use tokio::runtime::Handle;
+use tokio::task::JoinHandle;
 
 use crate::provider::driver::codex::service::home::{
     CodexHomeKind, CodexServiceHome, CodexServiceKind,
@@ -52,7 +53,8 @@ pub(crate) trait CodexHomeResolver: Send + Sync {
 pub(crate) struct CodexServiceRegistry {
     homes: Arc<dyn CodexHomeResolver>,
     dependencies: Arc<CodexServiceDependencies>,
-    services: Mutex<RegisteredServices>,
+    // Shared with the tasks that retire a service the switch took off its home.
+    services: Arc<Mutex<RegisteredServices>>,
 }
 
 #[derive(Default)]
@@ -63,11 +65,6 @@ struct RegisteredServices {
     replaced: Vec<Arc<CodexService>>,
 }
 
-#[expect(
-    dead_code,
-    reason = "the daemon's start registers the driver, whose sessions, recovery and terminal \
-              switch reach services through the registry"
-)]
 impl CodexServiceRegistry {
     /// A registry resolving homes through `homes`, whose services share `dependencies`.
     pub(crate) fn new(
@@ -77,7 +74,7 @@ impl CodexServiceRegistry {
         Self {
             homes,
             dependencies,
-            services: Mutex::default(),
+            services: Arc::default(),
         }
     }
 
@@ -91,6 +88,12 @@ impl CodexServiceRegistry {
         if let Some(existing) = self.lock().by_home.get(&home.codex_home) {
             return Ok(Arc::clone(existing));
         }
+        self.service_on_home(home)
+    }
+
+    // The service registered on `home`, made when none is. Fails on a socket name that could not
+    // be drawn.
+    fn service_on_home(&self, home: CodexServiceHome) -> Result<Arc<CodexService>, DriverError> {
         let home_socket = home_socket_path(&home.codex_home);
         let (path, kind) = match home.kind {
             CodexHomeKind::Account => (home_socket.clone(), CodexServiceKind::Account),
@@ -107,60 +110,130 @@ impl CodexServiceRegistry {
         };
         let mut services = self.lock();
         // Another caller may have made it while the home resolved.
-        let service = services
-            .by_home
-            .entry(home.codex_home.clone())
-            .or_insert_with(|| {
-                CodexService::new(
+        match services.by_home.entry(home.codex_home.clone()) {
+            Entry::Occupied(registered) => Ok(Arc::clone(registered.get())),
+            Entry::Vacant(slot) => {
+                let service = CodexService::new(
                     home,
                     CodexServiceSocket { path, home_socket },
                     kind,
                     Arc::clone(&self.dependencies),
-                )
-            });
-        Ok(Arc::clone(service))
+                );
+                Ok(Arc::clone(slot.insert(service)))
+            }
+        }
+    }
+
+    /// Whether terminal reach is on, read from the service: the person's own folder's service is
+    /// the one terminal reach names, and it is up or on its way back up. One that failed to start,
+    /// ended in a crash loop or was stopped reads as off.
+    pub(crate) fn is_terminal_service_on(&self) -> bool {
+        self.lock()
+            .by_home
+            .values()
+            .any(|service| is_terminal_reach_home(service.home()) && service.is_serving())
     }
 
     /// Starts the terminal service on the person's own Codex folder as the switch turns terminal
-    /// reach on, the folder's service while it was off stopped first. Fails as the home's resolve
-    /// or the start does.
+    /// reach on: the folder's service until now leaves it at once and is retired once free, as
+    /// the switch-off retires one. A start that fails takes the new service off the folder again,
+    /// stopped, so the folder's next session starts the service the switch names. Fails as the
+    /// home's resolve, its socket's name or the start does.
     pub(crate) async fn start_terminal_service(&self) -> Result<(), DriverError> {
-        self.stop_terminal_service().await?;
-        let service = self.service_for(None).await?;
-        Ok(service
+        let mut home = self.homes.codex_home_for(None).await?;
+        home.kind = CodexHomeKind::PersonalFolder {
+            is_terminal_reach_on: true,
+        };
+        if let Some(previous) = self.leave_home(&home.codex_home) {
+            self.retire_once_free(previous);
+        }
+        let service = self.service_on_home(home)?;
+        let Err(error) = service
             .ensure_started(self.dependencies.startup_timeout)
-            .await?)
+            .await
+        else {
+            return Ok(());
+        };
+        let is_registered = {
+            let mut services = self.lock();
+            let codex_home = &service.home().codex_home;
+            let is_registered = services
+                .by_home
+                .get(codex_home)
+                .is_some_and(|registered| Arc::ptr_eq(registered, &service));
+            if is_registered {
+                services.by_home.remove(codex_home);
+            }
+            is_registered
+        };
+        if is_registered {
+            service.stop().await;
+        }
+        Err(error.into())
     }
 
-    /// Stops the service on the person's own Codex folder as the switch turns terminal reach off:
-    /// it leaves the folder at once, so the folder's next session starts the service the switch
-    /// now names and no planned restart takes its place, then stops once no terminal session is
-    /// inside it and no command a session left on it runs, the terminal service ended with it.
-    /// Fails as the home's resolve does, and as the wait's read of the conversations inside does,
-    /// the service then left running, back as the folder's service while none took its place.
-    pub(crate) async fn stop_terminal_service(&self) -> Result<(), DriverError> {
+    /// Takes the terminal service off the person's own Codex folder as the switch turns terminal
+    /// reach off and answers at once, so the folder's next session starts the service the switch
+    /// now names and no planned restart takes its place; the service is retired on the driver's
+    /// tracked tasks once no terminal session is inside it and no command a session left on it
+    /// runs, the terminal service ended with it. A folder whose service is not the terminal
+    /// service is left as it is. Answers the retirement's task. Fails as the home's resolve does.
+    pub(crate) async fn stop_terminal_service(
+        &self,
+    ) -> Result<Option<JoinHandle<()>>, DriverError> {
         let home = self.homes.codex_home_for(None).await?;
-        let service = {
-            let mut services = self.lock();
-            let Some(service) = services.by_home.remove(&home.codex_home) else {
-                return Ok(());
-            };
-            services.replaced.push(Arc::clone(&service));
-            service
-        };
-        if let Err(error) = service.when_free_to_stop().await {
-            let mut held = self.lock();
-            let services = &mut *held;
-            if let Entry::Vacant(slot) = services.by_home.entry(home.codex_home) {
-                services
-                    .replaced
-                    .retain(|replaced| !Arc::ptr_eq(replaced, &service));
-                slot.insert(service);
-            }
-            return Err(error.into());
+        let is_terminal = self
+            .lock()
+            .by_home
+            .get(&home.codex_home)
+            .is_some_and(|service| is_terminal_reach_home(service.home()));
+        if !is_terminal {
+            return Ok(None);
         }
-        self.retire(&service).await;
-        Ok(())
+        Ok(self
+            .leave_home(&home.codex_home)
+            .map(|service| self.retire_once_free(service)))
+    }
+
+    // Takes the service off `codex_home`, kept among the replaced while it ends.
+    fn leave_home(&self, codex_home: &Path) -> Option<Arc<CodexService>> {
+        let mut services = self.lock();
+        let service = services.by_home.remove(codex_home)?;
+        services.replaced.push(Arc::clone(&service));
+        Some(service)
+    }
+
+    // Retires `service`, which left its home, on the driver's tracked tasks once it is free to
+    // stop; a failed wait is reported and puts it back as the home's service where none took its
+    // place, and a shutdown meanwhile ends the wait, the shutdown stopping it.
+    fn retire_once_free(&self, service: Arc<CodexService>) -> JoinHandle<()> {
+        let services = Arc::clone(&self.services);
+        self.dependencies.tasks.spawn(async move {
+            let freed = tokio::select! {
+                freed = service.when_free_to_stop() => freed,
+                () = service.when_shut_down() => return,
+            };
+            if let Err(error) = freed {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    codex_home = %service.home().codex_home.display(),
+                    "whether the codex terminal service is free could not be read; it keeps \
+                     running"
+                );
+                let mut held = lock_services(&services);
+                let registered = &mut *held;
+                if let Entry::Vacant(slot) =
+                    registered.by_home.entry(service.home().codex_home.clone())
+                {
+                    registered
+                        .replaced
+                        .retain(|replaced| !Arc::ptr_eq(replaced, &service));
+                    slot.insert(service);
+                }
+                return;
+            }
+            retire_service(&services, &service).await;
+        })
     }
 
     /// Every service the registry holds, the replaced ones left out.
@@ -281,10 +354,7 @@ impl CodexServiceRegistry {
     /// Stops a service that left its home and forgets it: one a planned restart took over from,
     /// once no conversation is left on it, ends by Codex's own drain, after its running replies.
     pub(crate) async fn retire(&self, service: &Arc<CodexService>) {
-        service.stop().await;
-        self.lock()
-            .replaced
-            .retain(|replaced| !Arc::ptr_eq(replaced, service));
+        retire_service(&self.services, service).await;
     }
 
     /// Shuts every service down for good, the replaced ones included, and answers once every one
@@ -303,7 +373,7 @@ impl CodexServiceRegistry {
     }
 
     fn lock(&self) -> MutexGuard<'_, RegisteredServices> {
-        self.services.lock().unwrap_or_else(PoisonError::into_inner)
+        lock_services(&self.services)
     }
 }
 
@@ -361,8 +431,29 @@ async fn may_take_socket_link(
     })
 }
 
+// Stops `service`, which left its home, and forgets it among `services`.
+async fn retire_service(services: &Mutex<RegisteredServices>, service: &Arc<CodexService>) {
+    service.stop().await;
+    lock_services(services)
+        .replaced
+        .retain(|replaced| !Arc::ptr_eq(replaced, service));
+}
+
+fn lock_services(services: &Mutex<RegisteredServices>) -> MutexGuard<'_, RegisteredServices> {
+    services.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+// Whether `home` is the person's own folder with terminal reach on, which the terminal service
+// runs on.
+fn is_terminal_reach_home(home: &CodexServiceHome) -> bool {
+    home.kind
+        == CodexHomeKind::PersonalFolder {
+            is_terminal_reach_on: true,
+        }
+}
+
 /// The home's own control socket.
-fn home_socket_path(codex_home: &Path) -> PathBuf {
+pub(crate) fn home_socket_path(codex_home: &Path) -> PathBuf {
     codex_home
         .join(CODEX_CONTROL_SOCKET_FOLDER)
         .join(CODEX_HOME_SOCKET_NAME)

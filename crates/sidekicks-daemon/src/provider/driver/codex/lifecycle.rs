@@ -174,6 +174,7 @@ impl CodexDriver {
             Arc::new(CodexServiceDependencies {
                 spawner: services.spawner.clone(),
                 provider_services: Arc::clone(&services.provider_services),
+                processes: Arc::clone(&services.processes),
                 program: Arc::new(CodexInstalledProgram::new(
                     Arc::clone(&services.command_search),
                     services.home_folder.clone(),
@@ -187,6 +188,7 @@ impl CodexDriver {
                 events: Arc::new(CodexDriverServiceEvents::new(Arc::clone(&link))),
                 release: Arc::clone(&release),
                 drains: LastingServiceDrains::default(),
+                tasks: tasks.clone(),
             }),
         ));
         let slots = Arc::new(CodexSessionSlots::new());

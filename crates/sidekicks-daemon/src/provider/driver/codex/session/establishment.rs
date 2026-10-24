@@ -80,7 +80,7 @@ use crate::provider::spawn_environment::{
 };
 use crate::provider::spawned_version::to_binding_version_carriers;
 use crate::provider::usage_delta_accountant::{ThreadBaseEstablishment, UsageAxisCounts};
-use crate::queue::delivery::{ProviderProcessIdentity, ProviderProcessIds as _};
+use crate::queue::delivery::ProviderProcessIds as _;
 
 const THREAD_START_METHOD: &str = "thread/start";
 const THREAD_RESUME_METHOD: &str = "thread/resume";
@@ -692,25 +692,15 @@ impl CodexSessionEstablishment {
         self.dependencies.tool_server_route.port().cloned()
     }
 
-    // Records `service`'s process as the one running `session_id`, under the identity the other
-    // sessions on that process hold, else a new one; a service the daemon did not start, which
-    // has no process of the daemon's, records none.
+    // Records `service`'s process as the one running `session_id`, under the identity the
+    // service drew when it pinned that process; a service the daemon did not start, which has no
+    // process of the daemon's, records none.
     fn record_service_process(&self, session_id: SessionId, service: &CodexService) {
-        let processes = &self.dependencies.processes;
-        let Some(process_id) = service.process_id() else {
+        let Some(identity) = service.process_identity() else {
             self.let_go_service_process(session_id);
             return;
         };
-        let identity = service
-            .attached_sessions()
-            .iter()
-            .filter_map(|inbound| processes.process_identity(&inbound.session_id()))
-            .find(|identity| identity.process_id == process_id)
-            .unwrap_or_else(|| ProviderProcessIdentity {
-                process_id,
-                spawn_sequence: processes.mint_spawn_sequence(),
-            });
-        processes.record(session_id, identity);
+        self.dependencies.processes.record(session_id, identity);
     }
 
     /// Takes `session_id` out of the daemon's provider processes, as its record is let go.

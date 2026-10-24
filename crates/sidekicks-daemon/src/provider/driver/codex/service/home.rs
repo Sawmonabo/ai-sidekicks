@@ -12,6 +12,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::PathRules;
 
+use crate::program::dispatches_hook_mode;
 use crate::provider::driver::SessionSpawnContextResolver;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::service::registry::CodexHomeResolver;
@@ -70,6 +71,16 @@ impl CodexServiceKind {
         match self {
             Self::Account | Self::Terminal => true,
             Self::Joined => false,
+        }
+    }
+
+    /// Whether a session on this kind of service runs the daemon's hooks: on a terminal service
+    /// only while the daemon's program dispatches its hook mode; on an account service none, since
+    /// no tool server's route is wired; on a joined one never, the service not being the daemon's.
+    pub(crate) const fn runs_daemon_hooks(self) -> bool {
+        match self {
+            Self::Terminal => dispatches_hook_mode(),
+            Self::Account | Self::Joined => false,
         }
     }
 }

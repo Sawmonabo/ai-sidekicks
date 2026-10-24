@@ -1,13 +1,17 @@
 //! A Codex session live in the composed driver: its record on a scripted service, its task the
-//! driver's own, one run on a live turn, and the run queue's intake recorded.
+//! driver's own, one run on a live turn, and the run queue's intake recorded; and a driver on a
+//! Codex folder of a test's own, with a service of the test's listening there.
 
 mod caller_check;
 mod intake;
 mod sessions;
+mod terminal_reach;
 
 use std::num::NonZeroUsize;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -16,6 +20,9 @@ use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_platforms::{
+    ExistingSocket, LeftoverSweep, bind_socket_listener, replace_file_atomically,
+};
 use tempfile::TempDir;
 use tokio::sync::Notify;
 
@@ -26,11 +33,13 @@ use crate::database::writer::test_file::{TestDatabase, insert_lead};
 use crate::events::log_service::tests::open_log;
 use crate::events::session::followers::SessionEventFollowers;
 use crate::mutex_lock::lock;
+use crate::provider::driver::DriverServices;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::provider::driver::codex::run::routes::CodexRunBinding;
+use crate::provider::driver::codex::service::registry::home_socket_path;
 use crate::provider::driver::codex::service::supervisor::test_service::{
-    ScriptedCodexService, start_scripted_codex_service,
+    ScriptedCodexService, answer_as_codex_service, start_scripted_codex_service,
 };
 use crate::provider::driver::codex::session::inbound::codex_session_inbound;
 use crate::provider::driver::codex::session::test_session::{
@@ -231,4 +240,53 @@ impl LiveCodexSession {
             _home: home,
         }
     }
+}
+
+/// The person's own Codex folder the driver of [`driver_on_codex_folder`] runs on, under its
+/// folder.
+const CODEX_FOLDER_NAME: &str = "codex-home";
+
+/// A driver whose person's own Codex folder is `codex-home` under `folder`, its Codex command a
+/// script that exits at once, so a service it launches never answers; with the services it was
+/// built on. `folder` sits under `/tmp`, so a socket's path in it fits the system's limit.
+pub(super) fn driver_on_codex_folder(folder: &Path) -> (CodexDriver, DriverServices) {
+    let codex_home = folder.join(CODEX_FOLDER_NAME);
+    let programs = folder.join("bin");
+    for made in [&codex_home, &programs, &folder.join("data")] {
+        std::fs::create_dir_all(made).expect("a test folder is made");
+    }
+    // Found first on the search path as Codex's command.
+    replace_file_atomically(
+        &programs.join("codex"),
+        b"#!/bin/sh\nexit 1\n",
+        0o755,
+        LeftoverSweep::Unswept,
+    )
+    .expect("the command is written");
+    let mut services = test_driver_services();
+    services.data_folder = folder.join("data");
+    services.home_folder = folder.join("home");
+    services.base_environment = Arc::from([
+        (
+            DESCRIPTOR.credential_home_environment_names[0].to_owned(),
+            codex_home.display().to_string(),
+        ),
+        ("PATH".to_owned(), programs.display().to_string()),
+    ]);
+    (CodexDriver::new(&services), services)
+}
+
+/// Listens on the home socket of the Codex folder of [`driver_on_codex_folder`] under `folder`
+/// as a service the person started, with no conversation loaded, so a start there joins it.
+pub(super) fn listen_on_codex_folder(folder: &Path) {
+    let socket = home_socket_path(&folder.join(CODEX_FOLDER_NAME));
+    std::fs::create_dir_all(socket.parent().expect("the socket has a folder"))
+        .expect("the socket's folder is made");
+    let listener =
+        bind_socket_listener(&socket, ExistingSocket::Refuse).expect("the test service listens");
+    tokio::spawn(async move {
+        while let Ok(stream) = listener.accept().await {
+            tokio::spawn(answer_as_codex_service(stream));
+        }
+    });
 }
