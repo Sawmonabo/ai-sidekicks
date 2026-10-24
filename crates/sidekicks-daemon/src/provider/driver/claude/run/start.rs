@@ -466,10 +466,11 @@ mod tests {
     use sidekicks_contracts::wire::text::FreeFormText;
 
     use crate::provider::driver::claude::session::scripted::{
-        SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, mint_run_id, settle,
+        SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
     };
     use crate::provider::driver::contract::{DriverError, RunOpening, StartRunParams};
     use crate::provider::driver::run_control::{ResumeRunParams, WaitingMessage};
+    use crate::provider::driver::test_registry::new_run_id;
 
     // The opening of `run_id` on `session`'s lead binding, carrying `attachments`.
     fn opening_params(
@@ -517,7 +518,7 @@ mod tests {
             .and_then(|file| file.set_len(4_000_000))
             .expect("the test stores a large picture");
         let picture = session.attachments.picture(path);
-        let run_id = mint_run_id();
+        let run_id = new_run_id();
 
         let refused = if is_start {
             session

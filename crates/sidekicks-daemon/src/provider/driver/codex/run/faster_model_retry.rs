@@ -432,9 +432,10 @@ mod tests {
     use crate::provider::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInbound};
     use crate::provider::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
     use crate::provider::driver::codex::session::test_session::{
-        TEST_THREAD, TestCodexSession, answer_fork, new_run_id, turn_completed, turn_reply,
+        TEST_THREAD, TestCodexSession, answer_fork, turn_completed, turn_reply,
     };
     use crate::provider::driver::run_control::{FasterModelRetryOutcome, FasterModelRetryParams};
+    use crate::provider::driver::test_registry::new_run_id;
 
     /// How the turn sent again on the fork goes.
     #[derive(Clone, Copy, PartialEq, Eq)]

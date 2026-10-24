@@ -21,9 +21,6 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::session::id::SessionId;
 
 use super::CodexDriver;
-use crate::provider::driver::codex::account_home_logs::{
-    compact_quiet_account_home_logs, expire_account_home_logs,
-};
 use crate::provider::driver::codex::auth_status::{
     CODEX_AUTH_PROBE_TIMEOUT, read_codex_auth_status,
 };
@@ -335,18 +332,15 @@ impl CodexDriver {
     }
 
     /// Deletes the account home's log rows from before `cutoff`, and, while no service holds the
-    /// home, compacts the log database so no deleted row's text stays in its free space.
-    /// Blocking. Fails as the delete or the compaction fails.
+    /// home, compacts the log database so no deleted row's text stays in its free space; a failed
+    /// compaction is logged. Blocking. Fails as the delete fails.
     pub(crate) fn expire_account_home_diagnostics(
         &self,
         home: &Path,
         cutoff: SystemTime,
     ) -> Result<u64, Box<dyn Error + Send + Sync>> {
-        let deleted = expire_account_home_logs(home, cutoff)?;
-        if self.registry.is_home_quiet(home) {
-            compact_quiet_account_home_logs(home)?;
-        }
-        Ok(deleted)
+        self.log_expiry
+            .expire(home, cutoff, || self.registry.is_home_quiet(home))
     }
 }
 

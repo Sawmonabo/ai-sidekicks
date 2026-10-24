@@ -418,7 +418,7 @@ pub(crate) async fn settle_codex_turn_start(
             run_id = %run_id,
             holder_run_id = %holder,
             turn_id = turn_id.as_str(),
-            "Codex answered a run's turn start with a turn another run holds"
+            "codex answered a run's turn start with a turn another run holds"
         );
         dependencies.adoptions.undo(record, accepted.adoption);
         return Err(CodexError::Transport {

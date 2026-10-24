@@ -16,10 +16,11 @@ use crate::provider::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::provider::driver::codex::service::registry::CodexServiceRegistry;
 use crate::provider::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::provider::driver::codex::session::test_session::{
-    OneFolder, TEST_THREAD, TestCodexSession, fork_reply, new_run_id, no_turns,
+    OneFolder, TEST_THREAD, TestCodexSession, fork_reply, no_turns,
 };
 use crate::provider::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::provider::driver::session_control::DriverResumeResult;
+use crate::provider::driver::test_registry::new_run_id;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::session::run::engine::RunEngineError;

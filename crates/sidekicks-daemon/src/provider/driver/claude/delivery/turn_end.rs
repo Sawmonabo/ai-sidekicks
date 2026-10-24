@@ -351,14 +351,14 @@ mod tests {
 
     use super::{ClaudeTurnEndMarks, compose_claude_turn_end};
     use crate::provider::driver::claude::event_normalizer::ClaudeWireFrameKind;
-    use crate::provider::driver::claude::session::scripted::mint_run_id;
+    use crate::provider::driver::test_registry::new_run_id;
     use crate::session::run::engine::turns::TurnOutcome;
     use crate::session::run::state_change::RunStateEntry;
 
     // Killed by ending a turn stopped at its step bound `failed`, as a declared failure would.
     #[test]
     fn a_turn_stopped_at_its_step_bound_ends_interrupted_at_the_step_limit() {
-        let run_id = mint_run_id();
+        let run_id = new_run_id();
         let frame = json!({"type": "result", "subtype": "error_max_turns", "is_error": true});
 
         let end = compose_claude_turn_end(
@@ -387,7 +387,7 @@ mod tests {
     // failing the run the daemon's own interrupt stopped.
     #[test]
     fn an_execution_error_ends_interrupted_only_under_the_daemons_interrupt() {
-        let run_id = mint_run_id();
+        let run_id = new_run_id();
         let frame = json!({
             "type": "result",
             "subtype": "error_during_execution",
@@ -424,7 +424,7 @@ mod tests {
     // Killed by completing a `success` that carries `is_error`, as the refill breaker's does.
     #[test]
     fn a_success_carrying_is_error_fails_the_run_with_claude_codes_words() {
-        let run_id = mint_run_id();
+        let run_id = new_run_id();
         let frame = json!({
             "type": "result",
             "subtype": "success",

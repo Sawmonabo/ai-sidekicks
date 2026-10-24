@@ -221,13 +221,21 @@ pub(super) fn send_signal(process_id: u32, signal: &str) -> bool {
 
 /// Answers once the process `process_id` ended, or `false` once [`CRASH_WAIT`] passed first.
 pub(super) async fn wait_until_gone(process_id: u32) -> bool {
-    tokio::time::timeout(CRASH_WAIT, async {
-        while is_running(process_id) {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .is_ok()
+    wait_for_end_within(process_id, CRASH_WAIT).await
+}
+
+// Answers once the process `process_id` ended, waiting on the system's exit notice, or `false`
+// once `bound` passed first; a process already gone has ended.
+async fn wait_for_end_within(process_id: u32, bound: Duration) -> bool {
+    let Some(process) = pin_running_process(process_id).expect("the process table reads") else {
+        return true;
+    };
+    tokio::time::timeout(bound, process.wait_for_end())
+        .await
+        .is_ok_and(|ended| {
+            ended.expect("the process's end is watched");
+            true
+        })
 }
 
 /// The record file of the service on the home's own socket.
@@ -247,21 +255,26 @@ pub(super) async fn wait_for_end_and_record_removal(
     services: &StandInServices,
     bound: Duration,
 ) -> bool {
+    let started_at = tokio::time::Instant::now();
+    if !wait_for_end_within(process_id, bound).await {
+        return false;
+    }
     let record_file = home_record_file(services);
-    let ended = async {
-        loop {
-            let is_record_kept = record_file
-                .lock()
-                .and_then(|locked| locked.read())
-                .expect("the record reads")
-                .is_some();
-            if !is_running(process_id) && !is_record_kept {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+    // The drain removes the record on a task of its own once the end is out, and nothing tells
+    // that removal, so the record is read again until it is gone.
+    let removed = async {
+        while record_file
+            .lock()
+            .and_then(|locked| locked.read())
+            .expect("the record reads")
+            .is_some()
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     };
-    tokio::time::timeout(bound, ended).await.is_ok()
+    tokio::time::timeout(bound.saturating_sub(started_at.elapsed()), removed)
+        .await
+        .is_ok()
 }
 
 /// Marks every record kept for the folder draining, as a former daemon's start does once its ask

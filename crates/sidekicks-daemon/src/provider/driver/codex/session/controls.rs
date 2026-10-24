@@ -385,10 +385,9 @@ mod tests {
     use serde_json::value::RawValue;
 
     use super::CodexSessionControls;
-    use crate::provider::driver::codex::session::test_session::{
-        TEST_THREAD, TestCodexSession, new_run_id,
-    };
+    use crate::provider::driver::codex::session::test_session::{TEST_THREAD, TestCodexSession};
     use crate::provider::driver::run_control::OverrideDenialParams;
+    use crate::provider::driver::test_registry::new_run_id;
 
     // Kills: the resume dropped, which Codex answers with "thread not found"; and `Allow once` on
     // the session's idle conversation opened as a run waiting for a turn Codex never starts, since

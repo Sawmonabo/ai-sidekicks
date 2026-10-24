@@ -4,7 +4,7 @@
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
-use serde_json::{Value, json};
+use serde_json::json;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{
@@ -30,8 +30,7 @@ use crate::provider::driver::claude::session::scripted::run_engine::{
 };
 use crate::provider::driver::claude::session::scripted::starts::ScriptedOneTurnRecord;
 use crate::provider::driver::claude::session::scripted::{
-    SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, mint_run_id, mint_session_id,
-    settle,
+    SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, mint_session_id, settle,
 };
 use crate::provider::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::provider::driver::claude::session::transport::declarations::{
@@ -44,13 +43,13 @@ use crate::provider::driver::run_control::InterruptRunRequest;
 use crate::provider::driver::session_control::{
     AskSideQuestionParams, CloseSessionParams, CreateSessionParams, StartReviewParams,
 };
+use crate::provider::driver::test_registry::{new_run_id, terminal_events};
 use crate::provider::usage_delta_accountant::UsageAxisCounts;
 use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
 use crate::session::run::epochs::{EpochBinding, ExecutionEpochs};
 use crate::session::run::inbound::RunInboundDispatch;
 use crate::session::run::inbound::tests::UnreadPublisher;
 use crate::session::run::state_change::RunStateEntry;
-use crate::session::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
 
 // The full id the build resolves the session's `opus` to.
 const FULL_MODEL_ID: &str = "claude-opus-4-7";
@@ -316,34 +315,13 @@ fn reply_count(fixture: &ScriptedDriver, run_id: RunId) -> i64 {
         .expect("the run's replies count")
 }
 
-// Each terminal event of `run_id`, with the intended close it carries.
-fn terminal_events(fixture: &ScriptedDriver, run_id: RunId) -> Vec<(String, Option<bool>)> {
-    fixture
-        .database
-        .reader()
-        .prepare(&format!(
-            "SELECT type, payload FROM session_events WHERE run_id = ?1 AND type IN ({}) \
-             ORDER BY sequence",
-            *RUN_TERMINAL_EVENT_TYPES_SQL
-        ))
-        .expect("the test reads the run's events")
-        .query_map([run_id.text().as_str()], |row| {
-            let payload: String = row.get(1)?;
-            let payload: Value = serde_json::from_str(&payload).expect("a stored payload is JSON");
-            Ok((row.get(0)?, payload["intendedClose"].as_bool()))
-        })
-        .expect("the run's events read")
-        .collect::<Result<_, _>>()
-        .expect("each event reads")
-}
-
 // A run started through the driver interface, on the daemon's own run engine and inbound
 // dispatch as the driver reaches them through its ports, ends `completed` on the process result.
 #[tokio::test(start_paused = true)]
 async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
     let fixture = ScriptedDriver::new();
     let session_id = mint_session_id();
-    let run_id = mint_run_id();
+    let run_id = new_run_id();
     let claude = driver_on_the_daemons_engine(&fixture, session_id, run_id).await;
     let driver: Arc<dyn ProviderDriver> = claude.clone();
     let channel = Arc::new(ScriptedChannel::default());
@@ -371,7 +349,7 @@ async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
 async fn a_close_ends_the_run_in_flight_interrupted_as_intended() {
     let fixture = ScriptedDriver::new();
     let session_id = mint_session_id();
-    let run_id = mint_run_id();
+    let run_id = new_run_id();
     let driver: Arc<dyn ProviderDriver> =
         driver_on_the_daemons_engine(&fixture, session_id, run_id).await;
     fixture
@@ -394,7 +372,7 @@ async fn a_close_ends_the_run_in_flight_interrupted_as_intended() {
     settle().await;
 
     assert_eq!(
-        terminal_events(&fixture, run_id),
+        terminal_events(&fixture.database, run_id),
         [("agent.run.interrupted".to_owned(), Some(true))]
     );
 }
@@ -407,7 +385,7 @@ async fn a_close_ends_the_run_in_flight_interrupted_as_intended() {
 async fn the_frames_read_before_the_close_ended_the_process_end_their_run_as_intended() {
     let fixture = ScriptedDriver::new();
     let session_id = mint_session_id();
-    let run_id = mint_run_id();
+    let run_id = new_run_id();
     let engine = Arc::new(HeldDeliveryEngine::new(Arc::new(
         register_the_daemons_engine(&fixture, session_id, run_id).await,
     )));
@@ -480,7 +458,7 @@ async fn the_frames_read_before_the_close_ended_the_process_end_their_run_as_int
     settle().await;
 
     assert_eq!(
-        terminal_events(&fixture, run_id),
+        terminal_events(&fixture.database, run_id),
         [("agent.run.completed".to_owned(), Some(true))]
     );
     assert_eq!(reply_count(&fixture, run_id), 1);

@@ -19,9 +19,10 @@ use crate::provider::driver::codex::run::faster_model_retry::{
 use crate::provider::driver::codex::run::routes::CodexRunBinding;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::test_session::{
-    NoAttachments, TEST_THREAD, TestCodexSession, new_run_id, turn_completed,
+    NoAttachments, TEST_THREAD, TestCodexSession, turn_completed,
 };
 use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::test_registry::new_run_id;
 use crate::provider::port::registration::PortRegistration;
 
 /// How long a test waits before it counts a hold on the session's task as a deadlock.

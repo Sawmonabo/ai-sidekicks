@@ -23,6 +23,8 @@ use crate::provider::driver::codex::service::home::{
 use crate::provider::driver::codex::service::socket_link::{
     is_listening, point_socket_link_at_service,
 };
+#[cfg(test)]
+use crate::provider::driver::codex::service::supervisor::test_service::ScriptedCodexService;
 use crate::provider::driver::codex::service::supervisor::{
     CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
@@ -309,9 +311,7 @@ impl CodexServiceRegistry {
 impl CodexServiceRegistry {
     /// A registry holding `scripted`'s service as its home's, every account resolving to that
     /// home.
-    pub(crate) fn holding(
-        scripted: &crate::provider::driver::codex::service::supervisor::test_service::ScriptedCodexService,
-    ) -> Arc<Self> {
+    pub(crate) fn holding(scripted: &ScriptedCodexService) -> Arc<Self> {
         let home = scripted.service.home().clone();
         let registry = Arc::new(Self::new(
             Arc::new(OneHome(home.clone())),

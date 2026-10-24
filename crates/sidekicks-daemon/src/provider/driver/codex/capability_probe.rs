@@ -197,7 +197,7 @@ mod tests {
 
     use super::{CodexCapabilityProbeExchange, classify_reply};
     use crate::provider::capability::probe::{CapabilityProbeExchange, ProbeAnswer};
-    use crate::provider::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
+    use crate::provider::driver::codex::service::supervisor::test_service;
 
     #[rstest]
     #[case::method_not_found(-32_601, "Method not found", ProbeAnswer::UnknownName)]
@@ -231,7 +231,7 @@ mod tests {
     // exchange, which would fail the whole capability read. Killed by raising the refusal.
     #[tokio::test(start_paused = true)]
     async fn a_refusal_reaches_the_classifier_as_the_codex_reply() {
-        let mut scripted = start_scripted_codex_service();
+        let mut scripted = test_service::start_scripted_codex_service();
         let connection = scripted.service.connection().expect("the service is up");
         let mut exchange = CodexCapabilityProbeExchange {
             connection: &connection,

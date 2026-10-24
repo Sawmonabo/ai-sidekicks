@@ -9,7 +9,8 @@ use super::take_blocked_codex_steers;
 use crate::provider::driver::codex::run::control::record::{
     CodexRunControlCall, run_codex_run_control_call,
 };
-use crate::provider::driver::codex::session::test_session::{TestCodexSession, new_run_id};
+use crate::provider::driver::codex::session::test_session::TestCodexSession;
+use crate::provider::driver::test_registry::new_run_id;
 
 /// How the turn holding an unechoed steer came to its end.
 #[derive(Clone, Copy, Debug)]

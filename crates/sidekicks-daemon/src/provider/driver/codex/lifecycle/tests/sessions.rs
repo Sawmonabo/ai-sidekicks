@@ -2,13 +2,11 @@
 
 use std::time::Duration;
 
-use serde_json::{Value, json};
-use sidekicks_contracts::run::id::RunId;
+use serde_json::json;
 
 use super::LiveCodexSession;
-use crate::database::writer::test_file::TestDatabase;
 use crate::provider::driver::session_control::CloseSessionParams;
-use crate::session::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
+use crate::provider::driver::test_registry::terminal_events;
 
 // Real time under a timeout, since the run engine writes the run's end through the database
 // writer. Killed by dropping the `end_turn_on_close` call from `close_session`: the run would stay
@@ -61,24 +59,4 @@ async fn a_close_ends_the_run_in_flight_before_its_conversation_is_let_go() {
         terminal_events(&database, run_id),
         [("agent.run.interrupted".to_owned(), Some(true))]
     );
-}
-
-// Each terminal event of `run_id`, with whether its end was the daemon's intended close.
-fn terminal_events(database: &TestDatabase, run_id: RunId) -> Vec<(String, Option<bool>)> {
-    database
-        .reader()
-        .prepare(&format!(
-            "SELECT type, payload FROM session_events WHERE run_id = ?1 AND type IN ({}) \
-             ORDER BY sequence",
-            *RUN_TERMINAL_EVENT_TYPES_SQL
-        ))
-        .expect("the test reads the run's events")
-        .query_map([run_id.text().as_str()], |row| {
-            let payload: String = row.get(1)?;
-            let payload: Value = serde_json::from_str(&payload).expect("a stored payload is JSON");
-            Ok((row.get(0)?, payload["intendedClose"].as_bool()))
-        })
-        .expect("the run's events read")
-        .collect::<Result<_, _>>()
-        .expect("each event reads")
 }

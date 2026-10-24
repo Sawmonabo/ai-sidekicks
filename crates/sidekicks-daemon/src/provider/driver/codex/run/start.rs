@@ -259,8 +259,9 @@ impl CodexRunStart {
     }
 
     /// Runs `send` while no turn of `session_id` is being sent or awaits Codex's answer, holding
-    /// the session's turn starts until it settles: for a request, such as a goal, that changes
-    /// what Codex starts next.
+    /// the session's turn starts until it settles: for a goal, which changes what Codex starts
+    /// next, and for the rewind, which stops the running turns and cuts the conversation back
+    /// with no turn starting meanwhile.
     pub(crate) async fn send_apart_from_turn_starts<Answer>(
         &self,
         session_id: SessionId,
