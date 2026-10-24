@@ -96,14 +96,18 @@ pub(crate) struct CodexTakenMessage {
     pub(crate) turn_id: String,
 }
 
-/// A `userPromptSubmit` hook run that blocked or stopped a prompt.
+/// One `userPromptSubmit` hook handler's run on one prompt, whatever its status.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CodexBlockedPrompt {
+pub(crate) struct CodexPromptHookRun {
     /// The turn the prompt was for, where the frame named one.
     pub(crate) turn_id: Option<String>,
-    /// Whether the hook stopped the turn rather than blocking the prompt.
+    /// The handler's id, the same on every prompt it runs for.
+    pub(crate) run_id: String,
+    /// Whether the handler blocked the prompt.
+    pub(crate) is_blocked: bool,
+    /// Whether the handler stopped the turn.
     pub(crate) is_stopped: bool,
-    /// The hook's words, each entry in order, else its status message.
+    /// A blocking or stopping handler's words, each entry in order, else its status message.
     pub(crate) words: Vec<String>,
 }
 
@@ -136,8 +140,8 @@ pub(crate) struct CodexFrameDispatch {
     pub(crate) resolved_request_id: Option<String>,
     /// The person's messages Codex took into a turn.
     pub(crate) taken_messages: Vec<CodexTakenMessage>,
-    /// The prompts a `userPromptSubmit` hook blocked or stopped.
-    pub(crate) blocked_prompts: Vec<CodexBlockedPrompt>,
+    /// The `userPromptSubmit` hook runs the frame reported.
+    pub(crate) prompt_hook_runs: Vec<CodexPromptHookRun>,
     /// The runs the frame moved.
     pub(crate) run_moves: Vec<CodexRunMove>,
     /// The turns that started.
@@ -250,7 +254,7 @@ impl CodexFrameDelivery {
             | "autoApprovalReview/strictReviewRequired" => {
                 self.deliver_reviewer_frame(record, method, &members).await;
             }
-            "hook/completed" => turns::read_blocked_prompt(&members, &mut dispatch),
+            "hook/completed" => turns::read_prompt_hook_run(&members, &mut dispatch),
             "serverRequest/resolved" => {
                 dispatch.resolved_request_id = self.forget_resolved_request(record, &members);
             }

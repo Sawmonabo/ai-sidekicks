@@ -17,6 +17,7 @@ use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::provider::driver::attachments::ProviderAttachment;
+use crate::provider::driver::codex::delivery::frames::CodexPromptHookRun;
 use crate::provider::driver::codex::delivery::memory::CodexDeliveryMemory;
 use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::session::inbound::CodexSessionInboundSender;
@@ -129,9 +130,9 @@ pub(crate) struct CodexSessionRecord {
     /// each registered before its `turn/steer` is written: an echo takes one, an interrupt cancels
     /// what its turn still holds, and the turn's end lets go of the rest.
     pub(crate) unechoed_steers_by_turn_id: HashMap<String, Vec<QueueItemId>>,
-    /// The words of each prompt the person's own `userPromptSubmit` hook kept out of a live turn,
+    /// Every run of the person's own `userPromptSubmit` hook handlers on a live turn's prompts,
     /// by turn id, in the order Codex reported them; each leaves with its turn's end.
-    pub(crate) blocked_prompt_words_by_turn_id: HashMap<String, Vec<String>>,
+    pub(crate) prompt_hook_runs_by_turn_id: HashMap<String, Vec<CodexPromptHookRun>>,
     /// The newest steer sent on the conversation, settled either way; the next waits for it, so
     /// steers reach Codex one at a time in the order they were handed over.
     pub(crate) last_steer_send: Option<Shared<BoxFuture<'static, ()>>>,
@@ -213,7 +214,7 @@ impl CodexSessionRecord {
             interrupted_run_by_turn_id: Vec::new(),
             interrupting_turn_ids: HashSet::new(),
             unechoed_steers_by_turn_id: HashMap::new(),
-            blocked_prompt_words_by_turn_id: HashMap::new(),
+            prompt_hook_runs_by_turn_id: HashMap::new(),
             last_steer_send: None,
             pause_run_id_by_turn_id: HashMap::new(),
             paused_run_id_by_interrupted_turn_id: HashMap::new(),

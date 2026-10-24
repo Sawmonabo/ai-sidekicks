@@ -18,7 +18,7 @@ use crate::provider::driver::codex::delivery::failure_cause::{
     CODEX_USAGE_LIMIT_EXCEEDED_ERROR, read_codex_turn_failure_cause,
 };
 use crate::provider::driver::codex::delivery::frames::{
-    CodexBlockedPrompt, CodexFrameDelivery, CodexFrameDispatch, CodexRunMove, CodexTurnEnding,
+    CodexFrameDelivery, CodexFrameDispatch, CodexPromptHookRun, CodexRunMove, CodexTurnEnding,
     CodexTurnMove, CodexTurnRun, report_unattributed,
 };
 use crate::provider::driver::codex::delivery::memory::{
@@ -509,36 +509,45 @@ fn codex_request_retry(members: &Map<String, Value>, run: &CodexRowRun) -> Codex
     }
 }
 
-/// A `hook/completed` of a `userPromptSubmit` hook that blocked or stopped the prompt, with the
-/// hook's words.
-pub(super) fn read_blocked_prompt(members: &Map<String, Value>, dispatch: &mut CodexFrameDispatch) {
+/// A `hook/completed` of a `userPromptSubmit` hook handler, of any status, with a blocking or
+/// stopping handler's words; a frame with no `run.id` is dropped.
+pub(super) fn read_prompt_hook_run(
+    members: &Map<String, Value>,
+    dispatch: &mut CodexFrameDispatch,
+) {
     let Some(run) = members.get("run").and_then(Value::as_object) else {
         return;
     };
     if run.get("eventName").and_then(Value::as_str) != Some(CODEX_USER_PROMPT_SUBMIT_HOOK) {
         return;
     }
-    let is_stopped = match run.get("status").and_then(Value::as_str) {
-        Some("blocked") => false,
-        Some("stopped") => true,
-        _ => return,
+    let Some(run_id) = read_non_empty_string(run, "id") else {
+        return;
     };
-    let mut words: Vec<String> = run
-        .get("entries")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|entry| entry.get("text").and_then(Value::as_str))
-        .filter(|text| !text.is_empty())
-        .map(str::to_owned)
-        .collect();
-    if words.is_empty()
-        && let Some(message) = read_non_empty_string(run, "statusMessage")
-    {
-        words.push(message.to_owned());
+    let status = run.get("status").and_then(Value::as_str);
+    let is_blocked = status == Some("blocked");
+    let is_stopped = status == Some("stopped");
+    let mut words: Vec<String> = Vec::new();
+    if is_blocked || is_stopped {
+        words.extend(
+            run.get("entries")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| entry.get("text").and_then(Value::as_str))
+                .filter(|text| !text.is_empty())
+                .map(str::to_owned),
+        );
+        if words.is_empty()
+            && let Some(message) = read_non_empty_string(run, "statusMessage")
+        {
+            words.push(message.to_owned());
+        }
     }
-    dispatch.blocked_prompts.push(CodexBlockedPrompt {
+    dispatch.prompt_hook_runs.push(CodexPromptHookRun {
         turn_id: read_non_empty_string(members, "turnId").map(str::to_owned),
+        run_id: run_id.to_owned(),
+        is_blocked,
         is_stopped,
         words,
     });

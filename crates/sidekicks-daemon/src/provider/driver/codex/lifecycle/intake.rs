@@ -31,7 +31,7 @@ use crate::provider::driver::codex::notification_routing::{
 use crate::provider::driver::codex::output_speed::observe_codex_output_speed_frame;
 use crate::provider::driver::codex::run::self_started_turns::open_codex_self_started_turn;
 use crate::provider::driver::codex::run::steer::{
-    remember_blocked_codex_prompt, take_blocked_codex_steers, take_echoed_codex_steer,
+    remember_codex_prompt_hook_run, take_blocked_codex_steers, take_echoed_codex_steer,
 };
 use crate::provider::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnEndWaiters};
 use crate::provider::driver::codex::server_requests::{
@@ -189,12 +189,8 @@ impl CodexSessionIntake {
                     listener.message_taken(self.session_id, &message_id.to_string(), run_id);
                 }
             }
-            for blocked in dispatch.blocked_prompts {
-                if let Some(turn_id) = blocked.turn_id {
-                    remember_blocked_codex_prompt(record, &turn_id, &blocked.words);
-                } else {
-                    tracing::debug!("a blocked codex prompt names no turn");
-                }
+            for hook_run in dispatch.prompt_hook_runs {
+                remember_codex_prompt_hook_run(record, hook_run);
             }
             for ended in dispatch.turns_ended {
                 // Before the queue registers its intake there is no queue to tell.
