@@ -69,7 +69,9 @@ use crate::provider::driver::codex::usage_limit_signal::CodexRateLimitObservatio
 use crate::provider::driver::codex::version::CODEX_CLIENT_NAME;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::spawned_version::{ResolvedProviderExecutable, SpawnedProviderVersionReading};
+use crate::queue::delivery::ProviderProcessIdentity;
 
 /// The ask that reads whether the service may run a sandboxed command on Windows.
 const WINDOWS_SANDBOX_READINESS_METHOD: &str = "windowsSandbox/readiness";
@@ -91,6 +93,8 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) spawner: Spawner,
     /// The serving processes of the connections the daemon holds, for the caller check.
     pub(crate) provider_services: Arc<ProviderServiceProcesses>,
+    /// The daemon's provider processes, whose one spawn count each process pinned draws from.
+    pub(crate) processes: Arc<ProviderProcessRegistry>,
     /// Resolves the Codex command at each start.
     pub(crate) program: Arc<dyn CodexProgramResolver>,
     /// The daemon's data folder, where the lasting service's record and the services' working
@@ -161,7 +165,8 @@ struct WindowsSandboxReadinessReply {
 struct LiveService {
     connection: Option<Arc<CodexAppServerConnection>>,
     version: Option<SpawnedProviderVersionReading>,
-    process_id: Option<u32>,
+    // Minted where the process is pinned, so a later process on a reused pid is another.
+    process: Option<ProviderProcessIdentity>,
 }
 
 /// One Codex service and the daemon's connection on it.
@@ -281,7 +286,13 @@ impl CodexService {
 
     /// The process the daemon started or re-pinned, while it runs.
     pub(crate) fn process_id(&self) -> Option<u32> {
-        self.lock_live().process_id
+        self.process_identity().map(|identity| identity.process_id)
+    }
+
+    /// The identity of the process the daemon started or re-pinned, while it runs: its pid and
+    /// the spawn sequence drawn when it was pinned.
+    pub(crate) fn process_identity(&self) -> Option<ProviderProcessIdentity> {
+        self.lock_live().process
     }
 
     /// The version the running service reported at its last connect, with the build resolved at

@@ -39,9 +39,11 @@ use crate::provider::driver::codex::transport::connection::scripted_service::{
     ScriptedService, connect_scripted_service,
 };
 use crate::provider::driver::contract::DriverError;
+use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::spawned_version::{
     ResolvedProviderExecutable, SpawnedProviderVersionReading, parse_cli_version_report,
 };
+use crate::queue::delivery::ProviderProcessIdentity;
 
 /// The largest message the scripted service takes, far above any a test sends.
 const SCRIPTED_MESSAGE_LIMIT: usize = 1 << 20;
@@ -79,9 +81,13 @@ impl ScriptedCodexService {
         });
     }
 
-    /// Records `process_id` as the process the daemon started for the service.
+    /// Records `process_id` as the process the daemon started for the service, its spawn
+    /// sequence drawn now as a pin draws it.
     pub(crate) fn report_process(&self, process_id: u32) {
-        self.service.lock_live().process_id = Some(process_id);
+        self.service.lock_live().process = Some(ProviderProcessIdentity {
+            process_id,
+            spawn_sequence: self.dependencies.processes.mint_spawn_sequence(),
+        });
     }
 
     /// Publishes the service up again on `connection`.
@@ -107,6 +113,7 @@ pub(crate) fn test_codex_service_dependencies(
     Arc::new(CodexServiceDependencies {
         spawner: Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts"),
         provider_services: Arc::new(ProviderServiceProcesses::default()),
+        processes: Arc::new(ProviderProcessRegistry::default()),
         program,
         data_folder: folder.join("data"),
         logs_folder: folder.join("logs"),

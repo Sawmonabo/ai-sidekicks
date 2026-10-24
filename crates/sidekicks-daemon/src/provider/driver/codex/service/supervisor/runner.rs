@@ -40,6 +40,7 @@ use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use crate::provider::spawned_version::SpawnedProviderVersionReading;
+use crate::queue::delivery::ProviderProcessIdentity;
 
 /// How long the daemon's own service has to stop before it is killed, as long as the daemon
 /// gives every child at its own stop.
@@ -316,10 +317,14 @@ impl ServiceRunner {
         };
         *service.lock_live() = super::LiveService {
             connection: Some(started.connection),
-            process_id: started
+            process: started
                 .process
                 .as_ref()
-                .and_then(CodexServiceProcess::process_id),
+                .and_then(CodexServiceProcess::process_id)
+                .map(|process_id| ProviderProcessIdentity {
+                    process_id,
+                    spawn_sequence: service.dependencies.processes.mint_spawn_sequence(),
+                }),
             version: Some(started.version),
         };
         self.process = started.process;
@@ -373,7 +378,7 @@ impl ServiceRunner {
         let connection = {
             let mut live = service.lock_live();
             if is_process_gone {
-                live.process_id = None;
+                live.process = None;
             }
             live.connection.take()
         };
