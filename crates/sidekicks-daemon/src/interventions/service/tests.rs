@@ -685,7 +685,7 @@ async fn an_unanswered_dispatch_stays_open_until_the_runs_end_settles_it(
             harness.set_run("interrupted", 2);
             harness
                 .engine
-                .settle_unresolved_of_ended_runs()
+                .settle_unresolved_of_ended_runs(harness.session_id)
                 .await
                 .expect("the recovery pass settles the ended run");
             (None, None)

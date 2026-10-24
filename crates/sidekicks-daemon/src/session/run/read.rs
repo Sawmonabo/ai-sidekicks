@@ -1,12 +1,12 @@
 //! Reads a run's current state and version from its `runs` row; the runs not yet ended across
-//! every session, and those of one session with the agent each runs for; the ended runs that hold
-//! a turn with no end; the provider subagents beneath one run that are live or hold a turn with no
-//! end; and the provider a run runs on, from its runtime binding or the binding of the parent whose
-//! provider process it runs in.
+//! every session or in one, and those of one session with the agent each runs for; the ended runs
+//! that hold a turn with no end, across every session or in one; the provider subagents beneath
+//! one run that are live or hold a turn with no end; and the provider a run runs on, from its
+//! runtime binding or the binding of the parent whose provider process it runs in.
 
 use std::sync::LazyLock;
 
-use rusqlite::{Connection, OptionalExtension, named_params};
+use rusqlite::{Connection, OptionalExtension, Row, named_params};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::event::registry::{RUN_LIFECYCLE_EVENT_TYPES, SessionEventType};
@@ -20,6 +20,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
+use crate::database::session_scope::SessionScopedSql;
 use crate::database::sql_list::sql_list_of;
 use crate::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
@@ -40,6 +41,24 @@ pub(crate) struct RunRead {
     pub(crate) session_id: SessionId,
     /// The run's current state.
     pub(crate) state: RunState,
+}
+
+/// A run and the session it belongs to, as a read across sessions names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SessionRun {
+    /// The run.
+    pub(crate) run_id: RunId,
+    /// Its session.
+    pub(crate) session_id: SessionId,
+}
+
+/// A row whose first column is a run's id and second its session's, as a [`SessionRun`]. Fails
+/// when either does not read as its id.
+pub(crate) fn session_run_of_row(row: &Row<'_>) -> rusqlite::Result<SessionRun> {
+    Ok(SessionRun {
+        run_id: text_column(row, 0, |text| RunId::new(&text))?,
+        session_id: text_column(row, 1, |text| SessionId::new(&text))?,
+    })
 }
 
 /// A run not yet ended, with the parent it was reached from and how; both absent on a lead run.
@@ -93,13 +112,15 @@ static SELECT_UNSETTLED_PROVIDER_SUBAGENTS_SQL: LazyLock<String> = LazyLock::new
 });
 
 // Spelled as the partial index on live runs spells it, so the scan reads that index.
-static SELECT_LIVE_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT run_id, session_id, state, run_version, parent_run_id, reached_by
+static SELECT_LIVE_RUNS_SQL: LazyLock<SessionScopedSql> = LazyLock::new(|| {
+    SessionScopedSql::new("session_id", |session_condition| {
+        format!(
+            "SELECT run_id, session_id, state, run_version, parent_run_id, reached_by
   FROM runs
-  WHERE state NOT IN ({})",
-        *RUN_TERMINAL_STATES_SQL
-    )
+  WHERE state NOT IN ({}) {session_condition}",
+            *RUN_TERMINAL_STATES_SQL
+        )
+    })
 });
 
 // A run's agent is on its `agent.run.queued` row, by id or inside the agent it brought in. Its
@@ -143,21 +164,24 @@ static SELECT_SESSION_LIVE_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// Every ended run that holds a started turn with no end, read through the turn starts' own run
-// columns.
-static SELECT_ENDED_RUNS_WITH_OPEN_TURNS_SQL: LazyLock<String> = LazyLock::new(|| {
+// Every ended run that holds a started turn with no end, with its session, read through the turn
+// starts' own run columns.
+static SELECT_ENDED_RUNS_WITH_OPEN_TURNS_SQL: LazyLock<SessionScopedSql> = LazyLock::new(|| {
     let category = EventCategory::RunLifecycle.as_str();
-    format!(
-        "SELECT DISTINCT runs.run_id
+    SessionScopedSql::new("runs.session_id", |session_condition| {
+        format!(
+            "SELECT DISTINCT runs.run_id, runs.session_id
   FROM runs JOIN session_events AS started ON started.run_id = runs.run_id
   WHERE runs.state IN ({terminal_states})
     AND started.category = '{category}'
     AND started.type = '{started}'
-    AND {no_end}",
-        terminal_states = *RUN_TERMINAL_STATES_SQL,
-        started = SessionEventType::AgentTurnStarted.as_str(),
-        no_end = turn_holds_no_end_sql(),
-    )
+    AND {no_end}
+    {session_condition}",
+            terminal_states = *RUN_TERMINAL_STATES_SQL,
+            started = SessionEventType::AgentTurnStarted.as_str(),
+            no_end = turn_holds_no_end_sql(),
+        )
+    })
 });
 
 /// Reads runs on the daemon's read-only connection, which sees each write once it has committed.
@@ -188,36 +212,38 @@ impl<'connection> RunStateReader<'connection> {
             .optional()
     }
 
-    /// Every run in every session that has not ended, queued runs included.
+    /// Every run of `session_id`, or of every session when it is `None`, that has not ended,
+    /// queued runs included.
     #[expect(dead_code, reason = "the daemon's recovery pass at start")]
-    pub(crate) fn list_live_runs(&self) -> rusqlite::Result<Vec<LiveRun>> {
-        self.reader
-            .prepare_cached(&SELECT_LIVE_RUNS_SQL)?
-            .query_map([], |row| {
-                Ok(LiveRun {
-                    run_id: text_column(row, 0, |text| RunId::new(&text))?,
-                    run: RunRead {
-                        session_id: text_column(row, 1, |text| SessionId::new(&text))?,
-                        state: text_column(row, 2, closed_word)?,
-                        version: row.get(3)?,
-                    },
-                    parent_run_id: optional_text_column(row, 4, |text| RunId::new(&text))?,
-                    reached_by: optional_text_column(row, 5, closed_word)?,
-                })
-            })?
-            .collect()
+    pub(crate) fn list_live_runs(
+        &self,
+        session_id: Option<&SessionId>,
+    ) -> rusqlite::Result<Vec<LiveRun>> {
+        SELECT_LIVE_RUNS_SQL.query(self.reader, session_id, |row| {
+            Ok(LiveRun {
+                run_id: text_column(row, 0, |text| RunId::new(&text))?,
+                run: RunRead {
+                    session_id: text_column(row, 1, |text| SessionId::new(&text))?,
+                    state: text_column(row, 2, closed_word)?,
+                    version: row.get(3)?,
+                },
+                parent_run_id: optional_text_column(row, 4, |text| RunId::new(&text))?,
+                reached_by: optional_text_column(row, 5, closed_word)?,
+            })
+        })
     }
 
-    /// Every run that has ended while a turn of it holds no end, as a restart finds it.
+    /// Every run of `session_id`, or of every session when it is `None`, that has ended while a
+    /// turn of it holds no end, as a restart finds it.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the daemon's recovery pass at start")
     )]
-    pub(crate) fn list_ended_runs_with_open_turns(&self) -> rusqlite::Result<Vec<RunId>> {
-        self.reader
-            .prepare_cached(&SELECT_ENDED_RUNS_WITH_OPEN_TURNS_SQL)?
-            .query_map([], |row| text_column(row, 0, |text| RunId::new(&text)))?
-            .collect()
+    pub(crate) fn list_ended_runs_with_open_turns(
+        &self,
+        session_id: Option<&SessionId>,
+    ) -> rusqlite::Result<Vec<SessionRun>> {
+        SELECT_ENDED_RUNS_WITH_OPEN_TURNS_SQL.query(self.reader, session_id, session_run_of_row)
     }
 
     /// The runs `run_id`'s provider dispatched beneath it as its own subagents, at any depth, that

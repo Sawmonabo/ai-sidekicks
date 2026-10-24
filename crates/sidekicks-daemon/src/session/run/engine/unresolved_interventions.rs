@@ -9,6 +9,7 @@ use std::sync::Weak;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::SetOnceError;
 
 use crate::database::connection::read_pool::ReadLength;
@@ -249,23 +250,30 @@ impl RunEngine {
         }
     }
 
-    /// Settles, after a restart, every ended run that a daemon gone down between its end and the
-    /// settle left holding an intervention with no outcome, as its end would have. Every run is
-    /// tried before the failures return together.
+    /// Settles, after a restart, every ended run of `session_id` that a daemon gone down between
+    /// its end and the settle left holding an intervention with no outcome, as its end would have.
+    /// Every run is tried before the failures return together.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the daemon's recovery pass at start")
     )]
-    pub(crate) async fn settle_unresolved_of_ended_runs(&self) -> Result<(), RunEngineError> {
-        let run_ids = self
+    pub(crate) async fn settle_unresolved_of_ended_runs(
+        &self,
+        session_id: SessionId,
+    ) -> Result<(), RunEngineError> {
+        let ended_runs = self
             .pool
-            .read(ReadLength::Short, |reader| {
-                Ok::<_, RunEngineError>(read_ended_runs_with_unresolved(reader)?)
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, RunEngineError>(read_ended_runs_with_unresolved(reader, Some(&session_id))?)
             })
             .await?;
-        let mut outcomes = Vec::with_capacity(run_ids.len());
-        for run_id in run_ids {
-            outcomes.push(self.settle_unresolved_of_ended_run(run_id).await.map(drop));
+        let mut outcomes = Vec::with_capacity(ended_runs.len());
+        for ended in ended_runs {
+            outcomes.push(
+                self.settle_unresolved_of_ended_run(ended.run_id)
+                    .await
+                    .map(drop),
+            );
         }
         settled(
             outcomes,

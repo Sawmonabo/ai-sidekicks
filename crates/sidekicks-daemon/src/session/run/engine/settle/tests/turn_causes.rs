@@ -244,9 +244,12 @@ async fn a_restart_ends_the_open_turns_of_runs_that_had_ended() {
     assert!(ended);
     drop(engine);
     let restarted = test_engine(&database, log.service, home.path());
-    let ended_runs = RunStateReader::new(&connection)
-        .list_ended_runs_with_open_turns()
-        .expect("the restart lists the ended runs with open turns");
+    let ended_runs: Vec<RunId> = RunStateReader::new(&connection)
+        .list_ended_runs_with_open_turns(Some(&session_id))
+        .expect("the restart lists the ended runs with open turns")
+        .into_iter()
+        .map(|ended| ended.run_id)
+        .collect();
 
     restarted
         .end_open_turns_of_ended_runs(&ended_runs)

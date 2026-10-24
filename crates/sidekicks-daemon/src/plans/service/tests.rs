@@ -256,7 +256,7 @@ async fn a_lost_hold_reopens_a_holding_plan_once_and_leaves_a_codex_plan(
             for _ in 0..2 {
                 fixture
                     .plans
-                    .end_holds_lost_at_restart()
+                    .end_holds_lost_at_restart(fixture.store.session_id)
                     .await
                     .expect("the sweep runs");
             }

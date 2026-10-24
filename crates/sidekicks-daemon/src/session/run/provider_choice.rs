@@ -8,7 +8,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, named_params};
@@ -30,6 +30,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
+use crate::database::session_scope::SessionScopedSql;
 use crate::database::statement::{StatementBindings, WriteStatement, named_bindings, text_binding};
 use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 use crate::ipc::handlers::driver::resolution::{LiveRunDriverError, resolve_live_run_driver};
@@ -42,11 +43,14 @@ use crate::provider::driver::run_control::{
 };
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::pause::run_control_response;
-use crate::session::run::read::{RunRead, RunStateReader, read_run_provider, read_run_through};
+use crate::session::run::read::{
+    RunRead, RunStateReader, SessionRun, read_run_provider, read_run_through, session_run_of_row,
+};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateEntry,
 };
+use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 #[cfg(test)]
 mod tests;
@@ -75,6 +79,40 @@ const SELECT_SETTLEMENT_SINCE_SQL: &str = "SELECT 1 FROM session_events
     AND run_id = @run_id
     AND sequence > @requested_sequence
   LIMIT 1";
+
+// Every ended run holding a choice requested and never settled, with its session: a request with
+// no settlement of its kind after it.
+static SELECT_ENDED_RUNS_WITH_OPEN_CHOICES_SQL: LazyLock<SessionScopedSql> = LazyLock::new(|| {
+    let [refusal, usage_credits] =
+        [ChoiceDialog::Refusal, ChoiceDialog::UsageCredits].map(|dialog| {
+            (
+                dialog.requested_type().as_str(),
+                dialog.resolved_type().as_str(),
+            )
+        });
+    SessionScopedSql::new("runs.session_id", |session_condition| {
+        format!(
+            "SELECT DISTINCT runs.run_id, runs.session_id
+  FROM runs JOIN session_events AS requested ON requested.run_id = runs.run_id
+  WHERE runs.state IN ({terminal_states})
+    AND requested.type IN ('{refusal_requested}', '{usage_credits_requested}')
+    AND NOT EXISTS (
+      SELECT 1 FROM session_events AS resolved
+       WHERE resolved.session_id = requested.session_id
+         AND resolved.type = CASE requested.type
+               WHEN '{refusal_requested}' THEN '{refusal_resolved}'
+               ELSE '{usage_credits_resolved}' END
+         AND resolved.run_id = requested.run_id
+         AND resolved.sequence > requested.sequence)
+    {session_condition}",
+            terminal_states = *RUN_TERMINAL_STATES_SQL,
+            refusal_requested = refusal.0,
+            refusal_resolved = refusal.1,
+            usage_credits_requested = usage_credits.0,
+            usage_credits_resolved = usage_credits.1,
+        )
+    })
+});
 
 /// Who answered a choice: the device of the connection the answer arrived on.
 #[derive(Clone, Debug)]
@@ -563,6 +601,17 @@ fn lock_held(
     held_answers: &Mutex<HashMap<RunId, HeldAnswer>>,
 ) -> MutexGuard<'_, HashMap<RunId, HeldAnswer>> {
     held_answers.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The runs of `session_id`, or of every session when it is `None`, that have ended while a choice
+/// their provider asked is still unsettled, read on `reader`: one whose request committed after
+/// the run's end had read its open choices. Fails when the read fails or a stored id is not one.
+#[expect(dead_code, reason = "the daemon's recovery pass at start")]
+pub(crate) fn read_ended_runs_with_open_choices(
+    reader: &Connection,
+    session_id: Option<&SessionId>,
+) -> rusqlite::Result<Vec<SessionRun>> {
+    SELECT_ENDED_RUNS_WITH_OPEN_CHOICES_SQL.query(reader, session_id, session_run_of_row)
 }
 
 // The newest request of `dialog`'s choice on the run, if the log holds one.

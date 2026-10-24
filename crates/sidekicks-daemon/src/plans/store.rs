@@ -17,6 +17,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
 
+use crate::database::session_scope::SessionScopedSql;
 use crate::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
@@ -63,11 +64,14 @@ static HELD_PLANS_OF_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // The plans of every run still waiting on a held request.
-static HELD_PLANS_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT id, session_id FROM plans WHERE state = '{waiting}' AND holds_request = 1",
-        waiting = <&'static str>::from(PlanState::Waiting)
-    )
+static HELD_PLANS_SQL: LazyLock<SessionScopedSql> = LazyLock::new(|| {
+    SessionScopedSql::new("session_id", |session_condition| {
+        format!(
+            "SELECT id, session_id FROM plans
+  WHERE state = '{waiting}' AND holds_request = 1 {session_condition}",
+            waiting = <&'static str>::from(PlanState::Waiting)
+        )
+    })
 });
 
 /// A plan waiting on a request its driver holds.
@@ -178,13 +182,13 @@ pub(crate) fn read_held_plans_of_run(
         .collect()
 }
 
-/// The plans of every run still waiting on a request their driver holds. Fails as SQLite does, or
-/// when a stored id does not read.
-pub(crate) fn read_held_plans(connection: &Connection) -> rusqlite::Result<Vec<HeldPlan>> {
-    connection
-        .prepare_cached(&HELD_PLANS_SQL)?
-        .query_map([], held_plan_of_row)?
-        .collect()
+/// The plans of `session_id`, or of every session when it is `None`, still waiting on a request
+/// their driver holds. Fails as SQLite does, or when a stored id does not read.
+pub(crate) fn read_held_plans(
+    connection: &Connection,
+    session_id: Option<&SessionId>,
+) -> rusqlite::Result<Vec<HeldPlan>> {
+    HELD_PLANS_SQL.query(connection, session_id, held_plan_of_row)
 }
 
 // A held plan's row, as both reads select it.
