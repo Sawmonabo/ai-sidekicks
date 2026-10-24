@@ -4,6 +4,7 @@
 
 use std::path::Path;
 
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 
@@ -105,11 +106,13 @@ impl CodexDriver {
 
     /// The skills `picks` names as Codex lists them for the session, each by its name and the
     /// file it loads it from, in the order picked: the live session's listing, else a read on
-    /// the person's own service over the session's folder. Fails with `skill.pathRefused` for a
-    /// pick Codex does not list in that folder, and as the read fails.
+    /// the service of `provider_account_id`, the account the session's runs are admitted
+    /// against, over the session's folder. Fails with `skill.pathRefused` for a pick Codex does
+    /// not list in that folder, and as the read fails.
     pub(crate) async fn resolve_skill_picks(
         &self,
         session_id: SessionId,
+        provider_account_id: Option<ProviderAccountId>,
         picks: Vec<QueuedSkillPick>,
     ) -> Result<Vec<PickedSkill>, DriverError> {
         let listed = if let Some(source) = self.views.command_source(session_id) {
@@ -123,10 +126,13 @@ impl CodexDriver {
         } else {
             let context = self
                 .spawn_contexts
-                .resolve_spawn_context(session_id, None)
+                .resolve_spawn_context(session_id, provider_account_id.clone())
                 .await
                 .map_err(DriverError::Internal)?;
-            let service = self.registry.service_for(None).await?;
+            let service = self
+                .registry
+                .service_for(provider_account_id.as_ref())
+                .await?;
             service
                 .ensure_started(service.dependencies().startup_timeout)
                 .await?;

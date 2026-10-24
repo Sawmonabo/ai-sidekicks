@@ -2,6 +2,7 @@
 //! conversation, a move to a new build, its close and the daemon's stop, the purge of its
 //! conversations, and the messages a continue sent that Codex took.
 
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 
@@ -232,11 +233,26 @@ impl CodexDriver {
     }
 
     /// Whether a run on `session_id` brings a Codex service up: `false` while the session's
-    /// conversation is loaded on a service that runs.
-    pub(crate) fn starts_process(&self, session_id: SessionId) -> bool {
-        self.views
-            .service(session_id)
-            .is_none_or(|service| service.connection().is_err())
+    /// conversation is loaded on a service that runs, or, with none loaded, while the service of
+    /// `provider_account_id`, the account the run is admitted against, runs. A home that cannot
+    /// be resolved reads as a start, which then fails on it.
+    pub(crate) async fn starts_process(
+        &self,
+        session_id: SessionId,
+        provider_account_id: Option<ProviderAccountId>,
+    ) -> bool {
+        let service = match self.views.service(session_id) {
+            Some(service) => service,
+            None => match self
+                .registry
+                .service_for(provider_account_id.as_ref())
+                .await
+            {
+                Ok(service) => service,
+                Err(_) => return true,
+            },
+        };
+        service.connection().is_err()
     }
 
     /// The messages of a continue Codex holds in the session's conversation. A continue sends its

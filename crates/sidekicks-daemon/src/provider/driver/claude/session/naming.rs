@@ -4,6 +4,7 @@
 //! at rest, appended to its conversation file as the entry Claude Code's own rename writes.
 
 use sidekicks_contracts::machine::settings::ProviderRowValues;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_platforms::PathRules;
@@ -39,12 +40,13 @@ const CLAUDE_NAMING_MODEL: &str = "haiku";
 
 /// Names the session from its first exchange: Claude Code's title verb on `live` where it answers
 /// with a title, else a one-turn pass on `live`'s legs, or, with no live process, on the session's
-/// own folder and home. `None` when both gave no title or `params.cancel` fired. Fails as the
-/// one-turn pass fails.
+/// own folder and the home of `rest_account`, the account its stored leg ran on. `None` when both
+/// gave no title or `params.cancel` fired. Fails as the one-turn pass fails.
 pub(crate) async fn name_claude_session(
     live: Option<&LiveClaudeSession>,
     starts: &dyn ClaudeProcessStarts,
     sources: &ClaudeSpawnSources,
+    rest_account: Option<ProviderAccountId>,
     params: NameSessionParams,
 ) -> Result<Option<String>, DriverError> {
     let description = compose_naming_description(&params.first_message, &params.first_reply);
@@ -86,8 +88,8 @@ pub(crate) async fn name_claude_session(
         )
         .await
     } else {
-        let legs = compose_naming_legs(sources, params.session_id).await?;
-        run_naming_turn(starts, &legs, None, text, &params.cancel).await
+        let legs = compose_naming_legs(sources, params.session_id, rest_account.clone()).await?;
+        run_naming_turn(starts, &legs, rest_account, text, &params.cancel).await
     };
     match reply {
         Ok(reply) => Ok(clean_title(&reply)),
@@ -135,18 +137,36 @@ pub(crate) async fn tell_claude_session_name(
         .map_err(|error| DriverError::Internal(Box::new(error)))
 }
 
-// The legs of a naming pass on a session with no live process: its folder and home, the small
-// model, no tools and no level, since the pass's one turn asks for nothing.
+/// The conversation `provider_session_id` a session's stored leg names, at rest on
+/// `provider_account_id`'s account, where its file is found: the environment that account's
+/// process runs in. Fails as the session's folder or stored settings cannot be read.
+pub(crate) async fn stored_claude_conversation(
+    sources: &ClaudeSpawnSources,
+    session_id: SessionId,
+    provider_account_id: Option<ProviderAccountId>,
+    provider_session_id: String,
+) -> Result<ClaudeEndedConversation, DriverError> {
+    let legs = compose_naming_legs(sources, session_id, provider_account_id).await?;
+    Ok(ClaudeEndedConversation {
+        provider_session_id,
+        spawn_environment: legs.spawn_environment,
+    })
+}
+
+// The legs of a naming pass on a session with no live process: its folder and the home of
+// `provider_account_id`'s account, the small model, no tools and no level, since the pass's one
+// turn asks for nothing.
 async fn compose_naming_legs(
     sources: &ClaudeSpawnSources,
     session_id: SessionId,
+    provider_account_id: Option<ProviderAccountId>,
 ) -> Result<ClaudeSpawnBoundLegs, DriverError> {
     let no_rows: ProviderRowValues = Record::default();
     let context = resolve_claude_spawn_context(
         &*sources.spawn_contexts,
         &sources.pool,
         session_id,
-        None,
+        provider_account_id.clone(),
         &no_rows,
     )
     .await
@@ -160,7 +180,7 @@ async fn compose_naming_legs(
             tool_servers: None,
             output_schema: None,
             on_mcp_server_status: None,
-            provider_account_id: None,
+            provider_account_id,
             context,
         },
         &ClaudeSpawnLegServices::of(sources),
@@ -173,7 +193,7 @@ async fn compose_naming_legs(
 async fn run_naming_turn(
     starts: &dyn ClaudeProcessStarts,
     legs: &ClaudeSpawnBoundLegs,
-    provider_account_id: Option<sidekicks_contracts::provider::account::record::ProviderAccountId>,
+    provider_account_id: Option<ProviderAccountId>,
     text: OutboundText,
     cancel: &CancellationToken,
 ) -> Result<String, ClaudeLaunchError> {

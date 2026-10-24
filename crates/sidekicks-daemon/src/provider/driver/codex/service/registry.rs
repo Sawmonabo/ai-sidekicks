@@ -313,10 +313,17 @@ impl CodexServiceRegistry {
     /// home.
     pub(crate) fn holding(scripted: &ScriptedCodexService) -> Arc<Self> {
         let home = scripted.service.home().clone();
-        let registry = Arc::new(Self::new(
-            Arc::new(OneHome(home.clone())),
-            Arc::clone(&scripted.dependencies),
-        ));
+        Self::holding_on(scripted, Arc::new(OneHome(home)))
+    }
+
+    /// A registry holding `scripted`'s service as its home's, each account's home resolved by
+    /// `homes`.
+    pub(crate) fn holding_on(
+        scripted: &ScriptedCodexService,
+        homes: Arc<dyn CodexHomeResolver>,
+    ) -> Arc<Self> {
+        let home = scripted.service.home().clone();
+        let registry = Arc::new(Self::new(homes, Arc::clone(&scripted.dependencies)));
         registry
             .lock()
             .by_home

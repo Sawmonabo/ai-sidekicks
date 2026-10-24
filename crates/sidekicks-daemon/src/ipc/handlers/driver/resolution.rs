@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -90,23 +91,33 @@ pub(crate) fn resolve_session_driver(
     Ok((provider, driver))
 }
 
-/// The provider the session's lead runs on and its driver, the lead's binding read through `pool`
-/// from the readable part of the session's log. Refused as [`resolve_session_driver`] refuses, and
-/// fails as the pool and the read do.
+/// The provider the session's lead runs on, the account it is bound to (`None` for the provider's
+/// current account) and its driver, the lead's binding read through `pool` from the readable part
+/// of the session's log. Refused as [`resolve_session_driver`] refuses, and fails as the pool and
+/// the read do.
 pub(crate) async fn read_session_driver<Failure>(
     pool: &DatabaseReadPool,
     providers: &ProviderRegistry,
     read_damaged_from_sequence: &DamagedFromSequenceReader,
     session_id: SessionId,
-) -> Result<(ProviderId, Arc<dyn ProviderDriver>), Failure>
+) -> Result<
+    (
+        ProviderId,
+        Option<ProviderAccountId>,
+        Arc<dyn ProviderDriver>,
+    ),
+    Failure,
+>
 where
     Failure: From<DatabaseReadError> + From<rusqlite::Error> + From<DomainError> + Send + 'static,
 {
     let read_bound = session_read_bound(read_damaged_from_sequence, &session_id, None);
     let bound = pool
         .read(ReadLength::Short, move |reader| -> Result<_, Failure> {
-            Ok(read_lead_binding(reader, &session_id, read_bound)?.map(|(provider, _)| provider))
+            Ok(read_lead_binding(reader, &session_id, read_bound)?)
         })
         .await?;
-    Ok(resolve_session_driver(providers, &session_id, bound)?)
+    let (provider, provider_account_id) = bound.unzip();
+    let (provider, driver) = resolve_session_driver(providers, &session_id, provider)?;
+    Ok((provider, provider_account_id.flatten(), driver))
 }

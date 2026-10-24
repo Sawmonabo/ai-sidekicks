@@ -17,7 +17,7 @@ use crate::provider::driver::claude::session::conversation_file::{
 };
 use crate::provider::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::provider::driver::claude::session::naming::{
-    name_claude_session, tell_claude_session_name,
+    name_claude_session, stored_claude_conversation, tell_claude_session_name,
 };
 use crate::provider::driver::claude::session::purge::{
     ClaudePurgePlace, purge_claude_conversations,
@@ -34,6 +34,7 @@ use crate::provider::driver::session_control::{
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderSessionHandle,
     PurgeSessionParams, ResumeSessionParams,
 };
+use crate::provider::runtime_binding::resume::read_session_leg;
 use crate::settle_all::settle_all;
 
 impl ClaudeDriver {
@@ -197,7 +198,9 @@ impl ClaudeDriver {
             .is_none_or(|parts| parts.slots().live_session(session_id).is_none())
     }
 
-    /// Names the session from its first exchange; see the naming pass.
+    /// Names the session from its first exchange; see the naming pass. At rest the pass runs on
+    /// the account the session's stored leg ran on; a session that never ran answers `None`.
+    /// Fails as the stored leg cannot be read, and as the pass fails.
     pub(crate) async fn name_session(
         &self,
         params: NameSessionParams,
@@ -205,10 +208,27 @@ impl ClaudeDriver {
         let live = self
             .composed_parts()
             .and_then(|parts| parts.slots().live_session(params.session_id));
-        name_claude_session(live.as_deref(), &*self.starts, &self.sources, params).await
+        let rest_account = if live.is_some() {
+            None
+        } else {
+            let Some(leg) = read_session_leg(&self.sources.pool, params.session_id).await? else {
+                return Ok(None);
+            };
+            leg.spawn_config.provider_account_id
+        };
+        name_claude_session(
+            live.as_deref(),
+            &*self.starts,
+            &self.sources,
+            rest_account,
+            params,
+        )
+        .await
     }
 
-    /// Tells Claude Code the session's name, on its live process or in its conversation at rest.
+    /// Tells Claude Code the session's name, on its live process or in its conversation at rest:
+    /// the one its last process here wrote, else the one its stored leg names, which outlives a
+    /// restart of the daemon. A session that never ran has nothing to rename and answers `Ok`.
     pub(crate) async fn tell_session_name(
         &self,
         session_id: SessionId,
@@ -216,7 +236,24 @@ impl ClaudeDriver {
     ) -> Result<(), DriverError> {
         let parts = self.composed_parts();
         let live = parts.and_then(|parts| parts.slots().live_session(session_id));
-        let ended = parts.and_then(|parts| parts.restarts.ended_conversation(session_id));
+        let mut ended = parts.and_then(|parts| parts.restarts.ended_conversation(session_id));
+        if live.is_none() && ended.is_none() {
+            let Some(leg) = read_session_leg(&self.sources.pool, session_id).await? else {
+                return Ok(());
+            };
+            let Some(handle) = leg.resume_handle else {
+                return Ok(());
+            };
+            ended = Some(
+                stored_claude_conversation(
+                    &self.sources,
+                    session_id,
+                    leg.spawn_config.provider_account_id,
+                    handle,
+                )
+                .await?,
+            );
+        }
         tell_claude_session_name(session_id, live.as_deref(), ended, name).await
     }
 
