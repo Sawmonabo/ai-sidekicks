@@ -34,6 +34,7 @@ use sidekicks_contracts::session::controls::methods::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::ipc::domain_error::DomainError;
@@ -162,6 +163,28 @@ pub(crate) struct NameSessionParams {
     pub(crate) first_reply: String,
     /// Fires when the pass is no longer wanted: the session was renamed, or the daemon stops.
     pub(crate) cancel: CancellationToken,
+}
+
+/// Runs a naming pass, `pass`, under a stop that fires with `cancel` or at `deadline`, and awaits
+/// the pass to its end either way, so what it started is stopped as a cancel stops it.
+pub(crate) async fn run_naming_pass_until<Pass, Named>(
+    cancel: &CancellationToken,
+    deadline: Instant,
+    pass: impl FnOnce(CancellationToken) -> Pass,
+) -> Named
+where
+    Pass: Future<Output = Named>,
+{
+    let stop = cancel.child_token();
+    let pass = pass(stop.clone());
+    tokio::pin!(pass);
+    tokio::select! {
+        named = &mut pass => named,
+        () = tokio::time::sleep_until(deadline) => {
+            stop.cancel();
+            pass.await
+        }
+    }
 }
 
 /// The most of the first reply a naming pass reads, in UTF-8 bytes, as much as a short title

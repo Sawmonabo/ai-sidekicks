@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use super::{TITLE_THREAD, TITLE_TURN};
 use crate::provider::driver::codex::lifecycle::CodexDriver;
 use crate::provider::driver::codex::lifecycle::naming::CODEX_NAMING_DEADLINE;
-use crate::provider::driver::codex::session::test_session::TestCodexSession;
+use crate::provider::driver::codex::session::test_session::{TestCodexSession, turn_reply};
 use crate::provider::driver::session_control::NameSessionParams;
 use crate::provider::driver::test_registry::test_driver_services;
 
@@ -43,9 +43,7 @@ async fn serve_unended_title_turn(listener: Listener) -> Value {
                 "thread": {"id": TITLE_THREAD, "sessionId": "codex-session"},
                 "sandbox": {"type": "readOnly", "networkAccess": false},
             }),
-            Some("turn/start") => {
-                json!({"turn": {"id": TITLE_TURN, "items": [], "status": "inProgress"}})
-            }
+            Some("turn/start") => turn_reply(TITLE_TURN),
             Some("turn/interrupt") => {
                 let reply = json!({"id": id, "result": {}});
                 socket

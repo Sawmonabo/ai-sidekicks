@@ -103,8 +103,8 @@ async fn a_resting_session_is_renamed_on_its_stored_accounts_service_with_its_st
     told.await.expect("Codex takes the name");
 }
 
-// Killed by refusing a session with no stored leg, as the rename once refused every session at
-// rest. A request sent would wait for the answer the script never gives, past the test's bound.
+// Killed by refusing a session with no stored leg. A request sent would wait for the answer the
+// script never gives, past the test's bound.
 #[tokio::test]
 async fn a_session_that_never_ran_renames_with_nothing_sent() {
     let scripted = start_scripted_codex_service();

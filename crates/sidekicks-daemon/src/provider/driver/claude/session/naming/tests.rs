@@ -1,11 +1,12 @@
+//! A naming pass on a resting Claude Code session whose one turn never answers.
+
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use std::time::Duration;
-
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
