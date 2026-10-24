@@ -5,7 +5,8 @@
 //! accepted one, so a later start keeps it whatever it finds: a start whose credential service is
 //! gone or failing would otherwise pick the plain file and strand the sealed items. A later start
 //! changes it in one way only, from a Linux plain file to the sealed file once systemd's credential
-//! service seals without binding to the boot state. It sits in the data folder, never in the
+//! service seals without binding to the boot state, and the relink removes it with a sealed file
+//! that cannot be opened, so the place is picked again. It sits in the data folder, never in the
 //! database or the settings file, which a backup holds, so a restore onto another machine carries
 //! no pick, and an erase removes it with the folder.
 //!
@@ -109,6 +110,16 @@ pub(crate) async fn write_record(path: &Path, record: &PlaceRecord) -> Result<()
         .map_err(|failure| record_failure(path, failure))
 }
 
+/// Removes the record at `path`; one already gone is no failure. Fails with [`KeychainRefusal`]
+/// when the file system refuses.
+pub(crate) async fn remove_record(path: &Path) -> Result<(), KeychainRefusal> {
+    tokio::fs::remove_file(path)
+        .await
+        .none_if_missing()
+        .map(drop)
+        .map_err(|failure| record_failure(path, failure))
+}
+
 /// A move stopped by a refused call, and the record as it left it: the record it started from when
 /// it stopped before recording its direction, else the record naming the move.
 pub(crate) struct MoveStopped {
@@ -193,14 +204,14 @@ fn unreadable(
     .with_failure(failure)
 }
 
-// The refusal for a record that cannot be written.
+// The refusal for a record that cannot be written or removed.
 fn record_failure(
     path: &Path,
     failure: impl Into<Box<dyn std::error::Error + Send + Sync>>,
 ) -> KeychainRefusal {
     KeychainRefusal::new(
         KeychainRefusalCause::Unavailable,
-        format!("{} could not be written", path.display()),
+        format!("{} could not be written or removed", path.display()),
     )
     .with_failure(failure)
 }
