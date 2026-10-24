@@ -2,7 +2,7 @@
 //! by session id with no live record, and the resume params composed from that binding's stored
 //! legs and the session as it stands now.
 
-use rusqlite::named_params;
+use rusqlite::{Connection, named_params};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
@@ -101,14 +101,7 @@ pub(crate) async fn read_session_leg(
     session_id: SessionId,
 ) -> Result<Option<RuntimeBinding>, RuntimeBindingStoreError> {
     pool.read(ReadLength::Short, move |reader| {
-        let run_ids = reader
-            .prepare_cached(SESSION_RUN_IDS_SQL)?
-            .query_map(
-                named_params! { "@sessionId": session_id.text().as_str() },
-                |row| text_column(row, 0, |text| RunId::new(&text)),
-            )?
-            .collect::<rusqlite::Result<Vec<RunId>>>()?;
-        Ok(read_bindings_of_runs(reader, &run_ids)?
+        Ok(read_session_bindings(reader, session_id)?
             .into_iter()
             .filter(|binding| binding.resume_handle.is_some())
             .max_by(|left, right| {
@@ -116,4 +109,20 @@ pub(crate) async fn read_session_leg(
             }))
     })
     .await
+}
+
+/// Every binding of the session's runs, superseded ones included, read on `reader`, inside the
+/// caller's snapshot where it holds one. Fails as SQLite fails or a stored row does not read.
+pub(crate) fn read_session_bindings(
+    reader: &Connection,
+    session_id: SessionId,
+) -> rusqlite::Result<Vec<RuntimeBinding>> {
+    let run_ids = reader
+        .prepare_cached(SESSION_RUN_IDS_SQL)?
+        .query_map(
+            named_params! { "@sessionId": session_id.text().as_str() },
+            |row| text_column(row, 0, |text| RunId::new(&text)),
+        )?
+        .collect::<rusqlite::Result<Vec<RunId>>>()?;
+    read_bindings_of_runs(reader, &run_ids)
 }
