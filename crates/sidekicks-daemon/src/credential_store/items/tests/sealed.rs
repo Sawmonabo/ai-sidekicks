@@ -115,16 +115,16 @@ const fn refuses(error: &'static str, errno: Option<i64>) -> SealNow {
 
 // Files `before` in `folder` through `seal`, sealing with its key at the time.
 async fn file_before(folder: &Path, seal: &Arc<TestSeal>, before: Before) {
-    let items_file = match before {
+    let seal = match before {
         Before::Nothing => return,
-        Before::Plain => SecretItemsFile::new(folder),
+        Before::Plain => None,
         Before::Sealed(key) => {
             seal.seal_with(key, 0);
-            SecretItemsFile::sealed(folder, Arc::clone(seal) as _)
+            Some(Arc::clone(seal) as _)
         }
     };
-    items_file
-        .keychain(WORKFLOW)
+    SecretItemsFile::new(folder)
+        .keychain(WORKFLOW, seal)
         .write(EARLIER, &SecretString::from("earlier value"))
         .await
         .expect("the test fills the file");
@@ -360,7 +360,7 @@ async fn a_sealed_file_under_a_plain_record_moves_the_record_and_seals_nothing()
 async fn a_seal_pass_longer_than_a_call_lands_once() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     std::fs::write(folder.path().join(RECORD), NO_SEAL_SERVICE).expect("the test writes it");
-    let plain = SecretItemsFile::new(folder.path()).keychain(WORKFLOW);
+    let plain = SecretItemsFile::new(folder.path()).keychain(WORKFLOW, None);
     for account in [EARLIER, "second", "third"] {
         plain
             .write(account, &SecretString::from("earlier value"))

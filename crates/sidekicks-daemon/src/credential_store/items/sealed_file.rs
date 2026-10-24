@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
+use std::sync::Arc;
 
 use secrecy::ExposeSecret as _;
 use sidekicks_contracts::daemon::status::DaemonSecretsFileUnopened;
@@ -45,8 +46,8 @@ impl SecretItems {
         state: &mut PlaceState,
         header: SealHeader,
     ) -> Result<Option<SecretsPlace>, KeychainRefusal> {
-        let sealed_file = self.sealed_file()?;
-        match sealed_file.seal_again(header).await? {
+        let seal = Arc::clone(self.seal()?);
+        match self.items_file.seal_again(seal, header).await? {
             SealPass::Unchanged | SealPass::Sealed => {}
             SealPass::Abandoned(why) => {
                 tracing::warn!(why, "the secrets stay plain: sealing them was abandoned");
@@ -113,10 +114,10 @@ impl SecretItems {
         state: &mut PlaceState,
         probe: SealHeader,
     ) -> Result<(), KeychainRefusal> {
-        let (seal, sealed_file) = (self.seal()?, self.sealed_file()?);
+        let seal = self.seal()?;
         let mut samples = BTreeMap::new();
         let mut is_any_weaker = false;
-        for item in sealed_file.sealed_items().await? {
+        for item in self.items_file.sealed_items().await? {
             if item.service == KeychainService::Probe.as_str() {
                 continue;
             }
@@ -126,7 +127,7 @@ impl SecretItems {
         }
         let opened = tokio::time::timeout(
             self.seal_check_timeout,
-            open_samples(seal, samples.into_values(), probe),
+            open_samples(seal.as_ref(), samples.into_values(), probe),
         )
         .await;
         let cause = match opened {
@@ -144,7 +145,7 @@ impl SecretItems {
             return Err(state.refuse_opening(cause));
         }
         if is_any_weaker {
-            match sealed_file.seal_again(probe).await? {
+            match self.items_file.seal_again(Arc::clone(seal), probe).await? {
                 SealPass::Unchanged | SealPass::Sealed => {}
                 SealPass::Abandoned(why) => tracing::warn!(
                     why,

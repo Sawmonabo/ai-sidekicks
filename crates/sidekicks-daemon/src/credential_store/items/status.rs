@@ -40,7 +40,7 @@ impl SecretItems {
                 Err(_unreadable) => None,
             },
         };
-        let snapshot = self.plain_file.snapshot(&moved_services).await;
+        let snapshot = self.items_file.snapshot(&moved_services).await;
         let is_sealed = match place {
             Some(SecretsPlace::OperatingSystem) => return Ok(None),
             Some(SecretsPlace::SealedFile) => true,
@@ -67,7 +67,7 @@ impl SecretItems {
             return Ok(None);
         };
         Ok(Some(DaemonSecretsFile {
-            path: FilesystemPath::new(self.plain_file.file_path().to_string_lossy().into_owned())?,
+            path: FilesystemPath::new(self.items_file.file_path().to_string_lossy().into_owned())?,
             protection,
             reason,
             cannot_open: cannot_open.filter(|_| is_sealed),

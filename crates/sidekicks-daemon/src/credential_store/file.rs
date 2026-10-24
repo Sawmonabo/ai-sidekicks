@@ -3,9 +3,10 @@
 //! data folder, readable by this account alone (mode 0600). The file holds each item under its
 //! keychain service and account, so every service's items share it, and names its form: `sealed`,
 //! each value sealed to this computer by systemd's credential service under its own name, or
-//! `plain`, each value as given. A run opens the file in one form and refuses a file in the other
-//! or in none. It exists exactly while it holds an item: the write that removes the last one
-//! deletes it.
+//! `plain`, each value as given. Each call opens the file in the form its keychain keeps and
+//! refuses a file in the other or in none; a run serves its calls in one form, and only the pass
+//! that seals the file again turns it from one form to the other. It exists exactly while it holds
+//! an item: the write that removes the last one deletes it.
 //!
 //! Every call reads the disk, so no copy of a value stays in memory past the call, and the calls on
 //! one file run one at a time, every service's keychain on it sharing one lock, so two writes never
@@ -121,14 +122,13 @@ struct ItemsTextWritten<'items> {
     items: BTreeMap<&'items str, BTreeMap<&'items str, &'items str>>,
 }
 
-/// The daemon's one `secrets.json` in its data folder: its path, its form, the lock every call on
-/// it holds, whichever service's keychain makes the call, and the hold each write keeps on its
-/// item. One per data folder, every keychain on the file holding a handle to it.
+/// The daemon's one `secrets.json` in its data folder: its path, the lock every call on it holds,
+/// whichever service's keychain makes the call and in whichever form, and the hold each write keeps
+/// on its item. One per data folder, every keychain on the file holding a handle to it; each
+/// keychain and each pass names the form it keeps the file in.
 pub(crate) struct SecretItemsFile {
     /// The file's full path.
     file_path: PathBuf,
-    /// The seal each value goes through, or `None` for a plain file.
-    seal: Option<Arc<dyn SecretSeal>>,
     /// Held by each call for its whole read and write; `true` once the leftovers of a write cut
     /// short have been removed.
     calls: Mutex<bool>,
@@ -138,21 +138,11 @@ pub(crate) struct SecretItemsFile {
 }
 
 impl SecretItemsFile {
-    /// The plain items file in `data_folder`, an absolute path to a folder that exists and only
-    /// this account can read, as the daemon makes its data folder at start.
+    /// The items file in `data_folder`, an absolute path to a folder that exists and only this
+    /// account can read, as the daemon makes its data folder at start.
     pub(crate) fn new(data_folder: &Path) -> Arc<Self> {
-        Self::with_seal(data_folder, None)
-    }
-
-    /// The sealed items file in `data_folder`, each value put through `seal`.
-    pub(crate) fn sealed(data_folder: &Path, seal: Arc<dyn SecretSeal>) -> Arc<Self> {
-        Self::with_seal(data_folder, Some(seal))
-    }
-
-    fn with_seal(data_folder: &Path, seal: Option<Arc<dyn SecretSeal>>) -> Arc<Self> {
         Arc::new(Self {
             file_path: data_folder.join(ITEMS_FILE_NAME),
-            seal,
             calls: Mutex::new(false),
             items: Arc::new(KeyedLock::new()),
         })
@@ -164,11 +154,17 @@ impl SecretItemsFile {
     }
 
     /// The items filed under `service` in this file, sharing its one lock with every other
-    /// service's.
-    pub(crate) fn keychain(self: &Arc<Self>, service: &str) -> FileSecretKeychain {
+    /// service's: each value sealed through `seal` in the sealed form, or kept as given in the
+    /// plain form without one.
+    pub(crate) fn keychain(
+        self: &Arc<Self>,
+        service: &str,
+        seal: Option<Arc<dyn SecretSeal>>,
+    ) -> FileSecretKeychain {
         FileSecretKeychain {
             items_file: Arc::clone(self),
             service: service.to_owned(),
+            seal,
         }
     }
 
@@ -235,15 +231,6 @@ impl SecretItemsFile {
         }
     }
 
-    // The form this run keeps the file in.
-    fn form(&self) -> ItemsForm {
-        if self.seal.is_some() {
-            ItemsForm::Sealed
-        } else {
-            ItemsForm::Plain
-        }
-    }
-
     /// The form the file on disk names, or `None` when there is none. Fails with
     /// [`KeychainRefusal`] when it cannot be read or is not an items file.
     pub(crate) async fn form_on_disk(&self) -> Result<Option<ItemsForm>, KeychainRefusal> {
@@ -252,10 +239,10 @@ impl SecretItemsFile {
     }
 
     /// Every item of the sealed file with its blob, opening none. Fails with [`KeychainRefusal`]
-    /// when the file cannot be read or is in another form than this run keeps.
+    /// when the file cannot be read or is plain.
     pub(crate) async fn sealed_items(&self) -> Result<Vec<SealedItem>, KeychainRefusal> {
         let _held = self.hold().await?;
-        let items = self.read_items().await?;
+        let items = self.read_items(ItemsForm::Sealed).await?;
         Ok(items
             .into_iter()
             .flat_map(|(service, entries)| {
@@ -279,13 +266,14 @@ impl SecretItemsFile {
     /// was.
     pub(crate) async fn seal_again(
         self: &Arc<Self>,
+        seal: Arc<dyn SecretSeal>,
         probe: SealHeader,
     ) -> Result<SealPass, KeychainRefusal> {
         // The caller holds the receiver while it waits and drops it when it stops waiting.
         let (still_waiting, _caller_waits) = oneshot::channel::<()>();
         let items_file = Arc::clone(self);
         tokio::spawn(async move {
-            let pass = items_file.seal_held(probe).await;
+            let pass = items_file.seal_held(seal.as_ref(), probe).await;
             if still_waiting.is_closed() {
                 tracing::info!(
                     pass = ?pass.as_ref().ok(),
@@ -299,11 +287,11 @@ impl SecretItemsFile {
     }
 
     // The pass `seal_again` runs, holding the file's lock from its read through its write.
-    async fn seal_held(&self, probe: SealHeader) -> Result<SealPass, KeychainRefusal> {
-        let seal = self
-            .seal
-            .as_ref()
-            .expect("only the sealed items file is sealed again");
+    async fn seal_held(
+        &self,
+        seal: &dyn SecretSeal,
+        probe: SealHeader,
+    ) -> Result<SealPass, KeychainRefusal> {
         let _held = self.hold().await?;
         let Some(text) = self.read_text().await? else {
             return Ok(SealPass::Unchanged);
@@ -354,7 +342,7 @@ impl SecretItemsFile {
         if !is_changed && text.form == ItemsForm::Sealed {
             return Ok(SealPass::Unchanged);
         }
-        self.write_items(&sealed).await?;
+        self.write_items(&sealed, ItemsForm::Sealed).await?;
         Ok(SealPass::Sealed)
     }
 
@@ -381,16 +369,15 @@ impl SecretItemsFile {
     }
 
     // Every service's stored values in the file, nothing when it does not exist yet. A file that
-    // cannot be read, or is in another form than this run keeps, refuses the call and is left as it
-    // is.
-    async fn read_items(&self) -> Result<Items, KeychainRefusal> {
+    // cannot be read, or is in another form than `form`, refuses the call and is left as it is.
+    async fn read_items(&self, form: ItemsForm) -> Result<Items, KeychainRefusal> {
         match self.read_text().await? {
             None => Ok(Items::new()),
-            Some(read) if read.form == self.form() => Ok(read.items),
+            Some(read) if read.form == form => Ok(read.items),
             Some(_other_form) => Err(KeychainRefusal::new(
                 KeychainRefusalCause::Unavailable,
                 format!(
-                    "{} keeps its secrets in another form than this run opens, so it is left as \
+                    "{} keeps its secrets in another form than this call opens, so it is left as \
                      it is",
                     self.file_path.display()
                 ),
@@ -398,10 +385,10 @@ impl SecretItemsFile {
         }
     }
 
-    // Replaces the file with `items` at once, written from a buffer sized before it is filled so
-    // no partial copy of a value is left behind by its growth; with no item left the file is
-    // deleted.
-    async fn write_items(&self, items: &Items) -> Result<(), KeychainRefusal> {
+    // Replaces the file with `items` in `form` at once, written from a buffer sized before it is
+    // filled so no partial copy of a value is left behind by its growth; with no item left the
+    // file is deleted.
+    async fn write_items(&self, items: &Items, form: ItemsForm) -> Result<(), KeychainRefusal> {
         let exposed: BTreeMap<&str, BTreeMap<&str, &str>> = items
             .iter()
             .filter(|(_, entries)| !entries.is_empty())
@@ -421,7 +408,7 @@ impl SecretItemsFile {
                 .map_err(file_failure);
         }
         let written = ItemsTextWritten {
-            form: self.form(),
+            form,
             items: exposed,
         };
         let length = json_utf8_byte_length(&written).map_err(file_failure)?;
@@ -432,15 +419,16 @@ impl SecretItemsFile {
             .map_err(file_failure)
     }
 
-    // Keeps `value` under `service` and `account`: sealed first, outside the file's lock, in a
-    // sealed file.
+    // Keeps `value` under `service` and `account`: sealed first through `seal`, outside the file's
+    // lock, in the sealed form, or as given in the plain form without one.
     async fn write_item(
         &self,
         service: &str,
         account: &str,
         value: &SecretString,
+        seal: Option<&dyn SecretSeal>,
     ) -> Result<(), KeychainRefusal> {
-        let stored = match &self.seal {
+        let stored = match seal {
             Some(seal) => SecretString::from(
                 seal.seal(&credential_name(service, account), value)
                     .await
@@ -448,24 +436,31 @@ impl SecretItemsFile {
             ),
             None => value.clone(),
         };
+        let form = form_of(seal);
         let _held = self.hold().await?;
-        let mut items = self.read_items().await?;
+        let mut items = self.read_items(form).await?;
         items
             .entry(service.to_owned())
             .or_default()
             .insert(account.to_owned(), stored);
-        self.write_items(&items).await
+        self.write_items(&items, form).await
     }
 
-    // Removes the item under `service` and `account`; `false` when none was held.
-    async fn remove_item(&self, service: &str, account: &str) -> Result<bool, KeychainRefusal> {
+    // Removes the item under `service` and `account` from the file in `form`; `false` when none
+    // was held.
+    async fn remove_item(
+        &self,
+        service: &str,
+        account: &str,
+        form: ItemsForm,
+    ) -> Result<bool, KeychainRefusal> {
         let _held = self.hold().await?;
-        let mut items = self.read_items().await?;
+        let mut items = self.read_items(form).await?;
         let was_held = items
             .get_mut(service)
             .is_some_and(|entries| entries.remove(account).is_some());
         if was_held {
-            self.write_items(&items).await?;
+            self.write_items(&items, form).await?;
         }
         Ok(was_held)
     }
@@ -509,13 +504,22 @@ impl SecretItemsFile {
     }
 }
 
-/// One keychain service's items in the daemon's items file; see the module doc. Every failure of
-/// the file or the seal refuses the call as the keychain being `unavailable`.
+/// One keychain service's items in the daemon's items file, in one form; see the module doc.
+/// Every failure of the file or the seal refuses the call as the keychain being `unavailable`.
 pub(crate) struct FileSecretKeychain {
     /// The items file, shared with every other service's keychain on it.
     items_file: Arc<SecretItemsFile>,
     /// The keychain service the items are filed under.
     service: String,
+    /// The seal each value goes through in the sealed form, or `None` for the plain form.
+    seal: Option<Arc<dyn SecretSeal>>,
+}
+
+impl FileSecretKeychain {
+    // The form this keychain keeps the file in.
+    fn form(&self) -> ItemsForm {
+        form_of(self.seal.as_deref())
+    }
 }
 
 impl SecretKeychain for FileSecretKeychain {
@@ -525,13 +529,17 @@ impl SecretKeychain for FileSecretKeychain {
         value: &'call SecretString,
     ) -> BoxFuture<'call, Result<(), KeychainRefusal>> {
         let items_file = Arc::clone(&self.items_file);
-        let (service, account_owned, value) =
-            (self.service.clone(), account.to_owned(), value.clone());
+        let (service, account_owned, value, seal) = (
+            self.service.clone(),
+            account.to_owned(),
+            value.clone(),
+            self.seal.clone(),
+        );
         Box::pin(
             self.items_file
                 .change_item(&self.service, account, async move {
                     items_file
-                        .write_item(&service, &account_owned, &value)
+                        .write_item(&service, &account_owned, &value, seal.as_deref())
                         .await
                 }),
         )
@@ -544,12 +552,12 @@ impl SecretKeychain for FileSecretKeychain {
         Box::pin(async move {
             let stored = {
                 let _held = self.items_file.hold().await?;
-                let mut items = self.items_file.read_items().await?;
+                let mut items = self.items_file.read_items(self.form()).await?;
                 items
                     .get_mut(&self.service)
                     .and_then(|entries| entries.remove(account))
             };
-            match (stored, &self.items_file.seal) {
+            match (stored, &self.seal) {
                 (Some(blob), Some(seal)) => seal
                     .unseal(
                         &credential_name(&self.service, account),
@@ -568,11 +576,12 @@ impl SecretKeychain for FileSecretKeychain {
         account: &'call str,
     ) -> BoxFuture<'call, Result<bool, KeychainRefusal>> {
         let items_file = Arc::clone(&self.items_file);
-        let (service, account_owned) = (self.service.clone(), account.to_owned());
+        let (service, account_owned, form) =
+            (self.service.clone(), account.to_owned(), self.form());
         Box::pin(
             self.items_file
                 .change_item(&self.service, account, async move {
-                    items_file.remove_item(&service, &account_owned).await
+                    items_file.remove_item(&service, &account_owned, form).await
                 }),
         )
     }
@@ -580,7 +589,7 @@ impl SecretKeychain for FileSecretKeychain {
     fn accounts(&self) -> BoxFuture<'_, Result<Vec<String>, KeychainRefusal>> {
         Box::pin(async move {
             let _held = self.items_file.hold().await?;
-            let items = self.items_file.read_items().await?;
+            let items = self.items_file.read_items(self.form()).await?;
             Ok(items
                 .get(&self.service)
                 .map(|entries| entries.keys().cloned().collect())
@@ -596,6 +605,15 @@ pub(crate) fn credential_name(service: &str, account: &str) -> String {
         "{service}.{}",
         base16ct::lower::encode_string(&Sha256::digest(account.as_bytes()))
     )
+}
+
+// The form a keychain sealing through `seal`, or keeping values as given without one, keeps.
+fn form_of(seal: Option<&dyn SecretSeal>) -> ItemsForm {
+    if seal.is_some() {
+        ItemsForm::Sealed
+    } else {
+        ItemsForm::Plain
+    }
 }
 
 /// Whether `key` is weaker than `than`: the system key alone beside a key that holds the security
@@ -659,230 +677,4 @@ fn remove_leftovers_in(folder: &Path) -> Result<(), CleanupFailures<io::Error>> 
 }
 
 #[cfg(test)]
-mod tests {
-    use std::error::Error;
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    use rstest::rstest;
-    use secrecy::{ExposeSecret, SecretString};
-    use sidekicks_contracts::keychain::KeychainRefusalCause;
-
-    use sidekicks_platforms::{SealHeader, SealKey};
-
-    use super::{SealPass, SecretItemsFile};
-    use crate::credential_store::SecretKeychain;
-    use crate::credential_store::seal::TestSeal;
-
-    const SERVICE: &str = "ai-sidekicks-workflow-secrets";
-    const OTHER_SERVICE: &str = "ai-sidekicks-notification-secrets";
-
-    // The items file in `folder`, sealed through `seal` or plain.
-    fn items_file(
-        folder: &tempfile::TempDir,
-        seal: Option<&Arc<TestSeal>>,
-    ) -> Arc<SecretItemsFile> {
-        match seal {
-            Some(seal) => SecretItemsFile::sealed(folder.path(), Arc::clone(seal) as _),
-            None => SecretItemsFile::new(folder.path()),
-        }
-    }
-
-    /// A file this run cannot read refuses every call, names none of its values, and is left byte
-    /// for byte: one cut short, one with no form (an older build's), and one in the other form,
-    /// so a sealed run never serves or rewrites a plain file, nor a plain run a sealed one.
-    /// Mutations: read an unparsable or formless file as holding nothing (a write then rewrites
-    /// it and every secret is lost); drop the form check (a sealed run then serves plain values).
-    #[rstest]
-    #[case::cut_short(
-        false,
-        r#"{"form":"plain","items":{"ai-sidekicks-workflow-secrets":{"secret":"hunter2""#
-    )]
-    #[case::no_form(false, r#"{"ai-sidekicks-workflow-secrets":{"secret":"hunter2"}}"#)]
-    #[case::plain_under_a_sealed_run(
-        true,
-        r#"{"form":"plain","items":{"ai-sidekicks-workflow-secrets":{"secret":"hunter2"}}}"#
-    )]
-    #[case::sealed_under_a_plain_run(
-        false,
-        r#"{"form":"sealed","items":{"ai-sidekicks-workflow-secrets":{"secret":"aHVudGVyMg=="}}}"#
-    )]
-    #[tokio::test]
-    async fn an_unreadable_items_file_refuses_every_call_and_is_left_byte_for_byte(
-        #[case] is_sealed: bool,
-        #[case] text: &str,
-    ) {
-        let folder = tempfile::tempdir().expect("the test makes a folder");
-        let seal = is_sealed.then(TestSeal::new);
-        let items_file = items_file(&folder, seal.as_ref());
-        std::fs::write(items_file.file_path(), text).expect("the test writes the file");
-        let keychain = items_file.keychain(SERVICE);
-        let value = SecretString::from("new-value");
-
-        let refusals = [
-            keychain.write("secret", &value).await.err(),
-            keychain.read("secret").await.err(),
-            keychain.remove("secret").await.err(),
-        ];
-        for refusal in refusals {
-            let refusal = refusal.expect("an unreadable items file refuses the call");
-            assert_eq!(refusal.cause(), KeychainRefusalCause::Unavailable);
-            let mut chain: Vec<String> = vec![refusal.to_string(), format!("{refusal:?}")];
-            let mut source = refusal.source();
-            while let Some(failure) = source {
-                chain.push(failure.to_string());
-                chain.push(format!("{failure:?}"));
-                source = failure.source();
-            }
-            assert!(chain.iter().all(|text| !text.contains("hunter2")));
-        }
-        assert_eq!(
-            std::fs::read(items_file.file_path()).expect("the file is still there"),
-            text.as_bytes()
-        );
-    }
-
-    /// Two services' writes joined on one file are both kept and read back, and a sealed file
-    /// holds neither value as written. Mutations: give each keychain its own lock (or none), so
-    /// the second write replaces the first's value; keep the value in place of its sealed blob.
-    #[rstest]
-    #[case::plain(false)]
-    #[case::sealed(true)]
-    #[tokio::test]
-    async fn joined_writes_from_two_services_on_one_file_are_both_kept(#[case] is_sealed: bool) {
-        let folder = tempfile::tempdir().expect("the test makes a folder");
-        let seal = is_sealed.then(TestSeal::new);
-        let items_file = items_file(&folder, seal.as_ref());
-        let workflow_secrets = items_file.keychain(SERVICE);
-        let other_secrets = items_file.keychain(OTHER_SERVICE);
-        let (first, second) = (
-            SecretString::from("first-value"),
-            SecretString::from("second-value"),
-        );
-
-        let (first_write, second_write) = tokio::join!(
-            workflow_secrets.write("secret", &first),
-            other_secrets.write("secret", &second),
-        );
-        first_write.expect("the first write is kept");
-        second_write.expect("the second write is kept");
-
-        let first_read = workflow_secrets
-            .read("secret")
-            .await
-            .expect("the file reads");
-        let second_read = other_secrets.read("secret").await.expect("the file reads");
-        assert_eq!(
-            first_read.as_ref().map(ExposeSecret::expose_secret),
-            Some("first-value")
-        );
-        assert_eq!(
-            second_read.as_ref().map(ExposeSecret::expose_secret),
-            Some("second-value")
-        );
-        let text =
-            std::fs::read_to_string(items_file.file_path()).expect("the test reads the file");
-        assert_eq!(
-            !text.contains("first-value") && !text.contains("second-value"),
-            is_sealed
-        );
-    }
-
-    /// A sealed write held past its caller's time, then a retry with another value: the retry
-    /// seals only after the late write lands, so the item holds the retry's value. Mutation: hold
-    /// no item from the seal through the file write, so the retry lands first and the late write
-    /// overwrites it.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_late_seal_lands_before_the_retry_and_never_overwrites_it() {
-        let folder = tempfile::tempdir().expect("the test makes a folder");
-        let seal = TestSeal::new();
-        let keychain = Arc::new(items_file(&folder, Some(&seal)).keychain(SERVICE));
-        let release = seal.hold_next_seal();
-
-        let scenario = async {
-            let first = SecretString::from("first");
-            let late =
-                tokio::time::timeout(Duration::from_millis(200), keychain.write("secret", &first));
-            let (late, ()) = tokio::join!(late, seal.wait_for_seals(1));
-            assert!(late.is_err(), "the held write is given up");
-            let retry = tokio::spawn({
-                let keychain = Arc::clone(&keychain);
-                async move {
-                    keychain
-                        .write("secret", &SecretString::from("second"))
-                        .await
-                }
-            });
-            // Long enough for a retry that took the item to reach the seal.
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            let seals_before_release = seal.seals();
-            drop(release);
-            let retry = retry.await.expect("the retry's task ends");
-            (retry, seals_before_release)
-        };
-        let (retry, seals_before_release) = tokio::time::timeout(Duration::from_secs(5), scenario)
-            .await
-            .expect("every call answers within its time");
-
-        retry.expect("the retry is written once the late write lands");
-        assert_eq!(seals_before_release, 1);
-        let kept = keychain.read("secret").await.expect("the file reads");
-        assert_eq!(
-            kept.as_ref().map(ExposeSecret::expose_secret),
-            Some("second")
-        );
-    }
-
-    /// A pass sealing a plain file again whose new blob would be weaker than the start's probe or
-    /// bound to the boot state is abandoned, the plain file left byte for byte. Mutation: drop the
-    /// pass's floor check, so the file is sealed downward.
-    #[rstest]
-    #[case::weaker_key(SealKey::SystemKey, 0)]
-    #[case::bound_to_the_boot_state(SealKey::Chip, 1 << 7)]
-    #[tokio::test]
-    async fn a_pass_that_would_seal_downward_is_abandoned(
-        #[case] key: SealKey,
-        #[case] pcr_mask: u64,
-    ) {
-        let folder = tempfile::tempdir().expect("the test makes a folder");
-        items_file(&folder, None)
-            .keychain(SERVICE)
-            .write("secret", &SecretString::from("value"))
-            .await
-            .expect("the test fills the file");
-        let bytes_before = std::fs::read(folder.path().join("secrets.json")).expect("it is there");
-        let seal = TestSeal::new();
-        seal.seal_with(key, pcr_mask);
-        let probe = SealHeader::read(&SealHeader::test_blob(SealKey::Chip, 0, b"probe"))
-            .expect("the test blob has a header");
-
-        let pass = items_file(&folder, Some(&seal))
-            .seal_again(probe)
-            .await
-            .expect("the file reads");
-
-        assert!(matches!(pass, SealPass::Abandoned(_)), "{pass:?}");
-        assert_eq!(
-            std::fs::read(folder.path().join("secrets.json")).expect("it is there"),
-            bytes_before
-        );
-    }
-
-    /// Mutation: skip the leftovers' removal, so a write cut short leaves every value it held on
-    /// disk.
-    #[tokio::test]
-    async fn the_first_call_removes_a_cut_short_writes_leftover() {
-        let folder = tempfile::tempdir().expect("the test makes a folder");
-        let leftover = folder.path().join("secrets.json.a1b2c3.tmp");
-        std::fs::write(&leftover, b"{}").expect("the test writes a leftover");
-
-        let keychain = items_file(&folder, None).keychain(SERVICE);
-        let read = keychain
-            .read("secret")
-            .await
-            .expect("a missing file reads as empty");
-
-        assert!(read.is_none());
-        assert!(!leftover.exists());
-    }
-}
+mod tests;

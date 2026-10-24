@@ -224,7 +224,7 @@ async fn a_move_whose_store_is_gone_waits_and_finishes_once_it_returns() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     std::fs::write(folder.path().join(RECORD), MOVING_IN).expect("the test writes the record");
     SecretItemsFile::new(folder.path())
-        .keychain(WORKFLOW)
+        .keychain(WORKFLOW, None)
         .write("secret", &SecretString::from("value"))
         .await
         .expect("the test fills the file");
@@ -387,7 +387,7 @@ async fn the_erase_deletes_every_item_the_app_made_and_nothing_else() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     std::fs::write(folder.path().join(RECORD), OPERATING_SYSTEM).expect("the test writes it");
     SecretItemsFile::new(folder.path())
-        .keychain(WORKFLOW)
+        .keychain(WORKFLOW, None)
         .write("secret", &SecretString::from("value"))
         .await
         .expect("the test fills the file");

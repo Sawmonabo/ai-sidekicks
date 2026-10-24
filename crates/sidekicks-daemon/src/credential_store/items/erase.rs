@@ -62,7 +62,7 @@ impl SecretItems {
                 }
             }
         }
-        self.plain_file.remove_all().await
+        self.items_file.remove_all().await
     }
 
     /// Empties the items file and the place record when the sealed file cannot be opened, for any
@@ -82,11 +82,11 @@ impl SecretItems {
         }
         tracing::warn!(
             cause = ?state.view().cannot_open,
-            file = %self.plain_file.file_path().display(),
+            file = %self.items_file.file_path().display(),
             "the sealed secrets cannot be opened, so the relink deletes them and picks their place \
              again"
         );
-        self.plain_file.remove_all().await?;
+        self.items_file.remove_all().await?;
         place::remove_record(&self.record_path).await?;
         state.reset(RecordState::Absent);
         self.within_call_time(self.settle_held(&mut state)).await?
@@ -146,7 +146,7 @@ impl SecretItems {
             OperatingSystemSweep::WhenAnswering => {
                 tracing::info!(
                     error = &refusal as &(dyn Error + 'static),
-                    file = %self.plain_file.file_path().display(),
+                    file = %self.items_file.file_path().display(),
                     "the erase leaves the operating system's store, which does not hold the \
                      secrets and does not answer"
                 );

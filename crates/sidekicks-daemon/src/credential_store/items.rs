@@ -95,11 +95,9 @@ pub(crate) struct SecretItems {
     os_store: Option<Arc<OsCredentialStore>>,
     /// systemd's credential service, where the machine offers it.
     seal: Option<Arc<dyn SecretSeal>>,
-    /// The items file kept plain.
-    plain_file: Arc<SecretItemsFile>,
-    /// The items file sealed through `seal`, at the same path; only one of the two serves calls
-    /// in a run, the place's lock held over the one pass that turns the plain file sealed.
-    sealed_file: Option<Arc<SecretItemsFile>>,
+    /// The items file, kept plain or sealed through `seal` as the place says; the file's lock is
+    /// held over the one pass that turns it sealed.
+    items_file: Arc<SecretItemsFile>,
     /// The check's account for this run, fresh at each start, so a leftover from another build is
     /// never touched.
     probe_account: String,
@@ -153,10 +151,7 @@ impl SecretItems {
             runs_while_logged_out,
             description: access.description(),
             os_store,
-            plain_file: SecretItemsFile::new(&data_folder),
-            sealed_file: seal
-                .as_ref()
-                .map(|seal| SecretItemsFile::sealed(&data_folder, Arc::clone(seal))),
+            items_file: SecretItemsFile::new(&data_folder),
             seal,
             probe_account,
             call_timeout,
@@ -175,11 +170,11 @@ impl SecretItems {
                 .os_store
                 .as_ref()
                 .map(|store| store.keychain(service.as_str())),
-            plain: self.plain_file.keychain(service.as_str()),
-            sealed: self
-                .sealed_file
-                .as_ref()
-                .map(|file| file.keychain(service.as_str())),
+            plain: self.items_file.keychain(service.as_str(), None),
+            sealed: self.seal.as_ref().map(|seal| {
+                self.items_file
+                    .keychain(service.as_str(), Some(Arc::clone(seal)))
+            }),
         }
     }
 
@@ -310,7 +305,7 @@ impl SecretItems {
                 Probe::Failed(SealFailure::NoService(failure)) => {
                     tracing::warn!(
                         error = &failure as &(dyn Error + 'static),
-                        file = %self.plain_file.file_path().display(),
+                        file = %self.items_file.file_path().display(),
                         "systemd's credential service is not running, so the secrets are kept \
                          plain in the items file"
                     );
@@ -319,7 +314,7 @@ impl SecretItems {
                 Probe::Failed(failure) if is_definite_refusal(&failure) => {
                     tracing::warn!(
                         error = &failure as &(dyn Error + 'static),
-                        file = %self.plain_file.file_path().display(),
+                        file = %self.items_file.file_path().display(),
                         "systemd's credential service cannot seal on this computer, so the \
                          secrets are kept plain in the items file"
                     );
@@ -361,7 +356,7 @@ impl SecretItems {
         };
         // A pass that sealed the file and stopped before its record leaves the sealed form under
         // this record, which moves with no seal.
-        if self.plain_file.form_on_disk().await? == Some(ItemsForm::Sealed) {
+        if self.items_file.form_on_disk().await? == Some(ItemsForm::Sealed) {
             self.record(state, SecretsPlace::SealedFile).await?;
             return self.settle_sealed(state).await;
         }
@@ -454,7 +449,7 @@ impl SecretItems {
             return Err(stopped.refusal);
         }
         if matches!(record.place, SecretsPlace::LoggedOutServiceFile)
-            && let Err(refusal) = self.plain_file.remove_all().await
+            && let Err(refusal) = self.items_file.remove_all().await
         {
             tracing::warn!(
                 error = &refusal as &(dyn Error + 'static),
@@ -511,22 +506,19 @@ impl SecretItems {
                     .ok_or_else(not_offered)?
                     .keychain(service.as_str()),
             ),
-            SecretsPlace::SealedFile => Box::new(self.sealed_file()?.keychain(service.as_str())),
+            SecretsPlace::SealedFile => Box::new(
+                self.items_file
+                    .keychain(service.as_str(), Some(Arc::clone(self.seal()?))),
+            ),
             SecretsPlace::PlainFile { .. } | SecretsPlace::LoggedOutServiceFile => {
-                Box::new(self.plain_file.keychain(service.as_str()))
+                Box::new(self.items_file.keychain(service.as_str(), None))
             }
         })
     }
 
     // systemd's credential service. Fails with [`KeychainRefusal`] where it is not offered.
-    fn seal(&self) -> Result<&dyn SecretSeal, KeychainRefusal> {
-        self.seal.as_deref().ok_or_else(not_offered)
-    }
-
-    // The sealed items file. Fails with [`KeychainRefusal`] where systemd's credential service is
-    // not offered.
-    fn sealed_file(&self) -> Result<&Arc<SecretItemsFile>, KeychainRefusal> {
-        self.sealed_file.as_ref().ok_or_else(not_offered)
+    fn seal(&self) -> Result<&Arc<dyn SecretSeal>, KeychainRefusal> {
+        self.seal.as_ref().ok_or_else(not_offered)
     }
 }
 
@@ -539,9 +531,9 @@ pub(crate) struct ItemsKeychain {
     service: KeychainService,
     /// The service's items in the operating system's store, where the machine offers one.
     os: Option<OsSecretKeychain>,
-    /// The service's items in the plain items file.
+    /// The service's items in the items file kept plain.
     plain: FileSecretKeychain,
-    /// The service's items in the sealed items file, where systemd's credential service is
+    /// The service's items in the items file sealed, where systemd's credential service is
     /// offered.
     sealed: Option<FileSecretKeychain>,
 }
