@@ -311,10 +311,10 @@ pub enum DaemonSecretsPlainReason {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum DaemonSecretsFileUnopened {
-    /// systemd's credential service is gone, or older than the one that sealed an item: systemd
-    /// was removed or downgraded below 256, or below the version whose key form sealed it.
+    /// systemd's credential service is not running, or cannot open the key form that sealed an
+    /// item.
     SealServiceMissing,
-    /// The service does not answer, or answers with a failure.
+    /// The service does not answer, or answers with a failure, or the items file cannot be read.
     SealServiceFailing,
     /// The security chip the secrets were sealed with cannot be used now.
     ChipUnavailable,

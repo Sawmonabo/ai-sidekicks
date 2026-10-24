@@ -133,7 +133,7 @@ fn item_keys(folder: &Path) -> Vec<Option<SealKey>> {
 /// recorded, and a sealed file found there recording its place before any probe), and a later start
 /// keeping its record (a sealed file that cannot open refused with its cause and left byte for
 /// byte, a chip item failing under a probe without the chip read as the chip off, a pinned chip
-/// item failing under a plain chip probe as a systemd older than the one that sealed it, an item
+/// item failing under a plain chip probe as a key form this systemd cannot open, an item
 /// failing under the probe's own key or a weaker one as the key changed, a plain file sealed once
 /// the service seals unbound, its reason recorded again from the probe, an item sealed with a
 /// weaker key sealed again with the probe's, a file mixing keys read by the weakest). Mutations:
@@ -245,7 +245,7 @@ fn item_keys(folder: &Path) -> Vec<Option<SealKey>> {
     Err(KeychainRefusalCause::Unavailable), Some(SEALED), After::Unchanged,
     Some(json!({"protection":"sealedWithChip","cannotOpen":"keyChanged"}))
 )]
-#[case::recorded_sealed_by_a_newer_systemd(
+#[case::recorded_sealed_in_a_key_form_this_systemd_cannot_open(
     Some(SEALED), Before::Sealed(SealKey::ChipPinned), SealNow::forgets(SealKey::Chip),
     Err(KeychainRefusalCause::Unavailable), Some(SEALED), After::Unchanged,
     Some(json!({"protection":"sealedWithChip","cannotOpen":"sealServiceMissing"}))

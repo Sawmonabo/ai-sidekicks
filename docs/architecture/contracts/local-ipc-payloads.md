@@ -167,8 +167,9 @@ interface DaemonStatusReadResponse {
         // A sealed file, by the weakest key any item is sealed with.
         protection: "sealedWithChip" | "sealedWithSystemKey";
         path: string;
-        // Why it cannot be opened: the service is gone, it does not answer, the chip cannot be
-        // used, or the key changed. Absent while it opens.
+        // Why it cannot be opened: the service is gone or cannot open the key form that sealed an
+        // item, it does not answer or the items file cannot be read, the chip cannot be used, or
+        // the key changed. Absent while it opens.
         cannotOpen?: "sealServiceMissing" | "sealServiceFailing" | "chipUnavailable" | "keyChanged";
       }
     | {

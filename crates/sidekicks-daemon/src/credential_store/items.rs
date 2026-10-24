@@ -680,7 +680,8 @@ fn mismatch() -> KeychainRefusal {
 fn cannot_open(cause: DaemonSecretsFileUnopened) -> KeychainRefusal {
     let why = match cause {
         DaemonSecretsFileUnopened::SealServiceMissing => {
-            "systemd's credential service is not running, or is older than the one that sealed them"
+            "systemd's credential service is not running, or cannot open the key form that sealed \
+             them"
         }
         DaemonSecretsFileUnopened::SealServiceFailing => {
             "systemd's credential service does not answer, or their file cannot be read"
