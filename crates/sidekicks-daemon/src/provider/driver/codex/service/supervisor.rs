@@ -276,13 +276,6 @@ impl CodexService {
     }
 
     /// The process the daemon started or re-pinned, while it runs.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's recovery names the service process in its diagnostics"
-        )
-    )]
     pub(crate) fn process_id(&self) -> Option<u32> {
         self.lock_live().process_id
     }

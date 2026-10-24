@@ -12,6 +12,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::provider::driver::codex::app_server_protocol::ThreadRevertParams;
 use crate::provider::driver::codex::run::control::interrupt_codex_run;
+use crate::provider::driver::codex::run::start::CodexRunStart;
 use crate::provider::driver::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
 use crate::provider::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::provider::driver::codex::session::errors::CodexError;
@@ -48,29 +49,34 @@ pub(crate) struct CodexMessageTurn {
 pub(crate) struct CodexConversationRewind {
     slots: Arc<CodexSessionSlots>,
     config_forks: Arc<CodexConfigForks>,
+    run_start: Arc<CodexRunStart>,
     tasks: TaskTracker,
 }
 
 impl CodexConversationRewind {
     /// A rewind claiming each session's slot through `slots`, after the config forks in flight,
-    /// and cutting an oversized turn as a task of `tasks`.
+    /// holding the session's turn starts through `run_start`, and cutting an oversized turn as a
+    /// task of `tasks`.
     pub(crate) fn new(
         slots: Arc<CodexSessionSlots>,
         config_forks: Arc<CodexConfigForks>,
+        run_start: Arc<CodexRunStart>,
         tasks: TaskTracker,
     ) -> Self {
         Self {
             slots,
             config_forks,
+            run_start,
             tasks,
         }
     }
 
     /// Cuts the conversation back to before one of the person's messages; a running turn is
-    /// stopped and its end awaited first, up to the request deadline. A message the session
-    /// recorded no turn for is looked up in the conversation's history. Degrades for a message
-    /// not in the conversation and for a turn that did not stop; fails with
-    /// `CodexError::Transport` when the session was established anew meanwhile.
+    /// stopped and its end awaited first, up to the request deadline, and no turn starts from the
+    /// stop until the cut is done. A message the session recorded no turn for is looked up in the
+    /// conversation's history. Degrades for a message not in the conversation and for a turn that
+    /// did not stop; fails with `CodexError::Transport` when the session was established anew
+    /// meanwhile.
     pub(crate) async fn rewind(
         &self,
         params: &RewindConversationParams,
@@ -83,16 +89,26 @@ impl CodexConversationRewind {
         else {
             return Ok(degraded(REWIND_TARGET_UNKNOWN));
         };
-        if !stop_running_turns(&inbound).await? {
+        // The turn starts are held before the claim, the order a turn start that forks takes them.
+        let cut = self
+            .run_start
+            .send_apart_from_turn_starts(params.session_id, async {
+                let _claim = self.slots.claim_establishing(params.session_id).await?;
+                if !stop_running_turns(&inbound).await? {
+                    return Ok(None);
+                }
+                let is_cut = call_codex_session(&inbound, |reply| CodexSessionCall::RevertBefore {
+                    thread_id,
+                    turn_id: before_turn_id,
+                    reply,
+                })
+                .await??;
+                Ok::<_, CodexError>(Some(is_cut))
+            })
+            .await?;
+        let Some(is_cut) = cut else {
             return Ok(degraded(REWIND_TURN_IN_PROGRESS));
-        }
-        let _claim = self.slots.claim_establishing(params.session_id).await?;
-        let is_cut = call_codex_session(&inbound, |reply| CodexSessionCall::RevertBefore {
-            thread_id,
-            turn_id: before_turn_id,
-            reply,
-        })
-        .await??;
+        };
         if !is_cut {
             return Err(CodexError::Transport {
                 detail: format!(
@@ -270,5 +286,163 @@ pub(crate) async fn revert_codex_turns(
 fn degraded(fallback_action: &str) -> RewindConversationResult {
     RewindConversationResult::Degraded {
         fallback_action: Some(fallback_action.to_owned()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex, PoisonError};
+    use std::time::Duration;
+
+    use serde_json::json;
+    use sidekicks_contracts::session::controls::methods::PermissionLevel;
+    use tokio_util::task::TaskTracker;
+
+    use super::CodexConversationRewind;
+    use crate::provider::driver::codex::run::routes::CodexRunBinding;
+    use crate::provider::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
+    use crate::provider::driver::codex::run::start::record::CodexTurnRequest;
+    use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
+    use crate::provider::driver::codex::session::fork::config_change::CodexConfigForks;
+    use crate::provider::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInbound};
+    use crate::provider::driver::codex::session::state::CodexTurnMessage;
+    use crate::provider::driver::codex::session::test_session::{
+        TestCodexSession, new_run_id, turn_reply,
+    };
+    use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
+
+    /// How long the test waits before it counts the rewind and the start as deadlocked.
+    const DEADLOCK_BOUND: Duration = Duration::from_secs(10);
+
+    // Killed by stopping the running turns before the turn starts and the claim are held, which
+    // lets a turn start between the stop and the revert.
+    #[tokio::test(start_paused = true)]
+    async fn a_turn_start_racing_a_rewind_waits_until_the_revert_is_done() {
+        let mut session = TestCodexSession::start().await;
+        let session_id = session.task.record.session_id;
+        let binding_id = session.record_binding().await;
+        let run_id = new_run_id();
+        session.task.run_routes.bind_run_delivery(
+            run_id,
+            CodexRunBinding {
+                session_id,
+                binding_id: binding_id.clone(),
+                agent_id: session.daemon_turn_bindings.agent_id,
+                step_bound: None,
+            },
+        );
+        session.daemon_turn_bindings.open_on(binding_id.clone());
+        let record = &mut session.task.record;
+        record.turn_boundaries = vec!["turn-1".to_owned()];
+        record
+            .turn_id_by_client_message_id
+            .insert("message-0".to_owned(), "turn-1".to_owned());
+        let rewind = CodexConversationRewind::new(
+            Arc::clone(&session.slots),
+            Arc::new(CodexConfigForks::new(
+                Arc::clone(&session.slots),
+                TaskTracker::new(),
+            )),
+            Arc::clone(&session.run_start),
+            TaskTracker::new(),
+        );
+        let params = RewindConversationParams {
+            session_id,
+            binding_id: binding_id.clone(),
+            target_message_id: "message-0".to_owned(),
+        };
+        // The service answers the revert and the turn's start, and keeps the order it was asked.
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let mut script = session.scripted.script;
+        let service_side = tokio::spawn({
+            let asked = Arc::clone(&asked);
+            async move {
+                loop {
+                    let sent = script.next_sent().await;
+                    let method = sent["method"].as_str().map(str::to_owned);
+                    match method.as_deref() {
+                        Some("thread/revert") => script.answer(&sent, &json!({})),
+                        Some("turn/start") => script.answer(&sent, &turn_reply("turn-9")),
+                        method => panic!("the service was not asked {method:?}"),
+                    }
+                    asked
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .push(method);
+                }
+            }
+        });
+        let (gate, opened) = tokio::sync::oneshot::channel::<()>();
+        let run_start = Arc::clone(&session.run_start);
+        let inbound = session.task.record.inbound.clone();
+        let deadline = CodexTurnEndDeadline::new(CODEX_TURN_START_TIMEOUT);
+        let racing_start = async {
+            opened.await.expect("the test opens the gate");
+            run_start
+                .start_turn(
+                    &inbound,
+                    run_id,
+                    binding_id,
+                    CodexTurnRequest {
+                        messages: vec![CodexTurnMessage {
+                            text: "Go on.".to_owned(),
+                            skills: Vec::new(),
+                            attachments: Vec::new(),
+                        }],
+                        client_message_ids: vec!["message-1".to_owned()],
+                        model: None,
+                        output_speed: None,
+                        output_speed_for_turn: None,
+                        output_schema: None,
+                        level: Some(PermissionLevel::Ask),
+                    },
+                    None,
+                    &deadline,
+                )
+                .await
+        };
+        let mut both = std::pin::pin!(async { tokio::join!(rewind.rewind(&params), racing_start) });
+        let task = &mut session.task;
+
+        let (rewound, started) = tokio::time::timeout(DEADLOCK_BOUND, async {
+            // The rewind reads its message's turn, then reads the session to stop its turns:
+            // the start races it from there.
+            let up_to_the_stop = async {
+                task.handle_next().await;
+                let stop_read = task.next_item().await;
+                assert!(matches!(
+                    stop_read,
+                    CodexSessionInbound::Call(CodexSessionCall::ReadSession { .. })
+                ));
+                gate.send(()).expect("the start waits on the gate");
+                tokio::time::sleep(Duration::from_millis(1)).await;
+                task.handle(stop_read).await;
+            };
+            tokio::select! {
+                biased;
+                _ = &mut both => unreachable!("the rewind waits on its stop's read"),
+                () = up_to_the_stop => {}
+            }
+            task.drive(&mut both).await
+        })
+        .await
+        .expect("the rewind and the start settle");
+
+        assert_eq!(
+            rewound.expect("the rewind is answered"),
+            RewindConversationResult::Applied {
+                binding_id: None,
+                cut_message_text: None,
+            }
+        );
+        started.expect("the run's turn starts once the revert is done");
+        assert_eq!(
+            *asked.lock().unwrap_or_else(PoisonError::into_inner),
+            [
+                Some("thread/revert".to_owned()),
+                Some("turn/start".to_owned())
+            ]
+        );
+        service_side.abort();
     }
 }

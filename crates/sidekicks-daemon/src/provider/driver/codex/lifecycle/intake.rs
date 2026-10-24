@@ -367,6 +367,7 @@ impl CodexSessionIntake {
             },
         )
         .await;
+        parts.establishment.let_go_service_process(self.session_id);
         record.service.detach_session(&self.session_id);
         for service in parts.registry.services() {
             service.detach_session(&self.session_id);

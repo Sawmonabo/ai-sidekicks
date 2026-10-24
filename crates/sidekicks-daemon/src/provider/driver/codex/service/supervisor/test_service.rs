@@ -76,6 +76,11 @@ impl ScriptedCodexService {
         });
     }
 
+    /// Records `process_id` as the process the daemon started for the service.
+    pub(crate) fn report_process(&self, process_id: u32) {
+        self.service.lock_live().process_id = Some(process_id);
+    }
+
     /// Publishes the service up again on `connection`.
     pub(crate) fn publish_up(&self, connection: Option<Arc<CodexAppServerConnection>>) {
         self.service.lock_live().connection = connection;

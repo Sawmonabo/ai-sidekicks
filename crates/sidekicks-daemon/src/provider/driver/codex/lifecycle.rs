@@ -80,6 +80,7 @@ use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::ports::DriverPorts;
 use crate::provider::driver::{DriverServices, attachments::AttachmentResolver};
 use crate::provider::port::registration::PortRegistration;
+use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::provider::spawn_environment::ReservedEnvironmentNames;
 use crate::session::run::engine::RunEngine;
@@ -100,6 +101,7 @@ pub(crate) struct CodexDriver {
     runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
     shell_lines: Arc<crate::policy::shell_commands::reading_bound::ShellLineReadingBound>,
     pending_compactions: PendingCompactionRegistry,
+    processes: Arc<ProviderProcessRegistry>,
     reads: Arc<DatabaseReadPool>,
     ports: Arc<DriverPorts>,
     helper_roles_folder: PathBuf,
@@ -207,6 +209,7 @@ impl CodexDriver {
             runtime_bindings: Arc::clone(&services.runtime_bindings),
             shell_lines: Arc::clone(&services.shell_lines),
             pending_compactions: services.pending_compactions.clone(),
+            processes: Arc::clone(&services.processes),
             reads: Arc::clone(&services.pool),
             ports: Arc::clone(&services.ports),
             helper_roles_folder: services.data_folder.join(CODEX_HELPER_ROLES_FOLDER_NAME),
@@ -288,6 +291,7 @@ impl CodexDriver {
                 delivery: Arc::clone(&delivery),
                 pending_compactions: self.pending_compactions.clone(),
                 provider_commands: Arc::clone(&self.provider_commands),
+                processes: Arc::clone(&self.processes),
             },
         ));
         let rate_limits = || CodexRateLimitFiling {
@@ -362,6 +366,7 @@ impl CodexDriver {
             rewind: CodexConversationRewind::new(
                 Arc::clone(&self.slots),
                 Arc::clone(&self.config_forks),
+                Arc::clone(&run_start),
                 self.tasks.clone(),
             ),
             calls: CodexSessionCallDependencies {

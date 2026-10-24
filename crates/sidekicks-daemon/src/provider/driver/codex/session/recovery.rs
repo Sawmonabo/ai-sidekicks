@@ -48,6 +48,7 @@ use crate::provider::driver::codex::transport::connection::read_codex_object;
 use crate::provider::driver::codex::transport::diagnostics::{
     CodexDeliveryPort, CodexTransportDiagnostic,
 };
+use crate::provider::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::provider::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::provider::driver::session_control::{DriverResumeResult, ProviderBuildChange};
@@ -58,9 +59,6 @@ use crate::session::run::inbound::{InboundDelivery, RunInboundDispatch};
 
 /// The words a run is failed with when its service ended with no exit the daemon could read.
 const CODEX_EXIT_UNREAD_FAILURE: &str = "The Codex service ended";
-
-/// A turn status that is no end: the turn still runs.
-const CODEX_IN_PROGRESS_STATUS: &str = "inProgress";
 
 /// What a process exit took from one session: the runs whose turns ended with it, and the binding
 /// its conversation ran under.
@@ -169,10 +167,11 @@ impl CodexServiceRecovery {
     }
 
     /// Ends every turn the service's sessions held with its process, in the order a kept message
-    /// needs: each run's turns ended first, then the turns' safety holds, then the held presses of
-    /// `Allow once` released, and only then the queue told the process is gone, which settles the
-    /// messages the process kept. The conversations stay to be resumed. With no `exit` read, a
-    /// lasting service a former daemon started, each run fails as a provider failure.
+    /// needs: the sessions taken out of the daemon's provider processes, each run's turns ended,
+    /// then the turns' safety holds, then the held presses of `Allow once` released, and only then
+    /// the queue told the process is gone, which settles the messages the process kept. The
+    /// conversations stay to be resumed. With no `exit` read, a lasting service a former daemon
+    /// started, each run fails as a provider failure.
     pub(crate) async fn end_turns_on_exit(
         &self,
         service: &Arc<CodexService>,
@@ -181,6 +180,9 @@ impl CodexServiceRecovery {
         if let Some(exit) = &exit {
             self.lock().last_exit.insert(service.id(), exit.clone());
         }
+        self.dependencies
+            .establishment
+            .forget_service_process(service);
         for inbound in service.attached_sessions() {
             let session_id = inbound.session_id();
             let Ok(dropped) =
@@ -252,8 +254,8 @@ impl CodexServiceRecovery {
     }
 
     /// Tells every session on a service that stays down after its crash window filled, naming how
-    /// its process last ended. A service whose ending was never read draws no banner, since the
-    /// notice names one.
+    /// its process last ended, the newest end recovery read. A loop of failed restarts after an
+    /// end the daemon could not read draws no banner, since the notice names an end.
     pub(crate) async fn crash_loop(&self, service: &Arc<CodexService>) {
         let sessions: HashSet<SessionId> = service
             .attached_sessions()
@@ -653,7 +655,8 @@ fn is_turn_in_progress(turn: &RawValue) -> bool {
     }
     read_codex_object::<ListedTurnStatus>(turn.get())
         .and_then(|listed| listed.status)
-        .is_some_and(|status| status == CODEX_IN_PROGRESS_STATUS)
+        .and_then(|status| CodexTurnStatus::read(&status))
+        == Some(CodexTurnStatus::InProgress)
 }
 
 // The params of the `turn/completed` Codex sent for a listed turn: the conversation and the turn.

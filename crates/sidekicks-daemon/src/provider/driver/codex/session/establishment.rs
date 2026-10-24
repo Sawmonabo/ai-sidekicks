@@ -73,12 +73,14 @@ use crate::provider::driver::session_control::{
 };
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::tool_server_route::ToolServerRoute;
+use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::spawn_environment::{
     ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
     build_conversation_command_environment,
 };
 use crate::provider::spawned_version::to_binding_version_carriers;
 use crate::provider::usage_delta_accountant::{ThreadBaseEstablishment, UsageAxisCounts};
+use crate::queue::delivery::{ProviderProcessIdentity, ProviderProcessIds as _};
 
 const THREAD_START_METHOD: &str = "thread/start";
 const THREAD_RESUME_METHOD: &str = "thread/resume";
@@ -108,6 +110,8 @@ pub(crate) struct CodexSessionEstablishmentDependencies {
     pub(crate) pending_compactions: PendingCompactionRegistry,
     /// The provider command lists, whose list read before a resume is dropped.
     pub(crate) provider_commands: Arc<CodexProviderCommandCache>,
+    /// Which provider process runs each session, where each session's service process is kept.
+    pub(crate) processes: Arc<ProviderProcessRegistry>,
 }
 
 /// A conversation established and not yet open: its record and queue, the claim that holds its
@@ -404,6 +408,7 @@ impl CodexSessionEstablishment {
         record
             .service
             .register_thread(record.thread_id.clone(), record.session_id);
+        self.record_service_process(record.session_id, &record.service);
         drop(claim);
         CodexOpenedSession {
             record,
@@ -459,7 +464,9 @@ impl CodexSessionEstablishment {
     }
 
     // Moves the record onto the resumed conversation: its service, binding, turns, tier and
-    // effort, its mode sent again, and its routing band rebound on the sum already metered.
+    // effort, its mode sent again, and its routing band rebound on the sum already metered. The
+    // record changes only once every step that can fail is done; a failure releases the
+    // conversation's registration on `service` when the resume made it.
     async fn adopt_resumed_thread(
         &self,
         task: &mut CodexSessionTask<'_>,
@@ -467,24 +474,17 @@ impl CodexSessionEstablishment {
         resumed: Result<CodexResumedThread, CodexError>,
     ) -> Result<CodexInPlaceResume, CodexError> {
         let resumed = resumed?;
-        let Some(version) = service.version_reading() else {
-            return Err(CodexError::Transport {
-                detail: "The Codex service reported no version for the resumed session's binding."
-                    .to_owned(),
-                cause: None,
-            });
+        let adopted = prepare_adoption(task.record, &service, &resumed).await;
+        let (result, binding_id) = match adopted {
+            Ok(adopted) => adopted,
+            Err(error) => {
+                if !resumed.was_held {
+                    service.release_thread(&task.record.thread_id);
+                }
+                return Err(error);
+            }
         };
-        let binding_id = RuntimeBindingId::new(mint_uuid_v7().to_string())
-            .expect("a minted UUID is a binding id");
         let record = &mut *task.record;
-        let result = DriverResumeResult::Resumed {
-            binding_id: binding_id.clone(),
-            session_position: count_turns(resumed.listed_turns.len()),
-            resume_handle: NonEmptyText::new(record.thread_id.clone())
-                .expect("a resumed conversation's id is never empty"),
-            spawned_version: to_binding_version_carriers(&version),
-        };
-        let connection = service.connection()?;
         record.service = service;
         record.binding_id = Some(binding_id);
         record.turn_boundaries = resumed
@@ -494,14 +494,7 @@ impl CodexSessionEstablishment {
             .collect();
         record.declared_output_speed = resumed.declared_output_speed;
         record.reasoning_effort = resumed.reasoning_effort;
-        update_codex_session_mode(
-            &connection,
-            &record.thread_id,
-            record.session_mode,
-            &record.thread_settings.model,
-            record.reasoning_effort.as_deref(),
-        )
-        .await?;
+        self.record_service_process(record.session_id, &record.service);
         self.dependencies
             .provider_commands
             .discard_listing(record.session_id);
@@ -565,6 +558,7 @@ impl CodexSessionEstablishment {
         match read_codex_turns(&connection, &record.thread_id).await {
             Ok(listed_turns) => Ok(CodexResumedThread {
                 listed_turns,
+                was_held,
                 declared_output_speed: read_codex_declared_tier(record.session_id, &reply),
                 reasoning_effort: read_thread_reasoning_effort(&reply),
             }),
@@ -689,13 +683,88 @@ impl CodexSessionEstablishment {
     fn tool_server_route(&self) -> Option<Arc<dyn ToolServerRoute>> {
         self.dependencies.tool_server_route.port().cloned()
     }
+
+    // Records `service`'s process as the one running `session_id`, under the identity the other
+    // sessions on that process hold, else a new one; a service the daemon did not start, which
+    // has no process of the daemon's, records none.
+    fn record_service_process(&self, session_id: SessionId, service: &CodexService) {
+        let processes = &self.dependencies.processes;
+        let Some(process_id) = service.process_id() else {
+            self.let_go_service_process(session_id);
+            return;
+        };
+        let identity = service
+            .attached_sessions()
+            .iter()
+            .filter_map(|inbound| processes.process_identity(&inbound.session_id()))
+            .find(|identity| identity.process_id == process_id)
+            .unwrap_or_else(|| ProviderProcessIdentity {
+                process_id,
+                spawn_sequence: processes.mint_spawn_sequence(),
+            });
+        processes.record(session_id, identity);
+    }
+
+    /// Takes `session_id` out of the daemon's provider processes, as its record is let go.
+    pub(crate) fn let_go_service_process(&self, session_id: SessionId) {
+        let processes = &self.dependencies.processes;
+        if let Some(identity) = processes.process_identity(&session_id) {
+            processes.remove_exited(session_id, identity);
+        }
+    }
+
+    /// Takes every session on `service` out of the daemon's provider processes once its process
+    /// ended.
+    pub(crate) fn forget_service_process(&self, service: &CodexService) {
+        for inbound in service.attached_sessions() {
+            self.let_go_service_process(inbound.session_id());
+        }
+    }
 }
 
-/// What a resume reads back: the conversation's turns, its declared tier and its effort.
+/// What a resume reads back: the conversation's turns, whether the session held the conversation
+/// on the service before it, its declared tier and its effort.
 struct CodexResumedThread {
     listed_turns: Vec<CodexListedTurn>,
+    was_held: bool,
     declared_output_speed: Option<ProviderOutputSpeedState>,
     reasoning_effort: Option<String>,
+}
+
+// The steps of an adoption that can fail, run before the record changes: the binding's version
+// read, and the session's mode sent on `service`'s connection with the resumed effort. Answers
+// the result and the binding minted for it.
+async fn prepare_adoption(
+    record: &CodexSessionRecord,
+    service: &CodexService,
+    resumed: &CodexResumedThread,
+) -> Result<(DriverResumeResult, RuntimeBindingId), CodexError> {
+    let Some(version) = service.version_reading() else {
+        return Err(CodexError::Transport {
+            detail: "The Codex service reported no version for the resumed session's binding."
+                .to_owned(),
+            cause: None,
+        });
+    };
+    let connection = service.connection()?;
+    update_codex_session_mode(
+        &connection,
+        &record.thread_id,
+        record.session_mode,
+        &record.thread_settings.model,
+        resumed.reasoning_effort.as_deref(),
+    )
+    .await?;
+    let binding_id =
+        RuntimeBindingId::new(mint_uuid_v7().to_string()).expect("a minted UUID is a binding id");
+    let result = DriverResumeResult::Resumed {
+        binding_id: binding_id.clone(),
+        session_position: count_turns(resumed.listed_turns.len()),
+        resume_handle: NonEmptyText::new(record.thread_id.clone())
+            .expect("a resumed conversation's id is never empty"),
+        spawned_version: to_binding_version_carriers(&version),
+    };
+    Ok((result, binding_id))
 }
 
 /// Refuses a create whose larger window the service's catalog does not offer `model` at that

@@ -18,7 +18,9 @@ use crate::provider::driver::codex::delivery::memory::{
 use crate::provider::driver::codex::delivery::reviewer::end_codex_review_turn;
 use crate::provider::driver::codex::delivery::rows::CodexRowRun;
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::turn_evidence::compose_codex_child_terminal;
+use crate::provider::driver::codex::turn_evidence::{
+    CodexTurnStatus, compose_codex_child_terminal,
+};
 use crate::provider::record_readers::read_non_empty_string;
 use crate::session::run::epochs::DeliveryOperation;
 use crate::session::run::inbound::rows::LateAppendableRow;
@@ -174,7 +176,8 @@ impl CodexFrameDelivery {
         let is_stopped_by_codex = turn
             .and_then(|turn| turn.get("status"))
             .and_then(serde_json::Value::as_str)
-            == Some("interrupted");
+            .and_then(CodexTurnStatus::read)
+            == Some(CodexTurnStatus::Interrupted);
         if let ChildRunLookup::Started {
             run,
             start_row_event_id,

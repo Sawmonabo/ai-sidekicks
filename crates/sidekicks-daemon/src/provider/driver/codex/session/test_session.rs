@@ -90,6 +90,7 @@ use crate::provider::driver::{
     PROVIDERS, ProviderAccountFolders, SessionSpawnContext, SessionSpawnContextResolver,
 };
 use crate::provider::port::registration::PortRegistration;
+use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::provider::runtime_binding::store::{RuntimeBindingSpawnConfig, RuntimeBindingStore};
 use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
@@ -121,6 +122,8 @@ pub(crate) struct TestCodexSession {
     pub(crate) daemon_turn_bindings: Arc<TestDaemonTurnBindings>,
     /// The database.
     pub(crate) database: TestDatabase,
+    /// Which provider process runs each session, as the test's establishments record it.
+    pub(crate) processes: Arc<ProviderProcessRegistry>,
     epochs: Arc<Mutex<ExecutionEpochs>>,
     _home: TempDir,
 }
@@ -262,6 +265,7 @@ impl TestCodexSession {
             run_start,
             daemon_turn_bindings,
             database,
+            processes: Arc::new(ProviderProcessRegistry::default()),
             epochs,
             _home: home,
         }
@@ -319,6 +323,7 @@ impl TestCodexSession {
                 Arc::new(PortRegistration::new("server prompts")),
                 Arc::new(|_session_id| None),
             ),
+            processes: Arc::clone(&self.processes),
         })
     }
 }
