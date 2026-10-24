@@ -249,8 +249,8 @@ pub use posix::error_codes::{
 pub use posix::file_facts::{entry_changed_at, file_facts};
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::file_system::{
-    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableFolder, UnremovableFile, is_superuser,
-    make_folder_link, make_folder_unreadable,
+    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, is_superuser,
+    make_folder_link, make_unreadable,
 };
 #[cfg(unix)]
 pub use posix::file_system::{
@@ -391,8 +391,8 @@ pub use windows::error_codes::{
 pub use windows::file_facts::{entry_changed_at, file_facts};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::file_system::{
-    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableFolder, UnremovableFile, is_superuser,
-    make_folder_link, make_folder_unreadable,
+    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, is_superuser,
+    make_folder_link, make_unreadable,
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{

@@ -51,7 +51,8 @@ impl SecretItems {
     /// Deletes every item the app made: each service's items in the operating system's store,
     /// probe leftovers and items it cannot name included, and the items file, sealed or plain,
     /// opening none of its items. Fails with [`KeychainRefusal`] at the first item a store that
-    /// must be emptied refuses, before the data folder goes, so the erase can run again.
+    /// must be emptied refuses, or when the file's removal gives no answer within a call's time,
+    /// before the data folder goes, so the erase can run again.
     pub(crate) async fn erase_all(&self) -> Result<(), KeychainRefusal> {
         let _state = self.state.write().await;
         if let Some((os_store, sweep)) = self.operating_system_sweep().await {
@@ -62,15 +63,15 @@ impl SecretItems {
                 }
             }
         }
-        self.items_file.remove_all().await
+        self.within_call_time(self.items_file.remove_all()).await?
     }
 
     /// Empties the items file and the place record when the sealed file cannot be opened, for any
     /// cause, then picks the place again as at a first start; a place that opens is kept and
     /// answered. A cause this run already holds empties the place without checking it again. The
-    /// wait for the place, the check and the new pick each take their own call time. Fails with
-    /// [`KeychainRefusal`] when the file or the record cannot be removed, when the new pick is
-    /// refused, or when a step runs out of its time.
+    /// wait for the place, the check, each removal and the new pick each take their own call time.
+    /// Fails with [`KeychainRefusal`] when the file or the record cannot be removed, when the new
+    /// pick is refused, or when a step runs out of its time.
     pub(crate) async fn empty_place(&self) -> Result<SecretsPlace, KeychainRefusal> {
         let mut state = self.within_call_time(self.state.write()).await?;
         if state.view().cannot_open.is_none() {
@@ -86,8 +87,10 @@ impl SecretItems {
             "the sealed secrets cannot be opened, so the relink deletes them and picks their place \
              again"
         );
-        self.items_file.remove_all().await?;
-        place::remove_record(&self.record_path).await?;
+        self.within_call_time(self.items_file.remove_all())
+            .await??;
+        self.within_call_time(place::remove_record(&self.record_path))
+            .await??;
         state.reset(RecordState::Absent);
         self.within_call_time(self.settle_held(&mut state)).await?
     }
@@ -103,7 +106,7 @@ impl SecretItems {
                 KeychainRefusal::new(
                     KeychainRefusalCause::Unavailable,
                     format!(
-                        "the secrets' place was not picked again within {:?}",
+                        "a step on the secrets gave no answer within {:?}",
                         self.call_timeout
                     ),
                 )

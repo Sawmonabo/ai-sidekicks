@@ -295,16 +295,22 @@ impl SecretItems {
         } else if let Some(seal) = &self.seal {
             match self.probe(seal.as_ref()).await? {
                 Probe::Sealed(header) if !header.is_boot_bound() => {
-                    // A plain file left with no record is sealed once, as a plain record's is.
-                    if self.items_file.form_on_disk().await? == Some(ItemsForm::Plain) {
-                        return self
-                            .seal_plain_file(state, header)
-                            .await?
-                            .ok_or_else(sealing_abandoned);
+                    if self.items_file.form_on_disk().await? != Some(ItemsForm::Plain) {
+                        self.open_sealed(state, header).await?;
+                        self.record(state, SecretsPlace::SealedFile).await?;
+                        return Ok(state.accept(SecretsPlace::SealedFile));
                     }
-                    self.open_sealed(state, header).await?;
-                    self.record(state, SecretsPlace::SealedFile).await?;
-                    return Ok(state.accept(SecretsPlace::SealedFile));
+                    // A plain file left with no record is sealed once, as a plain record's is, and
+                    // kept plain for the run once systemd's credential service refuses a seal.
+                    if !state.is_pass_refused
+                        && let Some(place) = self.seal_plain_file(state, header).await?
+                    {
+                        return Ok(place);
+                    }
+                    if !state.is_pass_refused {
+                        return Err(sealing_abandoned());
+                    }
+                    plain_file_place(DaemonSecretsPlainReason::SealFailed)
                 }
                 Probe::Sealed(header) => {
                     log_boot_bound(header);
@@ -372,7 +378,9 @@ impl SecretItems {
         // The reason this start's probe gives, where it gives one.
         let reason_now = match self.probe(seal.as_ref()).await? {
             Probe::Sealed(header) if !header.is_boot_bound() => {
-                if let Some(place) = self.seal_plain_file(state, header).await? {
+                if !state.is_pass_refused
+                    && let Some(place) = self.seal_plain_file(state, header).await?
+                {
                     return Ok(place);
                 }
                 None

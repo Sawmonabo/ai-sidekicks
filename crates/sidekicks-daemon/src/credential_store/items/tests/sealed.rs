@@ -14,15 +14,14 @@ use sidekicks_contracts::daemon::status::{
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_platforms::{
     CAN_OPEN_INSIDE_UNREADABLE_FOLDER, SealHeader, SealKey, SecretStoreOffer, is_superuser,
-    make_folder_unreadable, secret_store_offer,
+    make_unreadable, secret_store_offer,
 };
 
 use super::{
-    Before, EARLIER, HELD_CALL_TIMEOUT, ITEMS, RECORD, SEALED, Status, WORKFLOW, file_before,
-    read_text, secret_items, status, write_and_read,
+    Before, EARLIER, HELD_CALL_TIMEOUT, ITEMS, RECORD, SEALED, Status, file_before, read_text,
+    secret_items, status, write_and_read,
 };
 use crate::credential_store::SecretKeychain;
-use crate::credential_store::file::SecretItemsFile;
 use crate::credential_store::items::{SecretItems, SecretItemsStart, cannot_open};
 use crate::credential_store::os::{SystemCredentialStore, TestStoreAccess};
 use crate::credential_store::place::SecretsPlace;
@@ -30,8 +29,9 @@ use crate::credential_store::seal::{TestSeal, TestSealAnswer};
 use crate::credential_store::service::KeychainService;
 use crate::random_hex::random_hex;
 
-const NO_SEAL_SERVICE: &str = r#"{"place":{"kind":"plainFile","reason":"noSealService"}}"#;
-const SEAL_FAILED: &str = r#"{"place":{"kind":"plainFile","reason":"sealFailed"}}"#;
+pub(super) const NO_SEAL_SERVICE: &str =
+    r#"{"place":{"kind":"plainFile","reason":"noSealService"}}"#;
+pub(super) const SEAL_FAILED: &str = r#"{"place":{"kind":"plainFile","reason":"sealFailed"}}"#;
 const BOOT_BOUND: &str = r#"{"place":{"kind":"plainFile","reason":"bootBound"}}"#;
 
 // The mask of a seal bound to PCR 7, the Secure Boot state.
@@ -104,7 +104,7 @@ const fn refuses(error: &'static str, errno: Option<i64>) -> SealNow {
 }
 
 // The items file's form, `None` when there is none.
-fn form(folder: &Path) -> Option<String> {
+pub(super) fn form(folder: &Path) -> Option<String> {
     let text = read_text(&folder.join(ITEMS))?;
     let file: serde_json::Value = serde_json::from_str(&text).expect("the file is JSON");
     file["form"].as_str().map(str::to_owned)
@@ -419,60 +419,6 @@ async fn a_key_form_this_systemd_cannot_produce_is_checked_again_each_call() {
     }
 }
 
-/// A pass sealing a plain file that runs past a call's time keeps running once that call refuses,
-/// and a later call waits for it and is served from the sealed file, one pass having run.
-/// Mutation: run the pass inside the call's time, so each call drops it and starts it over.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_seal_pass_longer_than_a_call_lands_once() {
-    let folder = tempfile::tempdir().expect("the test makes a folder");
-    std::fs::write(folder.path().join(RECORD), NO_SEAL_SERVICE).expect("the test writes it");
-    let plain = SecretItemsFile::new(folder.path()).keychain(WORKFLOW, None);
-    for account in [EARLIER, "second", "third"] {
-        plain
-            .write(account, &SecretString::from("earlier value"))
-            .await
-            .expect("the test fills the file");
-    }
-    let seal = TestSeal::new();
-    // Three items' seals, 360 ms in all, outlast the 300 ms call; the probe's are not delayed.
-    seal.delay_seals_under(WORKFLOW, Duration::from_millis(120));
-    let items = secret_items(
-        folder.path(),
-        &TestStoreAccess::sealing(Arc::clone(&seal)),
-        false,
-        Duration::from_millis(300),
-    );
-    let keychain = items.keychain(KeychainService::WorkflowSecrets);
-
-    let scenario = async {
-        let first = keychain
-            .read(EARLIER)
-            .await
-            .map_err(|refusal| refusal.cause());
-        seal.wait_for_seals(4).await;
-        let later = keychain
-            .read(EARLIER)
-            .await
-            .map_err(|refusal| refusal.cause());
-        (first, later)
-    };
-    let (first, later) = tokio::time::timeout(Duration::from_secs(5), scenario)
-        .await
-        .expect("every call answers within its time");
-
-    assert_eq!(first.err(), Some(KeychainRefusalCause::Unavailable));
-    assert_eq!(
-        later.map(|kept| kept.map(|kept| kept.expose_secret().to_owned())),
-        Ok(Some("earlier value".to_owned()))
-    );
-    assert_eq!(seal.seals(), 5, "two probes and one seal per item");
-    assert_eq!(
-        read_text(&folder.path().join(RECORD)).as_deref(),
-        Some(SEALED)
-    );
-    assert_eq!(form(folder.path()).as_deref(), Some("sealed"));
-}
-
 // What latches a sealed record's cause for the run.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Latch {
@@ -539,9 +485,8 @@ async fn a_latched_cause_refuses_every_call_until_the_relink(
         if latch == Latch::UnreadableFile {
             seal.wait_for_seals(seals + 1).await;
         }
-        let darkened = (latch == Latch::UnreadableFile).then(|| {
-            make_folder_unreadable(folder.path()).expect("the data folder is made unreadable")
-        });
+        let darkened = (latch == Latch::UnreadableFile)
+            .then(|| make_unreadable(folder.path()).expect("the data folder is made unreadable"));
         drop(release);
         darkened
     };

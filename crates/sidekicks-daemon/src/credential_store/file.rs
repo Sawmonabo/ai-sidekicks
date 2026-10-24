@@ -26,6 +26,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::future::BoxFuture;
 use secrecy::{ExposeSecret, SecretString};
@@ -97,14 +98,25 @@ pub(crate) struct ItemsSnapshot {
 }
 
 /// What sealing a file's items again did.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) enum SealPass {
     /// Nothing needed sealing again; the file is as it was.
     Unchanged,
     /// Every item that needed it was sealed again and the file replaced with the sealed form.
     Sealed,
-    /// A seal failed or came back weaker than allowed, so the file is left as it was.
-    Abandoned(&'static str),
+    /// The pass stopped for the reason given, so the file is left as it was.
+    Abandoned(PassAbandoned),
+}
+
+/// Why a pass sealing the items file again stopped with the file left as it was.
+#[derive(Debug)]
+pub(crate) enum PassAbandoned {
+    /// systemd's credential service refused to seal or open an item.
+    Refused(SealFailure),
+    /// A seal or an unseal gave no answer within the pass's time for it.
+    NoAnswer,
+    /// A new seal came back weaker than allowed or bound to the boot state.
+    Weaker,
 }
 
 // The file's text as read.
@@ -256,24 +268,25 @@ impl SecretItemsFile {
     }
 
     /// Seals into one new sealed file, written at once, every value of a plain file and every
-    /// blob of a sealed file whose key is weaker than `probe`'s, the start's fresh seal. Never
-    /// seals downward: the pass is abandoned, the file left as it was, when a seal fails or a new
-    /// blob is weaker than `probe`'s, than the blob it replaces, or bound to the boot state. A blob
-    /// whose key the daemon does not know is kept as it is. The pass runs in a task of its own that
-    /// holds the file's lock until it ends, so it lands whole even after its caller stops waiting,
-    /// and a later call on the file waits for it rather than starting another. Fails with
-    /// [`KeychainRefusal`] when the file cannot be read or written; the file is then left as it
-    /// was.
+    /// blob of a sealed file whose key is weaker than `probe`'s, the start's fresh seal, each seal
+    /// and unseal given `time`. Never seals downward: the pass is abandoned, the file left as it
+    /// was, when a seal or unseal fails or runs out of `time`, or a new blob is weaker than
+    /// `probe`'s, than the blob it replaces, or bound to the boot state. A blob whose key the
+    /// daemon does not know is kept as it is. The pass runs in a task of its own that holds the file's
+    /// lock until it ends, so it lands whole even after its caller stops waiting, and a later call
+    /// on the file waits for it rather than starting another. Fails with [`KeychainRefusal`] when
+    /// the file cannot be read or written; the file is then left as it was.
     pub(crate) async fn seal_again(
         self: &Arc<Self>,
         seal: Arc<dyn SecretSeal>,
         probe: SealHeader,
+        time: Duration,
     ) -> Result<SealPass, KeychainRefusal> {
         // The caller holds the receiver while it waits and drops it when it stops waiting.
         let (still_waiting, _caller_waits) = oneshot::channel::<()>();
         let items_file = Arc::clone(self);
         tokio::spawn(async move {
-            let pass = items_file.seal_held(seal.as_ref(), probe).await;
+            let pass = items_file.seal_held(seal.as_ref(), probe, time).await;
             if still_waiting.is_closed() {
                 tracing::info!(
                     pass = ?pass.as_ref().ok(),
@@ -291,6 +304,7 @@ impl SecretItemsFile {
         &self,
         seal: &dyn SecretSeal,
         probe: SealHeader,
+        time: Duration,
     ) -> Result<SealPass, KeychainRefusal> {
         let _held = self.hold().await?;
         let Some(text) = self.read_text().await? else {
@@ -305,11 +319,11 @@ impl SecretItemsFile {
                     ItemsForm::Plain => (stored, probe.key()),
                     ItemsForm::Sealed => match SealHeader::read(stored.expose_secret()) {
                         Some(old) if is_weaker(old.key(), probe.key()) => {
-                            match seal.unseal(&name, stored.expose_secret()).await {
+                            match within_pass_time(time, seal.unseal(&name, stored.expose_secret()))
+                                .await
+                            {
                                 Ok(value) => (value, probe.key()),
-                                Err(_failure) => {
-                                    return Ok(SealPass::Abandoned("an item did not open"));
-                                }
+                                Err(abandoned) => return Ok(SealPass::Abandoned(abandoned)),
                             }
                         }
                         Some(_) | None => {
@@ -321,16 +335,13 @@ impl SecretItemsFile {
                         }
                     },
                 };
-                let Ok(blob) = seal.seal(&name, &value).await else {
-                    return Ok(SealPass::Abandoned("a seal failed"));
+                let blob = match within_pass_time(time, seal.seal(&name, &value)).await {
+                    Ok(blob) => blob,
+                    Err(abandoned) => return Ok(SealPass::Abandoned(abandoned)),
                 };
                 match SealHeader::read(&blob) {
                     Some(new) if !is_weaker(new.key(), floor) && !new.is_boot_bound() => {}
-                    Some(_) | None => {
-                        return Ok(SealPass::Abandoned(
-                            "a new seal is weaker than allowed or bound to the boot state",
-                        ));
-                    }
+                    Some(_) | None => return Ok(SealPass::Abandoned(PassAbandoned::Weaker)),
                 }
                 sealed
                     .entry(service.clone())
@@ -619,6 +630,17 @@ fn form_of(seal: Option<&dyn SecretSeal>) -> ItemsForm {
 /// Whether `key` is weaker than `than` in the strength order [`SealKey`] declares.
 pub(crate) fn is_weaker(key: SealKey, than: SealKey) -> bool {
     key < than
+}
+
+// Runs one seal or unseal of a pass within `time`; the pass stops when it fails or runs out.
+async fn within_pass_time<Answer>(
+    time: Duration,
+    call: impl Future<Output = Result<Answer, SealFailure>>,
+) -> Result<Answer, PassAbandoned> {
+    match tokio::time::timeout(time, call).await {
+        Ok(answer) => answer.map_err(PassAbandoned::Refused),
+        Err(_elapsed) => Err(PassAbandoned::NoAnswer),
+    }
 }
 
 // The refusal for a seal that failed, kept as the source; nothing on Linux can be unlocked.

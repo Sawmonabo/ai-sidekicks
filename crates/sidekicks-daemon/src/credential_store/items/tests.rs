@@ -1,3 +1,4 @@
+mod seal_pass;
 mod sealed;
 
 use std::path::Path;

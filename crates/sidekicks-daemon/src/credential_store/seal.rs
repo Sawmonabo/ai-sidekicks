@@ -44,9 +44,9 @@ impl SecretSeal for CredentialSeal {
 
 /// A seal a test hands the daemon: each blob carries a real header naming the key it is set to seal
 /// with, then the name and value, so a blob opened under another name refuses as systemd's does.
-/// It counts its calls, can hold the next seal until the test releases it or delay the seals of
-/// some names, and is switched by the test: absent or refusing, keeping another value than it is
-/// given, or no longer opening the blobs it sealed so far, as a lost key does.
+/// It counts its calls, can hold the next seal until the test releases it or delay or refuse the
+/// seals of some names, and is switched by the test: absent or refusing, keeping another value than
+/// it is given, or no longer opening the blobs it sealed so far, as a lost key does.
 #[cfg(test)]
 pub(crate) struct TestSeal {
     /// The seals asked for, those still held included.
@@ -87,6 +87,8 @@ struct TestSealSettings {
     generation: u32,
     // How long each seal of a name starting with the text waits before it answers.
     delay: Option<(&'static str, std::time::Duration)>,
+    // The start of the names whose seals are refused, whatever `answer` says.
+    refused: Option<&'static str>,
 }
 
 #[cfg(test)]
@@ -104,6 +106,7 @@ impl TestSeal {
                 keeps_another_value: false,
                 generation: 0,
                 delay: None,
+                refused: None,
             }),
         })
     }
@@ -133,6 +136,11 @@ impl TestSeal {
     /// Delays every later seal of a name starting with `prefix` by `delay`.
     pub(crate) fn delay_seals_under(&self, prefix: &'static str, delay: std::time::Duration) {
         self.settings().delay = Some((prefix, delay));
+    }
+
+    /// Refuses every later seal of a name starting with `prefix`, as a failing service does.
+    pub(crate) fn refuse_seals_under(&self, prefix: &'static str) {
+        self.settings().refused = Some(prefix);
     }
 
     /// Holds the next seal until the returned sender sends or drops.
@@ -205,7 +213,14 @@ impl SecretSeal for TestSeal {
                 .delay
                 .filter(|(prefix, _)| name.starts_with(prefix))
                 .map(|(_, delay)| delay);
-            let sealed = if let Some(failure) = test_failure(settings.answer) {
+            let answer = match settings.refused {
+                Some(prefix) if name.starts_with(prefix) => TestSealAnswer::Refuses {
+                    error: "io.systemd.System",
+                    errno: Some(5),
+                },
+                Some(_) | None => settings.answer,
+            };
+            let sealed = if let Some(failure) = test_failure(answer) {
                 Err(failure)
             } else {
                 let kept = if settings.keeps_another_value {

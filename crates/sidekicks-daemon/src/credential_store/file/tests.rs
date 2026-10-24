@@ -191,7 +191,7 @@ async fn a_pass_that_would_seal_downward_is_abandoned(#[case] key: SealKey, #[ca
         .expect("the test blob has a header");
 
     let pass = SecretItemsFile::new(folder.path())
-        .seal_again(Arc::clone(&seal) as _, probe)
+        .seal_again(Arc::clone(&seal) as _, probe, Duration::from_secs(5))
         .await
         .expect("the file reads");
 

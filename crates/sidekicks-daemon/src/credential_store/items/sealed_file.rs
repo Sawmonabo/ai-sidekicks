@@ -12,7 +12,9 @@ use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_platforms::{SealFailure, SealHeader};
 
 use super::{PlaceState, SecretItems, log_mismatch, random_value};
-use crate::credential_store::file::{SealPass, SealedItem, credential_name, is_weaker};
+use crate::credential_store::file::{
+    PassAbandoned, SealPass, SealedItem, credential_name, is_weaker,
+};
 use crate::credential_store::place::SecretsPlace;
 use crate::credential_store::seal::SecretSeal;
 use crate::credential_store::service::KeychainService;
@@ -40,18 +42,32 @@ pub(super) enum Probe {
 
 impl SecretItems {
     // Seals the plain file's items once, the probe's blob having shown `header`, and records the
-    // sealed file; `None` when the pass was abandoned and the plain file stays.
+    // sealed file; `None` when the pass was abandoned and the plain file stays, the state noting a
+    // refused pass so none starts again this run. Fails with the refusal the caller answers with
+    // when a seal gave no answer in time or the file failed, the latter noted as refused too.
     pub(super) async fn seal_plain_file(
         &self,
         state: &mut PlaceState,
         header: SealHeader,
     ) -> Result<Option<SecretsPlace>, KeychainRefusal> {
         let seal = Arc::clone(self.seal_service()?);
-        match self.items_file.seal_again(seal, header).await? {
+        let pass = self
+            .items_file
+            .seal_again(seal, header, self.seal_check_timeout)
+            .await
+            .inspect_err(|_refusal| state.is_pass_refused = true)?;
+        match pass {
             SealPass::Unchanged | SealPass::Sealed => {}
-            SealPass::Abandoned(why) => {
-                tracing::warn!(why, "the secrets stay plain: sealing them was abandoned");
-                return Ok(None);
+            SealPass::Abandoned(abandoned) => {
+                log_abandoned(&abandoned);
+                return match abandoned {
+                    PassAbandoned::NoAnswer => Err(pass_unanswered()),
+                    PassAbandoned::Refused(_) => {
+                        state.is_pass_refused = true;
+                        Ok(None)
+                    }
+                    PassAbandoned::Weaker => Ok(None),
+                };
             }
         }
         self.record(state, SecretsPlace::SealedFile).await?;
@@ -157,14 +173,18 @@ impl SecretItems {
         if let Some(cause) = cause {
             return Err(state.refuse_opening(cause));
         }
-        if is_any_weaker {
-            match self.items_file.seal_again(Arc::clone(seal), probe).await? {
+        if is_any_weaker && !state.is_pass_refused {
+            let pass = self
+                .items_file
+                .seal_again(Arc::clone(seal), probe, self.seal_check_timeout)
+                .await
+                .inspect_err(|_refusal| state.is_pass_refused = true)?;
+            match pass {
                 SealPass::Unchanged | SealPass::Sealed => {}
-                SealPass::Abandoned(why) => tracing::warn!(
-                    why,
-                    "the items sealed with a weaker key stay as they are: sealing them again was \
-                     abandoned"
-                ),
+                SealPass::Abandoned(abandoned) => {
+                    log_abandoned(&abandoned);
+                    state.is_pass_refused |= matches!(abandoned, PassAbandoned::Refused(_));
+                }
             }
         }
         tracing::info!(
@@ -254,6 +274,33 @@ async fn open_samples(
         return Some(cause);
     }
     None
+}
+
+// Logs why a pass sealing the items again stopped, the file kept as it was.
+fn log_abandoned(abandoned: &PassAbandoned) {
+    match abandoned {
+        PassAbandoned::Refused(failure) => tracing::warn!(
+            error = failure as &(dyn Error + 'static),
+            "systemd's credential service refused a seal of the items, so their file stays as it \
+             was until the next start"
+        ),
+        PassAbandoned::NoAnswer => tracing::warn!(
+            "a seal of the items gave no answer in time, so their file stays as it was"
+        ),
+        PassAbandoned::Weaker => tracing::warn!(
+            "a new seal of the items is weaker than allowed or bound to the boot state, so their \
+             file stays as it was"
+        ),
+    }
+}
+
+// The refusal of a call whose pass sealing the items again ran out of time; the next call seals
+// them again.
+pub(super) fn pass_unanswered() -> KeychainRefusal {
+    KeychainRefusal::new(
+        KeychainRefusalCause::Unavailable,
+        "a seal of the items gave no answer in time, so the next call seals them again",
+    )
 }
 
 // Whether `failure` is one a first start reads as the service unable to seal on this computer.

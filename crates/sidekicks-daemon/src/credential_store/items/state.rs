@@ -15,6 +15,9 @@ use crate::mutex_lock::lock;
 pub(super) struct PlaceState {
     pub(super) record: RecordState,
     pub(super) verdict: Verdict,
+    // Whether a pass sealing the items again was refused this run, so none starts again until the
+    // next start.
+    pub(super) is_pass_refused: bool,
     // The cell the status read takes without the run's lock, written only through this state.
     view: Arc<Mutex<PlaceView>>,
 }
@@ -70,6 +73,7 @@ impl PlaceState {
         Self {
             record: RecordState::Unread,
             verdict: Verdict::Unchecked,
+            is_pass_refused: false,
             view,
         }
     }

@@ -168,34 +168,36 @@ pub fn make_folder_link(target: &Path, link: &Path) -> io::Result<()> {
     std::os::windows::fs::symlink_dir(target, link)
 }
 
-/// The access-list entry that denies everyone (`S-1-1-0`) the listing and reading of a folder.
+/// The access-list entry that denies everyone (`S-1-1-0`) the reading of a file and the listing
+/// and reading of a folder.
 #[cfg(any(test, feature = "test-support"))]
 const EVERYONE_READ_DENIAL: &str = "*S-1-1-0:(RD,R)";
 
-/// Whether a path inside a folder [`make_folder_unreadable`] made unreadable still opens, to name
-/// what is or is not there: every account holds the bypass-traverse right, so a deny of listing
-/// and reading stops no open through the folder.
+/// Whether a path inside a folder [`make_unreadable`] made unreadable still opens, to name what is
+/// or is not there: every account holds the bypass-traverse right, so a deny of listing and reading
+/// stops no open through the folder.
 #[cfg(any(test, feature = "test-support"))]
 pub const CAN_OPEN_INSIDE_UNREADABLE_FOLDER: bool = true;
 
-/// A folder no one may read or list until this is dropped, when its deny entry is removed.
+/// A file or folder no one may read, or list, until this is dropped, when its deny entry is
+/// removed.
 #[cfg(any(test, feature = "test-support"))]
-pub struct UnreadableFolder {
+pub struct UnreadableEntry {
     path: std::path::PathBuf,
 }
 
-/// Makes the folder at `path` unreadable until the returned guard drops, through `icacls`, which
-/// adds a deny entry for everyone. Fails when `icacls` cannot start or refuses.
+/// Makes the file or folder at `path` unreadable until the returned guard drops, through `icacls`,
+/// which adds a deny entry for everyone. Fails when `icacls` cannot start or refuses.
 #[cfg(any(test, feature = "test-support"))]
-pub fn make_folder_unreadable(path: &Path) -> io::Result<UnreadableFolder> {
+pub fn make_unreadable(path: &Path) -> io::Result<UnreadableEntry> {
     run_icacls(path, &["/deny", EVERYONE_READ_DENIAL])?;
-    Ok(UnreadableFolder {
+    Ok(UnreadableEntry {
         path: path.to_path_buf(),
     })
 }
 
 #[cfg(any(test, feature = "test-support"))]
-impl Drop for UnreadableFolder {
+impl Drop for UnreadableEntry {
     fn drop(&mut self) {
         run_icacls(&self.path, &["/remove:d", "*S-1-1-0"]).expect("the deny entry is removed");
     }
