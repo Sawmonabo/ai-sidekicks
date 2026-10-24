@@ -1,8 +1,9 @@
-//! Why a Codex turn that failed failed, as the run's failure cause names it: a turn too long for the
-//! model's window, whose message goes back to the composer; a spent plan allowance only when Codex
-//! failed the turn on its usage limit and the account's readings show it spent; spent retries when
-//! the arm is an upstream rate limit, which Codex gives up on only after its own retries, or when
-//! Codex retried the turn before giving up; and no flex capacity for a turn sent on the flex speed.
+//! Why a Codex turn that failed failed, as the run's failure cause names it: a turn too long for
+//! the model's window, whose message goes back to the composer; a spent plan allowance only when
+//! Codex failed the turn on its usage limit and the account's readings show it spent; spent
+//! retries when the arm is an upstream rate limit, which Codex gives up on only after its own
+//! retries, or when Codex retried the turn before giving up; and no flex capacity for a turn sent
+//! on the flex speed.
 
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::provider::driver::usage_limit::ProviderUsageLimitCause;

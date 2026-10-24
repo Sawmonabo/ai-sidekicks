@@ -247,16 +247,15 @@ pub(super) async fn reconcile_kept_records(
     let mut running = Vec::new();
     let mut ended_sockets = Vec::new();
     for (kept_locked, record) in read_kept_records(locked).await? {
-        match repin(record.process.clone()).await? {
-            Some(lasting) => running.push(RunningRecord {
+        if let Some(lasting) = repin(record.process.clone()).await? {
+            running.push(RunningRecord {
                 locked: kept_locked,
                 record,
                 lasting,
-            }),
-            None => {
-                ended_sockets.extend(record.physical_socket);
-                retire_former_service(&kept_locked, record.process).await?;
-            }
+            });
+        } else {
+            ended_sockets.extend(record.physical_socket);
+            retire_former_service(&kept_locked, record.process).await?;
         }
     }
     let link_target = read_socket_link(service.socket_path()).map_err(|error| {
