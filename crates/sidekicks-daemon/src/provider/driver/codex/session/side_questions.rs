@@ -125,10 +125,6 @@ pub(crate) struct CodexSideQuestions {
 
 impl CodexSideQuestions {
     /// The side questions, delivering each answer through `dispatch` as a task of `tasks`.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver builds the side questions its sessions share"
-    )]
     pub(crate) fn new(dispatch: Arc<RunInboundDispatch>, tasks: TaskTracker) -> Self {
         Self {
             dispatch,
@@ -140,7 +136,6 @@ impl CodexSideQuestions {
     /// Asks `params`' question on a read-only copy of `record`'s conversation and answers once
     /// Codex took its turn. Fails as the fork or the turn's request fails, and with
     /// `CodexError::Transport` when the copy does not run read-only; the copy is let go either way.
-    #[expect(dead_code, reason = "the Codex driver's side question asks through it")]
     pub(crate) async fn ask(
         &self,
         record: &CodexSessionRecord,
@@ -209,10 +204,6 @@ impl CodexSideQuestions {
     /// Takes a frame of a side question's copy, `None` when it belongs to none. The copy's reply
     /// is kept, its usage metered, and its turn's end delivers the answer and lets the copy go
     /// off the caller's task. Never fails.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's frame routing diverts each copy's frame through it"
-    )]
     pub(crate) fn divert(&self, method: &str, params: &RawValue) -> Option<CodexDivertedFrame> {
         let thread_id = read_codex_frame_thread_id(method, params)?;
         let mut questions = self.lock();
@@ -258,10 +249,6 @@ impl CodexSideQuestions {
 
     /// Lets go of every copy `session_id`'s side questions still hold, once its conversation
     /// closed.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's close lets go of its side questions' copies"
-    )]
     pub(crate) async fn forget_session(&self, session_id: SessionId) {
         let copies: Vec<(String, CodexSideQuestion)> = {
             let mut questions = self.lock();

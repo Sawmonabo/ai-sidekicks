@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::{CAN_LINK_A_SOCKET, read_socket_link};
+use tokio::runtime::Handle;
 
 use crate::provider::driver::codex::service::home::{
     CodexHomeKind, CodexServiceHome, CodexServiceKind,
@@ -35,7 +36,7 @@ const CODEX_CONTROL_SOCKET_FOLDER: &str = "app-server-control";
 /// The home's own control socket's name in that folder.
 const CODEX_HOME_SOCKET_NAME: &str = "app-server-control.sock";
 
-/// Resolves which Codex home a session's account runs in, wired by the daemon.
+/// Resolves which Codex home a session's account runs in.
 pub(crate) trait CodexHomeResolver: Send + Sync {
     /// The home for `provider_account_id`; `None` names the machine's default account. Fails with
     /// the resolve's driver error.
@@ -163,6 +164,30 @@ impl CodexServiceRegistry {
     /// Every service the registry holds, the replaced ones left out.
     pub(crate) fn services(&self) -> Vec<Arc<CodexService>> {
         self.lock().by_home.values().cloned().collect()
+    }
+
+    /// The service the registry holds on `codex_home`, or one that left it and still runs; `None`
+    /// when no service of the driver is on that home.
+    pub(crate) fn service_on(&self, codex_home: &Path) -> Option<Arc<CodexService>> {
+        let services = self.lock();
+        services.by_home.get(codex_home).cloned().or_else(|| {
+            services
+                .replaced
+                .iter()
+                .find(|replaced| replaced.home().codex_home == codex_home)
+                .cloned()
+        })
+    }
+
+    /// Whether no service holds `codex_home`: none of the driver's is on it, and nothing listens
+    /// on the home's control socket, a service of the person's own or of a former daemon among
+    /// them; a connect that tells nothing either way reads as held. Blocking: called on a
+    /// blocking thread of the daemon's runtime.
+    pub(crate) fn is_home_quiet(&self, codex_home: &Path) -> bool {
+        self.service_on(codex_home).is_none()
+            && Handle::current()
+                .block_on(is_listening(&home_socket_path(codex_home)))
+                .is_ok_and(|is_listened_on| !is_listened_on)
     }
 
     /// Starts a second service on `service`'s home, which becomes the home's service once it is

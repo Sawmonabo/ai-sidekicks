@@ -439,7 +439,6 @@ impl RunPauseControl {
     /// Settles as taken every message a resume of `run_id` kept, once the provider reports the run
     /// running again, which shows it took the resume they went with. Fails as the admission's
     /// write fails.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn settle_kept_as_taken(
         &self,
         session_id: SessionId,

@@ -41,6 +41,7 @@ use crate::provider::record_readers::read_non_empty_string;
 use crate::provider::terminal_emission_gate::TerminalEmissionGate;
 use crate::provider::thread_frame_router::ThreadFrameRoute;
 use crate::session::run::engine::RunEngine;
+use crate::session::run::engine::turns::ProviderTurnEnd;
 use crate::session::run::inbound::{InboundDelivery, InboundOutcome, RunInboundDispatch};
 
 /// What the rest of the Codex driver does for a frame, which the frame delivery cannot do itself.
@@ -122,6 +123,9 @@ pub(crate) struct CodexTurnMove {
     pub(crate) turn_id: String,
     /// Its run.
     pub(crate) run_id: RunId,
+    /// The end the run engine records for an ended turn that moves no run: a paused or retried
+    /// turn's; `None` for a start, and for an end the run's own move or its interrupt records.
+    pub(crate) turn_end: Option<ProviderTurnEnd>,
 }
 
 /// What one frame told the rest of the driver.
@@ -191,13 +195,6 @@ pub(crate) struct CodexFrameDelivery {
 
 impl CodexFrameDelivery {
     /// The frame delivery over `dependencies`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex driver builds one frame delivery its sessions' tasks share"
-        )
-    )]
     pub(crate) fn new(dependencies: CodexFrameDeliveryDependencies) -> Self {
         Self {
             dependencies,
@@ -210,13 +207,6 @@ impl CodexFrameDelivery {
     /// `route` for it, while the turn bookkeeping still holds the turn's route; `gate` is the
     /// session's terminal gate, which outlives its records. Never fails: each delivery's failure
     /// is reported where it happens.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's task hands each frame of its queue to it"
-        )
-    )]
     pub(crate) async fn deliver(
         &self,
         record: &mut CodexSessionRecord,
@@ -274,10 +264,6 @@ impl CodexFrameDelivery {
 
     /// Sends the streamed pieces whose interval has passed by `now` and the tool rows whose wait
     /// for their start ran out, for the session's one timer at `record.delivery.next_deadline()`.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's task fires its timer for the pieces due"
-    )]
     pub(crate) async fn deliver_due(
         &self,
         record: &mut CodexSessionRecord,

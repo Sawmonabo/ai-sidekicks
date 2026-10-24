@@ -61,10 +61,6 @@ impl CodexTurnWait {
 
 /// How a record stopped being its session's: the session closed, or it goes on without the record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[expect(
-    dead_code,
-    reason = "the Codex session's close, dispose and process exit say how its record ended"
-)]
 pub(crate) enum CodexRecordExit {
     /// The session closed.
     SessionClosed,
@@ -84,14 +80,6 @@ pub(crate) struct CodexTurnEndWaiters {
 impl CodexTurnEndWaiters {
     /// Registers `wait` on `record`, answered at once when nothing is owed; the caller awaits the
     /// answer under a [`CodexTurnEndDeadline`].
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's task registers each wait a start, retry, undo \
-                or goal makes"
-        )
-    )]
     pub(crate) fn wait(
         &mut self,
         record: &CodexSessionRecord,
@@ -108,13 +96,6 @@ impl CodexTurnEndWaiters {
     }
 
     /// Answers every wait no longer owed on `record`, and drops those whose caller stopped waiting.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's task settles the waits after each frame it delivers"
-        )
-    )]
     pub(crate) fn settle(&mut self, record: &CodexSessionRecord) {
         let mut owed = Vec::with_capacity(self.waiters.len());
         for (wait, answer) in self.waiters.drain(..) {
@@ -132,10 +113,6 @@ impl CodexTurnEndWaiters {
 
     /// Ends every wait on the session's turns, which were dropped unended: refused with
     /// `CodexError::SessionClosed` when the session closed, else answered as not ended.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's close, dispose and process exit end its waits"
-    )]
     pub(crate) fn abandon(&mut self, session_id: SessionId, exit: CodexRecordExit) {
         for (_, answer) in self.waiters.drain(..) {
             let _unheard = answer.send(match exit {
@@ -155,13 +132,6 @@ pub(crate) struct CodexTurnEndDeadline {
 
 impl CodexTurnEndDeadline {
     /// A deadline of `timeout`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex undo, retry and `Allow once` bound their waits with one deadline"
-        )
-    )]
     pub(crate) fn new(timeout: Duration) -> Self {
         Self {
             timeout,
@@ -170,26 +140,12 @@ impl CodexTurnEndDeadline {
     }
 
     /// A deadline of the request deadline, for a wait with no act of its own to share one.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex run start bounds its wait for a stopping turn with it"
-        )
-    )]
     pub(crate) fn for_request() -> Self {
         Self::new(CODEX_REQUEST_TIMEOUT)
     }
 
     /// Awaits `answered` until the deadline: `false` once it passed, or when the session's task
     /// dropped the wait. Fails as the wait does, with `CodexError::SessionClosed` on a close.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex undo, retry and `Allow once` await their waits through it"
-        )
-    )]
     pub(crate) async fn bound(
         &self,
         mut answered: oneshot::Receiver<CodexTurnWaitAnswer>,

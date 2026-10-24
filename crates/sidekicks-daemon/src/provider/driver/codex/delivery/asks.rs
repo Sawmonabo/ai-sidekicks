@@ -138,10 +138,6 @@ pub(crate) struct CodexAskHandOff {
 
 impl CodexAskHandOff {
     /// The hand-off over `dependencies`.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver builds the ask hand-off its sessions share"
-    )]
     pub(crate) fn new(dependencies: CodexAskHandOffDependencies) -> Self {
         Self {
             dependencies,
@@ -215,10 +211,6 @@ impl CodexAskHandOff {
     /// project rule the answer made. Fails as the answer or the steer fails, and with
     /// [`ProviderRuleNotKeptError`] once the call is answered but its project rule could not be
     /// written; a steer whose turn has ended is reported, since its decline already landed.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver's answer to a request answers through it"
-    )]
     pub(crate) async fn answer(
         &self,
         service: &CodexService,
@@ -284,10 +276,6 @@ impl CodexAskHandOff {
     /// Settles the card of an ask Codex resolved itself, or whose turn ended, before anyone
     /// answered it: an approval's on the approvals, a question's on the questions card. A failed
     /// withdrawal is reported under the session's `provider_account_id`.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver's frame effects withdraw an ask Codex let go of"
-    )]
     pub(crate) fn withdraw(
         &self,
         session_id: SessionId,
@@ -310,7 +298,6 @@ impl CodexAskHandOff {
 
     /// Forgets the approvals a closed session held, the corrections it waited on and its pending
     /// questions.
-    #[expect(dead_code, reason = "the Codex session's close forgets its asks")]
     pub(crate) fn forget_session(&self, session_id: SessionId) {
         let mut state = self.lock();
         state.held_approvals.remove(&session_id);
@@ -320,10 +307,6 @@ impl CodexAskHandOff {
 
     /// Drops the corrections an ended turn's asks could have carried out, which no later turn may,
     /// and the question it had pending, which Codex let go of with it.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver's frame effects forget an ended turn's corrections"
-    )]
     pub(crate) fn forget_turn_corrections(&self, session_id: SessionId, turn_id: &str) {
         let mut state = self.lock();
         remove_nested(&mut state.corrections, session_id, turn_id);

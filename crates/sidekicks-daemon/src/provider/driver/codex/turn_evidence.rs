@@ -227,13 +227,6 @@ fn classify_completed_turn(turn: &CompletedTurn) -> TurnEvidenceClassification {
 
 /// What a session turn's end is composed from: the frame, its run, the turn and its epoch, the
 /// router's decision for the frame, and what failed it where Codex's readings name that.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex event reader ends each session turn through it"
-    )
-)]
 pub(crate) struct CodexTurnTerminalInput<'frame> {
     /// The `turn/completed` params' JSON text.
     pub(crate) params: &'frame str,
@@ -265,13 +258,6 @@ pub(crate) struct CodexTurnTerminal {
 /// retries that failed it, and for a status Codex does not send, which is reported once through
 /// `diagnostics`. `None` when the gate suppressed it, the params cannot be read, or the status is
 /// `inProgress`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex event reader ends each session turn through it"
-    )
-)]
 pub(crate) fn compose_codex_turn_terminal(
     input: CodexTurnTerminalInput<'_>,
     gate: &mut TerminalEmissionGate,
@@ -323,13 +309,6 @@ pub(crate) fn compose_codex_turn_terminal(
 /// JSON text: `completed`, `interrupted`, or `failed` for any other status or unreadable params,
 /// a status Codex does not send reported once through `diagnostics`. A helper's turns carry no
 /// epoch of the session's runs, so no terminal gate admits it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex helper roles end each helper's child run through it"
-    )
-)]
 pub(crate) fn compose_codex_child_terminal(
     child_run_id: RunId,
     params: &str,

@@ -25,10 +25,6 @@ const CODEX_PICTURE_MEDIA_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/
 /// One of the person's messages with its staged files bound to their stored copies, in staging
 /// order, as a run's opening or a steer carries it. Fails with the resolver's own error when the
 /// stored copies could not be read at all.
-#[expect(
-    dead_code,
-    reason = "the Codex run start and steer read a message's words, skills and files through it"
-)]
 pub(crate) async fn resolve_codex_turn_message(
     resolver: &dyn AttachmentResolver,
     session_id: &SessionId,
@@ -46,13 +42,6 @@ pub(crate) async fn resolve_codex_turn_message(
 /// The input items of the person's messages, in send order: each message's words as a text item,
 /// then an item per picked skill in the order picked, then an item per staged file in staging
 /// order.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex run start, steer and faster-model retry send a turn's input with it"
-    )
-)]
 pub(crate) fn compose_codex_message_input(messages: &[CodexTurnMessage]) -> Vec<UserInput> {
     messages
         .iter()

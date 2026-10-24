@@ -229,7 +229,7 @@ async fn only_the_persons_restart_of_a_crash_loop_tells_the_session_it_brought_b
             .task
             .drive(recovery.recover(&service, CodexServiceRecoveryCause::Crash))
             .await;
-        assert!(notices(&session.database).is_empty());
+        assert_eq!(notices(&session.database), Vec::<String>::new());
 
         session
             .task

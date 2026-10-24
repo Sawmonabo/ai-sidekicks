@@ -104,24 +104,12 @@ pub(crate) struct DriverPorts {
     /// The daemon's tool servers, reached in process.
     pub(crate) in_process_tool_servers: Arc<PortRegistration<Arc<dyn InProcessToolServers>>>,
     /// The daemon's tool servers, reached at an address.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver's session start names each tool server at its address"
-    )]
     pub(crate) tool_server_route: Arc<PortRegistration<Arc<dyn ToolServerRoute>>>,
     /// The one callback-tool dispatcher, which each spawn's callback tools are bound through.
     pub(crate) callback_tool_host: Arc<PortRegistration<Arc<CallbackToolHost>>>,
     /// The pause and continue of runs.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver settles a continued run's kept messages through it"
-    )]
     pub(crate) run_pauses: Arc<PortRegistration<Arc<RunPauseControl>>>,
     /// The messages waiting for paused runs, as the run queue holds them.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver settles a continued run's kept messages against it"
-    )]
     pub(crate) continued_messages: Arc<PortRegistration<Arc<dyn ContinuedMessages>>>,
 }
 

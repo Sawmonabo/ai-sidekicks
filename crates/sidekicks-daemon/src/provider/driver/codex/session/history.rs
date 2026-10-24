@@ -31,10 +31,6 @@ const THREAD_ITEMS_LIST_METHOD: &str = "thread/items/list";
 pub(crate) struct CodexItemsCursor(pub(crate) String);
 
 /// One turn of a conversation as `thread/turns/list` lists it.
-#[expect(
-    dead_code,
-    reason = "the Codex session's rewind and recovery read each listed turn"
-)]
 #[derive(Debug)]
 pub(crate) struct CodexListedTurn {
     /// The turn's id.
@@ -74,13 +70,6 @@ struct ListedUserMessage {
 /// Every turn of `thread_id`, oldest first; a conversation no message has reached yet answers
 /// none. Fails as the connection's request does, and with `CodexError::Transport` for a reply
 /// that is not a page.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's recovery and rewind read a conversation's turns"
-    )
-)]
 pub(crate) async fn read_codex_turns(
     connection: &CodexAppServerConnection,
     thread_id: &str,
@@ -127,10 +116,6 @@ pub(crate) async fn read_codex_turns(
 /// The turn each of the person's messages started on `thread_id`, by the message's id, read from
 /// the conversation's items page by page; a message sent with no id is left out. Fails as the
 /// connection's request does, and with `CodexError::Transport` for a reply that is not a page.
-#[expect(
-    dead_code,
-    reason = "the Codex driver finds the messages a turn took from the conversation's items"
-)]
 pub(crate) async fn read_codex_turn_id_by_client_message_id(
     connection: &CodexAppServerConnection,
     thread_id: &str,

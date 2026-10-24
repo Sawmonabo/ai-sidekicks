@@ -3,6 +3,7 @@
 //! it does not know, asked on a connection of the probe's own that starts no conversation.
 
 use std::error::Error;
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use serde_json::{Map, Value, json};
@@ -17,7 +18,7 @@ use crate::provider::capability::probe::{
 };
 use crate::provider::driver::capabilities::DriverCapabilityFlag;
 use crate::provider::driver::codex::capabilities::read_codex_capabilities;
-use crate::provider::driver::codex::service::supervisor::CodexService;
+use crate::provider::driver::codex::service::supervisor::{CodexService, DetachedConnectionEvents};
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult};
@@ -83,14 +84,12 @@ assert_admissible_detection!(detection_of, CAPABILITY_PROBE_RULES.prohibited_nam
 /// Starts `service` if it has not started and reads its build's capabilities, probed on a
 /// connection of the probe's own, which is closed as it is let go. Fails with the start's or the
 /// dial's error, when the service reported no build, and as the capability read does.
-#[expect(
-    dead_code,
-    reason = "the Codex driver's capability read answers through it on attach and each refresh"
-)]
 pub(crate) async fn probe_codex_service_capabilities(
     service: &CodexService,
 ) -> Result<GetCapabilitiesResult, DriverError> {
-    let connection = service.open_detached_connection().await?;
+    let connection = service
+        .open_detached_connection(Arc::new(DetachedConnectionEvents))
+        .await?;
     let version = service
         .version_reading()
         .ok_or_else(|| CodexError::Transport {

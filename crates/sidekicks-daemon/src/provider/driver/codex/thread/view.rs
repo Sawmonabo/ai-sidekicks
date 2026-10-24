@@ -84,13 +84,6 @@ struct SteerReply {
 
 /// Reads the thread from the `method` reply `reply`. Fails with `CodexError::Transport` naming
 /// `method` when the reply carries no readable thread or one with no id or no session id.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session reads the thread its start, resume, fork and read replies name"
-    )
-)]
 pub(crate) fn read_thread(reply: &RawValue, method: &str) -> Result<CodexThreadView, CodexError> {
     let thread = read_codex_object::<ThreadReply>(reply.get())
         .and_then(|reply| reply.thread)
@@ -118,13 +111,6 @@ pub(crate) fn read_thread(reply: &RawValue, method: &str) -> Result<CodexThreadV
 }
 
 /// The reasoning effort a start, resume or fork reply names, or `None` for none or an empty one.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session records the effort its start, resume and fork replies name"
-    )
-)]
 pub(crate) fn read_thread_reasoning_effort(reply: &RawValue) -> Option<String> {
     read_codex_object::<ReasoningEffortReply>(reply.get())
         .and_then(|reply| reply.reasoning_effort)
@@ -157,13 +143,6 @@ pub(crate) fn assert_active_permission_profile(
 
 /// Checks that a start, resume or fork reply runs the conversation under the profile `settings`'
 /// level selects. Fails as [`assert_active_permission_profile`] does.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session checks the profile each start, resume and fork runs under"
-    )
-)]
 pub(crate) fn assert_codex_thread_profile(
     reply: &RawValue,
     settings: &CodexThreadSettings,
@@ -179,10 +158,6 @@ pub(crate) fn assert_codex_thread_profile(
 /// The turn a `turn/steer` acknowledgement names, or `None`. Never fails, unlike
 /// [`read_turn_id`]: an ack that names no turn is an acknowledgement without evidence, not a
 /// transport fault.
-#[expect(
-    dead_code,
-    reason = "the Codex run's steer reads the turn its acknowledgement names"
-)]
 pub(crate) fn read_steered_turn_id(reply: &RawValue) -> Option<String> {
     read_codex_object::<SteerReply>(reply.get())
         .and_then(|reply| reply.turn_id)
@@ -191,13 +166,6 @@ pub(crate) fn read_steered_turn_id(reply: &RawValue) -> Option<String> {
 
 /// Reads the id of the turn the `method` reply `reply` names. Fails with `CodexError::Transport`
 /// naming `method` when it carries none.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex run's start reads the turn its reply names"
-    )
-)]
 pub(crate) fn read_turn_id(reply: &RawValue, method: &str) -> Result<String, CodexError> {
     read_codex_object::<TurnReply>(reply.get())
         .and_then(|reply| reply.turn)

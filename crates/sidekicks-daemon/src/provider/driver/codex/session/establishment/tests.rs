@@ -5,6 +5,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::record::Record;
 
 use crate::policy::execution_posture_service::compose_execution_posture;
 use crate::provider::driver::codex::session::errors::CodexError;
@@ -31,7 +32,7 @@ async fn a_start_whose_profile_reads_back_wrong_lets_its_conversation_go_and_ins
         )),
         output_speed: None,
         options: Vec::new(),
-        row_values: Default::default(),
+        row_values: Record::default(),
         callback_tools: None,
         subagent_policy: None,
         tool_servers: None,
@@ -60,5 +61,8 @@ async fn a_start_whose_profile_reads_back_wrong_lets_its_conversation_go_and_ins
         created.await.expect("the create's task ends"),
         Err(CodexError::Transport { .. })
     ));
-    assert!(session.scripted.service.threads_of(&session_id).is_empty());
+    assert_eq!(
+        session.scripted.service.threads_of(&session_id),
+        Vec::<String>::new()
+    );
 }

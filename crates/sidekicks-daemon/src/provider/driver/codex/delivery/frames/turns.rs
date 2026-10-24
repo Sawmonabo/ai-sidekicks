@@ -32,11 +32,12 @@ use crate::provider::driver::codex::transport::diagnostics::{
     CodexDeliveryPort, CodexTransportDiagnostic,
 };
 use crate::provider::driver::codex::turn_evidence::{
-    CodexTurnTerminalInput, compose_codex_turn_terminal,
+    CodexTurnStatus, CodexTurnTerminalInput, compose_codex_turn_terminal,
 };
 use crate::provider::record_readers::read_non_empty_string;
 use crate::provider::terminal_emission_gate::TerminalEmissionGate;
 use crate::provider::thread_frame_router::ThreadFrameRoute;
+use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
 use crate::session::run::epochs::DeliveryOperation;
 use crate::session::run::inbound::rows::LateAppendableRow;
 use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
@@ -57,10 +58,6 @@ pub(super) struct TurnCompletedFrame<'frame> {
 impl CodexFrameDelivery {
     /// Ends the live safety hold Codex kept on each of the session's turns, which a process exit
     /// leaves with no release, so the run's stream stops showing it.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's recovery lifts the holds a process exit left"
-    )]
     pub(crate) async fn end_safety_holds(&self, record: &mut CodexSessionRecord) {
         let holds: Vec<(String, CodexRowRun)> =
             record.delivery.safety_hold_run_by_turn_id.drain().collect();
@@ -106,6 +103,7 @@ impl CodexFrameDelivery {
         dispatch.turns_started.push(CodexTurnMove {
             turn_id,
             run_id: turn_run.run_id,
+            turn_end: None,
         });
     }
 
@@ -226,9 +224,17 @@ impl CodexFrameDelivery {
                 } else if turn_run.ending == CodexTurnEnding::Interrupted {
                     self.dependencies.run_routes.forget_run(turn_run.run_id);
                 }
+                // Read before the turn's memory is forgotten below.
+                let turn_end = match turn_run.ending {
+                    CodexTurnEnding::Paused | CodexTurnEnding::Retried => {
+                        read_turn_end(record, &turn_id, members)
+                    }
+                    CodexTurnEnding::Live | CodexTurnEnding::Interrupted => None,
+                };
                 dispatch.turns_ended.push(CodexTurnMove {
                     turn_id: turn_id.clone(),
                     run_id: turn_run.run_id,
+                    turn_end,
                 });
             }
         }
@@ -549,6 +555,30 @@ fn read_completed_turn_id(members: &Map<String, Value>) -> Option<String> {
 /// The `turn.status` a turn frame names.
 fn read_turn_status(members: &Map<String, Value>) -> Option<&str> {
     members.get("turn")?.get("status")?.as_str()
+}
+
+// The end a turn that moves no run reported, numbered as its start was; `None` for a turn never
+// numbered or a status that ends nothing.
+fn read_turn_end(
+    record: &CodexSessionRecord,
+    turn_id: &str,
+    members: &Map<String, Value>,
+) -> Option<ProviderTurnEnd> {
+    let turn_number = record
+        .delivery
+        .started_turn_by_turn_id
+        .get(turn_id)?
+        .turn_number;
+    let outcome = match CodexTurnStatus::read(read_turn_status(members)?)? {
+        CodexTurnStatus::Completed => TurnOutcome::Completed,
+        CodexTurnStatus::Interrupted => TurnOutcome::Interrupted(None),
+        CodexTurnStatus::Failed => TurnOutcome::Failed(None),
+        CodexTurnStatus::InProgress => return None,
+    };
+    Some(ProviderTurnEnd {
+        turn_number,
+        outcome,
+    })
 }
 
 #[cfg(test)]

@@ -383,13 +383,6 @@ fn read_catalog_text(source: &Map<String, Value>, key: &str) -> Option<CatalogTe
 /// first with no cursor and then with each cursor a page answers, until a page answers none.
 /// Fails with the first page request's failure, or as [`CodexModelCatalogReader::read_page`]
 /// fails, at most 20 pages in; never answers a short catalog.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex driver's model list answers through it over the service connection"
-    )
-)]
 pub(crate) async fn read_codex_model_catalog<Page, PageReply>(
     mut request_page: Page,
     diagnostics: &mut OnceReportedDiagnostics,

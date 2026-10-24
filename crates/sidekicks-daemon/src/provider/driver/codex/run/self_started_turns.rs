@@ -65,13 +65,6 @@ struct StartedTurn {
 /// on the session's task before the frame `method` with `params` is delivered: the run takes the
 /// turn, so the frame and those behind it reach it. A turn whose run does not open is kept as one
 /// no run holds and interrupted; each failure is reported. Any other frame passes untouched.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's frame intake opens the run of a turn Codex started"
-    )
-)]
 pub(crate) async fn open_codex_self_started_turn(
     task: &mut CodexSessionTask<'_>,
     runs: &CodexRunCallDependencies,

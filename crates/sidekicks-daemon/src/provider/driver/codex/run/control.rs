@@ -100,10 +100,6 @@ pub(crate) struct CodexRunControl {
 
 impl CodexRunControl {
     /// Run control acting through `dependencies`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Codex driver builds its run control")
-    )]
     pub(crate) fn new(dependencies: CodexRunControlDependencies) -> Self {
         Self { dependencies }
     }
@@ -203,13 +199,6 @@ impl CodexRunControl {
     /// for it interrupts the turn, its answer settled off the task; when Codex refuses, a continue
     /// that waited for the pause steers its messages into the turn that runs on. Never fails;
     /// what fails is reported.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's frame intake hands it each finished step"
-        )
-    )]
     pub(crate) fn observe_step_end(
         self: &Arc<Self>,
         record: &mut CodexSessionRecord,
@@ -268,13 +257,6 @@ impl CodexRunControl {
     /// that never came is dropped, and a pause's interrupted turn reports its run paused, or
     /// starts the continue asked for meanwhile off the task. A continue that cannot start fails
     /// its run, which no turn would end.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's frame intake hands it each turn's end"
-        )
-    )]
     pub(crate) async fn observe_turn_ended(
         self: &Arc<Self>,
         record: &mut CodexSessionRecord,

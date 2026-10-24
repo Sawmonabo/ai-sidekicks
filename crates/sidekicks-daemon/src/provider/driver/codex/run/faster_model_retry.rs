@@ -101,10 +101,6 @@ struct CodexRetryInFlight {
 
 impl CodexFasterModelRetries {
     /// Retries acting through `dependencies`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Codex driver builds its faster-model retries")
-    )]
     pub(crate) fn new(dependencies: CodexFasterModelRetryDependencies) -> Self {
         Self {
             dependencies,
@@ -117,10 +113,6 @@ impl CodexFasterModelRetries {
     /// reply has started, and when an interrupt of the run stopped the retry. An interrupt that
     /// fails while the turn runs on leaves the turn the run's and fails; any later failure ends
     /// the run failed. Both fail with `Failed to retry with a faster model: <reason>`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Codex driver's faster-model retry")
-    )]
     pub(crate) async fn retry(
         &self,
         params: FasterModelRetryParams,
@@ -169,13 +161,6 @@ impl CodexFasterModelRetries {
     /// answers. Answers `None` with no retry in flight, and once a turn the retry kept or already
     /// sent runs as the run's, which the interrupt then stops as any live turn. Fails as the
     /// session's reading fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex run's interrupt stops a retry in flight"
-        )
-    )]
     pub(crate) async fn cancel(
         &self,
         run_id: RunId,

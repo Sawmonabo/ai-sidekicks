@@ -15,7 +15,6 @@ use crate::provider::compaction_wait::PendingCompactionRegistry;
 use crate::provider::driver::codex::app_server_protocol::ThreadUnsubscribeParams;
 use crate::provider::driver::codex::commands::CodexProviderCommandCache;
 use crate::provider::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
-use crate::provider::driver::codex::hooks::pause::CodexRunPauses;
 use crate::provider::driver::codex::run::routes::CodexRunRoutes;
 use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::session::background_terminals::end_codex_running_commands;
@@ -62,8 +61,6 @@ pub(crate) struct CodexSessionClaim<'slots> {
 pub(crate) struct CodexSessionLetGo<'deps> {
     /// The driver's run routes.
     pub(crate) run_routes: &'deps CodexRunRoutes,
-    /// The hook pauses.
-    pub(crate) pauses: &'deps CodexRunPauses,
     /// The conversations the session moved off, held while their commands run.
     pub(crate) release: &'deps CodexConversationRelease,
     /// The compaction waits, whose wait on the conversation ends as its binding lost.
@@ -89,15 +86,17 @@ impl CodexSessionSlots {
         }
     }
 
+    /// Every session that holds a live record now.
+    pub(crate) fn live_sessions(&self) -> Vec<SessionId> {
+        self.lock()
+            .iter()
+            .filter(|(_, slot)| slot.live.is_some())
+            .map(|(session_id, _)| *session_id)
+            .collect()
+    }
+
     /// Fails with `CodexError::SessionAlreadyLive`, naming the state the slot is held in, when a
     /// live record or a transition holds `session_id`'s slot; a create checks it before it claims.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's create checks its slot is free"
-        )
-    )]
     pub(crate) fn check_free(&self, session_id: SessionId) -> Result<(), CodexError> {
         match self.describe_holder(session_id) {
             Some(holder_state) => Err(CodexError::SessionAlreadyLive {
@@ -110,13 +109,6 @@ impl CodexSessionSlots {
 
     /// The queue of `session_id`'s live record, while no transition is in flight on it. Fails
     /// with `CodexError::Transport` while it is being established again or torn down, or has none.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex driver's calls reach a session's record through its queue"
-        )
-    )]
     pub(crate) fn require_live(
         &self,
         session_id: SessionId,
@@ -148,13 +140,6 @@ impl CodexSessionSlots {
     /// Claims `session_id`'s slot for an establishment, a create, a resume or a fork, once every
     /// transition claimed before it ended. Fails with `CodexError::SessionClosed` when a close of
     /// the session ended while it waited.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's create, resume, fork, rewind and recovery claim the slot"
-        )
-    )]
     pub(crate) async fn claim_establishing(
         &self,
         session_id: SessionId,
@@ -172,10 +157,6 @@ impl CodexSessionSlots {
     }
 
     /// Claims `session_id`'s slot for its close, once every transition claimed before it ended.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Codex session's close claims the slot")
-    )]
     pub(crate) async fn claim_closing(&self, session_id: SessionId) -> CodexSessionClaim<'_> {
         let (claim_id, _) = self.publish(session_id, CodexSessionSlotState::Closing);
         self.take_turn(session_id, claim_id).await
@@ -252,13 +233,6 @@ impl Drop for PendingClaim<'_> {
 
 impl CodexSessionClaim<'_> {
     /// Installs `live` as the session's record queue, replacing the one before.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's establishment installs the record it built"
-        )
-    )]
     pub(crate) fn install(&self, live: CodexSessionInboundSender) {
         self.slots.lock().entry(self.session_id).or_default().live = Some(live);
     }
@@ -274,18 +248,19 @@ impl CodexSessionClaim<'_> {
 
     /// Records the session closed: its record leaves the slot, and an establishment that waited
     /// behind this close is refused.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's close ends the session with it"
-        )
-    )]
     pub(crate) fn close(&self) {
         let mut slots = self.slots.lock();
         let slot = slots.entry(self.session_id).or_default();
         slot.live = None;
         slot.closes += 1;
+    }
+
+    /// Takes the session's record queue out of the slot once its record was let go with the
+    /// session going on, so no call reaches a task that holds no record.
+    pub(crate) fn vacate(&self) {
+        if let Some(slot) = self.slots.lock().get_mut(&self.session_id) {
+            slot.live = None;
+        }
     }
 }
 
@@ -295,21 +270,16 @@ impl Drop for CodexSessionClaim<'_> {
     }
 }
 
-/// Lets go of `record`'s conversation on its session's task: its routes, pauses and waits first,
+/// Lets go of `record`'s conversation on its session's task: its routes and waits first,
 /// so nothing reaches it after; then, on a running service, its commands end and it is forgotten
 /// and unsubscribed, a failed unsubscribe reported; then its threads, compaction wait and command
 /// list are released.
-#[expect(
-    dead_code,
-    reason = "the Codex session's close and dispose let go of the record on its task"
-)]
 pub(crate) async fn let_go_codex_session(
     record: &CodexSessionRecord,
     deps: &CodexSessionLetGo<'_>,
 ) {
     let session_id = record.session_id;
     deps.run_routes.forget_run_routes(session_id);
-    deps.pauses.forget_session(&session_id);
     if let Ok(connection) = record.service.connection() {
         end_codex_running_commands(&connection, &record.thread_id, true).await;
     }

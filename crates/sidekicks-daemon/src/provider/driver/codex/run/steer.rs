@@ -56,13 +56,6 @@ pub(crate) struct CodexSteerSend {
 /// steer, which the next one waits for. `expected_turn_id`, where the caller pins one, is the turn
 /// the steer names to Codex. Fails with `SteerTurnEnded` when the run has no live turn or an
 /// interrupt is stopping it, and as the service's connection fails.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's task registers each steer call through it"
-    )
-)]
 pub(crate) fn register_codex_steer(
     record: &mut CodexSessionRecord,
     run_id: RunId,
@@ -206,13 +199,6 @@ pub(crate) fn withdraw_codex_steer(
 /// Takes the steer `client_message_id` Codex echoed on the turn `turn_id` out of the steers the
 /// turn has yet to echo, on the session's task, answering the message's id the first time only,
 /// so its message is taken once; an echo of anything else answers `None`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's frame intake takes each steer echoed on its turn"
-    )
-)]
 pub(crate) fn take_echoed_codex_steer(
     record: &mut CodexSessionRecord,
     turn_id: &str,

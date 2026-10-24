@@ -34,13 +34,6 @@ pub(crate) struct CodexThreadPermissionProfiles {
 impl CodexThreadPermissionProfiles {
     /// The profiles of a thread just established: its reply ran the level's profile, checked as
     /// it came.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's start, resume and fork keep the profile each confirmed"
-        )
-    )]
     pub(crate) fn established(settings: &CodexThreadSettings) -> Self {
         Self {
             confirmed: compose_codex_profile_name(settings.level, &settings.profile_folders),
@@ -93,13 +86,6 @@ struct ThreadSettingsMembers {
 /// daemon never asked for it reports the drift and asks Codex for the session's own posture
 /// again, which holds from the next turn. A failed ask is reported, the drift standing until the
 /// next turn names its posture.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's frame routing checks each thread settings report"
-    )
-)]
 pub(crate) fn correct_codex_permission_profile_drift(
     profiles: &mut CodexThreadPermissionProfiles,
     service: &Arc<CodexService>,

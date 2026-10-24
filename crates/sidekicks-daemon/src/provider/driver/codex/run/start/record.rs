@@ -211,7 +211,6 @@ impl CodexBindingAdoptions {
     }
 
     /// Forgets a closed session's adoptions.
-    #[expect(dead_code, reason = "the Codex session's close forgets its adoptions")]
     pub(crate) fn forget_session(&self, session_id: SessionId) {
         self.lock().remove(&session_id);
     }

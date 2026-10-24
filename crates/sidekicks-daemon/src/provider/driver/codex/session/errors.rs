@@ -55,13 +55,6 @@ const SESSION_TURN_IN_FLIGHT_REASON: &str = "sessionTurnInFlight";
 
 /// Which state holds a session's slot when a create is refused; a create is refused in all three,
 /// since a second start would orphan a process.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session slots refuse a second create in the state they hold"
-    )
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexSessionSlotState {
     /// A live session holds the slot.
@@ -94,10 +87,6 @@ impl CodexSessionSlotState {
 
 /// A failure of the Codex driver, keeping its cause; `DriverError::from` turns each into the
 /// refusal a client reads or an internal failure.
-#[expect(
-    dead_code,
-    reason = "the Codex transport, connection and session raise these as they fail"
-)]
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CodexError {
     /// The service's socket or process failed, or the service refused the session.
@@ -249,20 +238,12 @@ impl std::fmt::Display for CodexUnansweredCause {
 
 impl CodexError {
     /// Whether this is Codex's refusal to resume a conversation another runtime still writes.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's resume tells a conversation another runtime holds apart"
-    )]
     pub(crate) fn is_active_writer_refusal(&self) -> bool {
         self.is_invalid_request_saying(CODEX_ACTIVE_WRITER_MESSAGE)
     }
 
     /// Whether this is Codex's refusal of a catalog read that asks for the service to restart
     /// before it answers.
-    #[expect(
-        dead_code,
-        reason = "the Codex model list restarts the service when its catalog read asks for it"
-    )]
     pub(crate) fn asks_for_restart(&self) -> bool {
         self.is_invalid_request_saying(CODEX_RESTART_REQUESTED_MESSAGE)
     }
@@ -290,13 +271,6 @@ impl CodexError {
 /// Turns a refused `thread/fork` that names the rewind boundary member into
 /// `RewindBoundaryUnsupported`, the service's words bounded as a failure detail; any other error
 /// is returned unchanged.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex rewind classifies a refused fork before it reports the failure"
-    )
-)]
 pub(crate) fn classify_rewind_fork_failure(error: CodexError) -> CodexError {
     if let CodexError::ProviderRequest {
         method, message, ..

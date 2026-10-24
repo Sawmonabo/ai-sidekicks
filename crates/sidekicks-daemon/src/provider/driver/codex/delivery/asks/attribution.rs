@@ -54,10 +54,6 @@ impl CodexAskIntake {
     /// ask that cannot be attributed is refused, an approval or a question is held once its card
     /// is dispatched, and a callback tool's call is answered by the host off the task, since the
     /// tool may run long. The task never waits for the person.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's task hands each ask item to it"
-    )]
     pub(crate) async fn take(
         &self,
         record: &CodexSessionRecord,

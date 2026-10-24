@@ -76,13 +76,6 @@ impl CodexNativeProgram {
     /// Sets the launcher's variables over `environment` as the launcher does, every
     /// `CODEX_MANAGED_BY_*` taken off first so one package manager is named; leaves it alone for a
     /// start that runs the native program already.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start sets the launcher's variables on the lasting Codex service"
-        )
-    )]
     pub(crate) fn set_launcher_environment(&self, environment: &mut Vec<(String, String)>) {
         if self.launcher_environment.is_empty() {
             return;
@@ -109,13 +102,6 @@ impl CodexNativeProgram {
 /// already. Reads the file system, so it runs on the daemon's spawner thread or in
 /// `spawn_blocking`. Fails with the resolve's error, `NotFound` when the native program is
 /// missing, and `InvalidData` for a launcher package folder that is not text.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start resolves the program the lasting Codex service runs"
-    )
-)]
 pub(crate) fn resolve_codex_native_program(
     start: &ProgramStart,
     environment: &[(String, String)],

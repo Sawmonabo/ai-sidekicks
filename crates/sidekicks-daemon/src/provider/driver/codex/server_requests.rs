@@ -68,13 +68,6 @@ pub(crate) enum CodexRoutedMethod {
 }
 
 /// Why a routed ask was never decided, so it answers its method's refusal.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex connection names why an ask went undecided"
-    )
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexUnadjudicatedAsk<'detail> {
     /// The daemon bound no responder.
@@ -160,13 +153,6 @@ impl CodexRoutedMethod {
 
     /// The answer to an ask no responder decided: this method's own refusal, never `-32601`,
     /// which would be a protocol fault where a decision was asked, and never an allow.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex connection answers an ask its responder did not decide"
-        )
-    )]
     pub(crate) fn compose_unadjudicated_result(
         self,
         unadjudicated: CodexUnadjudicatedAsk<'_>,
@@ -187,13 +173,6 @@ impl CodexRoutedMethod {
     /// service sent. `None` when the answer does not fit the ask: an allow for a question, or
     /// answers for anything but a question, since answers sent for an approval would approve it;
     /// the caller refuses the ask instead.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex connection answers a decided or held ask with it"
-        )
-    )]
     pub(crate) fn compose_answer_result(
         self,
         params: &RawValue,
@@ -301,13 +280,6 @@ fn read_params_value(params: &RawValue) -> Option<Value> {
 
 /// The JSON-RPC error object answering a server request outside the routed table: `-32601`, which
 /// no service reads as consent and which, unlike silence, never hangs the turn.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex connection answers an unrouted server request with it"
-    )
-)]
 pub(crate) fn compose_unrouted_request_error() -> Value {
     json!({
         "code": JsonRpcErrorCode::MethodNotFound.code(),
@@ -322,13 +294,6 @@ pub(crate) fn is_codex_server_request_method(method: &str) -> bool {
 }
 
 /// The daemon's answer to one routed ask.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's responder and the held-ask answer compose it for the connection"
-    )
-)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CodexServerRequestAnswer {
     /// Allowed, kept for the rest of the conversation where `is_for_session`.
@@ -354,13 +319,6 @@ pub(crate) enum CodexServerRequestAnswer {
 
 /// What a responder did with one ask: answered it now, or held it for the person, who answers it
 /// later by its request id; a held ask stays pending at the service until then.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's responder answers or holds each routed ask with it"
-    )
-)]
 pub(crate) enum CodexServerRequestDecision {
     /// Answered now.
     Answer(CodexServerRequestAnswer),
@@ -373,10 +331,6 @@ pub(crate) enum CodexServerRequestDecision {
 }
 
 /// One routed ask as the daemon's responder sees it.
-#[expect(
-    dead_code,
-    reason = "the Codex connection hands each routed ask to its responder"
-)]
 #[derive(Debug)]
 pub(crate) struct CodexInboundServerRequest {
     /// The service's own request id, as its JSON, unique on one connection; a held ask is
@@ -421,10 +375,6 @@ pub(crate) struct CodexSessionServerRequest {
 }
 
 /// The session-scoped responder the daemon binds on a Codex session.
-#[expect(
-    dead_code,
-    reason = "the daemon binds the Codex session's responder at its start"
-)]
 pub(crate) trait CodexSessionServerRequestResponder: Send + Sync {
     /// Answers or holds one ask; a failure leaves the ask undecided, so it is refused.
     fn answer(
@@ -458,13 +408,6 @@ struct RoutedAskParams {
 /// Reads the turn a routed ask's untrusted `params` name, bounded here since the text reaches a
 /// refusal reason and a diagnostic. Params that are no object, or a `turnId` that is no text or
 /// is empty, name no turn: the older approvals carry none and an elicitation's may be `null`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex ask attribution reads the turn an ask names"
-    )
-)]
 pub(crate) fn read_routed_ask_turn_id(params: &RawValue) -> CodexRoutedAskTurnId {
     let Some(turn_id) =
         serde_json::from_str::<RoutedAskParams>(&decode_inbound_json(params.get().as_bytes()))
@@ -485,10 +428,6 @@ pub(crate) fn read_routed_ask_turn_id(params: &RawValue) -> CodexRoutedAskTurnId
 
 /// The refusal reason for one routed ask that cannot be attributed to a run, composed from the
 /// bounded reading so a provider turn id cannot size it.
-#[expect(
-    dead_code,
-    reason = "the Codex ask attribution refuses an unattributable ask with it"
-)]
 pub(crate) fn compose_routed_ask_refusal_reason(
     method: CodexRoutedMethod,
     turn_id: &CodexRoutedAskTurnId,
@@ -514,10 +453,6 @@ pub(crate) fn compose_routed_ask_refusal_reason(
 }
 
 /// The run an ask belongs to and the binding its permission ask is delivered on.
-#[expect(
-    dead_code,
-    reason = "the Codex ask attribution names the run an ask belongs to"
-)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexAskOwner {
     /// The run.
@@ -529,7 +464,6 @@ pub(crate) struct CodexAskOwner {
 /// How one routed ask was attributed to a run: by its helper's child run or its named turn, by
 /// the session's sole active run when it named no usable turn, or refused when its named turn
 /// cannot be resolved.
-#[expect(dead_code, reason = "the Codex ask attribution answers with it")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CodexRoutedAskAttribution {
     /// The ask's own child run or turn named its run.

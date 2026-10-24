@@ -1,21 +1,28 @@
-//! The session controls Codex carries on the conversation itself: Build or Plan as its
-//! collaboration mode, sent with the session's model and effort; its own review of a set of
-//! changes; and `Allow once` on a block its reviewer made at Reviewed. A review starts a turn, so
-//! it is started as the session's own run. An `Allow once` starts none: Codex adds the approval to
-//! the turn running on the conversation or, with none running, to the conversation's history.
+//! The session controls Codex carries on the conversation itself: its permission level, moved
+//! from its next turn; Build or Plan as its collaboration mode, sent with the session's model and
+//! the effort Codex last reported; its own review of a set of changes; and `Allow once` on a
+//! block its reviewer made at Reviewed. A review starts a turn, so it is started as the session's
+//! own run. An `Allow once` starts none: Codex adds the approval to the turn running on the
+//! conversation or, with none running, to the conversation's history.
 
 use std::sync::Arc;
 
 use futures::FutureExt as _;
+use serde::Deserialize;
 use serde_json::Value;
+use serde_json::value::RawValue;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::controls::methods::{SessionMode, SessionReviewTarget};
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::policy::execution_posture_service::compose_execution_posture;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::app_server_protocol::{
     ReviewStartParams, ReviewTarget, ThreadApproveGuardianDeniedActionParams, ThreadResumeParams,
 };
+use crate::provider::driver::codex::event_normalizer::CODEX_THREAD_SETTINGS_UPDATED_METHOD;
+use crate::provider::driver::codex::permission_level::compose_codex_level_settings;
 use crate::provider::driver::codex::run::start::CodexRunStart;
 use crate::provider::driver::codex::run::start::daemon_turns::{
     CodexDaemonTurnError, CodexDaemonTurnOpening,
@@ -23,16 +30,20 @@ use crate::provider::driver::codex::run::start::daemon_turns::{
 use crate::provider::driver::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
 use crate::provider::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::provider::driver::codex::session::inbound::CodexSessionCall;
 use crate::provider::driver::codex::session::slots::CodexSessionSlots;
+use crate::provider::driver::codex::session::state::CodexSessionRecord;
 use crate::provider::driver::codex::thread::settings::{
-    CodexThreadSettingsUpdateParams, compose_codex_collaboration_mode,
+    CodexThreadSettingsUpdateParams, compose_codex_collaboration_mode, compose_codex_level_config,
 };
 use crate::provider::driver::codex::thread::view::read_turn_id;
-use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
+use crate::provider::driver::codex::transport::connection::{
+    CodexAppServerConnection, read_codex_object,
+};
 use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::provider::driver::run_control::OverrideDenialParams;
-use crate::provider::driver::session_control::StartReviewParams;
+use crate::provider::driver::session_control::{StartReviewParams, UpdatePermissionLevelParams};
 use crate::session::run::inbound::{InboundDelivery, RunInboundDispatch};
 
 const THREAD_SETTINGS_UPDATE_METHOD: &str = "thread/settings/update";
@@ -70,6 +81,98 @@ pub(crate) async fn update_codex_session_mode(
     Ok(())
 }
 
+/// Moves `record`'s conversation to `params.level` from its next turn through
+/// `thread/settings/update`, its profile noted as asked for first; the record then runs at the
+/// level, and owes a fork onto the level's config where that changed, since only a fork carries it.
+/// Fails as the request fails, the level left as it was.
+pub(crate) async fn move_codex_permission_level(
+    record: &mut CodexSessionRecord,
+    config_forks: &Arc<CodexConfigForks>,
+    params: &UpdatePermissionLevelParams,
+) -> Result<(), CodexError> {
+    let folders = &record.thread_settings.profile_folders;
+    let posture = compose_codex_level_settings(params.level, folders);
+    // The daemon composes the posture it moves to in the session's repository, whose git folder
+    // is the one root Sandboxed names.
+    let git_folder = params
+        .writable_roots
+        .first()
+        .or(folders.git_common_folder.as_ref())
+        .unwrap_or(&folders.working_directory);
+    let git_folder =
+        FilesystemPath::new(git_folder.to_string_lossy().into_owned()).map_err(|refusal| {
+            CodexError::DriverConfig {
+                field: "working folder".to_owned(),
+                detail: format!(
+                    "{} is no folder a posture names: {refusal}",
+                    git_folder.display()
+                ),
+                cause: None,
+            }
+        })?;
+    let config_before = compose_codex_level_config(record.thread_settings.level, folders);
+    let config_after = compose_codex_level_config(params.level, folders);
+    record.permission_profiles.note_asked(&posture.permissions);
+    record
+        .service
+        .connection()?
+        .request(
+            THREAD_SETTINGS_UPDATE_METHOD,
+            &CodexThreadSettingsUpdateParams {
+                thread_id: record.thread_id.clone(),
+                collaboration_mode: None,
+                permissions: Some(posture.permissions),
+                approval_policy: Some(posture.approval_policy.into()),
+                approvals_reviewer: Some(posture.approvals_reviewer.into()),
+                service_tier: None,
+            },
+        )
+        .await?;
+    // A resume after a crash sends the level the record holds, and a turn the daemon starts runs
+    // at its posture.
+    record.thread_settings.level = params.level;
+    record.execution_posture = compose_execution_posture(params.level, git_folder);
+    if config_before != config_after {
+        config_forks.owe(record);
+    }
+    Ok(())
+}
+
+/// Keeps the reasoning effort a `thread/settings/updated` of the session's own conversation names,
+/// none when it names none, so a mode move sends it back; any other frame changes nothing.
+pub(crate) fn observe_codex_reasoning_effort(
+    record: &mut CodexSessionRecord,
+    method: &str,
+    params: &RawValue,
+) {
+    if method != CODEX_THREAD_SETTINGS_UPDATED_METHOD {
+        return;
+    }
+    let Some(updated) = read_codex_object::<SettingsUpdatedFrame>(params.get()) else {
+        return;
+    };
+    if updated.thread_id.as_deref() != Some(record.thread_id.as_str()) {
+        return;
+    }
+    let Some(settings) = updated.thread_settings else {
+        return;
+    };
+    record.reasoning_effort = settings.effort.filter(|effort| !effort.is_empty());
+}
+
+// The members of a `thread/settings/updated` the effort's read reads.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsUpdatedFrame {
+    thread_id: Option<String>,
+    thread_settings: Option<EffortSettings>,
+}
+
+#[derive(Deserialize)]
+struct EffortSettings {
+    effort: Option<String>,
+}
+
 /// Starts Codex's own reviews and sends `Allow once` on its reviewer's blocks.
 pub(crate) struct CodexSessionControls {
     slots: Arc<CodexSessionSlots>,
@@ -80,10 +183,6 @@ pub(crate) struct CodexSessionControls {
 impl CodexSessionControls {
     /// Controls reaching each session through `slots`, starting turns through `run_start` and
     /// recording a review's start through `dispatch`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Codex driver builds its session controls")
-    )]
     pub(crate) fn new(
         slots: Arc<CodexSessionSlots>,
         run_start: Arc<CodexRunStart>,
@@ -138,13 +237,6 @@ impl CodexSessionControls {
     /// not loaded is resumed first. On the session's own conversation a turn the daemon is stopping
     /// is waited out first, within the request deadline, past which this fails with
     /// `CodexError::SessionTurnInFlight`, nothing sent. Fails as the requests fail.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex driver's `Allow once` on a reviewer's block"
-        )
-    )]
     pub(crate) async fn override_denial(
         &self,
         params: OverrideDenialParams,

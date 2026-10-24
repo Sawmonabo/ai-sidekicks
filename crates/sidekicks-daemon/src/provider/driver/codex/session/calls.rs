@@ -84,13 +84,6 @@ pub(crate) struct CodexSessionReading {
 /// Runs `call` on the session's task, answering on the call's own reply, and settles the waits
 /// the call may have answered. Answers the frames a fork released, which the task applies as it
 /// applies a routed frame's.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's task runs each call of its queue through it"
-    )
-)]
 pub(crate) async fn run_codex_session_call(
     call: CodexSessionCall,
     task: &mut CodexSessionTask<'_>,
@@ -241,6 +234,15 @@ pub(crate) async fn call_codex_session<Answer>(
     inbound: &CodexSessionInboundSender,
     compose: impl FnOnce(oneshot::Sender<Answer>) -> CodexSessionCall,
 ) -> Result<Answer, CodexError> {
+    ask_codex_session(inbound, |reply| CodexSessionInbound::Call(compose(reply))).await
+}
+
+/// Queues the item `compose` builds on the session's task `inbound` reaches and answers its
+/// reply. Fails with `CodexError::Transport` once the session's task let its record go.
+pub(crate) async fn ask_codex_session<Answer>(
+    inbound: &CodexSessionInboundSender,
+    compose: impl FnOnce(oneshot::Sender<Answer>) -> CodexSessionInbound,
+) -> Result<Answer, CodexError> {
     let (reply, replied) = oneshot::channel();
     let let_go = || CodexError::Transport {
         detail: format!(
@@ -249,7 +251,7 @@ pub(crate) async fn call_codex_session<Answer>(
         ),
         cause: None,
     };
-    if !inbound.push(CodexSessionInbound::Call(compose(reply))) {
+    if !inbound.push(compose(reply)) {
         return Err(let_go());
     }
     replied.await.map_err(|_dropped| let_go())

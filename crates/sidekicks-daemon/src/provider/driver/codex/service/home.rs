@@ -1,19 +1,26 @@
 //! The Codex home one service runs on, and the three kinds of service the daemon keeps there: one
 //! it starts as its own child, the lasting one on the person's own Codex folder that terminals
-//! join, and one already there that is not the daemon's, which it only joins.
+//! join, and one already there that is not the daemon's, which it only joins; and how the driver
+//! resolves the home an account runs in.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
+use futures::FutureExt;
+use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_platforms::PathRules;
+
+use crate::provider::driver::SessionSpawnContextResolver;
+use crate::provider::driver::codex::DESCRIPTOR;
+use crate::provider::driver::codex::service::registry::CodexHomeResolver;
+use crate::provider::driver::contract::DriverError;
+
+/// The person's own Codex folder under their home, where `CODEX_HOME` names none.
+const CODEX_PERSONAL_HOME_FOLDER_NAME: &str = ".codex";
 
 /// What a Codex home is to the daemon.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's Codex home resolver names each home's kind"
-    )
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexHomeKind {
     /// A home the app manages for one of its accounts.
@@ -65,4 +72,93 @@ impl CodexServiceKind {
             Self::Joined => false,
         }
     }
+}
+
+/// The homes the driver's services run on: an account the app manages runs in its own folder, and
+/// every other on the person's own Codex folder, which the person's terminal-reach switch decides
+/// the service of.
+pub(crate) struct CodexHomes {
+    spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
+    personal_home: PathBuf,
+    is_terminal_reach_on: Arc<AtomicBool>,
+}
+
+impl CodexHomes {
+    /// The homes resolved through `spawn_contexts`, the person's own folder named by
+    /// `base_environment`'s `CODEX_HOME`, else `.codex` under `home_folder`; the switch reads
+    /// `is_terminal_reach_on`.
+    pub(crate) fn new(
+        spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
+        base_environment: &[(String, String)],
+        home_folder: &Path,
+        is_terminal_reach_on: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            spawn_contexts,
+            personal_home: read_codex_personal_home(base_environment, home_folder),
+            is_terminal_reach_on,
+        }
+    }
+
+    /// The person's own Codex folder.
+    pub(crate) fn personal_home(&self) -> &Path {
+        &self.personal_home
+    }
+
+    // The person's own folder as a service's home.
+    fn personal_service_home(&self) -> CodexServiceHome {
+        CodexServiceHome {
+            codex_home: self.personal_home.clone(),
+            provider_account_id: None,
+            kind: CodexHomeKind::PersonalFolder {
+                is_terminal_reach_on: self.is_terminal_reach_on.load(Ordering::Acquire),
+            },
+        }
+    }
+}
+
+impl CodexHomeResolver for CodexHomes {
+    fn codex_home_for<'call>(
+        &'call self,
+        provider_account_id: Option<&'call ProviderAccountId>,
+    ) -> BoxFuture<'call, Result<CodexServiceHome, DriverError>> {
+        async move {
+            let Some(provider_account_id) = provider_account_id else {
+                return Ok(self.personal_service_home());
+            };
+            let folders = self
+                .spawn_contexts
+                .resolve_account_folders(provider_account_id.clone())
+                .await
+                .map_err(DriverError::Internal)?;
+            // An account whose home the app does not manage signs in on the person's own folder.
+            Ok(match folders {
+                Some(folders) => CodexServiceHome {
+                    codex_home: folders.configuration_folder,
+                    provider_account_id: Some(provider_account_id.clone()),
+                    kind: CodexHomeKind::Account,
+                },
+                None => self.personal_service_home(),
+            })
+        }
+        .boxed()
+    }
+}
+
+// The person's own Codex folder: the login shell's `CODEX_HOME` where it names one, else `.codex`
+// under their home.
+fn read_codex_personal_home(base_environment: &[(String, String)], home_folder: &Path) -> PathBuf {
+    let rules = PathRules::NATIVE;
+    let keys: Vec<_> = DESCRIPTOR
+        .credential_home_environment_names
+        .iter()
+        .map(|name| rules.environment_name_key(name))
+        .collect();
+    base_environment
+        .iter()
+        .find(|(name, value)| !value.is_empty() && keys.contains(&rules.environment_name_key(name)))
+        .map_or_else(
+            || home_folder.join(CODEX_PERSONAL_HOME_FOLDER_NAME),
+            |(_, value)| PathBuf::from(value),
+        )
 }

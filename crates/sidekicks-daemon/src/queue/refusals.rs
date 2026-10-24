@@ -69,10 +69,6 @@ pub(crate) fn unreturned_refusal(
 }
 
 /// The `skill.pathRefused` refusal of a skill pick the session's provider does not list.
-#[expect(
-    dead_code,
-    reason = "each driver's skill pick resolution, which refuses a pick its provider does not list"
-)]
 pub(crate) fn skill_not_listed(pick: &QueuedSkillPick) -> DomainError {
     let folder_path = pick.folder_path.as_str();
     let path = BoundedText::new(folder_path.to_owned())

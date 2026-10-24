@@ -19,6 +19,7 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
+use crate::provider::driver::codex::lifecycle::intake::CodexLifecycleCall;
 use crate::provider::driver::codex::output_speed::CodexSettledOutputSpeed;
 use crate::provider::driver::codex::run::control::record::CodexRunControlCall;
 use crate::provider::driver::codex::run::faster_model_retry::CodexRetryStopAnswer;
@@ -84,15 +85,10 @@ pub(crate) enum CodexSessionInbound {
     Barrier(oneshot::Sender<()>),
     /// A call the driver makes on the session's record, run on the session's task in its place
     /// among the frames.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex driver's run control and waits reach the session's \
-                record through it"
-        )
-    )]
     Call(CodexSessionCall),
+    /// A call of the driver's own on the record: its close and let-go, a level or mode move, a
+    /// side question, and the reads its compaction needs.
+    Lifecycle(CodexLifecycleCall),
 }
 
 /// A call on a session's record, each answering on its own `reply`; a dropped `reply` means the
@@ -268,13 +264,6 @@ struct QueueDepth {
 }
 
 /// A new queue for `session_id`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's start makes its queue, whose receiver its task drains"
-    )
-)]
 pub(crate) fn codex_session_inbound(
     session_id: SessionId,
 ) -> (CodexSessionInboundSender, CodexSessionInboundReceiver) {
@@ -350,6 +339,9 @@ pub(crate) trait CodexSessionInboundHandler: Send {
     /// Runs one call on the session's record.
     fn call(&mut self, call: CodexSessionCall) -> BoxFuture<'_, ()>;
 
+    /// Runs one of the driver's own calls on the session's record.
+    fn lifecycle(&mut self, call: CodexLifecycleCall) -> BoxFuture<'_, ()>;
+
     /// When timed work next comes due, `None` when none waits.
     fn next_deadline(&self) -> Option<Instant>;
 
@@ -359,13 +351,6 @@ pub(crate) trait CodexSessionInboundHandler: Send {
 
 /// Drains `receiver` into `handler` until every sender is gone, each item and each deadline
 /// awaited whole before the next.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's task drains its queue from the session's start"
-    )
-)]
 pub(crate) async fn drain_codex_session_inbound(
     mut receiver: CodexSessionInboundReceiver,
     handler: &mut impl CodexSessionInboundHandler,
@@ -401,6 +386,7 @@ pub(crate) async fn drain_codex_session_inbound(
                 let _unheard = reached.send(());
             }
             CodexSessionInbound::Call(call) => handler.call(call).await,
+            CodexSessionInbound::Lifecycle(call) => handler.lifecycle(call).await,
         }
     }
 }

@@ -49,13 +49,6 @@ impl CodexRunRoutes {
 
     /// Records the binding a run's deliveries go on, before its first turn is sent; it stays
     /// until the run ends, through every turn the run takes.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex run's start binds each run before its first turn"
-        )
-    )]
     pub(crate) fn bind_run_delivery(&self, run_id: RunId, binding: CodexRunBinding) {
         self.lock().bindings.insert(run_id, binding);
     }
@@ -66,10 +59,6 @@ impl CodexRunRoutes {
     }
 
     /// Keeps the output speed a run alone was asked to run at, for every turn it takes.
-    #[expect(
-        dead_code,
-        reason = "the Codex run's start keeps the level a run alone runs at"
-    )]
     pub(crate) fn keep_output_speed_for_turn(&self, run_id: RunId, output_speed_for_turn: String) {
         self.lock()
             .output_speeds_for_turn
@@ -77,10 +66,6 @@ impl CodexRunRoutes {
     }
 
     /// The output speed a run alone was asked to run at; `None` when it runs at the session's.
-    #[expect(
-        dead_code,
-        reason = "the Codex run's control sends each later turn at its run's own level"
-    )]
     pub(crate) fn output_speed_for_turn_of(&self, run_id: RunId) -> Option<String> {
         self.lock().output_speeds_for_turn.get(&run_id).cloned()
     }
@@ -93,10 +78,6 @@ impl CodexRunRoutes {
     }
 
     /// The session a run is routed to, or `None` once its last route is retired.
-    #[expect(
-        dead_code,
-        reason = "the Codex run's control finds the session of a run it steers or interrupts"
-    )]
     pub(crate) fn session_id_for(&self, run_id: RunId) -> Option<SessionId> {
         self.lock().sessions.get(&run_id).copied()
     }
@@ -104,13 +85,6 @@ impl CodexRunRoutes {
     /// Retires one turn's route, and the run's session route only when that turn was the run's
     /// last: dropping it earlier would strand the steer and interrupt paths of the run's other
     /// live turn.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex run's control retires a turn an interrupt took from its run"
-        )
-    )]
     pub(crate) fn retire_turn_route(&self, record: &mut CodexSessionRecord, turn_id: &str) {
         let Some(run_id) = record.remove_active_turn(turn_id) else {
             return;
@@ -122,10 +96,6 @@ impl CodexRunRoutes {
 
     /// Drops every run route and binding of a session, scanning by value: the record that could
     /// enumerate them is gone or replaced by the time a sweep is owed.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's close sweeps the routes of its runs"
-    )]
     pub(crate) fn forget_run_routes(&self, session_id: SessionId) {
         let mut routes = self.lock();
         let Routes {

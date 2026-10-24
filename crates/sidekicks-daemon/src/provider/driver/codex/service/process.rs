@@ -50,13 +50,6 @@ const CODEX_SHUTDOWN_ADDRESS: &str = "ws://localhost/daemon/shutdown";
 const CODEX_CONTROL_SOCKET_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// What one Codex process runs: a service start or a short command.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds each Codex launch from the program and the environment"
-    )
-)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexProcessLaunch {
     /// The native Codex program, absolute, never the npm launcher, which would leave its native
@@ -146,13 +139,6 @@ impl ManagedCodexService {
 /// Starts a Codex service on an account home the daemon manages, on `spawner`'s thread, armed to
 /// end with the daemon, its standard input closed and both outputs kept in one tail. Fails with
 /// the spawn's error, or the spawner's when its thread has ended.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon starts a Codex service on each account home it manages"
-    )
-)]
 pub(crate) async fn start_managed_codex_service(
     spawner: &Spawner,
     launch: CodexProcessLaunch,
@@ -307,14 +293,12 @@ impl LastingCodexService {
         grace: Duration,
         control_socket: &Path,
     ) -> io::Result<ChildEnd> {
-        if !CAN_SIGNAL_A_STOP {
-            if let Err(error) = self.request_shutdown(control_socket).await {
-                tracing::warn!(
-                    error = &error as &(dyn Error + 'static),
-                    process_id = self.process.id(),
-                    "the Codex service's shutdown request failed; it is ended after the grace"
-                );
-            }
+        if !CAN_SIGNAL_A_STOP && let Err(error) = self.request_shutdown(control_socket).await {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                process_id = self.process.id(),
+                "the Codex service's shutdown request failed; it is ended after the grace"
+            );
         }
         let process = self.process.clone();
         tokio::task::spawn_blocking(move || process.stop(grace))
@@ -372,13 +356,6 @@ struct UnrecordedServiceError {
 /// the daemon's scope where the system has one. The caller keeps its record in the folder's record
 /// file. Fails when the log cannot be opened, or the start cannot be spawned or pinned (on Windows
 /// a refused breakaway from the daemon's job among them), with the log's tail beside the cause.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start runs the lasting Codex service on the person's Codex folder"
-    )
-)]
 pub(crate) async fn start_lasting_codex_service(
     spawner: &Spawner,
     mut launch: CodexProcessLaunch,
@@ -447,13 +424,6 @@ pub(crate) async fn start_lasting_codex_service(
 /// Finds again the lasting service a former daemon started, from the record it kept: `None` when
 /// that process has ended or another now holds its id. Fails when the system's process read
 /// fails.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start finds a former daemon's lasting Codex service from its record"
-    )
-)]
 pub(crate) fn repin_lasting_codex_service(
     record: ProcessRecord,
 ) -> io::Result<Option<LastingCodexService>> {

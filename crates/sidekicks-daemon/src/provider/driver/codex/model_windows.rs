@@ -48,10 +48,6 @@ struct ModelWindowReading {
 /// Each model's windows from the service's own catalog dump, which `dump` reads by running
 /// `codex debug models`. Never fails: a failed read, or a row that could not be read, is reported
 /// as `modelWindowReadFailed` and leaves those models without a window.
-#[expect(
-    dead_code,
-    reason = "the Codex driver's model list joins each model's windows from it"
-)]
 pub(crate) async fn read_codex_service_model_windows(
     dump: impl Future<Output = Result<String, impl Error + 'static>>,
     home: &CodexServiceHome,
@@ -77,10 +73,6 @@ pub(crate) async fn read_codex_service_model_windows(
 /// default window, else the largest, as Codex resolves it. A model whose largest window exceeds
 /// its default gets a second row right after it, the same id with `larger_window` set and the
 /// largest window. Other rows are returned unchanged.
-#[expect(
-    dead_code,
-    reason = "the Codex driver's model list joins each model's windows with it"
-)]
 pub(crate) fn join_codex_model_windows(
     models: Vec<ProviderModel>,
     windows: &HashMap<String, CodexModelWindow>,
@@ -120,10 +112,6 @@ pub(crate) fn join_codex_model_windows(
 /// The larger window, in tokens, a `codex debug models` dump offers `model_id`, as its picker row
 /// shows it; `None` for a model with one window or none listed. Fails with
 /// [`ModelCatalogUnreadable`] when the dump, or the model's own row, cannot be read.
-#[expect(
-    dead_code,
-    reason = "the Codex session's create checks the larger window it was asked for against it"
-)]
 pub(crate) fn read_codex_larger_window(
     dump: &str,
     model_id: &str,

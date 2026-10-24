@@ -34,10 +34,6 @@ pub(crate) struct CodexPurgeFailed {
 /// service of its account's home, started within `start_bound` where it is not running, and the
 /// session's role files under `roles_folder`. A conversation in the person's own Codex folder is
 /// kept. Fails with every step that failed.
-#[expect(
-    dead_code,
-    reason = "the Codex driver's session purge deletes the session's conversations through it"
-)]
 pub(crate) async fn purge_codex_conversations(
     services: &CodexServiceRegistry,
     roles_folder: &Path,

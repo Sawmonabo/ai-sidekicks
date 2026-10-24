@@ -14,13 +14,6 @@ use sidekicks_platforms::{PathRules, RunningProgramPath, ShellWordRefused};
 pub(crate) const CODEX_HOOK_TIMEOUT: Duration = Duration::from_secs(1_000_000_000_000);
 
 /// How long a conversation no client holds stays loaded, so a moved one is free to resume soon.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start of a managed Codex service composes its command line with it"
-    )
-)]
 const CODEX_THREAD_UNLOAD_DELAY: Duration = Duration::from_secs(5);
 
 /// The hook event before each tool call.
@@ -50,13 +43,6 @@ impl CodexHookCommands {
 
     /// The `-c` switches, one per event, that the terminal service starts with beside the ones
     /// [`compose_codex_service_arguments`] composes.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start runs the terminal service with the daemon's two hooks"
-        )
-    )]
     pub(crate) fn config_overrides(&self) -> [String; 2] {
         self.events()
             .map(|(event_name, command)| compose_hook_override(event_name, command))
@@ -64,13 +50,6 @@ impl CodexHookCommands {
 }
 
 /// One hook a running service lists in its `hooks/list` reply, the members the daemon compares.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start reads a running lasting service's `hooks/list` reply into it"
-    )
-)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexListedHook {
     /// The hook's event (`PreToolUse`).
@@ -106,13 +85,6 @@ pub(crate) enum HookCommandError {
 /// arguments alone, which Codex runs through `$SHELL -lc`, falling back to `/bin/sh`, or on
 /// Windows through `%COMSPEC% /C`, in the folder it sets. Fails when the path is not UTF-8 text or
 /// a word cannot be written for the system's command shell.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start composes the terminal service's hooks from its own program"
-    )
-)]
 pub(crate) fn compose_daemon_hook_commands(
     daemon_program: &Path,
 ) -> Result<CodexHookCommands, HookCommandError> {
@@ -131,13 +103,6 @@ pub(crate) fn compose_daemon_hook_commands(
 /// timeout are the ones `composed` from that program gives; any difference answers
 /// [`LastingServiceVerdict::Restart`], which the daemon's start hands to the planned restart.
 /// Never reproduces Codex's own hook hash.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start compares a running lasting service's hooks before joining it"
-    )
-)]
 pub(crate) fn compare_daemon_hook_commands(
     listed: &[CodexListedHook],
     composed: &CodexHookCommands,
@@ -175,13 +140,6 @@ fn compose_daemon_hook_command(
 }
 
 /// What one service start carries beyond the switches every service the daemon starts shares.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start of a managed Codex service composes its command line with it"
-    )
-)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexServiceCommandLineInput {
     /// `unix://` for the home's own control socket, or `unix://<path>` for a second service that
@@ -210,13 +168,6 @@ struct CodexCommandHook<'command> {
 
 /// The arguments after the Codex command for one service the daemon starts. A conversation on a
 /// managed account home gets its hooks from its own start, so no hook switch is composed here.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start of a managed Codex service composes its command line with it"
-    )
-)]
 pub(crate) fn compose_codex_service_arguments(input: &CodexServiceCommandLineInput) -> Vec<String> {
     let shared_overrides = [
         format!(

@@ -111,10 +111,6 @@ fn classify_codex_auth_status(reply: &RawValue) -> DriverAuthProbeResult {
 /// service itself answered, on a service still up, asks the service again, since asking a wedged
 /// one would wait out a second deadline; anything short of a signed-out reading is recovery, and a
 /// read that failed is reported.
-#[expect(
-    dead_code,
-    reason = "the Codex session's resume classifies a failed resume through it"
-)]
 pub(crate) async fn classify_codex_resume_recovery_condition(
     service: &CodexService,
     failure: &CodexError,

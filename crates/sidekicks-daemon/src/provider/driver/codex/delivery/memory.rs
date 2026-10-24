@@ -24,23 +24,9 @@ use crate::session::run::engine::turns::StartedTurn;
 
 /// How many tool rows may wait for their start at once. Codex sends an item's start before its end
 /// on one ordered connection, so a held completion is a fault, reported when flushed.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session start builds each record's delivery memory"
-    )
-)]
 const REORDER_MAX_BUFFERED_EVENTS: usize = 64;
 
 /// How long a tool row waits for its start.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session start builds each record's delivery memory"
-    )
-)]
 const REORDER_PAIRING_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How many reviews a session remembers by id, oldest dropped first, so a repeat is dropped.
@@ -192,13 +178,6 @@ pub(crate) struct CodexDeliveryMemory {
 
 impl CodexDeliveryMemory {
     /// A fresh delivery memory for one session record.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session start builds each record's delivery memory"
-        )
-    )]
     pub(crate) fn new() -> Self {
         Self {
             turn_epoch_by_turn_id: HashMap::new(),
@@ -235,7 +214,6 @@ impl CodexDeliveryMemory {
 
     /// When the session's one timer next fires: the earliest of a streamed piece's interval and a
     /// held tool row's wait for its start; `None` when nothing waits.
-    #[expect(dead_code, reason = "the Codex session's task arms its timer on it")]
     pub(crate) fn next_deadline(&self) -> Option<tokio::time::Instant> {
         [
             self.streamed_text.next_deadline(),

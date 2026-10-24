@@ -34,13 +34,6 @@ pub(crate) enum CodexUnparsableMessageReason {
 }
 
 /// The teardown steps that carry on past a failure of their own.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session close reports each step that failed"
-    )
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
 pub(crate) enum CodexTeardownStep {

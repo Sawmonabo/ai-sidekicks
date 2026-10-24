@@ -8,6 +8,7 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
+use crate::provider::driver::codex::lifecycle::intake::CodexLifecycleCall;
 use crate::provider::driver::codex::server_requests::{
     CodexInboundServerRequest, CodexServerRequestDecision,
 };
@@ -59,6 +60,10 @@ impl CodexSessionInboundHandler for SessionFrames {
     }
 
     fn call(&mut self, _call: CodexSessionCall) -> BoxFuture<'_, ()> {
+        unreachable!("the driver makes no call")
+    }
+
+    fn lifecycle(&mut self, _call: CodexLifecycleCall) -> BoxFuture<'_, ()> {
         unreachable!("the driver makes no call")
     }
 }

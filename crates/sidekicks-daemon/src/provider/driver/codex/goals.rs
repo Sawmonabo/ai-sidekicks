@@ -42,7 +42,6 @@ pub(crate) struct CodexSessionGoals {
 impl CodexSessionGoals {
     /// Goals reaching each session through `slots`, after any config fork in flight, apart from
     /// `run_start`'s turn starts.
-    #[expect(dead_code, reason = "the Codex driver builds its session goals")]
     pub(crate) fn new(
         slots: Arc<CodexSessionSlots>,
         config_forks: Arc<CodexConfigForks>,

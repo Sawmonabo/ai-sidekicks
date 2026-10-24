@@ -71,13 +71,6 @@ struct SpeedFrameTurn {
     clippy::option_option,
     reason = "absent, `null` and a tier are three meanings the wire keeps apart"
 )]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex run start, session start and fork send the tier they carry with it"
-    )
-)]
 pub(crate) fn compose_codex_service_tier(level: Option<&str>) -> Option<Option<String>> {
     level.map(|level| (level != DESCRIPTOR.standard_output_speed).then(|| level.to_owned()))
 }
@@ -85,13 +78,6 @@ pub(crate) fn compose_codex_service_tier(level: Option<&str>) -> Option<Option<S
 /// The level a carried `level` runs at on `model`: itself where the catalog `read_catalog` reads
 /// lists it for that model, else standard, so no carried level is refused and none the model lacks
 /// is sent. Standard and an absent level read no catalog. Fails as the catalog read does.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex run start and session start resolve the level they send through it"
-    )
-)]
 pub(crate) async fn resolve_codex_output_speed_level<CatalogRead>(
     read_catalog: impl FnOnce() -> CatalogRead,
     model: &str,
@@ -120,13 +106,6 @@ where
 
 /// The tier a `thread/start`, `thread/resume` or `thread/fork` reply declares; `None` when the
 /// reply carries no `serviceTier` member or one the contract's bounds refuse, which is reported.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's start, resume and fork read the tier each reply declares"
-    )
-)]
 pub(crate) fn read_codex_declared_tier(
     session_id: SessionId,
     reply: &RawValue,
@@ -138,13 +117,6 @@ pub(crate) fn read_codex_declared_tier(
 /// Arms an accepted turn's run to report the tier it settles at, answering the settlement now when
 /// the turn already ended, on the tier the thread holds. A turn whose `sent_level` changes the
 /// declared tier settles on the settings notice that change produces; any other on its first item.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex run start arms each accepted turn's speed report"
-    )
-)]
 pub(crate) fn arm_codex_run_output_speed(
     record: &mut CodexSessionRecord,
     turn_id: String,
@@ -174,10 +146,6 @@ pub(crate) fn arm_codex_run_output_speed(
 /// updated` sets the declared tier and settles every armed run; a turn's first `item/started`
 /// settles its run unless it awaits that notice; its `turn/completed` settles whatever is left. A
 /// helper's frames change nothing.
-#[expect(
-    dead_code,
-    reason = "the Codex session's frame intake reads each frame into the speed report"
-)]
 pub(crate) fn observe_codex_output_speed_frame(
     record: &mut CodexSessionRecord,
     method: &str,

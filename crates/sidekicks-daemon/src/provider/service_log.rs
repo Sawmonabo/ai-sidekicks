@@ -40,13 +40,6 @@ pub(crate) fn provider_home_key(home: &Path) -> String {
 
 /// The log of `provider_id`'s lasting service on `home`, in the daemon's `logs_folder`; `home` is
 /// resolved first. Fails with the resolve's error, a missing home among them.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start names a lasting provider service's log by its provider and home"
-    )
-)]
 pub(crate) fn provider_service_log_file(
     logs_folder: &Path,
     provider_id: &ProviderId,

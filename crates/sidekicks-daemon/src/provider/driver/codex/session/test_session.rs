@@ -39,6 +39,7 @@ use crate::provider::driver::codex::delivery::frames::{
     CodexFrameDelivery, CodexFrameDeliveryDependencies, CodexFrameEffects,
 };
 use crate::provider::driver::codex::delivery::rows::CodexRowRun;
+use crate::provider::driver::codex::lifecycle::intake::CodexLifecycleCall;
 use crate::provider::driver::codex::notification_routing::{
     CodexRoutedFrames, CodexSessionRouting,
 };
@@ -454,8 +455,10 @@ impl TestCodexTask {
                 self.apply(routed);
             }
             CodexSessionInbound::HeldThread { .. } | CodexSessionInbound::Barrier(_) => {}
-            CodexSessionInbound::Ask { .. } | CodexSessionInbound::AsksWithdrawn { .. } => {
-                panic!("the test's service asks nothing")
+            CodexSessionInbound::Ask { .. }
+            | CodexSessionInbound::AsksWithdrawn { .. }
+            | CodexSessionInbound::Lifecycle(_) => {
+                panic!("the test's service asks nothing and its driver calls nothing of its own")
             }
         }
         self.waiters.settle(&self.record);
@@ -688,6 +691,11 @@ impl CodexSessionInboundHandler for ItemsToTest {
 
     fn call(&mut self, call: CodexSessionCall) -> BoxFuture<'_, ()> {
         self.hand(CodexSessionInbound::Call(call));
+        async {}.boxed()
+    }
+
+    fn lifecycle(&mut self, call: CodexLifecycleCall) -> BoxFuture<'_, ()> {
+        self.hand(CodexSessionInbound::Lifecycle(call));
         async {}.boxed()
     }
 

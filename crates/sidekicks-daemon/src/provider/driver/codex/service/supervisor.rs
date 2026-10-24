@@ -6,7 +6,7 @@
 //! crash window's waits; a connection that drops is redialed on a wait that grows and never gives
 //! up; a service draining toward its exit refuses new work while its turns run on.
 
-mod drain;
+pub(crate) mod drain;
 pub(crate) mod events;
 mod reconnect;
 pub(crate) mod routing;
@@ -271,10 +271,6 @@ impl CodexService {
 
     /// The kind of service it is, as its last start found it; a session's recovery and a
     /// conversation's purge read it.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's recovery and the conversation purge read the service's kind"
-    )]
     pub(crate) fn kind(&self) -> CodexServiceKind {
         self.lock_supervision().kind()
     }
@@ -298,13 +294,6 @@ impl CodexService {
     }
 
     /// The account's rate-limit readings this service has seen.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's failed-turn reading reads the account's usage limit"
-        )
-    )]
     pub(crate) fn rate_limit_observation(&self) -> CodexRateLimitObservation {
         self.lock_routing().rate_limits.clone()
     }
@@ -412,10 +401,6 @@ impl CodexService {
 
     /// Whether the service takes new work: one draining toward its exit refuses it with Codex's
     /// own words, which refuse `provider.unavailable`, while reads and interrupts go on.
-    #[expect(
-        dead_code,
-        reason = "the Codex run start and conversation start refuse new work on a draining service"
-    )]
     pub(crate) fn check_takes_new_work(&self, method: &str) -> Result<(), CodexError> {
         if let SupervisorState::Up {
             draining: Some(message),
@@ -432,11 +417,13 @@ impl CodexService {
         Ok(())
     }
 
-    /// Opens a second connection on the running service that starts no conversation, for a read
-    /// that must not touch one, such as the capability probe; nothing on it belongs to a session.
-    /// Fails as a start or a dial fails.
+    /// Opens a second connection on the running service that belongs to no session, for a read
+    /// that must not touch one, such as the capability probe, or a conversation of the driver's
+    /// own, such as a title's; its notifications and close go to `events`. Fails as a start or a
+    /// dial fails.
     pub(crate) async fn open_detached_connection(
         &self,
+        events: Arc<dyn CodexConnectionEvents>,
     ) -> Result<CodexAppServerConnection, CodexError> {
         self.ensure_started(self.dependencies.startup_timeout)
             .await?;
@@ -451,7 +438,7 @@ impl CodexService {
             sender,
             receiver,
             CodexConnectionHandlers {
-                events: Arc::new(DetachedConnectionEvents),
+                events,
                 responder: None,
             },
             CODEX_CLIENT_NAME,
@@ -483,9 +470,12 @@ impl CodexService {
     }
 
     /// The person's restart of a service left down: forgets the crash window and starts it.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's restart brings back a service left down after a crash loop"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex session's restart brings back a service left down after a crash loop"
+        )
     )]
     pub(crate) fn restart(&self) {
         self.send(SupervisorEvent::Restart);
@@ -493,10 +483,6 @@ impl CodexService {
 
     /// A start on the program as it is now: an account service stops and starts, a terminal
     /// service hands its planned restart to the session's recovery, a joined one is redialed.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's recovery restarts a service on a Codex update"
-    )]
     pub(crate) fn request_planned_restart(&self) {
         self.send(SupervisorEvent::PlannedRestart);
     }
@@ -530,13 +516,6 @@ impl CodexService {
 
     /// Sends a session's frames and asks to `sender` from now on, and first the config warnings
     /// the service sent that the session has not heard.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's start and move attach it to the service"
-        )
-    )]
     pub(crate) fn attach_session(&self, sender: CodexSessionInboundSender) {
         let session_id = sender.session_id();
         let mut routing = self.lock_routing();
@@ -551,13 +530,6 @@ impl CodexService {
     }
 
     /// Stops sending a session its frames.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's close and move detach it from the service"
-        )
-    )]
     pub(crate) fn detach_session(&self, session_id: &SessionId) {
         self.lock_routing().detach(session_id);
     }
@@ -593,14 +565,6 @@ impl CodexService {
 
     /// Opens a claim on the conversation a start or fork in flight is about to name, so its
     /// frames are held until it is registered.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's start and fork claim the conversation they are \
-                about to name"
-        )
-    )]
     pub(crate) fn begin_thread_claim(&self) -> ThreadClaim {
         CodexServiceThreads::begin_claim(&self.threads)
     }
@@ -608,28 +572,12 @@ impl CodexService {
     /// Answers once Codex sends `thread_id`'s `thread/closed`, or once the connection ends, which
     /// unloads it too. Armed before the step that leads to the close, so the notice cannot come
     /// first; dropping it stops the wait.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's move to another service waits for the conversation's \
-                      unload"
-        )
-    )]
     pub(crate) fn wait_for_thread_closed(&self, thread_id: String) -> oneshot::Receiver<()> {
         self.lock_routing().wait_for_closed(thread_id)
     }
 
     /// The conversations started in a terminal that the service has loaded: every loaded one less
     /// those the daemon's sessions hold. Fails as the read's request does.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the terminal-session list, the switch-off stop and the Runtime page's stop \
-                      confirm count the terminal sessions inside the service"
-        )
-    )]
     pub(crate) async fn terminal_sessions(&self) -> Result<Vec<String>, CodexError> {
         let loaded = read_codex_loaded_threads(&*self.connection()?).await?;
         let threads = self.lock_threads();
@@ -856,8 +804,9 @@ impl CodexConnectionEvents for ServiceConnectionEvents {
     }
 }
 
-/// A detached connection's events: nothing on it belongs to a session.
-struct DetachedConnectionEvents;
+/// The events of a detached connection that starts no conversation: nothing on it belongs to a
+/// session.
+pub(crate) struct DetachedConnectionEvents;
 
 impl CodexConnectionEvents for DetachedConnectionEvents {
     fn notification(&self, method: &str, _params: Box<RawValue>) {

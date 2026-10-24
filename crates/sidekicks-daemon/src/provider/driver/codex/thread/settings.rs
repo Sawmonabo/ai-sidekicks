@@ -36,13 +36,6 @@ const CODEX_DAEMON_TOOL_TIMEOUT_SECONDS: u64 = 300;
 const CODEX_UNLIMITED_HELPERS: i64 = i64::MAX;
 
 /// Everything one conversation's thread settings are composed from.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's start, resume and fork compose a conversation's settings"
-    )
-)]
 #[derive(Clone, Debug)]
 pub(crate) struct CodexThreadSettings {
     /// The session the conversation belongs to, which names its tool servers' addresses.
@@ -83,13 +76,6 @@ struct CodexThreadMembers {
 
 /// The `thread/start` params for `settings`, without the output speed, which the caller sets per
 /// request. With no tool-server route registered yet, the conversation reaches no tool server.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's start opens its conversation with these"
-    )
-)]
 pub(crate) fn compose_codex_thread_start_params(
     settings: &CodexThreadSettings,
     route: Option<&dyn ToolServerRoute>,
@@ -109,13 +95,6 @@ pub(crate) fn compose_codex_thread_start_params(
 
 /// The `thread/resume` params that resume `thread_id` under `settings`, without the output speed,
 /// which the caller sets per request.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's resume brings a conversation back with these"
-    )
-)]
 pub(crate) fn compose_codex_thread_resume_params(
     settings: &CodexThreadSettings,
     route: Option<&dyn ToolServerRoute>,
@@ -146,13 +125,6 @@ pub(crate) fn compose_codex_thread_resume_params(
 
 /// The `thread/fork` params that fork `thread_id` under `settings`, without the output speed,
 /// which the caller sets per request, or the turn the fork keeps up to.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's fork and rewind move a conversation with these"
-    )
-)]
 pub(crate) fn compose_codex_thread_fork_params(
     settings: &CodexThreadSettings,
     route: Option<&dyn ToolServerRoute>,
@@ -246,13 +218,6 @@ pub(crate) struct CodexTurnStartParams {
 /// The `thread/settings/update` params the daemon sends, each member changing the thread from its
 /// next turn. `service_tier` keeps its three meanings: absent leaves the tier, `null` clears it, a
 /// value sets it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex mode move, level move and profile restore update a thread with these"
-    )
-)]
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CodexThreadSettingsUpdateParams {
@@ -286,13 +251,6 @@ pub(crate) struct CodexThreadSettingsUpdateParams {
 /// Codex's collaboration mode for Build or Plan on `model` at `reasoning_effort`, with the mode's
 /// built-in instructions. It takes precedence over a request's own model and effort, so both are
 /// carried; an effort Codex reported that this build's schema does not list is left out.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex mode move and the run start send the session's mode with it"
-    )
-)]
 pub(crate) fn compose_codex_collaboration_mode(
     mode: SessionMode,
     model: String,

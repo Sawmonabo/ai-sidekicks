@@ -165,10 +165,6 @@ impl CodexProviderCommandCache {
 
     /// Each skill Codex lists for the session, by its name and the file it loads it from: the
     /// live session's held listing, else a read from `service` over `working_directory`.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver resolves the skills a person picked through it"
-    )]
     pub(crate) async fn read_skill_files(
         &self,
         session_id: SessionId,
@@ -246,13 +242,6 @@ impl CodexProviderCommandCache {
 
     /// Discards a session's held listing after Codex's skills changed, then reads it again for
     /// its listeners.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's frame routing refreshes the list on skills/changed"
-        )
-    )]
     pub(crate) fn refresh(self: &Arc<Self>, session_id: SessionId) {
         self.discard_listing(session_id);
         let listeners: Vec<ProviderCommandsListener> = self
@@ -272,10 +261,6 @@ impl CodexProviderCommandCache {
     }
 
     /// Forgets a closed session: its listing, its generation, its listeners and their watches.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's close forgets its command list"
-    )]
     pub(crate) fn forget_session(&self, session_id: SessionId) {
         let listeners = {
             let mut state = self.lock();

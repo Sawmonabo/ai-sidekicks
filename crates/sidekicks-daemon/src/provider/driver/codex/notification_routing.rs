@@ -121,13 +121,6 @@ pub(crate) struct CodexSessionRouting {
 
 impl CodexSessionRouting {
     /// An empty band for one session, settling compaction waits through `pending_compactions`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's task makes its routing band as the session is created"
-        )
-    )]
     pub(crate) fn new(pending_compactions: PendingCompactionRegistry) -> Self {
         Self {
             router: ThreadFrameRouter::new(
@@ -141,10 +134,6 @@ impl CodexSessionRouting {
     }
 
     /// The session's terminal gate, which its close signals before Codex is asked to stop.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's close signals its intended close on the gate"
-    )]
     pub(crate) fn gate(&mut self) -> &mut TerminalEmissionGate {
         &mut self.gate
     }
@@ -153,14 +142,6 @@ impl CodexSessionRouting {
     /// `establishment` says, and delivers the frames that waited for it. Bases come first, since a
     /// released usage frame meters at once; binding replaces the session's conversation, which is
     /// how a rewind retires the old one.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's create, resume and rewind bind their \
-                conversation through it"
-        )
-    )]
     pub(crate) async fn bind_session_thread(
         &mut self,
         delivery: &CodexFrameDelivery,
@@ -243,16 +224,19 @@ impl CodexSessionRouting {
         self.router.child_attribution_for(thread_id).is_some()
     }
 
+    /// Admits a conversation the session moved off as the session's own while a command of it
+    /// still runs, or stops admitting it once it is let go.
+    pub(crate) fn hold_thread(&mut self, thread_id: String, is_held: bool) {
+        if is_held {
+            self.router.admit_held_thread(thread_id);
+        } else {
+            self.router.release_held_thread(&thread_id);
+        }
+    }
+
     /// Routes one notification of the session and delivers what it releases, a helper's
     /// announcement registering the helper before the announcement itself is routed. Never fails:
     /// each delivery reports its own failure.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's task routes each frame of its queue through it"
-        )
-    )]
     pub(crate) async fn route_notification(
         &mut self,
         delivery: &CodexFrameDelivery,

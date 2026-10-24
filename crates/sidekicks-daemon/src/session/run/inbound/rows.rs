@@ -112,13 +112,6 @@ macro_rules! unstamped_rows {
         /// the run: from before a cut it is absorbed, otherwise appended as it is. A settlement's
         /// run move is its own delivery.
         #[derive(Debug)]
-        #[cfg_attr(
-            not(test),
-            expect(
-                dead_code,
-                reason = "the provider's event delivery builds each row it hands over"
-            )
-        )]
         pub(crate) enum UnstampedRow {
             $($(#[$doc])* $variant($payload),)+
         }
@@ -207,13 +200,6 @@ impl SessionScopedRow {
 /// A row about the machine rather than a session, on no binding: an account's quota reading, which
 /// carries the account's credential generation and is filed under the machine's sentinel session.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the provider's event delivery builds each row it hands over"
-    )
-)]
 pub(crate) enum MachineScopedRow {
     /// `usage.rateLimit.updated`.
     UsageRateLimitUpdated(UsageRateLimitUpdatedPayload),

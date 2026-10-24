@@ -63,13 +63,6 @@ struct DaemonHook<'reply> {
 /// the service does not list a daemon hook with its key and hash, its reply cannot be read, or a
 /// daemon hook is still untrusted after the write, since an untrusted hook never runs; a failed
 /// request fails as the connection reports it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start trusts the terminal service's hooks before any conversation"
-    )
-)]
 pub(crate) async fn trust_codex_daemon_hooks(
     connection: &CodexAppServerConnection,
     hook_commands: &CodexHookCommands,

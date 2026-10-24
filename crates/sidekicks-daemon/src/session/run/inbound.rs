@@ -63,10 +63,6 @@ pub(crate) struct DeliveryBinding<'key> {
 /// One delivery a provider driver hands the run engine, on its binding and in that binding's
 /// delivery order, or about the session as a whole on no binding.
 #[derive(Debug)]
-#[expect(
-    dead_code,
-    reason = "the provider's event delivery builds each delivery it hands over"
-)]
 pub(crate) enum InboundDelivery<'key> {
     /// The binding opened its next turn.
     TurnBoundary {

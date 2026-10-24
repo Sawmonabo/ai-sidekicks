@@ -115,7 +115,7 @@ pub(crate) fn run_codex_run_control_call(
             run_id,
             turn_id,
             is_stopped,
-        } => settle_interrupt(record, dependencies, run_id, turn_id, is_stopped),
+        } => settle_interrupt(record, dependencies, run_id, &turn_id, is_stopped),
         CodexRunControlCall::TakeDroppedSteers { turn_id, reply } => {
             let dropped = record
                 .unechoed_steers_by_turn_id
@@ -174,19 +174,19 @@ fn settle_interrupt(
     record: &mut CodexSessionRecord,
     dependencies: &CodexRunCallDependencies,
     run_id: RunId,
-    turn_id: String,
+    turn_id: &str,
     is_stopped: bool,
 ) {
-    record.interrupting_turn_ids.remove(&turn_id);
+    record.interrupting_turn_ids.remove(turn_id);
     if !is_stopped {
         return;
     }
-    record.pause_run_id_by_turn_id.remove(&turn_id);
-    if record.is_turn_settled(&turn_id) {
+    record.pause_run_id_by_turn_id.remove(turn_id);
+    if record.is_turn_settled(turn_id) {
         return;
     }
     if record
-        .remember_interrupted_run(turn_id.clone(), run_id)
+        .remember_interrupted_run(turn_id.to_owned(), run_id)
         .is_err()
     {
         CodexTransportDiagnostic::InterruptedRouteMemoryOverflowed {
@@ -196,7 +196,7 @@ fn settle_interrupt(
         dependencies.disposal.dispose(record.session_id);
         return;
     }
-    dependencies.run_routes.retire_turn_route(record, &turn_id);
+    dependencies.run_routes.retire_turn_route(record, turn_id);
 }
 
 // A pause of the lead's live turn, taken at its next step's end. A helper's run, which holds no

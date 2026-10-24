@@ -86,10 +86,6 @@ pub(crate) struct CodexRunStart {
 
 impl CodexRunStart {
     /// Turn starts acting through `dependencies`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Codex driver builds its run start")
-    )]
     pub(crate) fn new(dependencies: CodexRunStartDependencies) -> Self {
         Self {
             dependencies,
@@ -118,7 +114,6 @@ impl CodexRunStart {
     /// a stopping turn outlived the deadline or a turn Codex started runs, with
     /// `CodexError::PortFailed` when the message's files or the step bound cannot be read, and as
     /// the config fork and the request fail.
-    #[expect(dead_code, reason = "the Codex driver's run start")]
     pub(crate) async fn start_run(&self, params: StartRunParams) -> Result<(), CodexError> {
         let opening = params.opening;
         let session_id = opening.session_id;
@@ -347,7 +342,8 @@ impl CodexRunStart {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
-    async fn record_settled_output_speed(&self, settled: CodexSettledOutputSpeed) {
+    /// Records the speed a run settled at; a failed write is reported.
+    pub(crate) async fn record_settled_output_speed(&self, settled: CodexSettledOutputSpeed) {
         if let Err(error) = self
             .dependencies
             .engine
