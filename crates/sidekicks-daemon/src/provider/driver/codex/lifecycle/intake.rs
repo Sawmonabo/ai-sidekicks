@@ -1,10 +1,11 @@
 //! One Codex session's task, the only reader of its queue: it holds the session's record, routing
 //! band and turn waits, and handles each frame, ask and call in arrival order. A frame first opens
 //! the run of a turn Codex started by itself, then feeds the speed, effort and profile readings,
-//! then is routed and delivered; what its delivery reports is applied after: each steer Codex
-//! echoed taken from the queue once, each ended turn's route retired, its end recorded where no
-//! run moved, its pause or continue acted on and its owed fork let go, and the spend it metered
-//! recorded. The driver's own calls on the record take their place among the frames too.
+//! then is routed and delivered; what its delivery reports is applied after: each context-window
+//! reading filed on its turn's run, each steer Codex echoed taken from the queue once, each ended
+//! turn's route retired, its end recorded where no run moved, its pause or continue acted on and
+//! its owed fork let go, and the spend it metered recorded. The driver's own calls on the record
+//! take their place among the frames too.
 
 use std::sync::Arc;
 
@@ -12,21 +13,25 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::value::RawValue;
+use sidekicks_contracts::event::usage::UsageContextWindowUpdatedPayload;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
+use crate::provider::driver::codex::delivery::frames::find_turn_run_id;
 use crate::provider::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
 use crate::provider::driver::codex::event_normalizer::{
-    CODEX_ITEM_COMPLETED_METHOD, CODEX_THREAD_SETTINGS_UPDATED_METHOD, CODEX_TURN_COMPLETED_METHOD,
+    CODEX_ITEM_COMPLETED_METHOD, CODEX_THREAD_SETTINGS_UPDATED_METHOD,
+    CODEX_THREAD_TOKEN_USAGE_METHOD, CODEX_TURN_COMPLETED_METHOD,
 };
 use crate::provider::driver::codex::lifecycle::CodexDriverParts;
 use crate::provider::driver::codex::notification_routing::{
-    CodexRoutedFrames, CodexSessionRouting,
+    CodexContextWindowReading, CodexRoutedFrames, CodexSessionRouting,
 };
 use crate::provider::driver::codex::output_speed::observe_codex_output_speed_frame;
 use crate::provider::driver::codex::run::self_started_turns::open_codex_self_started_turn;
@@ -58,6 +63,9 @@ use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::session_control::{
     AskSideQuestionParams, UpdatePermissionLevelParams,
 };
+use crate::provider::usage_delta_accountant::WindowTelemetry;
+use crate::session::run::inbound::rows::LateAppendableRow;
+use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
 
 /// Codex's signal that the skills it lists for a conversation changed.
 const CODEX_SKILLS_CHANGED_METHOD: &str = "skills/changed";
@@ -174,6 +182,10 @@ impl CodexSessionIntake {
             return;
         };
         let parts = &self.parts;
+        // Each reading's run is read before a turn's end in the same batch retires its route.
+        for reading in routed.context_windows {
+            file_context_window(parts, record, reading).await;
+        }
         for dispatch in routed.dispatches {
             for taken in dispatch.taken_messages {
                 let Some(message_id) =
@@ -488,6 +500,71 @@ async fn record_turn_end(
             "the end of a codex turn that moved no run could not be recorded"
         ),
     }
+}
+
+// Files a context-window reading of the session's conversation on the run holding its turn, on
+// that run's binding, else on the session's, which a run's turn start adopts, since the delivery
+// of a turn's end in the same batch already let the run's binding go; a reading no run holds
+// files with no run. One with no binding to file on is dropped, logged.
+async fn file_context_window(
+    parts: &CodexDriverParts,
+    record: &CodexSessionRecord,
+    reading: CodexContextWindowReading,
+) {
+    let run_id = reading
+        .turn_id
+        .as_deref()
+        .and_then(|turn_id| find_turn_run_id(record, turn_id))
+        .map(|(run_id, _ending)| run_id);
+    let binding_id = run_id
+        .and_then(|run_id| parts.run_routes.binding_for(run_id))
+        .map(|binding| binding.binding_id)
+        .or_else(|| record.binding_id.clone());
+    let Some(binding_id) = binding_id else {
+        tracing::debug!("a codex context-window reading has no binding to file on");
+        return;
+    };
+    let (window_source, exceeded, counts) = match reading.window {
+        WindowTelemetry::Counted {
+            window_source,
+            exceeded,
+            window_used_tokens,
+            window_max_tokens,
+        } => (
+            window_source,
+            exceeded,
+            SafeInt::new(window_used_tokens).zip(SafeInt::new(window_max_tokens)),
+        ),
+        WindowTelemetry::CountsAbsent {
+            window_source,
+            exceeded,
+        } => (window_source, exceeded, None),
+    };
+    let row = LateAppendableRow::UsageContextWindowUpdated(UsageContextWindowUpdatedPayload {
+        session_id: record.session_id,
+        run_id,
+        window_used_tokens: counts.map(|(used, _max)| used),
+        window_max_tokens: counts.map(|(_used, max)| max),
+        window_source,
+        exceeded,
+        model_id: None,
+        subagent_id: None,
+        source_epoch: None,
+        source_position: None,
+    });
+    let delivery = InboundDelivery::SessionRow {
+        binding: DeliveryBinding {
+            binding_id,
+            operation: None,
+        },
+        row,
+        content: None,
+    };
+    // A refused row is reported by the send.
+    let _filed = parts
+        .delivery
+        .send(record, delivery, CODEX_THREAD_TOKEN_USAGE_METHOD)
+        .await;
 }
 
 // Every run the record still holds a turn of, live, starting or ending, each once.

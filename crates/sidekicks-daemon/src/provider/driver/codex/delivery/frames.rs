@@ -152,7 +152,7 @@ pub(crate) struct CodexFrameDispatch {
 
 /// How a turn's run stands when one of its frames arrives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CodexTurnEnding {
+pub(crate) enum CodexTurnEnding {
     /// The turn runs on its run.
     Live,
     /// An interrupt took it from its run.
@@ -292,8 +292,8 @@ impl CodexFrameDelivery {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
-    // Hands one delivery to the run engine, reporting its failure; `None` when it failed.
-    pub(super) async fn send(
+    /// Hands one delivery to the run engine, reporting its failure; `None` when it failed.
+    pub(crate) async fn send(
         &self,
         record: &CodexSessionRecord,
         delivery: InboundDelivery<'_>,
@@ -356,27 +356,7 @@ impl CodexFrameDelivery {
     // A live turn's run, else the run an interrupt, a pause or a retry took the turn from, whose
     // last frames still belong to it; `None` when no run holds it or its run ended.
     fn turn_run_for(&self, record: &CodexSessionRecord, turn_id: &str) -> Option<CodexTurnRun> {
-        let (run_id, ending) = record
-            .active_turn_run(turn_id)
-            .map(|run_id| (run_id, CodexTurnEnding::Live))
-            .or_else(|| {
-                record
-                    .interrupted_turn_run(turn_id)
-                    .map(|run_id| (run_id, CodexTurnEnding::Interrupted))
-            })
-            .or_else(|| {
-                record
-                    .paused_run_id_by_interrupted_turn_id
-                    .get(turn_id)
-                    .map(|run_id| (*run_id, CodexTurnEnding::Paused))
-            })
-            .or_else(|| {
-                record
-                    .delivery
-                    .retried_run_id_by_turn_id
-                    .get(turn_id)
-                    .map(|run_id| (*run_id, CodexTurnEnding::Retried))
-            })?;
+        let (run_id, ending) = find_turn_run_id(record, turn_id)?;
         let binding = self.dependencies.run_routes.binding_for(run_id)?;
         Some(CodexTurnRun {
             run_id,
@@ -407,6 +387,35 @@ impl CodexFrameDelivery {
             row: turn_run.row_run(),
         })
     }
+}
+
+/// The run holding the turn `turn_id` and how: its live run, else the run an interrupt, a pause or
+/// a retry took the turn from, whose last frames still belong to it; `None` when no run holds it.
+pub(crate) fn find_turn_run_id(
+    record: &CodexSessionRecord,
+    turn_id: &str,
+) -> Option<(RunId, CodexTurnEnding)> {
+    record
+        .active_turn_run(turn_id)
+        .map(|run_id| (run_id, CodexTurnEnding::Live))
+        .or_else(|| {
+            record
+                .interrupted_turn_run(turn_id)
+                .map(|run_id| (run_id, CodexTurnEnding::Interrupted))
+        })
+        .or_else(|| {
+            record
+                .paused_run_id_by_interrupted_turn_id
+                .get(turn_id)
+                .map(|run_id| (*run_id, CodexTurnEnding::Paused))
+        })
+        .or_else(|| {
+            record
+                .delivery
+                .retried_run_id_by_turn_id
+                .get(turn_id)
+                .map(|run_id| (*run_id, CodexTurnEnding::Retried))
+        })
 }
 
 /// Reports a frame whose run no live route, interrupt or starting turn names.

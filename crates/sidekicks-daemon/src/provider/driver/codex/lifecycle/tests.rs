@@ -8,6 +8,8 @@ mod sessions;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
+use serde_json::Value;
+use serde_json::value::RawValue;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
@@ -22,6 +24,7 @@ use super::intake::CodexSessionIntake;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, insert_lead};
 use crate::events::log_service::tests::open_log;
+use crate::events::session::followers::SessionEventFollowers;
 use crate::mutex_lock::lock;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::notification_routing::CodexRoutedFrames;
@@ -83,22 +86,30 @@ pub(super) struct LiveCodexSession {
     pub(super) scripted: ScriptedCodexService,
     pub(super) queue: Arc<RecordedQueue>,
     pub(super) database: TestDatabase,
+    pub(super) followers: Arc<SessionEventFollowers>,
     _home: TempDir,
 }
 
 impl LiveCodexSession {
     /// The session with `steers` sent into its turn and not yet echoed.
     pub(super) async fn start(steers: &[QueueItemId]) -> Self {
-        Self::open(Some(steers)).await
+        Self::open(Some(steers), &[]).await
     }
 
     /// The session with no turn running, its run bound but not started.
     pub(super) async fn idle() -> Self {
-        Self::open(None).await
+        Self::open(None, &[]).await
     }
 
-    // The session, its run on a turn with `steers` unechoed in it where they are given.
-    async fn open(steers: Option<&[QueueItemId]>) -> Self {
+    /// The session running on [`TEST_TURN`] with `released`, notifications Codex sent before its
+    /// task ran, routed as one batch its task applies first.
+    pub(super) async fn with_released(released: &[Value]) -> Self {
+        Self::open(Some(&[]), released).await
+    }
+
+    // The session, its run on a turn with `steers` unechoed in it where they are given, and
+    // `released` routed for its task to apply first.
+    async fn open(steers: Option<&[QueueItemId]>, released: &[Value]) -> Self {
         let scripted = start_scripted_codex_service();
         let database = TestDatabase::new();
         let log = open_log(&database, None).await;
@@ -111,7 +122,7 @@ impl LiveCodexSession {
             Arc::clone(&engine),
             Arc::clone(&epochs),
             Arc::new(UnreadRunStates),
-            log.service,
+            Arc::clone(&log.service),
         ));
         let session_id =
             SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
@@ -174,7 +185,7 @@ impl LiveCodexSession {
             .await
             .expect("the session's slot is free")
             .install(inbound.clone());
-        let (mut record, routing) = open_test_record(
+        let (mut record, mut routing) = open_test_record(
             &scripted,
             session_id,
             inbound,
@@ -182,6 +193,8 @@ impl LiveCodexSession {
             parts.pending_compactions.clone(),
         )
         .await;
+        // As the run's turn start adopts its binding.
+        record.binding_id = Some(binding_id.clone());
         if let Some(steers) = steers {
             record.add_active_turn(TEST_TURN.to_owned(), run_id);
             parts.run_routes.bind_run(run_id, session_id);
@@ -191,10 +204,21 @@ impl LiveCodexSession {
                     .insert(TEST_TURN.to_owned(), steers.to_vec());
             }
         }
+        let mut routed = CodexRoutedFrames::default();
+        for frame in released {
+            let method = frame["method"]
+                .as_str()
+                .expect("a notification names its method");
+            let params = RawValue::from_string(frame["params"].to_string())
+                .expect("a notification's params are JSON");
+            routed.extend(
+                routing
+                    .route_notification(&parts.delivery, &mut record, method.to_owned(), params)
+                    .await,
+            );
+        }
         let intake = CodexSessionIntake::new(record, routing, Arc::clone(&parts));
-        driver
-            .tasks
-            .spawn(intake.run(receiver, CodexRoutedFrames::default()));
+        driver.tasks.spawn(intake.run(receiver, routed));
         Self {
             driver,
             session_id,
@@ -203,6 +227,7 @@ impl LiveCodexSession {
             scripted,
             queue,
             database,
+            followers: log.followers,
             _home: home,
         }
     }

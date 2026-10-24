@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use serde_json::json;
+use serde_json::{Value, json};
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -91,4 +91,77 @@ async fn the_steers_a_prompt_hook_refused_are_refused_with_its_words_and_never_t
         ]
     );
     assert_eq!(*lock(&session.queue.taken), [echoed.to_string()]);
+}
+
+// Real time under a timeout, since the run engine writes the row through the database writer.
+// Killed by dropping the context-window readings from the session task's `apply`, and by reading
+// each reading's run after the batch's turn ends retired their routes: no row would be filed, or
+// the one of a turn that ended in the same batch would name no run.
+#[tokio::test]
+async fn a_token_usage_reading_files_the_context_window_on_its_run_even_as_its_turn_ends() {
+    let usage = json!({
+        "jsonrpc": "2.0",
+        "method": "thread/tokenUsage/updated",
+        "params": {
+            "threadId": TEST_THREAD,
+            "turnId": TEST_TURN,
+            "tokenUsage": {
+                "total": {"inputTokens": 1_200, "outputTokens": 300, "totalTokens": 1_500},
+                "last": {"inputTokens": 1_200, "outputTokens": 300, "totalTokens": 1_500},
+                "modelContextWindow": 258_400,
+            },
+        },
+    });
+    let live = LiveCodexSession::start(&[]).await;
+    live.scripted.script.send(&usage);
+    let ended_with_it = LiveCodexSession::with_released(&[
+        usage,
+        turn_completed(TEST_THREAD, TEST_TURN, "completed"),
+    ])
+    .await;
+
+    for session in [&live, &ended_with_it] {
+        assert_eq!(
+            wait_for_context_windows(session).await,
+            [json!({
+                "sessionId": session.session_id.to_string(),
+                "runId": session.run_id.to_string(),
+                "windowUsedTokens": 1_500,
+                "windowMaxTokens": 258_400,
+                "windowSource": "providerReported",
+                "exceeded": false,
+            })]
+        );
+    }
+}
+
+// The session's `usage.contextWindow.updated` payloads, once one is written.
+async fn wait_for_context_windows(session: &LiveCodexSession) -> Vec<Value> {
+    let mut changes = session.followers.change_count(&session.session_id);
+    loop {
+        let payloads: Vec<Value> = session
+            .database
+            .reader()
+            .prepare(
+                "SELECT payload FROM session_events \
+                 WHERE session_id = ?1 AND type = 'usage.contextWindow.updated' ORDER BY sequence",
+            )
+            .expect("the test reads the session's events")
+            .query_map([session.session_id.to_string()], |row| {
+                row.get::<_, String>(0)
+            })
+            .expect("the session's events read")
+            .map(|payload| {
+                serde_json::from_str(&payload.expect("each event reads"))
+                    .expect("a stored payload is JSON")
+            })
+            .collect();
+        if !payloads.is_empty() {
+            return payloads;
+        }
+        tokio::time::timeout(Duration::from_secs(10), changes.changed())
+            .await
+            .expect("the session's task files the reading")
+            .expect("the followers stay open");
+    }
 }
