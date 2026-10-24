@@ -137,6 +137,7 @@ pub(crate) enum CodexInboundMethod {
     ThreadClosed,
     ThreadStatusChanged,
     ServerRequestResolved,
+    HookCompleted,
     SkillsChanged,
     ThreadGoalUpdated,
     ThreadGoalCleared,
@@ -213,6 +214,7 @@ impl CodexInboundMethod {
             Self::ThreadClosed => "thread/closed",
             Self::ThreadStatusChanged => CODEX_THREAD_STATUS_CHANGED_METHOD,
             Self::ServerRequestResolved => "serverRequest/resolved",
+            Self::HookCompleted => "hook/completed",
             Self::SkillsChanged => CODEX_SKILLS_CHANGED_METHOD,
             Self::ThreadGoalUpdated => "thread/goal/updated",
             Self::ThreadGoalCleared => "thread/goal/cleared",
@@ -322,6 +324,10 @@ impl CodexInboundMethod {
             Self::ServerRequestResolved => notification(
                 ASK,
                 Reads("Codex settled a request itself, so its held answer is let go"),
+            ),
+            Self::HookCompleted => notification(
+                CONTENT,
+                Reads("a prompt the person's own hook blocked, refused at its turn's end"),
             ),
             Self::SkillsChanged => {
                 notification(CONNECTION, Reads("the held command list is read again"))

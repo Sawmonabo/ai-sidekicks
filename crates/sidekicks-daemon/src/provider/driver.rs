@@ -471,10 +471,6 @@ pub(crate) trait SessionSpawnContextResolver: Send + Sync {
     /// The current credential generation of `provider_account_id`'s account, from the accounts
     /// store, which a reading of the account carries so one from before a sign-in again reads as
     /// stale. Fails when the account cannot be read.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver's rate-limit readings carry the account's credential generation"
-    )]
     fn read_credential_generation(
         &self,
         provider_account_id: ProviderAccountId,

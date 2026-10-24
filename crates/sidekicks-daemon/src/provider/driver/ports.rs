@@ -9,6 +9,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::provider::callback_tools::host::CallbackToolHost;
@@ -34,6 +35,18 @@ pub(crate) trait MessageTakenListener: Send + Sync {
     /// The provider took the message `message_id`, which the queue handed it, into `run_id`'s turn
     /// on `session_id`.
     fn message_taken(&self, session_id: SessionId, message_id: &str, run_id: RunId);
+}
+
+/// The run queue's intake of a message the provider refused after the queue handed it.
+pub(crate) trait MessageRefusedListener: Send + Sync {
+    /// The provider refused the message `message_id`, which the queue handed it on `session_id`,
+    /// for `reason`.
+    fn message_refused(
+        &self,
+        session_id: SessionId,
+        message_id: &str,
+        reason: QueueItemNotDeliveredReason,
+    );
 }
 
 /// The run queue's intake of a session's provider process that ended, on its own or for a move to
@@ -81,6 +94,8 @@ pub(crate) struct DriverPorts {
     pub(crate) repositories: Arc<PortRegistration<Arc<dyn RepositoryReader>>>,
     /// The run queue's intake of a taken message.
     pub(crate) message_taken: Arc<PortRegistration<Arc<dyn MessageTakenListener>>>,
+    /// The run queue's intake of a handed message the provider refused.
+    pub(crate) message_refused: Arc<PortRegistration<Arc<dyn MessageRefusedListener>>>,
     /// The session directory's intake of a relaunch.
     pub(crate) session_relaunched: Arc<PortRegistration<Arc<dyn SessionRelaunchListener>>>,
     /// The run queue's intake of an ended process.
@@ -122,6 +137,7 @@ impl DriverPorts {
             daemon_turn_bindings: Arc::new(PortRegistration::new("daemon turn bindings")),
             repositories: Arc::new(PortRegistration::new("repositories")),
             message_taken: Arc::new(PortRegistration::new("message taken")),
+            message_refused: Arc::new(PortRegistration::new("message refused")),
             session_relaunched: Arc::new(PortRegistration::new("session relaunched")),
             process_gone: Arc::new(PortRegistration::new("process gone")),
             usage: Arc::new(PortRegistration::new("usage")),

@@ -14,6 +14,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
@@ -29,7 +30,9 @@ use crate::provider::driver::codex::notification_routing::{
 };
 use crate::provider::driver::codex::output_speed::observe_codex_output_speed_frame;
 use crate::provider::driver::codex::run::self_started_turns::open_codex_self_started_turn;
-use crate::provider::driver::codex::run::steer::take_echoed_codex_steer;
+use crate::provider::driver::codex::run::steer::{
+    remember_blocked_codex_prompt, take_blocked_codex_steers, take_echoed_codex_steer,
+};
 use crate::provider::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnEndWaiters};
 use crate::provider::driver::codex::server_requests::{
     CodexInboundServerRequest, CodexServerRequestDecision,
@@ -186,7 +189,25 @@ impl CodexSessionIntake {
                     listener.message_taken(self.session_id, &message_id.to_string(), run_id);
                 }
             }
+            for blocked in dispatch.blocked_prompts {
+                if let Some(turn_id) = blocked.turn_id {
+                    remember_blocked_codex_prompt(record, &turn_id, &blocked.words);
+                } else {
+                    tracing::debug!("a blocked codex prompt names no turn");
+                }
+            }
             for ended in dispatch.turns_ended {
+                // Before the queue registers its intake there is no queue to tell.
+                let refused = take_blocked_codex_steers(record, &ended.turn_id);
+                if let Some(listener) = parts.ports.message_refused.port() {
+                    for (message_id, words) in refused {
+                        listener.message_refused(
+                            self.session_id,
+                            &message_id.to_string(),
+                            QueueItemNotDeliveredReason::RefusedByHook { words },
+                        );
+                    }
+                }
                 if let Some(turn_end) = ended.turn_end {
                     record_turn_end(parts, ended.run_id, turn_end).await;
                 }

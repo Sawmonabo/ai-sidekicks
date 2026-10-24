@@ -10,6 +10,8 @@ mod naming;
 mod runs;
 mod service_events;
 mod sessions;
+#[cfg(test)]
+mod tests;
 mod views;
 
 use std::collections::HashSet;

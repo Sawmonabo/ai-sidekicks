@@ -72,8 +72,8 @@ use crate::provider::driver::codex::session::establishment::{
 use crate::provider::driver::codex::session::fork::CodexForkDependencies;
 use crate::provider::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::provider::driver::codex::session::inbound::{
-    CodexSessionCall, CodexSessionInbound, CodexSessionInboundHandler, codex_session_inbound,
-    drain_codex_session_inbound,
+    CodexSessionCall, CodexSessionInbound, CodexSessionInboundHandler, CodexSessionInboundSender,
+    codex_session_inbound, drain_codex_session_inbound,
 };
 use crate::provider::driver::codex::session::slots::CodexSessionSlots;
 use crate::provider::driver::codex::session::state::{
@@ -189,10 +189,14 @@ impl TestCodexSession {
             .await
             .expect("the session's slot is free")
             .install(inbound.clone());
-        scripted.service.attach_session(inbound.clone());
-        scripted
-            .service
-            .register_thread(TEST_THREAD.to_owned(), session_id);
+        let (record, routing) = open_test_record(
+            &scripted,
+            session_id,
+            inbound,
+            &delivery,
+            pending_compactions.clone(),
+        )
+        .await;
         let (items_sender, items) = mpsc::unbounded_channel();
         tokio::spawn(async move {
             drain_codex_session_inbound(
@@ -203,34 +207,6 @@ impl TestCodexSession {
             )
             .await;
         });
-        let thread_settings = test_thread_settings(session_id);
-        let mut routing = CodexSessionRouting::new(pending_compactions.clone());
-        let mut record = CodexSessionRecord::new(CodexEstablishedConversation {
-            session_id,
-            service: Arc::clone(&scripted.service),
-            inbound,
-            thread_id: TEST_THREAD.to_owned(),
-            binding_id: None,
-            provider_account_id: None,
-            turn_boundaries: Vec::new(),
-            thread_settings,
-            execution_posture: compose_execution_posture(
-                PermissionLevel::Readonly,
-                FilesystemPath::new("/".to_owned()).expect("the root is a path"),
-            ),
-            session_mode: SessionMode::Build,
-            output_speed_request: None,
-            declared_output_speed: None,
-            reasoning_effort: None,
-        });
-        routing
-            .bind_session_thread(
-                &delivery,
-                &mut record,
-                TEST_THREAD.to_owned(),
-                crate::provider::usage_delta_accountant::ThreadBaseEstablishment::Fresh,
-            )
-            .await;
         let config_forks = Arc::new(CodexConfigForks::new(
             Arc::clone(&slots),
             TaskTracker::new(),
@@ -251,10 +227,7 @@ impl TestCodexSession {
                 disposal: Arc::new(NoDisposal),
             },
         };
-        let daemon_turn_bindings = Arc::new(TestDaemonTurnBindings {
-            agent_id: lead_agent_id,
-            binding_id: Mutex::new(None),
-        });
+        let daemon_turn_bindings = Arc::new(TestDaemonTurnBindings::new(lead_agent_id));
         let run_start = Arc::new(CodexRunStart::new(CodexRunStartDependencies {
             slots: Arc::clone(&slots),
             config_forks,
@@ -501,6 +474,49 @@ impl TestCodexTask {
     }
 }
 
+/// The record of `session_id`'s conversation [`TEST_THREAD`] at Ask on `scripted`'s service, its
+/// queue `inbound` attached there and its frames routed through `delivery`, and its routing band.
+pub(crate) async fn open_test_record(
+    scripted: &ScriptedCodexService,
+    session_id: SessionId,
+    inbound: CodexSessionInboundSender,
+    delivery: &Arc<CodexFrameDelivery>,
+    pending_compactions: PendingCompactionRegistry,
+) -> (CodexSessionRecord, CodexSessionRouting) {
+    scripted.service.attach_session(inbound.clone());
+    scripted
+        .service
+        .register_thread(TEST_THREAD.to_owned(), session_id);
+    let mut routing = CodexSessionRouting::new(pending_compactions);
+    let mut record = CodexSessionRecord::new(CodexEstablishedConversation {
+        session_id,
+        service: Arc::clone(&scripted.service),
+        inbound,
+        thread_id: TEST_THREAD.to_owned(),
+        binding_id: None,
+        provider_account_id: None,
+        turn_boundaries: Vec::new(),
+        thread_settings: test_thread_settings(session_id),
+        execution_posture: compose_execution_posture(
+            PermissionLevel::Readonly,
+            FilesystemPath::new("/".to_owned()).expect("the root is a path"),
+        ),
+        session_mode: SessionMode::Build,
+        output_speed_request: None,
+        declared_output_speed: None,
+        reasoning_effort: None,
+    });
+    routing
+        .bind_session_thread(
+            delivery,
+            &mut record,
+            TEST_THREAD.to_owned(),
+            crate::provider::usage_delta_accountant::ThreadBaseEstablishment::Fresh,
+        )
+        .await;
+    (record, routing)
+}
+
 /// The settings of a test session's conversation at Ask.
 pub(crate) fn test_thread_settings(session_id: SessionId) -> CodexThreadSettings {
     CodexThreadSettings {
@@ -606,6 +622,14 @@ pub(crate) struct TestDaemonTurnBindings {
 }
 
 impl TestDaemonTurnBindings {
+    /// Opens no turn until [`Self::open_on`] names a binding.
+    pub(crate) fn new(agent_id: AgentId) -> Self {
+        Self {
+            agent_id,
+            binding_id: Mutex::new(None),
+        }
+    }
+
     /// Opens every later turn on `binding_id`.
     pub(crate) fn open_on(&self, binding_id: RuntimeBindingId) {
         *self.lock() = Some(binding_id);
@@ -709,7 +733,7 @@ impl CodexSessionInboundHandler for ItemsToTest {
 }
 
 /// A run-state stream no one reads.
-struct UnreadRunStates;
+pub(crate) struct UnreadRunStates;
 
 impl crate::provider::port::run_state_publisher::RunStatePublisher for UnreadRunStates {
     fn publish(

@@ -129,6 +129,9 @@ pub(crate) struct CodexSessionRecord {
     /// each registered before its `turn/steer` is written: an echo takes one, and an interrupt
     /// cancels what its turn still holds.
     pub(crate) unechoed_steers_by_turn_id: HashMap<String, Vec<QueueItemId>>,
+    /// The words of each prompt the person's own `userPromptSubmit` hook kept out of a live turn,
+    /// by turn id, in the order Codex reported them; each leaves with its turn's end.
+    pub(crate) blocked_prompt_words_by_turn_id: HashMap<String, Vec<String>>,
     /// The newest steer sent on the conversation, settled either way; the next waits for it, so
     /// steers reach Codex one at a time in the order they were handed over.
     pub(crate) last_steer_send: Option<Shared<BoxFuture<'static, ()>>>,
@@ -210,6 +213,7 @@ impl CodexSessionRecord {
             interrupted_run_by_turn_id: Vec::new(),
             interrupting_turn_ids: HashSet::new(),
             unechoed_steers_by_turn_id: HashMap::new(),
+            blocked_prompt_words_by_turn_id: HashMap::new(),
             last_steer_send: None,
             pause_run_id_by_turn_id: HashMap::new(),
             paused_run_id_by_interrupted_turn_id: HashMap::new(),

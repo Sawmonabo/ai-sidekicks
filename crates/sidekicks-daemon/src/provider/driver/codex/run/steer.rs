@@ -2,15 +2,19 @@
 //! record before it is written, as sent and not yet echoed on its turn, since Codex can write the
 //! message's echo before it answers the request; steers on one conversation go out one at a time,
 //! each once Codex answered the one before, in the order they were registered; and none is sent
-//! into a turn that ended or that an interrupt is stopping.
+//! into a turn that ended or that an interrupt is stopping. A steer the person's own
+//! `userPromptSubmit` hook keeps out of its turn is never echoed; at the turn's end it is paired
+//! with the hook's words.
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 
+use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
+use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::oneshot;
 
 use crate::provider::driver::codex::app_server_protocol::{TurnSteerParams, UserInput};
@@ -22,7 +26,7 @@ use crate::provider::driver::codex::session::inbound::{
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
 use crate::provider::driver::codex::thread::view::read_steered_turn_id;
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::contract::{DriverError, bound_failure_detail};
 use crate::provider::driver::run_control::SteerTurnEndedError;
 
 /// Codex's request that adds input to a running turn.
@@ -36,6 +40,13 @@ const CODEX_STEER_TURN_GONE_MESSAGES: [&str; 4] = [
     "cannot steer a review turn",
     "compact turn",
 ];
+
+/// What a refused steer reads when its hook gave no words of its own.
+static BLOCKED_STEER_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
+    LazyLock::new(|| {
+        FreeFormText::new("A prompt hook refused this message.".to_owned())
+            .expect("the fallback is non-blank and within the cap")
+    });
 
 /// One steer registered on its record and waiting to be written, off the session's task.
 pub(crate) struct CodexSteerSend {
@@ -214,6 +225,56 @@ pub(crate) fn take_echoed_codex_steer(
         record.unechoed_steers_by_turn_id.remove(turn_id);
     }
     Some(message_id)
+}
+
+/// Remembers, on the session's task, a prompt the person's own `userPromptSubmit` hook kept out of
+/// the turn `turn_id`, with the hook's `words`, until that turn ends; a turn that is not live keeps
+/// nothing, since no end would let it go.
+pub(crate) fn remember_blocked_codex_prompt(
+    record: &mut CodexSessionRecord,
+    turn_id: &str,
+    words: &[String],
+) {
+    if record.active_turn_run(turn_id).is_none() {
+        tracing::debug!(turn_id, "a blocked codex prompt names no live turn");
+        return;
+    }
+    record
+        .blocked_prompt_words_by_turn_id
+        .entry(turn_id.to_owned())
+        .or_default()
+        .push(words.join("\n"));
+}
+
+/// Takes, on the session's task, the steers the person's own `userPromptSubmit` hook kept out of
+/// the turn `turn_id`, which ended, each with its hook's words. Codex echoes every steer its hooks
+/// let through and reports each hook run in the steers' order, so the steers still unechoed are
+/// the blocked ones; a block reported ahead of them is the turn's opening prompt's, never a steer.
+pub(crate) fn take_blocked_codex_steers(
+    record: &mut CodexSessionRecord,
+    turn_id: &str,
+) -> Vec<(QueueItemId, FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>)> {
+    let Some(blocked) = record.blocked_prompt_words_by_turn_id.remove(turn_id) else {
+        return Vec::new();
+    };
+    let Some(unechoed) = record.unechoed_steers_by_turn_id.get_mut(turn_id) else {
+        return Vec::new();
+    };
+    let opening_blocks = blocked.len().saturating_sub(unechoed.len());
+    let refused: Vec<_> = unechoed
+        .drain(..blocked.len() - opening_blocks)
+        .zip(&blocked[opening_blocks..])
+        .map(|(message_id, words)| {
+            (
+                message_id,
+                bound_failure_detail(words, BLOCKED_STEER_FALLBACK.clone()),
+            )
+        })
+        .collect();
+    if unechoed.is_empty() {
+        record.unechoed_steers_by_turn_id.remove(turn_id);
+    }
+    refused
 }
 
 // Codex refuses a steer whose turn ended before it arrived, and the turn's end reaches the daemon
