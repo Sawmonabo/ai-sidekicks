@@ -1,6 +1,8 @@
 //! The macOS and Linux side of the terminal interface: POSIX signals, the keys a terminal turns
 //! into signals, the PTY's window size and a poller over the terminal and its program's exit,
-//! whose descriptor the runtime watches.
+//! whose descriptor the runtime watches; `inner` starts a command in a terminal of its own.
+
+pub(crate) mod inner;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -8,22 +10,24 @@ use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::future::{pending, ready};
 use std::io::{self, ErrorKind, Read, Write};
-use std::mem::MaybeUninit;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::ptr;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 use std::time::{Duration, Instant};
 
 use alacritty_terminal::tty::{self, ChildEvent, EventedPty, EventedReadWrite, Pty};
 use nix::errno::Errno;
 use nix::sys::signal::{Signal, kill};
-use nix::unistd::Pid;
+use nix::sys::termios::{LocalFlags, SpecialCharacterIndices, tcgetattr, tcgetsid};
+use nix::unistd::{Pid, tcgetpgrp};
 use polling::{Event, Events, PollMode, Poller};
 use tokio::io::Interest;
 use tokio::io::unix::AsyncFd;
 
+#[cfg(target_os = "linux")]
+use crate::linux::input_wait::read_queued_input_bytes;
 use crate::posix::process::exit::wait_for_exit;
 use crate::posix::process::group::signal_group;
 use crate::posix::process::id::system_process_id;
@@ -31,8 +35,8 @@ use crate::spawner::Spawner;
 #[cfg(any(test, feature = "test-support"))]
 use crate::terminal::{AbnormalExit, TestProgram};
 use crate::terminal::{
-    ConsoleReading, ProcessTreeEnd, TerminalInputRefusal, TerminalSignal, TerminalSignalRoute,
-    TerminalWake, TerminalWaker,
+    ConsoleReading, ProcessTreeEnd, TerminalInputRefusal, TerminalMasterReading, TerminalSignal,
+    TerminalSignalRoute, TerminalWake, TerminalWaker,
 };
 
 /// How `signal` reaches a shell's program: on macOS and Linux every signal is sent as itself.
@@ -377,32 +381,24 @@ impl TerminalWatch {
     /// input. Fails with the system's error when the settings cannot be read or the signal cannot
     /// be sent.
     pub fn send_signal_key(&self, key: u8) -> io::Result<bool> {
-        let descriptor = self.master.as_raw_fd();
-        let mut settings = MaybeUninit::<libc::termios>::uninit();
-        // SAFETY: the descriptor is the watch's open duplicate of the master, and the pointer names
-        // a live local the call fills on success. Linux hands back the program's side's settings,
-        // and macOS keeps one record for both sides.
-        if unsafe { libc::tcgetattr(descriptor, settings.as_mut_ptr()) } != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: `tcgetattr` succeeded, so it filled the whole struct.
-        let settings = unsafe { settings.assume_init() };
-        if settings.c_lflag & libc::ISIG == 0 {
+        let settings = tcgetattr(self.master.as_fd()).map_err(io::Error::from)?;
+        if !settings.local_flags.contains(LocalFlags::ISIG) {
             return Ok(false);
         }
         let bound = [
-            (libc::VINTR, libc::SIGINT),
-            (libc::VQUIT, libc::SIGQUIT),
-            (libc::VSUSP, libc::SIGTSTP),
+            (SpecialCharacterIndices::VINTR, libc::SIGINT),
+            (SpecialCharacterIndices::VQUIT, libc::SIGQUIT),
+            (SpecialCharacterIndices::VSUSP, libc::SIGTSTP),
         ]
         .into_iter()
         .find(|(character, _signal)| {
-            let bound_key = settings.c_cc[*character];
+            let bound_key = settings.control_chars[*character as usize];
             bound_key != libc::_POSIX_VDISABLE && bound_key == key
         });
         let Some((_character, signal)) = bound else {
             return Ok(false);
         };
+        let descriptor = self.master.as_raw_fd();
         // SAFETY: the descriptor is the watch's open duplicate of the master, and `TIOCSIG` takes
         // the signal number itself as its argument.
         if unsafe { libc::ioctl(descriptor, libc::c_ulong::from(libc::TIOCSIG), signal) } != 0 {
@@ -562,6 +558,92 @@ impl TerminalWatch {
             );
         }
     }
+}
+
+// `FIONREAD`, which Linux also names `TIOCINQ`: the bytes a terminal's descriptor counts as
+// queued.
+nix::ioctl_read_bad!(read_queued_byte_count, libc::FIONREAD, libc::c_int);
+
+/// The bytes `FIONREAD` counts on `descriptor`, a terminal's master or its program's side. Fails
+/// with the system's error when the read is refused.
+pub(crate) fn read_queued_bytes(descriptor: BorrowedFd<'_>) -> io::Result<u32> {
+    let mut queued_bytes: libc::c_int = 0;
+    // SAFETY: the descriptor is open for the call, and the pointer names a live local the call
+    // fills with one integer.
+    unsafe { read_queued_byte_count(descriptor.as_raw_fd(), &raw mut queued_bytes) }
+        .map_err(io::Error::from)?;
+    u32::try_from(queued_bytes).map_err(|error| {
+        io::Error::new(
+            ErrorKind::InvalidData,
+            format!("the terminal counts {queued_bytes} queued bytes: {error}"),
+        )
+    })
+}
+
+/// What the master of `pty` shows of its terminal, read with no right over its program; a Linux
+/// input count that cannot be read is absent and logged once for `peer_failure_noted`, which the
+/// holder keeps one of per terminal. Fails with the system's error when a read of the master is
+/// refused, and with `InvalidData` when the terminal has no session or no foreground group.
+#[cfg_attr(
+    not(target_os = "linux"),
+    expect(
+        unused_variables,
+        reason = "macOS counts the program's input on the master, which cannot fail on its own"
+    )
+)]
+pub fn read_terminal_master(
+    pty: &Pty,
+    peer_failure_noted: &Once,
+) -> io::Result<TerminalMasterReading> {
+    let master = pty.file().as_fd();
+    let session_leader = process_group_id(
+        "session",
+        tcgetsid(master).map_err(io::Error::from)?.as_raw(),
+    )?;
+    let foreground_group = process_group_id(
+        "foreground group",
+        tcgetpgrp(master).map_err(io::Error::from)?.as_raw(),
+    )?;
+    let master_queued_bytes = read_queued_bytes(master)?;
+    // Linux hands back the program's side's settings, and macOS keeps one record for both sides,
+    // so its master counts the program's unread input; Linux counts it on the program's side,
+    // opened from the master for that count alone.
+    let settings = tcgetattr(master).map_err(io::Error::from)?;
+    #[cfg(not(target_os = "linux"))]
+    let queued_input_bytes = Some(master_queued_bytes);
+    #[cfg(target_os = "linux")]
+    let queued_input_bytes = match read_queued_input_bytes(master) {
+        Ok(queued_bytes) => Some(queued_bytes),
+        Err(error) => {
+            peer_failure_noted.call_once(|| {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "a terminal's program side could not be opened to count its input, so its \
+                     commands read as not waiting"
+                );
+            });
+            None
+        }
+    };
+    Ok(TerminalMasterReading {
+        session_leader,
+        foreground_group,
+        queued_input_bytes,
+        #[cfg(target_os = "linux")]
+        unread_output_bytes: master_queued_bytes,
+        is_echo_on: settings.local_flags.contains(LocalFlags::ECHO),
+        is_canonical: settings.local_flags.contains(LocalFlags::ICANON),
+    })
+}
+
+// The id a terminal names its `kind` of process group by, which is its leader's process id.
+fn process_group_id(kind: &str, id: libc::pid_t) -> io::Result<u32> {
+    u32::try_from(id).ok().filter(|id| *id > 0).ok_or_else(|| {
+        io::Error::new(
+            ErrorKind::InvalidData,
+            format!("the terminal names no {kind} ({id})"),
+        )
+    })
 }
 
 /// Completes when `deadline` passes, and never without one.

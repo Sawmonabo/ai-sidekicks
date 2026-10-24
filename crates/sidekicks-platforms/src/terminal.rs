@@ -7,10 +7,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use alacritty_terminal::tty::Pty;
 use polling::Poller;
 
-/// How long a helper program the terminals start (`taskkill.exe`, the console helper) may run, and
-/// how long an outright end of a process tree is waited for before its exit is reported anyway.
+/// How long a helper program the terminals start (`taskkill.exe`, the console helper, and on macOS
+/// the input wait's `sample` and `ps`) may run, and how long an outright end of a process tree is
+/// waited for before its exit is reported anyway.
 pub const HELPER_PROGRAM_TIME_LIMIT: Duration = Duration::from_secs(5);
 
 /// A signal the daemon sends a shell's program, named as POSIX names it.
@@ -83,6 +85,54 @@ pub struct ConsoleReading {
     pub is_echo_input: bool,
     /// Whether the console hands input over a line at a time (`ENABLE_LINE_INPUT`).
     pub is_line_input: bool,
+}
+
+/// What a terminal's master shows of the terminal, read by whoever holds the master: its session
+/// and foreground process group, the input queued for its program, on Linux the output queued for
+/// the master, and its echo and line settings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerminalMasterReading {
+    /// The terminal's session, named by its leader's process id: the command the terminal started.
+    pub session_leader: u32,
+    /// The terminal's foreground process group, named by its leader's process id.
+    pub foreground_group: u32,
+    /// The input the program can read now, whole lines only in canonical mode; a pending
+    /// end-of-file counts on macOS and not on Linux. Absent only on Linux, when the program's side
+    /// could not be opened to count it.
+    pub queued_input_bytes: Option<u32>,
+    /// The program's output the master has not read yet (`FIONREAD` on the master), which Linux
+    /// alone counts apart from the program's input.
+    #[cfg(target_os = "linux")]
+    pub(crate) unread_output_bytes: u32,
+    /// Whether the terminal echoes what is typed (`ECHO`).
+    pub is_echo_on: bool,
+    /// Whether the terminal hands input over a line at a time (`ICANON`).
+    pub is_canonical: bool,
+}
+
+impl TerminalMasterReading {
+    /// Whether the terminal is set as a password prompt sets it: a line at a time with echo off. A
+    /// full-screen program turns line input off with echo, so it is not one.
+    #[cfg(unix)]
+    pub(crate) fn is_password_prompt(&self) -> bool {
+        self.is_canonical && !self.is_echo_on
+    }
+}
+
+/// The device number of a terminal's program side, which tells a descriptor open on that terminal
+/// from every other, whatever path opened it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TerminalDevice(pub u64);
+
+/// A terminal a command runs in as its own session's leader, the terminal its controlling one: the
+/// open PTY, whose master reads the command's output and takes its input, and the device number
+/// of its program side. Dropping it sends the leader SIGHUP and waits for it to exit, so a leader
+/// that ignores SIGHUP hangs the drop: its owner ends the command's group first.
+pub struct InnerTerminal {
+    /// The open PTY, with the command it started.
+    pub pty: Pty,
+    /// The device number of the PTY's program side.
+    pub device: TerminalDevice,
 }
 
 /// Wakes a terminal's read loop from any thread; it can be made before the loop runs, and a wake
