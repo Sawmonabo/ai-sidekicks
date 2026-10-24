@@ -3,19 +3,25 @@
 //! session's model. The run goes on in the new turn under its binding; nothing is drawn twice. An
 //! interrupt of the run while it retries stops the retry, which then forks and sends nothing more;
 //! one that comes once the fork has begun leaves the session on the fork, since the conversation
-//! it left is already let go, and sends the turn only when it comes too late to keep it back.
+//! it left is already let go, and sends the turn only when it comes too late to keep it back. The
+//! steers the held turn dropped unechoed are given back to the queue once the new turn runs, so
+//! the queue's next hand finds it, answered to the interrupt that stopped the retry, or given back
+//! before a failed retry fails the run.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use tokio_util::sync::CancellationToken;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::provider::driver::codex::run::control::fail_codex_run;
+use crate::provider::driver::codex::run::control::record::CodexRunControlCall;
 use crate::provider::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
 use crate::provider::driver::codex::run::start::record::{
     CodexRunCallDependencies, CodexTurnRequest,
@@ -34,7 +40,9 @@ use crate::provider::driver::codex::session::inbound::{
 use crate::provider::driver::codex::session::slots::CodexSessionSlots;
 use crate::provider::driver::codex::session::state::{CodexSessionRecord, CodexTurnInput};
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
+use crate::provider::driver::ports::MessageGivenBackListener;
 use crate::provider::driver::run_control::{FasterModelRetryOutcome, FasterModelRetryParams};
+use crate::provider::port::registration::PortRegistration;
 use crate::session::run::inbound::RunInboundDispatch;
 
 const NOT_LATEST_REJECTION: &str = "The turn is no longer the run's latest.";
@@ -70,15 +78,20 @@ pub(crate) struct CodexFasterModelRetryDependencies {
     pub(crate) run_start: Arc<CodexRunStart>,
     /// The run engine's dispatch, which takes the failed run's end.
     pub(crate) dispatch: Arc<RunInboundDispatch>,
+    /// The queue's intake of the steers the held turn dropped, given back once the retry settles.
+    pub(crate) message_given_back: Arc<PortRegistration<Arc<dyn MessageGivenBackListener>>>,
 }
 
-/// A retry an interrupt stopped: its session, and the conversation its held turn ran on.
+/// A retry an interrupt stopped: its session, the conversation its held turn ran on, and the
+/// steers that turn dropped unechoed, which the interrupt answers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexStoppedRetry {
     /// The session.
     pub(crate) session_id: SessionId,
     /// The conversation the held turn ran on.
     pub(crate) held_thread_id: String,
+    /// The messages of the steers the held turn dropped, in send order.
+    pub(crate) dropped_steers: Vec<QueueItemId>,
 }
 
 /// Retries held turns on a faster model, and stops a retry its run's interrupt reaches.
@@ -87,16 +100,16 @@ pub(crate) struct CodexFasterModelRetries {
     in_flight_by_run: Mutex<HashMap<RunId, Arc<CodexRetryInFlight>>>,
 }
 
-// One retry in flight: its session, the conversation its held turn ran on, the answer to its
-// interrupt, whether it has begun to fork or was stopped, and its end. The stop is shared with the
-// turn's start, which the session's task refuses once it is set.
+// One retry in flight: its session, the conversation its held turn ran on, its end, whether it was
+// stopped, and the steers its held turn dropped. The stop is shared with the turn's start, which
+// the session's task refuses once it is set. The steers are kept for the interrupt that stopped the
+// retry once it settled; every other end gives them back itself.
 struct CodexRetryInFlight {
     inbound: CodexSessionInboundSender,
     held_thread_id: String,
-    interrupt_answered: CancellationToken,
     settled: CancellationToken,
-    is_forking: AtomicBool,
     is_canceled: Arc<AtomicBool>,
+    dropped_steers: Mutex<Vec<QueueItemId>>,
 }
 
 impl CodexFasterModelRetries {
@@ -135,15 +148,14 @@ impl CodexFasterModelRetries {
         let in_flight = Arc::new(CodexRetryInFlight {
             inbound,
             held_thread_id: stop.thread_id.clone(),
-            interrupt_answered: CancellationToken::new(),
             settled: CancellationToken::new(),
-            is_forking: AtomicBool::new(false),
             is_canceled: Arc::new(AtomicBool::new(false)),
+            dropped_steers: Mutex::new(Vec::new()),
         });
-        self.lock().insert(params.run_id, Arc::clone(&in_flight));
+        lock(&self.in_flight_by_run).insert(params.run_id, Arc::clone(&in_flight));
         let outcome = self.retry_stopped(&params, &in_flight, stop, binding).await;
         {
-            let mut in_flight_by_run = self.lock();
+            let mut in_flight_by_run = lock(&self.in_flight_by_run);
             if in_flight_by_run
                 .get(&params.run_id)
                 .is_some_and(|kept| Arc::ptr_eq(kept, &in_flight))
@@ -155,25 +167,22 @@ impl CodexFasterModelRetries {
         outcome
     }
 
-    /// Stops the retry of `run_id` in flight, answering the session and the conversation its held
-    /// turn ran on when that stopped the run: the retry forks and sends nothing more. A retry that
-    /// has begun to fork is waited for, so the session is on its one conversation when this
-    /// answers. Answers `None` with no retry in flight, and once a turn the retry kept or already
-    /// sent runs as the run's, which the interrupt then stops as any live turn. Fails as the
-    /// session's reading fails.
+    /// Stops the retry of `run_id` in flight, answering the session, the conversation its held turn
+    /// ran on and the steers that turn dropped when that stopped the run: the retry forks and sends
+    /// nothing more. The retry is waited for to its end, so the session is on its one conversation
+    /// and the held turn has ended when this answers. Answers `None` with no retry in flight, and
+    /// once a turn the retry kept or already sent runs as the run's, which the interrupt then stops
+    /// as any live turn. Fails as the session's reading fails.
     pub(crate) async fn cancel(
         &self,
         run_id: RunId,
     ) -> Result<Option<CodexStoppedRetry>, CodexError> {
-        let Some(in_flight) = self.lock().get(&run_id).map(Arc::clone) else {
+        let Some(in_flight) = lock(&self.in_flight_by_run).get(&run_id).map(Arc::clone) else {
             return Ok(None);
         };
         in_flight.is_canceled.store(true, Ordering::Release);
-        // An interrupt Codex refused leaves the held turn running as the run's.
-        in_flight.interrupt_answered.cancelled().await;
-        if in_flight.is_forking.load(Ordering::Acquire) {
-            in_flight.settled.cancelled().await;
-        }
+        in_flight.settled.cancelled().await;
+        let dropped_steers = std::mem::take(&mut *lock(&in_flight.dropped_steers));
         let reading =
             call_codex_session(&in_flight.inbound, |reply| CodexSessionCall::ReadSession {
                 thread_id: None,
@@ -184,6 +193,7 @@ impl CodexFasterModelRetries {
             (!reading.live_turn_runs.contains(&run_id)).then(|| CodexStoppedRetry {
                 session_id: in_flight.inbound.session_id(),
                 held_thread_id: in_flight.held_thread_id.clone(),
+                dropped_steers,
             }),
         )
     }
@@ -197,7 +207,6 @@ impl CodexFasterModelRetries {
     ) -> Result<FasterModelRetryOutcome, CodexError> {
         let turn_id = &params.expected_turn_id;
         let interrupted = interrupt_codex_turn(&stop.connection, &stop.thread_id, turn_id).await;
-        in_flight.interrupt_answered.cancel();
         if let Err(error) = interrupted {
             // Not stopped: the turn runs on as the run's, so the retry is refused and the run is
             // not.
@@ -218,7 +227,12 @@ impl CodexFasterModelRetries {
             .await;
         let is_canceled = in_flight.is_canceled.load(Ordering::Acquire);
         match sent {
-            Ok(true) => Ok(FasterModelRetryOutcome::Applied {}),
+            Ok(true) => {
+                // The new turn is the run's live turn now, so the queue's next hand finds it.
+                self.give_back_dropped_steers(params.session_id, in_flight);
+                Ok(FasterModelRetryOutcome::Applied {})
+            }
+            // The steers stay for the interrupt that stopped the retry, which answers them.
             Ok(false) => {
                 self.forget_stopped_run(params.run_id, &binding);
                 Ok(rejected(INTERRUPTED_REJECTION))
@@ -228,6 +242,8 @@ impl CodexFasterModelRetries {
                 Ok(rejected(INTERRUPTED_REJECTION))
             }
             Err(error) => {
+                // Given back before the run fails, so its end finds them waiting.
+                self.give_back_dropped_steers(params.session_id, in_flight);
                 fail_codex_run(
                     &self.dependencies.dispatch,
                     params.run_id,
@@ -242,8 +258,9 @@ impl CodexFasterModelRetries {
         }
     }
 
-    // Waits for the held turn's end, forks to just before it on the faster model and sends its
-    // input again there; `false` when an interrupt stopped the retry first.
+    // Waits for the held turn's end and keeps the steers it dropped, forks to just before it on the
+    // faster model and sends its input again there; `false` when an interrupt stopped the retry
+    // first.
     async fn send_again(
         &self,
         params: &FasterModelRetryParams,
@@ -261,6 +278,16 @@ impl CodexFasterModelRetries {
             Some(&CodexTurnEndDeadline::for_request()),
         )
         .await?;
+        // Codex writes every echo of the turn before its end, so what it still holds is dropped;
+        // past the deadline the run fails and they go back with it.
+        let dropped = call_codex_session(inbound, |reply| {
+            CodexSessionCall::RunControl(CodexRunControlCall::TakeDroppedSteers {
+                turn_id: turn_id.clone(),
+                reply,
+            })
+        })
+        .await?;
+        *lock(&in_flight.dropped_steers) = dropped;
         if in_flight.is_canceled.load(Ordering::Acquire) {
             return Ok(false);
         }
@@ -273,7 +300,6 @@ impl CodexFasterModelRetries {
         // The fork carries the faster model on its default window, and every later start and
         // resume carries it too. The run's binding is pointed at the fork before the turn is sent,
         // so a resume after a restart finds the fork, never the held turn.
-        in_flight.is_forking.store(true, Ordering::Release);
         let model = params.model.as_str().to_owned();
         {
             let _claim = self
@@ -323,10 +349,15 @@ impl CodexFasterModelRetries {
         }
     }
 
-    fn lock(&self) -> MutexGuard<'_, HashMap<RunId, Arc<CodexRetryInFlight>>> {
-        self.in_flight_by_run
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+    // Gives the steers the held turn dropped back to the queue; before the queue registers its
+    // intake there is no queue to tell.
+    fn give_back_dropped_steers(&self, session_id: SessionId, in_flight: &CodexRetryInFlight) {
+        let dropped = std::mem::take(&mut *lock(&in_flight.dropped_steers));
+        if let Some(listener) = self.dependencies.message_given_back.port() {
+            for message_id in dropped {
+                listener.message_given_back(session_id, &message_id.to_string());
+            }
+        }
     }
 }
 
@@ -496,6 +527,7 @@ mod tests {
                 run_routes: Arc::clone(&run_routes),
                 run_start: Arc::clone(&session.run_start),
                 dispatch: Arc::clone(&session.dispatch),
+                message_given_back: Arc::clone(&session.task.ports.message_given_back),
             });
             let settings = session.task.record.thread_settings.clone();
             let retry = retries.retry(FasterModelRetryParams {

@@ -41,6 +41,7 @@ use crate::provider::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, answer_as_codex_service, start_scripted_codex_service,
 };
 use crate::provider::driver::codex::session::inbound::codex_session_inbound;
+use crate::provider::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
 use crate::provider::driver::codex::session::test_session::{
     TestDaemonTurnBindings, UnreadRunStates, open_test_record,
 };
@@ -75,9 +76,9 @@ impl LiveCodexSession {
         Self::open(Some(steers), &[], false).await
     }
 
-    /// The session with `steers` sent into its turn and not yet echoed, a faster-model retry
-    /// having taken that turn from its run to stop it.
-    pub(super) async fn retried(steers: &[QueueItemId]) -> Self {
+    /// The session with `steers` sent into its turn and not yet echoed, and the turn's input
+    /// kept, so a faster-model retry can stop the turn and send that input again.
+    pub(super) async fn retriable(steers: &[QueueItemId]) -> Self {
         Self::open(Some(steers), &[], true).await
     }
 
@@ -92,10 +93,10 @@ impl LiveCodexSession {
         Self::open(Some(&[]), released, false).await
     }
 
-    // The session, its run on a turn with `steers` unechoed in it where they are given, that turn
-    // taken from its run for a retry where `is_retried`, and `released` routed for its task to
-    // apply first.
-    async fn open(steers: Option<&[QueueItemId]>, released: &[Value], is_retried: bool) -> Self {
+    // The session, its run on a turn with `steers` unechoed in it where they are given, that turn's
+    // input kept for a retry where `is_retriable`, and `released` routed for its task to apply
+    // first.
+    async fn open(steers: Option<&[QueueItemId]>, released: &[Value], is_retriable: bool) -> Self {
         let scripted = start_scripted_codex_service();
         let database = TestDatabase::new();
         let log = open_log(&database, None).await;
@@ -118,6 +119,9 @@ impl LiveCodexSession {
             database.path(),
             RUN_ENGINE_STATEMENT_CAPACITY,
         ));
+        // The retry's fork points the run's binding at the conversation it moves onto.
+        let bindings = Arc::new(open_store(&database).await);
+        services.runtime_bindings = Arc::clone(&bindings) as _;
         let queue = Arc::new(RecordedQueue::default());
         let ports = &services.ports;
         assert!(ports.run_engine.register(engine).is_ok());
@@ -136,8 +140,7 @@ impl LiveCodexSession {
 
         let run_id = new_run_id();
         insert_running_run(&database, session_id, run_id);
-        let binding_id = open_store(&database)
-            .await
+        let binding_id = bindings
             .create(binding_input(
                 RuntimeBindingSpawnConfig::default(),
                 spawned_build("0.130.0", "/opt/codex/bin"),
@@ -195,13 +198,21 @@ impl LiveCodexSession {
                 }
             }
         }
-        if is_retried {
-            // As the retry's stop marks its turn before its interrupt goes.
-            record
-                .delivery
-                .retried_run_id_by_turn_id
-                .insert(TEST_TURN.to_owned(), run_id);
-            parts.run_routes.retire_turn_route(&mut record, TEST_TURN);
+        if is_retriable {
+            // As the turn's start keeps what it sent and its place in the conversation.
+            record.turn_boundaries.push(TEST_TURN.to_owned());
+            record.turn_input_by_turn_id.insert(
+                TEST_TURN.to_owned(),
+                CodexTurnInput {
+                    messages: vec![CodexTurnMessage {
+                        text: "Fix the build.".to_owned(),
+                        skills: Vec::new(),
+                        attachments: Vec::new(),
+                    }],
+                    client_message_ids: vec!["message-1".to_owned()],
+                    output_speed_for_turn: None,
+                },
+            );
         }
         let mut routed = CodexRoutedFrames::default();
         for frame in released {
