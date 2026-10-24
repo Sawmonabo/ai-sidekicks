@@ -25,7 +25,6 @@ use tokio_util::task::TaskTracker;
 
 use crate::daemon::service_log::service_log_folder;
 use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::provider::compaction_wait::PendingCompactionRegistry;
 use crate::provider::driver::SessionSpawnContextResolver;
@@ -174,9 +173,7 @@ impl CodexDriver {
             Arc::clone(&homes) as _,
             Arc::new(CodexServiceDependencies {
                 spawner: services.spawner.clone(),
-                // The serving processes of the daemon's own connections are its listener's, which
-                // reaches no driver yet; each driver keeps its own record of the services it dials.
-                provider_services: Arc::new(ProviderServiceProcesses::default()),
+                provider_services: Arc::clone(&services.provider_services),
                 program: Arc::new(CodexInstalledProgram::new(
                     Arc::clone(&services.command_search),
                     services.home_folder.clone(),

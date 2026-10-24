@@ -5,16 +5,17 @@
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 
-use super::{CODEX_SERVICE_STARTUP_TIMEOUT, CodexDriver};
+use super::{CODEX_SERVICE_STARTUP_TIMEOUT, CodexDriver, CodexDriverParts};
 use crate::provider::driver::codex::lifecycle::intake::{CodexLifecycleCall, call_codex_lifecycle};
-use crate::provider::driver::codex::run::turn_end_waiters::CodexRecordExit;
-use crate::provider::driver::codex::session::calls::call_codex_session;
+use crate::provider::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnWait};
+use crate::provider::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::provider::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::provider::driver::codex::session::history::read_codex_turn_id_by_client_message_id;
 use crate::provider::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInboundSender,
 };
 use crate::provider::driver::codex::session::purge::purge_codex_conversations;
+use crate::provider::driver::codex::session::slots::CODEX_LET_GO_TIMEOUT;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
@@ -165,11 +166,11 @@ impl CodexDriver {
         Ok(())
     }
 
-    /// Closes the session: its command list, side questions and asks go, then, after any
-    /// transition in flight settles, its close is marked on its record so a turn that ends now
-    /// ends as closed, each run the record held ends as the daemon's intended close, and the
-    /// record is let go; the conversations it moved off are released last. A session with no
-    /// record needs nothing more.
+    /// Closes the session: its command list, side questions and asks go, and the turns of a live
+    /// record are stopped; then, after any transition in flight settles, its close is marked on
+    /// its record so a turn that ends now ends as closed, each run the record held ends as the
+    /// daemon's intended close, and the record is let go; the conversations it moved off are
+    /// released last. A session with no record needs nothing more.
     pub(crate) async fn close_session(
         &self,
         params: CloseSessionParams,
@@ -181,6 +182,11 @@ impl CodexDriver {
         parts.provider_commands.forget_session(session_id);
         parts.side_questions.forget_session(session_id).await;
         parts.hand_off.forget_session(session_id);
+        // Before the claim, which refuses run control while it holds the slot; a transition in
+        // flight runs no turn.
+        if let Ok(inbound) = parts.slots.require_live(session_id) {
+            stop_closing_turns(parts, &inbound).await;
+        }
         let claim = parts.slots.claim_closing(session_id).await;
         if let Some(inbound) = claim.live() {
             // A task that let its record go first holds no run.
@@ -207,13 +213,15 @@ impl CodexDriver {
         Ok(())
     }
 
-    /// Stops every service the driver dials, then lets each live record go, so its session's task
-    /// ends, and waits for the driver's tasks to end. A record let go once its service stopped
-    /// sends nothing; a later daemon resumes the conversation by its handle.
+    /// Refuses every establishment from now on, stops every service the driver dials, then waits
+    /// for each transition in flight and lets each live record go, so its session's task ends, and
+    /// waits for the driver's tasks to end. A record let go once its service stopped sends
+    /// nothing, no interrupt among it; a later daemon resumes the conversation by its handle.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent) {
         self.tasks.close();
+        self.slots.refuse_establishing();
         self.registry.shutdown(intent).await;
-        for session_id in self.slots.live_sessions() {
+        for session_id in self.slots.held_sessions() {
             let claim = self.slots.claim_closing(session_id).await;
             if let Some(inbound) = claim.live() {
                 let_go_codex_session_record(&inbound, CodexRecordExit::SessionContinues).await;
@@ -278,5 +286,43 @@ impl CodexDriver {
                 None
             }
         }
+    }
+}
+
+// Marks the close on the live record `inbound` reaches, so a turn that ends now ends as closed,
+// then interrupts each run it holds through run control, since Codex keeps a turn running once no
+// client is subscribed: a live turn is interrupted, and a start in flight is withdrawn, its turn
+// interrupted once Codex names it. Codex answers an interrupt once the turn stopped, so the close
+// waits for each answer and for the session to go idle within the let-go's bound, and past it goes
+// on, logged.
+async fn stop_closing_turns(parts: &CodexDriverParts, inbound: &CodexSessionInboundSender) {
+    let session_id = inbound.session_id();
+    // A task that let its record go first holds no run.
+    let Ok(runs) =
+        call_codex_lifecycle(inbound, |reply| CodexLifecycleCall::BeginClose { reply }).await
+    else {
+        return;
+    };
+    let stopped = tokio::time::timeout(CODEX_LET_GO_TIMEOUT, async {
+        futures::future::join_all(runs.iter().map(|run_id| async move {
+            if let Err(error) = parts.run_control.interrupt_run(*run_id).await {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    %session_id,
+                    %run_id,
+                    "the turn of a closing codex session's run could not be interrupted"
+                );
+            }
+        }))
+        .await;
+        // A record let go meanwhile has no turn left to wait for.
+        let _idle = wait_for_codex_turns(inbound, CodexTurnWait::Idle, None).await;
+    })
+    .await;
+    if stopped.is_err() {
+        tracing::warn!(
+            %session_id,
+            "a closing codex session's turns did not stop within the close's bound"
+        );
     }
 }

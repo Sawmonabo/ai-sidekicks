@@ -1,12 +1,14 @@
 //! A Codex session live in the composed driver: its record on a scripted service, its task the
 //! driver's own, one run on a live turn, and the run queue's intake recorded.
 
+mod caller_check;
 mod intake;
 mod sessions;
 
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::session::id::SessionId;
@@ -71,11 +73,13 @@ impl MessageRefusedListener for RecordedQueue {
     }
 }
 
-/// A session live in the composed driver, its run running on [`TEST_TURN`].
+/// A session live in the composed driver and its run, running on [`TEST_TURN`] unless the session
+/// opened idle.
 pub(super) struct LiveCodexSession {
     pub(super) driver: CodexDriver,
     pub(super) session_id: SessionId,
     pub(super) run_id: RunId,
+    pub(super) binding_id: RuntimeBindingId,
     pub(super) scripted: ScriptedCodexService,
     pub(super) queue: Arc<RecordedQueue>,
     pub(super) database: TestDatabase,
@@ -85,6 +89,16 @@ pub(super) struct LiveCodexSession {
 impl LiveCodexSession {
     /// The session with `steers` sent into its turn and not yet echoed.
     pub(super) async fn start(steers: &[QueueItemId]) -> Self {
+        Self::open(Some(steers)).await
+    }
+
+    /// The session with no turn running, its run bound but not started.
+    pub(super) async fn idle() -> Self {
+        Self::open(None).await
+    }
+
+    // The session, its run on a turn with `steers` unechoed in it where they are given.
+    async fn open(steers: Option<&[QueueItemId]>) -> Self {
         let scripted = start_scripted_codex_service();
         let database = TestDatabase::new();
         let log = open_log(&database, None).await;
@@ -147,7 +161,7 @@ impl LiveCodexSession {
             run_id,
             CodexRunBinding {
                 session_id,
-                binding_id,
+                binding_id: binding_id.clone(),
                 agent_id,
                 step_bound: None,
             },
@@ -168,11 +182,14 @@ impl LiveCodexSession {
             parts.pending_compactions.clone(),
         )
         .await;
-        record.add_active_turn(TEST_TURN.to_owned(), run_id);
-        if !steers.is_empty() {
-            record
-                .unechoed_steers_by_turn_id
-                .insert(TEST_TURN.to_owned(), steers.to_vec());
+        if let Some(steers) = steers {
+            record.add_active_turn(TEST_TURN.to_owned(), run_id);
+            parts.run_routes.bind_run(run_id, session_id);
+            if !steers.is_empty() {
+                record
+                    .unechoed_steers_by_turn_id
+                    .insert(TEST_TURN.to_owned(), steers.to_vec());
+            }
         }
         let intake = CodexSessionIntake::new(record, routing, Arc::clone(&parts));
         driver
@@ -182,6 +199,7 @@ impl LiveCodexSession {
             driver,
             session_id,
             run_id,
+            binding_id,
             scripted,
             queue,
             database,
