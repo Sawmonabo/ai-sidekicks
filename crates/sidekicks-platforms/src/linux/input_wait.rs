@@ -40,8 +40,8 @@ const POLL_ENTRY_LIMIT: usize = 1024;
 const TERMINAL_WAIT_CHANNEL: &str = "wait_woken";
 
 // The wait channels, a compiler clone's suffix cut, a thread shows while an epoll set waits, and
-// while `select`, `pselect6`, `poll` or `ppoll` waits; each later name stands where the kernel's
-// build inlined the ones before it.
+// while `select`, `pselect6`, `poll` or `ppoll` waits; each name after the first stands where the
+// build inlined the function its waits call, nearer the sleep.
 const EPOLL_WAIT_CHANNELS: [&str; 2] = ["ep_poll", "do_epoll_wait"];
 const SELECT_WAIT_CHANNELS: [&str; 6] = [
     "poll_schedule_timeout",
@@ -561,7 +561,10 @@ fn wait_channel_wait(
     };
     let channel = String::from_utf8_lossy(&channel);
     // A compiler clone of a function shows as its name with a suffix, as `name.constprop.0`.
-    let channel = channel.trim().split('.').next().unwrap_or_default();
+    let channel = channel.trim();
+    let channel = channel
+        .split_once('.')
+        .map_or(channel, |(name, _clone_suffix)| name);
     let is_terminal_alone_read = !process.terminal_reads.is_empty()
         && !process.holds_other_wait_source
         && terminal.master.unread_output_bytes == 0;
@@ -590,7 +593,7 @@ fn wait_channel_wait(
 }
 
 /// Whether Yama refuses the system-call and memory reads to every reader without the capability,
-/// read anew each call, since the scope can be raised while the daemon runs. No Yama module, and
+/// read anew each call, since the scope can be changed while the daemon runs. No Yama module, and
 /// so no scope file, refuses nothing.
 pub(crate) fn is_ptrace_admin_only() -> io::Result<bool> {
     let scope = match fs::read_to_string(PTRACE_SCOPE_PATH) {

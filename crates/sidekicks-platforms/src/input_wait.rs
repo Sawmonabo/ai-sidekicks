@@ -26,9 +26,10 @@ pub struct InputWaitReading {
     pub is_waiting: bool,
     /// Whether, when `is_waiting` is not set, a thread of the group waits in `select` or `poll`
     /// with the terminal among its readable descriptors as far as the read can tell, its process
-    /// holding no socket, no pipe or FIFO open for reading and no kqueue, or on Linux no epoll set
-    /// or event descriptor and no output unread on the master: a wait a consumer marks only with
-    /// the output's own evidence, a prompt-like last line. It is set where the call's descriptors
+    /// holding no socket, no pipe or FIFO open for reading and no kqueue, and on Linux no inotify,
+    /// fanotify or epoll set, no event descriptor and no output unread on the master: a wait a
+    /// consumer marks only with the output's own evidence, a prompt-like last line. It is set
+    /// where the call's descriptors
     /// are hidden, as macOS hides them from every reader without root and Linux where Yama's ptrace
     /// scope is 2 or 3; elsewhere Linux reads them into `is_waiting`, and Windows never sets it.
     pub is_waiting_in_select: bool,
