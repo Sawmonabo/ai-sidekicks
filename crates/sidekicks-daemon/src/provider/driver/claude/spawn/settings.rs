@@ -271,8 +271,8 @@ mod tests {
     };
 
     // Killed by dropping the memory allows or the `//` anchor, by a `Write(` rule Claude Code never
-    // reads, by the `.md` filter the design does not ask for, or by dropping the background deny
-    // rules at Sandboxed.
+    // reads, by narrowing the allows to `.md` files, which would keep the agent from its other
+    // memory files, or by dropping the background deny rules at Sandboxed.
     #[test]
     fn sandboxed_allows_the_agent_memory_folder_and_denies_background_work() {
         let memory_folders = [

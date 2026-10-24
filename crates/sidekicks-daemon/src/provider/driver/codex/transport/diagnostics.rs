@@ -390,11 +390,11 @@ impl CodexTransportDiagnostic {
             } => tracing::warn!(
                 reason = <&str>::from(*reason),
                 character_count,
-                "A message from the Codex service is no JSON-RPC message"
+                "a message from the Codex service is no JSON-RPC message"
             ),
             Self::UnknownResponseId { response_id } => tracing::warn!(
                 response_id = response_id.as_str(),
-                "A Codex response named a request nothing waits on"
+                "a Codex response named a request nothing waits on"
             ),
             Self::UnhandledServerRequest {
                 method,
@@ -402,16 +402,16 @@ impl CodexTransportDiagnostic {
             } => tracing::warn!(
                 method = method.as_str(),
                 is_in_protocol,
-                "A request from the Codex service that nothing handles was refused"
+                "a request from the Codex service that nothing handles was refused"
             ),
             Self::UnroutedServerRequestRefused { method } => tracing::warn!(
                 method = method.as_str(),
-                "A request from the Codex service reached no session and was refused"
+                "a request from the Codex service reached no session and was refused"
             ),
             Self::ServerRequestResponderFailed { method, error } => tracing::warn!(
                 method = method.as_str(),
                 error = &**error as &(dyn Error + 'static),
-                "The answer to a request from the Codex service failed"
+                "the answer to a request from the Codex service failed"
             ),
             Self::RoutedAskTurnUnresolved {
                 method,
@@ -421,26 +421,26 @@ impl CodexTransportDiagnostic {
                 method = method.as_str(),
                 turn_id = turn_id.as_deref(),
                 is_turn_id_cut,
-                "A Codex ask named a turn with no live run and was refused"
+                "a Codex ask named a turn with no live run and was refused"
             ),
             Self::UnroutedThreadFrame { method, thread_id } => tracing::warn!(
                 method = method.as_str(),
                 thread_id = thread_id.as_str(),
-                "A Codex frame named a conversation no session holds and reached none"
+                "a Codex frame named a conversation no session holds and reached none"
             ),
             Self::PendingThreadFrameDropped { method, thread_id } => tracing::warn!(
                 method = method.as_str(),
                 thread_id = thread_id.as_str(),
-                "A Codex frame held for a conversation's claim was pushed out by the hold's bound"
+                "a Codex frame held for a conversation's claim was pushed out by the hold's bound"
             ),
             Self::UnconsumedServerNotification { method } => tracing::debug!(
                 method = method.as_str(),
-                "A Codex notification arrived on a connection no session reads"
+                "a Codex notification arrived on a connection no session reads"
             ),
             Self::RoutedAskThreadUnresolved { method, thread_id } => tracing::warn!(
                 method = method.as_str(),
                 thread_id = thread_id.as_deref(),
-                "A Codex ask named no conversation a session holds and was refused"
+                "a Codex ask named no conversation a session holds and was refused"
             ),
             Self::ServerRequestAnswerOversized {
                 method,
@@ -450,42 +450,42 @@ impl CodexTransportDiagnostic {
                 method = method.as_str(),
                 encoded_bytes,
                 limit,
-                "An answer to a Codex ask was larger than the service takes and was refused"
+                "an answer to a Codex ask was larger than the service takes and was refused"
             ),
             Self::ServerRequestAnswerWriteFailed { method, error } => tracing::warn!(
                 method = method.as_str(),
                 error = &**error as &(dyn Error + 'static),
-                "The answer to a Codex ask could not be sent"
+                "the answer to a Codex ask could not be sent"
             ),
             Self::NotificationWriteFailed { method, error } => tracing::warn!(
                 method = method.as_str(),
                 error = &**error as &(dyn Error + 'static),
-                "A notification to the Codex service could not be sent"
+                "a notification to the Codex service could not be sent"
             ),
             Self::ServiceConnectionDropped { codex_home, reason } => tracing::warn!(
                 codex_home = %codex_home.display(),
                 reason = reason.as_str(),
-                "The connection to a Codex service closed"
+                "the connection to a Codex service closed"
             ),
             Self::ServiceStartFailed { codex_home, error } => tracing::warn!(
                 codex_home = %codex_home.display(),
                 error = &**error as &(dyn Error + 'static),
-                "A Codex service could not be started or reached again"
+                "a Codex service could not be started or reached again"
             ),
             Self::HomeLinkRestoreFailed { codex_home, error } => tracing::warn!(
                 codex_home = %codex_home.display(),
                 error = &**error as &(dyn Error + 'static),
-                "The Codex folder's socket link could not be pointed back at its service"
+                "the Codex folder's socket link could not be pointed back at its service"
             ),
             Self::TeardownStepFailed { step, error } => tracing::warn!(
                 step = <&str>::from(*step),
                 error = &**error as &(dyn Error + 'static),
-                "A Codex teardown step failed; the teardown went on"
+                "a Codex teardown step failed; the teardown went on"
             ),
             Self::ConversationResumeFailed { thread_id, error } => tracing::warn!(
                 thread_id = thread_id.as_str(),
                 error = &**error as &(dyn Error + 'static),
-                "A Codex conversation could not be resumed"
+                "a Codex conversation could not be resumed"
             ),
             Self::ServiceReconnected {
                 codex_home,
@@ -493,21 +493,21 @@ impl CodexTransportDiagnostic {
             } => tracing::info!(
                 codex_home = %codex_home.display(),
                 conversations = ?conversations,
-                "The connection to a Codex service came back and its conversations resumed"
+                "the connection to a Codex service came back and its conversations resumed"
             ),
             Self::ConversationUnloadTimedOut { thread_id } => tracing::warn!(
                 thread_id = thread_id.as_str(),
-                "A Codex conversation stayed loaded on its old service; its resume went ahead"
+                "a Codex conversation stayed loaded on its old service; its resume went ahead"
             ),
             Self::ConversationUnloadUnconfirmed { thread_id, error } => tracing::warn!(
                 thread_id = thread_id.as_str(),
                 error = &**error as &(dyn Error + 'static),
-                "A Codex conversation's unload could not be confirmed; its resume decides"
+                "a Codex conversation's unload could not be confirmed; its resume decides"
             ),
             Self::ConversationForkFailed { thread_id, error } => tracing::warn!(
                 thread_id = thread_id.as_str(),
                 error = &**error as &(dyn Error + 'static),
-                "A Codex conversation's fork onto the session's config failed"
+                "a Codex conversation's fork onto the session's config failed"
             ),
             Self::PermissionProfileDrifted {
                 thread_id,
@@ -517,12 +517,12 @@ impl CodexTransportDiagnostic {
                 thread_id = thread_id.as_str(),
                 active_profile = active_profile.as_str(),
                 expected_profile = expected_profile.as_str(),
-                "A Codex conversation ran under a profile the daemon never asked for"
+                "a Codex conversation ran under a profile the daemon never asked for"
             ),
             Self::PermissionProfileRestoreFailed { thread_id, error } => tracing::warn!(
                 thread_id = thread_id.as_str(),
                 error = &**error as &(dyn Error + 'static),
-                "A Codex conversation's profile could not be set back"
+                "a Codex conversation's profile could not be set back"
             ),
             Self::StreamedTextDiverged {
                 provider_account_id,
@@ -538,16 +538,16 @@ impl CodexTransportDiagnostic {
             Self::ContinueSteerFailed { thread_id, error } => tracing::warn!(
                 thread_id = thread_id.as_str(),
                 error = &**error as &(dyn Error + 'static),
-                "The messages a Codex continue waited to steer in could not be delivered"
+                "the messages a Codex continue waited to steer in could not be delivered"
             ),
             Self::PauseInterruptFailed { thread_id, error } => tracing::warn!(
                 thread_id = thread_id.as_str(),
                 error = &**error as &(dyn Error + 'static),
-                "A Codex pause's interrupt failed; the turn runs on"
+                "a Codex pause's interrupt failed; the turn runs on"
             ),
             Self::ResumeAuthClassificationFailed { error } => tracing::warn!(
                 error = &**error as &(dyn Error + 'static),
-                "The account read for a failed Codex resume failed; the resume needs recovery"
+                "the account read for a failed Codex resume failed; the resume needs recovery"
             ),
             Self::ForkTurnLedgerUnconfirmed {
                 expected_turn_count,
@@ -555,7 +555,7 @@ impl CodexTransportDiagnostic {
             } => tracing::warn!(
                 expected_turn_count,
                 confirmed_turn_count,
-                "A Codex fork's turn list did not bear the fork out"
+                "a Codex fork's turn list did not bear the fork out"
             ),
             Self::SubagentDefinitionFieldWithheld {
                 provider_account_id,
@@ -575,7 +575,7 @@ impl CodexTransportDiagnostic {
                 retained_turn_count,
             } => tracing::warn!(
                 retained_turn_count,
-                "A Codex session owed terminals to more interrupted runs than it remembers"
+                "a Codex session owed terminals to more interrupted runs than it remembers"
             ),
             Self::PortDeliveryFailed {
                 provider_account_id,
@@ -599,41 +599,41 @@ impl CodexTransportDiagnostic {
             Self::ProviderCommandListFailed { session_id, error } => tracing::warn!(
                 session_id = %session_id,
                 error = &**error as &(dyn Error + 'static),
-                "A Codex session's command list could not be read"
+                "a Codex session's command list could not be read"
             ),
             Self::SideQuestionUnanswered { session_id, error } => tracing::warn!(
                 session_id = %session_id,
                 error = &**error as &(dyn Error + 'static),
-                "A Codex side question ended without an answer"
+                "a Codex side question ended without an answer"
             ),
             Self::ProviderNoticeLogged { method, session_id } => tracing::info!(
                 method = method.as_str(),
                 session_id = %session_id,
-                "A Codex notice the service log keeps"
+                "a Codex notice the service log keeps"
             ),
             Self::UnattributedTurnFrame { method, turn_id } => tracing::warn!(
                 method = method.as_str(),
                 turn_id = turn_id.as_deref(),
-                "A Codex turn frame named no run, so nothing was written"
+                "a Codex turn frame named no run, so nothing was written"
             ),
             Self::OversizedTurnCutFailed { session_id, error } => tracing::warn!(
                 session_id = %session_id,
                 error = &**error as &(dyn Error + 'static),
-                "A Codex turn too long for the model's window could not be cut out"
+                "a Codex turn too long for the model's window could not be cut out"
             ),
             Self::ProviderTurnRunFailed { session_id, error } => tracing::warn!(
                 session_id = %session_id,
                 error = &**error as &(dyn Error + 'static),
-                "The run of a turn Codex started could not open"
+                "the run of a turn Codex started could not open"
             ),
             Self::ProviderTurnInterruptFailed { session_id, error } => tracing::warn!(
                 session_id = %session_id,
                 error = &**error as &(dyn Error + 'static),
-                "The interrupt of a turn Codex started failed; the turn runs on"
+                "the interrupt of a turn Codex started failed; the turn runs on"
             ),
             Self::HookAnswerFailed { error } => tracing::warn!(
                 error = &**error as &(dyn Error + 'static),
-                "A Codex hook input could not be read or answered"
+                "a Codex hook input could not be read or answered"
             ),
         }
     }
