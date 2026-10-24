@@ -115,8 +115,9 @@ pub fn atomic_write_target_of(file_name: &str) -> Option<&str> {
     (!target.is_empty() && !random.is_empty()).then_some(target)
 }
 
-// The suffix of a temporary file a write makes.
-const TEMPORARY_SUFFIX: &str = ".tmp";
+/// The suffix of the temporary file a write makes before its rename, which a watch for renamed
+/// records leaves out.
+pub(crate) const TEMPORARY_SUFFIX: &str = ".tmp";
 
 // `create_file_atomically`, its temporary file filled by `write`.
 fn create_file_atomically_through(

@@ -8591,6 +8591,7 @@ dependencies = [
  "mach2 0.7.0",
  "mimalloc",
  "nix 0.31.3",
+ "notify",
  "objc2-core-foundation",
  "objc2-foundation",
  "objc2-io-kit",

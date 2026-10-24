@@ -1,0 +1,778 @@
+//! Whether a command waits on its terminal's input, as macOS shows it: the foreground group's
+//! descriptors, threads and knotes through `proc_pidinfo` and `proc_pidfdinfo`, then where each
+//! reader's threads wait through Apple's `sample`, since macOS copies a thread's wait reason out to
+//! no other process. A thread's run state only rules a wait out; it never shows one.
+
+use std::io::{self, ErrorKind};
+use std::process::{Output, Stdio};
+use std::sync::OnceLock;
+
+use libc::{c_int, c_void};
+use tokio::process::Command;
+
+use crate::input_wait::{InputTerminal, InputWaitReading};
+use crate::macos::processes::{
+    list_group_process_ids, read_counted_list, read_libproc_count, read_pid_list,
+};
+use crate::posix::child_command::prepare_child_command;
+use crate::posix::process::id::system_process_id;
+use crate::spawner::Spawner;
+use crate::terminal::{HELPER_PROGRAM_TIME_LIMIT, TerminalDevice};
+
+// `<sys/proc_info.h>`'s flavors and flags `libc` does not bind, and the private ones Apple's own
+// tools read, which `<sys/proc_info_private.h>` defines.
+const PROC_PIDLISTTHREADS: c_int = 6;
+const PROC_PIDLISTDYNKQUEUES: c_int = 27;
+const PROC_PIDFDVNODEINFO: c_int = 1;
+const PROC_PIDFDPIPEINFO: c_int = 6;
+const PROC_PIDFDKQUEUE_EXTINFO: c_int = 9;
+const PROC_PIDDYNKQUEUE_EXTINFO: c_int = 1;
+
+// `<sys/fcntl.h>`'s `FREAD`: a descriptor open for reading.
+const FREAD: u32 = 0x0001;
+
+// `<sys/pipe.h>`'s `PIPE_WANTR`: a reader sleeps on the pipe, or a timed-out read left it set.
+const PIPE_WANTR: c_int = 0x0008;
+
+// The descriptor `PROC_PIDFDKQUEUE_EXTINFO` reads the process's work-queue kqueue through.
+const WORK_QUEUE_KQUEUE: c_int = -1;
+
+// The node every process opens its controlling terminal through, whatever that terminal is.
+const CONTROLLING_TERMINAL_PATH: &str = "/dev/tty";
+
+// The device number of `/dev/tty`'s node, read once.
+static CONTROLLING_TERMINAL_NODE: OnceLock<u32> = OnceLock::new();
+
+// Apple's sampler, which reads a process of the same user through the task-read right its own
+// signature grants it, and how long and how often it samples.
+const SAMPLE_PROGRAM: &str = "/usr/bin/sample";
+const SAMPLE_SECONDS: &str = "0.1";
+const SAMPLE_INTERVAL_MILLISECONDS: &str = "10";
+
+// The process state reader that runs as root, which shows a process of another user, and the
+// status it exits with when a process it was asked for is missing.
+const PS_PROGRAM: &str = "/bin/ps";
+const PS_ANY_MISSING_STATUS: i32 = 1;
+
+// The calls a thread blocked reading a descriptor shows innermost.
+const READ_CALLS: [&str; 3] = ["read", "__read_nocancel", "readv"];
+
+// The calls a thread blocked on a kqueue shows innermost.
+const KEVENT_CALLS: [&str; 4] = ["kevent", "kevent64", "kevent_qos", "kevent_id"];
+
+// The calls a thread blocked in `select`, `pselect` or `poll` shows innermost.
+const SELECT_CALLS: [&str; 11] = [
+    "select",
+    "__select",
+    "__select_nocancel",
+    "pselect",
+    "__pselect",
+    "__pselect_nocancel",
+    "poll",
+    "__poll",
+    "__poll_nocancel",
+    "select$DARWIN_EXTSN",
+    "select$DARWIN_EXTSN$NOCANCEL",
+];
+
+// `struct proc_fileinfo`.
+#[repr(C)]
+struct ProcFileInfo {
+    fi_openflags: u32,
+    _fi_status: u32,
+    _fi_offset: i64,
+    _fi_type: i32,
+    _fi_guardflags: u32,
+}
+
+// `struct vnode_fdinfo`.
+#[repr(C)]
+struct VnodeFdInfo {
+    pfi: ProcFileInfo,
+    pvi: libc::vnode_info,
+}
+
+// `struct pipe_info`.
+#[repr(C)]
+struct PipeInfo {
+    _pipe_stat: libc::vinfo_stat,
+    _pipe_handle: u64,
+    _pipe_peerhandle: u64,
+    pipe_status: c_int,
+    _rfu_1: c_int,
+}
+
+// `struct pipe_fdinfo`.
+#[repr(C)]
+struct PipeFdInfo {
+    pfi: ProcFileInfo,
+    pipeinfo: PipeInfo,
+}
+
+// The private `struct kevent_qos_s`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct KeventQos {
+    ident: u64,
+    filter: i16,
+    _flags: u16,
+    _qos: i32,
+    _udata: u64,
+    _fflags: u32,
+    _xflags: u32,
+    _data: i64,
+    _ext: [u64; 4],
+}
+
+// The private `struct kevent_extinfo`, one knote.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct KeventExtinfo {
+    kqext_kev: KeventQos,
+    _kqext_sdata: u64,
+    _kqext_status: c_int,
+    _kqext_sfflags: c_int,
+    _kqext_reserved: [u64; 2],
+}
+
+unsafe extern "C" {
+    // libproc's reader of a work-loop kqueue, which its public header does not declare.
+    fn proc_piddynkqueueinfo(
+        pid: c_int,
+        flavor: c_int,
+        kq_id: u64,
+        buffer: *mut c_void,
+        buffersize: c_int,
+    ) -> c_int;
+}
+
+/// Whether the terminal's foreground group waits on `terminal`'s input, takes input, and has echo
+/// off, with `sample` and `ps` started on `spawner`'s thread, about a tenth of a second per process
+/// holding the terminal for reading; a read on a blocking character device other than the
+/// terminal, or on a descriptor kind the read skips (`FSEVENTS`, `NETPOLICY`, `CHANNEL`, `NEXUS`,
+/// `PSHM`, `PSEM`), still reads as a wait on it.
+/// Fails with the system's error when a read is refused for a process this user may read, with
+/// `sample`'s or `ps`'s own error text when either fails on a process still there, `TimedOut` when
+/// either runs past its time limit, and `InvalidData` when `sample`'s report has no call graph.
+pub async fn read_input_wait(
+    spawner: &Spawner,
+    terminal: &InputTerminal,
+) -> io::Result<InputWaitReading> {
+    // After the reads `may_wait_for_input` makes, `sample` shows where each reader's threads wait:
+    // on the terminal in a read while the process holds no socket, no FIFO open for reading and no
+    // pipe a reader sleeps on, or in a `kevent` while it holds a read knote on the terminal; or in
+    // `select` when that call or `poll` is innermost while it holds no socket, no pipe or FIFO open
+    // for reading and no kqueue. A group macOS refuses to show, as `sudo`'s, waits when the
+    // terminal is set as a password prompt, nothing is queued and `ps` shows a member left and none
+    // running or stopped, as a stopped thread reads nothing until it is continued, whatever call it
+    // stopped in. A reader that ends before `sample` reads it does not wait.
+    let survey = survey_group(spawner, terminal).await?;
+    let mut is_waiting = matches!(survey.wait, GroupWait::Password);
+    let mut is_waiting_in_select = false;
+    if let GroupWait::Readers(readers) = &survey.wait {
+        for reader in readers {
+            match reader_waits(spawner, reader).await? {
+                ReaderWait::OnTerminal => {
+                    is_waiting = true;
+                    break;
+                }
+                ReaderWait::InSelect => is_waiting_in_select = true,
+                ReaderWait::Elsewhere => {}
+            }
+        }
+    }
+    Ok(InputWaitReading {
+        is_waiting,
+        is_waiting_in_select: is_waiting_in_select && !is_waiting,
+        accepts_input: survey.accepts_input,
+        is_echo_off: !terminal.master.is_echo_on,
+        is_password_prompt: terminal.master.is_password_prompt(),
+    })
+}
+
+/// Whether the terminal's foreground group may wait on `terminal`'s input, read without `sample`:
+/// no input is queued, no thread of the group runs or is stopped, and a process of it holds the
+/// terminal for reading, or a group macOS refuses to show waits on a password, `ps` started on
+/// `spawner`'s thread for such a group. Blocks on the reads; fails as [`read_input_wait`] does.
+pub async fn may_wait_for_input(spawner: &Spawner, terminal: &InputTerminal) -> io::Result<bool> {
+    Ok(!matches!(
+        survey_group(spawner, terminal).await?.wait,
+        GroupWait::RuledOut
+    ))
+}
+
+// What the reads without `sample` show of the foreground group.
+struct GroupSurvey {
+    accepts_input: bool,
+    wait: GroupWait,
+}
+
+// Whether the foreground group may wait on the terminal.
+enum GroupWait {
+    // Input is queued, a thread runs or is stopped, or nothing holds the terminal for reading.
+    RuledOut,
+    // A group macOS refuses to show sits at a prompt with echo off.
+    Password,
+    // The processes holding the terminal for reading, whose threads `sample` reads.
+    Readers(Vec<Reader>),
+}
+
+// One process of the foreground group holding the terminal for reading.
+struct Reader {
+    process_id: u32,
+    descriptors: ProcessDescriptors,
+}
+
+// What one process's descriptors show.
+#[derive(Default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each is a separate kind of descriptor a blocked call may wait on instead"
+)]
+struct ProcessDescriptors {
+    // The descriptors open for reading on the terminal.
+    terminal_reads: Vec<c_int>,
+    // Whether a socket is open, whose read a blocked read may be.
+    holds_socket: bool,
+    // Whether a pipe is open for reading, which a blocked `select` or `poll` may wait on.
+    holds_readable_pipe: bool,
+    // Whether a FIFO is open for reading, whose read shows as a terminal's does: macOS builds a
+    // FIFO from sockets the descriptor list never shows.
+    holds_readable_fifo: bool,
+    // Whether a pipe open for reading has a reader sleeping on it, whose read a blocked read may
+    // be.
+    holds_awaited_pipe: bool,
+    // The kqueue descriptors, whose knotes a blocked `kevent` waits on.
+    kqueues: Vec<c_int>,
+}
+
+// What one process of the group showed.
+enum ProcessSurvey {
+    // It ended while it was read.
+    Gone,
+    // macOS refused to show it: another user runs it.
+    Refused,
+    Read {
+        descriptors: ProcessDescriptors,
+        is_running_or_stopped: bool,
+    },
+}
+
+// The reads without `sample` of the terminal's foreground group.
+async fn survey_group(spawner: &Spawner, terminal: &InputTerminal) -> io::Result<GroupSurvey> {
+    let mut readers = Vec::new();
+    let mut refused = Vec::new();
+    let mut is_running_or_stopped = false;
+    for process_id in list_group_process_ids(terminal.master.foreground_group)? {
+        match survey_process(process_id, terminal)? {
+            ProcessSurvey::Gone => {}
+            ProcessSurvey::Refused => refused.push(process_id),
+            ProcessSurvey::Read {
+                descriptors,
+                is_running_or_stopped: is_process_running_or_stopped,
+            } => {
+                is_running_or_stopped |= is_process_running_or_stopped;
+                if !descriptors.terminal_reads.is_empty() {
+                    readers.push(Reader {
+                        process_id,
+                        descriptors,
+                    });
+                }
+            }
+        }
+    }
+    let accepts_input = !readers.is_empty();
+    if is_running_or_stopped || terminal.master.queued_input_bytes != Some(0) {
+        return Ok(GroupSurvey {
+            accepts_input,
+            wait: GroupWait::RuledOut,
+        });
+    }
+    if !readers.is_empty() {
+        return Ok(GroupSurvey {
+            accepts_input,
+            wait: GroupWait::Readers(readers),
+        });
+    }
+    let is_password_wait = !refused.is_empty()
+        && terminal.master.is_password_prompt()
+        && is_any_running_or_stopped_by_ps(spawner, &refused).await? == Some(false);
+    Ok(GroupSurvey {
+        accepts_input: is_password_wait,
+        wait: if is_password_wait {
+            GroupWait::Password
+        } else {
+            GroupWait::RuledOut
+        },
+    })
+}
+
+// What process `process_id` shows of its descriptors and threads.
+fn survey_process(process_id: u32, terminal: &InputTerminal) -> io::Result<ProcessSurvey> {
+    let pid = system_process_id(process_id)?.get();
+    let info = match read_bsd_info(pid) {
+        Ok(info) => info,
+        Err(error) => return survey_refusal(error),
+    };
+    let is_controlling_terminal = u64::from(info.e_tdev) == terminal.device.0;
+    let descriptors = match read_descriptors(pid, terminal.device, is_controlling_terminal) {
+        Ok(descriptors) => descriptors,
+        Err(error) => return survey_refusal(error),
+    };
+    // A process stopped by a signal leaves its threads in the calls they stopped in.
+    let is_running_or_stopped = info.pbi_status == libc::SSTOP
+        || match is_any_thread_running_or_stopped(pid) {
+            Ok(is_running_or_stopped) => is_running_or_stopped,
+            Err(error) => return survey_refusal(error),
+        };
+    Ok(ProcessSurvey::Read {
+        descriptors,
+        is_running_or_stopped,
+    })
+}
+
+// A read's failure as what it says of the process: gone, refused, or a failure to surface.
+fn survey_refusal(error: io::Error) -> io::Result<ProcessSurvey> {
+    match error.raw_os_error() {
+        Some(libc::ESRCH) => Ok(ProcessSurvey::Gone),
+        Some(libc::EPERM | libc::EACCES) => Ok(ProcessSurvey::Refused),
+        _ => Err(error),
+    }
+}
+
+// The descriptors of process `pid` that bear on a wait on the terminal `device`: one open on that
+// device, or on `/dev/tty` while it is the process's controlling terminal.
+fn read_descriptors(
+    pid: c_int,
+    device: TerminalDevice,
+    is_controlling_terminal: bool,
+) -> io::Result<ProcessDescriptors> {
+    let listed: Vec<libc::proc_fdinfo> = read_pid_list(pid, libc::PROC_PIDLISTFDS)?;
+    let mut descriptors = ProcessDescriptors::default();
+    for entry in listed {
+        let descriptor = entry.proc_fd;
+        match c_int::try_from(entry.proc_fdtype).unwrap_or(-1) {
+            libc::PROX_FDTYPE_VNODE => {
+                let Some(info) = read_fd_info::<VnodeFdInfo>(pid, descriptor, PROC_PIDFDVNODEINFO)?
+                else {
+                    continue;
+                };
+                let stat = &info.pvi.vi_stat;
+                let file_type = libc::mode_t::from(stat.vst_mode) & libc::S_IFMT;
+                let is_readable = info.pfi.fi_openflags & FREAD != 0;
+                descriptors.holds_readable_fifo |= file_type == libc::S_IFIFO && is_readable;
+                if file_type != libc::S_IFCHR || !is_readable {
+                    continue;
+                }
+                let is_terminal = u64::from(stat.vst_rdev) == device.0
+                    || (is_controlling_terminal && stat.vst_rdev == controlling_terminal_node()?);
+                if is_terminal {
+                    descriptors.terminal_reads.push(descriptor);
+                }
+            }
+            libc::PROX_FDTYPE_SOCKET => descriptors.holds_socket = true,
+            libc::PROX_FDTYPE_PIPE => {
+                let Some(info) = read_fd_info::<PipeFdInfo>(pid, descriptor, PROC_PIDFDPIPEINFO)?
+                else {
+                    continue;
+                };
+                if info.pfi.fi_openflags & FREAD != 0 {
+                    descriptors.holds_readable_pipe = true;
+                    descriptors.holds_awaited_pipe |= info.pipeinfo.pipe_status & PIPE_WANTR != 0;
+                }
+            }
+            libc::PROX_FDTYPE_KQUEUE => descriptors.kqueues.push(descriptor),
+            _ => {}
+        }
+    }
+    Ok(descriptors)
+}
+
+// The device number of `/dev/tty`'s node, which names no terminal itself.
+fn controlling_terminal_node() -> io::Result<u32> {
+    if let Some(device) = CONTROLLING_TERMINAL_NODE.get() {
+        return Ok(*device);
+    }
+    let device = nix::sys::stat::stat(CONTROLLING_TERMINAL_PATH).map_err(io::Error::from)?;
+    let device = u32::try_from(device.st_rdev).map_err(io::Error::other)?;
+    Ok(*CONTROLLING_TERMINAL_NODE.get_or_init(|| device))
+}
+
+// The BSD information of process `pid`: its status and its controlling terminal's device, which no
+// terminal's device matches when it has none.
+fn read_bsd_info(pid: c_int) -> io::Result<libc::proc_bsdinfo> {
+    // SAFETY: `proc_bsdinfo` is a C struct of integers and characters, for which all zero bytes
+    // are valid.
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let length = c_int::try_from(size_of::<libc::proc_bsdinfo>()).map_err(io::Error::other)?;
+    // SAFETY: the pointer names a live `proc_bsdinfo` of `length` bytes, the struct this flavor
+    // fills, and nothing else reads it until the call returns.
+    let written = read_libproc_count(|| unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            (&raw mut info).cast(),
+            length,
+        )
+    })?;
+    if written != size_of::<libc::proc_bsdinfo>() {
+        return Err(io::Error::new(
+            ErrorKind::InvalidData,
+            format!("process {pid}'s information was cut short"),
+        ));
+    }
+    Ok(info)
+}
+
+// Whether a thread of process `pid` is running or stopped now.
+fn is_any_thread_running_or_stopped(pid: c_int) -> io::Result<bool> {
+    let thread_ids: Vec<u64> = read_pid_list(pid, PROC_PIDLISTTHREADS)?;
+    for thread_id in thread_ids {
+        // SAFETY: `proc_threadinfo` is a C struct of integers and characters, for which all zero
+        // bytes are valid.
+        let mut info: libc::proc_threadinfo = unsafe { std::mem::zeroed() };
+        let length =
+            c_int::try_from(size_of::<libc::proc_threadinfo>()).map_err(io::Error::other)?;
+        // SAFETY: the pointer names a live `proc_threadinfo` of `length` bytes, the struct this
+        // flavor fills, and nothing else reads it until the call returns.
+        let written = read_libproc_count(|| unsafe {
+            libc::proc_pidinfo(
+                pid,
+                libc::PROC_PIDTHREADINFO,
+                thread_id,
+                (&raw mut info).cast(),
+                length,
+            )
+        });
+        match written {
+            // A thread that ended since the listing is no longer running.
+            Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {}
+            Err(error) => return Err(error),
+            Ok(_)
+                if matches!(
+                    info.pth_run_state,
+                    libc::TH_STATE_RUNNING | libc::TH_STATE_STOPPED
+                ) =>
+            {
+                return Ok(true);
+            }
+            Ok(_) => {}
+        }
+    }
+    Ok(false)
+}
+
+// Whether `ps`, which runs as root, shows any of `process_ids` running or stopped; `None` when it
+// shows none of them, since every one ended. `ps` exits 1 when any is missing and still lists the
+// rest.
+async fn is_any_running_or_stopped_by_ps(
+    spawner: &Spawner,
+    process_ids: &[u32],
+) -> io::Result<Option<bool>> {
+    let listed = process_ids
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut command = Command::new(PS_PROGRAM);
+    command.args(["-o", "stat=", "-p", &listed]);
+    let output = run_helper_program(spawner, "ps", command).await?;
+    let states = String::from_utf8_lossy(&output.stdout);
+    match output.status.code() {
+        Some(0 | PS_ANY_MISSING_STATUS) => {}
+        _ => return Err(program_failure("ps", &listed, &output)),
+    }
+    if states.trim().is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(
+        states
+            .lines()
+            .any(|state| state.trim_start().starts_with(['R', 'T'])),
+    ))
+}
+
+// Where a thread of one reader waits, as far as `sample` and its descriptors tell.
+enum ReaderWait {
+    OnTerminal,
+    // In `select` or `poll`, whose descriptors no reading shows, with nothing else to wait on.
+    InSelect,
+    Elsewhere,
+}
+
+// Where the threads of `reader` wait, read through `sample`; a reader that ended before `sample`
+// read it waits on nothing.
+async fn reader_waits(spawner: &Spawner, reader: &Reader) -> io::Result<ReaderWait> {
+    let Some(innermost_calls) = sample_innermost_calls(spawner, reader.process_id).await? else {
+        return Ok(ReaderWait::Elsewhere);
+    };
+    let is_wait_in = |calls_named: &[&str]| {
+        innermost_calls.iter().any(|calls| {
+            calls
+                .iter()
+                .all(|call| calls_named.contains(&call.as_str()))
+        })
+    };
+    let descriptors = &reader.descriptors;
+    let holds_socket_or_fifo = descriptors.holds_socket || descriptors.holds_readable_fifo;
+    if is_wait_in(&READ_CALLS) && !holds_socket_or_fifo && !descriptors.holds_awaited_pipe {
+        return Ok(ReaderWait::OnTerminal);
+    }
+    if is_wait_in(&KEVENT_CALLS) {
+        let pid = system_process_id(reader.process_id)?.get();
+        if holds_terminal_read_knote(pid, descriptors)? {
+            return Ok(ReaderWait::OnTerminal);
+        }
+    }
+    let holds_other_wait_source =
+        holds_socket_or_fifo || descriptors.holds_readable_pipe || !descriptors.kqueues.is_empty();
+    Ok(if is_wait_in(&SELECT_CALLS) && !holds_other_wait_source {
+        ReaderWait::InSelect
+    } else {
+        ReaderWait::Elsewhere
+    })
+}
+
+// Whether a kqueue of process `pid`, its work-queue kqueue or one of its work-loop kqueues holds a
+// read knote on one of its descriptors of the terminal.
+fn holds_terminal_read_knote(pid: c_int, descriptors: &ProcessDescriptors) -> io::Result<bool> {
+    let is_terminal_read = |knote: &KeventExtinfo| {
+        knote.kqext_kev.filter == libc::EVFILT_READ
+            && c_int::try_from(knote.kqext_kev.ident)
+                .is_ok_and(|descriptor| descriptors.terminal_reads.contains(&descriptor))
+    };
+    for kqueue in descriptors
+        .kqueues
+        .iter()
+        .copied()
+        .chain([WORK_QUEUE_KQUEUE])
+    {
+        let knotes = read_counted_list::<KeventExtinfo>(|buffer, length| {
+            // SAFETY: the buffer is live and `length` bytes long, sized for whole knotes, and
+            // nothing else reads it until the call returns.
+            unsafe { libc::proc_pidfdinfo(pid, kqueue, PROC_PIDFDKQUEUE_EXTINFO, buffer, length) }
+        });
+        if read_gone_as_empty(knotes)?.iter().any(is_terminal_read) {
+            return Ok(true);
+        }
+    }
+    let work_loops = read_counted_list::<u64>(|buffer, length| {
+        // SAFETY: the buffer is live and `length` bytes long, sized for whole ids, and nothing else
+        // reads it until the call returns.
+        unsafe { libc::proc_pidinfo(pid, PROC_PIDLISTDYNKQUEUES, 0, buffer, length) }
+    });
+    let work_loops = read_gone_as_empty(work_loops)?;
+    for work_loop in work_loops {
+        let knotes = read_counted_list::<KeventExtinfo>(|buffer, length| {
+            // SAFETY: the buffer is live and `length` bytes long, sized for whole knotes, and
+            // nothing else reads it until the call returns.
+            unsafe {
+                proc_piddynkqueueinfo(pid, PROC_PIDDYNKQUEUE_EXTINFO, work_loop, buffer, length)
+            }
+        });
+        if read_gone_as_empty(knotes)?.iter().any(is_terminal_read) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+// A list of a kqueue or a process, none when the kqueue closed or the process ended since its
+// listing.
+fn read_gone_as_empty<T>(list: io::Result<Vec<T>>) -> io::Result<Vec<T>> {
+    match list {
+        Err(error) if matches!(error.raw_os_error(), Some(libc::EBADF | libc::ESRCH)) => {
+            Ok(Vec::new())
+        }
+        list => list,
+    }
+}
+
+// What `proc_pidfdinfo` answers for `flavor` of descriptor `descriptor` of process `pid`; `None`
+// when the descriptor was closed since its listing.
+fn read_fd_info<T>(pid: c_int, descriptor: c_int, flavor: c_int) -> io::Result<Option<T>> {
+    let mut info = std::mem::MaybeUninit::<T>::uninit();
+    let length = c_int::try_from(size_of::<T>()).map_err(io::Error::other)?;
+    // SAFETY: the pointer names a live `T` of `length` bytes, the struct this flavor fills, and
+    // nothing else reads it until the call returns.
+    let written = read_libproc_count(|| unsafe {
+        libc::proc_pidfdinfo(pid, descriptor, flavor, info.as_mut_ptr().cast(), length)
+    });
+    match written {
+        Ok(written) if written == size_of::<T>() => {
+            // SAFETY: the call filled the whole struct.
+            Ok(Some(unsafe { info.assume_init() }))
+        }
+        Ok(_) => Ok(None),
+        Err(error) if error.raw_os_error() == Some(libc::EBADF) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+// The innermost calls of each thread of process `process_id`, as one `sample` shows them; `None`
+// when `sample` fails because the process ended.
+async fn sample_innermost_calls(
+    spawner: &Spawner,
+    process_id: u32,
+) -> io::Result<Option<Vec<Vec<String>>>> {
+    let mut command = Command::new(SAMPLE_PROGRAM);
+    command.args([
+        &process_id.to_string(),
+        SAMPLE_SECONDS,
+        SAMPLE_INTERVAL_MILLISECONDS,
+        // Written to standard output alone, so no report is left in the temporary folder.
+        "-file",
+        "/dev/stdout",
+    ]);
+    let output = run_helper_program(spawner, "sample", command).await?;
+    if !output.status.success() {
+        let pid = system_process_id(process_id)?.get();
+        if is_gone(pid)? {
+            return Ok(None);
+        }
+        return Err(program_failure("sample", &process_id.to_string(), &output));
+    }
+    read_innermost_calls(&String::from_utf8_lossy(&output.stdout)).map(Some)
+}
+
+// Whether process `pid` has ended, as [`survey_process`] reads an ended process.
+fn is_gone(pid: c_int) -> io::Result<bool> {
+    match read_pid_list::<u64>(pid, PROC_PIDLISTTHREADS) {
+        Ok(_threads) => Ok(false),
+        Err(error) => Ok(matches!(survey_refusal(error)?, ProcessSurvey::Gone)),
+    }
+}
+
+// Runs `command`, the helper program named `program`, started on `spawner`'s thread as a child
+// of the daemon, to its end within `HELPER_PROGRAM_TIME_LIMIT`, its output read as it runs; a run
+// past the limit is killed as its child drops and fails with `TimedOut` naming `program`.
+async fn run_helper_program(
+    spawner: &Spawner,
+    program: &str,
+    mut command: Command,
+) -> io::Result<Output> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    prepare_child_command(&mut command, std::process::id());
+    let child = spawner.run(move || command.spawn()).await??;
+    tokio::time::timeout(HELPER_PROGRAM_TIME_LIMIT, child.wait_with_output())
+        .await
+        .map_err(|_elapsed| {
+            io::Error::new(
+                ErrorKind::TimedOut,
+                format!("{program} ran past its {HELPER_PROGRAM_TIME_LIMIT:?} limit"),
+            )
+        })?
+}
+
+// A program's failure on `processes`, with its status and the error text it wrote.
+fn program_failure(program: &str, processes: &str, output: &Output) -> io::Error {
+    io::Error::other(format!(
+        "{program} could not read process {processes} ({}): {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr).trim()
+    ))
+}
+
+// The innermost calls of each thread of a `sample` report's call graph: the frames no deeper frame
+// follows in the thread's tree. Fails with `InvalidData` when the report has no call graph.
+fn read_innermost_calls(report: &str) -> io::Result<Vec<Vec<String>>> {
+    let mut threads: Vec<Vec<String>> = Vec::new();
+    let mut frames: Vec<(usize, String)> = Vec::new();
+    let finish_thread = |frames: &mut Vec<(usize, String)>, threads: &mut Vec<Vec<String>>| {
+        if frames.is_empty() {
+            return;
+        }
+        let leaves = frames
+            .iter()
+            .enumerate()
+            .filter(|(index, (depth, _name))| {
+                frames
+                    .get(index + 1)
+                    .is_none_or(|(next_depth, _next_name)| next_depth <= depth)
+            })
+            .map(|(_index, (_depth, name))| name.clone())
+            .collect();
+        threads.push(leaves);
+        frames.clear();
+    };
+    let Some((_before, call_graph)) = report.split_once("Call graph:") else {
+        return Err(io::Error::new(
+            ErrorKind::InvalidData,
+            "sample's report has no call graph",
+        ));
+    };
+    // The first line is the rest of the heading's own line.
+    for line in call_graph.lines().skip(1) {
+        if line.trim().is_empty() {
+            break;
+        }
+        let body = line.trim_start_matches([' ', '+', '|', '!', ':']);
+        let depth = line.len() - body.len();
+        let Some((_count, rest)) = body.split_once(' ') else {
+            continue;
+        };
+        if rest.starts_with("Thread_") {
+            finish_thread(&mut frames, &mut threads);
+            continue;
+        }
+        let name = rest
+            .split_once("  (in ")
+            .map_or(rest, |(name, _place)| name);
+        frames.push((depth, name.trim().to_owned()));
+    }
+    finish_thread(&mut frames, &mut threads);
+    Ok(threads)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_innermost_calls;
+
+    // Fails when a frame some deeper frame follows is taken as innermost, a frame its sibling at
+    // the same depth follows is not, or one thread's frames run into the next thread's.
+    #[test]
+    fn a_sample_report_s_innermost_calls_are_read_per_thread() {
+        let report = "Analysis of sampling cat (pid 1) every 10 milliseconds\n\
+            Call graph:\n    \
+            10 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)\n    \
+            + 10 start  (in dyld) + 6688  [0x1]\n    \
+            +   10 main  (in cat) + 100  [0x2]\n    \
+            +     10 read  (in libsystem_kernel.dylib) + 8  [0x3]\n    \
+            10 Thread_2\n    \
+            + 6 thread_start  (in libsystem_pthread.dylib) + 8  [0x4]\n    \
+            + ! 4 work  (in cat) + 1  [0x5]\n    \
+            + ! : 4 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x6]\n    \
+            + ! 2 kevent  (in libsystem_kernel.dylib) + 8  [0x7]\n    \
+            10 Thread_3\n    \
+            + 10 main  (in cat) + 1  [0x8]\n    \
+            +   6 read  (in libsystem_kernel.dylib) + 8  [0x9]\n    \
+            +   4 kevent  (in libsystem_kernel.dylib) + 8  [0xa]\n\n\
+            Total number in stack (recursive counted multiple, when >=5):\n";
+
+        let threads = read_innermost_calls(report).expect("the report has a call graph");
+
+        assert_eq!(
+            threads,
+            vec![
+                vec!["read".to_owned()],
+                vec!["__psynch_cvwait".to_owned(), "kevent".to_owned()],
+                vec!["read".to_owned(), "kevent".to_owned()],
+            ]
+        );
+    }
+
+    // Fails when a report with no call graph reads as threads waiting on nothing rather than as a
+    // failure.
+    #[test]
+    fn a_sample_report_without_a_call_graph_is_refused() {
+        let report = "Analysis of sampling cat (pid 1) every 10 milliseconds\n\
+            Process:         cat [1]\n";
+
+        assert!(read_innermost_calls(report).is_err());
+    }
+}

@@ -14,16 +14,18 @@ use tokio::io::Interest;
 use tokio::io::unix::AsyncFd;
 
 use crate::child_command::ChildEnd;
-use crate::linux::processes::read_process_environment;
+use crate::linux::process_start::read_process_environment;
 use crate::linux::{read_process_file, read_process_stat_fields};
 use crate::pinned_process::ProcessRecord;
 use crate::posix::process::group::signal_group;
 use crate::posix::process::id::system_process_id;
 use crate::posix::process::stop::{stop_pinned_process, wait_for_event};
 
-// The stat file's fields holding the process's group and session.
-const GROUP_FIELD: usize = 5;
-const SESSION_FIELD: usize = 6;
+/// The stat file's field holding the process's group.
+pub(crate) const GROUP_FIELD: usize = 5;
+
+/// The stat file's field holding the process's session.
+pub(crate) const SESSION_FIELD: usize = 6;
 
 // The stat file's field holding the process's start, in clock ticks since boot.
 const START_FIELD: usize = 22;

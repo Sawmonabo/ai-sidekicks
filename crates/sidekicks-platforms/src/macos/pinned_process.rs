@@ -18,9 +18,8 @@ use tokio::io::Interest;
 use tokio::io::unix::AsyncFd;
 
 use crate::child_command::ChildEnd;
-use crate::macos::processes::{
-    list_child_process_ids, list_group_process_ids, read_process_environment,
-};
+use crate::macos::process_start::read_process_environment;
+use crate::macos::processes::{list_child_process_ids, list_group_process_ids};
 use crate::pinned_process::ProcessRecord;
 use crate::posix::process::group::signal_group;
 use crate::posix::process::id::system_process_id;

@@ -6,50 +6,52 @@
 //! every system.
 #![expect(
     unsafe_code,
-    reason = "the terminal's window size, mode read (`tcgetattr`), signal request (`TIOCSIG`), \
-              console, console input count (`GetNumberOfConsoleInputEvents`) and library-search \
-              calls, the shell start's signal and console-handler calls, the parent check \
-              a `Command` child runs in `pre_exec`, a lasting child's `setsid` and `prctl` in \
-              `pre_exec`, the stop of a pinned process (Linux's `pidfd_send_signal`, macOS's \
-              exit filter, descendant list and audit-token signal, Windows' `OpenProcess`, \
-              `GetProcessTimes`, `WaitForSingleObject`, `TerminateProcess` and its job's open, \
-              check and end), a lasting child's start on Windows (`CreateProcessW` with its \
-              attribute list, its job's creation and access list, the handles it inherits and \
-              the wait for its exit), the user-namespace check's `unshare` and map writes, the \
-              boot id's `sysctl`, the Windows host-name, free-room, volume-root \
-              (`GetVolumePathNameW`, `GetDriveTypeW`) and file-information calls, \
-              the Windows replacing rename's `MoveFileExW`, the caller reads (Linux's peer \
-              process descriptor and `pidfd_open`, macOS's audit token, checked process reads \
-              and responsible-process reads), macOS's code-signature checks, the start as its \
-              own responsible process (its thread count, its program's path, its marker's \
-              removal from the environment and the disclaiming exec), the socket pair a shell's \
-              start is confirmed over, macOS's `proc_pid_rusage`, which a process's peak \
+    reason = "the terminal's window size, queued-byte counts (`FIONREAD`, on Linux on the \
+              program's side `TIOCGPTPEER` opens), signal request (`TIOCSIG`), console, console \
+              input count (`GetNumberOfConsoleInputEvents`) and library-search calls, the shell \
+              start's signal and console-handler calls, the parent check a `Command` child runs in \
+              `pre_exec`, a lasting child's `setsid` and `prctl` in `pre_exec`, the stop of a \
+              pinned process (Linux's `pidfd_send_signal`, macOS's exit filter, descendant list \
+              and audit-token signal, Windows' `OpenProcess`, `GetProcessTimes`, \
+              `WaitForSingleObject`, `TerminateProcess` and its job's open, check and end), a \
+              lasting child's start on Windows (`CreateProcessW` with its attribute list, its \
+              job's creation and access list, the handles it inherits and the wait for its exit), \
+              the user-namespace check's `unshare` and map writes, the boot id's `sysctl`, the \
+              Windows host-name, free-room, volume-root (`GetVolumePathNameW`, `GetDriveTypeW`) \
+              and file-information calls, the Windows replacing rename's `MoveFileExW`, the caller \
+              reads (Linux's peer process descriptor and `pidfd_open`, macOS's audit token, \
+              checked process reads and responsible-process reads), macOS's code-signature checks, \
+              the start as its own responsible process (its thread count, its program's path, its \
+              marker's removal from the environment and the disclaiming exec), the socket pair a \
+              shell's start is confirmed over, macOS's `proc_pid_rusage`, which a process's peak \
               memory and the measurement tests' footprint share, Windows' `OpenProcess` and \
               `K32GetProcessMemoryInfo`, the calling thread's processor time (`GetThreadTimes`), \
               the available-memory reads (macOS's `mach_host_self` and \
               `host_statistics64`, Windows' `GlobalMemoryStatusEx`), macOS's process list \
-              (`proc_listpids`) and environment read (`sysctl` of `KERN_ARGMAX` and \
-              `KERN_PROCARGS2`), a released terminal's wait for its program (`waitid`, and its \
-              exit event's registration), mimalloc's `mi_collect`, tree-sitter's \
-              `set_allocator`, and the power notifications and wall-clock timers of macOS and \
-              Windows are C interfaces, and tokio's watch of the Linux timer's and the terminal \
-              poller's descriptors trusts each to stay open while it watches, and the Windows \
-              Ctrl-C ending's `ExitProcess`, the user's locale reads (Windows' \
-              `GetLocaleInfoEx`, macOS's `CFDateFormatterCreateDateFormatFromTemplate`), a \
-              process's user read from its token (`OpenProcess`, `OpenProcessToken`, \
-              `GetTokenInformation`, `EqualSid`, `ConvertSidToStringSidW`), the named pipe's \
-              server read (`GetNamedPipeServerProcessId`), a Windows AF_UNIX socket's peer read \
-              (`WSAIoctl` of `SIO_AF_UNIX_GETPEERPID`) and the mark that lets `async-io` drive \
-              it (`IoSafe`), the run folder's owner and access \
-              list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`), a Windows child's output \
-              read at its exit (`CancelIoEx`, `PeekNamedPipe`), the daemon's process \
-              containment (Windows' kill-on-close job through `CreateJobObjectW`, \
+              (`proc_listpids`) and process start read (`sysctl` of `KERN_ARGMAX` and \
+              `KERN_PROCARGS2`), its descriptor path read (`fcntl` of `F_GETPATH`), a released \
+              terminal's wait for its program (`waitid`, and its exit event's registration), \
+              mimalloc's `mi_collect`, tree-sitter's `set_allocator`, and the power notifications \
+              and wall-clock timers of macOS and Windows are C interfaces, and tokio's watch of \
+              the Linux timer's, the terminal poller's and macOS's folder and file watch queue's \
+              descriptors trusts each to stay open while it watches, and the Windows Ctrl-C \
+              ending's `ExitProcess`, the user's locale reads (Windows' `GetLocaleInfoEx`, macOS's \
+              `CFDateFormatterCreateDateFormatFromTemplate`), a process's user read from its token \
+              (`OpenProcess`, `OpenProcessToken`, `GetTokenInformation`, `EqualSid`, \
+              `ConvertSidToStringSidW`), the named pipe's server read \
+              (`GetNamedPipeServerProcessId`), a Windows AF_UNIX socket's peer read (`WSAIoctl` of \
+              `SIO_AF_UNIX_GETPEERPID`) and the mark that lets `async-io` drive it (`IoSafe`), the \
+              run folder's owner and access list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`), \
+              a Windows child's output read at its exit (`CancelIoEx`, `PeekNamedPipe`), the \
+              daemon's process containment (Windows' kill-on-close job through `CreateJobObjectW`, \
               `SetInformationJobObject` and `AssignProcessToJobObject`, and Linux's `poll` of its \
               cgroup's events), the start confirmation's peer checks (`SO_PEERCRED`, and on \
               Windows `GetNamedPipeClientProcessId`), the Windows stop request's hidden window \
               (`RegisterClassExW`, `CreateWindowExW` and its message loop), Windows' binary \
-              standard streams (`_setmode`) and macOS's user temp folder (`confstr`) are C \
-              interfaces too"
+              standard streams (`_setmode`), macOS's input-wait reads (`proc_pidinfo`'s thread and \
+              work-loop lists and BSD information, `proc_pidfdinfo`, `proc_piddynkqueueinfo`), the \
+              Linux input-wait test's page mapping (`mmap`, `munmap`) and macOS's user temp folder \
+              (`confstr`) are C interfaces too"
 )]
 
 mod atomic_write;
@@ -68,6 +70,7 @@ mod file_watch;
 mod footprint;
 mod held_file;
 mod hidden_entry;
+mod input_wait;
 mod keep_awake;
 mod lasting_child;
 #[cfg(target_os = "linux")]
@@ -84,6 +87,7 @@ mod pipe_reader;
 mod posix;
 mod process_containment;
 mod process_identity;
+mod process_start;
 mod program_install_folders;
 mod program_start;
 mod recreate_link;
@@ -107,6 +111,7 @@ mod tool_memory_cap;
 mod user_namespace;
 mod wake_watch;
 mod wall_clock;
+mod watch;
 #[cfg(target_os = "windows")]
 mod windows;
 mod wsl;
@@ -143,6 +148,7 @@ pub use file_watch::{WATCHES_TREES, inotify_watch_ceiling};
 pub use footprint::ProcessFootprint;
 pub use held_file::{create_held_file, is_held, remove_unless_held};
 pub use hidden_entry::is_hidden_entry;
+pub use input_wait::{InputTerminal, InputWaitReading};
 pub use keep_awake::{KeepAwakeHold, KeepAwakePurpose, KeepAwakeRefused};
 pub use lasting_child::{LastingChild, LastingCommand};
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
@@ -152,6 +158,10 @@ pub use linux::SHELL_FOLDER_PROBES;
 pub use linux::caller_process::{
     read_parent_process, read_peer_process, read_peer_process as unix_domain_peer_process,
 };
+#[cfg(target_os = "linux")]
+pub use linux::descriptor_path::read_descriptor_path;
+#[cfg(target_os = "linux")]
+pub use linux::input_wait::{may_wait_for_input, read_input_wait};
 #[cfg(target_os = "linux")]
 pub use linux::memory::{
     available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
@@ -163,7 +173,9 @@ pub use linux::pinned_process::{PinnedProcess, pin_child_process, pin_running_pr
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::process_footprint;
 #[cfg(target_os = "linux")]
-pub use linux::processes::{list_user_process_ids, read_process_environment};
+pub use linux::process_start::{read_process_environment, read_process_start};
+#[cfg(target_os = "linux")]
+pub use linux::processes::list_user_process_ids;
 #[cfg(target_os = "linux")]
 pub use linux::read_command_argument_limit;
 #[cfg(target_os = "linux")]
@@ -184,6 +196,10 @@ pub use macos::caller_process::{
 };
 #[cfg(target_os = "macos")]
 pub use macos::code_signature::DesktopClientRequirement;
+#[cfg(target_os = "macos")]
+pub use macos::descriptor_path::read_descriptor_path;
+#[cfg(target_os = "macos")]
+pub use macos::input_wait::{may_wait_for_input, read_input_wait};
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::memory::process_footprint;
 #[cfg(target_os = "macos")]
@@ -197,7 +213,9 @@ pub use macos::pinned_process::{PinnedProcess, pin_child_process, pin_running_pr
 #[cfg(target_os = "macos")]
 pub use macos::power_source::PowerSourceWatch;
 #[cfg(target_os = "macos")]
-pub use macos::processes::{list_user_process_ids, read_process_environment};
+pub use macos::process_start::{read_process_environment, read_process_start};
+#[cfg(target_os = "macos")]
+pub use macos::processes::list_user_process_ids;
 #[cfg(target_os = "macos")]
 pub use macos::read_command_argument_limit;
 #[cfg(target_os = "macos")]
@@ -279,6 +297,8 @@ pub use posix::shell_start::{DOES_PARENT_DEATH_FOLLOW_STARTING_THREAD, run_shell
 pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
 };
+#[cfg(unix)]
+pub use posix::terminal::inner::start_inner_terminal;
 // The daemon's own socket on macOS and Linux is AF_UNIX too, so one dial serves both.
 #[cfg(unix)]
 pub use posix::shell_start_confirmation::{ShellLaunchWriter, ShellStartConfirmation};
@@ -299,10 +319,10 @@ pub use posix::system_locale::{system_hour_cycle, system_locale};
 #[cfg(unix)]
 pub use posix::terminal::{
     DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
-    end_process_tree, read_console, read_console_waiting_input, release_terminal,
-    restrict_library_search, run_console_helper, run_terminal_loop, send_console_break,
-    send_signal, terminal_ending_route, terminal_options, terminal_signal_route,
-    write_console_waiting_input,
+    end_process_tree, read_console, read_console_waiting_input, read_terminal_master,
+    release_terminal, restrict_library_search, run_console_helper, run_terminal_loop,
+    send_console_break, send_signal, terminal_ending_route, terminal_options,
+    terminal_signal_route, write_console_waiting_input,
 };
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::terminal::{
@@ -320,6 +340,7 @@ pub use process_containment::{
     stable_working_folder,
 };
 pub use process_identity::process_identity;
+pub use process_start::ProcessStart;
 pub use program_install_folders::{ProgramFolder, program_install_folders};
 pub use program_start::{ProgramStart, program_start};
 pub use recreate_link::recreate_link;
@@ -343,8 +364,9 @@ pub use system_locale::LocaleCategory;
 #[cfg(any(test, feature = "test-support"))]
 pub use terminal::{AbnormalExit, TestProgram};
 pub use terminal::{
-    CONSOLE_WAITING_INPUT_ARGUMENT, ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd,
-    TerminalInputRefusal, TerminalSignal, TerminalSignalRoute, TerminalWake, TerminalWaker,
+    CONSOLE_WAITING_INPUT_ARGUMENT, ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, InnerTerminal,
+    ProcessTreeEnd, TerminalDevice, TerminalInputRefusal, TerminalMasterReading, TerminalSignal,
+    TerminalSignalRoute, TerminalWake, TerminalWaker,
 };
 #[cfg(any(test, feature = "test-support"))]
 pub use test_program::pass_through_start;
@@ -353,6 +375,7 @@ pub use tool_memory_cap::TOOL_MEMORY_CAP_ENFORCEABLE;
 pub use user_namespace::can_create_user_namespace;
 pub use wake_watch::WakeWatchError;
 pub use wall_clock::{WallClock, WallClockWait};
+pub use watch::{FileAppendWatch, FolderArrivalWatch};
 #[cfg(target_os = "windows")]
 pub use windows::allocator::{
     GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
@@ -372,6 +395,8 @@ pub use windows::child_command::{
 pub use windows::command_argument_limit::read_command_argument_limit;
 #[cfg(target_os = "windows")]
 pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
+#[cfg(target_os = "windows")]
+pub use windows::descriptor_path::read_descriptor_path;
 #[cfg(target_os = "windows")]
 pub use windows::disk::{
     FlushFailure, SHOULD_MEMORY_MAP_READS, flush_file, flush_folder, flush_open_file,
@@ -398,6 +423,8 @@ pub use windows::file_system::{
     CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, remove_tree, rename_replacing,
 };
 #[cfg(target_os = "windows")]
+pub use windows::input_wait::{may_wait_for_input, read_input_wait};
+#[cfg(target_os = "windows")]
 pub use windows::lasting_child::spawn_lasting_child;
 #[cfg(target_os = "windows")]
 pub use windows::login_shell::{login_shell, name_as_login_shell};
@@ -422,7 +449,9 @@ pub use windows::private_folder::{
     create_missing_private_folders, create_new_private_folder, create_private_folder,
 };
 #[cfg(target_os = "windows")]
-pub use windows::processes::{list_user_process_ids, read_process_environment};
+pub use windows::process_start::{read_process_environment, read_process_start};
+#[cfg(target_os = "windows")]
+pub use windows::processes::list_user_process_ids;
 #[cfg(target_os = "windows")]
 pub use windows::real_path::real_path;
 #[cfg(target_os = "windows")]
@@ -458,12 +487,14 @@ pub use windows::stop_request::StopRequest;
 #[cfg(target_os = "windows")]
 pub use windows::system_locale::{system_hour_cycle, system_locale};
 #[cfg(target_os = "windows")]
+pub use windows::terminal::start_inner_terminal;
+#[cfg(target_os = "windows")]
 pub use windows::terminal::{
     DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
-    end_process_tree, read_console, read_console_waiting_input, release_terminal,
-    restrict_library_search, run_console_helper, run_terminal_loop, send_console_break,
-    send_signal, terminal_ending_route, terminal_options, terminal_signal_route,
-    write_console_waiting_input,
+    end_process_tree, read_console, read_console_waiting_input, read_terminal_master,
+    release_terminal, restrict_library_search, run_console_helper, run_terminal_loop,
+    send_console_break, send_signal, terminal_ending_route, terminal_options,
+    terminal_signal_route, write_console_waiting_input,
 };
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::terminal::{

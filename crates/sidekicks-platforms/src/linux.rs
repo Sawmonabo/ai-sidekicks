@@ -2,21 +2,27 @@
 //! the Windows drives are mounted at, reads at an offset rather than through a memory map, a
 //! process's files under `/proc` and the fields of its stat file, a local connection's caller
 //! pinned, the bound on a program's argument, a process's memory and the machine's available
-//! memory, one user's processes and a process's environment, the daemon's process containment and
-//! its shell start's writer check, the machine's wakes from sleep, a wall-clock timer, the Secret
-//! Service and the shells the live test opens on a folder.
+//! memory, one user's processes and the arguments and environment a process started with, an open
+//! descriptor's path, the wakes of a folder's and a file's watch, whether a terminal's program
+//! waits for input, the daemon's process containment and its shell start's writer check, the
+//! machine's wakes from sleep, a wall-clock timer, the Secret Service and the shells the live test
+//! opens on a folder.
 
 pub(crate) mod caller_process;
 pub(crate) mod credential_store;
+pub(crate) mod descriptor_path;
+pub(crate) mod input_wait;
 pub(crate) mod memory;
 pub(crate) mod pinned_process;
 pub(crate) mod process_containment;
+pub(crate) mod process_start;
 pub(crate) mod processes;
 pub(crate) mod shell_start_confirmation;
 pub(crate) mod user_namespace;
 pub(crate) mod user_scope;
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
+pub(crate) mod watch;
 
 use std::ffi::OsString;
 use std::io::{self, ErrorKind};
@@ -159,13 +165,15 @@ pub(crate) fn read_process_stat_fields<const COUNT: usize>(
 pub(crate) fn read_process_file(process_id: u32, file: &str) -> io::Result<Option<Vec<u8>>> {
     match std::fs::read(format!("/proc/{process_id}/{file}")) {
         Ok(bytes) => Ok(Some(bytes)),
-        Err(error)
-            if error.kind() == ErrorKind::NotFound || error.raw_os_error() == Some(libc::ESRCH) =>
-        {
-            Ok(None)
-        }
+        Err(error) if is_gone(&error) => Ok(None),
         Err(error) => Err(error),
     }
+}
+
+/// Whether `error` is a read under `/proc` of a process or thread that ended: its folder gone
+/// before the open, or the process ending during the read (`ESRCH`).
+pub(crate) fn is_gone(error: &io::Error) -> bool {
+    error.kind() == ErrorKind::NotFound || error.raw_os_error() == Some(libc::ESRCH)
 }
 
 /// This process's footprint, which only macOS reports. Always fails with `Unsupported`.
