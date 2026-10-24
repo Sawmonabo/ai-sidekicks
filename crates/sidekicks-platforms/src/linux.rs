@@ -165,13 +165,15 @@ pub(crate) fn read_process_stat_fields<const COUNT: usize>(
 pub(crate) fn read_process_file(process_id: u32, file: &str) -> io::Result<Option<Vec<u8>>> {
     match std::fs::read(format!("/proc/{process_id}/{file}")) {
         Ok(bytes) => Ok(Some(bytes)),
-        Err(error)
-            if error.kind() == ErrorKind::NotFound || error.raw_os_error() == Some(libc::ESRCH) =>
-        {
-            Ok(None)
-        }
+        Err(error) if is_gone(&error) => Ok(None),
         Err(error) => Err(error),
     }
+}
+
+/// Whether `error` is a read under `/proc` of a process or thread that ended: its folder gone
+/// before the open, or the process ending during the read (`ESRCH`).
+pub(crate) fn is_gone(error: &io::Error) -> bool {
+    error.kind() == ErrorKind::NotFound || error.raw_os_error() == Some(libc::ESRCH)
 }
 
 /// This process's footprint, which only macOS reports. Always fails with `Unsupported`.

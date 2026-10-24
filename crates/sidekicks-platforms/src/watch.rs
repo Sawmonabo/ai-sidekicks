@@ -110,8 +110,9 @@ impl FileAppendWatch {
     }
 
     /// The bytes appended since the last call, at most 64 KiB, without waiting: empty when none
-    /// are, for a caller reading the last bytes after the writer's end. Fails as
-    /// [`Self::next_appended`] does.
+    /// are, for a caller reading the last bytes after the writer's end. Fails with the system's
+    /// error when the file cannot be read, and with `InvalidData` once it is shorter than the bytes
+    /// already handed back.
     pub async fn drain(&mut self) -> io::Result<Vec<u8>> {
         let mut buffer = vec![0_u8; APPEND_READ_LIMIT];
         let count = self.read_appended(&mut buffer).await?;
@@ -300,8 +301,8 @@ mod tests {
         );
     }
 
-    // Fails when a file's wake watches what its name holds rather than the open file: a file renamed
-    // over the name after the open and before the wake is made would take the wakes.
+    // Fails when a file's wake watches what its name holds rather than the open file: a file
+    // renamed over the name after the open and before the wake is made would take the wakes.
     #[tokio::test]
     async fn file_change_wake_follows_its_open_file_not_its_name() {
         let folder = tempfile::tempdir().expect("a scratch folder");

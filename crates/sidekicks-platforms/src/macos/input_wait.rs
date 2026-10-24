@@ -515,8 +515,8 @@ async fn reader_waits(spawner: &Spawner, reader: &Reader) -> io::Result<ReaderWa
         })
     };
     let descriptors = &reader.descriptors;
-    let holds_readable_other = descriptors.holds_socket || descriptors.holds_readable_fifo;
-    if is_wait_in(&READ_CALLS) && !holds_readable_other && !descriptors.holds_awaited_pipe {
+    let holds_socket_or_fifo = descriptors.holds_socket || descriptors.holds_readable_fifo;
+    if is_wait_in(&READ_CALLS) && !holds_socket_or_fifo && !descriptors.holds_awaited_pipe {
         return Ok(ReaderWait::OnTerminal);
     }
     if is_wait_in(&KEVENT_CALLS) {
@@ -526,7 +526,7 @@ async fn reader_waits(spawner: &Spawner, reader: &Reader) -> io::Result<ReaderWa
         }
     }
     let holds_other_wait_source =
-        holds_readable_other || descriptors.holds_readable_pipe || !descriptors.kqueues.is_empty();
+        holds_socket_or_fifo || descriptors.holds_readable_pipe || !descriptors.kqueues.is_empty();
     Ok(if is_wait_in(&SELECT_CALLS) && !holds_other_wait_source {
         ReaderWait::InSelect
     } else {

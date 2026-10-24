@@ -12,7 +12,7 @@ use std::sync::Once;
 
 use crate::input_wait::{InputTerminal, InputWaitReading};
 use crate::linux::input_wait::group::{GroupMember, list_group_members};
-use crate::linux::{read_process_file, read_process_stat_fields};
+use crate::linux::{is_gone, read_process_file, read_process_stat_fields};
 use crate::posix::terminal::read_queued_bytes;
 use crate::spawner::Spawner;
 use crate::terminal::TerminalDevice;
@@ -616,11 +616,6 @@ fn note_weaker_reading() {
 // Whether `error` is the kernel refusing a read this user has no right to.
 fn is_refusal(error: &io::Error) -> bool {
     matches!(error.raw_os_error(), Some(libc::EACCES | libc::EPERM))
-}
-
-// Whether `error` is a read of a process or thread that ended.
-fn is_gone(error: &io::Error) -> bool {
-    error.kind() == ErrorKind::NotFound || error.raw_os_error() == Some(libc::ESRCH)
 }
 
 #[cfg(test)]

@@ -96,20 +96,20 @@ mod tests {
         "node -e \"require('readline').createInterface({input: process.stdin, \
          output: process.stdout}).question('ready> ', () => {})\"",
         "ready>",
-        Act::Nothing,
+        AtPrompt::Nothing,
         reading(Wait::OnTerminal, Echo::Off)
     )]
     #[case::cat(
         "echo ready; exec cat",
         "ready",
-        Act::Nothing,
+        AtPrompt::Nothing,
         reading(Wait::OnTerminal, Echo::On)
     )]
     // Stopped in its read, as Ctrl+Z stops it, it reads nothing until it is continued.
     #[case::stopped_cat(
         "echo ready; exec cat",
         "ready",
-        Act::Stop,
+        AtPrompt::Stop,
         reading(Wait::None, Echo::On)
     )]
     // Woken once for each new input, it waits again with the typed line still queued, so only the
@@ -123,7 +123,7 @@ mod tests {
          wait = (lambda: queue.poll()) if edge else (lambda: queue.control(None, 1)); \
          print('ready', flush=True); wait(); wait()\"",
         "ready",
-        Act::Type("a line\n"),
+        AtPrompt::Type("a line\n"),
         reading(Wait::None, Echo::On)
     )]
     // It reads a FIFO a quiet writer holds open while its standard input is the terminal, so on
@@ -131,38 +131,38 @@ mod tests {
     #[case::fifo_reader(
         "mkfifo pipe; sleep 600 > pipe & echo ready; exec cat pipe",
         "ready",
-        Act::Nothing,
+        AtPrompt::Nothing,
         reading(Wait::None, Echo::On)
     )]
     #[case::raw_cat(
         "stty -echo -icanon; echo ready; exec cat",
         "ready",
-        Act::Nothing,
+        AtPrompt::Nothing,
         reading(Wait::OnTerminal, Echo::Off)
     )]
     #[case::read_with_time_limit(
         "read -t 1 line; echo ready; sleep 30",
         "ready",
-        Act::Nothing,
+        AtPrompt::Nothing,
         reading(Wait::None, Echo::On)
     )]
     #[case::sleep(
         "echo ready; exec sleep 30",
         "ready",
-        Act::Nothing,
+        AtPrompt::Nothing,
         reading(Wait::None, Echo::On)
     )]
     #[case::python_select(
         SELECT_READER_SCRIPT,
         "ready",
-        Act::Nothing,
+        AtPrompt::Nothing,
         reading(select_wait(Wait::InSelect), Echo::On)
     )]
     // Its `select` holds the terminal, and a pipe open for reading its wait may be on instead.
     #[case::pipe_holding_select(
         PIPE_HOLDING_SELECT_READER_SCRIPT,
         "ready",
-        Act::Nothing,
+        AtPrompt::Nothing,
         reading(select_wait(Wait::None), Echo::On)
     )]
     // The same with a FIFO a quiet writer holds open.
@@ -170,7 +170,7 @@ mod tests {
         "mkfifo pipe; sleep 600 > pipe & exec python3 -c \"import select, sys; \
          fifo = open('pipe'); print('ready', flush=True); select.select([sys.stdin], [], [])\"",
         "ready",
-        Act::Nothing,
+        AtPrompt::Nothing,
         reading(select_wait(Wait::None), Echo::On)
     )]
     // The same with a kqueue, whose knotes its wait may be on instead; Linux has no kqueue.
@@ -180,7 +180,7 @@ mod tests {
             "exec python3 -c \"import select, sys; queue = select.kqueue(); \
              print('ready', flush=True); select.select([sys.stdin], [], [])\"",
             "ready",
-            Act::Nothing,
+            AtPrompt::Nothing,
             reading(select_wait(Wait::None), Echo::On)
         )
     )]
@@ -188,7 +188,7 @@ mod tests {
     #[case::socket_server(
         "exec python3 -m http.server 0 --bind 127.0.0.1",
         "Serving HTTP",
-        Act::Nothing,
+        AtPrompt::Nothing,
         reading(Wait::None, Echo::On)
     )]
     // Its standard streams are away from the terminal, so `/dev/tty` is its only way to it.
@@ -196,7 +196,7 @@ mod tests {
         "exec python3 -c \"import os; terminal = os.open('/dev/tty', os.O_RDWR); \
          os.write(terminal, b'ready\\n'); os.read(terminal, 1)\" < /dev/null > /dev/null 2>&1",
         "ready",
-        Act::Nothing,
+        AtPrompt::Nothing,
         reading(Wait::OnTerminal, Echo::On)
     )]
     // Its parent subshell exits, so it is an orphan outside the session leader's tree; on Linux
@@ -204,26 +204,26 @@ mod tests {
     #[case::orphan_reader(
         "( python3 -c \"print('ready', flush=True); input()\" < /dev/tty & ); exec sleep 600",
         "ready",
-        Act::Nothing,
+        AtPrompt::Nothing,
         reading(Wait::OnTerminal, Echo::On)
     )]
     #[case::hidden_read(
         "echo ready; exec /bin/bash -c 'read -s line'",
         "ready",
-        Act::Nothing,
+        AtPrompt::Nothing,
         reading(Wait::OnTerminal, Echo::OffAtPasswordPrompt)
     )]
     #[case::vim(
         "exec vim -u NONE -N -n",
         "~",
-        Act::Nothing,
+        AtPrompt::Nothing,
         reading(select_wait(Wait::InSelect), Echo::Off)
     )]
     #[tokio::test]
     async fn input_wait_reads_each_kind_of_reader(
         #[case] script: &str,
         #[case] marker: &str,
-        #[case] act: Act,
+        #[case] at_prompt: AtPrompt,
         #[case] expected: InputWaitReading,
     ) {
         #[cfg(target_os = "linux")]
@@ -240,7 +240,7 @@ mod tests {
         let terminal =
             start_inner_terminal(&options, TEST_WINDOW_SIZE).expect("the terminal starts");
         let prompt = read_until_marker(&terminal.pty, marker, Duration::from_secs(20));
-        let acting = prompt.is_ok().then(|| act.apply(&terminal));
+        let acting = prompt.is_ok().then(|| at_prompt.apply(&terminal));
         let is_marked = expected.is_waiting || expected.is_waiting_in_select;
         if prompt.is_ok() && !is_marked {
             tokio::time::sleep(SETTLE).await;
@@ -370,7 +370,7 @@ mod tests {
 
     // What a case does once its command prompts.
     #[derive(Clone, Copy)]
-    enum Act {
+    enum AtPrompt {
         Nothing,
         // Types these bytes.
         Type(&'static str),
@@ -378,7 +378,7 @@ mod tests {
         Stop,
     }
 
-    impl Act {
+    impl AtPrompt {
         fn apply(self, terminal: &InnerTerminal) -> std::io::Result<()> {
             match self {
                 Self::Nothing => Ok(()),

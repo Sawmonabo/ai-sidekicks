@@ -7,9 +7,9 @@ use std::io::{self, ErrorKind};
 use std::path::Path;
 use std::sync::OnceLock;
 
-use super::{is_gone, is_refusal};
+use super::is_refusal;
 use crate::linux::pinned_process::{GROUP_FIELD, SESSION_FIELD};
-use crate::linux::{read_process_file, read_process_stat_fields};
+use crate::linux::{is_gone, read_process_file, read_process_stat_fields};
 
 // The field of a `stat` file, numbered as proc(5) numbers them, that holds a process's controlling
 // terminal's device.
