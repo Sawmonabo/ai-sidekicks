@@ -58,7 +58,6 @@ static BLOCKED_STEER_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX
 pub(crate) struct CodexSteerSend {
     connection: Arc<CodexAppServerConnection>,
     thread_id: String,
-    run_id: RunId,
     turn_id: String,
     targeted_turn_id: String,
     message_id: QueueItemId,
@@ -107,7 +106,6 @@ pub(crate) fn register_codex_steer(
     Ok(CodexSteerSend {
         connection,
         thread_id: record.thread_id.clone(),
-        run_id,
         targeted_turn_id: expected_turn_id.unwrap_or_else(|| turn_id.clone()),
         turn_id,
         message_id,
@@ -146,40 +144,33 @@ pub(crate) async fn steer_codex_run(
     let send = registered.unwrap_or_else(|| Err(SteerTurnEndedError { run_id }.into()))?;
     let turn_id = send.turn_id.clone();
     // A steer whose input failed is dropped unsent, which lets the next one go.
-    let sent = match input.await {
-        Ok(input) => send_codex_steer(send, input).await,
-        Err(error) => Err(CodexSteerFailure {
-            error,
-            is_untaken: true,
-        }),
+    let (error, is_untaken) = match input.await {
+        Ok(input) => match send_codex_steer(send, input).await {
+            Ok(acknowledged) => return Ok(acknowledged),
+            // One whose answer never came may have been taken, its prompt hook run, so it keeps
+            // its place among the turn's steers.
+            Err(error) => {
+                let is_untaken = !matches!(error, CodexError::Unanswered { .. });
+                (read_steer_failure(run_id, error), is_untaken)
+            }
+        },
+        Err(error) => (error, true),
     };
-    sent.map_err(|failure| {
-        if failure.is_untaken {
-            // The session's task takes it back; one that ended has nothing to take back.
-            let _unheard =
-                inbound.push(CodexSessionInbound::Call(CodexSessionCall::WithdrawSteer {
-                    turn_id,
-                    message_id,
-                }));
-        }
-        failure.error
-    })
+    if is_untaken {
+        // The session's task takes it back; one that ended has nothing to take back.
+        let _unheard = inbound.push(CodexSessionInbound::Call(CodexSessionCall::WithdrawSteer {
+            turn_id,
+            message_id,
+        }));
+    }
+    Err(error)
 }
 
-// Why a steer failed, and whether Codex surely did not take it: it refused it, or the steer never
-// reached it. One whose answer never came may have been taken, its prompt hook run, so it keeps
-// its place among the turn's steers.
-struct CodexSteerFailure {
-    error: DriverError,
-    is_untaken: bool,
-}
-
-// Writes a registered steer with `input` once the steer before it was answered; a refusal because
-// its turn had ended or is not one a steer reaches fails with `SteerTurnEnded`.
+// Writes a registered steer with `input` once the steer before it was answered.
 async fn send_codex_steer(
     send: CodexSteerSend,
     input: Vec<UserInput>,
-) -> Result<CodexSteerAcknowledgment, CodexSteerFailure> {
+) -> Result<CodexSteerAcknowledgment, CodexError> {
     if let Some(previous) = send.previous {
         previous.await;
     }
@@ -199,25 +190,19 @@ async fn send_codex_steer(
         )
         .await;
     drop(send.answered);
-    let error = match reply {
-        Ok(reply) => {
-            return Ok(CodexSteerAcknowledgment {
-                targeted_turn_id: send.targeted_turn_id,
-                acknowledged_turn_id: read_steered_turn_id(&reply),
-            });
-        }
-        Err(error) => error,
-    };
-    let is_untaken = !matches!(error, CodexError::Unanswered { .. });
-    let error = if is_steer_turn_gone(&error) {
-        SteerTurnEndedError {
-            run_id: send.run_id,
-        }
-        .into()
-    } else {
-        message_too_large_refusal(&error).map_or_else(|| error.into(), DriverError::Refused)
-    };
-    Err(CodexSteerFailure { error, is_untaken })
+    Ok(CodexSteerAcknowledgment {
+        targeted_turn_id: send.targeted_turn_id,
+        acknowledged_turn_id: read_steered_turn_id(&reply?),
+    })
+}
+
+// A steer's failed send as the driver reports it: a refusal because its turn had ended or is not
+// one a steer reaches fails with `SteerTurnEnded`, and one past Codex's input limit is refused.
+fn read_steer_failure(run_id: RunId, error: CodexError) -> DriverError {
+    if is_steer_turn_gone(&error) {
+        return SteerTurnEndedError { run_id }.into();
+    }
+    message_too_large_refusal(&error).map_or_else(|| error.into(), DriverError::Refused)
 }
 
 /// Takes back a steer Codex did not take, on the session's task: it is no longer waited for on
