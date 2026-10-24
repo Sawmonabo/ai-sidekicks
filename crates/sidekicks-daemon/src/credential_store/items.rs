@@ -5,12 +5,13 @@
 //! - **The pick.** A start with a place record keeps its place. One without picks the operating
 //!   system's store on macOS and Windows, the plain file for a Mac's service running while the
 //!   person is logged out, and on Linux what a fresh probe through systemd's credential service
-//!   shows: the sealed file where it seals bound to no boot state, the plain file where it would
-//!   bind the seal to the boot state, where no service listens, or where it refuses in one of the
-//!   ways that mean it cannot seal on this computer. Any other failure refuses that call, and the
-//!   next call probes again. The record is written only once the place passes its check, so a
-//!   refused first start records nothing. A record that cannot be read refuses every call and is
-//!   left as it is.
+//!   shows: the sealed file where it seals bound to no boot state, a plain file found there sealed
+//!   once as a later start seals a plain record's, and the plain file where it would bind the seal
+//!   to the boot state, where no service listens, or where it refuses in one of the ways that mean
+//!   it cannot seal on this computer. Any other failure refuses that call, and the next call probes
+//!   again. The record is written before the place serves a call, so a refused first start records
+//!   nothing and no call is served from a place left unrecorded. A record that cannot be read
+//!   refuses every call and is left as it is.
 //! - **The check.** The operating system's store and a plain file: write a random value under a
 //!   fresh probe account, read it back, compare, then delete it, a failed delete only logged. The
 //!   sealed file: seal a random value, read the key its header names, open it and compare, then
@@ -294,6 +295,13 @@ impl SecretItems {
         } else if let Some(seal) = &self.seal {
             match self.probe(seal.as_ref()).await? {
                 Probe::Sealed(header) if !header.is_boot_bound() => {
+                    // A plain file left with no record is sealed once, as a plain record's is.
+                    if self.items_file.form_on_disk().await? == Some(ItemsForm::Plain) {
+                        return self
+                            .seal_plain_file(state, header)
+                            .await?
+                            .ok_or_else(sealing_abandoned);
+                    }
                     self.open_sealed(state, header).await?;
                     self.record(state, SecretsPlace::SealedFile).await?;
                     return Ok(state.accept(SecretsPlace::SealedFile));
@@ -646,6 +654,13 @@ fn seal_refused(failure: SealFailure) -> KeychainRefusal {
         "systemd's credential service did not seal the check's value",
     )
     .with_failure(failure)
+}
+
+fn sealing_abandoned() -> KeychainRefusal {
+    KeychainRefusal::new(
+        KeychainRefusalCause::Unavailable,
+        "sealing the plain items file was abandoned, so the next call tries again",
+    )
 }
 
 fn not_offered() -> KeychainRefusal {

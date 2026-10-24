@@ -150,16 +150,18 @@ async fn status(items: &SecretItems) -> Status {
         })
 }
 
-/// Every Linux pick: a first start through the probe (sealed bound to no boot state, plain for the
-/// boot state, for no service, or for a refusal from the three that mean the service cannot seal
-/// here, and any other failure refusing the call with nothing recorded), and a later start keeping
-/// its record (a sealed file that cannot open refused with its cause and left byte for byte, a
-/// chip item failing under a probe without the chip read as the chip off, an item failing under
-/// the probe's own key as the key changed, a plain file sealed once the service seals unbound, an
-/// item sealed with the system key sealed again with the chip). Mutations: drop the allow-list (any
-/// refusal then picks the plain file); read every refusal as definite; read a bound probe as
-/// sealed; read every failing item as `keyChanged`, or every chip item as `chipUnavailable`; keep a
-/// plain record when the service seals; skip the upward re-seal; write the record before the open.
+/// Every Linux pick: a first start through the probe (sealed bound to no boot state, a plain file
+/// found there sealed once, plain for the boot state, for no service, or for a refusal from the
+/// three that mean the service cannot seal here, and any other failure refusing the call with
+/// nothing recorded), and a later start keeping its record (a sealed file that cannot open refused
+/// with its cause and left byte for byte, a chip item failing under a probe without the chip read
+/// as the chip off, an item failing under the probe's own key as the key changed, a plain file
+/// sealed once the service seals unbound, an item sealed with the system key sealed again with the
+/// chip). Mutations: drop the allow-list (any refusal then picks the plain file); read every
+/// refusal as definite; read a bound probe as sealed; read every failing item as `keyChanged`, or
+/// every chip item as `chipUnavailable`; keep a plain record when the service seals; skip the
+/// upward re-seal; write the record before the open; open a first start's plain file as sealed,
+/// which refuses it on its form.
 #[rstest]
 #[case::first_start_sealed_with_the_chip(
     None, Before::Nothing, SealNow::serves(SealKey::Chip),
@@ -213,6 +215,16 @@ async fn status(items: &SecretItems) -> Status {
     None,
     After::Absent,
     None
+)]
+#[case::first_start_with_a_plain_file(
+    None, Before::Plain, SealNow::serves(SealKey::Chip),
+    Ok(()), Some(SEALED), After::Form("sealed"),
+    Some(json!({"protection":"sealedWithChip"}))
+)]
+#[case::first_start_with_a_plain_file_without_the_service(
+    None, Before::Plain, SealNow::answers(TestSealAnswer::Absent),
+    Ok(()), Some(NO_SEAL_SERVICE), After::Form("plain"),
+    Some(json!({"protection":"plain","reason":"noSealService"}))
 )]
 #[case::recorded_sealed_that_opens(
     Some(SEALED), Before::Sealed(SealKey::Chip), SealNow::serves(SealKey::Chip),
