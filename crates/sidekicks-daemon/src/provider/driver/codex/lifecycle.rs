@@ -187,6 +187,7 @@ impl CodexDriver {
                 events: Arc::new(CodexDriverServiceEvents::new(Arc::clone(&link))),
                 release: Arc::clone(&release),
                 drains: LastingServiceDrains::default(),
+                tasks: tasks.clone(),
             }),
         ));
         let slots = Arc::new(CodexSessionSlots::new());

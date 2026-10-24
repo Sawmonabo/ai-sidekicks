@@ -16,6 +16,7 @@ use sidekicks_platforms::{ProgramStart, Spawner};
 use tempfile::TempDir;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::tungstenite::Message;
+use tokio_util::task::TaskTracker;
 
 use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
 use crate::provider::driver::codex::service::command_line::{
@@ -114,6 +115,7 @@ pub(crate) fn test_codex_service_dependencies(
         events,
         release: Arc::new(CodexConversationRelease::default()),
         drains: LastingServiceDrains::default(),
+        tasks: TaskTracker::new(),
     })
 }
 
@@ -143,8 +145,28 @@ impl CodexProgramResolver for TestCodexProgram {
     }
 }
 
-/// Starts a service whose connection the test scripts. Must be called within a runtime.
+/// Starts a service on an account's home whose connection the test scripts. Must be called within
+/// a runtime.
 pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
+    start_scripted_codex_service_on(CodexHomeKind::Account, CodexServiceKind::Account)
+}
+
+/// Starts the terminal service on the person's own folder with terminal reach on, its connection
+/// scripted by the test. Must be called within a runtime.
+pub(crate) fn start_scripted_terminal_service() -> ScriptedCodexService {
+    start_scripted_codex_service_on(
+        CodexHomeKind::PersonalFolder {
+            is_terminal_reach_on: true,
+        },
+        CodexServiceKind::Terminal,
+    )
+}
+
+// A service of `kind` on a home of `home_kind` whose connection the test scripts.
+fn start_scripted_codex_service_on(
+    home_kind: CodexHomeKind,
+    kind: CodexServiceKind,
+) -> ScriptedCodexService {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
     let dependencies = test_codex_service_dependencies(
         folder.path(),
@@ -156,13 +178,13 @@ pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
         CodexServiceHome {
             codex_home: folder.path().join("home"),
             provider_account_id: None,
-            kind: CodexHomeKind::Account,
+            kind: home_kind,
         },
         CodexServiceSocket {
             path: socket.clone(),
             home_socket: socket,
         },
-        CodexServiceKind::Account,
+        kind,
         Arc::clone(&dependencies),
     );
     ScriptedCodexService {

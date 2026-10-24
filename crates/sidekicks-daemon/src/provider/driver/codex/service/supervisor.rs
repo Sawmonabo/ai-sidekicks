@@ -31,6 +31,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::Spawner;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
 use crate::provider::driver::codex::server_requests::CodexServerRequestResponder;
@@ -108,6 +109,9 @@ pub(crate) struct CodexServiceDependencies {
     /// The drains of the lasting services another took the home's link from, which outlive the
     /// service that asked them and end with the registry's shutdown.
     pub(crate) drains: LastingServiceDrains,
+    /// The driver's tracked tasks, which the driver's shutdown waits for, a switch-off's wait to
+    /// retire a service among them.
+    pub(crate) tasks: TaskTracker,
 }
 
 /// The socket one service listens on.
@@ -442,6 +446,23 @@ impl CodexService {
         Ok(connection)
     }
 
+    /// Whether the service is up or on its way back up: starting, reconnecting or restarting.
+    pub(crate) fn is_serving(&self) -> bool {
+        matches!(
+            *self.availability.borrow(),
+            CodexServiceAvailability::Up
+                | CodexServiceAvailability::Starting
+                | CodexServiceAvailability::Reconnecting
+                | CodexServiceAvailability::Restarting
+        )
+    }
+
+    /// Answers once the service is shut down for good with the daemon.
+    pub(crate) async fn when_shut_down(&self) {
+        self.wait_for(|availability| matches!(availability, CodexServiceAvailability::ShutDown))
+            .await;
+    }
+
     /// Stops the service and answers once it is stopped: the daemon's own process ends, a joined
     /// one is only disconnected.
     pub(crate) async fn stop(&self) {
@@ -459,8 +480,7 @@ impl CodexService {
     /// under a restart a lasting service is only disconnected and keeps running in its record.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent) {
         self.send(SupervisorEvent::Shutdown { intent });
-        self.wait_for(|availability| matches!(availability, CodexServiceAvailability::ShutDown))
-            .await;
+        self.when_shut_down().await;
     }
 
     /// The person's restart of a service left down: forgets the crash window and starts it.
