@@ -328,6 +328,7 @@ impl CodexDriver {
                 run_routes: Arc::clone(&self.run_routes),
                 run_start: Arc::clone(&run_start),
                 dispatch: Arc::clone(&dispatch),
+                message_given_back: Arc::clone(&ports.message_given_back),
             },
         ));
         let run_control = Arc::new(CodexRunControl::new(CodexRunControlDependencies {

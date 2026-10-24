@@ -74,7 +74,6 @@ impl CodexFrameDelivery {
         &self,
         record: &mut CodexSessionRecord,
         members: &Map<String, Value>,
-        dispatch: &mut CodexFrameDispatch,
     ) {
         if read_non_empty_string(members, "threadId") != Some(record.thread_id.as_str()) {
             return;
@@ -100,12 +99,6 @@ impl CodexFrameDelivery {
             .delivery
             .assign_turn_epoch(&turn_id, || self.mint_turn_epoch());
         self.open_turn(record, &turn_id, &turn_run).await;
-        dispatch.turns_started.push(CodexTurnMove {
-            turn_id,
-            run_id: turn_run.run_id,
-            ending: turn_run.ending,
-            turn_end: None,
-        });
     }
 
     // Opens the turn's execution and its numbered turn on the run, once.
@@ -188,7 +181,7 @@ impl CodexFrameDelivery {
         record.delivery.spawn_calls_by_thread_id.remove(&thread_id);
         let turn_run = self.turn_run_for(record, &turn_id);
         // A live turn ending interrupted is one Codex itself stopped, since the daemon's own
-        // interrupt takes the turn from its run first.
+        // interrupt takes the turn from its run first and a pause's turn reads paused.
         let is_stopped_by_codex = read_turn_status(members).and_then(CodexTurnStatus::read)
             == Some(CodexTurnStatus::Interrupted);
         let stopped_run = turn_run

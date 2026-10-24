@@ -260,18 +260,20 @@ impl TestCodexSession {
                 as Arc<dyn DaemonTurnBindingResolver>,
             reads,
         };
+        let ports = Arc::new(DriverPorts::new());
+        let queue = Arc::new(RecordedQueue::default());
+        assert!(ports.message_taken.register(queue.clone()).is_ok());
+        assert!(ports.message_refused.register(queue.clone()).is_ok());
+        assert!(ports.message_given_back.register(queue.clone()).is_ok());
         let retries = Arc::new(CodexFasterModelRetries::new(
             CodexFasterModelRetryDependencies {
                 slots: Arc::clone(&slots),
                 run_routes: Arc::clone(&run_routes),
                 run_start: Arc::clone(&run_start),
                 dispatch: Arc::clone(&dispatch),
+                message_given_back: Arc::clone(&ports.message_given_back),
             },
         ));
-        let ports = Arc::new(DriverPorts::new());
-        let queue = Arc::new(RecordedQueue::default());
-        assert!(ports.message_taken.register(queue.clone()).is_ok());
-        assert!(ports.message_refused.register(queue.clone()).is_ok());
         let run_control = Arc::new(CodexRunControl::new(CodexRunControlDependencies {
             slots: Arc::clone(&slots),
             config_forks: Arc::clone(&calls.runs.config_forks),

@@ -120,7 +120,7 @@ pub(crate) struct CodexRunMove {
     pub(crate) to: RunStateChangeState,
 }
 
-/// A turn of the session's own conversation that started or ended, with its run.
+/// A turn of the session's own conversation that ended, with its run.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexTurnMove {
     /// The turn.
@@ -129,8 +129,8 @@ pub(crate) struct CodexTurnMove {
     pub(crate) run_id: RunId,
     /// How the turn's run stood when the frame arrived.
     pub(crate) ending: CodexTurnEnding,
-    /// The end the run engine records for an ended turn that moves no run: a paused or retried
-    /// turn's; `None` for a start, and for an end the run's own move or its interrupt records.
+    /// The end the run engine records for a turn whose end moves no run: a paused or retried
+    /// turn's; `None` for an end the run's own move or its interrupt records.
     pub(crate) turn_end: Option<ProviderTurnEnd>,
 }
 
@@ -146,8 +146,6 @@ pub(crate) struct CodexFrameDispatch {
     pub(crate) prompt_hook_runs: Vec<CodexPromptHookRun>,
     /// The runs the frame moved.
     pub(crate) run_moves: Vec<CodexRunMove>,
-    /// The turns that started.
-    pub(crate) turns_started: Vec<CodexTurnMove>,
     /// The turns that ended.
     pub(crate) turns_ended: Vec<CodexTurnMove>,
 }
@@ -227,8 +225,7 @@ impl CodexFrameDelivery {
         let mut dispatch = CodexFrameDispatch::default();
         match method {
             "turn/started" => {
-                self.deliver_turn_started(record, &members, &mut dispatch)
-                    .await;
+                self.deliver_turn_started(record, &members).await;
             }
             "turn/completed" => {
                 let frame = turns::TurnCompletedFrame {
@@ -393,12 +390,19 @@ impl CodexFrameDelivery {
 
 /// The run holding the turn `turn_id` and how: its live run, else the run an interrupt, a pause or
 /// a retry took the turn from, whose last frames still belong to it; `None` when no run holds it.
+/// A pause marks its turn before its interrupt goes and the mark leaves only once the turn's end
+/// was applied, so a marked turn reads paused even while it is still live: its end is the pause's,
+/// whether it arrives before or after the interrupt's answer.
 pub(crate) fn find_turn_run_id(
     record: &CodexSessionRecord,
     turn_id: &str,
 ) -> Option<(RunId, CodexTurnEnding)> {
+    let is_pausing = record
+        .paused_run_id_by_interrupted_turn_id
+        .contains_key(turn_id);
     record
         .active_turn_run(turn_id)
+        .filter(|_| !is_pausing)
         .map(|run_id| (run_id, CodexTurnEnding::Live))
         .or_else(|| {
             record

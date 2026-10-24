@@ -105,18 +105,18 @@ impl CodexRunControl {
     }
 
     /// Interrupts the run's live turn and answers the steers Codex dropped. A retry in flight is
-    /// stopped instead, the commands its held turn left running ended, and answers no steers,
-    /// since that turn's end gave its dropped steers back to the queue; a retry whose new turn
-    /// already runs is interrupted as that live turn. A turn start in flight is withdrawn, its
-    /// turn interrupted once Codex names it. A run with no turn in flight answers at once with
-    /// nothing sent. Fails as [`interrupt_codex_run`] does.
+    /// stopped instead, the commands its held turn left running ended, and answers the steers that
+    /// turn dropped; a retry whose new turn already runs is interrupted as that live turn. A turn
+    /// start in flight is withdrawn, its turn interrupted once Codex names it. A run with no turn
+    /// in flight answers at once with nothing sent. Fails as [`interrupt_codex_run`] does.
     pub(crate) async fn interrupt_run(
         &self,
         run_id: RunId,
     ) -> Result<Vec<QueueItemId>, CodexError> {
-        if let Some(stopped) = self.dependencies.retries.cancel(run_id).await? {
+        if let Some(mut stopped) = self.dependencies.retries.cancel(run_id).await? {
+            let dropped = std::mem::take(&mut stopped.dropped_steers);
             self.end_held_turn_commands(stopped).await?;
-            return Ok(Vec::new());
+            return Ok(dropped);
         }
         if self.dependencies.run_start.withdraw_turn_start(run_id) {
             return Ok(Vec::new());
