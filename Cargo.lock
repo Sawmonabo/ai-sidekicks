@@ -7913,25 +7913,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "secret-service"
-version = "5.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5107b24b91445dd2aa449a258a1807b63240942157292354dc5bfdbeb8bc6db8"
-dependencies = [
- "aes 0.9.3",
- "cbc",
- "futures-util",
- "getrandom 0.4.3",
- "hkdf 0.13.0",
- "hybrid-array",
- "num",
- "once_cell",
- "serde",
- "sha2 0.11.1",
- "zbus",
-]
-
-[[package]]
 name = "security-framework"
 version = "3.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8575,6 +8556,7 @@ dependencies = [
  "alacritty_terminal",
  "apple-native-keyring-store",
  "async-io",
+ "base64 0.23.1",
  "block2",
  "command-fds",
  "dispatch2",
@@ -8602,7 +8584,6 @@ dependencies = [
  "regex",
  "rstest",
  "secrecy",
- "secret-service",
  "security-framework",
  "serde",
  "serde_json",
@@ -8622,7 +8603,6 @@ dependencies = [
  "windows-native-keyring-store",
  "windows-sys 0.61.2",
  "zbus",
- "zbus-secret-service-keyring-store",
 ]
 
 [[package]]
@@ -10936,17 +10916,6 @@ dependencies = [
  "zbus_macros",
  "zbus_names",
  "zvariant",
-]
-
-[[package]]
-name = "zbus-secret-service-keyring-store"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74801d001b9e7729adb4f1825b67b398185fed424749aa3d8bacf70417137d9a"
-dependencies = [
- "keyring-core",
- "secret-service",
- "zbus",
 ]
 
 [[package]]

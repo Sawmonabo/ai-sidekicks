@@ -113,8 +113,8 @@ type ProviderAuthMode =
 // `ProviderAccount` itself still carries none — tokens for interactively-authenticated accounts
 // live in the per-account credential home written by the provider's own tooling, the daemon
 // brokers refresh without holding values, and the ADR-026 D2 token is sealed in the operating
-// system's credential store, or in the daemon's secrets.json where that store cannot be used,
-// rather than in any column or on any payload here.
+// system's credential store, or in the daemon's secrets.json on Linux and on a Mac whose secrets
+// are in it, rather than in any column or on any payload here.
 type ProviderAccountHealthState =
   | "authenticated"
   | "reauthRequired"
@@ -302,13 +302,13 @@ interface ProviderAccountRegisterRequest {
   // A token the provider's own tooling minted: the daemon never mints, exchanges, refreshes, or
   // derives credential material and never speaks a provider token endpoint.
   //
-  // Kept as its own item in the operating system's credential store, verified by
-  // write-probe-read-delete, and nowhere else. Every entry opens its store explicitly — the Secret
-  // Service on Linux, never the kernel keyring, which a reboot empties; where no Secret Service
-  // answers, and on a Mac from the logged-out service's takeover until `sidekicks daemon uninstall`
-  // moves them back, including after that service is turned off in Login Items & Extensions, the
-  // daemon keeps its items in one file in its own data folder, readable by this account alone (mode
-  // `0600`).
+  // Kept as its own item, verified by write-probe-read-delete, and nowhere else: in the operating
+  // system's credential store on macOS and Windows; on Linux in one file in the daemon's own data
+  // folder, readable by this account alone (mode `0600`), sealed through systemd's credential
+  // service where it can seal and plain where not, never the kernel keyring, which a reboot
+  // empties. A Mac keeps its items in the same file, plain, from the logged-out service's takeover
+  // until `sidekicks daemon uninstall` moves them back, including after that service is turned off
+  // in Login Items & Extensions.
   // Where the store cannot take it, registration refuses with
   // `provider.account.credentialSealRefused` carrying `cause: "locked" | "unavailable"` and nothing
   // is stored anywhere. Where the registration-time status observation reports no signed-in mode

@@ -1,6 +1,6 @@
 //! The Windows side of the credential store: the Credential Manager, its entries kept on this
-//! machine alone, its search by service, and no locked reading, since the store keeps its error
-//! type private.
+//! machine alone, its search by service, what holds its items, and no locked reading, since the
+//! store keeps its error type private.
 
 use std::error::Error;
 use std::sync::Arc;

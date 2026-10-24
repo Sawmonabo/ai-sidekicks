@@ -349,9 +349,9 @@ refusal_codes! {
     /// A mutating call on a connection whose handshake settled as incompatible.
     ConnectionVersionMismatch = "connection.version.mismatch" (FailedPrecondition);
     /// `daemon.data.erase` refused before its answer, so nothing was erased: the keychain the erase
-    /// must empty is locked or cannot be used. `data.fields.cause` is `locked` (drawn `This
-    /// computer's keychain is locked. Unlock it, then try again.`) or `unavailable` (drawn `This
-    /// computer's keychain can't be used right now, so nothing was erased.`).
+    /// must empty is locked or cannot be used. `data.fields.cause` is `locked` (drawn `Unlock the
+    /// keychain, then try again.`) or `unavailable` (drawn `The keychain cannot be used right now.
+    /// Nothing was erased.`).
     DaemonDataStoreUnavailable = "daemon.data.storeUnavailable" (Unavailable, 503);
     /// `daemon.data.erase` while an erase runs; nothing new starts, since the running one erases
     /// everything.
@@ -460,11 +460,11 @@ refusal_codes! {
     /// The account's credential home is missing, unreadable, or structurally unusable.
     ProviderAccountCredentialHomeUnavailable = "provider.account.credentialHome.unavailable"
         (Unavailable, 503);
-    /// The operating system's keychain would not take the token, so registration refuses and the
-    /// token is stored nowhere else. `data.fields.cause` is `locked` (drawn `This computer's
-    /// keychain is locked, so the token was not stored. Unlock it, then paste the token again.`)
-    /// or `unavailable` (drawn `This computer's keychain can't be used right now, so the token
-    /// wasn't stored. Unlock it, then try again.`).
+    /// The place the daemon keeps its secrets would not take the token, so registration refuses
+    /// and the token is stored nowhere else. `data.fields.cause` is `locked` or `unavailable`, each
+    /// drawn as the title `Token not saved` over its line: `Unlock the keychain, then try again.`
+    /// for `locked`, and `Secrets cannot be used right now. See Settings › Runtime.` for
+    /// `unavailable`, the same on every system.
     ProviderAccountCredentialSealRefused = "provider.account.credentialSealRefused"
         (Unavailable, 503);
     /// A concurrent `provider.account.current.update` lost the partial-unique-index race.

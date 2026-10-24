@@ -413,8 +413,10 @@ CREATE TABLE workflow_node_state (
 -- ---------------------------------------------------------------------------
 -- workflow_secrets: one row per workflow secret, never its value.
 -- ---------------------------------------------------------------------------
--- The value lives in the operating system's credential store, or in the daemon's
--- secrets.json items file where that store cannot be used. A step parameter
+-- The value lives in the operating system's credential store on macOS and
+-- Windows, and on Linux in the daemon's secrets.json items file, sealed through
+-- systemd's credential service where it can seal; a Mac's service running while
+-- the person is logged out keeps it plain in that same file. A step parameter
 -- stores only secret://<scope>/<name>, resolved when the step runs.
 CREATE TABLE workflow_secrets (
   id                TEXT PRIMARY KEY,

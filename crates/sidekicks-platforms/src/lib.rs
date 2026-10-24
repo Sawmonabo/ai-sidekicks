@@ -136,9 +136,10 @@ pub use code_signature::DesktopClientRequirement;
 pub use code_signature::{CodeSignatureError, SignatureCheck};
 #[cfg(any(test, feature = "test-support"))]
 pub use credential_store::blocking::BlockingCredentialStore;
-pub use credential_store::watch::CredentialStoreWatch;
+pub use credential_store::seal::{CredentialSeal, SealFailure, SealHeader, SealKey};
 pub use credential_store::{
-    CredentialStore, CredentialStoreError, CredentialStoreUnreachable, StoreAccount,
+    CredentialStore, CredentialStoreError, SecretStoreOffer, StoreAccount, StoreOpener,
+    secret_store_offer,
 };
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
 pub use executable_search::{find_executables, is_path_command, user_programs_folder};
@@ -266,8 +267,8 @@ pub use posix::error_codes::{
 pub use posix::file_facts::{entry_changed_at, file_facts};
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::file_system::{
-    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableFolder, UnremovableFile, is_superuser,
-    make_folder_link, make_folder_unreadable,
+    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, is_superuser,
+    make_folder_link, make_unreadable,
 };
 #[cfg(unix)]
 pub use posix::file_system::{
@@ -415,8 +416,8 @@ pub use windows::error_codes::{
 pub use windows::file_facts::{entry_changed_at, file_facts};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::file_system::{
-    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableFolder, UnremovableFile, is_superuser,
-    make_folder_link, make_folder_unreadable,
+    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, is_superuser,
+    make_folder_link, make_unreadable,
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{

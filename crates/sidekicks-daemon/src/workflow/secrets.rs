@@ -49,7 +49,9 @@ impl WorkflowSecretStore {
         value: &WorkflowSecretValue,
     ) -> Result<(), KeychainRefusal> {
         let sealed = SecretString::from(value.as_str());
-        self.keychain.seal(secret_id.text().as_str(), &sealed).await
+        self.keychain
+            .write_verified(secret_id.text().as_str(), &sealed)
+            .await
     }
 
     /// The secret's value, or `None` when the keychain holds none, which the step that asked
@@ -134,8 +136,8 @@ mod tests {
     }
 
     /// A keychain that drops a write without an error must refuse the seal as `unavailable`, and
-    /// the refusal names neither the value written nor the one kept. Mutation: seal skips the
-    /// read-back.
+    /// the refusal names neither the value written nor the one kept. Mutation: `write_verified`
+    /// skips the read-back.
     #[tokio::test]
     async fn a_keychain_keeping_another_value_refuses_the_seal_without_naming_either() {
         let store = WorkflowSecretStore::new(Arc::new(KeychainKeepingAShorterValue::default()));

@@ -112,8 +112,6 @@ async fn read_status(deps: &StatusMethodsDeps) -> Result<DaemonStatusReadRespons
         .secret_items
         .secrets_file()
         .await
-        .map(|path| FilesystemPath::new(path.to_string_lossy().into_owned()))
-        .transpose()
         .map_err(|error| HandlerError::Internal(Box::new(error)))?;
     Ok(DaemonStatusReadResponse {
         process_state: (deps.read_process_state)(),

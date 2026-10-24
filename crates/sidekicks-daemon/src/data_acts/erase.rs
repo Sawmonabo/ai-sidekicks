@@ -129,8 +129,8 @@ impl DataErase {
             }
             Err(refusal) => tracing::warn!(
                 error = &refusal as &(dyn Error + 'static),
-                "the keychain refused to delete an item, so the data folder stays and the erase \
-                 can run again"
+                "the secrets could not all be deleted, so the data folder stays and the erase can \
+                 run again"
             ),
         }
         (self.deps.end_process)();
