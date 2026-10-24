@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::fs::{self, File, TryLockError};
+use std::fs::{self, OpenOptions, TryLockError};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
@@ -454,9 +454,11 @@ fn is_partial_dump_held(
     Ok(is_partial_held)
 }
 
-// Whether a monitor holds the dump at `path` locked while it writes it; one gone is not.
+// Whether a monitor holds the dump at `path` locked while it writes it; one gone is not. Opened for
+// writing too, since NFS grants an exclusive lock only on such a handle.
 fn is_held(path: &Path) -> io::Result<bool> {
-    let Some(file) = File::open(path).none_if_missing()? else {
+    let opened = OpenOptions::new().read(true).write(true).open(path);
+    let Some(file) = opened.none_if_missing()? else {
         return Ok(false);
     };
     match file.try_lock() {

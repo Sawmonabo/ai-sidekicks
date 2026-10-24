@@ -3,7 +3,7 @@
 //! sweep took it, and the sweeper removes it only while holding the lock itself, so a writer never
 //! ends up holding a file without a name.
 
-use std::fs::{self, File, TryLockError};
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io;
 use std::path::Path;
 
@@ -103,10 +103,11 @@ fn lost_names_failure() -> io::Error {
 
 /// Removes the file at `path` unless another handle holds it locked, removing the name while its
 /// own lock is still held, so a writer whose lock waited on it finds its name gone; answers whether
-/// another handle held it (a file already gone was not held). Fails with the open's, the lock's or
-/// the removal's error.
+/// another handle held it (a file already gone was not held). Opens the file for writing too, since
+/// NFS grants an exclusive lock only on such a handle. Fails with the open's, the lock's or the
+/// removal's error.
 pub fn remove_unless_held(path: &Path) -> io::Result<bool> {
-    let file = match File::open(path) {
+    let file = match OpenOptions::new().read(true).write(true).open(path) {
         Ok(file) => file,
         Err(missing) if missing.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(failure) => return Err(failure),
