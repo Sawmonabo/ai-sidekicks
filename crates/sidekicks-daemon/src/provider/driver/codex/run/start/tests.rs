@@ -16,9 +16,10 @@ use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::provider::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
 use crate::provider::driver::codex::session::state::CodexTurnMessage;
 use crate::provider::driver::codex::session::test_session::{
-    TEST_THREAD, TestCodexSession, new_run_id, turn_completed, turn_reply, turn_started,
+    TEST_THREAD, TestCodexSession, turn_completed, turn_reply, turn_started,
 };
 use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::test_registry::new_run_id;
 
 /// How long a test waits before it counts a hold on the session's task as a deadlock.
 const DEADLOCK_BOUND: Duration = Duration::from_secs(10);

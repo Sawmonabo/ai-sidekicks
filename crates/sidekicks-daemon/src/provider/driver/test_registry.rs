@@ -1,6 +1,6 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build
 //! takes, the table's first providers answered by stand-in drivers, and a run bound to the first
-//! one.
+//! one; and the run ids the drivers' tests mint and the run ends they read back.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -11,6 +11,7 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use rusqlite::params;
+use serde_json::Value;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -40,6 +41,7 @@ use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::provider::runtime_binding::store::RuntimeBindingRebind;
 use crate::provider::spawn_environment::ReservedEnvironmentNames;
+use crate::session::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
 
 /// The statements a test's read pool caches.
 const TEST_POOL_STATEMENT_CAPACITY: usize = 16;
@@ -195,4 +197,33 @@ pub(crate) fn bind_run_to_first_provider(
         )
         .expect("the test binds the run to its provider");
     RuntimeBindingId::new(binding_id).expect("a minted UUID is a binding id")
+}
+
+/// A minted run id.
+pub(crate) fn new_run_id() -> RunId {
+    RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
+}
+
+/// Each terminal event of `run_id` in `database`, in order, with whether its end was the daemon's
+/// intended close.
+pub(crate) fn terminal_events(
+    database: &TestDatabase,
+    run_id: RunId,
+) -> Vec<(String, Option<bool>)> {
+    database
+        .reader()
+        .prepare(&format!(
+            "SELECT type, payload FROM session_events WHERE run_id = ?1 AND type IN ({}) \
+             ORDER BY sequence",
+            *RUN_TERMINAL_EVENT_TYPES_SQL
+        ))
+        .expect("the test reads the run's events")
+        .query_map([run_id.text().as_str()], |row| {
+            let payload: String = row.get(1)?;
+            let payload: Value = serde_json::from_str(&payload).expect("a stored payload is JSON");
+            Ok((row.get(0)?, payload["intendedClose"].as_bool()))
+        })
+        .expect("the run's events read")
+        .collect::<Result<_, _>>()
+        .expect("each event reads")
 }

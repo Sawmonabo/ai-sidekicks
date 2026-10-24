@@ -306,10 +306,9 @@ mod tests {
     use crate::provider::driver::codex::session::fork::config_change::CodexConfigForks;
     use crate::provider::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInbound};
     use crate::provider::driver::codex::session::state::CodexTurnMessage;
-    use crate::provider::driver::codex::session::test_session::{
-        TestCodexSession, new_run_id, turn_reply,
-    };
+    use crate::provider::driver::codex::session::test_session::{TestCodexSession, turn_reply};
     use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
+    use crate::provider::driver::test_registry::new_run_id;
 
     /// How long the test waits before it counts the rewind and the start as deadlocked.
     const DEADLOCK_BOUND: Duration = Duration::from_secs(10);

@@ -15,14 +15,13 @@ use crate::provider::driver::claude::session::establishment::context::CLAUDE_ADV
 use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::provider::driver::claude::session::scripted::daemon_services::PortCall;
 use crate::provider::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
-use crate::provider::driver::claude::session::scripted::{
-    binding_id, mint_run_id, mint_session_id, settle,
-};
+use crate::provider::driver::claude::session::scripted::{binding_id, mint_session_id, settle};
 use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::session_control::{
     CloseSessionParams, DriverResumeResult, ProviderBuildChange, ResumeSessionParams,
 };
+use crate::provider::driver::test_registry::new_run_id;
 use crate::session::directory::test_rows::insert_session_row;
 
 // Killed by restarting past a full crash window: the fifth exit inside it reports the loop and
@@ -98,7 +97,7 @@ async fn a_build_move_on_a_busy_session_waits_for_its_turn_to_settle() {
     let first = fixture.next_start().await;
     fixture
         .driver
-        .start_run(start_params(session_id, mint_run_id()))
+        .start_run(start_params(session_id, new_run_id()))
         .await
         .expect("the run starts");
     fixture
@@ -233,7 +232,7 @@ async fn a_process_end_lets_go_the_held_presses_of_every_binding_it_served(
     let first = fixture.next_start().await;
     fixture
         .driver
-        .start_run(start_params(session_id, mint_run_id()))
+        .start_run(start_params(session_id, new_run_id()))
         .await
         .expect("the run starts");
     fixture.end_turn(&first, session_id);

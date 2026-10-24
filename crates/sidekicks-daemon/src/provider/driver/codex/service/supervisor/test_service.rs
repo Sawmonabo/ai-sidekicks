@@ -268,6 +268,13 @@ fn listed_hook(event_name: &str, command: &str) -> Value {
         "key": event_name, "currentHash": "hash", "trustStatus": "trusted"})
 }
 
+/// Waits until `service` is no longer up, which it leaves only once its connection is gone.
+pub(crate) async fn wait_until_disconnected(service: &CodexService) {
+    service
+        .wait_for(|availability| !matches!(availability, CodexServiceAvailability::Up))
+        .await;
+}
+
 /// Drops `service`'s connection as its reader does when the socket closes under it, its process
 /// left running.
 pub(crate) fn drop_service_connection(service: &Arc<CodexService>) {

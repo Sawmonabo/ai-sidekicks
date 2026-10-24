@@ -32,6 +32,7 @@ use crate::provider::driver::codex::session::test_session::{
     TestDaemonTurnBindings, UnreadRunStates, open_test_record,
 };
 use crate::provider::driver::ports::{MessageRefusedListener, MessageTakenListener};
+use crate::provider::driver::test_registry::new_run_id;
 use crate::provider::driver::test_registry::test_driver_services;
 use crate::provider::runtime_binding::store::RuntimeBindingSpawnConfig;
 use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
@@ -121,7 +122,7 @@ impl LiveCodexSession {
         let driver = CodexDriver::new(&services);
         let parts = Arc::clone(driver.parts().expect("the driver composes"));
 
-        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        let run_id = new_run_id();
         insert_running_run(&database, session_id, run_id);
         let binding_id = open_store(&database)
             .await

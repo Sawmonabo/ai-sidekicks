@@ -16,7 +16,7 @@ use crate::provider::driver::codex::service::registry::OneHome;
 use crate::provider::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
 use crate::provider::driver::codex::service::supervisor::CodexServiceSocket;
 use crate::provider::driver::codex::service::supervisor::test_service::{
-    drop_service_connection, script_codex_service,
+    drop_service_connection, script_codex_service, wait_until_disconnected,
 };
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 
@@ -144,13 +144,9 @@ async fn a_redial_reaches_the_service_s_own_socket_whatever_the_link_names() {
 
     replace_socket_link(&home_socket, &other_socket).expect("the link names the other listener");
     drop_service_connection(&service);
-    let is_disconnected = tokio::time::timeout(CRASH_WAIT, async {
-        while service.connection().is_ok() {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .is_ok();
+    let is_disconnected = tokio::time::timeout(CRASH_WAIT, wait_until_disconnected(&service))
+        .await
+        .is_ok_and(|()| service.connection().is_err());
     let redialed = service.ensure_started(CRASH_WAIT).await;
     let accepted_through_the_link = accepted.load(Ordering::Relaxed);
     registry.shutdown(DaemonStopIntent::Stop).await;

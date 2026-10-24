@@ -18,9 +18,9 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::oneshot;
 
-use super::mint_run_id;
 use crate::mutex_lock::lock;
 use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
+use crate::provider::driver::test_registry::new_run_id;
 use crate::session::run::engine::RunEngineError;
 use crate::session::run::engine::turns::{ProviderTurnEnd, StartedTurn, TurnOutcome};
 use crate::session::run::inbound::rows::LateAppendableRow;
@@ -148,7 +148,7 @@ impl ClaudeRunEngine for RecordingRunEngine {
             ),
             InboundDelivery::ChildRun { .. } => (
                 InboundOutcome::ChildRunStarted {
-                    run_id: mint_run_id(),
+                    run_id: new_run_id(),
                 },
                 None,
             ),
@@ -231,7 +231,7 @@ impl ClaudeRunEngine for RecordingRunEngine {
         &self,
         request: DaemonTurnStartRequest,
     ) -> BoxFuture<'_, Result<RunId, RunEngineError>> {
-        let run_id = mint_run_id();
+        let run_id = new_run_id();
         if self.fails_daemon_turns.load(Ordering::SeqCst) {
             return async move { Err(RunEngineError::NoResolvedPosture { run_id }) }.boxed();
         }

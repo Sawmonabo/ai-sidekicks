@@ -614,11 +614,6 @@ pub(crate) fn turn_reply(turn_id: &str) -> Value {
     json!({"turn": {"id": turn_id, "items": [], "status": "inProgress"}})
 }
 
-/// A minted run id.
-pub(crate) fn new_run_id() -> RunId {
-    RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
-}
-
 /// Opens each turn the daemon starts on the binding the test names, for the session's lead.
 pub(crate) struct TestDaemonTurnBindings {
     /// The session's lead.
