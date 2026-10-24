@@ -1,13 +1,16 @@
-//! What a turn's end does with the steers it still holds unechoed.
+//! What a turn's end does with the steers it still holds unechoed, and the place a steer keeps
+//! among them when its send fails.
 
 use rstest::rstest;
+use serde_json::{Value, json};
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-use super::take_blocked_codex_steers;
+use super::{steer_codex_run, take_blocked_codex_steers};
 use crate::provider::driver::codex::delivery::frames::CodexTurnEnding;
 use crate::provider::driver::codex::session::state::CodexUnechoedSteers;
-use crate::provider::driver::codex::session::test_session::TestCodexSession;
+use crate::provider::driver::codex::session::test_session::{TEST_THREAD, TestCodexSession};
+use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::test_registry::new_run_id;
 
 /// How the turn holding an unechoed steer came to its end.
@@ -35,7 +38,7 @@ enum TurnEnd {
 async fn a_turns_end_drops_or_lets_go_of_the_steers_no_interrupt_takes(#[case] end: TurnEnd) {
     let mut session = TestCodexSession::start().await;
     let run_id = new_run_id();
-    let steer = QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id");
+    let steer = new_message_id();
     let record = &mut session.task.record;
     record.add_active_turn("turn-1".to_owned(), run_id);
     record
@@ -76,4 +79,89 @@ async fn a_turns_end_drops_or_lets_go_of_the_steers_no_interrupt_takes(#[case] e
             assert_eq!(kept, None);
         }
     }
+}
+
+// Paused time, so the first steer's request runs out its deadline at once. A steer whose answer
+// never came may have been taken and its prompt hook run, so it keeps its place, and the next
+// steer's refusal pairs with its own prompt. Killed by taking a steer back on every failure (the
+// second steer would pair with the first's prompt, which passed).
+#[tokio::test(start_paused = true)]
+async fn a_steer_whose_answer_never_came_keeps_its_place_among_the_turns_steers() {
+    let mut session = TestCodexSession::start().await;
+    let run_id = new_run_id();
+    let (unanswered, blocked) = (new_message_id(), new_message_id());
+    session
+        .task
+        .record
+        .add_active_turn("turn-1".to_owned(), run_id);
+    let inbound = session.task.record.inbound.clone();
+    let script = &mut session.scripted.script;
+
+    let first = steer_codex_run(&inbound, run_id, None, unanswered, async { Ok(Vec::new()) });
+    let (first, ()) = session
+        .task
+        .drive(async {
+            tokio::join!(first, async {
+                let sent = script.next_sent().await;
+                assert_eq!(sent["method"], "turn/steer");
+            })
+        })
+        .await;
+    let second = steer_codex_run(&inbound, run_id, None, blocked, async { Ok(Vec::new()) });
+    let (second, ()) = session
+        .task
+        .drive(async {
+            tokio::join!(second, async {
+                let sent = script.next_sent().await;
+                assert_eq!(sent["method"], "turn/steer");
+                script.answer(&sent, &json!({"turnId": "turn-1"}));
+            })
+        })
+        .await;
+    // The opening prompt and the unanswered steer pass the hook; the second steer is blocked.
+    for (status, words) in [
+        ("completed", ""),
+        ("completed", ""),
+        ("blocked", "keys stay home"),
+    ] {
+        script.send(&prompt_hook_completed(status, words));
+        session.task.handle_next().await;
+    }
+    let steers =
+        take_blocked_codex_steers(&mut session.task.record, "turn-1", CodexTurnEnding::Live);
+
+    assert!(
+        matches!(first, Err(DriverError::Unanswered(_))),
+        "no answer came for the first steer"
+    );
+    assert!(second.is_ok(), "Codex took the second steer");
+    let refused: Vec<(QueueItemId, String)> = steers
+        .refused
+        .into_iter()
+        .map(|(message_id, words)| (message_id, words.as_str().to_owned()))
+        .collect();
+    assert_eq!(refused, [(blocked, "keys stay home".to_owned())]);
+}
+
+fn new_message_id() -> QueueItemId {
+    QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id")
+}
+
+// One run of the person's one `userPromptSubmit` hook handler on a prompt of `turn-1`, ending
+// `status` with `words`.
+fn prompt_hook_completed(status: &str, words: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "method": "hook/completed",
+        "params": {
+            "threadId": TEST_THREAD,
+            "turnId": "turn-1",
+            "run": {
+                "id": "user-prompt-submit:0:/hooks.json",
+                "eventName": "userPromptSubmit",
+                "status": status,
+                "entries": if words.is_empty() { json!([]) } else { json!([{"text": words}]) },
+            },
+        },
+    })
 }

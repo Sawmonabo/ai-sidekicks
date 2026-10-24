@@ -118,12 +118,12 @@ pub(crate) fn register_codex_steer(
 
 /// Steers one message into `run_id`'s live turn, off the session's task: registers it on the
 /// session's task before anything is written, waits for its `input`, writes it once the steer
-/// before it was answered, and takes it back when Codex did not take it. `expected_turn_id`, where
-/// the caller pins one, is the turn the steer names. Answers the turn it targeted and the turn
-/// Codex acknowledged. Fails with `SteerTurnEnded` when the run has no live turn, an interrupt is
-/// stopping it, its session's task ended or Codex refused it for its turn, with
-/// `session.message.tooLarge` when its text passes Codex's input limit, and as `input` and the
-/// request fail.
+/// before it was answered, and takes it back when Codex surely did not take it: refused, or never
+/// sent; one whose answer never came keeps its place. `expected_turn_id`, where the caller pins
+/// one, is the turn the steer names. Answers the turn it targeted and the turn Codex acknowledged.
+/// Fails with `SteerTurnEnded` when the run has no live turn, an interrupt is stopping it, its
+/// session's task ended or Codex refused it for its turn, with `session.message.tooLarge` when its
+/// text passes Codex's input limit, and as `input` and the request fail.
 pub(crate) async fn steer_codex_run(
     inbound: &CodexSessionInboundSender,
     run_id: RunId,
@@ -148,16 +148,30 @@ pub(crate) async fn steer_codex_run(
     // A steer whose input failed is dropped unsent, which lets the next one go.
     let sent = match input.await {
         Ok(input) => send_codex_steer(send, input).await,
-        Err(error) => Err(error),
+        Err(error) => Err(CodexSteerFailure {
+            error,
+            is_untaken: true,
+        }),
     };
-    if sent.is_err() {
-        // The session's task takes it back; one that ended has nothing to take back.
-        let _unheard = inbound.push(CodexSessionInbound::Call(CodexSessionCall::WithdrawSteer {
-            turn_id,
-            message_id,
-        }));
-    }
-    sent
+    sent.map_err(|failure| {
+        if failure.is_untaken {
+            // The session's task takes it back; one that ended has nothing to take back.
+            let _unheard =
+                inbound.push(CodexSessionInbound::Call(CodexSessionCall::WithdrawSteer {
+                    turn_id,
+                    message_id,
+                }));
+        }
+        failure.error
+    })
+}
+
+// Why a steer failed, and whether Codex surely did not take it: it refused it, or the steer never
+// reached it. One whose answer never came may have been taken, its prompt hook run, so it keeps
+// its place among the turn's steers.
+struct CodexSteerFailure {
+    error: DriverError,
+    is_untaken: bool,
 }
 
 // Writes a registered steer with `input` once the steer before it was answered; a refusal because
@@ -165,7 +179,7 @@ pub(crate) async fn steer_codex_run(
 async fn send_codex_steer(
     send: CodexSteerSend,
     input: Vec<UserInput>,
-) -> Result<CodexSteerAcknowledgment, DriverError> {
+) -> Result<CodexSteerAcknowledgment, CodexSteerFailure> {
     if let Some(previous) = send.previous {
         previous.await;
     }
@@ -185,20 +199,25 @@ async fn send_codex_steer(
         )
         .await;
     drop(send.answered);
-    match reply {
-        Ok(reply) => Ok(CodexSteerAcknowledgment {
-            targeted_turn_id: send.targeted_turn_id,
-            acknowledged_turn_id: read_steered_turn_id(&reply),
-        }),
-        Err(error) if is_steer_turn_gone(&error) => Err(SteerTurnEndedError {
+    let error = match reply {
+        Ok(reply) => {
+            return Ok(CodexSteerAcknowledgment {
+                targeted_turn_id: send.targeted_turn_id,
+                acknowledged_turn_id: read_steered_turn_id(&reply),
+            });
+        }
+        Err(error) => error,
+    };
+    let is_untaken = !matches!(error, CodexError::Unanswered { .. });
+    let error = if is_steer_turn_gone(&error) {
+        SteerTurnEndedError {
             run_id: send.run_id,
         }
-        .into()),
-        Err(error) => {
-            Err(message_too_large_refusal(&error)
-                .map_or_else(|| error.into(), DriverError::Refused))
-        }
-    }
+        .into()
+    } else {
+        message_too_large_refusal(&error).map_or_else(|| error.into(), DriverError::Refused)
+    };
+    Err(CodexSteerFailure { error, is_untaken })
 }
 
 /// Takes back a steer Codex did not take, on the session's task: it is no longer waited for on
