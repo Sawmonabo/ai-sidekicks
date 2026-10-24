@@ -57,9 +57,9 @@ use crate::queue::refusals::{
 use crate::queue::run_lifecycle::{QueueRunLifecycle, QueueRunLifecycleDeps};
 use crate::queue::send::{QueueSendMessage, QueueSends, QueueSendsDeps};
 use crate::queue::session_lock::{QueueSessionLock, UnreleasedInterrupts};
+use crate::queue::store::summary::summary_of;
 use crate::queue::store::{
     QueueItemBody, QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
-    summary_of,
 };
 use crate::session::changes::refuse_unchangeable_session;
 use crate::session::run::engine::RunEngine;

@@ -3,6 +3,7 @@
 //! its session is kept; a message's words ride its payload beside its `user.message.sent` row.
 
 pub(crate) mod send_now;
+pub(crate) mod summary;
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -21,7 +22,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::{
     MessageContent, QueueItemId, QueueItemNotDeliveredKind, QueueItemNotDeliveredReason,
-    QueueItemState, QueueItemSummary,
+    QueueItemState,
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
@@ -597,81 +598,6 @@ pub(crate) fn take_over_interrupted_statement(
             text_binding("@now", now.as_str()),
         ]),
         expected_row_count: None,
-    }
-}
-
-/// The pending row a screen draws for `record`.
-pub(crate) fn summary_of(record: QueueItemRecord) -> QueueItemSummary {
-    let QueueItemRecord {
-        id,
-        state,
-        body,
-        child_handle,
-        position,
-        sent_now_id,
-        created_at,
-        updated_at,
-        ..
-    } = record;
-    let is_sent_now = sent_now_id.is_some();
-    let content = body.content;
-    let attachments = body.attachments;
-    match state {
-        RecordedQueueItemState::Queued => QueueItemSummary::Queued {
-            id,
-            position,
-            content,
-            attachments,
-            child_handle,
-            is_sent_now,
-            created_at,
-            updated_at,
-            not_delivered_reason: None,
-        },
-        RecordedQueueItemState::Admitted => QueueItemSummary::Admitted {
-            id,
-            position,
-            content,
-            attachments,
-            child_handle,
-            is_sent_now,
-            created_at,
-            updated_at,
-            not_delivered_reason: None,
-        },
-        RecordedQueueItemState::Superseded => QueueItemSummary::Superseded {
-            id,
-            position,
-            content,
-            attachments,
-            child_handle,
-            is_sent_now,
-            created_at,
-            updated_at,
-            not_delivered_reason: None,
-        },
-        RecordedQueueItemState::Canceled => QueueItemSummary::Canceled {
-            id,
-            position,
-            content,
-            attachments,
-            child_handle,
-            is_sent_now,
-            created_at,
-            updated_at,
-            not_delivered_reason: None,
-        },
-        RecordedQueueItemState::NotDelivered { reason } => QueueItemSummary::NotDelivered {
-            id,
-            position,
-            content,
-            attachments,
-            child_handle,
-            is_sent_now,
-            created_at,
-            updated_at,
-            not_delivered_reason: reason,
-        },
     }
 }
 

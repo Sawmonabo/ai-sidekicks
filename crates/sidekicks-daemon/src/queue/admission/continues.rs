@@ -13,7 +13,8 @@ use super::{Placed, QueueAdmission, is_invalid_transition, is_waiting, log_failu
 use crate::database::connection::read_pool::ReadLength;
 use crate::provider::driver::contract::ProviderDriver;
 use crate::queue::error::QueueError;
-use crate::queue::store::{QueueItemReader, summary_of};
+use crate::queue::store::QueueItemReader;
+use crate::queue::store::summary::summary_of;
 use crate::session::run::engine::RunEngineError;
 use crate::session::run::read::read_run_through;
 use crate::session::run::start_request::RunContinueRequest;

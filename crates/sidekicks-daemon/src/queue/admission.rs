@@ -51,8 +51,9 @@ use crate::queue::error::QueueError;
 use crate::queue::provider_session::ProviderSessions;
 use crate::queue::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
 use crate::queue::session_lock::QueueSessionLock;
+use crate::queue::store::summary::summary_of;
 use crate::queue::store::{
-    QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState, summary_of,
+    QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
 };
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::read::read_run_through;
