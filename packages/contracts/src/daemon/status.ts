@@ -58,13 +58,6 @@ export interface DaemonRelayStatus {
   pinRefused: boolean;
 }
 
-/** How the secrets in the service's file are protected. */
-export type DaemonSecretsProtection = "sealedWithChip" | "sealedWithSystemKey" | "plain";
-const DAEMON_SECRETS_PROTECTIONS: readonly DaemonSecretsProtection[] = Object.freeze([
-  "sealedWithChip",
-  "sealedWithSystemKey",
-  "plain",
-]);
 /** Why the file on Linux keeps its secrets plain. */
 export type DaemonSecretsPlainReason = "noSealService" | "sealFailed" | "bootBound";
 const DAEMON_SECRETS_PLAIN_REASONS: readonly DaemonSecretsPlainReason[] = Object.freeze([
@@ -86,27 +79,59 @@ const DAEMON_SECRETS_FILE_UNOPENED: readonly DaemonSecretsFileUnopened[] = Objec
 ]);
 
 /**
- * The file the service keeps its secrets in, how they are protected, why a plain file is plain on
- * Linux, and why a sealed file cannot be opened while it cannot.
+ * The file the service keeps its secrets in, tagged by how they are protected: a sealed file by
+ * the weakest key any of them is sealed with, carrying why it cannot be opened while it cannot,
+ * and a plain file carrying why it is plain on Linux.
  */
-export interface DaemonSecretsFile {
-  path: string;
-  /** For a sealed file, the weakest key any of its secrets is sealed with. */
-  protection: DaemonSecretsProtection;
-  /** Absent for a sealed file and on a Mac. */
-  reason?: DaemonSecretsPlainReason | undefined;
-  /** Absent while the file opens and for a plain file. */
-  cannotOpen?: DaemonSecretsFileUnopened | undefined;
-}
+export type DaemonSecretsFile =
+  | {
+      /** Each sealed by systemd's credential service with the security chip and the system key. */
+      protection: "sealedWithChip";
+      /** The file's path; only this account can read it. */
+      path: string;
+      /** Absent while the file opens. */
+      cannotOpen?: DaemonSecretsFileUnopened | undefined;
+    }
+  | {
+      /** Each sealed by systemd's credential service with the system key alone. */
+      protection: "sealedWithSystemKey";
+      /** The file's path; only this account can read it. */
+      path: string;
+      /** Absent while the file opens. */
+      cannotOpen?: DaemonSecretsFileUnopened | undefined;
+    }
+  | {
+      /** Kept as given. */
+      protection: "plain";
+      /** The file's path; only this account can read it. */
+      path: string;
+      /** Absent on a Mac. */
+      reason?: DaemonSecretsPlainReason | undefined;
+    };
 
-const DaemonSecretsFileSchema: z.ZodType<DaemonSecretsFile> = z
-  .object({
-    path: StatusPathSchema,
-    protection: z.enum(DAEMON_SECRETS_PROTECTIONS),
-    reason: z.enum(DAEMON_SECRETS_PLAIN_REASONS).optional(),
-    cannotOpen: z.enum(DAEMON_SECRETS_FILE_UNOPENED).optional(),
-  })
-  .strict();
+const DaemonSecretsFileSchema: z.ZodType<DaemonSecretsFile> = z.discriminatedUnion("protection", [
+  z
+    .object({
+      protection: z.literal("sealedWithChip"),
+      path: StatusPathSchema,
+      cannotOpen: z.enum(DAEMON_SECRETS_FILE_UNOPENED).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      protection: z.literal("sealedWithSystemKey"),
+      path: StatusPathSchema,
+      cannotOpen: z.enum(DAEMON_SECRETS_FILE_UNOPENED).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      protection: z.literal("plain"),
+      path: StatusPathSchema,
+      reason: z.enum(DAEMON_SECRETS_PLAIN_REASONS).optional(),
+    })
+    .strict(),
+]);
 
 /** `daemon.status.read` takes nothing. */
 export type DaemonStatusReadRequest = Record<string, never>;

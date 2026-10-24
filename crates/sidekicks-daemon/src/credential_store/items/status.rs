@@ -2,9 +2,7 @@
 //! Linux plain file is plain and, while the sealed file cannot be opened, why. The read waits for
 //! no call: it takes the run's view of the place and reads the file without its lock.
 
-use sidekicks_contracts::daemon::status::{
-    DaemonSecretsFile, DaemonSecretsFileUnopened, DaemonSecretsProtection,
-};
+use sidekicks_contracts::daemon::status::{DaemonSecretsFile, DaemonSecretsFileUnopened};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_platforms::SealKey;
@@ -47,30 +45,34 @@ impl SecretItems {
             Some(SecretsPlace::PlainFile { .. } | SecretsPlace::LoggedOutServiceFile) => false,
             None => matches!(&snapshot, Ok(Some(file)) if file.form == ItemsForm::Sealed),
         };
-        let (protection, reason) = if is_sealed {
-            let Some(protection) = sealed_protection(&snapshot, cannot_open) else {
+        let path =
+            || FilesystemPath::new(self.items_file.file_path().to_string_lossy().into_owned());
+        if is_sealed {
+            let Some(is_sealed_with_chip) = is_sealed_with_chip(&snapshot, cannot_open) else {
                 return Ok(None);
             };
-            (protection, None)
-        } else if holds_items(&snapshot) {
-            let reason = match place {
-                Some(SecretsPlace::PlainFile { reason }) => Some(reason),
-                Some(
-                    SecretsPlace::OperatingSystem
-                    | SecretsPlace::SealedFile
-                    | SecretsPlace::LoggedOutServiceFile,
-                )
-                | None => None,
-            };
-            (DaemonSecretsProtection::Plain, reason)
-        } else {
+            let path = path()?;
+            return Ok(Some(if is_sealed_with_chip {
+                DaemonSecretsFile::SealedWithChip { path, cannot_open }
+            } else {
+                DaemonSecretsFile::SealedWithSystemKey { path, cannot_open }
+            }));
+        }
+        if !holds_items(&snapshot) {
             return Ok(None);
+        }
+        let reason = match place {
+            Some(SecretsPlace::PlainFile { reason }) => Some(reason),
+            Some(
+                SecretsPlace::OperatingSystem
+                | SecretsPlace::SealedFile
+                | SecretsPlace::LoggedOutServiceFile,
+            )
+            | None => None,
         };
-        Ok(Some(DaemonSecretsFile {
-            path: FilesystemPath::new(self.items_file.file_path().to_string_lossy().into_owned())?,
-            protection,
+        Ok(Some(DaemonSecretsFile::Plain {
+            path: path()?,
             reason,
-            cannot_open: cannot_open.filter(|_| is_sealed),
         }))
     }
 }
@@ -84,13 +86,13 @@ fn holds_items(snapshot: &Result<Option<ItemsSnapshot>, KeychainRefusal>) -> boo
     }
 }
 
-// How the sealed file's items are protected, by the weakest key any of them names, a key the
-// daemon does not know or a file that cannot be read counting as the system key; `None` while it
-// holds no item and opens.
-fn sealed_protection(
+// Whether every item of the sealed file is sealed with the chip, the weakest key any of them names
+// deciding, a key the daemon does not know or a file that cannot be read counting as the system
+// key; `None` while it holds no item and opens.
+fn is_sealed_with_chip(
     snapshot: &Result<Option<ItemsSnapshot>, KeychainRefusal>,
     cannot_open: Option<DaemonSecretsFileUnopened>,
-) -> Option<DaemonSecretsProtection> {
+) -> Option<bool> {
     let keys = match snapshot {
         Ok(Some(file)) => Some(file.keys.as_slice()),
         Ok(None) => Some([].as_slice()),
@@ -98,11 +100,9 @@ fn sealed_protection(
     };
     match keys {
         Some(keys) if keys.is_empty() && cannot_open.is_none() => None,
-        Some(keys)
-            if !keys.is_empty() && keys.iter().all(|key| key.is_some_and(SealKey::uses_chip)) =>
-        {
-            Some(DaemonSecretsProtection::SealedWithChip)
+        Some(keys) => {
+            Some(!keys.is_empty() && keys.iter().all(|key| key.is_some_and(SealKey::uses_chip)))
         }
-        Some(_) | None => Some(DaemonSecretsProtection::SealedWithSystemKey),
+        None => Some(false),
     }
 }

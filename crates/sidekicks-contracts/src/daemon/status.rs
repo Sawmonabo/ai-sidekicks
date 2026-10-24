@@ -226,44 +226,73 @@ pub struct DaemonStatusReadResponse {
     pub secrets_file: Option<DaemonSecretsFile>,
 }
 
-/// The file the service keeps its secrets in, how they are protected, why a plain file is plain on
-/// Linux, and why a sealed file cannot be opened while it cannot.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct DaemonSecretsFile {
-    /// The file's path; only this account can read it.
-    pub path: FilesystemPath,
-    /// How the secrets in it are protected: for a sealed file, by the weakest key any of them is
-    /// sealed with.
-    pub protection: DaemonSecretsProtection,
-    /// Why a plain file on Linux is plain; absent for a sealed file and on a Mac.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "DaemonSecretsPlainReason")]
-    pub reason: Option<DaemonSecretsPlainReason>,
-    /// Why the sealed file cannot be opened; absent while it opens and for a plain file.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "DaemonSecretsFileUnopened")]
-    pub cannot_open: Option<DaemonSecretsFileUnopened>,
+/// Declares the secrets file: each protection's arm repeats the file's path, then adds its own
+/// member.
+macro_rules! secrets_file {
+    (
+        $(#[doc = $doc:literal])+
+        pub enum $name:ident {
+            $($(#[doc = $arm_doc:literal])+ $arm:ident { $($extra:tt)* },)+
+        }
+    ) => {
+        $(#[doc = $doc])+
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+        #[serde(
+            tag = "protection",
+            rename_all = "camelCase",
+            rename_all_fields = "camelCase",
+            deny_unknown_fields
+        )]
+        pub enum $name {$(
+            $(#[doc = $arm_doc])+
+            $arm {
+                /// The file's path; only this account can read it.
+                path: FilesystemPath,
+                $($extra)*
+            },
+        )+}
+    };
 }
 
-/// How the secrets in the file are protected.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub enum DaemonSecretsProtection {
-    /// Each sealed by systemd's credential service with the security chip and the system key.
-    SealedWithChip,
-    /// Each sealed by systemd's credential service with the system key alone.
-    SealedWithSystemKey,
-    /// Kept as given.
-    Plain,
+secrets_file! {
+    /// The file the service keeps its secrets in, tagged by how they are protected: a sealed file
+    /// by the weakest key any of them is sealed with, carrying why it cannot be opened while it
+    /// cannot, and a plain file carrying why it is plain on Linux.
+    pub enum DaemonSecretsFile {
+        /// Each sealed by systemd's credential service with the security chip and the system key.
+        SealedWithChip {
+            /// Why the file cannot be opened; absent while it opens.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "DaemonSecretsFileUnopened")]
+            cannot_open: Option<DaemonSecretsFileUnopened>,
+        },
+        /// Each sealed by systemd's credential service with the system key alone.
+        SealedWithSystemKey {
+            /// Why the file cannot be opened; absent while it opens.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "DaemonSecretsFileUnopened")]
+            cannot_open: Option<DaemonSecretsFileUnopened>,
+        },
+        /// Kept as given.
+        Plain {
+            /// Why the file on Linux is plain; absent on a Mac.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "DaemonSecretsPlainReason")]
+            reason: Option<DaemonSecretsPlainReason>,
+        },
+    }
 }
 
 /// Why the file on Linux keeps its secrets plain.
@@ -394,7 +423,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DaemonRelayStatus>(),
         Definition::read::<DaemonWslDistributionStatus>(),
         Definition::read::<DaemonWslDistribution>(),
-        Definition::read::<DaemonSecretsProtection>(),
         Definition::read::<DaemonSecretsPlainReason>(),
         Definition::read::<DaemonSecretsFileUnopened>(),
         Definition::read::<DaemonSecretsFile>(),
@@ -413,7 +441,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 mod tests {
     use rstest::rstest;
 
-    use super::{CrashStackFrame, DAEMON_STATUS_TEXT_MAX_LEN};
+    use super::{CrashStackFrame, DAEMON_STATUS_TEXT_MAX_LEN, DaemonSecretsFile};
 
     #[rstest]
     #[case::file_name("libsidekicks.dylib".to_owned(), true)]
@@ -431,5 +459,39 @@ mod tests {
         let frame = serde_json::json!({ "module": module, "offset": 16 });
         let parsed = serde_json::from_value::<CrashStackFrame>(frame);
         assert_eq!(parsed.is_ok(), is_accepted);
+    }
+
+    /// Each protection reads and writes back byte for byte, with only its own member, and a member
+    /// of another protection is refused. Mutation: drop `deny_unknown_fields` from the arms, so a
+    /// sealed file carrying a plain file's reason reads.
+    #[rstest]
+    #[case::sealed_with_chip(r#"{"protection":"sealedWithChip","path":"/secrets.json"}"#, true)]
+    #[case::sealed_with_the_system_key_that_cannot_open(
+        r#"{"protection":"sealedWithSystemKey","path":"/secrets.json","cannotOpen":"keyChanged"}"#,
+        true
+    )]
+    #[case::plain_for_a_reason(
+        r#"{"protection":"plain","path":"/secrets.json","reason":"bootBound"}"#,
+        true
+    )]
+    #[case::plain_on_a_mac(r#"{"protection":"plain","path":"/secrets.json"}"#, true)]
+    #[case::sealed_with_a_reason(
+        r#"{"protection":"sealedWithChip","path":"/secrets.json","reason":"bootBound"}"#,
+        false
+    )]
+    #[case::plain_that_cannot_open(
+        r#"{"protection":"plain","path":"/secrets.json","cannotOpen":"keyChanged"}"#,
+        false
+    )]
+    fn a_secrets_file_carries_only_its_protections_member(
+        #[case] text: &str,
+        #[case] is_accepted: bool,
+    ) {
+        let parsed = serde_json::from_str::<DaemonSecretsFile>(text);
+
+        assert_eq!(parsed.is_ok(), is_accepted, "{text}");
+        if let Ok(file) = parsed {
+            assert_eq!(serde_json::to_string(&file).expect("the file writes"), text);
+        }
     }
 }

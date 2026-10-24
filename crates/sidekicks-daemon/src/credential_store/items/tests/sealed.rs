@@ -7,10 +7,8 @@ use std::time::Duration;
 
 use rstest::rstest;
 use secrecy::{ExposeSecret, SecretString};
-use sidekicks_contracts::daemon::status::{
-    DaemonSecretsFileUnopened as Unopened, DaemonSecretsPlainReason as Reason,
-    DaemonSecretsProtection as Protection,
-};
+use serde_json::json;
+use sidekicks_contracts::daemon::status::DaemonSecretsPlainReason as Reason;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_platforms::{SealKey, SecretStoreOffer, secret_store_offer};
 
@@ -107,7 +105,8 @@ enum After {
     Form(&'static str),
 }
 
-type Status = Option<(Protection, Option<Reason>, Option<Unopened>)>;
+// The status read's secrets file as the wire sends it, its path left out.
+type Status = Option<serde_json::Value>;
 
 const fn refuses(error: &'static str, errno: Option<i64>) -> SealNow {
     SealNow::answers(TestSealAnswer::Refuses { error, errno })
@@ -142,7 +141,13 @@ async fn status(items: &SecretItems) -> Status {
         .secrets_file()
         .await
         .expect("the path is a wire path")
-        .map(|file| (file.protection, file.reason, file.cannot_open))
+        .map(|file| {
+            let mut wire = serde_json::to_value(file).expect("the status writes");
+            wire.as_object_mut()
+                .expect("the secrets file is an object")
+                .remove("path");
+            wire
+        })
 }
 
 /// Every Linux pick: a first start through the probe (sealed bound to no boot state, plain for the
@@ -159,37 +164,37 @@ async fn status(items: &SecretItems) -> Status {
 #[case::first_start_sealed_with_the_chip(
     None, Before::Nothing, SealNow::serves(SealKey::Chip),
     Ok(()), Some(SEALED), After::Form("sealed"),
-    Some((Protection::SealedWithChip, None, None))
+    Some(json!({"protection":"sealedWithChip"}))
 )]
 #[case::first_start_sealed_with_the_system_key(
     None, Before::Nothing, SealNow::serves(SealKey::SystemKey),
     Ok(()), Some(SEALED), After::Form("sealed"),
-    Some((Protection::SealedWithSystemKey, None, None))
+    Some(json!({"protection":"sealedWithSystemKey"}))
 )]
 #[case::first_start_bound_to_the_boot_state(
     None, Before::Nothing, SealNow::bound(),
     Ok(()), Some(BOOT_BOUND), After::Form("plain"),
-    Some((Protection::Plain, Some(Reason::BootBound), None))
+    Some(json!({"protection":"plain","reason":"bootBound"}))
 )]
 #[case::first_start_without_the_service(
     None, Before::Nothing, SealNow::answers(TestSealAnswer::Absent),
     Ok(()), Some(NO_SEAL_SERVICE), After::Form("plain"),
-    Some((Protection::Plain, Some(Reason::NoSealService), None))
+    Some(json!({"protection":"plain","reason":"noSealService"}))
 )]
 #[case::first_start_for_no_such_user(
     None, Before::Nothing, refuses("io.systemd.Credentials.NoSuchUser", None),
     Ok(()), Some(SEAL_FAILED), After::Form("plain"),
-    Some((Protection::Plain, Some(Reason::SealFailed), None))
+    Some(json!({"protection":"plain","reason":"sealFailed"}))
 )]
 #[case::first_start_without_a_key(
     None, Before::Nothing, refuses("io.systemd.System", Some(131)),
     Ok(()), Some(SEAL_FAILED), After::Form("plain"),
-    Some((Protection::Plain, Some(Reason::SealFailed), None))
+    Some(json!({"protection":"plain","reason":"sealFailed"}))
 )]
 #[case::first_start_without_the_cryptography(
     None, Before::Nothing, refuses("io.systemd.System", Some(95)),
     Ok(()), Some(SEAL_FAILED), After::Form("plain"),
-    Some((Protection::Plain, Some(Reason::SealFailed), None))
+    Some(json!({"protection":"plain","reason":"sealFailed"}))
 )]
 #[case::first_start_with_another_system_error(
     None,
@@ -212,52 +217,52 @@ async fn status(items: &SecretItems) -> Status {
 #[case::recorded_sealed_that_opens(
     Some(SEALED), Before::Sealed(SealKey::Chip), SealNow::serves(SealKey::Chip),
     Ok(()), Some(SEALED), After::Form("sealed"),
-    Some((Protection::SealedWithChip, None, None))
+    Some(json!({"protection":"sealedWithChip"}))
 )]
 #[case::recorded_sealed_without_the_service(
     Some(SEALED), Before::Sealed(SealKey::Chip), SealNow::answers(TestSealAnswer::Absent),
     Err(KeychainRefusalCause::Unavailable), Some(SEALED), After::Unchanged,
-    Some((Protection::SealedWithChip, None, Some(Unopened::SealServiceMissing)))
+    Some(json!({"protection":"sealedWithChip","cannotOpen":"sealServiceMissing"}))
 )]
 #[case::recorded_sealed_with_a_failing_service(
     Some(SEALED), Before::Sealed(SealKey::Chip), refuses("io.systemd.System", Some(5)),
     Err(KeychainRefusalCause::Unavailable), Some(SEALED), After::Unchanged,
-    Some((Protection::SealedWithChip, None, Some(Unopened::SealServiceFailing)))
+    Some(json!({"protection":"sealedWithChip","cannotOpen":"sealServiceFailing"}))
 )]
 #[case::recorded_sealed_whose_chip_is_off(
     Some(SEALED), Before::Sealed(SealKey::Chip), SealNow::forgets(SealKey::SystemKey),
     Err(KeychainRefusalCause::Unavailable), Some(SEALED), After::Unchanged,
-    Some((Protection::SealedWithChip, None, Some(Unopened::ChipUnavailable)))
+    Some(json!({"protection":"sealedWithChip","cannotOpen":"chipUnavailable"}))
 )]
 #[case::recorded_sealed_whose_chip_key_changed(
     Some(SEALED), Before::Sealed(SealKey::Chip), SealNow::forgets(SealKey::Chip),
     Err(KeychainRefusalCause::Unavailable), Some(SEALED), After::Unchanged,
-    Some((Protection::SealedWithChip, None, Some(Unopened::KeyChanged)))
+    Some(json!({"protection":"sealedWithChip","cannotOpen":"keyChanged"}))
 )]
 #[case::recorded_sealed_whose_system_key_changed(
     Some(SEALED), Before::Sealed(SealKey::SystemKey), SealNow::forgets(SealKey::SystemKey),
     Err(KeychainRefusalCause::Unavailable), Some(SEALED), After::Unchanged,
-    Some((Protection::SealedWithSystemKey, None, Some(Unopened::KeyChanged)))
+    Some(json!({"protection":"sealedWithSystemKey","cannotOpen":"keyChanged"}))
 )]
 #[case::recorded_system_key_sealed_again_with_the_chip(
     Some(SEALED), Before::Sealed(SealKey::SystemKey), SealNow::serves(SealKey::Chip),
     Ok(()), Some(SEALED), After::Form("sealed"),
-    Some((Protection::SealedWithChip, None, None))
+    Some(json!({"protection":"sealedWithChip"}))
 )]
 #[case::recorded_plain_sealed_once_the_service_seals(
     Some(NO_SEAL_SERVICE), Before::Plain, SealNow::serves(SealKey::Chip),
     Ok(()), Some(SEALED), After::Form("sealed"),
-    Some((Protection::SealedWithChip, None, None))
+    Some(json!({"protection":"sealedWithChip"}))
 )]
 #[case::recorded_plain_whose_service_binds_the_boot_state(
     Some(NO_SEAL_SERVICE), Before::Plain, SealNow::bound(),
     Ok(()), Some(BOOT_BOUND), After::Form("plain"),
-    Some((Protection::Plain, Some(Reason::BootBound), None))
+    Some(json!({"protection":"plain","reason":"bootBound"}))
 )]
 #[case::recorded_plain_without_the_service(
     Some(BOOT_BOUND), Before::Plain, SealNow::answers(TestSealAnswer::Absent),
     Ok(()), Some(BOOT_BOUND), After::Form("plain"),
-    Some((Protection::Plain, Some(Reason::BootBound), None))
+    Some(json!({"protection":"plain","reason":"bootBound"}))
 )]
 #[tokio::test]
 async fn the_start_picks_and_keeps_the_linux_secrets_place(
@@ -466,7 +471,7 @@ async fn a_changed_key_is_latched_and_a_missing_service_is_checked_again() {
     assert_eq!(served, Ok(Some("value".to_owned())));
     assert_eq!(
         status(&items).await,
-        Some((Protection::SealedWithChip, None, None))
+        Some(json!({"protection":"sealedWithChip"}))
     );
 }
 
@@ -510,11 +515,7 @@ async fn the_status_keeps_the_cause_while_a_call_checks_again() {
     assert_eq!(second, Err(KeychainRefusalCause::Unavailable));
     assert_eq!(
         status_now,
-        Some((
-            Protection::SealedWithChip,
-            None,
-            Some(Unopened::ChipUnavailable)
-        ))
+        Some(json!({"protection":"sealedWithChip","cannotOpen":"chipUnavailable"}))
     );
 }
 
@@ -601,11 +602,7 @@ async fn a_sealed_file_whose_service_gives_no_answer_reads_as_failing() {
     assert_eq!(timed_out, Err(KeychainRefusalCause::Unavailable));
     assert_eq!(
         status_after,
-        Some((
-            Protection::SealedWithChip,
-            None,
-            Some(Unopened::SealServiceFailing)
-        ))
+        Some(json!({"protection":"sealedWithChip","cannotOpen":"sealServiceFailing"}))
     );
 }
 

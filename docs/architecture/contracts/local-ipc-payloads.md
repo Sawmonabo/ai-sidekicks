@@ -161,18 +161,24 @@ interface DaemonStatusReadResponse {
   // waits for approval. Settings › Runtime then shows the notice for the file's place, or why the
   // sealed file cannot be opened, with `path` in its own row under the notice's line (Spec-020
   // §Daemon Secrets). Absent on every other machine.
-  secretsFile?: {
-    path: string;
-    // For a sealed file, the weakest key any item is sealed with.
-    protection: "sealedWithChip" | "sealedWithSystemKey" | "plain";
-    // Why a plain file on Linux is plain: systemd's credential service is absent, it refused to
-    // seal at the first start, or it would bind each seal to the Secure Boot state. Absent for a
-    // sealed file and on a Mac.
-    reason?: "noSealService" | "sealFailed" | "bootBound";
-    // Why the sealed file cannot be opened: the service is gone, it does not answer, the chip
-    // cannot be used, or the key changed. Absent while it opens and for a plain file.
-    cannotOpen?: "sealServiceMissing" | "sealServiceFailing" | "chipUnavailable" | "keyChanged";
-  };
+  // A union tagged by `protection`.
+  secretsFile?:
+    | {
+        // A sealed file, by the weakest key any item is sealed with.
+        protection: "sealedWithChip" | "sealedWithSystemKey";
+        path: string;
+        // Why it cannot be opened: the service is gone, it does not answer, the chip cannot be
+        // used, or the key changed. Absent while it opens.
+        cannotOpen?: "sealServiceMissing" | "sealServiceFailing" | "chipUnavailable" | "keyChanged";
+      }
+    | {
+        protection: "plain";
+        path: string;
+        // Why a plain file on Linux is plain: systemd's credential service is absent, it refused
+        // to seal at the first start, or it would bind each seal to the Secure Boot state. Absent
+        // on a Mac.
+        reason?: "noSealService" | "sealFailed" | "bootBound";
+      };
   // healthy, rebuilding, degraded or blocked, per session (persistence-payloads.md §Plan-012,
   // T12.4)
   recovery: DaemonRecoveryStatus;
