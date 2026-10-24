@@ -9,7 +9,7 @@ mod terminal_reach;
 
 use std::num::NonZeroUsize;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::value::RawValue;
@@ -29,7 +29,6 @@ use super::CodexDriver;
 use super::intake::CodexSessionIntake;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, insert_lead};
-use crate::events::log_service::tests::open_log;
 use crate::events::session::followers::SessionEventFollowers;
 use crate::mutex_lock::lock;
 use crate::provider::driver::DriverServices;
@@ -43,16 +42,17 @@ use crate::provider::driver::codex::service::supervisor::test_service::{
 use crate::provider::driver::codex::session::inbound::codex_session_inbound;
 use crate::provider::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
 use crate::provider::driver::codex::session::test_session::{
-    TEST_THREAD, TestDaemonTurnBindings, UnreadRunStates, open_test_record, turn_completed,
+    TEST_THREAD, TestDaemonTurnBindings, open_test_record, turn_completed,
 };
 use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
-use crate::provider::driver::test_registry::{RecordedQueue, new_run_id, test_driver_services};
+use crate::provider::driver::test_registry::{
+    RecordedQueue, TestRunPorts, new_run_id, test_driver_services,
+};
 use crate::provider::runtime_binding::store::RuntimeBindingSpawnConfig;
 use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
 use crate::session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
-use crate::session::run::engine::tests::{insert_running_run, test_engine};
+use crate::session::run::engine::tests::insert_running_run;
 use crate::session::run::epochs::{EpochBinding, ExecutionEpochs};
-use crate::session::run::inbound::RunInboundDispatch;
 
 /// The live turn the session's run is on.
 pub(super) const TEST_TURN: &str = "turn-1";
@@ -100,18 +100,14 @@ impl LiveCodexSession {
     async fn open(steers: Option<&[QueueItemId]>, released: &[Value], is_retriable: bool) -> Self {
         let scripted = start_scripted_codex_service();
         let database = TestDatabase::new();
-        let log = open_log(&database, None).await;
         let home = tempfile::tempdir().expect("the test makes a home folder");
-        let engine = test_engine(&database, Arc::clone(&log.service), home.path());
-        let epochs = Arc::new(Mutex::new(ExecutionEpochs::new(
-            NonZeroUsize::new(8).expect("the cap is not zero"),
-        )));
-        let dispatch = Arc::new(RunInboundDispatch::new(
-            Arc::clone(&engine),
-            Arc::clone(&epochs),
-            Arc::new(UnreadRunStates),
-            Arc::clone(&log.service),
-        ));
+        let run_ports = TestRunPorts::open(
+            &database,
+            home.path(),
+            ExecutionEpochs::new(NonZeroUsize::new(8).expect("the cap is not zero")),
+        )
+        .await;
+        let epochs = Arc::clone(&run_ports.epochs);
         let session_id =
             SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
         let agent_id = insert_lead(&database, session_id, DESCRIPTOR.id);
@@ -125,8 +121,7 @@ impl LiveCodexSession {
         services.runtime_bindings = Arc::clone(&bindings) as _;
         let queue = Arc::new(RecordedQueue::default());
         let ports = &services.ports;
-        assert!(ports.run_engine.register(engine).is_ok());
-        assert!(ports.inbound_dispatch.register(dispatch).is_ok());
+        run_ports.register_on(ports);
         assert!(
             ports
                 .daemon_turn_bindings
@@ -238,7 +233,7 @@ impl LiveCodexSession {
             scripted,
             queue,
             database,
-            followers: log.followers,
+            followers: run_ports.log.followers,
             _home: home,
         }
     }

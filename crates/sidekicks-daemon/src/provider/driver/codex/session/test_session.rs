@@ -26,7 +26,6 @@ use tokio_util::task::TaskTracker;
 
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, insert_lead};
-use crate::events::log_service::tests::open_log;
 use crate::policy::execution_posture_service::{
     ExecutionPostureService, compose_execution_posture,
 };
@@ -92,7 +91,7 @@ use crate::provider::driver::ports::DriverPorts;
 use crate::provider::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, RunToolBoundary,
 };
-use crate::provider::driver::test_registry::RecordedQueue;
+use crate::provider::driver::test_registry::{RecordedQueue, TestRunPorts};
 use crate::provider::driver::{
     PROVIDERS, ProviderAccountFolders, SessionSpawnContext, SessionSpawnContextResolver,
 };
@@ -102,7 +101,6 @@ use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::provider::runtime_binding::store::{RuntimeBindingSpawnConfig, RuntimeBindingStore};
 use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
 use crate::provider::spawn_environment::ReservedEnvironmentNames;
-use crate::session::run::engine::tests::test_engine;
 use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine};
 use crate::session::run::epochs::{EpochBinding, ExecutionEpochs};
 use crate::session::run::inbound::RunInboundDispatch;
@@ -167,18 +165,18 @@ impl TestCodexSession {
     pub(crate) async fn start() -> Self {
         let scripted = start_scripted_codex_service();
         let database = TestDatabase::new();
-        let log = open_log(&database, None).await;
         let home = tempfile::tempdir().expect("the test makes a home folder");
-        let engine = test_engine(&database, Arc::clone(&log.service), home.path());
-        let epochs = Arc::new(Mutex::new(ExecutionEpochs::new(
-            NonZeroUsize::new(8).expect("the cap is not zero"),
-        )));
-        let dispatch = Arc::new(RunInboundDispatch::new(
-            Arc::clone(&engine),
-            Arc::clone(&epochs),
-            Arc::new(UnreadRunStates),
-            log.service,
-        ));
+        let TestRunPorts {
+            engine,
+            dispatch,
+            epochs,
+            ..
+        } = TestRunPorts::open(
+            &database,
+            home.path(),
+            ExecutionEpochs::new(NonZeroUsize::new(8).expect("the cap is not zero")),
+        )
+        .await;
         let reads = Arc::new(DatabaseReadPool::new(
             database.path(),
             RUN_ENGINE_STATEMENT_CAPACITY,
@@ -770,17 +768,6 @@ impl CodexSessionInboundHandler for ItemsToTest {
 
     fn deadline_reached(&mut self, _now: Instant) -> BoxFuture<'_, ()> {
         async {}.boxed()
-    }
-}
-
-/// A run-state stream no one reads.
-pub(crate) struct UnreadRunStates;
-
-impl crate::provider::port::run_state_publisher::RunStatePublisher for UnreadRunStates {
-    fn publish(
-        &self,
-        _hold: sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload,
-    ) {
     }
 }
 

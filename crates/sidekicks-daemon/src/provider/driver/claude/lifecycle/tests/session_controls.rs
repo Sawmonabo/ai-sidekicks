@@ -2,7 +2,7 @@
 //! question, the staged review and a run started through the driver interface.
 
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use serde_json::json;
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -16,7 +16,6 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 
 use super::{resume_params, start_params};
-use crate::events::log_service::tests::open_log;
 use crate::policy::execution_posture_service::compose_execution_posture;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::delivery::run_engine::{ClaudeRunEngine, RunEngineDelivery};
@@ -43,12 +42,12 @@ use crate::provider::driver::run_control::InterruptRunRequest;
 use crate::provider::driver::session_control::{
     AskSideQuestionParams, CloseSessionParams, CreateSessionParams, StartReviewParams,
 };
-use crate::provider::driver::test_registry::{new_run_id, new_session_id, terminal_events};
+use crate::provider::driver::test_registry::{
+    TestRunPorts, new_run_id, new_session_id, terminal_events,
+};
 use crate::provider::usage_delta_accountant::UsageAxisCounts;
-use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
+use crate::session::run::engine::tests::{insert_running_run, stored_run_state};
 use crate::session::run::epochs::{EpochBinding, ExecutionEpochs};
-use crate::session::run::inbound::RunInboundDispatch;
-use crate::session::run::inbound::tests::UnreadPublisher;
 use crate::session::run::state_change::RunStateEntry;
 
 // The full id the build resolves the session's `opus` to.
@@ -282,24 +281,9 @@ async fn register_the_daemons_engine(
             RUN_START_POSITION,
         )
         .expect("the binding has no cursor yet");
-    let log = open_log(&fixture.database, None).await;
-    let engine = test_engine(&fixture.database, Arc::clone(&log.service), &fixture.home);
-    let dispatch = Arc::new(RunInboundDispatch::new(
-        Arc::clone(&engine),
-        Arc::new(Mutex::new(epochs)),
-        Arc::new(UnreadPublisher),
-        log.service,
-    ));
-    let ports = &fixture.services.ports;
-    ports
-        .inbound_dispatch
-        .register(Arc::clone(&dispatch))
-        .expect("the dispatch registers once");
-    ports
-        .run_engine
-        .register(Arc::clone(&engine))
-        .expect("the run engine registers once");
-    RunEngineDelivery::new(engine, dispatch)
+    let run_ports = TestRunPorts::open(&fixture.database, &fixture.home, epochs).await;
+    run_ports.register_on(&fixture.services.ports);
+    RunEngineDelivery::new(run_ports.engine, run_ports.dispatch)
 }
 
 // How many reply messages of `run_id` are stored.

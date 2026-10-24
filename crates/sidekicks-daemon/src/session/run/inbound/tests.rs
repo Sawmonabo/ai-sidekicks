@@ -9,7 +9,6 @@ use sidekicks_contracts::event::envelope::{DAEMON_SCOPE_SENTINEL_SESSION_ID, Sou
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
-use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::operations::REASONING_ENTRY_CONTENT_MAX_LEN;
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
@@ -22,13 +21,12 @@ use super::{
     RunInboundDispatch,
 };
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::events::log_service::tests::open_log;
 use crate::provider::driver::diagnostics::RecordedEvents;
 use crate::provider::driver::registry::test_provider;
-use crate::provider::port::run_state_publisher::RunStatePublisher;
+use crate::provider::driver::test_registry::TestRunPorts;
 use crate::session::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, append, continue_request, held_driver, insert_running_run,
-    stored_run_state, test_engine, turn_completed_at, turn_started_at,
+    stored_run_state, turn_completed_at, turn_started_at,
 };
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::epochs::{
@@ -39,13 +37,6 @@ use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions
 use crate::transcript::reasoning::read_reasoning;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-/// A publisher no run state stream reads.
-pub(crate) struct UnreadPublisher;
-
-impl RunStatePublisher for UnreadPublisher {
-    fn publish(&self, _hold: RunSafetyBufferingUpdatedPayload) {}
-}
-
 // A dispatch over one binding of one run, its cursor remembering two operations.
 struct Harness {
     database: TestDatabase,
@@ -54,14 +45,13 @@ struct Harness {
     binding_id: RuntimeBindingId,
     epochs: Arc<Mutex<ExecutionEpochs>>,
     engine: Arc<RunEngine>,
-    dispatch: RunInboundDispatch,
+    dispatch: Arc<RunInboundDispatch>,
 }
 
 impl Harness {
     // A run stored in `state`, with its binding's cursor open at the run's start.
     async fn new(state: RunState) -> Self {
         let database = TestDatabase::new();
-        let log = open_log(&database, None).await;
         let home = tempfile::tempdir().expect("the test makes a home folder");
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         insert_running_run(&database, test_session_id(), run_id);
@@ -86,14 +76,12 @@ impl Harness {
                 RUN_START_POSITION,
             )
             .expect("the binding has no cursor yet");
-        let epochs = Arc::new(Mutex::new(epochs));
-        let engine = test_engine(&database, Arc::clone(&log.service), home.path());
-        let dispatch = RunInboundDispatch::new(
-            Arc::clone(&engine),
-            Arc::clone(&epochs),
-            Arc::new(UnreadPublisher),
-            log.service,
-        );
+        let TestRunPorts {
+            engine,
+            dispatch,
+            epochs,
+            ..
+        } = TestRunPorts::open(&database, home.path(), epochs).await;
         Self {
             database,
             _home: home,

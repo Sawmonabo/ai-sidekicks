@@ -2,8 +2,8 @@
 
 use std::num::NonZeroUsize;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -14,7 +14,6 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use super::super::CodexDriver;
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
 use crate::database::writer::test_file::TestDatabase;
-use crate::events::log_service::tests::open_log;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::provider::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::provider::driver::codex::run::start::record::CodexTurnRequest;
@@ -31,16 +30,14 @@ use crate::provider::driver::codex::session::side_questions::tests::{
 use crate::provider::driver::codex::session::slots::closing_session_refusal;
 use crate::provider::driver::codex::session::state::CodexTurnMessage;
 use crate::provider::driver::codex::session::test_session::{
-    OneFolder, TEST_THREAD, TestDaemonTurnBindings, UnreadRunStates, turn_completed, turn_reply,
+    OneFolder, TEST_THREAD, TestDaemonTurnBindings, turn_completed, turn_reply,
 };
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::driver::session_control::{AskSideQuestionParams, CloseSessionParams};
+use crate::provider::driver::session_control::CloseSessionParams;
 use crate::provider::driver::test_registry::{
-    new_run_id, new_session_id, terminal_events, test_driver_services,
+    TestRunPorts, new_run_id, new_session_id, terminal_events, test_driver_services,
 };
-use crate::session::run::engine::tests::test_engine;
 use crate::session::run::epochs::ExecutionEpochs;
-use crate::session::run::inbound::RunInboundDispatch;
 
 /// How long a close may take before the test counts it as stuck.
 const CLOSE_BOUND: Duration = Duration::from_secs(10);
@@ -367,16 +364,12 @@ async fn driver_holding(
     folder: &Path,
     database: &TestDatabase,
 ) -> CodexDriver {
-    let log = open_log(database, None).await;
-    let engine = test_engine(database, Arc::clone(&log.service), folder);
-    let dispatch = Arc::new(RunInboundDispatch::new(
-        Arc::clone(&engine),
-        Arc::new(Mutex::new(ExecutionEpochs::new(
-            NonZeroUsize::new(8).expect("the cap is not zero"),
-        ))),
-        Arc::new(UnreadRunStates),
-        log.service,
-    ));
+    let run_ports = TestRunPorts::open(
+        database,
+        folder,
+        ExecutionEpochs::new(NonZeroUsize::new(8).expect("the cap is not zero")),
+    )
+    .await;
     let mut services = test_driver_services();
     services.spawn_contexts = Arc::new(OneFolder(folder.join("work")));
     services.execution_postures = Arc::new(ExecutionPostureService::new(
@@ -384,8 +377,7 @@ async fn driver_holding(
         folder.join("session-token"),
     ));
     let ports = &services.ports;
-    assert!(ports.run_engine.register(engine).is_ok());
-    assert!(ports.inbound_dispatch.register(dispatch).is_ok());
+    run_ports.register_on(ports);
     let agent_id = AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
     assert!(
         ports

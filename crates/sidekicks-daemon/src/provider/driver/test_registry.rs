@@ -6,7 +6,7 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
@@ -18,6 +18,7 @@ use sidekicks_contracts::provider::account::record::{CredentialGeneration, Provi
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
+use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::Spawner;
@@ -26,6 +27,7 @@ use tokio::sync::Notify;
 
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
+use crate::events::log_service::tests::{TestLog, open_log};
 use crate::git::process::{GitLimits, GitRunner};
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
 use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
@@ -44,10 +46,15 @@ use crate::provider::driver::{
     DriverServices, PROVIDERS, ProviderAccountFolders, ProviderRegistration, SessionSpawnContext,
     SessionSpawnContextResolver,
 };
+use crate::provider::port::run_state_publisher::RunStatePublisher;
 use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::provider::runtime_binding::store::RuntimeBindingRebind;
 use crate::provider::spawn_environment::ReservedEnvironmentNames;
+use crate::session::run::engine::RunEngine;
+use crate::session::run::engine::tests::test_engine;
+use crate::session::run::epochs::ExecutionEpochs;
+use crate::session::run::inbound::RunInboundDispatch;
 use crate::session::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
 
 /// The statements a test's read pool caches.
@@ -205,6 +212,64 @@ pub(crate) fn bind_run_to_first_provider(
         )
         .expect("the test binds the run to its provider");
     RuntimeBindingId::new(binding_id).expect("a minted UUID is a binding id")
+}
+
+/// The daemon's own run engine and inbound dispatch on a test's database, which a driver's tests
+/// register as the driver's ports, with the dispatch's epochs and the log the engine writes.
+pub(crate) struct TestRunPorts {
+    /// The engine, every run's folders under the home it was opened on.
+    pub(crate) engine: Arc<RunEngine>,
+    /// The dispatch over the engine.
+    pub(crate) dispatch: Arc<RunInboundDispatch>,
+    /// The dispatch's execution epochs.
+    pub(crate) epochs: Arc<Mutex<ExecutionEpochs>>,
+    /// The event log the engine writes through.
+    pub(crate) log: TestLog,
+}
+
+impl TestRunPorts {
+    /// The engine and dispatch on `database`, every run's folders under `home`, the dispatch
+    /// reading its bindings' cursors from `epochs`; no run state stream reads its states.
+    pub(crate) async fn open(
+        database: &TestDatabase,
+        home: &Path,
+        epochs: ExecutionEpochs,
+    ) -> Self {
+        let log = open_log(database, None).await;
+        let engine = test_engine(database, Arc::clone(&log.service), home);
+        let epochs = Arc::new(Mutex::new(epochs));
+        let dispatch = Arc::new(RunInboundDispatch::new(
+            Arc::clone(&engine),
+            Arc::clone(&epochs),
+            Arc::new(UnreadRunStates),
+            Arc::clone(&log.service),
+        ));
+        Self {
+            engine,
+            dispatch,
+            epochs,
+            log,
+        }
+    }
+
+    /// Registers the engine and the dispatch as `ports`' run engine and inbound dispatch.
+    pub(crate) fn register_on(&self, ports: &DriverPorts) {
+        ports
+            .run_engine
+            .register(Arc::clone(&self.engine))
+            .expect("the run engine registers once");
+        ports
+            .inbound_dispatch
+            .register(Arc::clone(&self.dispatch))
+            .expect("the dispatch registers once");
+    }
+}
+
+/// A run-state stream no one reads.
+pub(crate) struct UnreadRunStates;
+
+impl RunStatePublisher for UnreadRunStates {
+    fn publish(&self, _hold: RunSafetyBufferingUpdatedPayload) {}
 }
 
 /// A minted run id.
