@@ -29,9 +29,9 @@ pub fn read_peer_process(_stream: &Stream) -> io::Result<Option<PinnedProcess>> 
     ))
 }
 
-/// The process at the other end of the `AF_UNIX` `stream`, as the socket names it, pinned by an open
-/// handle opened after the read, so a peer that ended in between and whose id passed on names the
-/// new process. `None` once that process has ended. Fails with the system's error, and with
+/// The process at the other end of the `AF_UNIX` `stream`, as the socket names it, pinned by an
+/// open handle opened after the read, so a peer that ended in between and whose id passed on names
+/// the new process. `None` once that process has ended. Fails with the system's error, and with
 /// `Other` when the socket names no process.
 pub fn unix_domain_peer_process(stream: &UnixDomainStream) -> io::Result<Option<PinnedProcess>> {
     let mut process_id = 0_u32;
