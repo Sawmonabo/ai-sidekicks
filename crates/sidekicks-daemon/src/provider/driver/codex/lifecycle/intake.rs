@@ -206,14 +206,19 @@ impl CodexSessionIntake {
             }
             for ended in dispatch.turns_ended {
                 // Before the queue registers its intake there is no queue to tell.
-                let refused = take_blocked_codex_steers(record, &ended.turn_id);
+                let steers = take_blocked_codex_steers(record, &ended.turn_id, ended.ending);
                 if let Some(listener) = parts.ports.message_refused.port() {
-                    for (message_id, words) in refused {
+                    for (message_id, words) in steers.refused {
                         listener.message_refused(
                             self.session_id,
                             &message_id.to_string(),
                             QueueItemNotDeliveredReason::RefusedByHook { words },
                         );
+                    }
+                }
+                if let Some(listener) = parts.ports.message_given_back.port() {
+                    for message_id in steers.dropped {
+                        listener.message_given_back(self.session_id, &message_id.to_string());
                     }
                 }
                 if let Some(turn_end) = ended.turn_end {

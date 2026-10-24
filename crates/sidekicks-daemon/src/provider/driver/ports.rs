@@ -49,6 +49,14 @@ pub(crate) trait MessageRefusedListener: Send + Sync {
     );
 }
 
+/// The run queue's intake of a message the provider was handed and let go unsent, so it waits
+/// again.
+pub(crate) trait MessageGivenBackListener: Send + Sync {
+    /// The provider let go unsent the message `message_id`, which the queue handed it on
+    /// `session_id`.
+    fn message_given_back(&self, session_id: SessionId, message_id: &str);
+}
+
 /// The run queue's intake of a session's provider process that ended, on its own or for a move to
 /// a new build, so a message it kept for a turn of its own went with it.
 pub(crate) trait ProcessGoneListener: Send + Sync {
@@ -96,6 +104,8 @@ pub(crate) struct DriverPorts {
     pub(crate) message_taken: Arc<PortRegistration<Arc<dyn MessageTakenListener>>>,
     /// The run queue's intake of a handed message the provider refused.
     pub(crate) message_refused: Arc<PortRegistration<Arc<dyn MessageRefusedListener>>>,
+    /// The run queue's intake of a handed message the provider let go unsent.
+    pub(crate) message_given_back: Arc<PortRegistration<Arc<dyn MessageGivenBackListener>>>,
     /// The session directory's intake of a relaunch.
     pub(crate) session_relaunched: Arc<PortRegistration<Arc<dyn SessionRelaunchListener>>>,
     /// The run queue's intake of an ended process.
@@ -138,6 +148,7 @@ impl DriverPorts {
             repositories: Arc::new(PortRegistration::new("repositories")),
             message_taken: Arc::new(PortRegistration::new("message taken")),
             message_refused: Arc::new(PortRegistration::new("message refused")),
+            message_given_back: Arc::new(PortRegistration::new("message given back")),
             session_relaunched: Arc::new(PortRegistration::new("session relaunched")),
             process_gone: Arc::new(PortRegistration::new("process gone")),
             usage: Arc::new(PortRegistration::new("usage")),

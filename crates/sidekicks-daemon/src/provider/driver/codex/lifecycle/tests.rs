@@ -36,7 +36,9 @@ use crate::provider::driver::codex::session::inbound::codex_session_inbound;
 use crate::provider::driver::codex::session::test_session::{
     TestDaemonTurnBindings, UnreadRunStates, open_test_record,
 };
-use crate::provider::driver::ports::{MessageRefusedListener, MessageTakenListener};
+use crate::provider::driver::ports::{
+    MessageGivenBackListener, MessageRefusedListener, MessageTakenListener,
+};
 use crate::provider::driver::test_registry::new_run_id;
 use crate::provider::driver::test_registry::test_driver_services;
 use crate::provider::runtime_binding::store::RuntimeBindingSpawnConfig;
@@ -54,6 +56,7 @@ pub(super) const TEST_TURN: &str = "turn-1";
 pub(super) struct RecordedQueue {
     pub(super) taken: Mutex<Vec<String>>,
     pub(super) refused: Mutex<Vec<(String, QueueItemNotDeliveredReason)>>,
+    pub(super) given_back: Mutex<Vec<String>>,
     pub(super) changed: Notify,
 }
 
@@ -76,6 +79,13 @@ impl MessageRefusedListener for RecordedQueue {
     }
 }
 
+impl MessageGivenBackListener for RecordedQueue {
+    fn message_given_back(&self, _session_id: SessionId, message_id: &str) {
+        lock(&self.given_back).push(message_id.to_owned());
+        self.changed.notify_one();
+    }
+}
+
 /// A session live in the composed driver and its run, running on [`TEST_TURN`] unless the session
 /// opened idle.
 pub(super) struct LiveCodexSession {
@@ -93,23 +103,30 @@ pub(super) struct LiveCodexSession {
 impl LiveCodexSession {
     /// The session with `steers` sent into its turn and not yet echoed.
     pub(super) async fn start(steers: &[QueueItemId]) -> Self {
-        Self::open(Some(steers), &[]).await
+        Self::open(Some(steers), &[], false).await
+    }
+
+    /// The session with `steers` sent into its turn and not yet echoed, a faster-model retry
+    /// having taken that turn from its run to stop it.
+    pub(super) async fn retried(steers: &[QueueItemId]) -> Self {
+        Self::open(Some(steers), &[], true).await
     }
 
     /// The session with no turn running, its run bound but not started.
     pub(super) async fn idle() -> Self {
-        Self::open(None, &[]).await
+        Self::open(None, &[], false).await
     }
 
     /// The session running on [`TEST_TURN`] with `released`, notifications Codex sent before its
     /// task ran, routed as one batch its task applies first.
     pub(super) async fn with_released(released: &[Value]) -> Self {
-        Self::open(Some(&[]), released).await
+        Self::open(Some(&[]), released, false).await
     }
 
-    // The session, its run on a turn with `steers` unechoed in it where they are given, and
-    // `released` routed for its task to apply first.
-    async fn open(steers: Option<&[QueueItemId]>, released: &[Value]) -> Self {
+    // The session, its run on a turn with `steers` unechoed in it where they are given, that turn
+    // taken from its run for a retry where `is_retried`, and `released` routed for its task to
+    // apply first.
+    async fn open(steers: Option<&[QueueItemId]>, released: &[Value], is_retried: bool) -> Self {
         let scripted = start_scripted_codex_service();
         let database = TestDatabase::new();
         let log = open_log(&database, None).await;
@@ -144,6 +161,7 @@ impl LiveCodexSession {
         );
         assert!(ports.message_taken.register(queue.clone()).is_ok());
         assert!(ports.message_refused.register(queue.clone()).is_ok());
+        assert!(ports.message_given_back.register(queue.clone()).is_ok());
         let driver = CodexDriver::new(&services);
         let parts = Arc::clone(driver.parts().expect("the driver composes"));
 
@@ -207,6 +225,14 @@ impl LiveCodexSession {
                     unechoed.register(*steer);
                 }
             }
+        }
+        if is_retried {
+            // As the retry's stop marks its turn before its interrupt goes.
+            record
+                .delivery
+                .retried_run_id_by_turn_id
+                .insert(TEST_TURN.to_owned(), run_id);
+            parts.run_routes.retire_turn_route(&mut record, TEST_TURN);
         }
         let mut routed = CodexRoutedFrames::default();
         for frame in released {

@@ -18,7 +18,9 @@ use tokio::sync::{oneshot, watch};
 use tracing::Instrument as _;
 
 use crate::provider::driver::contract::{DriverError, ProviderDriver};
-use crate::provider::driver::ports::{MessageRefusedListener, MessageTakenListener};
+use crate::provider::driver::ports::{
+    MessageGivenBackListener, MessageRefusedListener, MessageTakenListener,
+};
 use crate::queue::delivery::state::{DeliveryState, HandRoute};
 use crate::queue::delivery::withdraw::{LateWithdraw, WithdrawJob};
 use crate::queue::delivery::{DeliveryError, QueueDelivery, steer_of};
@@ -81,6 +83,11 @@ pub(super) enum ChainJob {
         /// Why it was not delivered.
         reason: QueueItemNotDeliveredReason,
     },
+    /// Gives back a handed message the provider let go unsent, so it waits again.
+    GivenBack {
+        /// The message.
+        item_id: QueueItemId,
+    },
     /// Settles a withdraw the provider answered past the deadline; boxed, since the message it
     /// carries outweighs every other job.
     LateWithdraw(Box<LateWithdraw>),
@@ -120,6 +127,19 @@ impl MessageRefusedListener for QueueDelivery {
             return;
         };
         self.push(session_id, ChainJob::Refused { item_id, reason });
+    }
+}
+
+/// Gives back a message the daemon handed `session_id`'s provider and the provider then let go
+/// unsent, on the session's chain: its hand is forgotten, so it waits again, and its run is handed
+/// its waiting messages again. `message_id` is the provider's own; one that is no queue item id,
+/// or names a message not handed, is dropped.
+impl MessageGivenBackListener for QueueDelivery {
+    fn message_given_back(&self, session_id: SessionId, message_id: &str) {
+        let Ok(item_id) = QueueItemId::new(message_id) else {
+            return;
+        };
+        self.push(session_id, ChainJob::GivenBack { item_id });
     }
 }
 
@@ -204,6 +224,7 @@ impl QueueDelivery {
                 let settled = self.settle_refused(item_id, reason).await;
                 log_job_failure(session_id, item_id, settled);
             }
+            ChainJob::GivenBack { item_id } => self.settle_given_back(session_id, item_id),
             ChainJob::LateWithdraw(late) => {
                 let item_id = late.item.id;
                 let settled = self.settle_late_withdraw(session_id, *late).await;
@@ -386,6 +407,41 @@ impl QueueDelivery {
         };
         self.forget_hand(item_id);
         recorded
+    }
+
+    // A handed message the provider let go unsent: its hand goes, so it waits again, and its run
+    // is handed its waiting messages again from a task of its own under the session lock, which a
+    // job on the chain never takes. A run that takes no message now, a pausing one among them, is
+    // handed nothing, so its continue reads the message.
+    fn settle_given_back(&self, session_id: SessionId, item_id: QueueItemId) {
+        let Some(run_id) = self
+            .lock_state()
+            .hand_of(&item_id)
+            .map(|handed| handed.run_id)
+        else {
+            return;
+        };
+        self.give_back(&[item_id]);
+        let delivery = self.clone();
+        self.shared.tasks.spawn(
+            async move {
+                let hold = delivery
+                    .shared
+                    .deps
+                    .session_lock
+                    .hold_session(session_id)
+                    .await;
+                if let Err(error) = delivery.hand_waiting(&hold, run_id).await {
+                    tracing::error!(
+                        session_id = %session_id,
+                        run_id = %run_id,
+                        error = &error as &(dyn Error + 'static),
+                        "the messages waiting after a give-back could not be handed"
+                    );
+                }
+            }
+            .instrument(tracing::Span::current()),
+        );
     }
 
     // A message the provider recorded as taken by `run_id`. One the driver handed is admitted
