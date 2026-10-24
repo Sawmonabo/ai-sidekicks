@@ -103,8 +103,12 @@ mod tests {
             .expect("this process reads")
             .expect("this process runs")
             .record()
-            .expect("this process's record reads");
-        assert_eq!(listener.record().expect("the listener's record reads"), own);
+            .expect("this process's record reads")
+            .expect("this process has a record");
+        assert_eq!(
+            listener.record().expect("the listener's record reads"),
+            Some(own)
+        );
         assert!(nothing.is_none(), "an empty path names a listener");
     }
 }
