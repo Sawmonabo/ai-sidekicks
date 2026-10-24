@@ -778,7 +778,7 @@ impl CodexConnectionEvents for ServiceConnectionEvents {
                 dial: self.dial,
                 at: std::time::Instant::now(),
                 wall_at: SystemTime::now(),
-                process_gone_at: None,
+                is_unwaited_process_gone: false,
             });
         }
     }

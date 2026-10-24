@@ -143,10 +143,12 @@ impl ServiceRunner {
     // redial reads whether its pinned process is gone.
     fn read_process_gone(&self, event: &mut SupervisorEvent) {
         let (SupervisorEvent::Dropped {
-            process_gone_at, ..
+            is_unwaited_process_gone,
+            ..
         }
         | SupervisorEvent::ReconnectFailed {
-            process_gone_at, ..
+            is_unwaited_process_gone,
+            ..
         }) = event
         else {
             return;
@@ -155,7 +157,7 @@ impl ServiceRunner {
             && service.exited().is_none()
         {
             match service.has_ended() {
-                Ok(true) => *process_gone_at = Some(SystemTime::now()),
+                Ok(true) => *is_unwaited_process_gone = true,
                 Ok(false) => {}
                 Err(error) => tracing::warn!(
                     error = &error as &(dyn std::error::Error + 'static),
@@ -460,7 +462,7 @@ impl ServiceRunner {
                     RunnerInput::event(SupervisorEvent::ReconnectFailed {
                         dial,
                         is_listening,
-                        process_gone_at: None,
+                        is_unwaited_process_gone: false,
                     })
                 }
             };
