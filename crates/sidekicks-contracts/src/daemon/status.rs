@@ -311,7 +311,8 @@ pub enum DaemonSecretsPlainReason {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum DaemonSecretsFileUnopened {
-    /// systemd's credential service is gone: systemd was removed or downgraded below 256.
+    /// systemd's credential service is gone, or older than the one that sealed an item: systemd
+    /// was removed or downgraded below 256, or below the version whose key form sealed it.
     SealServiceMissing,
     /// The service does not answer, or answers with a failure.
     SealServiceFailing,

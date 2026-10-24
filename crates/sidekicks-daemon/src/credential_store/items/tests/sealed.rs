@@ -12,7 +12,7 @@ use sidekicks_contracts::daemon::status::{
     DaemonSecretsFileUnopened as Unopened, DaemonSecretsPlainReason as Reason,
 };
 use sidekicks_contracts::keychain::KeychainRefusalCause;
-use sidekicks_platforms::{SealKey, SecretStoreOffer, secret_store_offer};
+use sidekicks_platforms::{SealHeader, SealKey, SecretStoreOffer, secret_store_offer};
 
 use super::{
     Before, EARLIER, HELD_CALL_TIMEOUT, ITEMS, RECORD, SEALED, Status, WORKFLOW, file_before,
@@ -92,6 +92,8 @@ enum After {
     Unchanged,
     // In the form named.
     Form(&'static str),
+    // Sealed, every item with the key named, as its header reads.
+    SealedWith(SealKey),
 }
 
 const fn refuses(error: &'static str, errno: Option<i64>) -> SealNow {
@@ -105,20 +107,42 @@ fn form(folder: &Path) -> Option<String> {
     file["form"].as_str().map(str::to_owned)
 }
 
+// The key each item of the sealed items file names in its header.
+fn item_keys(folder: &Path) -> Vec<Option<SealKey>> {
+    let text = read_text(&folder.join(ITEMS)).expect("the file is there");
+    let file: serde_json::Value = serde_json::from_str(&text).expect("the file is JSON");
+    file["items"]
+        .as_object()
+        .expect("the file holds its services")
+        .values()
+        .flat_map(|entries| {
+            entries
+                .as_object()
+                .expect("a service holds its items")
+                .values()
+        })
+        .map(|blob| SealHeader::read(blob.as_str().expect("a blob is text")).map(SealHeader::key))
+        .collect()
+}
+
 /// Every Linux pick: a first start through the probe (sealed bound to no boot state, a plain file
 /// found there sealed once, plain for the boot state, for no service, or for a refusal from the
 /// three that mean the service cannot seal here, and any other failure refusing the call with
 /// nothing recorded), and a later start keeping its record (a sealed file that cannot open refused
 /// with its cause and left byte for byte, a chip item failing under a probe without the chip read
-/// as the chip off, an item failing under the probe's own key as the key changed, a plain file
-/// sealed once the service seals unbound, its reason recorded again from the probe, an item sealed
-/// with the system key sealed again with the chip, a file mixing keys read by the weakest).
-/// Mutations: drop the allow-list (any refusal then picks the plain file); read every refusal as
-/// definite; read a bound probe as sealed; read every failing item as `keyChanged`, or every chip
-/// item as `chipUnavailable`; keep a plain record when the service seals; keep a plain record's
-/// reason when the probe gives another; skip the upward re-seal; write the record before the open;
-/// open a first start's plain file as sealed, which refuses it on its form; read the protection
-/// from any chip item rather than every one.
+/// as the chip off, a pinned chip item failing under a plain chip probe as a systemd older than the
+/// one that sealed it, an item failing under the probe's own key or a weaker one as the key
+/// changed, a plain file sealed once the service seals unbound, its reason recorded again from the
+/// probe, an item sealed with a weaker key sealed again with the probe's, a file mixing keys read
+/// by the weakest). Mutations: drop the allow-list (any refusal then picks the plain file); read
+/// every refusal as definite; read a bound probe as sealed; read every failing item as
+/// `keyChanged`, or every chip item as `chipUnavailable`; drop the `sealServiceMissing` arm of
+/// `open_samples`; `is_weaker` back to `!key.uses_chip() && than.uses_chip()`; keep a plain
+/// record when the service seals; keep a plain record's reason when the probe gives another; skip
+/// the upward re-seal; invert the pass's floor check in `seal_held` (`!is_weaker(new.key(),
+/// floor)` to `is_weaker(new.key(), floor)`); write the record before the open; open a first
+/// start's plain file as sealed, which refuses it on its form; read the protection from any chip
+/// item rather than every one.
 #[rstest]
 #[case::first_start_sealed_with_the_chip(
     None, Before::Nothing, SealNow::serves(SealKey::Chip),
@@ -213,6 +237,21 @@ fn form(folder: &Path) -> Option<String> {
     Err(KeychainRefusalCause::Unavailable), Some(SEALED), After::Unchanged,
     Some(json!({"protection":"sealedWithChip","cannotOpen":"keyChanged"}))
 )]
+#[case::recorded_sealed_by_a_newer_systemd(
+    Some(SEALED), Before::Sealed(SealKey::ChipPinned), SealNow::forgets(SealKey::Chip),
+    Err(KeychainRefusalCause::Unavailable), Some(SEALED), After::Unchanged,
+    Some(json!({"protection":"sealedWithChip","cannotOpen":"sealServiceMissing"}))
+)]
+#[case::recorded_chip_item_whose_key_changed_under_a_pinned_probe(
+    Some(SEALED), Before::Sealed(SealKey::Chip), SealNow::forgets(SealKey::ChipPinned),
+    Err(KeychainRefusalCause::Unavailable), Some(SEALED), After::Unchanged,
+    Some(json!({"protection":"sealedWithChip","cannotOpen":"keyChanged"}))
+)]
+#[case::recorded_system_key_item_whose_key_changed_under_a_chip_probe(
+    Some(SEALED), Before::Sealed(SealKey::SystemKey), SealNow::forgets(SealKey::Chip),
+    Err(KeychainRefusalCause::Unavailable), Some(SEALED), After::Unchanged,
+    Some(json!({"protection":"sealedWithSystemKey","cannotOpen":"keyChanged"}))
+)]
 #[case::recorded_sealed_whose_system_key_changed(
     Some(SEALED), Before::Sealed(SealKey::SystemKey), SealNow::forgets(SealKey::SystemKey),
     Err(KeychainRefusalCause::Unavailable), Some(SEALED), After::Unchanged,
@@ -220,7 +259,12 @@ fn form(folder: &Path) -> Option<String> {
 )]
 #[case::recorded_system_key_sealed_again_with_the_chip(
     Some(SEALED), Before::Sealed(SealKey::SystemKey), SealNow::serves(SealKey::Chip),
-    Ok(()), Some(SEALED), After::Form("sealed"),
+    Ok(()), Some(SEALED), After::SealedWith(SealKey::Chip),
+    Some(json!({"protection":"sealedWithChip"}))
+)]
+#[case::recorded_chip_item_sealed_again_pinned(
+    Some(SEALED), Before::Sealed(SealKey::Chip), SealNow::serves(SealKey::ChipPinned),
+    Ok(()), Some(SEALED), After::SealedWith(SealKey::ChipPinned),
     Some(json!({"protection":"sealedWithChip"}))
 )]
 #[case::recorded_plain_sealed_once_the_service_seals(
@@ -277,6 +321,10 @@ async fn the_start_picks_and_keeps_the_linux_secrets_place(
         After::Absent => assert!(!folder.path().join(ITEMS).exists()),
         After::Unchanged => assert_eq!(std::fs::read(folder.path().join(ITEMS)).ok(), bytes_before),
         After::Form(expected) => assert_eq!(form(folder.path()).as_deref(), Some(expected)),
+        After::SealedWith(key) => {
+            assert_eq!(form(folder.path()).as_deref(), Some("sealed"));
+            assert_eq!(item_keys(folder.path()), [Some(key), Some(key)]);
+        }
     }
     if !matches!(before, Before::Nothing) && served.is_ok() {
         let earlier = items
@@ -337,6 +385,35 @@ async fn a_sealed_file_under_a_plain_record_moves_the_record_and_seals_nothing()
         status(&items).await,
         Some(json!({"protection":"sealedWithChip","cannotOpen":"sealServiceMissing"}))
     );
+}
+
+/// A pinned chip item that does not open under a plain chip probe, sealed by a newer systemd than
+/// this one, refuses each call with `sealServiceMissing` and is checked again at the next, one
+/// probe per call, so an updated systemd opens it with no restart. Mutation: latch the cause in
+/// `refuse_opening` as `keyChanged` is, so the second call probes nothing.
+#[tokio::test]
+async fn a_key_form_this_systemd_cannot_produce_is_checked_again_each_call() {
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    std::fs::write(folder.path().join(RECORD), SEALED).expect("the test writes the record");
+    let seal = TestSeal::new();
+    file_before(folder.path(), &seal, Before::Sealed(SealKey::ChipPinned)).await;
+    SealNow::forgets(SealKey::Chip).apply(&seal);
+    let seals_before = seal.seals();
+    let items = secret_items(
+        folder.path(),
+        &TestStoreAccess::sealing(Arc::clone(&seal)),
+        false,
+        Duration::from_secs(5),
+    );
+    let downgraded = Some(json!({"protection":"sealedWithChip","cannotOpen":"sealServiceMissing"}));
+
+    for call in 1..=2 {
+        let answer = write_and_read(&items, "secret", "value").await;
+
+        assert_eq!(answer, Err(KeychainRefusalCause::Unavailable));
+        assert_eq!(seal.seals() - seals_before, call, "each call probes once");
+        assert_eq!(status(&items).await, downgraded);
+    }
 }
 
 /// A pass sealing a plain file that runs past a call's time keeps running once that call refuses,

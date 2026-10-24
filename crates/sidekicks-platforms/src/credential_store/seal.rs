@@ -204,7 +204,9 @@ pub enum SealFailure {
     Broken(&'static str),
 }
 
-/// The key a blob was sealed with, by the key id at the start of its header, ordered as declared.
+/// The key a blob was sealed with, by the key id at the start of its header. The declared order is
+/// the strength, weakest first, as systemd's automatic choice ranks them: the system key alone, the
+/// chip, the chip with a signed PCR policy, then each chip form pinned to the chip's storage key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SealKey {
     /// This computer's system key alone, scoped to the user (`HOST_SCOPED`).
@@ -263,8 +265,7 @@ impl SealKey {
         ),
     ];
 
-    /// Whether the key holds the security chip, which a key with the system key alone is weaker
-    /// than.
+    /// Whether the key holds the security chip beside the system key.
     pub fn uses_chip(self) -> bool {
         !matches!(self, Self::SystemKey)
     }

@@ -215,9 +215,15 @@ async fn open_samples(
             SealFailure::Failed(_) | SealFailure::Broken(_) => {
                 DaemonSecretsFileUnopened::SealServiceFailing
             }
+            // An item stronger than the probe's key was sealed with a chip this start cannot use,
+            // or, both holding the chip, by a newer systemd than this one; an item no stronger
+            // lost the key it was sealed with.
             SealFailure::Refused { .. } => match item.header().map(SealHeader::key) {
-                Some(item_key) if is_weaker(probe.key(), item_key) => {
+                Some(item_key) if is_weaker(probe.key(), item_key) && !probe.key().uses_chip() => {
                     DaemonSecretsFileUnopened::ChipUnavailable
+                }
+                Some(item_key) if is_weaker(probe.key(), item_key) => {
+                    DaemonSecretsFileUnopened::SealServiceMissing
                 }
                 Some(_) | None => DaemonSecretsFileUnopened::KeyChanged,
             },

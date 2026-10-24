@@ -616,10 +616,9 @@ fn form_of(seal: Option<&dyn SecretSeal>) -> ItemsForm {
     }
 }
 
-/// Whether `key` is weaker than `than`: the system key alone beside a key that holds the security
-/// chip.
+/// Whether `key` is weaker than `than` in the strength order [`SealKey`] declares.
 pub(crate) fn is_weaker(key: SealKey, than: SealKey) -> bool {
-    !key.uses_chip() && than.uses_chip()
+    key < than
 }
 
 // The refusal for a seal that failed, kept as the source; nothing on Linux can be unlocked.
