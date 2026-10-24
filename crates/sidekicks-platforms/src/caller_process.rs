@@ -8,7 +8,7 @@ use std::path::Path;
 
 use crate::PinnedProcess;
 #[cfg(unix)]
-use crate::{connect_unix_domain_socket, read_peer_process};
+use crate::{connect_unix_domain_socket, found_no_listener, read_peer_process};
 
 /// How many times a parent read starts over when the parent it pinned was no longer the process's
 /// parent by the time it checked; a process re-parented that often during one read is refused.
@@ -59,14 +59,7 @@ pub fn read_responsible_process(_process: &PinnedProcess) -> io::Result<Responsi
 pub async fn unix_domain_listener_process(socket_path: &Path) -> io::Result<Option<PinnedProcess>> {
     let stream = match connect_unix_domain_socket(socket_path).await {
         Ok(stream) => stream,
-        Err(error)
-            if matches!(
-                error.kind(),
-                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
-            ) =>
-        {
-            return Ok(None);
-        }
+        Err(error) if found_no_listener(&error) => return Ok(None),
         Err(error) => return Err(error),
     };
     // The read can touch the process table, so it runs on the blocking pool.

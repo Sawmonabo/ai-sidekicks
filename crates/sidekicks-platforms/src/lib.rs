@@ -355,6 +355,7 @@ pub use shell_folder_start::ShellFolderStart;
 pub use shell_line_command::{command_shell, shell_line_command};
 pub use shell_start::SHELL_START_CONFIRMATION;
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
+pub use socket::connection::found_no_listener;
 pub use socket::listener::ExistingSocket;
 pub use socket::path::{SocketPathEntry, SocketPathRefused};
 pub use spawner::Spawner;

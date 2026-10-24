@@ -11,8 +11,8 @@ use std::io;
 use std::path::Path;
 
 use sidekicks_platforms::{
-    ProcessRecord, connect_unix_domain_socket, read_socket_link, remove_socket_link,
-    replace_socket_link, unix_domain_listener_process,
+    ProcessRecord, connect_unix_domain_socket, found_no_listener, read_socket_link,
+    remove_socket_link, replace_socket_link, unix_domain_listener_process,
 };
 
 /// Whether a service listens on `socket`: nothing there, and a socket file or link no one listens
@@ -20,14 +20,7 @@ use sidekicks_platforms::{
 pub(crate) async fn is_listening(socket: &Path) -> io::Result<bool> {
     match connect_unix_domain_socket(socket).await {
         Ok(_listening) => Ok(true),
-        Err(error)
-            if matches!(
-                error.kind(),
-                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
-            ) =>
-        {
-            Ok(false)
-        }
+        Err(error) if found_no_listener(&error) => Ok(false),
         Err(error) => Err(error),
     }
 }
