@@ -57,11 +57,11 @@ pub(crate) struct RestartSettle {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct RestartTally {
     /// The runs ended `failed`.
-    pub(crate) runs_failed: u64,
+    pub(crate) failed: u64,
     /// The runs ended `interrupted`: under a pending interrupt, or at a step or spend limit.
-    pub(crate) runs_interrupted: u64,
+    pub(crate) interrupted: u64,
     /// The runs ended `stopped` at a token limit their log still owed.
-    pub(crate) runs_stopped: u64,
+    pub(crate) stopped: u64,
 }
 
 /// Why a restart settle stopped short; what it wrote before is kept, and a later settle takes up
@@ -93,7 +93,7 @@ pub(crate) enum RestartSettleError {
 
 impl RestartSettle {
     /// A settle over `deps`.
-    #[expect(dead_code, reason = "the daemon's start")]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(deps: RestartSettleDeps) -> Self {
         Self { deps }
     }
@@ -119,9 +119,9 @@ impl RestartSettle {
                 .settle_run_after_restart(live_run, RESTART_FAILURE_DETAIL, hold)
                 .await?;
             match settled.state {
-                RunState::Failed => tally.runs_failed += 1,
-                RunState::Interrupted => tally.runs_interrupted += 1,
-                RunState::Stopped => tally.runs_stopped += 1,
+                RunState::Failed => tally.failed += 1,
+                RunState::Interrupted => tally.interrupted += 1,
+                RunState::Stopped => tally.stopped += 1,
                 // A run the settle left, as it read it or as it moved since.
                 RunState::Queued
                 | RunState::Starting

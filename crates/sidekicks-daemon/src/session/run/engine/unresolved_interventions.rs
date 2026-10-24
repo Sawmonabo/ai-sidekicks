@@ -253,10 +253,6 @@ impl RunEngine {
     /// Settles, after a restart, every ended run of `session_id` that a daemon gone down between
     /// its end and the settle left holding an intervention with no outcome, as its end would have.
     /// Every run is tried before the failures return together.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's recovery pass at start")
-    )]
     pub(crate) async fn settle_unresolved_of_ended_runs(
         &self,
         session_id: SessionId,

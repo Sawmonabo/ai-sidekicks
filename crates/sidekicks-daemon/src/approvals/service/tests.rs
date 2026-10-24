@@ -64,6 +64,44 @@ use crate::session::run::projection::insert_queued_run_statement;
 /// Bounds a wait the test expects to settle, so one that never does fails the test.
 pub(crate) const SETTLE_WAIT: Duration = Duration::from_secs(5);
 
+/// The approval service on `database`, appending through `events` and writing through `writer`,
+/// with its run holds reaching `engine`; a working-folder watcher over `event_log` stands by it.
+pub(crate) fn test_approval_service(
+    database: &TestDatabase,
+    event_log: Arc<EventLogService>,
+    events: Arc<SessionEventAppender>,
+    writer: Arc<DatabaseWriter>,
+    engine: Weak<RunEngine>,
+) -> (Arc<ApprovalService>, Arc<ApprovalRunHolds>) {
+    let reads = Arc::new(DatabaseReadPool::new(
+        database.path(),
+        APPROVAL_REQUEST_READER_STATEMENT_CAPACITY,
+    ));
+    let run_holds = Arc::new(ApprovalRunHolds::new(engine, Arc::clone(&reads)));
+    let watcher_reads = Arc::new(DatabaseReadPool::new(database.path(), 8));
+    let working_folders = Arc::new(WorkingFolderWatcher::new(WorkingFolderWatcherDeps {
+        git: test_git_runner(),
+        reads: Arc::clone(&watcher_reads),
+        occupancy: MountOccupancyReader::new(watcher_reads),
+        events: Arc::new(WorktreeEventEmitter::new(event_log)),
+        scheduler: Arc::new(Scheduler::start(
+            Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
+            None,
+            tokio::sync::watch::channel(0).1,
+        )),
+        read_watch_ceiling: || Ok(None),
+        slow_tick_interval: Duration::from_secs(180),
+    }));
+    let service = Arc::new(ApprovalService::new(
+        reads,
+        events,
+        writer,
+        working_folders,
+        Arc::clone(&run_holds),
+    ));
+    (service, run_holds)
+}
+
 /// A session with one running run, the approval service over it, and the run engine its holds
 /// move.
 pub(crate) struct ApprovalFixture {
@@ -144,37 +182,18 @@ impl ApprovalFixture {
         ));
         let home = tempfile::tempdir().expect("a home folder");
         let engine = test_engine(&database, Arc::clone(&event_log), home.path());
-        let reads = Arc::new(DatabaseReadPool::new(
-            database.path(),
-            APPROVAL_REQUEST_READER_STATEMENT_CAPACITY,
-        ));
         let reached = if is_engine_reached {
             Arc::downgrade(&engine)
         } else {
             Weak::new()
         };
-        let run_holds = Arc::new(ApprovalRunHolds::new(reached, Arc::clone(&reads)));
-        let watcher_reads = Arc::new(DatabaseReadPool::new(database.path(), 8));
-        let working_folders = Arc::new(WorkingFolderWatcher::new(WorkingFolderWatcherDeps {
-            git: test_git_runner(),
-            reads: Arc::clone(&watcher_reads),
-            occupancy: MountOccupancyReader::new(watcher_reads),
-            events: Arc::new(WorktreeEventEmitter::new(event_log)),
-            scheduler: Arc::new(Scheduler::start(
-                Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
-                None,
-                tokio::sync::watch::channel(0).1,
-            )),
-            read_watch_ceiling: || Ok(None),
-            slow_tick_interval: Duration::from_secs(180),
-        }));
-        let service = Arc::new(ApprovalService::new(
-            reads,
+        let (service, run_holds) = test_approval_service(
+            &database,
+            event_log,
             Arc::clone(&events),
             Arc::clone(&writer),
-            working_folders,
-            Arc::clone(&run_holds),
-        ));
+            reached,
+        );
         let session_id = test_session_id();
         insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");

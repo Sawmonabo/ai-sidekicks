@@ -665,7 +665,6 @@ pub(crate) fn read_open_choice_settlements(
 /// `appender`, read again once when one was settled since its read: for a request that committed
 /// after the run's end had read its open choices. A run still live is left to its own end. Fails
 /// as the reads or the write fail.
-#[expect(dead_code, reason = "the daemon's recovery pass at start")]
 pub(crate) async fn settle_open_choices_of_ended_run(
     pool: &DatabaseReadPool,
     appender: &SessionEventAppender,
@@ -709,7 +708,6 @@ pub(crate) async fn settle_open_choices_of_ended_run(
 /// The runs of `session_id`, or of every session when it is `None`, that have ended while a choice
 /// their provider asked is still unsettled, read on `reader`: one whose request committed after
 /// the run's end had read its open choices. Fails when the read fails or a stored id is not one.
-#[expect(dead_code, reason = "the daemon's recovery pass at start")]
 pub(crate) fn read_ended_runs_with_open_choices(
     reader: &Connection,
     session_id: Option<&SessionId>,

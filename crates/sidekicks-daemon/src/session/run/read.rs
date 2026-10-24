@@ -214,7 +214,6 @@ impl<'connection> RunStateReader<'connection> {
 
     /// Every run of `session_id`, or of every session when it is `None`, that has not ended,
     /// queued runs included.
-    #[expect(dead_code, reason = "the daemon's recovery pass at start")]
     pub(crate) fn list_live_runs(
         &self,
         session_id: Option<&SessionId>,
@@ -235,10 +234,6 @@ impl<'connection> RunStateReader<'connection> {
 
     /// Every run of `session_id`, or of every session when it is `None`, that has ended while a
     /// turn of it holds no end, as a restart finds it.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's recovery pass at start")
-    )]
     pub(crate) fn list_ended_runs_with_open_turns(
         &self,
         session_id: Option<&SessionId>,

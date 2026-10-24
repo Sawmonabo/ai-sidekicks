@@ -213,10 +213,6 @@ pub(crate) enum ProjectionRebuildError {
 /// `before_sequence` folds only the events before that one, leaving the cursor stale, and `stop`
 /// ends it before its next page with the cursor left `rebuilding`.
 #[derive(Clone, Debug)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's recovery pass at start")
-)]
 pub(crate) struct ProjectionRebuildRequest {
     /// The session.
     pub(crate) session_id: SessionId,
@@ -324,7 +320,6 @@ impl ProjectionRebuildService {
     /// Every session but the service's own whose projections do not reflect its newest event: its
     /// cursor was left stale or mid-rebuild, or a repair marked it. Fails with
     /// [`ProjectionRebuildError::Database`] or [`ProjectionRebuildError::Pool`].
-    #[expect(dead_code, reason = "the daemon's recovery pass at start")]
     pub(crate) async fn list_sessions_to_rebuild(
         &self,
     ) -> Result<Vec<SessionId>, ProjectionRebuildError> {
@@ -370,6 +365,24 @@ impl ProjectionRebuildService {
             .filter(|last_sequence| *last_sequence >= 0))
     }
 
+    /// The session's newest event's sequence, `-1` for a log with none. Fails as
+    /// [`ProjectionRebuildService::list_sessions_to_rebuild`] does.
+    pub(crate) async fn read_head_sequence(
+        &self,
+        session_id: SessionId,
+    ) -> Result<i64, ProjectionRebuildError> {
+        let head = self
+            .pool
+            .read(
+                ReadLength::Short,
+                move |reader: &Connection| -> Result<_, ProjectionRebuildError> {
+                    Ok(read_head_sequence_before(reader, &session_id, None)?)
+                },
+            )
+            .await;
+        self.reported(head)
+    }
+
     /// Rebuilds the session's projections unless they are current and `is_forced` is not set,
     /// holding the session's append lock throughout, so no event lands while it reads and writes:
     /// `hold` where the caller holds the session already, else a hold the rebuild takes. Fails
@@ -378,10 +391,6 @@ impl ProjectionRebuildService {
     /// after marking the session's cursor stale, when the log cannot be folded into rows; with
     /// [`ProjectionRebuildError::Stopped`] once `stop` is canceled; any other failure is the
     /// store's own.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's recovery pass at start")
-    )]
     pub(crate) async fn rebuild(
         &self,
         request: ProjectionRebuildRequest,
@@ -421,16 +430,8 @@ impl ProjectionRebuildService {
             .read(
                 ReadLength::Short,
                 move |reader: &Connection| -> Result<_, ProjectionRebuildError> {
-                    let head: Option<i64> =
-                        reader.prepare_cached(SELECT_HEAD_SEQUENCE_SQL)?.query_row(
-                            named_params! {
-                                "@session_id": session_id.text().as_str(),
-                                "@before_sequence": before_sequence,
-                            },
-                            |row| row.get(0),
-                        )?;
                     Ok((
-                        head.unwrap_or(START_OF_LOG_POSITION),
+                        read_head_sequence_before(reader, &session_id, before_sequence)?,
                         read_cursor(reader, &session_id)?,
                     ))
                 },
@@ -631,6 +632,23 @@ impl ProjectionRebuildService {
         }
         result
     }
+}
+
+// The session's newest sequence before `before_sequence`, of its whole log when that is `None`;
+// the start of the log when it holds none there.
+fn read_head_sequence_before(
+    reader: &Connection,
+    session_id: &SessionId,
+    before_sequence: Option<i64>,
+) -> rusqlite::Result<i64> {
+    let head: Option<i64> = reader.prepare_cached(SELECT_HEAD_SEQUENCE_SQL)?.query_row(
+        named_params! {
+            "@session_id": session_id.text().as_str(),
+            "@before_sequence": before_sequence,
+        },
+        |row| row.get(0),
+    )?;
+    Ok(head.unwrap_or(START_OF_LOG_POSITION))
 }
 
 fn read_cursor(reader: &Connection, session_id: &SessionId) -> rusqlite::Result<Option<CursorRow>> {

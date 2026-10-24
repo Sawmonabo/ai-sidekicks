@@ -14,6 +14,7 @@ pub(crate) mod credential_store;
 pub mod daemon;
 pub(crate) mod data_acts;
 pub mod database;
+pub(crate) mod elapsed;
 pub(crate) mod error_description;
 pub mod events;
 pub mod file;

@@ -329,10 +329,6 @@ impl RunEngine {
     /// were read refuses the write, and the run and its facts are read again once. Every write goes
     /// under `hold` where the caller holds the run's session. Fails as [`RunEngine::transition`]
     /// does, the second refusal returned.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's recovery pass at start")
-    )]
     pub(crate) async fn settle_run_after_restart(
         &self,
         run: &LiveRun,
@@ -454,10 +450,6 @@ impl RunEngine {
     /// its own as the daemon's report held to its run's version, interrupted with the limit of a
     /// row naming it else `daemonRestart`, a run that reads live left to its own ends. Every run
     /// is tried before the failures, from the reads and the writes, return together.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's recovery pass at start")
-    )]
     pub(crate) async fn end_open_turns_of_ended_runs(
         &self,
         run_ids: &[RunId],

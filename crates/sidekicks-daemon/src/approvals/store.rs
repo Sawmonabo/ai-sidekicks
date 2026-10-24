@@ -678,7 +678,6 @@ impl<'connection> ApprovalRequestReader<'connection> {
     /// The runs of `session_id`, or of every session when it is `None`, that have ended while an
     /// ask of theirs is still pending: what a daemon that went down between a run's end and the
     /// cancel of its asks left.
-    #[expect(dead_code, reason = "the daemon's recovery pass at start")]
     pub(crate) fn list_ended_runs_with_pending(
         &self,
         session_id: Option<&SessionId>,

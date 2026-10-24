@@ -480,10 +480,6 @@ pub(crate) struct PendingRetry {
 }
 
 /// The one write that settles a pending retry: its row's move and the move's event.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's recovery pass at start")
-)]
 pub(crate) struct RetrySettlement {
     /// The row's move, refused unless the row is still in the state it was read in.
     pub(crate) statement: WriteStatement,
@@ -494,10 +490,6 @@ pub(crate) struct RetrySettlement {
 /// Every faster-model retry of `session_id`'s runs, or of every session's when it is `None`, with
 /// no outcome yet, read on `reader` by the daemon's recovery pass at start. Fails when the read
 /// fails or a stored column does not read as its type.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's recovery pass at start")
-)]
 pub(crate) fn read_pending_retries(
     reader: &Connection,
     session_id: Option<&SessionId>,
@@ -521,10 +513,6 @@ pub(crate) fn read_pending_retries(
 /// that held its turn having ended with the daemon: a `requested` retry was never sent, so it
 /// expires; an `accepted` one fails, its outcome lost with the daemon. Fails when the event breaks
 /// a check of its type.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's recovery pass at start")
-)]
 pub(crate) fn settle_retry_after_restart(
     retry: &PendingRetry,
 ) -> Result<RetrySettlement, SessionEventDraftError> {
@@ -666,85 +654,4 @@ pub(crate) fn read_sessions_with_unreleased_interrupts(
         .prepare_cached(SELECT_SESSIONS_WITH_UNRELEASED_SQL)?
         .query_map([], |row| text_column(row, 0, |text| SessionId::new(&text)))?
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use rusqlite::params;
-
-    use super::{read_pending_retries, settle_retry_after_restart};
-    use crate::database::statement::DATABASE_NOW_SQL;
-    use crate::interventions::service::tests::harness;
-    use crate::provider::driver::contract::MockProviderDriver;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
-
-    // Each pending retry moves in one write with its event: a `requested` one to `expired`, an
-    // `accepted` one to `failed` with the restart as its reason. Killed by swapping the two moves
-    // or dropping the reason.
-    #[tokio::test]
-    async fn a_retry_pending_at_start_expires_unsent_or_fails_once_sent() {
-        let harness = harness(MockProviderDriver::new()).await;
-        for state in ["requested", "accepted"] {
-            let id = mint_uuid_v7().to_string();
-            harness
-                .database
-                .reader()
-                .execute(
-                    &format!(
-                        "INSERT INTO interventions (id, target_run_id, type, state, payload,
-                           expected_run_version, client_idempotency_key, device_id, created_at)
-                         VALUES (?1, ?2, 'fasterModelRetry', ?3, '{{}}', 1, ?1, 'device-1',
-                           {DATABASE_NOW_SQL})"
-                    ),
-                    params![id, harness.run_id.text().as_str(), state],
-                )
-                .expect("the test records the pending retry");
-        }
-
-        let pending = read_pending_retries(&harness.database.reader(), Some(&harness.session_id))
-            .expect("the pending retries read");
-        assert_eq!(pending.len(), 2);
-        for retry in &pending {
-            assert_eq!(retry.session_id, harness.session_id);
-            let settlement = settle_retry_after_restart(retry).expect("the settlement drafts");
-            harness
-                .service
-                .append(settlement.event, vec![settlement.statement], Vec::new())
-                .await
-                .expect("the settlement is written");
-        }
-
-        let reasons: Vec<(String, Option<String>)> = harness
-            .database
-            .reader()
-            .prepare("SELECT state, failure_reason FROM interventions ORDER BY created_at, id")
-            .expect("the test reads the retries")
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-            .expect("the retries read")
-            .collect::<Result<_, _>>()
-            .expect("each retry reads");
-        assert_eq!(
-            reasons,
-            [
-                ("expired".to_owned(), None),
-                (
-                    "failed".to_owned(),
-                    Some(
-                        "The background service restarted before the retry's outcome was known"
-                            .to_owned()
-                    )
-                ),
-            ]
-        );
-        assert_eq!(
-            harness.stored_event_types(),
-            ["agent.intervention.expired", "agent.intervention.failed"]
-        );
-        assert_eq!(
-            read_pending_retries(&harness.database.reader(), None)
-                .expect("the pending retries read")
-                .len(),
-            0
-        );
-    }
 }

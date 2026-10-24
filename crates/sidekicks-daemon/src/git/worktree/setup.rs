@@ -27,7 +27,6 @@ use notify::{RecommendedWatcher, Watcher};
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::project::ProjectSetup;
 use sidekicks_contracts::repo::mount::RepoMountId;
-use sidekicks_contracts::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 use sidekicks_contracts::worktree::setup::{
     WorktreeSetupStage, WorktreeSetupState, WorktreeSetupStatus, WorktreeSetupStepState,
@@ -41,6 +40,7 @@ use self::steps::{
     CardStep, RunningCommand, SetupCommand, StepAction, StepOutcome, copy_setup_file,
     keep_succeeded_steps, project_steps_of, run_command, step_error,
 };
+use crate::elapsed::elapsed_ms_since;
 use crate::error_description::describe_error;
 use crate::git::process::{GitCall, GitRunner, SHUTDOWN_STOP_GRACE, in_folder};
 use crate::git::worktree::errors::WorktreeRefusal;
@@ -858,12 +858,6 @@ fn dropped_status(worktree_id: WorktreeId) -> WorktreeSetupStatus {
         state: WorktreeSetupState::NotRun,
         steps: Vec::new(),
     }
-}
-
-fn elapsed_ms_since(started_at: Instant) -> SafeInt<0> {
-    let elapsed_ms = u64::try_from(started_at.elapsed().as_millis()).unwrap_or(u64::MAX);
-    SafeInt::new(elapsed_ms.min(MAX_SAFE_INTEGER))
-        .expect("a figure capped at the largest safe integer is one")
 }
 
 // Ends each of `commands` with `reason` and `grace` at once; fails naming each that could not be.

@@ -341,7 +341,7 @@ pub(crate) struct RunEngine {
     resume_read_pause: PausePoint,
     // Where a test holds a restart's settle of a run between its facts' read and its write.
     #[cfg(test)]
-    restart_facts_pause: PausePoint,
+    pub(crate) restart_facts_pause: PausePoint,
 }
 
 impl RunEngine {
