@@ -42,16 +42,22 @@ pub(crate) async fn open_log(
     database: &TestDatabase,
     writes_held_until: Option<oneshot::Receiver<Result<(), WritesHeldError>>>,
 ) -> TestLog {
+    let options = DatabaseWriterOptions {
+        writes_held_until,
+        ..DatabaseWriterOptions::default()
+    };
+    open_log_with(database, options).await
+}
+
+/// The event log on `database`, its writer opened with `options`.
+pub(crate) async fn open_log_with(
+    database: &TestDatabase,
+    options: DatabaseWriterOptions,
+) -> TestLog {
     let writer = Arc::new(
-        DatabaseWriter::open(
-            database.opener(),
-            DatabaseWriterOptions {
-                writes_held_until,
-                ..DatabaseWriterOptions::default()
-            },
-        )
-        .await
-        .expect("the writer opens its database"),
+        DatabaseWriter::open(database.opener(), options)
+            .await
+            .expect("the writer opens its database"),
     );
     let followers = Arc::new(SessionEventFollowers::default());
     let service = Arc::new(EventLogService::new(EventLogServiceDependencies {

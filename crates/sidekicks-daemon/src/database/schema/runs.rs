@@ -180,8 +180,9 @@ CREATE TABLE runs (
 
 CREATE INDEX idx_runs_session ON runs(session_id);
 CREATE INDEX idx_runs_parent ON runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
--- The runs not yet ended, which a restart settles.
-CREATE INDEX idx_runs_live ON runs(state) WHERE state NOT IN ({terminal_states});
+-- The runs not yet ended, which a restart settles; the session id lets the writer's count of live
+-- runs read only the index.
+CREATE INDEX idx_runs_live ON runs(state, session_id) WHERE state NOT IN ({terminal_states});
 "
     )
 }

@@ -498,7 +498,11 @@ impl WriteQueue {
         let CommittedBatch {
             outcomes,
             commit_count,
+            after_commit_failure,
         } = committed;
+        if let Some(failure) = &after_commit_failure {
+            self.report_failure(failure);
+        }
         let mut outcomes = outcomes.into_iter();
         let mut settled: Vec<(Waiter, WriteJobOutcome)> = waiters
             .into_iter()

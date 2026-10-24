@@ -59,7 +59,6 @@ use crate::ipc::domain_error::DomainError;
 use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{stored_run_state, test_engine};
-use crate::session::run::live_count::LiveRunCount;
 use crate::session::run::projection::insert_queued_run_statement;
 
 /// Bounds a wait the test expects to settle, so one that never does fails the test.
@@ -164,7 +163,7 @@ impl ApprovalFixture {
             scheduler: Arc::new(Scheduler::start(
                 Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
                 None,
-                LiveRunCount::default().follow(),
+                tokio::sync::watch::channel(0).1,
             )),
             read_watch_ceiling: || Ok(None),
             slow_tick_interval: Duration::from_secs(180),

@@ -371,7 +371,6 @@ mod tests {
         DaemonRetentionUpdate,
     };
     use sidekicks_contracts::method::Method as _;
-    use sidekicks_contracts::run::state::RunState;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::session::methods::SessionState;
     use sidekicks_platforms::WallClockTimer;
@@ -401,7 +400,6 @@ mod tests {
     };
     use crate::ipc::stream::feed::CreditGate;
     use crate::pty::shell::test_table::TableFixture;
-    use crate::session::run::live_count::LiveRunCount;
     use crate::session::service::SessionService;
     use sidekicks_contracts::wire::instant::WireInstant;
 
@@ -417,7 +415,7 @@ mod tests {
         registry: MethodRegistry,
         scheduler: Arc<Scheduler>,
         // Kept so the run stays live and the jobs a purge schedules stay parked.
-        _live_runs: LiveRunCount,
+        _live_runs: watch::Sender<u32>,
         _shells: TableFixture,
         _home: TempDir,
     }
@@ -431,6 +429,7 @@ mod tests {
             log,
             purge,
             truncation,
+            live_runs: _,
             _shells: shells,
             _home: home,
         } = fixture;
@@ -443,12 +442,11 @@ mod tests {
                 .await
                 .expect("the configuration store opens"),
         );
-        let live_runs = LiveRunCount::default();
-        live_runs.record(RunState::Queued, RunState::Running);
+        let live_runs = watch::Sender::new(1);
         let scheduler = Arc::new(Scheduler::start(
             Arc::new(WallClockTimer::new().expect("the test arms a wall clock")),
             None,
-            live_runs.follow(),
+            live_runs.subscribe(),
         ));
         let sessions = Arc::new(SessionService::new(
             Arc::clone(&reads),
@@ -467,7 +465,7 @@ mod tests {
                     &truncation,
                     &database.path(),
                     |_| Ok(u64::MAX),
-                    live_runs.follow(),
+                    live_runs.subscribe(),
                 ),
                 backups: test_backups(
                     &database,

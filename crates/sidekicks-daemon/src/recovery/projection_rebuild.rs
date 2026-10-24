@@ -605,10 +605,7 @@ impl ProjectionRebuildService {
     async fn mark_stale(&self, failure: ProjectionFailure) -> ProjectionRebuildError {
         let marked = self
             .writer
-            .write(vec![cursor_statement(
-                MARK_STALE_SQL.as_str(),
-                vec![session_binding(&failure.session_id)],
-            )])
+            .write(vec![mark_stale_statement(&failure.session_id)])
             .await;
         let cleanup_failures = match marked {
             Ok(_) => Vec::new(),
@@ -705,6 +702,12 @@ fn mark_rebuilding_statement(session_id: &SessionId) -> WriteStatement {
             session_binding(session_id),
         ],
     )
+}
+
+/// The write that marks `session_id`'s cursor stale, so the next restart lists the session again
+/// and the writer's count of live runs leaves its runs out.
+pub(crate) fn mark_stale_statement(session_id: &SessionId) -> WriteStatement {
+    cursor_statement(MARK_STALE_SQL.as_str(), vec![session_binding(session_id)])
 }
 
 fn advance_cursor_statement(

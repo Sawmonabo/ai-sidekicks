@@ -12,8 +12,8 @@ use tempfile::TempDir;
 use {
     serde_json::json,
     sidekicks_contracts::{
-        event::envelope::EventOccurredAt, event::session::SessionEvent, session::id::SessionId,
-        wire::integer::SafeInt,
+        event::envelope::EventOccurredAt, event::session::SessionEvent, run::id::RunId,
+        session::id::SessionId, wire::integer::SafeInt,
     },
 };
 
@@ -73,6 +73,12 @@ impl TestDatabase {
 #[cfg(test)]
 pub(crate) fn test_session_id() -> SessionId {
     SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
+}
+
+/// A fresh run's id.
+#[cfg(test)]
+pub(crate) fn test_run_id() -> RunId {
+    RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
 }
 
 /// The envelope of `event` on `session_id`'s log, occurring now, with no linkage.
