@@ -214,6 +214,16 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         // setting turns them back on.
         off_switch: ("CLAUDE_CODE_DISABLE_AGENT_VIEW", "1"),
     }),
+    // Large pastes, shell snapshots, feedback bundles and drafts, and `/insights` reports: Claude
+    // Code's own age-swept folders that hold no session's files. `debug/` is not among them: it
+    // holds one log per session, which `delete_claude_conversations` deletes with its session.
+    account_home_diagnostic_folders: &[
+        &["paste-cache"],
+        &["shell-snapshots"],
+        &["feedback-bundles"],
+        &["feedback", "drafts"],
+        &["usage-data"],
+    ],
 };
 
 /// Builds the Claude Code driver over the shared services; it stores handles and does no I/O.

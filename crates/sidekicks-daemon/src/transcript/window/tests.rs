@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use rstest::rstest;
 use rusqlite::params;
 use serde_json::{Value, json};
@@ -10,6 +12,7 @@ use super::{TranscriptReadError, read_transcript_window};
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::transcript::block_cut::{BlockParse, MARKDOWN_PARSE};
 use crate::transcript::body::read_row_body;
+use crate::transcript::body::starts_cache::BlockCuts;
 use crate::transcript::test_log::{
     AT, STALLING_TEXT, TranscriptTestLog, stalling_parse, wire_block_starts, wire_message,
 };
@@ -281,7 +284,7 @@ fn rejoin_pages_count_rows_and_end_at_the_head_or_their_bound() {
 #[test]
 fn a_rejoined_body_over_a_page_reads_back_whole_in_parts() {
     let log = TranscriptTestLog::new();
-    // Each piece is under the stored cut, and the three together are over one page.
+    // Each piece is stored compressed, and the three together are over one page.
     let pieces: Vec<String> = ["\u{e9}", "\u{1f600}", "\u{5b57}"]
         .iter()
         .map(|character| format!("{}.", character.repeat(120_000)))
@@ -304,10 +307,65 @@ fn a_rejoined_body_over_a_page_reads_back_whole_in_parts() {
             &row_id,
             part_offset,
             MARKDOWN_PARSE,
+            &BlockCuts::default(),
         )
         .expect("the body reads")
         .expect("a row stands at the anchor");
         let part = wire_message(&part).0;
+        assert_eq!(part["contentLength"], whole.len());
+        read_back.push_str(part["body"].as_str().expect("the part is available"));
+        offset = part["nextOffset"].as_u64();
+        parts += 1;
+    }
+    assert!(parts > 1);
+    assert_eq!(read_back, whole);
+}
+
+// A tool output of several pages is stored whole and compressed, its row sized by the length its
+// payload states, and read back part by part from the frames each part covers. Killed by sizing
+// the row by its stored bytes, by a part decoding the wrong frames, and by a body cut on the way
+// in.
+#[test]
+fn a_long_tool_output_is_stored_whole_and_read_back_in_parts() {
+    let log = TranscriptTestLog::new();
+    let mut whole = String::new();
+    for line in 0..160_000 {
+        writeln!(whole, "{line:>6} \u{e9}output").expect("a string takes text");
+    }
+    let (sequence, row_id) = log.tool_completion(log.run_id, "call-1", None, Some(&whole));
+    let stored_bytes: i64 = log
+        .reader()
+        .query_row(
+            "SELECT length(content_payload) FROM session_events WHERE sequence = ?1",
+            [sequence],
+            |row| row.get(0),
+        )
+        .expect("the row reads");
+    assert!(usize::try_from(stored_bytes).expect("a length") < whole.len() / 2);
+
+    let page = read(&log, json!({}));
+    let content = &page["entries"][0]["content"];
+    assert_eq!(content["contentLength"], whole.len());
+    assert!(content.get("body").is_none(), "{content}");
+
+    let reader = log.reader();
+    let mut read_back = String::new();
+    let mut offset = Some(0);
+    let mut parts = 0;
+    while let Some(part_offset) = offset {
+        let part = read_row_body(
+            &reader,
+            &|_: &SessionId| None,
+            &log.session_id,
+            &row_id,
+            part_offset,
+            MARKDOWN_PARSE,
+            &BlockCuts::default(),
+        )
+        .expect("the body reads")
+        .expect("a row stands there");
+        let part = wire_message(&part).0;
+        assert_eq!(part["offset"], part_offset);
         assert_eq!(part["contentLength"], whole.len());
         read_back.push_str(part["body"].as_str().expect("the part is available"));
         offset = part["nextOffset"].as_u64();
@@ -425,6 +483,7 @@ fn a_body_read_spreads_starts_past_a_page_across_its_parts() {
             &row_id,
             part_offset,
             MARKDOWN_PARSE,
+            &BlockCuts::default(),
         )
         .expect("the body reads")
         .expect("a row stands at the anchor");

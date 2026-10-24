@@ -26,6 +26,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use crate::database::schema::recovery::ProjectionCursorState;
 use crate::database::statement::DATABASE_NOW_SQL;
 use crate::events::content::append::stored_index;
+use crate::events::content::codec::{BodyEncoder, StoredBody};
 use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::transcript::rejoin::ROW_ENDING_EVENT_TYPES_SQL;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -51,8 +52,9 @@ pub(crate) struct SessionEventRow {
     pub(crate) payload: String,
     /// [`monotonic_ns_now`] when the event was appended.
     pub(crate) monotonic_ns: i64,
-    /// The event's body as stored, kept out of the payload, `None` when it carries none.
-    pub(crate) content_payload: Option<Vec<u8>>,
+    /// The event's body, kept out of the payload and encoded as the row is written, `None` when it
+    /// carries none.
+    pub(crate) content_payload: Option<StoredBody>,
 }
 
 /// Why a row was not written.
@@ -73,6 +75,9 @@ pub(crate) enum SessionEventInsertError {
         /// Its stored head sequence.
         head: i64,
     },
+    /// zstd refused to compress the event's body.
+    #[error("the event's body could not be compressed")]
+    BodyEncoding(#[source] std::io::Error),
 }
 
 const INSERT_SESSION_EVENT_SQL: &str = "INSERT INTO session_events (
@@ -135,11 +140,13 @@ static ADVANCE_PROJECTION_CURSOR_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// Inserts `row` at its session's next sequence on the writer's `connection`, advances the
-/// session's projection cursor to it, and returns that sequence. Run inside the writer's
-/// transaction; refuses when the stored head is not an integer or has no next safe integer.
+/// Inserts `row` at its session's next sequence on the writer's `connection`, its body encoded by
+/// `encoder`, advances the session's projection cursor to it, and returns that sequence. Run inside
+/// the writer's transaction; refuses when the stored head is not an integer or has no next safe
+/// integer, or when zstd refuses the body.
 pub(crate) fn insert_session_event(
     connection: &Connection,
+    encoder: &mut BodyEncoder,
     row: &SessionEventRow,
 ) -> Result<SafeInt<0>, SessionEventInsertError> {
     let event = &*row.envelope;
@@ -192,6 +199,12 @@ pub(crate) fn insert_session_event(
         .then(|| event.payload().get(TOOL_CALL_ID_PAYLOAD_KEY))
         .flatten()
         .and_then(Value::as_str);
+    let content_payload = row
+        .content_payload
+        .as_ref()
+        .map(|body| encoder.encode(body))
+        .transpose()
+        .map_err(SessionEventInsertError::BodyEncoding)?;
     connection
         .prepare_cached(INSERT_SESSION_EVENT_SQL)?
         .execute(named_params! {
@@ -207,7 +220,7 @@ pub(crate) fn insert_session_event(
             "@correlation_id": event.correlation_id.as_ref().map(FreeFormText::as_str),
             "@causation_id": event.causation_id.as_ref().map(FreeFormText::as_str),
             "@version": event.version.as_str(),
-            "@content_payload": row.content_payload,
+            "@content_payload": content_payload,
             "@run_id": run_id.as_ref().map(UuidText::as_str),
             "@run_version": run.and_then(|run| run.run_version).map(i64::from),
             "@turn_number": run.and_then(|run| run.turn_number).map(i64::from),

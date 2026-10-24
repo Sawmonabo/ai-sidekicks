@@ -12,6 +12,8 @@ icu_casemap = { workspace = true, optional = true }
 lru = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
+# The longest find query, which sets how far a phrase reaches across a page's edge.
+sidekicks-contracts = { workspace = true, optional = true }
 sidekicks-platforms = { workspace = true, optional = true }
 strum = { workspace = true, optional = true }
 # The memory map, built on every platform; `sidekicks-platforms` says where the index maps files.
@@ -38,6 +40,7 @@ index = [
   "dep:lru",
   "dep:serde",
   "dep:serde_json",
+  "dep:sidekicks-contracts",
   "dep:sidekicks-platforms",
   "dep:strum",
   "dep:tantivy",
@@ -49,6 +52,8 @@ index = [
 ]
 # The index's budget measurements, compiled into the tests only when asked for.
 measurements = ["index"]
+# What another crate's tests read of an index: the documents left under a row's key.
+test-support = ["index"]
 
 [lints]
 workspace = true

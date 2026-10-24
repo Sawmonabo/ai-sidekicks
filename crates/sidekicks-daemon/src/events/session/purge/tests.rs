@@ -26,6 +26,7 @@ use super::{SessionPurge, SessionPurgeDeps, SessionPurgeError, SessionPurgeOutco
 use crate::approvals::rules::{APPROVAL_RULES_STATEMENT_CAPACITY, ApprovalRules};
 use crate::artifacts::payload_store::PayloadStore;
 use crate::artifacts::schema::ARTIFACT_STATEMENT_CAPACITY;
+use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, session_event_row, test_envelope};
 use crate::events::log_service::tests::{TestLog, open_log};
@@ -66,16 +67,18 @@ const WAIT: Duration = Duration::from_secs(10);
 // Text no row of the daemon writes on its own, and shorter than a body the log stores compressed.
 const MARKER: &str = "purge-marker-7f3a9c51";
 
-struct PurgeFixture {
-    database: TestDatabase,
-    log: TestLog,
-    purge: SessionPurge,
-    truncation: Arc<WriteAheadLogTruncation>,
-    _shells: TableFixture,
-    _home: TempDir,
+/// A purge over a fresh database whose file steps all succeed, and what it writes through.
+pub(crate) struct PurgeFixture {
+    pub(crate) database: TestDatabase,
+    pub(crate) log: TestLog,
+    pub(crate) purge: SessionPurge,
+    pub(crate) truncation: Arc<WriteAheadLogTruncation>,
+    pub(crate) _shells: TableFixture,
+    pub(crate) _home: TempDir,
 }
 
-async fn purge_fixture() -> PurgeFixture {
+/// A purge over a fresh database; a provider driver it calls fails the test.
+pub(crate) async fn purge_fixture() -> PurgeFixture {
     let database = TestDatabase::new();
     let log = open_log(&database, None).await;
     let reads = Arc::new(DatabaseReadPool::new(
@@ -167,7 +170,8 @@ async fn purge_fixture() -> PurgeFixture {
     }
 }
 
-fn store_session(connection: &Connection, session_id: SessionId, state: SessionState) {
+/// Stores a chat session in `state`.
+pub(crate) fn store_session(connection: &Connection, session_id: SessionId, state: SessionState) {
     insert_session_row(connection, session_id.text().as_str(), None, None);
     connection
         .execute(
@@ -351,7 +355,11 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
 
     let report = fixture
         .purge
-        .purge(&[session_id], PurgeCaller::Retention)
+        .purge(
+            &[session_id],
+            PurgeCaller::Retention,
+            &ProcessorMeter::default(),
+        )
         .await;
 
     assert!(report.is_truncation_running);
@@ -446,7 +454,12 @@ async fn a_purge_marks_a_session_only_from_its_callers_states(
     store_session(&reader, session_id, state);
     append_event(&fixture.log, session_id, "Read").await;
 
-    let outcome = only_outcome(fixture.purge.purge(&[session_id], caller).await);
+    let outcome = only_outcome(
+        fixture
+            .purge
+            .purge(&[session_id], caller, &ProcessorMeter::default())
+            .await,
+    );
 
     if is_removed {
         assert!(
@@ -503,7 +516,11 @@ async fn a_failed_file_step_keeps_every_row_and_purging_again_finishes() {
     let refused = only_outcome(
         fixture
             .purge
-            .purge(&[session_id], PurgeCaller::Retention)
+            .purge(
+                &[session_id],
+                PurgeCaller::Retention,
+                &ProcessorMeter::default(),
+            )
             .await,
     );
 
@@ -529,7 +546,11 @@ async fn a_failed_file_step_keeps_every_row_and_purging_again_finishes() {
     let retried = only_outcome(
         fixture
             .purge
-            .purge(&[session_id], PurgeCaller::Retention)
+            .purge(
+                &[session_id],
+                PurgeCaller::Retention,
+                &ProcessorMeter::default(),
+            )
             .await,
     );
 
@@ -553,9 +574,12 @@ async fn an_append_queued_before_the_range_read_is_taken_into_the_receipt() {
     let before_lock = fixture.purge.rows_lock_pause.arm();
     let before_write = fixture.purge.rows_write_pause.arm();
 
+    let meter = ProcessorMeter::default();
     let session_ids = [session_id];
     let (outcome, ()) = tokio::join!(
-        fixture.purge.purge(&session_ids, PurgeCaller::Retention),
+        fixture
+            .purge
+            .purge(&session_ids, PurgeCaller::Retention, &meter),
         async {
             before_lock
                 .reached
@@ -606,9 +630,12 @@ async fn a_second_refusal_of_the_range_is_a_fault_that_keeps_every_row() {
     let first = fixture.purge.rows_write_pause.arm();
     let second = fixture.purge.rows_write_pause.arm();
 
+    let meter = ProcessorMeter::default();
     let session_ids = [session_id];
     let (outcome, ()) = tokio::join!(
-        fixture.purge.purge(&session_ids, PurgeCaller::Retention),
+        fixture
+            .purge
+            .purge(&session_ids, PurgeCaller::Retention, &meter),
         async {
             // A row past the range at each write: only a fault past the append lock can write one.
             for pause in [first, second] {
@@ -651,9 +678,12 @@ async fn a_session_moved_after_its_mark_keeps_every_row() {
     append_event(&fixture.log, session_id, "Read").await;
     let before_write = fixture.purge.rows_write_pause.arm();
 
+    let meter = ProcessorMeter::default();
     let session_ids = [session_id];
     let (outcome, ()) = tokio::join!(
-        fixture.purge.purge(&session_ids, PurgeCaller::Retention),
+        fixture
+            .purge
+            .purge(&session_ids, PurgeCaller::Retention, &meter),
         async {
             before_write
                 .reached

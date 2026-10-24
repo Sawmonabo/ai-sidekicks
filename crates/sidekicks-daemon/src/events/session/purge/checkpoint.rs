@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::database::checkpoint::CheckpointMode;
-use crate::database::writer::{CheckpointError, DatabaseWriter};
+use crate::database::writer::{DatabaseWriter, MaintenanceError};
 
 // The first wait after a busy try, doubled after each until the last.
 const FIRST_RETRY_WAIT: Duration = Duration::from_millis(50);
@@ -133,13 +133,13 @@ async fn truncate_once(writer: &DatabaseWriter, stop: &CancellationToken) -> boo
                     );
                 }
             }
-            Err(error @ (CheckpointError::Failed(_) | CheckpointError::Held)) => {
+            Err(error @ (MaintenanceError::Failed(_) | MaintenanceError::Held)) => {
                 tracing::warn!(
                     error = &error as &(dyn Error + 'static),
                     "the write-ahead log's truncation failed; it is tried again"
                 );
             }
-            Err(error @ (CheckpointError::Ended(_) | CheckpointError::Closed)) => {
+            Err(error @ (MaintenanceError::Ended(_) | MaintenanceError::Closed)) => {
                 tracing::warn!(
                     error = &error as &(dyn Error + 'static),
                     "the write-ahead log was left untruncated; the next start truncates it"

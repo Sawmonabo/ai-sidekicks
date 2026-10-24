@@ -14,6 +14,7 @@ use crate::session::search::index::schema::SEARCH_INDEX_SCHEMA_SQL;
 use crate::workflow::schema::WORKFLOW_SCHEMA_SQL;
 use crate::workspace::schema::WORKSPACE_SCHEMA_SQL;
 
+mod daemon_configuration;
 mod event_log;
 mod machine;
 mod provider_accounts;
@@ -34,6 +35,7 @@ pub static DAEMON_SCHEMA_SQL: LazyLock<String> = LazyLock::new(|| {
         session_directory::session_directory_schema_sql().as_str(),
         &SEARCH_INDEX_SCHEMA_SQL,
         machine::MACHINE_SCHEMA_SQL,
+        daemon_configuration::daemon_configuration_schema_sql().as_str(),
         provider_drivers::provider_drivers_schema_sql().as_str(),
         &WORKSPACE_SCHEMA_SQL,
         &WORKTREE_SCHEMA_SQL,

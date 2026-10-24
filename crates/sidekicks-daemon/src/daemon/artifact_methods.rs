@@ -3,21 +3,29 @@
 //! folder, the content-addressed payloads in `objects/` and the spools of ingests and publishes
 //! beside them in `spool/`, on one volume, so a spool moves into the store by a rename. Its start
 //! schedules the ingest reaper on the daemon's one scheduler: a pass at once, which clears the
-//! spools a stopped daemon left, then one every ten minutes.
+//! spools a stopped daemon left, then one every ten minutes; each pass also sweeps the payloads no
+//! reference names, which a crash between a delete and its reclaim leaves behind.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use sidekicks_platforms::{WallClock, volume_free_bytes};
+use tokio_util::sync::CancellationToken;
 
 use crate::artifacts::admission::UploadAdmission;
 use crate::artifacts::attachment_resolver::ArtifactAttachmentResolver;
 use crate::artifacts::ingest::service::ArtifactIngestService;
 use crate::artifacts::payload_store::PayloadStore;
 use crate::artifacts::publish::ArtifactPublishService;
-use crate::daemon::scheduler::{ScheduleError, ScheduledJobHandle, Scheduler};
+use crate::daemon::scheduler::budget::{
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
+};
+use crate::daemon::scheduler::{
+    JobCondition, ScheduleError, ScheduledJobHandle, ScheduledJobOutcome, Scheduler,
+};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::events::log_service::EventLogService;
 use crate::events::session::appender::SessionEventAppender;
@@ -33,6 +41,22 @@ const ARTIFACTS_FOLDER_NAME: &str = "artifacts";
 // How often the reaper looks for streams past their lifetime and spools gone unwritten: often
 // enough that a stream is ended within minutes of its six-hour lifetime.
 const INGEST_REAPER_INTERVAL: Duration = Duration::from_mins(10);
+
+// A reaper pass's processor budget, the reap's and the orphan sweep's work together: 20 µs per
+// artifact examined, and 5 ms for the work every pass does whatever it finds, its two listings
+// and its statements.
+const INGEST_REAPER_BUDGET: JobBudget = JobBudget::new(&[
+    BudgetTerm {
+        figure: Duration::from_micros(20),
+        per: 1,
+        unit: WorkUnit::ArtifactsExamined,
+    },
+    BudgetTerm {
+        figure: Duration::from_millis(5),
+        per: 1,
+        unit: WorkUnit::Runs,
+    },
+]);
 
 /// What the artifact store is built from.
 pub(crate) struct ArtifactMethodsDeps {
@@ -68,7 +92,10 @@ pub(crate) struct ArtifactMethods {
     pub(crate) attachments: ArtifactAttachmentResolver,
     /// Stores the daemon's own payloads, for the plan record and a chat's versions.
     pub(crate) publisher: Arc<ArtifactPublishService>,
+    /// The stored payloads, which the data export copies each session's files from.
+    pub(crate) payloads: Arc<PayloadStore>,
     ingest: Arc<ArtifactIngestService>,
+    reads: Arc<DatabaseReadPool>,
 }
 
 impl ArtifactMethods {
@@ -80,24 +107,73 @@ impl ArtifactMethods {
         reason = "the daemon's start schedules the reaper once its recovery pass has ended"
     )]
     pub(crate) fn start(&self, scheduler: &Scheduler) -> Result<ScheduledJobHandle, ScheduleError> {
-        let ingest = Arc::clone(&self.ingest);
         scheduler.schedule_repeating(
             "ingest reaper",
+            JobCondition::Always,
             INGEST_REAPER_INTERVAL,
             Duration::ZERO,
-            move |_stop| {
+            self.reaper_pass(),
+        )
+    }
+
+    // One reaper pass, metered against its processor budget: the ingest's reap, then the orphan
+    // sweep, which runs whether the reap failed or not.
+    fn reaper_pass(
+        &self,
+    ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static
+    {
+        let ingest = Arc::clone(&self.ingest);
+        let payloads = Arc::clone(&self.payloads);
+        let reads = Arc::clone(&self.reads);
+        metered_job(
+            INGEST_REAPER_BUDGET,
+            Box::new(move |_stop, meter| {
                 let ingest = Arc::clone(&ingest);
-                async move { ingest.reap().await.map_err(Into::into) }.boxed()
-            },
+                let payloads = Arc::clone(&payloads);
+                let reads = Arc::clone(&reads);
+                async move { run_reaper_pass(&ingest, &payloads, &reads, &meter).await }.boxed()
+            }),
         )
     }
 }
 
+// One metered reaper pass: its workload is the pass itself and the artifacts the reap and the
+// sweep examined. Fails with the reap's failure, the sweep's written to the service log beside it,
+// or the sweep's alone.
+async fn run_reaper_pass(
+    ingest: &ArtifactIngestService,
+    payloads: &PayloadStore,
+    reads: &DatabaseReadPool,
+    meter: &ProcessorMeter,
+) -> MeteredJobOutcome {
+    let reaped = ingest.reap(meter).await;
+    let swept = payloads.sweep_orphans(reads, meter).await;
+    let examined = match (reaped, swept) {
+        (Ok(reaped), Ok(swept)) => reaped.saturating_add(swept),
+        (Ok(_), Err(sweep_failure)) => return Err(sweep_failure.into()),
+        (Err(reap_failure), swept) => {
+            if let Err(sweep_failure) = swept {
+                tracing::warn!(
+                    error = &sweep_failure as &(dyn std::error::Error + 'static),
+                    "the orphan sweep failed beside the ingest reaper"
+                );
+            }
+            return Err(reap_failure.into());
+        }
+    };
+    let mut workload = JobWorkload::of(WorkUnit::Runs, 1);
+    workload.add(WorkUnit::ArtifactsExamined, examined);
+    Ok(Some(workload))
+}
+
 /// Builds the artifact store and registers its calls on `registry`. Fails when the payload folder
 /// cannot be opened or a call is already registered.
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the artifact store once its database is open"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start builds the artifact store once its database is open"
+    )
 )]
 pub(crate) fn register_artifact_methods(
     registry: &mut MethodRegistryBuilder,
@@ -136,7 +212,68 @@ pub(crate) fn register_artifact_methods(
     register_artifact_read(registry, Arc::clone(&deps.reads), Arc::clone(&payloads))?;
     Ok(ArtifactMethods {
         publisher,
-        attachments: ArtifactAttachmentResolver::new(deps.reads, payloads),
+        attachments: ArtifactAttachmentResolver::new(
+            Arc::clone(&deps.reads),
+            Arc::clone(&payloads),
+        ),
         ingest,
+        payloads,
+        reads: deps.reads,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use sha2::{Digest as _, Sha256};
+    use sidekicks_platforms::WallClockTimer;
+    use tokio_util::sync::CancellationToken;
+
+    use super::{ARTIFACTS_FOLDER_NAME, ArtifactMethodsDeps, register_artifact_methods};
+    use crate::artifacts::payload_store::ContentHash;
+    use crate::artifacts::test_store::{ArtifactTestStore, write_payload_reference};
+    use crate::ipc::registry::MethodRegistryBuilder;
+
+    // One reaper pass sweeps the payloads no reference names and keeps a referenced one. Killed by
+    // the sweep left out of the reaper's pass.
+    #[tokio::test]
+    async fn a_reaper_pass_sweeps_an_orphan_and_keeps_a_referenced_payload() {
+        let store = ArtifactTestStore::open().await;
+        let data_folder = tempfile::tempdir().expect("the data folder is made");
+        let methods = register_artifact_methods(
+            &mut MethodRegistryBuilder::new(),
+            ArtifactMethodsDeps {
+                event_log: Arc::clone(&store.event_log),
+                reads: Arc::clone(&store.reads),
+                data_folder: data_folder.path().to_path_buf(),
+                clock: Arc::new(WallClockTimer::new().expect("the test arms a wall clock")),
+            },
+        )
+        .expect("the artifact store opens");
+        let spool_folder = data_folder.path().join(ARTIFACTS_FOLDER_NAME).join("spool");
+        std::fs::create_dir_all(&spool_folder).expect("the spool folder is made");
+        let mut stored = Vec::new();
+        for bytes in [b"referenced".as_slice(), b"orphaned".as_slice()] {
+            let content_hash = ContentHash::of_sha256(&Sha256::digest(bytes));
+            let spool = spool_folder.join(content_hash.as_str().replace(':', "-"));
+            std::fs::write(&spool, bytes).expect("the spool is written");
+            methods
+                .payloads
+                .admit(spool, &content_hash, async { Ok(()) })
+                .await
+                .expect("the bytes are stored");
+            stored.push(content_hash);
+        }
+        let [referenced, orphaned] = <[ContentHash; 2]>::try_from(stored).expect("two stored");
+        write_payload_reference(&store.writer, store.session_id, &referenced).await;
+
+        let mut pass = methods.reaper_pass();
+        pass(CancellationToken::new())
+            .await
+            .expect("the pass succeeds");
+
+        assert!(methods.payloads.object_path_of(&referenced).exists());
+        assert!(!methods.payloads.object_path_of(&orphaned).exists());
+    }
 }

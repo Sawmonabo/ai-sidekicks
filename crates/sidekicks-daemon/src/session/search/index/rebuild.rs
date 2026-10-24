@@ -22,10 +22,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::helper_mode::child::{HelperModeChildError, HelperModeEnd, run_helper_mode_child};
+use crate::session::search::index::batch_builder::IndexBatchBuilder;
 use crate::session::search::index::build_mode::SEARCH_INDEX_BUILD_MODE;
 use crate::session::search::index::columns::source_rowid_of;
 use crate::session::search::index::rows::{
-    INDEX_BATCH_ROW_LIMIT, IndexRowReader, SourceRow, empty_index_batch_room, index_row_of,
+    INDEX_BATCH_ROW_LIMIT, INDEX_BATCH_TEXT_LIMIT, IndexRowReader, SourceRowRead,
+    empty_index_batch_room,
 };
 
 // The indexing arena, at its budget's ceiling: the larger the arena, the fewer segments a batch
@@ -262,8 +264,8 @@ pub(crate) fn build_search_index(
     flush_folder(parent).map_err(SearchIndexBuildError::Place)
 }
 
-// Applies every batch, then merges until nothing is left to merge, so the daemon opens an index
-// with none of the build's merging left to do.
+// Applies every batch, a row too long for one over several, then merges until nothing is left to
+// merge, so the daemon opens an index with none of the build's merging left to do.
 fn fill_and_merge(
     index: &SearchIndex,
     rows: &IndexRowReader<'_>,
@@ -288,13 +290,13 @@ fn fill_and_merge(
         if batch_rows.is_empty() {
             break;
         }
-        index.apply(&IndexBatch {
-            last_outbox_id,
-            rows: batch_rows.into_iter().map(index_row_of).collect(),
-            removed_keys: Vec::new(),
-            removed_owners: Vec::new(),
-            group_members: Vec::new(),
-        })?;
+        let mut builder = IndexBatchBuilder::new(INDEX_BATCH_TEXT_LIMIT);
+        for row in batch_rows {
+            builder.add_row(rows, row, last_outbox_id, &mut |batch: &IndexBatch| {
+                index.apply(batch).map_err(SearchIndexBuildStepError::from)
+            })?;
+        }
+        index.apply(&builder.finish(last_outbox_id))?;
     }
     while index.merge_segments()? {}
     Ok(())
@@ -312,7 +314,7 @@ fn read_next_batch(
     rows: &IndexRowReader<'_>,
     log_reading: &mut KindReading,
     other_readings: &mut [KindReading],
-) -> rusqlite::Result<Vec<SourceRow>> {
+) -> rusqlite::Result<Vec<SourceRowRead>> {
     let mut room = empty_index_batch_room();
     let other_rows_at_most = |log_rowid: u64| -> u64 {
         other_readings
@@ -333,7 +335,7 @@ fn read_next_batch(
         |row| {
             let rows_left = INDEX_BATCH_ROW_LIMIT - log_rows_taken;
             let fits = rows_left == INDEX_BATCH_ROW_LIMIT
-                || (rows_left - 1) as u64 >= other_rows_at_most(source_rowid_of(row.key));
+                || (rows_left - 1) as u64 >= other_rows_at_most(source_rowid_of(row.key()));
             if fits {
                 log_rows_taken += 1;
             }
@@ -341,7 +343,7 @@ fn read_next_batch(
         },
     )?;
     read_on(log_reading, &log_rows);
-    let last_log_rowid = log_rows.last().map(|row| source_rowid_of(row.key));
+    let last_log_rowid = log_rows.last().map(|row| source_rowid_of(row.key()));
     let mut batch_rows = log_rows;
     for reading in other_readings.iter_mut() {
         let through_rowid = match last_log_rowid {
@@ -370,9 +372,9 @@ fn through_rowid_of(reading: &KindReading, log_reading: &KindReading, log_rowid:
 }
 
 // Moves `reading` past the last of `kind_rows`.
-fn read_on(reading: &mut KindReading, kind_rows: &[SourceRow]) {
+fn read_on(reading: &mut KindReading, kind_rows: &[SourceRowRead]) {
     if let Some(last_row) = kind_rows.last() {
-        reading.after_rowid = source_rowid_of(last_row.key);
+        reading.after_rowid = source_rowid_of(last_row.key());
     }
 }
 
@@ -402,13 +404,7 @@ pub(crate) fn close_after_failure<Failure>(
 pub(crate) fn make_index_at(folder: &Path, last_outbox_id: u64) {
     let index = SearchIndex::open(folder, SEARCH_INDEX_OPTIONS).expect("a fresh index opens");
     index
-        .apply(&IndexBatch {
-            last_outbox_id,
-            rows: Vec::new(),
-            removed_keys: Vec::new(),
-            removed_owners: Vec::new(),
-            group_members: Vec::new(),
-        })
+        .apply(&IndexBatchBuilder::new(INDEX_BATCH_TEXT_LIMIT).finish(last_outbox_id))
         .expect("the batch applies");
     index.close().expect("the index closes");
 }

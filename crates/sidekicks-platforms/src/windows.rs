@@ -40,6 +40,7 @@ pub(crate) mod standard_streams;
 pub(crate) mod stop_request;
 pub(crate) mod system_locale;
 pub(crate) mod terminal;
+pub(crate) mod thread_cpu_time;
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
 pub(crate) mod wide_text;

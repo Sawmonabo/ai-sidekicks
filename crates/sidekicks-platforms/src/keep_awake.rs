@@ -40,6 +40,18 @@ pub struct KeepAwakeRefused {
     pub source: keepawake::Error,
 }
 
+#[cfg(any(test, feature = "test-support"))]
+impl KeepAwakeRefused {
+    /// A refusal for `purpose` that a test's stand-in guard taker answers with, its source a
+    /// fixed message rather than any system's error.
+    pub fn stand_in(purpose: KeepAwakePurpose) -> Self {
+        Self {
+            purpose,
+            source: keepawake::BuilderError::from("the test refused the hold".to_owned()).into(),
+        }
+    }
+}
+
 // One request to the hold's thread.
 enum HoldCommand {
     // Hold the machine awake for this purpose, answering whether the system allowed it.
@@ -65,10 +77,22 @@ impl KeepAwakeHold {
         Self::start(take_keepawake_guard)
     }
 
+    /// Starts the hold's thread over `take_guard`, a test's stand-in for the system: it takes one
+    /// guard per call, which the hold drops on letting go, or answers a refusal. Fails when the
+    /// thread cannot be made.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_guard_taker<Guard, TakeGuard>(take_guard: TakeGuard) -> io::Result<Self>
+    where
+        TakeGuard: FnMut(KeepAwakePurpose) -> Result<Guard, KeepAwakeRefused> + Send + 'static,
+    {
+        Self::start(take_guard)
+    }
+
     // Starts the hold's thread over `take_guard`, which takes one guard the drop releases.
-    fn start<Guard>(
-        take_guard: impl FnMut(KeepAwakePurpose) -> keepawake::Result<Guard> + Send + 'static,
-    ) -> io::Result<Self> {
+    fn start<Guard, TakeGuard>(take_guard: TakeGuard) -> io::Result<Self>
+    where
+        TakeGuard: FnMut(KeepAwakePurpose) -> Result<Guard, KeepAwakeRefused> + Send + 'static,
+    {
         let (commands, receiver) = mpsc::channel();
         let thread = thread::Builder::new()
             .name("keep-awake".to_owned())
@@ -120,7 +144,7 @@ impl Drop for KeepAwakeHold {
 // The hold's thread: answers each request until the channel closes, then drops what it holds.
 fn run_hold<Guard>(
     commands: &mpsc::Receiver<HoldCommand>,
-    mut take_guard: impl FnMut(KeepAwakePurpose) -> keepawake::Result<Guard>,
+    mut take_guard: impl FnMut(KeepAwakePurpose) -> Result<Guard, KeepAwakeRefused>,
 ) {
     let mut held: Option<(KeepAwakePurpose, Guard)> = None;
     for command in commands {
@@ -132,13 +156,11 @@ fn run_hold<Guard>(
                 {
                     Ok(())
                 } else {
-                    take_guard(purpose)
-                        .map(|guard| {
-                            // The new guard is held before the old one drops.
-                            let previous = held.replace((purpose, guard));
-                            drop(previous);
-                        })
-                        .map_err(|source| KeepAwakeRefused { purpose, source })
+                    take_guard(purpose).map(|guard| {
+                        // The new guard is held before the old one drops.
+                        let previous = held.replace((purpose, guard));
+                        drop(previous);
+                    })
                 };
                 if answer.send(result).is_err() {
                     tracing::debug!("a keep-awake request's caller stopped waiting for its answer");
@@ -151,7 +173,9 @@ fn run_hold<Guard>(
 
 // Takes `keepawake`'s guard for `purpose`, named for the app; never `sleep`, which no macOS
 // supports and which on Linux would block a suspend the person asks for.
-fn take_keepawake_guard(purpose: KeepAwakePurpose) -> keepawake::Result<keepawake::KeepAwake> {
+fn take_keepawake_guard(
+    purpose: KeepAwakePurpose,
+) -> Result<keepawake::KeepAwake, KeepAwakeRefused> {
     keepawake::Builder::default()
         .display(purpose.keeps_display_awake())
         .idle(true)
@@ -159,6 +183,7 @@ fn take_keepawake_guard(purpose: KeepAwakePurpose) -> keepawake::Result<keepawak
         .app_name(APP_DISPLAY_NAME)
         .app_reverse_domain(APP_BUNDLE_IDENTIFIER)
         .create()
+        .map_err(|source| KeepAwakeRefused { purpose, source })
 }
 
 #[cfg(test)]
@@ -201,7 +226,7 @@ mod tests {
     async fn the_hold_keeps_one_guard_and_never_none_between_purposes() {
         let events = Arc::new(Mutex::new(Vec::new()));
         let recorder = Arc::clone(&events);
-        let hold = KeepAwakeHold::start(move |purpose| {
+        let hold = KeepAwakeHold::with_guard_taker(move |purpose| {
             recorder
                 .lock()
                 .expect("no test thread panics holding the log")
@@ -247,5 +272,103 @@ mod tests {
         );
         // The thread's guard taker, which holds the other reference, went with the thread.
         assert_eq!(Arc::strong_count(&events), 1);
+    }
+
+    // The real hold as macOS's power manager lists it; ignored in the normal run.
+    #[cfg(target_os = "macos")]
+    mod power_manager {
+        use std::process::Command;
+        use std::time::Duration;
+
+        use sidekicks_contracts::app_identity::APP_DISPLAY_NAME;
+
+        use crate::{KeepAwakeHold, KeepAwakePurpose};
+
+        const WAIT: Duration = Duration::from_secs(10);
+
+        // Set only for the child the killed-process test starts, which holds until it is killed.
+        const HOLDER_VARIABLE: &str = "SIDEKICKS_KEEP_AWAKE_TEST_HOLDER";
+        const HOLDER_TEST: &str =
+            "keep_awake::tests::power_manager::a_hold_kept_until_the_process_is_killed";
+
+        // The power manager's assertions of process `pid` that name the app.
+        fn assertions_of(pid: u32) -> Vec<String> {
+            let listed = Command::new("/usr/bin/pmset")
+                .args(["-g", "assertions"])
+                .output()
+                .expect("pmset runs");
+            assert!(listed.status.success(), "pmset lists the assertions");
+            String::from_utf8_lossy(&listed.stdout)
+                .lines()
+                .filter(|line| {
+                    line.contains(&format!("pid {pid}(")) && line.contains(APP_DISPLAY_NAME)
+                })
+                .map(str::to_owned)
+                .collect()
+        }
+
+        // Reads `pid`'s assertions until `is_done` holds them, failing after the wait.
+        async fn wait_for_assertions(pid: u32, is_done: impl Fn(&[String]) -> bool) -> Vec<String> {
+            let deadline = tokio::time::Instant::now() + WAIT;
+            loop {
+                let assertions = assertions_of(pid);
+                if is_done(&assertions) || tokio::time::Instant::now() >= deadline {
+                    return assertions;
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        }
+
+        // The hold the system lists keeps the machine and its screen awake while idle and never
+        // blocks a sleep the person asks for; it goes when the hold drops and when its process is
+        // killed. Killed by the guard taken off the hold's thread and by a hold that blocks every
+        // sleep. Needs macOS's power manager: run with `--run-ignored only -E 'test(/pmset/)'`.
+        #[tokio::test]
+        #[ignore = "takes a real hold from macOS's power manager and reads it with pmset"]
+        async fn pmset_lists_the_hold_until_it_drops_or_its_process_is_killed() {
+            let pid = std::process::id();
+            let hold = KeepAwakeHold::new().expect("the hold's thread starts");
+            hold.take(KeepAwakePurpose::AgentWorks)
+                .await
+                .expect("the system allows the hold");
+            let held = assertions_of(pid);
+            for kind in ["PreventUserIdleDisplaySleep", "PreventUserIdleSystemSleep"] {
+                assert!(held.iter().any(|line| line.contains(kind)), "{held:?}");
+            }
+            assert!(
+                !held.iter().any(|line| line.contains("PreventSystemSleep")),
+                "{held:?}"
+            );
+            drop(hold);
+            assert_eq!(assertions_of(pid), Vec::<String>::new());
+
+            let mut holder =
+                Command::new(std::env::current_exe().expect("the test knows its program"))
+                    .args(["--exact", HOLDER_TEST, "--ignored", "--nocapture"])
+                    .env(HOLDER_VARIABLE, "1")
+                    .spawn()
+                    .expect("the holder starts");
+            let holder_pid = holder.id();
+            let listed = wait_for_assertions(holder_pid, |lines| !lines.is_empty()).await;
+            assert!(!listed.is_empty(), "the holder's hold is listed");
+            holder.kill().expect("the test kills its own child");
+            holder.wait().expect("the killed holder is reaped");
+            let left = wait_for_assertions(holder_pid, <[String]>::is_empty).await;
+            assert_eq!(left, Vec::<String>::new(), "a killed process's hold goes");
+        }
+
+        // The child of the test above: holds the machine awake until it is killed.
+        #[tokio::test]
+        #[ignore = "the pmset test's child, which holds until it is killed"]
+        async fn a_hold_kept_until_the_process_is_killed() {
+            if std::env::var_os(HOLDER_VARIABLE).is_none() {
+                return;
+            }
+            let hold = KeepAwakeHold::new().expect("the hold's thread starts");
+            hold.take(KeepAwakePurpose::AgentWorks)
+                .await
+                .expect("the system allows the hold");
+            tokio::time::sleep(Duration::from_secs(120)).await;
+        }
     }
 }

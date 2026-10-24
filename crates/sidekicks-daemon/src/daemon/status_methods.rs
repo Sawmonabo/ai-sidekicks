@@ -51,9 +51,12 @@ pub(crate) struct StatusMethodsDeps {
 
 /// Registers `daemon.status.read`, a read-only query. Fails the start when the method is already
 /// registered.
-#[expect(
-    dead_code,
-    reason = "the daemon's start registers its status read on its registry"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start registers its status read on its registry"
+    )
 )]
 pub(crate) fn register_status_methods(
     registry: &mut MethodRegistryBuilder,
@@ -135,4 +138,89 @@ async fn read_status(deps: &StatusMethodsDeps) -> Result<DaemonStatusReadRespons
 // A fault inside the daemon, answered `-32603` with no detail.
 fn internal(why: &'static str) -> HandlerError {
     HandlerError::Internal(why.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex, PoisonError};
+    use std::time::Duration;
+
+    use jiff::Timestamp;
+    use serde_json::{Value, json};
+    use sidekicks_contracts::daemon::status::{DaemonProcessState, DaemonStatusRead};
+    use sidekicks_contracts::method::Method as _;
+    use sidekicks_platforms::CredentialStore;
+
+    use super::{StatusMethodsDeps, register_status_methods};
+    use crate::credential_store::items::{SecretItems, SecretItemsStart};
+    use crate::credential_store::os::TestStoreAccess;
+    use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
+    use crate::ipc::call_fixtures::{context, request};
+    use crate::ipc::registry::{Dispatch as _, MethodRegistryBuilder, Reply};
+    use crate::recovery::status::RecoveryStatusTracker;
+
+    // Every process state the daemon is in at the call is the one the read reports, read at each
+    // call on one registry. Killed by the state read once when the method is registered, and by
+    // any state projected as another.
+    #[tokio::test]
+    async fn each_process_state_is_reported_as_it_stands_at_the_call() {
+        let data_folder = tempfile::tempdir().expect("the data folder is made");
+        let state = Arc::new(Mutex::new(DaemonProcessState::Starting));
+        let read_state = Arc::clone(&state);
+        let mut builder = MethodRegistryBuilder::new();
+        register_status_methods(
+            &mut builder,
+            StatusMethodsDeps {
+                process_identity: serde_json::from_value(json!({
+                    "processId": 4242,
+                    "bootId": "boot",
+                    "processStartTime": "start",
+                }))
+                .expect("an identity reads"),
+                read_process_state: Arc::new(move || {
+                    *read_state.lock().unwrap_or_else(PoisonError::into_inner)
+                }),
+                recovery: Arc::new(RecoveryStatusTracker::new()),
+                version: serde_json::from_value(json!("0.1.0")).expect("a version reads"),
+                transport_endpoint: serde_json::from_value(json!("/run/daemon.sock"))
+                    .expect("an endpoint reads"),
+                data_directory: serde_json::from_value(json!(data_folder.path()))
+                    .expect("a folder reads"),
+                started_at: Timestamp::now(),
+                usage_reader: Arc::new(ProcessTreeUsageReader::new()),
+                secret_items: SecretItems::new(SecretItemsStart {
+                    data_folder: data_folder.path().to_path_buf(),
+                    runs_while_logged_out: false,
+                    access: TestStoreAccess::new(CredentialStore::in_memory()) as _,
+                    call_timeout: Duration::from_secs(5),
+                })
+                .expect("the system gives random bytes"),
+            },
+        )
+        .expect("the status read registers");
+        let registry = builder.freeze();
+
+        for expected in [
+            DaemonProcessState::Starting,
+            DaemonProcessState::Running,
+            DaemonProcessState::Degraded,
+            DaemonProcessState::Stopping,
+        ] {
+            *state.lock().unwrap_or_else(PoisonError::into_inner) = expected;
+            let Ok(Reply::Result(read)) = registry
+                .dispatch(
+                    request(DaemonStatusRead::DESCRIPTOR.method, Some(&json!({}))),
+                    context(1),
+                )
+                .await
+            else {
+                panic!("the status read answers");
+            };
+            let read: Value = serde_json::from_slice(&read.json).expect("the read is JSON");
+            assert_eq!(
+                read["processState"],
+                serde_json::to_value(expected).expect("a state writes"),
+            );
+        }
+    }
 }

@@ -7,10 +7,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::event::declared_variants::{
-    CONTENT_LENGTH_PAYLOAD_KEY, CONTENT_PAYLOAD_PLAINTEXT_MAX, CONTENT_TRUNCATED_PAYLOAD_KEY,
-};
-use crate::event::envelope::{HydratedContentUnavailableReason, HydratedSessionEventContent};
+use crate::event::declared_variants::CONTENT_LENGTH_PAYLOAD_KEY;
+use crate::event::envelope::HydratedContentUnavailableReason;
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::byte_length::{fits_budget, json_utf8_byte_length};
@@ -21,11 +19,11 @@ use crate::transcript::limits::TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES;
 use crate::wire::attachment::Bytes;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::{BoundedText, FreeFormText};
-use crate::wire::{BoolLiteral, Never, True, literal};
+use crate::wire::{Never, literal};
 
-/// A stored body: at most [`CONTENT_PAYLOAD_PLAINTEXT_MAX`] code points, the cap its event's
-/// payload holds it to.
-pub type StoredBodyText = BoundedText<0, CONTENT_PAYLOAD_PLAINTEXT_MAX>;
+/// A part of a stored body as one read answers it: at most one page, so at most a page's bytes in
+/// code points.
+pub type StoredBodyText = BoundedText<0, PAGE_MAX_BYTES>;
 
 /// A prose body's block starts: where each of its markdown blocks begins, as UTF-16 code unit
 /// offsets into the whole body, ascending, each a little-endian `u32`. They travel as an
@@ -80,7 +78,7 @@ pub enum BodyBlockCut<'starts> {
 pub enum TranscriptRowContent {
     /// The body travels with its row.
     Available {
-        /// The body; a prefix when `contentTruncated` is `true`. A body whose JSON takes more than
+        /// The whole body. A body whose JSON takes more than
         /// [`TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES`] bytes belongs on the `large` arm.
         #[schemars(extend("maxJsonBytes" = TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES))]
         #[garde(custom(|body: &BoundedText<0, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES>, (): &()| {
@@ -95,14 +93,6 @@ pub enum TranscriptRowContent {
         )]
         #[schemars(with = "SafeInt<0>")]
         content_length: Option<SafeInt<0>>,
-        /// Present when the stored body is a prefix of a longer one the producer cut.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "True")]
-        content_truncated: Option<True>,
         /// The body's block starts, on a prose body; on a row whose reply is still arriving, only
         /// those no later text can move.
         #[serde(
@@ -130,52 +120,16 @@ pub enum TranscriptRowContent {
     Large {
         /// The whole body's UTF-8 byte length, as the stored event states it.
         content_length: SafeInt<0>,
-        /// Present when the stored body is a prefix of a longer one the producer cut.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "True")]
-        content_truncated: Option<True>,
     },
 }
 
-/// The length and truncation mark a stored event's payload states for its body, echoed rather
-/// than recomputed: a length measured from a cut body would hide that anything was cut.
-fn echoed_body_facts_of(
-    payload: Option<&Map<String, Value>>,
-) -> (Option<SafeInt<0>>, Option<True>) {
-    let content_length = payload
+/// The length a stored event's payload states for its body, echoed rather than recomputed, so a
+/// reader that loaded only part of the body still reports the whole body's length.
+fn echoed_content_length_of(payload: Option<&Map<String, Value>>) -> Option<SafeInt<0>> {
+    payload
         .and_then(|payload| payload.get(CONTENT_LENGTH_PAYLOAD_KEY))
         .and_then(Value::as_u64)
-        .and_then(SafeInt::new);
-    let content_truncated = payload
-        .and_then(|payload| payload.get(CONTENT_TRUNCATED_PAYLOAD_KEY))
-        .and_then(Value::as_bool)
-        .filter(|is_truncated| *is_truncated)
-        .map(|_| BoolLiteral);
-    (content_length, content_truncated)
-}
-
-/// An event's stored body as a hydrated read pairs it with its event: `Unavailable { Absent }`
-/// when no body is stored, else the whole stored body with the payload's own length and truncation
-/// mark.
-pub fn hydrated_content_of(
-    payload: Option<&Map<String, Value>>,
-    stored_body: Option<String>,
-) -> HydratedSessionEventContent {
-    let Some(body) = stored_body else {
-        return HydratedSessionEventContent::Unavailable {
-            reason: HydratedContentUnavailableReason::Absent,
-        };
-    };
-    let (content_length, content_truncated) = echoed_body_facts_of(payload);
-    HydratedSessionEventContent::Available {
-        body,
-        content_length,
-        content_truncated,
-    }
+        .and_then(SafeInt::new)
 }
 
 /// A `transcript.body.read` offset that is no place to resume from: inside a character, or past
@@ -217,11 +171,10 @@ impl<'text> BodyWindow<'text> {
 /// when none is stored, never an empty `available` body, which would claim the agent said nothing.
 /// The body is the row's whole body, its pieces joined when the provider sent it in several, read
 /// through `window`, which must start at or before `offset`. A part holds as much of the window as
-/// fits one page, and no more than one stored body's cap, and names where the next part starts, so
-/// a client reading from each `nextOffset` until it is `null` joins the whole body. The length and
-/// truncation mark are the payload's own. Each part carries the block starts of `block_cut` whose
-/// stored offset falls in it, charged against its page, or the cut's failure. Refuses an offset
-/// outside the window or inside a character.
+/// fits one page and names where the next part starts, so a client reading from each `nextOffset`
+/// until it is `null` joins the whole body. The length is the payload's own. Each part carries the
+/// block starts of `block_cut` whose stored offset falls in it, charged against its page, or the
+/// cut's failure. Refuses an offset outside the window or inside a character.
 pub fn stored_body_content_of(
     payload: Option<&Map<String, Value>>,
     window: Option<BodyWindow<'_>>,
@@ -266,15 +219,13 @@ pub fn stored_body_content_of(
             .collect();
         BlockStarts::new(bytes.into()).expect("a part's starts fit the page it was cut to fit")
     });
-    let (content_length, content_truncated) = echoed_body_facts_of(payload);
     let next = window.start + end;
     Ok(TranscriptBodyReadResponse::Available {
         body: StoredBodyText::new(text[start..end].to_owned())
-            .expect("a part ends within one stored body's cap"),
+            .expect("a part fits one page, so its code points do"),
         offset: byte_offset(window.start + start),
         next_offset: (next < window.body_length).then(|| byte_offset(next)),
-        content_length,
-        content_truncated,
+        content_length: echoed_content_length_of(payload),
         block_starts,
         block_cut_failure,
     })
@@ -288,25 +239,20 @@ fn byte_offset(offset: usize) -> SafeInt<0> {
         .expect("a body's byte offsets lie far below 2^53")
 }
 
-/// Where the part of `body` that starts at `offset` ends: the furthest character boundary at most
-/// [`CONTENT_PAYLOAD_PLAINTEXT_MAX`] code points on for which `fits` holds of the end and the
-/// stretch's JSON bytes, measured as the reply's check measures them; `fits` grows stricter as the
-/// end moves on. One character's JSON and its one start fit a page, so a part short of the end
-/// holds at least one character.
+/// Where the part of `body` that starts at `offset` ends: the furthest character boundary for
+/// which `fits` holds of the end and the stretch's JSON bytes, measured as the reply's check
+/// measures them; `fits` grows stricter as the end moves on. One character's JSON and its one start
+/// fit a page, so a part short of the end holds at least one character.
 fn page_end(body: &str, offset: usize, fits: impl Fn(usize, usize) -> bool) -> usize {
-    let cap_end = body[offset..]
-        .char_indices()
-        .nth(CONTENT_PAYLOAD_PLAINTEXT_MAX)
-        .map_or(body.len(), |(index, _)| offset + index);
     let fits = |end: usize| {
         json_utf8_byte_length(&&body[offset..end]).is_ok_and(|length| fits(end, length))
     };
-    if fits(cap_end) {
-        return cap_end;
+    if fits(body.len()) {
+        return body.len();
     }
     // The fitting ends form a prefix of the boundaries, so the last one is found by halving the
     // byte range between a boundary that fits and one that does not.
-    let (mut fitting, mut over) = (offset, cap_end);
+    let (mut fitting, mut over) = (offset, body.len());
     loop {
         let middle = body.floor_char_boundary(fitting + (over - fitting) / 2);
         if middle == fitting {
@@ -323,8 +269,8 @@ fn page_end(body: &str, offset: usize, fits: impl Fn(usize, usize) -> bool) -> u
         .expect("one character's JSON fits a page")
 }
 
-/// A stored body as a row read finds it: its UTF-8 size, and its text when that size still lets it
-/// travel with its row.
+/// A stored body as a row read finds it: its UTF-8 length, and its text when that length still
+/// lets it travel with its row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StoredRowBody<'body> {
     /// The body's UTF-8 byte length.
@@ -335,7 +281,7 @@ pub struct StoredRowBody<'body> {
 
 /// The body a row carries, from what the read found stored: none is `absent`; a body whose JSON
 /// takes more than [`TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES`] bytes, or whose text was not read, is
-/// the `large` arm, sized by the payload's `contentLength`, else by its stored bytes.
+/// the `large` arm, sized by the payload's `contentLength`, else by `byte_length`.
 pub fn transcript_row_content_of(
     payload: Option<&Map<String, Value>>,
     stored: Option<StoredRowBody<'_>>,
@@ -345,7 +291,7 @@ pub fn transcript_row_content_of(
             reason: HydratedContentUnavailableReason::Absent,
         };
     };
-    let (content_length, content_truncated) = echoed_body_facts_of(payload);
+    let content_length = echoed_content_length_of(payload);
     if let Some(body) = stored
         .body
         .filter(|body| fits_budget(body, TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES).is_ok())
@@ -354,14 +300,12 @@ pub fn transcript_row_content_of(
         return TranscriptRowContent::Available {
             body,
             content_length,
-            content_truncated,
             block_starts: None,
             block_cut_failure: None,
         };
     }
     TranscriptRowContent::Large {
         content_length: content_length.unwrap_or(stored.byte_length),
-        content_truncated,
     }
 }
 
@@ -386,10 +330,9 @@ pub struct TranscriptBodyReadRequest {
     pub offset: Option<SafeInt<0>>,
 }
 
-/// The row's body, one part at a time, or why it cannot be read. `contentLength` and
-/// `contentTruncated` are echoed from the stored event, so a body kept as a prefix still says how
-/// long the whole was. Each part fits one page; a body longer than one page comes back whole in
-/// consecutive parts.
+/// The row's body, one part at a time, or why it cannot be read. `contentLength` is echoed from the
+/// stored event, so each part says how long the whole is. Each part fits one page; a body longer
+/// than one page comes back whole in consecutive parts.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(
     tag = "status",
@@ -401,7 +344,7 @@ pub struct TranscriptBodyReadRequest {
 pub enum TranscriptBodyReadResponse {
     /// The body.
     Available {
-        /// This part of the body; the whole is a prefix when `contentTruncated` is `true`.
+        /// This part of the body.
         #[garde(custom(fits_one_page))]
         #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
         body: StoredBodyText,
@@ -419,14 +362,6 @@ pub enum TranscriptBodyReadResponse {
         )]
         #[schemars(with = "SafeInt<0>")]
         content_length: Option<SafeInt<0>>,
-        /// Present when the stored body is a prefix of a longer one the producer cut.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "True")]
-        content_truncated: Option<True>,
         /// The block starts of a prose body that fall in this part, as UTF-16 offsets into the
         /// whole drawn body; on a body whose reply is still arriving, only those no later text
         /// can move.
@@ -524,7 +459,7 @@ transcript_patch_file_arm! {
     #[garde(allow_unvalidated)]
     pub struct TranscriptPatchFileRead {
         /// The patch.
-        pub patch: BoundedText<0, CONTENT_PAYLOAD_PLAINTEXT_MAX>,
+        pub patch: BoundedText<0, PAGE_MAX_BYTES>,
         /// The lines it adds.
         pub additions: SafeInt<0>,
         /// The lines it removes.
@@ -601,7 +536,7 @@ transcript_patch_file_arm! {
         /// Always `unreadable`.
         pub unavailable: TranscriptPatchUnreadableReason,
         /// The patch as the provider sent it.
-        pub raw_patch: BoundedText<0, CONTENT_PAYLOAD_PLAINTEXT_MAX>,
+        pub raw_patch: BoundedText<0, PAGE_MAX_BYTES>,
         /// Never present: the patch could not be read.
         #[serde(
             default,
@@ -803,8 +738,6 @@ mod tests {
     #[rstest]
     // Each control character takes six JSON bytes, so 200,000 of them span two pages.
     #[case::over_one_page("\u{1}".repeat(200_000), 0, Some(2))]
-    // A joined body past one stored body's cap, which one page's bytes would otherwise hold.
-    #[case::over_one_stored_body("a".repeat(300_000), 0, Some(2))]
     #[case::from_a_later_offset("a\u{e9}b".to_owned(), 3, Some(1))]
     #[case::at_the_end("ab".to_owned(), 2, Some(1))]
     #[case::inside_a_character("a\u{e9}b".to_owned(), 2, None)]

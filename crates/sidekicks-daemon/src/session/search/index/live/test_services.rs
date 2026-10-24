@@ -8,6 +8,7 @@ use crate::daemon::scheduler::Scheduler;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use crate::session::run::live_count::LiveRunCount;
 use crate::session::search::index::outbox::OUTBOX_STATEMENT_CAPACITY;
 
 /// The read pool, writer and scheduler a live index's start takes, as the daemon makes them.
@@ -36,6 +37,7 @@ impl TestDaemonServices {
             scheduler: Arc::new(Scheduler::start(
                 Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
                 None,
+                LiveRunCount::default().follow(),
             )),
         }
     }

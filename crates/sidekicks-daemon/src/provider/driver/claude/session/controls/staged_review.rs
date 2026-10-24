@@ -301,6 +301,7 @@ impl ClaudeSessionControls {
             source_position: None,
             content_length: None,
             content_truncated: None,
+            content_encoding: None,
         };
         drop(
             self.deliver(

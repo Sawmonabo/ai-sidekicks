@@ -280,6 +280,7 @@ pub(crate) fn compose_codex_prose_piece(
         content_type: None,
         content_length: None,
         content_truncated: None,
+        content_encoding: None,
         run_id: run.run_id,
         provider_block: None,
         origin: None,
@@ -329,6 +330,7 @@ fn tool_activity(
         omitted_patches: omitted_patches.and_then(BoundedVec::new),
         content_length: None,
         content_truncated: None,
+        content_encoding: None,
         source_epoch: None,
         source_position: None,
     })

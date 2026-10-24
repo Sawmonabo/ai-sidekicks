@@ -37,7 +37,7 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::daemon::scheduler::{ScheduledJobHandle, Scheduler};
+use crate::daemon::scheduler::{JobCondition, ScheduledJobHandle, Scheduler};
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::database::stored_column::optional_text_column;
 use crate::database::writer::DatabaseWriter;
@@ -349,6 +349,7 @@ impl FetchShared {
         let repo_mount_id = *repo_mount_id;
         let scheduled = self.deps.scheduler.schedule(
             "background fetch",
+            JobCondition::Always,
             BACKGROUND_FETCH_INTERVAL,
             move |_stop| {
                 if let Some(shared) = shared.upgrade() {

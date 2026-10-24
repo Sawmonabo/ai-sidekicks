@@ -1,5 +1,5 @@
-//! Which file-system entry a path names, read without following a link, and its text form; each
-//! platform's module reads the identity from one stat or one handle.
+//! Which file-system entry a path names, read without following a link, or an open file is, and
+//! its text form; each platform's module reads the identity from one stat or one handle.
 
 use std::fmt;
 use std::num::ParseIntError;
@@ -66,7 +66,7 @@ mod tests {
     use std::fs;
 
     use super::EntryIdentity;
-    use crate::entry_identity;
+    use crate::{entry_identity, open_file_identity};
 
     // The folder is renamed away, not removed, so its inode stays in use: ext4 hands a freed inode
     // to the next new entry at once, which would make a removed and remade folder match.
@@ -95,6 +95,26 @@ mod tests {
                 .parse::<EntryIdentity>()
                 .expect("the text reads back"),
             first.identity
+        );
+    }
+
+    // An open file's identity is the one its name reads, and no other file's. Killed by an open
+    // file's identity read as a constant.
+    #[test]
+    fn an_open_files_identity_is_its_names_and_no_other_files() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let path = scratch.path().join("held");
+        let other = scratch.path().join("other");
+        let file = fs::File::create(&path).expect("the file is made");
+        let other_file = fs::File::create(&other).expect("the other file is made");
+
+        let identity = open_file_identity(&file).expect("the open file's identity reads");
+
+        let named = entry_identity(&path).expect("the name's identity reads");
+        assert_eq!(identity, named.identity);
+        assert_ne!(
+            identity,
+            open_file_identity(&other_file).expect("the other file's identity reads")
         );
     }
 }

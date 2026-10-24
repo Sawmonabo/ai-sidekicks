@@ -53,6 +53,7 @@ use crate::session::run::read::{SessionLiveRunRow, read_session_live_runs};
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 use crate::session::tags::NotATag;
 use crate::transcript::block_cut::MARKDOWN_PARSE;
+use crate::transcript::body::starts_cache::BlockCuts;
 use crate::transcript::body::{BodyReadError, is_body_cut_into_blocks, read_row_body};
 use crate::transcript::child_run::expand_child_run;
 use crate::transcript::patch_list::{PatchListError, list_patches};
@@ -268,6 +269,8 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
 pub(crate) struct SessionService {
     pool: Arc<DatabaseReadPool>,
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+    // The cuts of ended replies its body reads keep, so a later part decodes only its frames.
+    block_cuts: Arc<BlockCuts>,
 }
 
 impl SessionService {
@@ -280,7 +283,14 @@ impl SessionService {
         Self {
             pool,
             read_damaged_from_sequence,
+            block_cuts: Arc::default(),
         }
+    }
+
+    /// Lets go of the block cuts its body reads kept for `session_id`'s replies, once the session
+    /// is purged.
+    pub(crate) fn forget_session_block_cuts(&self, session_id: &SessionId) {
+        self.block_cuts.forget_session_block_cuts(session_id);
     }
 
     /// The session's record, its transcript cursors, its runs not yet ended and its standing
@@ -404,6 +414,7 @@ impl SessionService {
         } else {
             ReadLength::Short
         };
+        let block_cuts = Arc::clone(&self.block_cuts);
         self.run_read(length, move |reader, read_damaged_from_sequence| {
             read_row_body(
                 reader,
@@ -412,6 +423,7 @@ impl SessionService {
                 &row_id,
                 offset,
                 MARKDOWN_PARSE,
+                &block_cuts,
             )
         })
         .await

@@ -187,8 +187,9 @@ pub(crate) enum CanonicalTranscriptFoldError {
 }
 
 /// Folds run `run_id`'s transcript under `bound` from the session log. It reads only the run's
-/// rows of the seven transcript types, at or below the bound, and then the session's head; nothing
-/// is kept between calls. Fails when the log cannot be read or a row's payload is not its type's.
+/// rows of the seven transcript types, at or below the bound, and then the session's head, all in
+/// one read transaction; nothing is kept between calls. Fails when the log cannot be read or a
+/// row's payload is not its type's.
 pub(crate) fn fold_canonical_transcript<DamagedFrom>(
     reads: &SessionEventReads<'_, DamagedFrom>,
     session_id: &SessionId,
@@ -198,22 +199,37 @@ pub(crate) fn fold_canonical_transcript<DamagedFrom>(
 where
     DamagedFrom: Fn(&SessionId) -> Option<i64>,
 {
-    // Rows past the bound would only add segments the bound drops, so the read stops at it.
-    let events = reads.read_after_hydrated(
-        session_id,
-        run_id,
-        START_OF_LOG_POSITION,
-        TRANSCRIPT_EVENT_TYPES.as_slice(),
-        bound.before_sequence(),
-    )?;
+    // One snapshot from the first page to the head, so a body a page names is still there when
+    // it is read and the head is the one the rows were read under.
+    let snapshot = reads.snapshot().map_err(SessionLogReadError::from)?;
+    let mut fold = TurnFold::default();
+    let mut after_position = START_OF_LOG_POSITION;
+    // Rows past the bound would only add segments the bound drops, so the read stops at it. Each
+    // page is folded before the next is read, so only the fold holds every row's text.
+    loop {
+        let page = reads.read_run_page_hydrated(
+            session_id,
+            run_id,
+            after_position,
+            TRANSCRIPT_EVENT_TYPES.as_slice(),
+            bound.before_sequence(),
+        )?;
+        let Some(last) = page.last_sequence() else {
+            break;
+        };
+        after_position = last;
+        for event in page.events {
+            fold.add(event)?;
+        }
+        if let Some(unloaded) = page.oversized {
+            fold.add(reads.load_body(unloaded)?)?;
+        }
+    }
     // Read after the rows, so the head is at or past every row the fold holds.
     let built_at_position = reads.read_head(session_id)?.map_or(0, |head| {
         u64::try_from(head).expect("a session's read head is never negative")
     });
-    let mut fold = TurnFold::default();
-    for event in events {
-        fold.add(event)?;
-    }
+    snapshot.commit().map_err(SessionLogReadError::from)?;
     Ok(CanonicalTranscriptProjection {
         session_id: *session_id,
         run_id: *run_id,
@@ -397,7 +413,7 @@ fn read_payload<Payload: DeserializeOwned>(
         .map_err(|cause| CanonicalTranscriptFoldError::Payload { sequence, cause })
 }
 
-/// The row's stored body, `None` when it cannot be read. A cut body is taken as stored.
+/// The row's stored body, whole, `None` when it cannot be read.
 fn body_of(content: HydratedSessionEventContent) -> Option<String> {
     match content {
         HydratedSessionEventContent::Available { body, .. } => Some(body),
@@ -513,6 +529,7 @@ mod tests {
         fold_canonical_transcript,
     };
     use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
+    use crate::events::content::codec::BodyEncoder;
     use crate::events::session::insert::{SessionEventRow, insert_session_event, monotonic_ns_now};
     use crate::events::session::read::SessionEventReads;
     use crate::transcript::test_log::TranscriptTestLog;
@@ -531,7 +548,7 @@ mod tests {
         let mut envelope = test_envelope(*session_id, &event);
         let content_payload = body.map(|body| {
             envelope
-                .describe_content(body)
+                .describe_content(body.to_owned())
                 .expect("the event carries a body")
         });
         let row = SessionEventRow {
@@ -540,7 +557,8 @@ mod tests {
             monotonic_ns: monotonic_ns_now(),
             content_payload,
         };
-        insert_session_event(writer, &row).expect("the test writes its row");
+        insert_session_event(writer, &mut BodyEncoder::new(), &row)
+            .expect("the test writes its row");
     }
 
     #[test]

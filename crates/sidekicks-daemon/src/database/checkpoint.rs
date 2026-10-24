@@ -3,6 +3,8 @@
 /// A WAL checkpoint mode the writer runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CheckpointMode {
+    /// Moves nothing; it only reads the log's counts.
+    Noop,
     /// Moves what it can without waiting on any reader or writer.
     Passive,
     /// Moves every frame, then truncates the log to nothing.
@@ -13,6 +15,7 @@ impl CheckpointMode {
     /// The mode as `PRAGMA wal_checkpoint(…)` spells it.
     pub(crate) fn as_sql(self) -> &'static str {
         match self {
+            Self::Noop => "NOOP",
             Self::Passive => "PASSIVE",
             Self::Truncate => "TRUNCATE",
         }
@@ -27,6 +30,7 @@ pub(crate) struct CheckpointResult {
     pub(crate) is_busy: bool,
     /// Frames in the write-ahead log.
     pub(crate) log_frames: i64,
-    /// Frames moved into the database file.
+    /// Frames of the log moved into the database file since the log last restarted, by this
+    /// checkpoint and every one before it.
     pub(crate) checkpointed_frames: i64,
 }

@@ -17,6 +17,10 @@ use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{Port, SafeInt};
 
+/// The port a workflow started by a web request listens on until the person picks another: one
+/// constant, from a range no common developer tool uses, never a free port picked at the start.
+pub const DEFAULT_WORKFLOW_LISTENER_PORT: u16 = 7391;
+
 /// Declares a whole number that takes one of a fixed list of steps, as its own definition.
 macro_rules! step_set {
     ($(#[doc = $doc:literal])+ $name:ident, $steps:ident = [$($step:literal),+]) => {

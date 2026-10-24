@@ -6,14 +6,16 @@ use tantivy::schema::IndexRecordOption;
 
 use crate::index::cursor::token::term_cursor;
 use crate::index::cursor::{CursorPurpose, GatedCursors, PhraseCursor, RowMatch};
+use crate::index::long_row::matches::long_row_match_counts;
 use crate::index::phrase::{Phrase, query_phrases};
 use crate::index::schema::{EVENT_KIND, Owner, owner_term};
 use crate::index::tokenizer::tokenize;
 use crate::index::version::IndexVersion;
 use crate::index::{MatchRange, SearchQuery, SessionFind};
 
-/// The session's live `event` rows matching every phrase, newest first, each with the number of
-/// tokens `mark_matches` marks in it. Fails when Tantivy fails a read.
+/// The session's live `event` rows matching every phrase, newest first, each once with the number
+/// of tokens `mark_matches` marks in it, a row longer than a page counted over its whole text.
+/// Fails when Tantivy fails a read.
 pub(crate) fn find_in_session(
     version: &IndexVersion,
     session_key: u64,
@@ -46,6 +48,7 @@ pub(crate) fn find_in_session(
                     RowMatch::Matches(cursors) => {
                         if alive.is_none_or(|alive| alive.is_alive(doc))
                             && columns.kind.get_val(doc) == EVENT_KIND
+                            && columns.piece.get_val(doc) == 0
                         {
                             let count = row_match_count(cursors, purpose, &mut marked);
                             found.push((columns.key.get_val(doc), count));
@@ -57,6 +60,7 @@ pub(crate) fn find_in_session(
                 doc = rows.advance();
             }
         }
+        found.extend(long_row_match_counts(version, &phrases, session_key)?);
     }
     found.sort_unstable_by_key(|(key, _)| std::cmp::Reverse(*key));
     let (row_keys, match_counts) = found.into_iter().unzip();

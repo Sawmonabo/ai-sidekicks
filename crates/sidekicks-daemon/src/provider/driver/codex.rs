@@ -12,6 +12,7 @@ use crate::provider::driver::{
     ProviderDescriptor, ProviderMemoryEstimates,
 };
 
+mod account_home_logs;
 mod app_server_protocol;
 mod ask_option_sets;
 mod capabilities;
@@ -153,4 +154,7 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     skill_name_max_length: Some(64),
     background_work: None,
     callback_tools_asked: false,
+    // Codex's log folder; the rows its service logs into the home's database the driver's own
+    // expiry deletes.
+    account_home_diagnostic_folders: &[&["log"]],
 };

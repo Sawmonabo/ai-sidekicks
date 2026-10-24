@@ -19,9 +19,6 @@ ignored = [
   # The browser tools and Preview's pages over DevTools.
   "chromiumoxide_cdp",
   "psl",
-  # Crash reports of the daemon and its modes.
-  "crash-handler",
-  "minidumper",
   # A workflow schedule's next run in its time zone.
   "croner",
   # The workflow step that parses CSV.
@@ -140,6 +137,9 @@ llrt_buffer.workspace = true
 llrt_crypto.workspace = true
 lru.workspace = true
 memchr.workspace = true
+minidump.workspace = true
+minidump-processor.workspace = true
+minidump-unwind.workspace = true
 minidumper.workspace = true
 notify.workspace = true
 opentelemetry-proto.workspace = true
@@ -180,8 +180,7 @@ strum.workspace = true
 subtle.workspace = true
 sysinfo.workspace = true
 tar.workspace = true
-# The test database file of the `test-support` feature.
-tempfile = { workspace = true, optional = true }
+tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
@@ -199,6 +198,7 @@ unicode-segmentation.workspace = true
 url.workspace = true
 uuid.workspace = true
 vte = { workspace = true, features = ["ansi"] }
+walkdir.workspace = true
 web-push-native.workspace = true
 webp.workspace = true
 x25519-dalek.workspace = true
@@ -217,10 +217,11 @@ rstest.workspace = true
 sidekicks-daemon = { path = ".", features = ["test-support"] }
 # A file whose removal the system refuses, for the clone's failed-removal test.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
+# The documents an index holds under a row's key, for the search apply's damaged-row test.
+sidekicks-search = { workspace = true, features = ["index", "test-support"] }
 # The screen copy drawn without a shell, for the screen listener's answer tests.
 sidekicks-terminal = { workspace = true, features = ["test-support"] }
 standardwebhooks.workspace = true
-tempfile.workspace = true
 # The paused clock the clone progress gate's and the stream batcher's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 x-wing.workspace = true
@@ -238,7 +239,7 @@ zstd.workspace = true
 [features]
 # Helpers the integration tests use: a database file with the daemon's schema and the session
 # rows other tables build on.
-test-support = ["dep:tempfile"]
+test-support = []
 
 [lints]
 workspace = true

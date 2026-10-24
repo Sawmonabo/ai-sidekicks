@@ -2,12 +2,13 @@
 //! applies batch after batch until the outbox holds nothing past what it read, so a settled message
 //! waits for no timer and no fuller batch. Runs never overlap: the live index's one task calls
 //! [`SearchIndexApplier::apply_waiting`] for each change of the writer's commit count, so a write
-//! that commits during a run is read by the next.
+//! that commits during a run is read by the next. A row too long for one batch is applied inside
+//! the read that reads it, over several commits, so no batch holds much more than its text bound.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
-use sidekicks_search::index::{SearchIndex, SearchIndexError};
+use sidekicks_search::index::{IndexBatch, SearchIndex, SearchIndexError};
 use tokio::task::JoinError;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
@@ -62,21 +63,27 @@ impl SearchIndexApplier {
 
     /// Applies every outbox row waiting, each batch in its own durable commit on the blocking
     /// pool, calling `on_applied` with the batch's last outbox id once it is durable; returns once
-    /// a read leaves no row waiting. Only one call runs at a time. Fails with the read's or the
-    /// index's failure, the batches before it applied.
+    /// a read leaves no row waiting. A row too long for one batch commits its earlier pages inside
+    /// the read, holding the read's connection meanwhile. Only one call runs at a time. Fails with
+    /// the read's or the index's failure, the batches before it applied.
     pub(crate) async fn apply_waiting(
         &self,
         mut on_applied: impl FnMut(u64),
     ) -> Result<(), SearchIndexApplyError> {
         loop {
             let after_id = self.last_read_id.load(Ordering::Acquire);
+            let reading_index = Arc::clone(&self.index);
             let OutboxRead {
                 batch,
                 floor_position,
             } = self
                 .reads
                 .read(ReadLength::Long, move |connection| {
-                    Ok::<_, SearchIndexApplyError>(OutboxReader::new(connection).read(after_id)?)
+                    OutboxReader::new(connection).read(after_id, &mut |batch: &IndexBatch| {
+                        reading_index
+                            .apply(batch)
+                            .map_err(SearchIndexApplyError::from)
+                    })
                 })
                 .await?;
             if let Some(batch) = batch {

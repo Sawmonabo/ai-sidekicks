@@ -3,8 +3,8 @@
 //! itself and the readying of the fresh file it recovers into, the record of how the last run on
 //! it ended, the newest backup a repair reads from, the daemon's SQLite shell that recovers a
 //! damaged file, the copies aside made before any repair, the copy every copy of a file runs in,
-//! and the watch that stops a recovery whose shells have stalled. Every child it starts is the
-//! daemon's own program in a mode, ended at once by a stop.
+//! the watch that stops a recovery whose shells have stalled, and the offline restore from a
+//! backup. Every child it starts is the daemon's own program in a mode, ended at once by a stop.
 
 pub mod aside_copy;
 pub mod check;
@@ -14,6 +14,7 @@ pub mod fresh;
 pub mod last_run;
 pub(crate) mod newest_backup;
 pub mod repair;
+pub mod restore;
 pub mod sqlite_shell;
 pub(crate) mod stall_watch;
 

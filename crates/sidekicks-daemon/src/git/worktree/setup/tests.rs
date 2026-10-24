@@ -168,6 +168,7 @@ impl SetupFixture {
                 scheduler: Arc::new(Scheduler::start(
                     Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
                     None,
+                    crate::session::run::live_count::LiveRunCount::default().follow(),
                 )),
                 read_watch_ceiling: no_ceiling,
                 slow_tick_interval: Duration::from_secs(180),

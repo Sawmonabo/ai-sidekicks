@@ -3,10 +3,11 @@
 //! in the same read transaction each row they name with its text as the database holds it then, a
 //! row gone by then as a removal, and each group whose members changed with its members then. A
 //! session or group deleted with its rows ends its batch, so rows a later session or group writes
-//! at a key it held always land in a later commit than the removal.
+//! at a key it held always land in a later commit than the removal. A row too long for one batch
+//! is applied over several, each recording the outbox id before the row's entry until the last.
 
 use std::borrow::Cow;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 use rusqlite::Connection;
@@ -16,8 +17,9 @@ use sidekicks_search::index::{GroupMembers, IndexBatch, IndexRowKind, RemovedOwn
 use crate::database::statement::{StatementBindings, WriteStatement};
 use crate::database::stored_column::{rowid_column, text_column};
 use crate::database::writer::{DatabaseWriter, WriteError};
+use crate::session::search::index::batch_builder::IndexBatchBuilder;
 use crate::session::search::index::rows::{
-    INDEX_BATCH_ROW_LIMIT, IndexRowReader, empty_index_batch_room, index_row_of,
+    INDEX_BATCH_ROW_LIMIT, INDEX_BATCH_TEXT_LIMIT, IndexRowReader, empty_index_batch_room,
 };
 use crate::session::search::rowid_floors::{RowidFloorLog, floors_let_go_statement};
 
@@ -111,8 +113,8 @@ static APPLIED_ROWS_DELETE_SQL: LazyLock<String> = LazyLock::new(|| {
 const ROWS_READ_AT_ONCE: usize = 32;
 
 /// Reads the outbox on one connection, with the index rows and the rowid floor log it names read
-/// on the same one. A stored value that does not read as its type fails the read with rusqlite's
-/// error, keeping why.
+/// on the same one. An outbox or floor log value that does not read as its type fails the read with
+/// rusqlite's error, keeping why; an index row damaged so is passed over.
 pub(crate) struct OutboxReader<'connection> {
     /// The connection the outbox is read on.
     reader: &'connection Connection,
@@ -142,10 +144,19 @@ impl<'connection> OutboxReader<'connection> {
 
     /// The next batch past the outbox id `after_id`, read in one read transaction, so the
     /// connection must hold none open: at most [`INDEX_BATCH_ROW_LIMIT`] outbox rows, no more once
-    /// their rows' text fills a batch's text bound, and none past a deleted session or group.
-    pub(crate) fn read(&self, after_id: u64) -> rusqlite::Result<OutboxRead> {
+    /// their rows' text fills a batch's text bound, and none past a deleted session or group. A row
+    /// whose pages fill the bound hands the batch so far to `flush` inside the read, recording the
+    /// outbox id before the row's entry. Fails as the read or `flush` fails.
+    pub(crate) fn read<Failure>(
+        &self,
+        after_id: u64,
+        flush: &mut impl FnMut(&IndexBatch) -> Result<(), Failure>,
+    ) -> Result<OutboxRead, Failure>
+    where
+        Failure: From<rusqlite::Error>,
+    {
         let snapshot = self.reader.unchecked_transaction()?;
-        let read = self.read_in_snapshot(after_id)?;
+        let read = self.read_in_snapshot(after_id, flush)?;
         snapshot.commit()?;
         Ok(read)
     }
@@ -169,7 +180,14 @@ impl<'connection> OutboxReader<'connection> {
         Ok(groups)
     }
 
-    fn read_in_snapshot(&self, after_id: u64) -> rusqlite::Result<OutboxRead> {
+    fn read_in_snapshot<Failure>(
+        &self,
+        after_id: u64,
+        flush: &mut impl FnMut(&IndexBatch) -> Result<(), Failure>,
+    ) -> Result<OutboxRead, Failure>
+    where
+        Failure: From<rusqlite::Error>,
+    {
         let entries = self.entries_after(after_id)?;
         if entries.is_empty() {
             return Ok(OutboxRead {
@@ -177,10 +195,8 @@ impl<'connection> OutboxReader<'connection> {
                 floor_position: Some(self.floor_log.position()?),
             });
         }
-        let mut rows = Vec::new();
-        let mut removed_keys = Vec::new();
-        let mut removed_owners = Vec::new();
-        let mut member_group_keys = BTreeSet::new();
+        let mut builder = IndexBatchBuilder::new(INDEX_BATCH_TEXT_LIMIT);
+        let mut member_group_keys = HashSet::new();
         let mut read_keys = HashSet::new();
         let mut last_outbox_id = after_id;
         let mut room = empty_index_batch_room();
@@ -189,20 +205,26 @@ impl<'connection> OutboxReader<'connection> {
             if is_batch_ended {
                 break;
             }
+            // Each row's key with the outbox id before its entry, which a batch holding only part
+            // of the row records.
             let mut keys = Vec::new();
+            let mut group_keys = Vec::new();
             for entry in chunk {
+                let before_entry = last_outbox_id;
                 last_outbox_id = entry.id;
                 match entry.operation {
                     OutboxOperation::Row => {
                         if read_keys.insert(entry.index_key) {
-                            keys.push(entry.index_key);
+                            keys.push((entry.index_key, before_entry));
                         }
                     }
                     OutboxOperation::Members => {
-                        member_group_keys.insert(entry.owner_key);
+                        if member_group_keys.insert(entry.owner_key) {
+                            group_keys.push(entry.owner_key);
+                        }
                     }
                     OutboxOperation::Owner => {
-                        removed_owners.push(RemovedOwner {
+                        builder.batch.removed_owners.push(RemovedOwner {
                             owner_key: entry.owner_key,
                             is_group: entry.kind == IndexRowKind::Group,
                         });
@@ -211,40 +233,33 @@ impl<'connection> OutboxReader<'connection> {
                     }
                 }
             }
-            let mut current_rows = self.rows.read_rows(keys.iter().copied())?;
-            for key in keys {
+            // Read before the rows, so a batch a long row hands over holds them.
+            for group_key in group_keys {
+                let session_keys = self.group_members(group_key)?;
+                builder.batch.group_members.push(GroupMembers {
+                    group_key,
+                    session_keys,
+                });
+            }
+            let mut current_rows = self.rows.read_rows(keys.iter().map(|(key, _)| *key))?;
+            for (key, before_entry) in keys {
                 match current_rows.remove(&key) {
-                    Some(row) => {
-                        room.text_bytes = room.text_bytes.saturating_sub(row.text.len());
-                        rows.push(index_row_of(row));
+                    Some(read) => {
+                        room.text_bytes = room.text_bytes.saturating_sub(read.text_len());
+                        builder.add_row(&self.rows, read, before_entry, flush)?;
                     }
-                    None => removed_keys.push(key),
+                    None => builder.batch.removed_keys.push(key),
                 }
             }
             is_batch_ended |= room.text_bytes == 0;
         }
-        let group_members = member_group_keys
-            .into_iter()
-            .map(|group_key| {
-                Ok(GroupMembers {
-                    group_key,
-                    session_keys: self.group_members(group_key)?,
-                })
-            })
-            .collect::<rusqlite::Result<Vec<_>>>()?;
         let floor_position = if self.is_entry_after(last_outbox_id)? {
             None
         } else {
             Some(self.floor_log.position()?)
         };
         Ok(OutboxRead {
-            batch: Some(IndexBatch {
-                last_outbox_id,
-                rows,
-                removed_keys,
-                removed_owners,
-                group_members,
-            }),
+            batch: Some(builder.finish(last_outbox_id)),
             floor_position,
         })
     }
