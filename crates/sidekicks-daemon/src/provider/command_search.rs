@@ -254,11 +254,6 @@ impl ProviderCommandSearch {
 /// folders the system's package manager, npm and the Node managers use, each moved by its variable
 /// in `spawn_environment` (an empty one counts as unset). `home` is the person's home folder; a
 /// folder under the person's programs folder is left out where the system has none. Never fails.
-#[expect(
-    dead_code,
-    reason = "each driver's session start and capability read list the folders its command \
-              resolution falls back to"
-)]
 pub(crate) fn list_command_folders(
     descriptor: &ProviderDescriptor,
     home: &Path,

@@ -34,6 +34,19 @@ fn end_trigger(database: &TestDatabase, run_id: &RunId, end_type: &str) -> Optio
         .expect("the test reads the run's end")
 }
 
+// Whether the run's end of type `end_type` is marked as the daemon's intended close.
+fn is_intended_close(database: &TestDatabase, run_id: &RunId, end_type: &str) -> Option<bool> {
+    database
+        .reader()
+        .query_row(
+            "SELECT json_extract(payload, '$.intendedClose') FROM session_events
+              WHERE run_id = ?1 AND type = ?2",
+            [run_id.text().as_str(), end_type],
+            |row| row.get(0),
+        )
+        .expect("the test reads the run's end")
+}
+
 // What a live run waits on when its provider process exits.
 #[derive(Clone, Copy, Debug)]
 enum LiveStops {
@@ -415,5 +428,68 @@ async fn a_process_exit_refused_by_an_interrupt_asked_for_since_its_read_reads_a
     );
     for row in [step_row.as_str(), person_row.as_str()] {
         assert_eq!(interrupt_state(&database, row), "applied");
+    }
+}
+
+// Killed by a close that drops the intended close from a run its stops settle (the `Stopped` arm
+// of `settlement_change` writing `None`), that settles a run owing its token limit as anything but
+// `stopped`, and that leaves the live subagent beneath the run without its end.
+#[tokio::test]
+async fn a_close_stops_a_run_owing_its_token_limit_and_ends_its_subagent_as_intended() {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let lead = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, lead);
+    let engine = test_engine(&database, log.service, home.path());
+    let subagent = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    database
+        .reader()
+        .execute(
+            "INSERT INTO runs (run_id, session_id, parent_run_id, reached_by, state, run_version)
+             VALUES (?1, ?2, ?3, 'providerSubagent', 'running', 1)",
+            [
+                subagent.text().as_str(),
+                session_id.text().as_str(),
+                lead.text().as_str(),
+            ],
+        )
+        .expect("the test writes the subagent");
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, lead, 1, 1),
+    )
+    .await;
+    append(&engine, session_id, &token_limit_reached(session_id, lead)).await;
+
+    engine
+        .end_turn_on_close(lead)
+        .await
+        .expect("the close ends the run and its subagent");
+
+    assert_eq!(
+        stored_events(&database, &lead),
+        events(&[
+            ("agent.turn.started", None, None),
+            ("agent.run.tokenLimit.reached", None, None),
+            ("agent.turn.interrupted", None, Some("daemon")),
+            ("agent.run.stopped", None, None),
+        ])
+    );
+    assert_eq!(
+        end_trigger(&database, &lead, "agent.run.stopped").as_deref(),
+        Some("tokenLimit")
+    );
+    assert_eq!(
+        stored_events(&database, &subagent),
+        events(&[("agent.run.interrupted", None, None)])
+    );
+    for (run_id, end_type) in [
+        (lead, "agent.run.stopped"),
+        (subagent, "agent.run.interrupted"),
+    ] {
+        assert_eq!(is_intended_close(&database, &run_id, end_type), Some(true));
     }
 }

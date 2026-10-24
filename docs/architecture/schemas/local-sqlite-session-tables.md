@@ -18,7 +18,8 @@ A session's groups, links and tags are the three layers of [Spec-001 §Groups, L
 ```sql
 -- Owner: Plan-001
 CREATE TABLE session_groups (
-  id           TEXT NOT NULL PRIMARY KEY,
+  rowid        INTEGER PRIMARY KEY,        -- declared, so a VACUUM keeps the search index's keys
+  id           TEXT NOT NULL UNIQUE,
   project_id   TEXT NOT NULL,              -- the project record the group belongs to; a chat has no groups
   name         TEXT NOT NULL,              -- the person's own casing, for display
   name_folded  TEXT NOT NULL,              -- the full-Unicode case fold of name, written by the store on every insert and rename
@@ -30,7 +31,8 @@ CREATE TABLE session_groups (
 CREATE UNIQUE INDEX idx_session_groups_name_folded ON session_groups(project_id, name_folded);
 
 CREATE TABLE sessions (
-  id                         TEXT NOT NULL PRIMARY KEY,
+  rowid                      INTEGER PRIMARY KEY,  -- declared, so a VACUUM keeps the search index's keys
+  id                         TEXT NOT NULL UNIQUE,
   shape                      TEXT NOT NULL CHECK (shape IN ('chat', 'project')),
   state                      TEXT NOT NULL
                              CHECK (state IN ('provisioning', 'active', 'archived', 'closed', 'purgeRequested')),
@@ -78,10 +80,11 @@ CREATE INDEX idx_session_links_target ON session_links(target_session_id, source
 -- Any number of tags per session, across projects, nested with '/'. The fold key makes a tag match
 -- ignoring case, and a prefix match on it finds a parent's children ('billing' finds 'billing/stripe').
 CREATE TABLE session_tags (
+  rowid       INTEGER PRIMARY KEY,           -- declared, so a VACUUM keeps the search index's keys
   session_id  TEXT NOT NULL,
   tag         TEXT NOT NULL,                 -- as written, for display
   tag_folded  TEXT NOT NULL,
-  PRIMARY KEY (session_id, tag_folded)
+  UNIQUE (session_id, tag_folded)
 ) STRICT;
 
 -- Covers the tags in use, which `Add tag` suggests: one spelling per fold, read from the index alone.
@@ -171,6 +174,8 @@ CREATE TABLE session_console_state (
   max_steps_per_turn  INTEGER
                       CHECK (max_steps_per_turn IS NULL OR max_steps_per_turn >= 1),  -- this session's OWN bound on how many steps one turn may take. NULL = no session override, so the machine's own Runtime value applies, and where that is unset each provider does what it does on its own ([Spec-003 §The Step Bound On A Turn](../../specs/003-queue-steer-pause-resume.md#the-step-bound-on-a-turn)). The floor is 1 because a bound of zero would forbid the turn it bounds; the ceiling is the person's, since Claude Code and Codex publish none. The MACHINE-wide value is not here: it belongs to the Runtime settings page, so one number has one home on each side of the override
   advisor_model       TEXT,  -- a Claude Code session's own advisor: the model, or NULL when it is off. Copied at `session.create` from the app's pick on Claude Code's declared `Advisor` row, kept in the machine settings file's `providerSettings`, where one is set, else from the `advisorModel` Claude Code's own settings resolve for the session's project, and NULL where none sets one; changed only by `/advisor` in this session, each change appending `session.advisor.changed`; a later change to the default never reaches it
+  advisor_set         INTEGER NOT NULL DEFAULT 0
+                      CHECK (advisor_set IN (0, 1)),  -- 1 once the session's advisor is set, by `session.create`, by `/advisor` or by the advisor Claude Code resolved at the session's first start where no one picked one, which fills the row only while this is 0; a row the mode or the step bound made first reads as no advisor of the session's own
   session_mode        TEXT NOT NULL DEFAULT 'build'
                       CHECK (session_mode IN ('build', 'plan')),  -- the composer's Build or Plan mode, written `plan` at `session.create` where Claude Code's own `permissions.defaultMode` resolves to `plan`, and otherwise once the provider has taken a `session.mode.update`; a restart's resume opens in it
   updated_at          TEXT NOT NULL

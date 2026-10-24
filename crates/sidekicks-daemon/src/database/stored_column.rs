@@ -1,11 +1,11 @@
 //! Reading a stored column into a typed value: TEXT through a parse or as a JSON object, a rowid as
 //! unsigned, an integer as a safe one, the failure kept as the read's cause, and a JSON one kept
-//! without the stored value.
+//! without the stored value; a value of a type its column never holds fails as a conversion.
 
 use std::error::Error;
 
 use rusqlite::Row;
-use rusqlite::types::Type;
+use rusqlite::types::{FromSqlError, Type, Value as SqliteValue};
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -37,18 +37,6 @@ where
     text.map(parse)
         .transpose()
         .map_err(|failure| conversion_failure(index, failure))
-}
-
-/// The nullable BLOB column at `index` read as the UTF-8 text its bytes hold, `None` for `NULL`;
-/// fails with `rusqlite::Error::FromSqlConversionFailure` keeping why the bytes are not UTF-8.
-pub(crate) fn optional_utf8_blob_column(
-    row: &Row<'_>,
-    index: usize,
-) -> rusqlite::Result<Option<String>> {
-    let bytes: Option<Vec<u8>> = row.get(index)?;
-    bytes.map(String::from_utf8).transpose().map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(index, Type::Blob, Box::new(error))
-    })
 }
 
 /// The TEXT column at `index` read as a JSON object, as every stored payload is; fails as
@@ -91,6 +79,16 @@ impl From<serde_json::Error> for StoredJsonFault {
 /// A word of a closed set, read by its serde spelling; fails for text that names no member.
 pub(crate) fn closed_word<Word: DeserializeOwned>(text: String) -> Result<Word, serde_json::Error> {
     serde_json::from_value(Value::String(text))
+}
+
+/// A value of a type no writer stores in the column at `index`, such as a payload member's, as
+/// rusqlite's conversion error on that column.
+pub(crate) fn wrong_type_failure(index: usize, value: &SqliteValue) -> rusqlite::Error {
+    rusqlite::Error::FromSqlConversionFailure(
+        index,
+        value.data_type(),
+        Box::new(FromSqlError::InvalidType),
+    )
 }
 
 /// A rowid, or a key built from one, as unsigned: SQLite holds it signed, so a negative one fails

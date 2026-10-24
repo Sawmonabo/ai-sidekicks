@@ -39,8 +39,8 @@ use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions
 use crate::transcript::reasoning::read_reasoning;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-// A publisher no run state stream reads.
-struct UnreadPublisher;
+/// A publisher no run state stream reads.
+pub(crate) struct UnreadPublisher;
 
 impl RunStatePublisher for UnreadPublisher {
     fn publish(&self, _hold: RunSafetyBufferingUpdatedPayload) {}

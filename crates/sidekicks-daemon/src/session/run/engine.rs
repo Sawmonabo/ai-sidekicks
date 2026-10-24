@@ -57,6 +57,7 @@ use crate::session::run::engine::live::{
 };
 use crate::session::run::engine::turns::{ProviderTurnEnd, TurnEnd, TurnOutcome, WriteWithResend};
 use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
+use crate::session::run::live_count::LiveRunCount;
 use crate::session::run::read::{RunRead, read_run_through, safe_run_version};
 use crate::session::run::refusals::{RunRefusal, ended_run_refusal};
 use crate::session::run::setup_gates::{
@@ -102,7 +103,6 @@ pub(crate) enum InterruptRoute {
 /// session and version when it records it. A turn's start is no marker: [`RunEngine::start_turn`]
 /// numbers it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(dead_code, reason = "the provider's event delivery")]
 pub(crate) enum RunMarker {
     /// The provider process reported its start for the run (`agent.run.providerInitialized`).
     ProviderInitialized {
@@ -298,6 +298,8 @@ pub(crate) struct RunEngineDeps {
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
     /// The registered drivers: a provider's fixed facts and its driver, by the provider's id.
     pub(crate) providers: Arc<ProviderRegistry>,
+    /// The count of live runs, which every committed state change moves.
+    pub(crate) live_runs: Arc<LiveRunCount>,
 }
 
 // An interrupt that waits before it is routed: for a continue to settle, or for a start past its
@@ -349,6 +351,7 @@ impl RunEngine {
             event_log,
             execution_postures,
             providers,
+            live_runs,
         } = deps;
         let appender = Arc::new(SessionEventAppender::new(
             event_log,
@@ -357,7 +360,7 @@ impl RunEngine {
         let mut gates = RunSetupGates::default();
         gates.register(Arc::clone(&execution_postures) as Arc<dyn RunSetupGate>);
         Self {
-            changes: RunStateChangeWriter::new(Arc::clone(&pool), Arc::clone(&appender)),
+            changes: RunStateChangeWriter::new(Arc::clone(&pool), Arc::clone(&appender), live_runs),
             pool,
             appender,
             gates,
@@ -496,7 +499,6 @@ impl RunEngine {
     /// interrupt a stop of the run could not hand is handed again, and once the provider reports
     /// the run back to `running` from a wait, a pause or `pausing`, the interrupt of every limit it
     /// owes, each failure returned beside the run as the change left it.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn apply_provider_state_change(
         self: &Arc<Self>,
         change: RunStateChange,
@@ -628,7 +630,6 @@ impl RunEngine {
     /// Records `marker` on its run at the run's current version and returns the id of the event
     /// written, or `None` with nothing written when the run has ended. Fails with
     /// [`RunRefusal::NotFound`] for a run the daemon has no row for.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn append_run_marker(
         &self,
         marker: RunMarker,
@@ -653,7 +654,6 @@ impl RunEngine {
     /// provider runs it at another state, appends one `fastOutputUnavailable` notice naming the
     /// run, with the provider's reason. Only the first report for a started run is compared; a
     /// later one finds nothing. Fails when the notice is not appended.
-    #[expect(dead_code, reason = "the provider's event delivery")]
     pub(crate) async fn record_settled_output_speed(
         &self,
         session_id: SessionId,

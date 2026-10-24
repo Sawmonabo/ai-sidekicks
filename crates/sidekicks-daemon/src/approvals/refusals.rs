@@ -2,7 +2,8 @@
 //! row for, one already answered or canceled, an answer that does not fit its ask, an ask raised
 //! after its run or its session ended, a record that could not be kept, a rule the provider could
 //! not keep after the answer reached it, an `Allow once` on a block the daemon holds no record of
-//! or no person may overrule, and a revoke of a rule never made or no longer in force.
+//! or no person may overrule, and a revoke of a rule never made, no longer in force, or that could
+//! not be taken out of a project's rule file.
 
 use std::error::Error;
 
@@ -101,6 +102,21 @@ pub(crate) fn approval_rule_not_kept(
         RefusalCode::ApprovalRuleNotKept,
     )
     .with_detail(json!({ "approvalRequestId": approval_request_id }))
+    .with_source(cause)
+}
+
+/// `approval.rule.notKept` on a revoke: the rule could not be taken out of a project's rule file,
+/// so it still applies there and no revoke was recorded; `cause`, the provider's failure, is kept
+/// for the service log.
+pub(crate) fn approval_rule_revoke_not_kept(
+    rule_id: RememberedRuleId,
+    cause: impl Into<Box<dyn Error + Send + Sync>>,
+) -> DomainError {
+    DomainError::new(
+        "The rule could not be taken out of a project's rule file, so it still applies there",
+        RefusalCode::ApprovalRuleNotKept,
+    )
+    .with_detail(json!({ "ruleId": rule_id }))
     .with_source(cause)
 }
 

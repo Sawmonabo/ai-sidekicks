@@ -12,14 +12,16 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
+use crate::daemon::scheduler::budget::{Measured, ThreadProcessorTime};
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::statement::{StatementBindings, WriteStatement};
 use crate::database::writer::messages::{
-    BatchAnswer, BatchFailure, ThreadExit, ThreadRequest, WriteJob, WriteJobOutcome,
+    BatchAnswer, BatchFailure, CheckpointReport, CommittedBatch, ThreadExit, ThreadRequest,
+    WriteJob, WriteJobOutcome,
 };
 use crate::database::writer::test_file::{TestDatabase, session_event_row, test_session_id};
 use crate::database::writer::{
-    CheckpointError, CommittedWrite, DatabaseWriter, DatabaseWriterOptions, PendingWrite,
+    CommittedWrite, DatabaseWriter, DatabaseWriterOptions, MaintenanceError, PendingWrite,
     ThreadStop, WRITE_QUEUE_CAPACITY, WriteError, WriteFailureListener, WriterThread,
     WritesHeldError,
 };
@@ -217,8 +219,13 @@ async fn a_write_at_the_cap_waits_and_is_stored() {
     assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
 }
 
-/// Answers a batch as committed, each of its writes' one row at the next of `sequences`.
-fn commit_each(reply: oneshot::Sender<BatchAnswer>, sequences: std::ops::Range<u64>) {
+/// Answers a batch as committed, each of its writes' one row at the next of `sequences`, the
+/// thread's count of committing batches at `commit_count`.
+fn commit_each(
+    reply: oneshot::Sender<BatchAnswer>,
+    sequences: std::ops::Range<u64>,
+    commit_count: u64,
+) {
     let outcomes = sequences
         .map(|sequence| WriteJobOutcome::Committed {
             statement_results: Vec::new(),
@@ -226,7 +233,10 @@ fn commit_each(reply: oneshot::Sender<BatchAnswer>, sequences: std::ops::Range<u
         })
         .collect();
     reply
-        .send(Ok(outcomes))
+        .send(Ok(CommittedBatch {
+            outcomes,
+            commit_count,
+        }))
         .expect("the writer waits on the batch");
 }
 
@@ -253,12 +263,12 @@ async fn a_lone_write_goes_at_once_and_writes_queued_during_a_commit_form_the_ne
         thread_requests.try_recv(),
         Err(TryRecvError::Empty)
     ));
-    commit_each(reply, 0..1);
+    commit_each(reply, 0..1, 1);
     let Some(ThreadRequest::Batch { jobs, reply }) = thread_requests.recv().await else {
         panic!("the writer sends the next batch");
     };
     assert_eq!(jobs.len(), 3);
-    commit_each(reply, 1..4);
+    commit_each(reply, 1..4, 2);
     assert_eq!(sequences(lone.await), [0]);
     for (expected, written) in (1..4).zip(later) {
         assert_eq!(sequences(written.await), [expected]);
@@ -284,7 +294,7 @@ async fn no_checkpoint_runs_while_the_writer_holds_its_writes() {
     ));
     assert!(matches!(
         writer.checkpoint(CheckpointMode::Passive).await,
-        Err(CheckpointError::Held)
+        Err(MaintenanceError::Held)
     ));
     release.send(Ok(())).expect("the writer waits on its hold");
     let Some(ThreadRequest::Checkpoint {
@@ -300,7 +310,14 @@ async fn no_checkpoint_runs_while_the_writer_holds_its_writes() {
         checkpointed_frames: 0,
     };
     reply
-        .send(Ok(result))
+        .send(Ok(Measured {
+            report: CheckpointReport {
+                result,
+                moved_frames: 0,
+                page_size: 4096,
+            },
+            processor_time: ThreadProcessorTime::default(),
+        }))
         .expect("the writer waits on the checkpoint");
     assert_eq!(truncating.await.expect("the checkpoint runs"), result);
 }

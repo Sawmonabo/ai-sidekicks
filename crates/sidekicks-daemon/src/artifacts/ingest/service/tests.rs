@@ -25,6 +25,7 @@ use crate::artifacts::ingest::limits::{
 };
 use crate::artifacts::refusals::ArtifactError;
 use crate::artifacts::test_store::{ArtifactTestStore, refusal_code_of};
+use crate::daemon::scheduler::budget::ProcessorMeter;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 fn service(store: &ArtifactTestStore) -> Arc<ArtifactIngestService> {
@@ -418,10 +419,14 @@ async fn streams_and_spools_past_their_time_are_reaped() {
     let expired = write(&service, &called, 0, b"abc")
         .await
         .expect_err("a stream past its lifetime is refused");
-    service
-        .reap()
+    let examined = service
+        .reap(&ProcessorMeter::default())
         .await
         .expect("the reaper's pass ends cleanly");
+
+    // One stream left in the registry and the two stray spools, kept or not, are examined. Killed
+    // by the stream or the spool entries left out of the count, or a count of what was deleted.
+    assert_eq!(examined, 3);
 
     assert_eq!(refusal_of(&expired), invalid("lifetimeExpired"));
     assert!(!store.spool_folder().join(called.as_str()).exists());

@@ -84,6 +84,8 @@ pub(super) fn batch(last_outbox_id: u64, rows: Vec<IndexRow>) -> IndexBatch {
     IndexBatch {
         last_outbox_id,
         rows,
+        long_row_documents: Vec::new(),
+        continued_key: None,
         removed_keys: Vec::new(),
         removed_owners: Vec::new(),
         group_members: Vec::new(),

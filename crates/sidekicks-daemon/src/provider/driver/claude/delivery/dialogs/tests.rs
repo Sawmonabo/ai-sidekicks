@@ -61,12 +61,14 @@ fn dialogs(
 ) -> ClaudeProviderDialogs<MockClaudeDialogPorts> {
     let mut ports = MockClaudeDialogPorts::new();
     let sink = Arc::clone(delivered);
-    ports.expect_deliver().returning(move |delivery| {
-        sink.lock()
-            .expect("the sink is never poisoned")
-            .push(label(&delivery));
-        async { Some(InboundOutcome::Published) }.boxed()
-    });
+    ports
+        .expect_deliver()
+        .returning(move |_session_id, delivery| {
+            sink.lock()
+                .expect("the sink is never poisoned")
+                .push(label(&delivery));
+            async { Some(InboundOutcome::Published) }.boxed()
+        });
     ports
         .expect_event_ids_for_messages()
         .returning(|_, _| async { Vec::new() }.boxed());
@@ -115,7 +117,6 @@ fn dialog(kind: &str, payload: &str) -> ClaudeUserDialog {
     ClaudeUserDialog {
         dialog_kind: Some(kind.to_owned()),
         payload: Some(RawValue::from_string(payload.to_owned()).expect("a JSON payload")),
-        tool_use_id: None,
     }
 }
 

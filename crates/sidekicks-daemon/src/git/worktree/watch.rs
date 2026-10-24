@@ -352,7 +352,6 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
     /// Marks the folder `session_id` works in as changed for every subscriber on it, once; an
     /// allowed approval raises it, since work the person has not seen may land there. A session
     /// whose folder is not watched raises nothing. Fails as [`subscribe`](Self::subscribe) does.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the approvals service"))]
     pub(crate) async fn raise_staleness(
         &self,
         session_id: &SessionId,

@@ -667,7 +667,8 @@ type ProviderAccountNotification =
 // WHERE EACH LEG'S `limitId` COMES FROM. On the Claude leg the windows are read from the
 // `get_usage` reply's `limits[]` list, and a `limitId` is that entry's kind together with the model
 // display name where the entry is scoped to a model — one model's weekly window is a different
-// limit from another's and from the account-wide weekly window over the same length. The FLAT
+// limit from another's and from the account-wide weekly window over the same length. A scoped
+// `limitId` is the kind, a colon, then the display name (`weekly_scoped:Opus`). The FLAT
 // per-model keys beside that list answer null and are NEVER read: a design keyed on them renders an
 // empty per-model window for an account with real per-model usage. On the Codex leg the windows are
 // the keys of the reply's `rateLimitsByLimitId` map, which are the provider's own metered ids.

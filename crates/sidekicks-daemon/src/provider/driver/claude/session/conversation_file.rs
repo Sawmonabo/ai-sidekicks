@@ -1,9 +1,11 @@
 //! Claude Code's own record of one conversation, `<config folder>/projects/<project>/<id>.jsonl`:
 //! one JSON entry per line, each with its own `uuid`. Read to find where a resume lands, which
-//! message a fork keeps up to and which messages an ended process took; deleted on a purge with
-//! every other file Claude Code keeps for the conversation under the same config folder and the
-//! daemon's scratch folder, a batch of conversations of one home listing each folder it searches
-//! once.
+//! message a fork keeps up to and which messages an ended process took; titled anew at rest;
+//! deleted on a purge with every other file Claude Code keeps for the conversation under the same
+//! config folder and the daemon's scratch folder, a batch of conversations of one home listing
+//! each folder it searches once.
+
+pub(crate) mod title;
 
 use std::collections::HashSet;
 use std::fmt;
@@ -15,15 +17,19 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde::de::{self, Deserializer, SeqAccess, Visitor};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
 use crate::missing_entry::MissingEntry;
 use crate::provider::driver::claude::session::plan_files::{ClaudePlan, find_claude_plan_files};
+use crate::provider::driver::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
 use crate::provider::driver::claude::session::rules::{
     ClaudeProjectFolder, resolve_claude_local_settings_file,
 };
-use crate::provider::driver::claude::spawn::environment::compose_claude_scratch_folder;
+use crate::provider::driver::claude::spawn::environment::{
+    claude_config_folder, compose_claude_scratch_folder,
+};
 use crate::provider::inbound_json::decode_inbound_json;
 use crate::provider::lenient_json::{
     Lenient, LenientElement, LenientVisitor, lenient_object, read_lenient, skip_other_shapes,
@@ -34,16 +40,11 @@ use crate::provider::lenient_json::{
 pub(crate) struct ClaudeConversationOutline {
     /// Index `n` is the uuid of the last entry of turn `n + 1`, so the length is the turn count.
     pub(crate) turn_end_uuids: Vec<String>,
+    /// Index `n` is the uuid of the person's prompt that opens turn `n + 1`.
+    pub(crate) prompt_uuids: Vec<String>,
 }
 
 /// Where Claude Code and the daemon keep the conversations' files of one Claude Code home.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's conversation purge names its folders in it"
-    )
-)]
 pub(crate) struct ClaudeConversationFolders<'a> {
     /// The configuration folder of the Claude Code home the conversations ran on.
     pub(crate) config_folder: &'a Path,
@@ -58,13 +59,6 @@ pub(crate) struct ClaudeConversationFolders<'a> {
 }
 
 /// One conversation a purge deletes.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's conversation purge names each conversation in it"
-    )
-)]
 pub(crate) struct ClaudeConversation<'a> {
     /// Claude Code's id for it, which names its files.
     pub(crate) provider_session_id: &'a str,
@@ -75,10 +69,6 @@ pub(crate) struct ClaudeConversation<'a> {
 /// Finds the conversation's file under any project folder of `config_folder`, or `None`. Fails
 /// with any read failure but a missing projects folder, and with `InvalidInput` for an id that is
 /// not one plain path component.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's resume and rewind find a conversation's file through it"
-)]
 pub(crate) async fn find_claude_conversation_file(
     config_folder: &Path,
     provider_session_id: &str,
@@ -114,13 +104,6 @@ async fn list_project_folders(config_folder: &Path) -> io::Result<Vec<PathBuf>> 
 
 /// Reads a conversation file's turns line by line; a line that is not a JSON object is skipped.
 /// Holds one line at a time, in a buffer up to twice the longest line, as the buffer doubles.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's rewind reads a conversation's turns through it"
-    )
-)]
 pub(crate) async fn read_claude_conversation_outline(
     file: &Path,
 ) -> io::Result<ClaudeConversationOutline> {
@@ -133,6 +116,9 @@ pub(crate) async fn read_claude_conversation_outline(
                 outline.turn_end_uuids.push(uuid.clone());
             }
             is_prompt_seen = true;
+            outline
+                .prompt_uuids
+                .push(entry.uuid.clone().unwrap_or_default());
         }
         if let Some(uuid) = entry.uuid.filter(|uuid| !uuid.is_empty()) {
             last_uuid = Some(uuid);
@@ -151,13 +137,6 @@ pub(crate) async fn read_claude_conversation_outline(
 /// live process keeps a message past its turn's end and takes it later; the caller retries a read
 /// that fails. Opens nothing for an empty list, stops once every uuid is found, and fails with
 /// the file's open or read failure.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's taken-message lookup after a process ends reads through it"
-    )
-)]
 pub(crate) async fn find_claude_taken_messages(
     file: &Path,
     message_uuids: &[String],
@@ -199,13 +178,6 @@ pub(crate) async fn find_claude_taken_messages(
 /// since they name the plan files a purge that fails must find again. Fails with `InvalidInput`,
 /// before anything is listed or removed, for an id that is not one plain path component, else with
 /// the first read or removal failure.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver's conversation purge deletes through it"
-    )
-)]
 pub(crate) async fn delete_claude_conversations(
     folders: &ClaudeConversationFolders<'_>,
     conversations: &[ClaudeConversation<'_>],
@@ -377,16 +349,38 @@ async fn read_claude_plan_slug(file: &Path) -> io::Result<Option<String>> {
 }
 
 // Hands each line of `file` that is a JSON object to `visit` until it breaks, reusing one buffer.
+// A line past the ceiling is skipped unread, so a file cut mid-write or with no newline never
+// grows the buffer past it; the first one skipped is logged once.
 async fn read_entries(
     file: &Path,
     mut visit: impl FnMut(ConversationEntry) -> ControlFlow<()>,
 ) -> io::Result<()> {
     let mut reader = BufReader::new(tokio::fs::File::open(file).await?);
     let mut line = Vec::new();
+    let mut line_number: u64 = 0;
+    let mut is_skip_logged = false;
     loop {
         line.clear();
-        if reader.read_until(b'\n', &mut line).await? == 0 {
+        line_number += 1;
+        let read = (&mut reader)
+            .take(CONVERSATION_LINE_READ_LIMIT)
+            .read_until(b'\n', &mut line)
+            .await?;
+        if read == 0 {
             return Ok(());
+        }
+        if line.len() > CLAUDE_OUTPUT_LINE_MAX_BYTES && line.last() != Some(&b'\n') {
+            skip_to_next_line(&mut reader).await?;
+            if !is_skip_logged {
+                is_skip_logged = true;
+                tracing::warn!(
+                    file = %file.display(),
+                    line_number,
+                    "a line of a Claude Code conversation file passed the line ceiling, so it \
+                     was skipped"
+                );
+            }
+            continue;
         }
         let text = decode_inbound_json(&line);
         let mut deserializer = serde_json::Deserializer::from_str(&text);
@@ -398,6 +392,25 @@ async fn read_entries(
         if visit(entry).is_break() {
             return Ok(());
         }
+    }
+}
+
+// One past the ceiling, so a line that reaches it without its newline reads as over it.
+const CONVERSATION_LINE_READ_LIMIT: u64 = CLAUDE_OUTPUT_LINE_MAX_BYTES as u64 + 1;
+
+// Consumes the rest of the line being read, through its newline or to the end of the file.
+async fn skip_to_next_line(reader: &mut BufReader<tokio::fs::File>) -> io::Result<()> {
+    loop {
+        let buffered = reader.fill_buf().await?;
+        if buffered.is_empty() {
+            return Ok(());
+        }
+        if let Some(newline) = memchr::memchr(b'\n', buffered) {
+            reader.consume(newline + 1);
+            return Ok(());
+        }
+        let length = buffered.len();
+        reader.consume(length);
     }
 }
 
@@ -491,17 +504,50 @@ impl Lenient for MessageContent {
 
 lenient_object!(ConversationEntry, ConversationMessage, ContentBlock);
 
+/// The file of conversation `handle` in the Claude Code home `spawn_environment` names; `None`
+/// where the home names no folder or holds no such file. Fails as the home cannot be listed.
+pub(crate) async fn conversation_file_of(
+    spawn_environment: &[(String, String)],
+    handle: &str,
+) -> io::Result<Option<PathBuf>> {
+    let Some(config_folder) = claude_config_folder(spawn_environment, PathRules::NATIVE) else {
+        return Ok(None);
+    };
+    find_claude_conversation_file(&config_folder, handle).await
+}
+
+/// How many turns conversation `handle` holds in the Claude Code home `spawn_environment` names;
+/// one with no file yet holds none. Fails as its home cannot be listed or its file read.
+pub(crate) async fn read_turn_count(
+    spawn_environment: &[(String, String)],
+    handle: &str,
+) -> io::Result<SafeInt<0>> {
+    let count = match conversation_file_of(spawn_environment, handle).await? {
+        Some(file) => read_claude_conversation_outline(&file)
+            .await?
+            .turn_end_uuids
+            .len(),
+        None => 0,
+    };
+    Ok(u64::try_from(count)
+        .ok()
+        .and_then(SafeInt::new)
+        .expect("a conversation's turn count is far below the wire's integer cap"))
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
     use std::path::Path;
 
+    use serde_json::json;
     use sidekicks_platforms::PathRules;
 
     use super::{
         ClaudeConversation, ClaudeConversationFolders, ClaudeConversationOutline,
         delete_claude_conversations, find_claude_taken_messages, read_claude_conversation_outline,
     };
+    use crate::provider::driver::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
     use crate::provider::driver::claude::session::rules::{ClaudeProjectFolder, ClaudeRepository};
 
     const SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000001";
@@ -537,6 +583,31 @@ mod tests {
         );
     }
 
+    // Killed by reading a line whole however long it is (the `take` bound removed): the entry past
+    // the ceiling would be read and answered as taken.
+    #[tokio::test]
+    async fn a_line_past_the_ceiling_is_skipped_and_the_next_entry_still_reads() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let file = folder.path().join("conversation.jsonl");
+        let padding = "x".repeat(CLAUDE_OUTPUT_LINE_MAX_BYTES);
+        fs::write(
+            &file,
+            format!(
+                "{}\n{}\n",
+                json!({"type": "user", "uuid": "too-long", "message": {"content": padding}}),
+                json!({"type": "user", "uuid": "kept", "message": {"content": "steer"}}),
+            ),
+        )
+        .expect("the conversation is written");
+        let asked = ["too-long".to_owned(), "kept".to_owned()];
+
+        let taken = find_claude_taken_messages(&file, &asked)
+            .await
+            .expect("the file reads");
+
+        assert_eq!(taken, vec!["kept".to_owned()]);
+    }
+
     #[tokio::test]
     async fn a_tool_result_or_an_entry_claude_code_wrote_starts_no_turn() {
         let folder = tempfile::tempdir().expect("a scratch folder");
@@ -548,17 +619,20 @@ mod tests {
                 "\n",
                 r#"{"type":"assistant","uuid":"a1","message":{"content":[{"type":"tool_use"}]}}"#,
                 "\n",
-                r#"{"type":"user","uuid":"r1","message":{"content":[{"type":"tool_result"},"odd"]}}"#,
+                r#"{"type":"user","uuid":"r1","message":"#,
+                r#"{"content":[{"type":"tool_result"},"odd"]}}"#,
                 "\n",
                 r#"{"type":"user","isMeta":true,"uuid":"m1","message":{"content":"caveat"}}"#,
                 "\n",
                 "not json\n",
-                r#"{"type":"assistant","uuid":"a2","isMeta":"yes","message":{"content":"done \ud800"}}"#,
+                r#"{"type":"assistant","uuid":"a2","isMeta":"yes","message":"#,
+                r#"{"content":"done \ud800"}}"#,
                 "\r\n",
                 // An array is no entry, though its items line up with an entry's members.
                 r#"["user",false,"x1",null,{"content":"not a prompt"}]"#,
                 "\n",
-                r#"{"type":"user","uuid":"u2","message":{"content":[{"type":"text","text":"second"}]}}"#,
+                r#"{"type":"user","uuid":"u2","message":"#,
+                r#"{"content":[{"type":"text","text":"second"}]}}"#,
                 "\n",
                 r#"{"type":"assistant","uuid":"a3","message":"text"}"#,
             ),
@@ -573,6 +647,7 @@ mod tests {
             outline,
             ClaudeConversationOutline {
                 turn_end_uuids: vec!["a2".to_owned(), "a3".to_owned()],
+                prompt_uuids: vec!["u1".to_owned(), "u2".to_owned()],
             }
         );
     }

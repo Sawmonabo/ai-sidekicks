@@ -464,9 +464,13 @@ async fn copy_newest_backup(
     backup_copy_path: &Path,
     stop: &CancellationToken,
 ) -> Result<bool, BackupCopyError> {
-    let Some(backup_database) = find_newest_backup_database(backup_folder)
-        .await
-        .map_err(BackupCopyError::Find)?
+    let searched = backup_folder.to_path_buf();
+    let Some(backup_database) =
+        tokio::task::spawn_blocking(move || find_newest_backup_database(&searched))
+            .await
+            .map_err(io::Error::other)
+            .and_then(|found| found)
+            .map_err(BackupCopyError::Find)?
     else {
         return Ok(false);
     };
@@ -594,6 +598,7 @@ mod tests {
         DatabaseFileRepairOptions, FRESH_FILE_SUFFIX, READY_MARKER_SUFFIX,
         prepare_database_file_repair,
     };
+    use crate::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
     use crate::recovery::database_file::copy::DatabaseFileCopier;
     use crate::recovery::database_file::damage::{read_database_damage, record_database_damage};
     use crate::recovery::database_file::last_run::{LastRunEnd, read_last_run_end};
@@ -623,7 +628,7 @@ mod tests {
     ) {
         let data_folder = tempfile::tempdir().expect("a data folder");
         let database_path = data_folder.path().join("daemon.db");
-        let index_folder_path = data_folder.path().join("search-index");
+        let index_folder_path = data_folder.path().join(SEARCH_INDEX_FOLDER_NAME);
         fs::create_dir(&index_folder_path).expect("the index folder is made");
         write(
             &index_folder_path.join("segment"),

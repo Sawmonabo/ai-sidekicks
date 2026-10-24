@@ -7,17 +7,17 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use futures::future::BoxFuture;
-use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::mcp::server::McpServerName;
+use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
@@ -31,19 +31,15 @@ use sidekicks_contracts::provider::driver::commands::{
     ProviderCommandBinding, ProviderCommandBindingGroup,
 };
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
-use sidekicks_contracts::provider::driver::length_limits::{
-    PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_FALLBACK_ACTION_MAX_LEN,
-};
+use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
-use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::ProviderToolMetadata;
 use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId, QueuedSkillPick};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText, is_ecmascript_whitespace};
+use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
@@ -57,18 +53,21 @@ use crate::provider::driver::message_handing::MessageHanding;
 use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
-    ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
+    ApplyInterventionResponse, DriverRunRefusal, FasterModelRetryOutcome, FasterModelRetryParams,
     FindTakenMessagesParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
     PickedSkill, ResumeRunParams, SteerTurnEndedError, TakenMessages, WithdrawQueuedMessageParams,
     WithdrawQueuedMessageResult,
 };
 use crate::provider::driver::session_control::{
-    AnswerSessionCommandParams, AskSideQuestionParams, CloseSessionParams, CreateSessionParams,
-    NameSessionParams, ProviderBuildChange, ProviderCommandsListener, PurgeSessionParams,
-    ResumeSessionParams, RevokeRuleParams, SessionCommandAnswer, StartReviewParams,
-    SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
+    AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
+    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverResumeResult,
+    MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
+    ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
+    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartReviewParams, StartingLevel,
+    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
+    UpdateSessionModeParams,
 };
-use crate::provider::port::permission_ask::ProviderPermissionAnswer;
+use crate::provider::port::permission_ask::{ProviderPermissionAnswer, ProviderRuleNotKeptError};
 use crate::provider::port::session_inbox_address::SessionInboxAddresser;
 use crate::text_cut::cut_to_code_points;
 
@@ -76,14 +75,10 @@ use crate::text_cut::cut_to_code_points;
 pub(crate) const PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE: &str =
     "Requested capability is not supported by the driver";
 
-/// The longest account or plan descriptor an authentication probe keeps, in code points; a longer
-/// one is cut, and dropping it loses only words, never the probe's status.
-const PROVIDER_AUTH_DETAIL_MAX_LEN: usize = 512;
-
 /// Why a driver operation did not answer: a refusal a client reads by its code, a request the
 /// provider got with no answer back, a steer whose turn ended before it was sent (the message
-/// waits for the next turn), a provider command that names no runnable build, or a failure inside
-/// the driver, keeping its cause.
+/// waits for the next turn), a run start the driver refused, a provider command that names no
+/// runnable build, or a failure inside the driver, keeping its cause.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DriverError {
     /// A refusal a client reads by its code.
@@ -95,6 +90,9 @@ pub(crate) enum DriverError {
     /// The turn a steer was handed for ended before it was sent.
     #[error(transparent)]
     SteerTurnEnded(#[from] SteerTurnEndedError),
+    /// The driver refused a run's start before its provider saw it; the run fails as that refusal.
+    #[error("the driver refused the run")]
+    RunRefused(#[source] DriverRunRefusal),
     /// The capability probe could not read the provider, so nothing is declared from it.
     #[error("the provider's capability probe failed")]
     CapabilityProbe(#[source] CapabilityProbeError),
@@ -105,15 +103,11 @@ pub(crate) enum DriverError {
     #[error(transparent)]
     ModelCatalogUnreadable(ModelCatalogUnreadable),
     /// A provider axis the request set holds a value the provider does not offer now.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "a driver's live catalog check at a session's start refuses an axis with it"
-        )
-    )]
     #[error(transparent)]
     ProviderAxisInvalid(ProviderAxisInvalid),
+    /// The answer reached the provider, which could not keep the rule it made.
+    #[error(transparent)]
+    RuleNotKept(#[from] ProviderRuleNotKeptError),
     /// The driver or its provider failed.
     #[error("the provider driver failed")]
     Internal(#[source] Box<dyn Error + Send + Sync>),
@@ -125,8 +119,9 @@ impl From<DriverError> for HandlerError {
     /// `provider.unavailable`, the catalog's bounded fault as the provider failure's detail, and a
     /// command that names no runnable build as [`ExecutableUnresolvable::into_refusal`] says; a
     /// provider axis the provider does not offer answers `agent.providerAxisInvalid` naming the
-    /// agent, the axis and the value; a steer whose turn ended, reaching a handler, is a fault in
-    /// the daemon, as is the driver's own failure.
+    /// agent, the axis and the value; a steer whose turn ended, a refused run start or a rule the
+    /// provider could not keep, reaching a handler, is a fault in the daemon, as is the driver's
+    /// own failure.
     fn from(error: DriverError) -> Self {
         match error {
             DriverError::Refused(refusal)
@@ -165,6 +160,8 @@ impl From<DriverError> for HandlerError {
                 })),
             ),
             DriverError::SteerTurnEnded(steer) => Self::Internal(Box::new(steer)),
+            DriverError::RuleNotKept(not_kept) => Self::Internal(Box::new(not_kept)),
+            DriverError::RunRefused(refusal) => Self::Internal(Box::new(refusal)),
             DriverError::Internal(fault) => Self::Internal(fault),
         }
     }
@@ -263,6 +260,25 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// the driver, which the queue reads instead of naming the provider.
     fn message_handing(&self) -> MessageHanding;
 
+    /// Whether resolving a message's skill picks starts a provider process where none runs the
+    /// session, which the memory gate then weighs: a fixed fact of the driver, like
+    /// [`message_handing`](Self::message_handing). A driver that reads its picks from the
+    /// provider's own list does.
+    fn skill_resolve_starts_process(&self) -> bool {
+        true
+    }
+
+    /// The largest picture the provider takes, as the bytes of its base64 text, which the staging
+    /// of a message's files checks each picture against: a fixed fact of the driver, like
+    /// [`message_handing`](Self::message_handing); `None` where the provider sets no limit.
+    #[expect(
+        dead_code,
+        reason = "the staging of a message's files refuses a picture past the provider's limit"
+    )]
+    fn picture_base64_size_limit(&self) -> Option<u64> {
+        None
+    }
+
     /// Whether a run started on `session_id` now brings a provider process up, which the memory
     /// gate weighs before the start; `false` when one already serves the session.
     fn starts_process(&self, session_id: SessionId) -> BoxFuture<'_, bool>;
@@ -289,6 +305,14 @@ pub(crate) trait ProviderDriver: Send + Sync {
         &self,
         params: FasterModelRetryParams,
     ) -> BoxFuture<'_, Result<FasterModelRetryOutcome, DriverError>>;
+
+    /// The level and mode a new session starts at, as its provider's own settings for the folder
+    /// set them, moved to the nearest more careful level it runs; fails when a settings file that
+    /// may set them cannot be read.
+    fn read_starting_level(
+        &self,
+        params: StartingLevelParams,
+    ) -> BoxFuture<'_, Result<StartingLevel, DriverError>>;
 
     /// Moves the live session to another permission level from its next request, never by
     /// relaunch.
@@ -401,8 +425,16 @@ pub(crate) trait ProviderDriver: Send + Sync {
     -> Option<ProviderOutputSpeedState>;
 
     /// The rows the driver declares on its provider's settings, each with its live value in every
-    /// place, as `provider.list` serves them; read again after each change.
-    fn read_rows(&self) -> BoxFuture<'_, Result<Vec<ProviderRow>, DriverError>>;
+    /// place, as `provider.list` serves them, `app_values` being the values the app stored for
+    /// them; read again after each change.
+    #[expect(
+        dead_code,
+        reason = "the provider.list handler reads each provider's Settings rows"
+    )]
+    fn read_rows(
+        &self,
+        app_values: ProviderRowValues,
+    ) -> BoxFuture<'_, Result<Vec<ProviderRow>, DriverError>>;
 
     /// Applies a value the daemon checked against the row's declaration and stored: a setting
     /// reaches sessions started later, and a per-place switch that runs something starts or stops
@@ -460,6 +492,22 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// The inbox addresses the daemon holds for every session, where this provider's sessions
     /// must answer them; `None` for a provider whose sessions answer no inbox.
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>>;
+
+    /// Deletes what the provider keeps for its own diagnosis in account home `home` from before
+    /// `cutoff`, beyond the descriptor's folders, which the expiry deletes itself, and answers the
+    /// rows it deleted; blocking. Does nothing unless the provider keeps more; fails when that
+    /// store cannot be read or written.
+    #[expect(
+        unused_variables,
+        reason = "the default expires nothing; the generated mock reads both"
+    )]
+    fn expire_account_home_diagnostics(
+        &self,
+        home: &Path,
+        cutoff: SystemTime,
+    ) -> Result<u64, Box<dyn Error + Send + Sync>> {
+        Ok(0)
+    }
 }
 
 /// A follow of a session's live command list, ended when this drops.
@@ -572,16 +620,6 @@ pub(crate) enum ProviderRequestAnswer {
     Permission(ProviderPermissionAnswer),
 }
 
-/// The provider's own ids of an opened session, built by the driver; the handle is bounded where
-/// the daemon stores it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderSessionHandle {
-    /// The provider's session id.
-    pub(crate) provider_session_id: String,
-    /// The handle a later resume names.
-    pub(crate) resume_handle: String,
-}
-
 /// The provider version the spawned process printed, never read from a launcher link that may
 /// name another build: the text always, and its canonical parse when it parses. Every version
 /// runs; nothing refuses on it.
@@ -633,33 +671,6 @@ pub(crate) struct GetCapabilitiesResult {
     pub(crate) output_speed_levels: Option<Vec<ProviderToken>>,
 }
 
-/// What a resume did, built by the driver from provider output. A failed resume carries why and
-/// no binding, and is never answered by a replacement session under the same run.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum DriverResumeResult {
-    /// The conversation resumed.
-    Resumed {
-        /// The new binding, stored by the daemon.
-        binding_id: RuntimeBindingId,
-        /// The driver's monotonic session position (a turn or event ordinal), which the daemon
-        /// compares with its recorded one to catch a provider that answered with a fresh session.
-        session_position: SafeInt<0>,
-        /// The conversation the session runs on now, for the daemon to record: the one it was
-        /// given, or a new one where the provider continued the conversation in a new thread.
-        resume_handle: NonEmptyText,
-        /// The relaunched build's version and path, from the one reading its spawn took; a
-        /// relaunch resolves the command again, so the predecessor's build may not be this one.
-        spawned_version: SpawnedVersionBindingCarriers,
-    },
-    /// The resume failed.
-    Failed {
-        /// What recovery the run needs.
-        recovery_condition: RecoveryCondition,
-        /// The provider's failure, fitted by [`bound_failure_detail`].
-        provider_failure_detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
-    },
-}
-
 /// Fits failure text to a failure detail: every NUL dropped, ECMAScript whitespace trimmed from
 /// both ends, cut to the cap in code points, and `empty_fallback` where nothing is left.
 pub(crate) fn bound_failure_detail(
@@ -673,114 +684,6 @@ pub(crate) fn bound_failure_detail(
     }
     FreeFormText::new(cut_to_code_points(trimmed, PROVIDER_FAILURE_DETAIL_MAX_LEN).to_owned())
         .expect("trimmed, NUL-free text cut to the cap is non-blank and within it")
-}
-
-/// Params of `move_session_to_fork` (gated on `sessionFork`): fork the conversation at
-/// `position` and move the session onto the fork. A run has many bindings, so `binding_id` names
-/// the leg, resolved by the daemon at dispatch.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct MoveSessionToForkParams {
-    /// The session.
-    pub(crate) session_id: SessionId,
-    /// The driver's monotonic session position to fork at.
-    pub(crate) position: SafeInt<0>,
-    /// The leg to fork.
-    pub(crate) binding_id: RuntimeBindingId,
-}
-
-/// What a fork did, built by the driver from provider output. An applied fork has already moved
-/// the session's binding onto the new conversation; a fork with no confirmed position cannot be
-/// written.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MoveSessionToForkResult {
-    /// The session moved onto the fork.
-    Applied {
-        /// The fork's session position.
-        session_position: SafeInt<0>,
-    },
-    /// The driver took a fallback instead.
-    Degraded {
-        /// The fallback it took.
-        fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
-    },
-}
-
-/// What a goal operation did: the provider took it, or the driver took a fallback instead.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum DriverGoalResult {
-    /// The provider took it.
-    Applied {},
-    /// The provider did not take it.
-    Degraded {
-        /// The fallback the driver took.
-        fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
-    },
-}
-
-/// Params of `set_session_goal` (gated on `sessionGoals`): the condition the person typed after
-/// `/goal`, for the target agent's live binding. The goal events are the durable truth, so neither
-/// goal operation returns the goal, and a resume never sets it again. `run_id` is context only.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SetSessionGoalParams {
-    /// The session.
-    pub(crate) session_id: SessionId,
-    /// The target agent's live binding.
-    pub(crate) binding_id: RuntimeBindingId,
-    /// The run, for context.
-    pub(crate) run_id: RunId,
-    /// The condition as typed.
-    pub(crate) goal_text: String,
-}
-
-/// Params of `clear_session_goal` (gated on `sessionGoals`); addresses one live binding.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(
-    clippy::struct_field_names,
-    reason = "each member is an id, named for what it identifies"
-)]
-pub(crate) struct ClearSessionGoalParams {
-    /// The session.
-    pub(crate) session_id: SessionId,
-    /// The live binding.
-    pub(crate) binding_id: RuntimeBindingId,
-    /// The run, for context.
-    pub(crate) run_id: RunId,
-}
-
-/// What an authentication probe found. An indeterminate probe counts as not signed in for
-/// admission, yet stays apart from a signed-out one, so a person can tell probe health from
-/// credential state.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DriverAuthProbeStatus {
-    /// Signed in.
-    Authenticated,
-    /// Signed out.
-    Unauthenticated,
-    /// The probe could not be read.
-    Indeterminate,
-}
-
-/// The answer of the zero-turn authentication probe. Admission reads `status`; a turn mid-run whose
-/// credential expired is a recovery condition, not this probe.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct DriverAuthProbeResult {
-    /// What the probe found.
-    pub(crate) status: DriverAuthProbeStatus,
-    /// The provider's account or plan descriptor, which can hold an email address: shown to the
-    /// person and never stored or carried on an event.
-    pub(crate) detail: Option<FreeFormText<PROVIDER_AUTH_DETAIL_MAX_LEN>>,
-}
-
-/// A probe's answer with `detail` cut to its cap, and dropped where it is still not valid text,
-/// since `status` alone carries the decision.
-pub(crate) fn build_auth_probe_result(
-    status: DriverAuthProbeStatus,
-    detail: &str,
-) -> DriverAuthProbeResult {
-    // A blank or NUL-holding descriptor is dropped: it only explains the status.
-    let detail =
-        FreeFormText::new(cut_to_code_points(detail, PROVIDER_AUTH_DETAIL_MAX_LEN).to_owned()).ok();
-    DriverAuthProbeResult { status, detail }
 }
 
 /// Params of `compact_context` (gated on `contextCompaction`); addresses one binding.
@@ -814,83 +717,4 @@ pub(crate) struct ListModelsParams {
     pub(crate) session_id: Option<SessionId>,
     /// The account: the session's own bound account for its own provider.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
-}
-
-/// The provider-native subagent policy (gated on `subagents`). Provider subagents run inside the
-/// session only, so their usage counts against the run and their tool calls go through the same
-/// approval pipeline. A `Helpers at once` setting of 0 is `Disabled`, which withholds the
-/// provider's helper tool; nothing bounds how deep helpers nest.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(
-    tag = "policy",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase",
-    deny_unknown_fields
-)]
-pub(crate) enum SubagentPolicy {
-    /// No helpers.
-    Disabled {},
-    /// Helpers run.
-    Enabled {
-        /// How many run at once, or `None` for no limit.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "sidekicks_contracts::wire::present"
-        )]
-        helpers_at_once: Option<SafeInt<1>>,
-        /// The helpers the lead can hand work to.
-        definitions: Vec<SubagentDefinition>,
-    },
-}
-
-/// One helper as each driver maps it onto its provider's own form; the members past `name`,
-/// `prompt` and `description` are mapped where the provider supports them.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct SubagentDefinition {
-    /// The helper's name.
-    pub(crate) name: String,
-    /// The helper's own instructions.
-    pub(crate) prompt: String,
-    /// When the lead should hand work to it.
-    pub(crate) description: String,
-    /// Its model.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "sidekicks_contracts::wire::present"
-    )]
-    pub(crate) model: Option<ProviderToken>,
-    /// The tools it may use.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "sidekicks_contracts::wire::present"
-    )]
-    pub(crate) tools: Option<Vec<String>>,
-    /// Its reasoning effort.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "sidekicks_contracts::wire::present"
-    )]
-    pub(crate) effort: Option<ProviderToken>,
-    /// How many turns it may take.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "sidekicks_contracts::wire::present"
-    )]
-    pub(crate) max_turns: Option<SafeInt<1>>,
-}
-
-/// One tool server a session can reach, by its name, and whether the person switched it on.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct SessionToolServer {
-    /// The server's name.
-    pub(crate) server_name: McpServerName,
-    /// Whether the person switched it on.
-    pub(crate) is_enabled: bool,
 }

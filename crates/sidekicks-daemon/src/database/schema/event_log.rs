@@ -32,7 +32,9 @@ pub(super) fn event_log_schema_sql() -> String {
 -- {SESSION_EVENTS_TABLE}: the append-only event log.
 -- ---------------------------------------------------------------------------
 CREATE TABLE {SESSION_EVENTS_TABLE} (
-  id                TEXT PRIMARY KEY,
+  -- The rowid, declared so a VACUUM keeps it: the search index keys its rows on it.
+  rowid             INTEGER PRIMARY KEY,
+  id                TEXT NOT NULL UNIQUE,
   -- A session's id, or a reserved daemon-scope id for a daemon-scope event; no foreign key.
   session_id        TEXT NOT NULL,
   sequence          INTEGER NOT NULL,             -- monotonic per session

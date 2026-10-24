@@ -9,7 +9,7 @@ mod sends;
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -37,14 +37,16 @@ use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::events::session::read::DamagedFromSequenceReader;
 use crate::ipc::domain_error::DomainError;
+use crate::mutex_lock::lock;
 use crate::pause_point::PausePoint;
 use crate::provider::driver::PROVIDERS;
-use crate::provider::driver::contract::{DriverError, MockProviderDriver, ProviderSessionHandle};
+use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterventionResultStatus,
     SteerTurnEndedError, WithdrawQueuedMessageResult,
 };
+use crate::provider::driver::session_control::ProviderSessionHandle;
 use crate::provider::driver::test_registry::registry_of_first_provider;
 use crate::provider::runtime_binding::store::RuntimeBindingStore;
 use crate::queue::changes::QueueChangeSignals;
@@ -114,10 +116,6 @@ impl DriverCalls {
     fn resumes(&self) -> Vec<(RunId, Vec<QueueItemId>)> {
         lock(&self.resumes).clone()
     }
-}
-
-fn lock<Value>(mutex: &Mutex<Value>) -> MutexGuard<'_, Value> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 // Takes one from `left` when any is left.

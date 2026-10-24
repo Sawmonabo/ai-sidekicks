@@ -65,6 +65,8 @@ const MODULE_PATH = "^[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)*$";
 const DEFINITION_NAME = "^[A-Z][A-Za-z0-9]*$";
 const TYPE_REFERENCE = `^(?:[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)*#)?[A-Z][A-Za-z0-9]*$`;
 const DOC = { type: "string", minLength: 1 };
+// The wire grammar: two to four lowerCamelCase segments joined by dots.
+const WIRE_NAME = "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*){1,3}$";
 
 const MODULE_FILE_SCHEMA = {
   type: "object",
@@ -108,7 +110,7 @@ const MODULE_FILE_SCHEMA = {
               additionalProperties: false,
               required: ["method", "procedureType", "mutating", "params", "result"],
               properties: {
-                method: { type: "string", pattern: "^[a-z][A-Za-z0-9]*(?:\\.[a-z][A-Za-z0-9]*)+$" },
+                method: { type: "string", pattern: WIRE_NAME },
                 procedureType: { enum: ["query", "mutation", "subscription"] },
                 mutating: { type: "boolean" },
                 params: { type: "string", pattern: TYPE_REFERENCE },
@@ -138,7 +140,7 @@ const REFUSAL_CODES_SCHEMA = {
       type: "array",
       minItems: 1,
       uniqueItems: true,
-      items: { type: "string", pattern: "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)*$" },
+      items: { type: "string", pattern: WIRE_NAME },
     },
   },
 };

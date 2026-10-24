@@ -16,6 +16,7 @@ pub(crate) mod lenient_json;
 pub(crate) mod outbound_text;
 pub(crate) mod output_validation;
 pub(crate) mod port;
+pub(crate) mod process_registry;
 pub(crate) mod project_rule_folders;
 pub(crate) mod record_readers;
 pub(crate) mod runtime_binding;

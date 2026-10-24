@@ -5,6 +5,7 @@ mod live_counts;
 #[cfg(feature = "measurements")]
 mod measurements;
 mod opening;
+mod pages;
 mod pruning;
 mod purge;
 mod read_caches;

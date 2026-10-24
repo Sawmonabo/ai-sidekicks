@@ -10,9 +10,10 @@ use crate::provider::capability::probe::{
     CapabilityDetection, CapabilityProbeRules, ProbeAnswer, assert_admissible_detection,
 };
 use crate::provider::driver::capabilities::DriverCapabilityFlag;
+use crate::provider::driver::claude::session::transport::control::ClaudeControlSubtype;
 
 /// The control request whose reply reports the fast-mode state before any turn.
-const FAST_MODE_PROBE_NAME: &str = "initialize";
+const FAST_MODE_PROBE_NAME: &str = ClaudeControlSubtype::Initialize.as_str();
 
 /// How the registry starts its refusal of a subtype it does not know.
 const UNSUPPORTED_SUBTYPE_PREFIX: &str = "Unsupported control request subtype:";
@@ -20,7 +21,7 @@ const UNSUPPORTED_SUBTYPE_PREFIX: &str = "Unsupported control request subtype:";
 /// Claude Code's rules for the capability read.
 pub(super) const CAPABILITY_PROBE_RULES: CapabilityProbeRules = CapabilityProbeRules {
     detection: detection_of,
-    negative_control: "zzq_nonexistent_subtype",
+    negative_control: ClaudeControlSubtype::NegativeControl.as_str(),
     // Replaces a live session's whole set of tool servers.
     prohibited_names: &["mcp_set_servers"],
     classify_reply,

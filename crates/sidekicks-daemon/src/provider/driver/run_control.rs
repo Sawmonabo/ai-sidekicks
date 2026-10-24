@@ -12,7 +12,9 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FALLBACK_ACTION_MAX_LEN;
-use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_REASON_MAX_LEN;
+use sidekicks_contracts::provider::driver::methods::{
+    PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_REASON_MAX_LEN,
+};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{RunRefusalChoice, RunUsageCreditsChoice};
@@ -150,6 +152,17 @@ pub(crate) struct ApplyInterventionResponse {
 pub(crate) struct SteerTurnEndedError {
     /// The run whose turn ended.
     pub(crate) run_id: RunId,
+}
+
+/// A run start the driver refused before its provider saw the run: the model it would have run on
+/// and the refusal's sentence, which the run's failure carries as the daemon's own refusal.
+#[derive(Debug, thiserror::Error)]
+#[error("{sentence}")]
+pub(crate) struct DriverRunRefusal {
+    /// The model the run would have run on.
+    pub(crate) model: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
+    /// The refusal's sentence.
+    pub(crate) sentence: String,
 }
 
 /// Params of `pause_run`: the lead run or a provider subagent's child run to stop after the step

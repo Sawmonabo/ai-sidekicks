@@ -9,6 +9,7 @@ pub mod id;
 pub mod import;
 pub mod install;
 pub mod settings;
+pub mod tool_call;
 pub mod tools;
 
 /// The topic's TypeScript modules, its folders' among them.
@@ -32,5 +33,6 @@ pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &import::TYPESCRIPT_MODULE,
     &install::TYPESCRIPT_MODULE,
     &settings::TYPESCRIPT_MODULE,
+    &tool_call::TYPESCRIPT_MODULE,
     &tools::TYPESCRIPT_MODULE,
 ];

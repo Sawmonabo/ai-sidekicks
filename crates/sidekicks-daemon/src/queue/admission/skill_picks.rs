@@ -19,9 +19,9 @@ use crate::queue::store::QueueItemReader;
 impl QueueAdmission {
     /// The skills `picks` names as the session's provider loads them: none asked, none read. A
     /// start of the session's queued run is waited for first, so the read never takes a second
-    /// place behind it, and a read that would start the provider's process waits at the gate itself
-    /// and leaves it once the read settles. Refuses `provider.timeout` when either wait outlives the
-    /// delivery timeout, and as the driver refuses a pick.
+    /// place behind it, and a read that would start the provider's process waits at the gate
+    /// itself and leaves it once the read settles. Refuses `provider.timeout` when either wait
+    /// outlives the delivery timeout, and as the driver refuses a pick.
     pub(crate) async fn resolve_skill_picks(
         &self,
         session_id: SessionId,
@@ -52,25 +52,26 @@ impl QueueAdmission {
                 }
             }
         }
-        let place = if driver.starts_process(session_id).await {
-            let place = self.deps.memory_gate.enqueue(provider_work(
-                &self.deps.providers,
-                provider,
-                false,
-            )?);
-            let mut admitted = place.admitted();
-            let waited = tokio::time::timeout(
-                self.deps.delivery_timeout,
-                admitted.wait_for(Option::is_some),
-            )
-            .await;
-            if waited.is_err() || place.state() != MemoryAdmissionState::Admitted {
-                return Err(provider_timed_out(session_id).into());
-            }
-            Some(place)
-        } else {
-            None
-        };
+        let place =
+            if driver.skill_resolve_starts_process() && driver.starts_process(session_id).await {
+                let place = self.deps.memory_gate.enqueue(provider_work(
+                    &self.deps.providers,
+                    provider,
+                    false,
+                )?);
+                let mut admitted = place.admitted();
+                let waited = tokio::time::timeout(
+                    self.deps.delivery_timeout,
+                    admitted.wait_for(Option::is_some),
+                )
+                .await;
+                if waited.is_err() || place.state() != MemoryAdmissionState::Admitted {
+                    return Err(provider_timed_out(session_id).into());
+                }
+                Some(place)
+            } else {
+                None
+            };
         let resolved = driver.resolve_skill_picks(session_id, picks).await;
         drop(place);
         Ok(Some(resolved?))

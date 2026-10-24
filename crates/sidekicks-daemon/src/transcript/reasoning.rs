@@ -23,7 +23,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_contracts::wire::{False, True};
 
-use crate::database::stored_column::optional_utf8_blob_column;
+use crate::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 use crate::events::session::read::{SessionEventReads, readable_event_sql, resolve_event_cursor};
 use crate::ipc::domain_error::DomainError;
 use crate::session::run::read::RunStateReader;
@@ -49,7 +49,7 @@ pub(crate) fn split_reasoning_text(text: &str) -> Vec<&str> {
 // it belongs to: its row's first event, or the row's first readable piece when that one is not.
 static REASONING_PIECES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT event.sequence, event.occurred_at, event.content_payload,
+        "SELECT event.sequence, event.occurred_at, {body},
             coalesce(
               (SELECT anchor.id FROM session_events AS anchor
                 WHERE anchor.session_id = event.session_id
@@ -63,6 +63,7 @@ static REASONING_PIECES_SQL: LazyLock<String> = LazyLock::new(|| {
       WHERE event.session_id = @session_id AND event.type = '{thinking}'
         AND event.run_id = @run_id AND event.sequence > @after_position AND {readable_event}
       ORDER BY event.sequence",
+        body = stored_body_columns_sql("event"),
         readable_anchor = readable_event_sql("anchor"),
         readable_earlier = readable_event_sql("earlier"),
         readable_event = readable_event_sql("event"),
@@ -119,7 +120,9 @@ where
             break;
         }
         let sequence: i64 = piece.get(0)?;
-        let Some(text) = optional_utf8_blob_column(piece, 2)?.filter(|text| !text.is_empty())
+        let Some(text) = StoredBodyColumns::read(piece, 2)?
+            .decode(2)?
+            .filter(|text| !text.is_empty())
         else {
             continue;
         };
@@ -128,7 +131,7 @@ where
             return Err(TranscriptReadError::OversizedReasoningPiece { sequence });
         }
         read_bytes += text.len();
-        let row_id: String = piece.get(3)?;
+        let row_id: String = piece.get(5)?;
         match drafts.last_mut() {
             Some(draft)
                 if draft.row_id == row_id

@@ -56,9 +56,12 @@ pub(crate) enum StagedChangesError {
 }
 
 /// Opens temporary worktrees of a folder's staged changes under the daemon's worktrees folder.
-#[expect(
-    dead_code,
-    reason = "the staged-change diff reads the index through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Claude Code's staged review reads the index through it"
+    )
 )]
 #[derive(Clone)]
 pub(crate) struct StagedChangesWorktrees {
@@ -68,7 +71,7 @@ pub(crate) struct StagedChangesWorktrees {
 
 #[expect(
     dead_code,
-    reason = "the staged-change diff reads the index through it"
+    reason = "Claude Code's staged review reads the index through it"
 )]
 impl StagedChangesWorktrees {
     /// The worktrees under `worktrees_folder`, the daemon's own and absolute, made with `git`.
@@ -199,9 +202,12 @@ impl StagedChangesWorktrees {
 }
 
 /// A temporary worktree holding only a folder's staged changes, removed by [`Self::close`].
-#[expect(
-    dead_code,
-    reason = "the staged-change diff reads the index through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Claude Code's staged review reads the index through it"
+    )
 )]
 pub(crate) struct StagedChangesWorktree {
     folder: PathBuf,
@@ -210,9 +216,12 @@ pub(crate) struct StagedChangesWorktree {
     git: GitRunner,
 }
 
-#[expect(
-    dead_code,
-    reason = "the staged-change diff reads the index through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Claude Code's staged review reads the index through it"
+    )
 )]
 impl StagedChangesWorktree {
     /// The worktree's folder, absolute.

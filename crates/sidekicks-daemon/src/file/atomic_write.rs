@@ -6,6 +6,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+use sidekicks_platforms::LeftoverSweep;
 use tokio::task::JoinError;
 
 use crate::cleanup_failures::CleanupFailures;
@@ -93,18 +94,24 @@ pub(crate) async fn write_file_atomically_if_changed(
     write_file_atomically(file_path, contents, mode).await
 }
 
-// The whole write, blocking: the file replaced, then its folder flushed.
-fn write_and_flush(target: &Path, contents: &[u8], mode: u32) -> Result<(), AtomicWriteError> {
-    sidekicks_platforms::replace_file_atomically(target, contents, mode).map_err(|error| {
-        AtomicWriteError::Write {
+/// Replaces `target` with `contents` as [`write_file_atomically`] does, on the calling thread: the
+/// file replaced, then its folder flushed. Fails as [`write_file_atomically`] does, never with
+/// [`AtomicWriteError::Interrupted`].
+pub(crate) fn write_and_flush(
+    target: &Path,
+    contents: &[u8],
+    mode: u32,
+) -> Result<(), AtomicWriteError> {
+    // No sweep of leftovers runs in the folders these writes go to, the person's own among them.
+    sidekicks_platforms::replace_file_atomically(target, contents, mode, LeftoverSweep::Unswept)
+        .map_err(|error| AtomicWriteError::Write {
             path: target.to_path_buf(),
             failure: CleanupFailures::new(
                 error.failure,
                 error.removal_failure.into_iter().collect(),
                 "writing the file",
             ),
-        }
-    })?;
+        })?;
     let folder = target
         .parent()
         .expect("a path ending in a file name has the folder before it");

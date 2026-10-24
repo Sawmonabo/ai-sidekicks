@@ -1,8 +1,9 @@
-//! The write queue: the one task that owns the writer's queue. It takes every message the writer's
-//! handles send, in the order they sent them, admits writes up to the queue's cap and keeps the
-//! rest waiting in order, sends the thread one batch or checkpoint at a time, settles each write
-//! from the thread's answer, and closes the writer. A batch holds whatever has been sent when the
-//! thread is free, so writes that arrive during a commit form the next one.
+//! The write queue: the one task that owns the writer's queue. It takes every message the
+//! writer's handles send, in the order they sent them, admits writes up to the queue's cap and
+//! keeps the rest waiting in order, sends the thread one batch, checkpoint or repack at a time,
+//! beside at most one copy, settles each write from the thread's answer, and closes the writer. A
+//! batch holds whatever has been sent when the thread is free, so writes that arrive during a
+//! commit form the next one.
 
 use std::collections::VecDeque;
 use std::error::Error;
@@ -13,20 +14,26 @@ use std::time::Duration;
 use tokio::sync::oneshot::error::RecvError;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 
 use crate::cleanup_failures::CleanupFailures;
-use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
+use crate::database::checkpoint::CheckpointMode;
 use crate::database::writer::backpressure::BackpressureAlert;
 use crate::database::writer::messages::{
-    BatchAnswer, BatchFailure, CheckpointAnswer, FailedBatch, ThreadExit, ThreadRequest, WriteJob,
+    BatchAnswer, BatchFailure, CommittedBatch, FailedBatch, ThreadExit, ThreadRequest, WriteJob,
     WriteJobOutcome,
 };
+use crate::database::writer::queue::maintenance::{
+    CancelableWork, MaintenanceAnswered, MaintenanceSlots,
+};
 use crate::database::writer::{
-    CheckpointError, CloseOutcome, CommitHook, CommittedWrite, DatabaseWriterOptions, EndReason,
+    CloseOutcome, CommitHook, CommittedWrite, DatabaseWriterOptions, EndReason, MaintenanceError,
     QueueMessage, StopKind, ThreadJoinError, WRITE_QUEUE_CAPACITY, WriteError,
     WriteFailureListener, WriteRequest, WriterCloseError, WriterShared, WritesHeldError,
     is_interrupt, join_thread,
 };
+
+mod maintenance;
 
 /// The most entries a batch holds; a larger write goes whole and alone.
 const BATCH_ENTRY_LIMIT: usize = 50;
@@ -74,12 +81,11 @@ pub(super) struct WriteQueue {
     /// Entries queued and not yet sent.
     queued_size: usize,
     batch: Option<InFlightBatch>,
-    checkpoint: Option<InFlightCheckpoint>,
+    maintenance: MaintenanceSlots,
     backpressure: BackpressureAlert,
     flushes: VecDeque<PendingFlush>,
     pending_holds: VecDeque<PendingHold>,
     active_holds: Vec<u64>,
-    checkpoints: VecDeque<PendingCheckpoint>,
     closing: Option<Closing>,
 }
 
@@ -102,11 +108,6 @@ struct InFlightBatch {
     answer: oneshot::Receiver<BatchAnswer>,
 }
 
-struct InFlightCheckpoint {
-    reply: oneshot::Sender<Result<CheckpointResult, CheckpointError>>,
-    answer: oneshot::Receiver<CheckpointAnswer>,
-}
-
 /// A flush, answered once every write before `ticket` has settled.
 struct PendingFlush {
     ticket: u64,
@@ -118,11 +119,6 @@ struct PendingHold {
     id: u64,
     ticket: u64,
     started: oneshot::Sender<()>,
-}
-
-struct PendingCheckpoint {
-    mode: CheckpointMode,
-    reply: oneshot::Sender<Result<CheckpointResult, CheckpointError>>,
 }
 
 struct Closing {
@@ -137,7 +133,8 @@ struct Closing {
 /// What woke the queue.
 enum Wake {
     BatchAnswered(Result<BatchAnswer, RecvError>),
-    CheckpointAnswered(Result<CheckpointAnswer, RecvError>),
+    MaintenanceAnswered(MaintenanceAnswered),
+    RepackCanceled,
     ThreadExited(Result<ThreadExit, RecvError>),
     DrainBoundPassed,
     HoldEnded(Result<Result<(), WritesHeldError>, RecvError>),
@@ -150,8 +147,8 @@ enum Wake {
 struct ThreadStopped;
 
 impl WriteQueue {
-    /// A queue over `messages` and the writer's `thread`, reporting each commit on `commits` and
-    /// its close on `close_outcome`.
+    /// A queue over `messages` and the writer's `thread`, publishing on `commits` the thread's
+    /// count of the batches that committed a write and its close on `close_outcome`.
     pub(super) fn new(
         messages: mpsc::UnboundedReceiver<QueueMessage>,
         thread: ThreadLink,
@@ -179,12 +176,11 @@ impl WriteQueue {
             waiting_size: 0,
             queued_size: 0,
             batch: None,
-            checkpoint: None,
+            maintenance: MaintenanceSlots::default(),
             backpressure: BackpressureAlert::default(),
             flushes: VecDeque::new(),
             pending_holds: VecDeque::new(),
             active_holds: Vec::new(),
-            checkpoints: VecDeque::new(),
             closing: None,
         }
     }
@@ -207,14 +203,19 @@ impl WriteQueue {
 
     async fn next_wake(&mut self) -> Wake {
         let drain_bound = self.drain_bound();
-        // The thread's answers come first, so a batch settles before its thread's exit is read.
+        let repack_cancel = self.maintenance.uninterrupted_repack_cancel();
+        // The thread's answers come first, so a batch settles before its thread's exit is read,
+        // and a repack that answered is never interrupted.
         tokio::select! {
             biased;
             answer = output_of(self.batch.as_mut().map(|batch| &mut batch.answer)) => {
                 Wake::BatchAnswered(answer)
             }
-            answer = output_of(self.checkpoint.as_mut().map(|flight| &mut flight.answer)) => {
-                Wake::CheckpointAnswered(answer)
+            answered = self.maintenance.answered(), if self.maintenance.is_running() => {
+                Wake::MaintenanceAnswered(answered)
+            }
+            () = output_of(repack_cancel.as_ref().map(CancellationToken::cancelled)) => {
+                Wake::RepackCanceled
             }
             exit = output_of(self.thread_exit.as_mut()) => Wake::ThreadExited(exit),
             () = output_of(drain_bound.map(tokio::time::sleep_until)) => Wake::DrainBoundPassed,
@@ -232,12 +233,12 @@ impl WriteQueue {
                     .expect("a batch is answered only while it is in flight");
                 self.settle_batch(batch.waiters, answer);
             }
-            Wake::CheckpointAnswered(answer) => {
-                let checkpoint = self
-                    .checkpoint
-                    .take()
-                    .expect("a checkpoint is answered only while it is in flight");
-                self.settle_checkpoint(checkpoint.reply, answer);
+            Wake::MaintenanceAnswered(answered) => self.settle_maintenance_answer(answered),
+            Wake::RepackCanceled => {
+                // Nothing but the repack runs on the thread while it is in flight.
+                if self.maintenance.mark_repack_interrupted() {
+                    self.shared.interrupt_thread();
+                }
             }
             Wake::ThreadExited(exit) => self.thread_exited(exit).await,
             Wake::DrainBoundPassed => self.stop_at_drain_bound(),
@@ -277,20 +278,31 @@ impl WriteQueue {
                 self.pending_holds.retain(|hold| hold.id != id);
                 self.active_holds.retain(|held| *held != id);
             }
-            QueueMessage::Checkpoint { mode, reply } => {
-                if let Some(reason) = self.shared.end_reason() {
-                    send_answer(reply, Err(CheckpointError::Ended(reason)));
-                } else if self.closing.is_some() {
-                    send_answer(reply, Err(CheckpointError::Closed));
-                } else if mode == CheckpointMode::Passive
-                    && (self.writes_held_until.is_some() || !self.active_holds.is_empty())
+            QueueMessage::Checkpoint { mode, reply } => match self.maintenance_refusal() {
+                Some(refusal) => send_answer(reply, Err(refusal)),
+                None if mode == CheckpointMode::Passive
+                    && (self.writes_held_until.is_some() || !self.active_holds.is_empty()) =>
                 {
-                    send_answer(reply, Err(CheckpointError::Held));
-                } else {
-                    self.checkpoints
-                        .push_back(PendingCheckpoint { mode, reply });
+                    send_answer(reply, Err(MaintenanceError::Held));
                 }
-            }
+                None => self.maintenance.take_checkpoint(mode, reply),
+            },
+            QueueMessage::Repack { cancel, reply } => match self.maintenance_refusal() {
+                Some(refusal) => send_answer(reply, Err(refusal)),
+                None => self
+                    .maintenance
+                    .take_repack(CancelableWork { cancel, reply }),
+            },
+            QueueMessage::Backup {
+                destination,
+                cancel,
+                reply,
+            } => match self.maintenance_refusal() {
+                Some(refusal) => send_answer(reply, Err(refusal)),
+                None => self
+                    .maintenance
+                    .take_backup(destination, CancelableWork { cancel, reply }),
+            },
             QueueMessage::End => self.end_writes(),
             QueueMessage::Close { drain_within } => self.start_close(drain_within),
         }
@@ -362,12 +374,12 @@ impl WriteQueue {
     }
 
     /// Answers what has come due and sends the thread its next request when none is in flight: a
-    /// hold whose writes have settled starts first, then a checkpoint, then whatever is queued,
-    /// and neither a checkpoint nor a batch goes while the writer holds its writes. A close whose
+    /// hold whose writes have settled starts first, then a checkpoint, then a repack, then
+    /// whatever is queued, and none of them goes while the writer holds its writes. A close whose
     /// writes have all settled lets the thread go.
     fn advance(&mut self) {
         self.answer_settled_flushes();
-        if self.batch.is_some() || self.checkpoint.is_some() {
+        if self.is_thread_busy() {
             return;
         }
         self.start_ready_holds();
@@ -385,8 +397,11 @@ impl WriteQueue {
         if self.writes_held_until.is_some() {
             return;
         }
-        if let Some(checkpoint) = self.checkpoints.pop_front() {
-            self.send_checkpoint(checkpoint);
+        let thread = self.thread.as_ref();
+        if self
+            .maintenance
+            .send_next(|request| send_to_thread(thread, request))
+        {
             return;
         }
         if !self.queued.is_empty() {
@@ -418,14 +433,7 @@ impl WriteQueue {
             send_answer(hold.started, ());
         }
         if !self.active_holds.is_empty() {
-            let (passive, truncating): (VecDeque<_>, VecDeque<_>) =
-                std::mem::take(&mut self.checkpoints)
-                    .into_iter()
-                    .partition(|checkpoint| checkpoint.mode == CheckpointMode::Passive);
-            self.checkpoints = truncating;
-            for checkpoint in passive {
-                send_answer(checkpoint.reply, Err(CheckpointError::Held));
-            }
+            self.maintenance.refuse_passive_checkpoints();
         }
     }
 
@@ -446,43 +454,34 @@ impl WriteQueue {
         }
         self.queued_size -= batch_size;
         let (reply, answer) = oneshot::channel();
-        self.send_to_thread(ThreadRequest::Batch { jobs, reply });
+        send_to_thread(self.thread.as_ref(), ThreadRequest::Batch { jobs, reply });
         self.batch = Some(InFlightBatch { waiters, answer });
     }
 
-    fn send_checkpoint(&mut self, checkpoint: PendingCheckpoint) {
-        let (reply, answer) = oneshot::channel();
-        self.send_to_thread(ThreadRequest::Checkpoint {
-            mode: checkpoint.mode,
-            reply,
-        });
-        self.checkpoint = Some(InFlightCheckpoint {
-            reply: checkpoint.reply,
-            answer,
-        });
+    /// Whether the thread runs a request it serves nothing beside: a batch, a checkpoint or a
+    /// repack; a copy serves the requests that come while it lives.
+    fn is_thread_busy(&self) -> bool {
+        self.batch.is_some() || self.maintenance.holds_thread()
     }
 
-    /// Sends the thread its one request in flight, so the channel's one slot is always free. A
-    /// request the thread cannot take drops with its reply, and its answer reads as the thread
-    /// gone.
-    fn send_to_thread(&self, request: ThreadRequest) {
-        let Some(thread) = &self.thread else {
-            return;
-        };
-        if let Err(refused) = thread.try_send(request) {
-            tracing::error!(
-                error = &refused as &(dyn Error + 'static),
-                "the database writer's thread did not take a request"
-            );
+    /// Why maintenance asked for now is refused: the writer ended or closing; `None` to queue it.
+    fn maintenance_refusal(&self) -> Option<MaintenanceError> {
+        if let Some(reason) = self.shared.end_reason() {
+            Some(MaintenanceError::Ended(reason))
+        } else if self.closing.is_some() {
+            Some(MaintenanceError::Closed)
+        } else {
+            None
         }
     }
 
     /// Settles a batch from the thread's answer: committed writes run their hooks in order first,
-    /// then the commit count rises, then every caller hears; then waiting writes take the room.
+    /// then the thread's commit count is published, then every caller hears; then waiting writes
+    /// take the room.
     fn settle_batch(&mut self, waiters: Vec<Waiter>, answer: Result<BatchAnswer, RecvError>) {
         self.depth -= waiters.iter().map(|waiter| waiter.size).sum::<usize>();
         match answer {
-            Ok(Ok(outcomes)) => self.settle_committed_batch(waiters, outcomes),
+            Ok(Ok(committed)) => self.settle_committed_batch(waiters, committed),
             Ok(Err(failure)) => self.settle_failed_batch(waiters, *failure),
             Err(_unanswered) => {
                 let reason = self.end_writer(Arc::new(ThreadStopped));
@@ -495,7 +494,11 @@ impl WriteQueue {
         self.admit_waiting();
     }
 
-    fn settle_committed_batch(&mut self, waiters: Vec<Waiter>, outcomes: Vec<WriteJobOutcome>) {
+    fn settle_committed_batch(&mut self, waiters: Vec<Waiter>, committed: CommittedBatch) {
+        let CommittedBatch {
+            outcomes,
+            commit_count,
+        } = committed;
         let mut outcomes = outcomes.into_iter();
         let mut settled: Vec<(Waiter, WriteJobOutcome)> = waiters
             .into_iter()
@@ -506,18 +509,18 @@ impl WriteQueue {
                 (waiter, outcome)
             })
             .collect();
-        let mut has_committed = false;
         for (waiter, outcome) in &mut settled {
-            if let WriteJobOutcome::Committed { sequences, .. } = outcome {
-                has_committed = true;
-                if let Some(on_commit) = waiter.on_commit.take() {
-                    on_commit(sequences.as_slice());
-                }
+            if let WriteJobOutcome::Committed { sequences, .. } = outcome
+                && let Some(on_commit) = waiter.on_commit.take()
+            {
+                on_commit(sequences.as_slice());
             }
         }
-        if has_committed {
-            self.commits.send_modify(|count| *count += 1);
-        }
+        self.commits.send_if_modified(|count| {
+            let is_raised = *count != commit_count;
+            *count = commit_count;
+            is_raised
+        });
         for (waiter, outcome) in settled {
             let result = match outcome {
                 WriteJobOutcome::Committed {
@@ -587,36 +590,6 @@ impl WriteQueue {
         }
     }
 
-    fn settle_checkpoint(
-        &mut self,
-        reply: oneshot::Sender<Result<CheckpointResult, CheckpointError>>,
-        answer: Result<CheckpointAnswer, RecvError>,
-    ) {
-        let result = match answer {
-            Ok(Ok(result)) => Ok(result),
-            // The stop interrupted the checkpoint, which fails as the stop's writes do.
-            Ok(Err(failure))
-                if self.shared.stop.is_stopped() && is_interrupt(failure.original()) =>
-            {
-                for cleanup_failure in failure.cleanup_failures() {
-                    self.report_unless_interrupted(cleanup_failure);
-                }
-                Err(self
-                    .shared
-                    .end_reason()
-                    .map_or(CheckpointError::Closed, CheckpointError::Ended))
-            }
-            Ok(Err(failure)) => {
-                self.report_failure(&failure);
-                Err(CheckpointError::Failed(failure))
-            }
-            Err(_unanswered) => Err(CheckpointError::Ended(
-                self.end_writer(Arc::new(ThreadStopped)),
-            )),
-        };
-        send_answer(reply, result);
-    }
-
     fn report_failure(&self, failure: &(dyn Error + 'static)) {
         if let Some(on_write_failed) = &self.on_write_failed {
             on_write_failed(failure);
@@ -647,20 +620,16 @@ impl WriteQueue {
         self.shared.end_reason().unwrap_or(reason)
     }
 
-    /// Fails every write and checkpoint not yet sent with the end's reason and lets the thread
-    /// go; the batch in flight settles from the thread's answer.
+    /// Fails every write, checkpoint and repack not yet sent with the end's reason and lets the
+    /// thread go; the batch in flight settles from the thread's answer.
     fn end_writes(&mut self) {
         let Some(reason) = self.shared.end_reason() else {
             return;
         };
         self.writes_held_until = None;
         self.fail_unsent(|| WriteError::Ended(Arc::clone(&reason)));
-        for checkpoint in self.checkpoints.drain(..) {
-            send_answer(
-                checkpoint.reply,
-                Err(CheckpointError::Ended(Arc::clone(&reason))),
-            );
-        }
+        self.maintenance
+            .fail_unsent(|| MaintenanceError::Ended(Arc::clone(&reason)));
         self.release_thread();
     }
 
@@ -712,9 +681,7 @@ impl WriteQueue {
             // No one lets held writes go once the writer closes.
             unfinished = self.fail_unsent(|| WriteError::ClosedWhileHeld);
         }
-        for checkpoint in self.checkpoints.drain(..) {
-            send_answer(checkpoint.reply, Err(CheckpointError::Closed));
-        }
+        self.maintenance.fail_unsent(|| MaintenanceError::Closed);
         self.closing = Some(Closing {
             deadline: drain_within.map(|bound| Instant::now() + bound),
             is_past_bound: false,
@@ -736,7 +703,7 @@ impl WriteQueue {
         self.shared.stop.stop(StopKind::DrainBound);
         // With nothing running, an interrupt would stay pending and cut the closing checkpoint
         // short.
-        if self.batch.is_some() || self.checkpoint.is_some() {
+        if self.batch.is_some() || self.maintenance.is_running() {
             self.shared.stop.cut_at_bound();
             self.shared.interrupt_thread();
         }
@@ -803,11 +770,32 @@ impl WriteQueue {
                 // Nothing reaches the file any more, so a hold holds at once.
                 QueueMessage::Hold { started, .. } => send_answer(started, ()),
                 QueueMessage::Checkpoint { reply, .. } => {
-                    send_answer(reply, Err(CheckpointError::Closed));
+                    send_answer(reply, Err(MaintenanceError::Closed));
+                }
+                QueueMessage::Repack { reply, .. } => {
+                    send_answer(reply, Err(MaintenanceError::Closed));
+                }
+                QueueMessage::Backup { reply, .. } => {
+                    send_answer(reply, Err(MaintenanceError::Closed));
                 }
                 QueueMessage::Release(_) | QueueMessage::End | QueueMessage::Close { .. } => {}
             }
         }
+    }
+}
+
+/// Sends the thread a request. The channel holds two, a copy and the one request it serves beside
+/// it, and the queue sends no more than that, so a slot is always free. A request the thread
+/// cannot take drops with its reply, and its answer reads as the thread gone.
+fn send_to_thread(thread: Option<&mpsc::Sender<ThreadRequest>>, request: ThreadRequest) {
+    let Some(thread) = thread else {
+        return;
+    };
+    if let Err(refused) = thread.try_send(request) {
+        tracing::error!(
+            error = &refused as &(dyn Error + 'static),
+            "the database writer's thread did not take a request"
+        );
     }
 }
 

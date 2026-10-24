@@ -29,13 +29,6 @@ pub(crate) struct CallbackToolSpawnBinding {
 impl CallbackToolSpawnBinding {
     /// Undoes the spawn's registry after the spawn failed, restoring the one it replaced, which a
     /// driver may still be using; with none replaced it is the same as dropping the binding.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the callback tools' approval route builds the host"
-        )
-    )]
     pub(crate) fn rollback(mut self) {
         self.host
             .end_installation(self.session_id, &self.token, true);
@@ -54,13 +47,6 @@ impl Drop for CallbackToolSpawnBinding {
 
 /// Installs the registry `request` asks for and binds its dispatcher to that installation, so a
 /// later spawn's registry never answers this spawn's calls.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the callback tools' approval route builds the host"
-    )
-)]
 pub(crate) fn bind_callback_tools_for_spawn(
     host: &Arc<CallbackToolHost>,
     request: CallbackToolSpawnRequest,
@@ -92,6 +78,8 @@ mod tests {
     use futures::future::BoxFuture;
     use serde_json::{Map, Value};
     use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
+    use sidekicks_contracts::provider::id::ProviderId;
+    use sidekicks_contracts::provider::tool_call::ToolCallId;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::FreeFormText;
@@ -118,6 +106,7 @@ mod tests {
         fn evaluate<'a>(
             &'a self,
             _invocation: &'a CallbackToolInvocation,
+            _provider: &'a ProviderId,
         ) -> BoxFuture<'a, Result<CallbackToolApprovalOutcome, CallbackToolPortError>> {
             let basis = CallbackToolApprovalBasis::Policy;
             let outcome = if self.is_seam_failing {
@@ -180,7 +169,7 @@ mod tests {
         let invocation = CallbackToolInvocation {
             tool_name: FreeFormText::new(TOOL.to_owned()).expect("the name is in bounds"),
             arguments: Map::from_iter([("query".to_owned(), Value::from("x"))]),
-            tool_call_id: FreeFormText::new("call-1".to_owned()).expect("the id is in bounds"),
+            tool_call_id: ToolCallId::new("call-1".to_owned()).expect("the id is in bounds"),
             session_id: SessionId::new(SESSION).expect("the text is a UUID"),
             run_id: RunId::new("0192f0c8-7a3e-7b4c-9d2e-3f4a5b6c7d8e").expect("the text is a UUID"),
         };

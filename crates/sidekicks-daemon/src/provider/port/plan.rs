@@ -10,13 +10,6 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
 /// A plan as its provider sent it, never read off the disk.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude Code and Codex drivers, which hand a finished plan over"
-    )
-)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ProviderPlan {
     /// The session.

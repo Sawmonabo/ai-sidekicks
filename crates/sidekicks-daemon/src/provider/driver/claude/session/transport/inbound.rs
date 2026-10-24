@@ -45,32 +45,17 @@ pub(crate) struct ClaudeInboundRequest {
 #[derive(Debug)]
 pub(crate) enum ClaudeInboundRequestBody {
     /// Whether a tool call may run.
-    CanUseTool(
-        #[cfg_attr(
-            not(test),
-            expect(dead_code, reason = "the Claude driver's tool ask reads it")
-        )]
-        ClaudeToolUseAsk,
-    ),
+    CanUseTool(ClaudeToolUseAsk),
     /// One of the daemon's own hooks fired.
     HookCallback(ClaudeHookCallback),
     /// A choice Claude Code asks the person.
-    RequestUserDialog(
-        #[expect(dead_code, reason = "the Claude driver's dialogs take it")] ClaudeUserDialog,
-    ),
+    RequestUserDialog(ClaudeUserDialog),
     /// A message for a tool server the daemon hosts in-process, answered with a
     /// [`ClaudeMcpMessageAnswer`].
-    McpMessage(
-        #[expect(
-            dead_code,
-            reason = "the Claude driver's in-process tool servers take it"
-        )]
-        ClaudeMcpMessage,
-    ),
+    McpMessage(ClaudeMcpMessage),
     /// A request the daemon does not answer, which stays pending at the provider.
     Unrouted {
         /// Its subtype, as sent.
-        #[expect(dead_code, reason = "the Claude driver's session task reads it")]
         subtype: String,
     },
 }
@@ -80,41 +65,27 @@ pub(crate) enum ClaudeInboundRequestBody {
 pub(crate) struct ClaudeToolUseAsk {
     /// The tool.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's tool ask reads it")
-    )]
     pub(crate) tool_name: Option<String>,
     /// The call's input, relayed as sent.
     #[serde(default)]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Claude driver's tool ask reads it")
-    )]
     pub(crate) input: Option<Box<RawValue>>,
     /// The call's id.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(dead_code, reason = "the Claude driver's tool ask reads it")]
     pub(crate) tool_use_id: Option<String>,
     /// The helper that asks, absent for the lead.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(dead_code, reason = "the Claude driver's tool ask reads it")]
     pub(crate) agent_id: Option<String>,
     /// The ask's own words, where Claude Code wrote any.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(dead_code, reason = "the Claude driver's tool ask reads it")]
     pub(crate) title: Option<String>,
     /// The ask's description, where Claude Code wrote one.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(dead_code, reason = "the Claude driver's tool ask reads it")]
     pub(crate) description: Option<String>,
     /// What sent the call to an ask: a rule, a mode, a safety check.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(dead_code, reason = "the Claude driver's tool ask reads it")]
     pub(crate) decision_reason_type: Option<String>,
     /// Whether Claude Code's own safety check flagged the call, so no standing allow answers it.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(dead_code, reason = "the Claude driver's tool ask reads it")]
     pub(crate) suppress_always_allow_rule: Option<bool>,
 }
 
@@ -141,10 +112,6 @@ pub(crate) struct ClaudeUserDialog {
     /// What the choice shows, relayed as sent.
     #[serde(default)]
     pub(crate) payload: Option<Box<RawValue>>,
-    /// The tool call the choice is about, where it is about one.
-    #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(dead_code, reason = "the Claude driver's stream reader reads it")]
-    pub(crate) tool_use_id: Option<String>,
 }
 
 /// The members of an `mcp_message` request.
@@ -152,26 +119,14 @@ pub(crate) struct ClaudeUserDialog {
 pub(crate) struct ClaudeMcpMessage {
     /// The server, as `initialize` or `mcp_set_servers` named it.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's in-process tool servers read it"
-    )]
     pub(crate) server_name: Option<String>,
     /// The JSON-RPC message for it, relayed as sent.
     #[serde(default)]
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's in-process tool servers read it"
-    )]
     pub(crate) message: Option<Box<RawValue>>,
 }
 
 /// The success an `mcp_message` request is answered with: the server's JSON-RPC reply.
 #[derive(Debug, Serialize)]
-#[expect(
-    dead_code,
-    reason = "the Claude driver's in-process tool servers answer with it"
-)]
 pub(crate) struct ClaudeMcpMessageAnswer {
     /// The reply, relayed as the server wrote it.
     pub(crate) mcp_response: Box<RawValue>,
@@ -181,16 +136,8 @@ pub(crate) struct ClaudeMcpMessageAnswer {
 #[derive(Debug)]
 pub(crate) struct ClaudeControlResponse {
     /// The id the request was written under, as sent.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code process reader settles the request it names"
-    )]
     pub(crate) request_id: String,
     /// The answer.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code process reader settles the request with it"
-    )]
     pub(crate) outcome: ClaudeControlOutcome,
 }
 
@@ -211,7 +158,6 @@ pub(crate) enum ClaudeControlOutcome {
 #[derive(Debug, Default)]
 pub(crate) struct ClaudeControlAnswer {
     /// The answer's payload, relayed as sent.
-    #[expect(dead_code, reason = "the Claude driver's control answers read it")]
     pub(crate) response: Option<Box<RawValue>>,
     /// The ids of the dialogs the process is still blocked on, where the answer lists them.
     pub(crate) pending_user_dialog_requests: Option<Vec<String>>,
@@ -286,13 +232,6 @@ pub(crate) struct ClaudeControlFrameReader {
 
 impl ClaudeControlFrameReader {
     /// A reader for the process running `provider_session_id` on `provider_account_id`'s home.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process reader reads each control frame through it"
-        )
-    )]
     pub(crate) fn new(
         provider_account_id: Option<ProviderAccountId>,
         provider_session_id: String,
@@ -305,13 +244,6 @@ impl ClaudeControlFrameReader {
     }
 
     /// Reads a `control_request` frame's text; `None`, recorded, when it names no id or subtype.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code process reader reads each control request through it"
-        )
-    )]
     pub(crate) fn read_request(&mut self, frame: &str) -> Option<ClaudeInboundRequestEvent> {
         let read = read_object::<ControlRequestFrame>(frame);
         let request_id = read.as_ref().and_then(|frame| frame.request_id.clone());
@@ -350,10 +282,6 @@ impl ClaudeControlFrameReader {
     }
 
     /// Reads a `control_cancel_request` frame's text; `None`, recorded, when it names no id.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code process reader reads each withdrawal through it"
-    )]
     pub(crate) fn read_cancel(&mut self, frame: &str) -> Option<ClaudeInboundRequestEvent> {
         if let Some(request_id) =
             read_object::<ControlCancelFrame>(frame).and_then(|frame| frame.request_id)
@@ -365,10 +293,6 @@ impl ClaudeControlFrameReader {
     }
 
     /// Reads a `control_response` frame's text; `None`, recorded, when it names no request id.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code process reader reads each control answer through it"
-    )]
     pub(crate) fn read_response(&mut self, frame: &str) -> Option<ClaudeControlResponse> {
         let Some((body, request_id)) = read_object::<ControlResponseFrame>(frame)
             .and_then(|frame| frame.response)
@@ -400,10 +324,6 @@ impl ClaudeControlFrameReader {
     }
 
     /// Records an answer for an id this process never issued, which says the process is broken.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code process reader records an answer to an id it never issued"
-    )]
     pub(crate) fn report_unissued_answer(&self) {
         emit_driver_diagnostic(&self.record(
             DriverDiagnosticKind::ControlFrameMalformed,
@@ -472,7 +392,11 @@ mod tests {
     fn a_request_whose_input_nests_deep_reads_whole() {
         let input = format!("{}{}", "[".repeat(INPUT_DEPTH), "]".repeat(INPUT_DEPTH));
         let frame = format!(
-            r#"{{"type":"control_request","request_id":"7","request":{{"subtype":"can_use_tool","tool_name":"Bash","input":{input}}}}}"#
+            concat!(
+                r#"{{"type":"control_request","request_id":"7","#,
+                r#""request":{{"subtype":"can_use_tool","tool_name":"Bash","input":{input}}}}}"#
+            ),
+            input = input
         );
         let mut reader = ClaudeControlFrameReader::new(None, "session".to_owned());
 

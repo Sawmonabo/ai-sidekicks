@@ -137,17 +137,45 @@ pub(crate) enum StoredInstantBound {
 }
 
 /// `instant` placed among the stored instants: a request's instant may carry an offset or another
-/// fraction length, which would compare wrongly as written.
+/// fraction length, which would compare wrongly as written. It is rounded up to the millisecond the
+/// stored instants keep, so a stored instant is before it, or at or after it, exactly when it is
+/// so against the rounded text.
 pub(crate) fn stored_instant_bound(instant: &WireInstant) -> StoredInstantBound {
-    let Some(millisecond) = instant.unix_millisecond() else {
-        // The instant's pattern holds only days of the calendar, so the text failed to read for
-        // an offset that carries it past the last timestamp.
+    let Some(timestamp) = millisecond_ceiling(instant) else {
+        // The instant's pattern holds only days of the calendar, so the text failed to read or
+        // round for an offset that carries it past the last timestamp.
         return StoredInstantBound::AfterEvery;
     };
-    let timestamp = jiff::Timestamp::from_millisecond(millisecond)
-        .expect("a millisecond read from a timestamp is a timestamp's");
     WireInstant::from_timestamp(timestamp)
         .map_or(StoredInstantBound::BeforeEvery, StoredInstantBound::At)
+}
+
+// `instant` rounded up to the millisecond, `None` past the last timestamp: its millisecond, and
+// the next one when any fraction digit past the third is not zero, a digit past the ninth that the
+// timestamp drops included.
+fn millisecond_ceiling(instant: &WireInstant) -> Option<jiff::Timestamp> {
+    let millisecond = instant
+        .timestamp()?
+        .round(
+            jiff::TimestampRound::new()
+                .smallest(jiff::Unit::Millisecond)
+                .mode(jiff::RoundMode::Floor),
+        )
+        .ok()?;
+    let text = instant.as_str();
+    let fraction = text.find('.').map_or("", |dot| &text[dot + 1..]);
+    let is_past_millisecond = fraction
+        .bytes()
+        .take_while(u8::is_ascii_digit)
+        .skip(3)
+        .any(|digit| digit != b'0');
+    if is_past_millisecond {
+        millisecond
+            .checked_add(jiff::SignedDuration::from_millis(1))
+            .ok()
+    } else {
+        Some(millisecond)
+    }
 }
 
 /// The select-list that reads a run's columns from `workflow_runs AS run` joined to its pinned

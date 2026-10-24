@@ -174,6 +174,7 @@ async fn a_moved_session_holds_its_new_folder_first_and_an_archived_one_lets_bot
     let scheduler = Arc::new(Scheduler::start(
         Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
         None,
+        crate::session::run::live_count::LiveRunCount::default().follow(),
     ));
     let watcher = Arc::new(WorkingFolderWatcher::<NullWatcher>::new(
         WorkingFolderWatcherDeps {

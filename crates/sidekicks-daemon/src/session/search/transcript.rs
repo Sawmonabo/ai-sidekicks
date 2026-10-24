@@ -237,8 +237,10 @@ fn highest_key_before(
 
 // A hit as the page shows it; `None` for a row that names no place in the session's log.
 fn hit_of(hit_line: HitLine) -> Result<Option<TranscriptSearchHit>, TranscriptSearchError> {
-    let HitLine { row, marked } = hit_line;
-    let Some(log_row) = row.log_row else {
+    let HitLine {
+        log_row, marked, ..
+    } = hit_line;
+    let Some(log_row) = log_row else {
         return Ok(None);
     };
     Ok(Some(TranscriptSearchHit {

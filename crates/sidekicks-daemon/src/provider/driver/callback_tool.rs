@@ -6,15 +6,11 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use serde_json::{Map, Value};
-use sidekicks_contracts::command::COMMAND_ID_MAX_LEN;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
-
-/// The longest provider correlation id a callback-tool call carries, in code points: the same cap
-/// as a command's id.
-pub(crate) const PROVIDER_TOOL_CALL_ID_MAX_LEN: usize = COMMAND_ID_MAX_LEN;
 
 /// One callback-tool call the provider made, built by the `sidekicks` tool route from arguments it
 /// has already checked against the tool's input schema. The host answers an unknown tool `failed`
@@ -26,7 +22,7 @@ pub(crate) struct CallbackToolInvocation {
     /// The call's arguments as the provider sent them.
     pub(crate) arguments: Map<String, Value>,
     /// The provider's id for the call.
-    pub(crate) tool_call_id: FreeFormText<PROVIDER_TOOL_CALL_ID_MAX_LEN>,
+    pub(crate) tool_call_id: ToolCallId,
     /// The session.
     pub(crate) session_id: SessionId,
     /// The run whose turn made the call.

@@ -11,7 +11,6 @@ use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension, ToSql, named_params};
 use serde_json::json;
-use sidekicks_contracts::event::declared_variants::CONTENT_PAYLOAD_PLAINTEXT_MAX;
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -27,8 +26,8 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::BoundedText;
 
 use crate::database::connection::read_pool::DatabaseReadError;
-use crate::database::stored_column::optional_utf8_blob_column;
 use crate::events::content::append::stored_index;
+use crate::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 use crate::events::session::read::{SessionEventReads, readable_event_sql};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
@@ -64,32 +63,52 @@ static FILE_PARTS_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // A file's header part, the first of its parts placed at no text offset.
-const FILE_HEADER_SQL: &str = "SELECT content_payload FROM session_events
+static FILE_HEADER_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {body} FROM session_events AS part
   WHERE session_id = @session_id AND joins_sequence = @completion_sequence
     AND patch_file_index = @file_index AND patch_text_offset IS NULL
   ORDER BY sequence
-  LIMIT 1";
+  LIMIT 1",
+        body = stored_body_columns_sql("part"),
+    )
+});
 
 // The part of a file's text holding `@offset`: the last one starting at or before it.
-const TEXT_PART_AT_SQL: &str = "SELECT patch_text_offset, content_payload FROM session_events
+static TEXT_PART_AT_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT patch_text_offset, {body} FROM session_events AS part
   WHERE session_id = @session_id AND joins_sequence = @completion_sequence
     AND patch_file_index = @file_index AND patch_text_offset <= @offset
   ORDER BY patch_text_offset DESC
-  LIMIT 1";
+  LIMIT 1",
+        body = stored_body_columns_sql("part"),
+    )
+});
 
 // The last part of a file's text.
-const LAST_TEXT_PART_SQL: &str = "SELECT patch_text_offset, content_payload FROM session_events
+static LAST_TEXT_PART_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT patch_text_offset, {body} FROM session_events AS part
   WHERE session_id = @session_id AND joins_sequence = @completion_sequence
     AND patch_file_index = @file_index
   ORDER BY patch_text_offset DESC
-  LIMIT 1";
+  LIMIT 1",
+        body = stored_body_columns_sql("part"),
+    )
+});
 
 // The part of a file's text after the one starting at `@offset`.
-const TEXT_PART_AFTER_SQL: &str = "SELECT patch_text_offset, content_payload FROM session_events
+static TEXT_PART_AFTER_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT patch_text_offset, {body} FROM session_events AS part
   WHERE session_id = @session_id AND joins_sequence = @completion_sequence
     AND patch_file_index = @file_index AND patch_text_offset > @offset
   ORDER BY patch_text_offset
-  LIMIT 1";
+  LIMIT 1",
+        body = stored_body_columns_sql("part"),
+    )
+});
 
 /// Why a patch read failed.
 #[derive(Debug, thiserror::Error)]
@@ -193,14 +212,14 @@ impl StoredPatchFiles<'_> {
     fn header(&self, file_index: usize) -> Result<WholePatchFile, PatchListError> {
         let body: Option<Option<String>> = self
             .reader
-            .prepare_cached(FILE_HEADER_SQL)?
+            .prepare_cached(&FILE_HEADER_SQL)?
             .query_row(
                 named_params! {
                     "@session_id": self.session_id.text().as_str(),
                     "@completion_sequence": self.completion_sequence,
                     "@file_index": stored_index(file_index),
                 },
-                |row| optional_utf8_blob_column(row, 0),
+                |row| StoredBodyColumns::read(row, 0)?.decode(0),
             )
             .optional()?;
         let body = body
@@ -235,7 +254,7 @@ impl StoredPatchFiles<'_> {
             .reader
             .prepare_cached(sql)?
             .query_row(bindings.as_slice(), |row| {
-                Ok((row.get(0)?, optional_utf8_blob_column(row, 1)?))
+                Ok((row.get(0)?, StoredBodyColumns::read(row, 1)?.decode(1)?))
             })
             .optional()?;
         let Some((part_offset, body)) = part else {
@@ -422,7 +441,7 @@ fn text_from(
     start: usize,
     budget: usize,
 ) -> Result<FileText, PatchListError> {
-    let Some((mut part_offset, part)) = files.text_part(TEXT_PART_AT_SQL, index, Some(start))?
+    let Some((mut part_offset, part)) = files.text_part(&TEXT_PART_AT_SQL, index, Some(start))?
     else {
         // A file whose text is empty stores no part of it.
         return Ok(if start == 0 {
@@ -441,16 +460,14 @@ fn text_from(
     let mut text_end = part_offset + part.len();
     let mut loaded = part[within..].to_owned();
     loop {
-        if loaded.chars().count() >= CONTENT_PAYLOAD_PLAINTEXT_MAX
-            || !fits(&entry_of(header, &loaded), budget)
-        {
+        if loaded.len() >= PAGE_MAX_BYTES || !fits(&entry_of(header, &loaded), budget) {
             return Ok(FileText::Read(LoadedText {
                 loaded,
                 is_whole_rest: false,
             }));
         }
         let Some((next_offset, next)) =
-            files.text_part(TEXT_PART_AFTER_SQL, index, Some(part_offset))?
+            files.text_part(&TEXT_PART_AFTER_SQL, index, Some(part_offset))?
         else {
             if loaded.is_empty() && start > 0 {
                 return Ok(FileText::AtItsEnd);
@@ -474,18 +491,15 @@ fn text_from(
 // to name it in a refusal.
 fn text_length_of(files: &StoredPatchFiles<'_>, index: usize) -> Result<usize, PatchListError> {
     Ok(files
-        .text_part(LAST_TEXT_PART_SQL, index, None)?
+        .text_part(&LAST_TEXT_PART_SQL, index, None)?
         .map_or(0, |(offset, text)| offset + text.len()))
 }
 
 // Where the part of `text`, the loaded text of `header`'s file, ends: the furthest character
-// boundary, at most one stored text's cap in code points on, whose entry's JSON fits `budget`;
-// `None` when not even the entry with no text fits.
+// boundary, at most a page of UTF-8 on, whose entry's JSON fits `budget`; `None` when not even the
+// entry with no text fits.
 fn part_end(header: &WholePatchFile, text: &str, budget: usize) -> Option<usize> {
-    let cap_end = text
-        .char_indices()
-        .nth(CONTENT_PAYLOAD_PLAINTEXT_MAX)
-        .map_or(text.len(), |(index, _)| index);
+    let cap_end = text.floor_char_boundary(PAGE_MAX_BYTES);
     let fits_to = |end: usize| fits(&entry_of(header, &text[..end]), budget);
     if fits_to(cap_end) {
         return Some(cap_end);

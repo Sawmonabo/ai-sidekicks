@@ -1,8 +1,10 @@
 //! The database writer's thread: it opens the one read-write connection, then runs each request
 //! the write queue sends, one at a time: a batch as one transaction, each write in it under a
 //! savepoint of its own, so a refused or failed write rolls back alone while the batch commits
-//! whole or not at all; or a WAL checkpoint. It closes its connection and exits once the queue lets
-//! it go.
+//! whole or not at all; or a WAL checkpoint; or the repack; or the online copy, serving the
+//! requests that come while it lives. It counts the batches that committed a write, so a copy
+//! names exactly the writes it holds. It closes its connection and exits once the queue lets it
+//! go.
 
 use rusqlite::config::DbConfig;
 use rusqlite::types::Value;
@@ -10,18 +12,24 @@ use rusqlite::{
     Connection, DropBehavior, ErrorCode, InterruptHandle, Params, Statement, Transaction,
     TransactionBehavior, params_from_iter,
 };
+use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::daemon::scheduler::budget::{Measured, ThreadProcessorTime};
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::statement::{
     StatementBindings, StatementResult, WriteStatement, named_bindings,
 };
+use crate::database::writer::backup::{CopyOrder, LOCK_BOUND, ThreadServing, copy_database};
 use crate::database::writer::messages::{
-    BatchAnswer, BatchFailure, CheckpointAnswer, FailedBatch, ThreadExit, ThreadRequest, WriteJob,
-    WriteJobFailure, WriteJobOutcome,
+    BatchAnswer, BatchFailure, CheckpointAnswer, CheckpointReport, CommittedBatch, FailedBatch,
+    MeasuredCheckpointAnswer, ThreadExit, ThreadRequest, WriteJob, WriteJobFailure,
+    WriteJobOutcome,
 };
+use crate::database::writer::repack::repack;
 use crate::database::writer::{ThreadStop, is_interrupt, sqlite_error_code};
+use crate::events::content::codec::BodyEncoder;
 use crate::events::session::insert::insert_session_event;
 
 /// Prepared statements the connection keeps, least recently used dropped first; bounded, since a
@@ -38,16 +46,18 @@ const CHECKPOINT_OPERATION: &str = "running a WAL checkpoint";
 const CLOSE_OPERATION: &str = "closing the writer's connection";
 
 /// The thread's body: runs `open`, answers `opened` with the connection's interrupt handle or the
-/// open's failure, serves `requests` until the queue drops its sender, then closes the connection
-/// and answers `exit` as its last act. A failed open ends the thread at once, `exit` unanswered.
+/// open's failure, serves `requests` until the queue drops its sender, waiting on `runtime` only
+/// while a copy's step meets a lock, then closes the connection and answers `exit` as its last
+/// act. A failed open ends the thread at once, `exit` unanswered.
 pub(super) fn run<OpenError>(
     open: impl FnOnce() -> Result<Connection, OpenError>,
     opened: oneshot::Sender<Result<InterruptHandle, OpenError>>,
     requests: mpsc::Receiver<ThreadRequest>,
     stop: &ThreadStop,
     exit: oneshot::Sender<ThreadExit>,
+    runtime: &Handle,
 ) {
-    let mut connection = match open() {
+    let connection = match open() {
         Ok(connection) => connection,
         Err(open_failure) => {
             if opened.send(Err(open_failure)).is_err() {
@@ -60,7 +70,13 @@ pub(super) fn run<OpenError>(
     // An opener that stopped waiting dropped the request channel with it, so nothing is served and
     // the connection closes at once.
     if opened.send(Ok(connection.get_interrupt_handle())).is_ok() {
-        serve(&mut connection, requests, stop);
+        serve(
+            &connection,
+            &mut BodyEncoder::new(),
+            requests,
+            stop,
+            runtime,
+        );
     }
     let closed = close(connection, stop.skips_checkpoint());
     if stop.is_cut_at_bound() && !stop.is_ended() {
@@ -78,20 +94,24 @@ pub(super) fn run<OpenError>(
 
 // Runs each request as it comes, until the queue drops its sender or stops waiting for answers.
 fn serve(
-    connection: &mut Connection,
+    connection: &Connection,
+    encoder: &mut BodyEncoder,
     mut requests: mpsc::Receiver<ThreadRequest>,
     stop: &ThreadStop,
+    runtime: &Handle,
 ) {
+    let mut commit_count = 0;
     while let Some(request) = requests.blocking_recv() {
-        let is_answered = match request {
-            ThreadRequest::Batch { jobs, reply } => {
-                reply.send(run_batch(connection, &jobs, stop)).is_ok()
-            }
-            ThreadRequest::Checkpoint { mode, reply } => {
-                reply.send(checkpoint(connection, mode)).is_ok()
-            }
-        };
-        if !is_answered {
+        let is_served = serve_request(
+            connection,
+            encoder,
+            request,
+            &mut requests,
+            stop,
+            runtime,
+            &mut commit_count,
+        );
+        if !is_served {
             // The queue is gone, so no request follows.
             break;
         }
@@ -100,7 +120,8 @@ fn serve(
 
 /// Closes the connection. When `skips_checkpoint`, the close first turns off the checkpoint SQLite
 /// makes on the last close, whatever else still holds the file open: an ended writer keeps the
-/// files as they were found, and a stop cut at its bound leaves the log for the next open to replay.
+/// files as they were found, and a stop cut at its bound leaves the log for the next open to
+/// replay.
 fn close(connection: Connection, skips_checkpoint: bool) -> ThreadExit {
     let switch_failure = if skips_checkpoint {
         connection
@@ -182,12 +203,109 @@ impl UnkeptWrite {
     }
 }
 
+/// Runs one request and answers it; false once the queue is gone, so no request follows. A copy
+/// serves the requests that come while it lives, each through here. A checkpoint's and a repack's
+/// answers carry the thread's processor time around their statements; a batch's and a copy's carry
+/// `commit_count`, the thread's count of the batches that committed a write.
+pub(super) fn serve_request(
+    connection: &Connection,
+    encoder: &mut BodyEncoder,
+    request: ThreadRequest,
+    requests: &mut mpsc::Receiver<ThreadRequest>,
+    stop: &ThreadStop,
+    runtime: &Handle,
+    commit_count: &mut u64,
+) -> bool {
+    match request {
+        ThreadRequest::Batch { jobs, reply } => reply
+            .send(run_batch(connection, encoder, &jobs, stop, commit_count))
+            .is_ok(),
+        ThreadRequest::Checkpoint { mode, reply } => {
+            reply.send(checkpoint_measured(connection, mode)).is_ok()
+        }
+        ThreadRequest::Repack { cancel, reply } => {
+            let mut processor_time = ThreadProcessorTime::default();
+            let repacked = processor_time.measure(|| repack(connection, &cancel));
+            reply
+                .send(repacked.map(|report| Measured {
+                    report,
+                    processor_time,
+                }))
+                .is_ok()
+        }
+        ThreadRequest::Backup {
+            destination,
+            cancel,
+            reply,
+        } => {
+            let order = CopyOrder {
+                destination: &destination,
+                cancel: &cancel,
+                lock_bound: LOCK_BOUND,
+            };
+            let mut serving = ThreadServing {
+                connection,
+                encoder,
+                requests,
+                stop,
+                runtime,
+                commit_count,
+            };
+            let (answer, is_queue_gone) = copy_database(&order, &mut serving);
+            reply.send(answer).is_ok() && !is_queue_gone
+        }
+    }
+}
+
+// Runs a requested checkpoint right after a `NOOP` one, whose count of frames already moved
+// leaves the frames this one moved, and reads the store's page size, with the thread's processor
+// time around them.
+fn checkpoint_measured(connection: &Connection, mode: CheckpointMode) -> MeasuredCheckpointAnswer {
+    let mut processor_time = ThreadProcessorTime::default();
+    let report = processor_time.measure(|| {
+        let before = checkpoint(connection, CheckpointMode::Noop)?;
+        let result = checkpoint(connection, mode)?;
+        let page_size = connection
+            .pragma_query_value(None, "page_size", |row| row.get(0))
+            .map_err(|failure| CleanupFailures::new(failure, Vec::new(), CHECKPOINT_OPERATION))?;
+        Ok(CheckpointReport {
+            result,
+            moved_frames: result
+                .checkpointed_frames
+                .saturating_sub(before.checkpointed_frames),
+            page_size,
+        })
+    })?;
+    Ok(Measured {
+        report,
+        processor_time,
+    })
+}
+
 /// Runs `jobs` as one immediate transaction and answers every write's outcome once it committed,
-/// or the batch's failure beside the failures of the writes that failed alone before it.
-fn run_batch(connection: &mut Connection, jobs: &[WriteJob], stop: &ThreadStop) -> BatchAnswer {
+/// with `commit_count` raised when one of them committed, or the batch's failure beside the
+/// failures of the writes that failed alone before it.
+fn run_batch(
+    connection: &Connection,
+    encoder: &mut BodyEncoder,
+    jobs: &[WriteJob],
+    stop: &ThreadStop,
+    commit_count: &mut u64,
+) -> BatchAnswer {
     let mut outcomes = Vec::with_capacity(jobs.len());
-    match run_transaction(connection, jobs, stop, &mut outcomes) {
-        Ok(()) => Ok(outcomes),
+    match run_transaction(connection, encoder, jobs, stop, &mut outcomes) {
+        Ok(()) => {
+            if outcomes
+                .iter()
+                .any(|outcome| matches!(outcome, WriteJobOutcome::Committed { .. }))
+            {
+                *commit_count += 1;
+            }
+            Ok(CommittedBatch {
+                outcomes,
+                commit_count: *commit_count,
+            })
+        }
         Err(failure) => Err(Box::new(FailedBatch {
             failure: *failure,
             earlier_write_failures: outcomes
@@ -203,9 +321,11 @@ fn run_batch(connection: &mut Connection, jobs: &[WriteJob], stop: &ThreadStop) 
 
 /// Runs `jobs` in one transaction, pushing each write's outcome onto `outcomes`, and commits. The
 /// stop is read before each write, each statement and the commit, so a stop that lands between
-/// statements, where SQLite's interrupt does not reach, still keeps the batch from committing.
+/// statements, where SQLite's interrupt does not reach, still keeps the batch from committing. It
+/// opens through the shared connection, which a copy borrows while it lives.
 fn run_transaction(
-    connection: &mut Connection,
+    connection: &Connection,
+    encoder: &mut BodyEncoder,
     jobs: &[WriteJob],
     stop: &ThreadStop,
     outcomes: &mut Vec<WriteJobOutcome>,
@@ -217,8 +337,7 @@ fn run_transaction(
             stop,
         )));
     }
-    let mut transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+    let mut transaction = Transaction::new_unchecked(connection, TransactionBehavior::Immediate)
         .map_err(|failure| {
             Box::new(batch_failure(
                 BatchFailure::Begin(failure),
@@ -237,7 +356,7 @@ fn run_transaction(
                 stop,
             )));
         }
-        match run_job(&transaction, job, stop) {
+        match run_job(&transaction, encoder, job, stop) {
             JobEnd::Settled(outcome) => outcomes.push(outcome),
             JobEnd::Stopped => {
                 return Err(Box::new(roll_back(
@@ -332,7 +451,12 @@ fn batch_failure(
 /// Runs one write under a savepoint of its own: released once its work is done, rolled back when
 /// a statement refuses or fails it. The savepoint's statements run on the connection itself, so
 /// each end is explicit and its failure seen.
-fn run_job(connection: &Connection, job: &WriteJob, stop: &ThreadStop) -> JobEnd {
+fn run_job(
+    connection: &Connection,
+    encoder: &mut BodyEncoder,
+    job: &WriteJob,
+    stop: &ThreadStop,
+) -> JobEnd {
     if let Err(failure) = connection.execute_batch(OPEN_JOB_SAVEPOINT_SQL) {
         return settle_unkept(
             connection,
@@ -340,7 +464,7 @@ fn run_job(connection: &Connection, job: &WriteJob, stop: &ThreadStop) -> JobEnd
             UnkeptWrite::Failed(WriteJobFailure::Savepoint(failure)),
         );
     }
-    match run_job_work(connection, job, stop) {
+    match run_job_work(connection, encoder, job, stop) {
         Ok(outcome) => match connection.execute_batch(RELEASE_JOB_SAVEPOINT_SQL) {
             Ok(()) => JobEnd::Settled(outcome),
             Err(release_failure) if connection.is_autocommit() => {
@@ -378,9 +502,10 @@ fn settle_unkept(connection: &Connection, has_savepoint: bool, unkept: UnkeptWri
 }
 
 /// Runs a write's statements in order, then inserts its event rows in order, each at its
-/// session's next sequence.
+/// session's next sequence with its body encoded by `encoder`.
 fn run_job_work(
     connection: &Connection,
+    encoder: &mut BodyEncoder,
     job: &WriteJob,
     stop: &ThreadStop,
 ) -> Result<WriteJobOutcome, JobFault> {
@@ -411,7 +536,7 @@ fn run_job_work(
         if stop.is_stopped() {
             return Err(JobFault::Stopped);
         }
-        let sequence = insert_session_event(connection, event).map_err(|failure| {
+        let sequence = insert_session_event(connection, encoder, event).map_err(|failure| {
             JobFault::Unkept(UnkeptWrite::Failed(WriteJobFailure::EventRow(failure)))
         })?;
         sequences.push(sequence);
@@ -475,7 +600,7 @@ fn run_bound(
 /// older snapshot, which would hold the connection, and every write behind it, for the whole busy
 /// timeout; with none it answers busy at once. The timeout is put back whatever the checkpoint
 /// does.
-fn checkpoint(connection: &Connection, mode: CheckpointMode) -> CheckpointAnswer {
+pub(super) fn checkpoint(connection: &Connection, mode: CheckpointMode) -> CheckpointAnswer {
     let alone = |failure: rusqlite::Error| -> CleanupFailures<rusqlite::Error> {
         CleanupFailures::new(failure, Vec::new(), CHECKPOINT_OPERATION)
     };

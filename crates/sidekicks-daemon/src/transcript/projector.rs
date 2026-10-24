@@ -111,9 +111,7 @@ where
     rows.iter()
         .map(|event| {
             let sequence = i64::from(event.sequence);
-            let body = members_by_row
-                .remove(&sequence)
-                .and_then(|members| joined_body_of(sequence, &event.payload, members));
+            let body = members_by_row.remove(&sequence).and_then(joined_body_of);
             let content = with_block_starts(
                 joined_row_content_of(&event.payload, body.as_ref()),
                 prose_body_of(event.event_type.0.as_str(), &event.payload),

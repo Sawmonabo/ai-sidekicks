@@ -32,10 +32,6 @@ use crate::session::run::inbound::rows::LateAppendableRow;
 
 /// The run a streamed block's rows belong to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[expect(
-    dead_code,
-    reason = "the Claude driver's stream reader names each streamed block's run with it"
-)]
 pub(crate) struct ClaudeStreamedRun {
     /// The session.
     pub(crate) session_id: SessionId,
@@ -56,16 +52,8 @@ pub(crate) struct ClaudeStreamedBlockKey {
 /// One stored piece of a streamed block, as the row it is written as, under the block's key.
 pub(crate) struct ClaudeStreamedPiece {
     /// The block's key.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's stream reader writes each piece under it"
-    )]
     pub(crate) block_key: ClaudeStreamedBlockKey,
     /// The row, its body the piece.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's stream reader writes each piece as it"
-    )]
     pub(crate) row: ClaudeMessageRow,
 }
 
@@ -204,10 +192,6 @@ pub(crate) struct ClaudeStreamedBlocks {
 
 impl ClaudeStreamedBlocks {
     /// The blocks of a process running on `provider_account_id`'s home.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code stream reader keeps one per session's process"
-    )]
     pub(crate) fn new(provider_account_id: Option<ProviderAccountId>) -> Self {
         Self {
             provider_account_id,
@@ -221,10 +205,6 @@ impl ClaudeStreamedBlocks {
 
     /// Takes one `stream_event` frame's text of the run's turn at `now`; answers the deadline a
     /// piece it began waiting goes out by, for the session's one timer.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's stream reader takes each stream event through it"
-    )]
     pub(crate) fn observe(
         &mut self,
         frame: &str,
@@ -275,6 +255,7 @@ impl ClaudeStreamedBlocks {
                             source_position: None,
                             content_length: None,
                             content_truncated: None,
+                            content_encoding: None,
                         },
                     });
                 self.text.append(&key, &run.run_id.to_string(), &piece, now)
@@ -290,19 +271,11 @@ impl ClaudeStreamedBlocks {
     }
 
     /// The earliest deadline a waiting piece goes out by.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code stream reader arms its timer on it"
-    )]
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
         self.text.next_deadline()
     }
 
     /// The pieces whose interval has passed by `now`.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code stream reader writes them when its timer fires"
-    )]
     pub(crate) fn due(&mut self, now: Instant) -> Vec<ClaudeStreamedPiece> {
         let pieces = self.text.due(now);
         self.rows_of(pieces)
@@ -312,10 +285,6 @@ impl ClaudeStreamedBlocks {
     /// answers the pieces that carry what the streamed ones did not, and the frame's rows that
     /// streamed as no block. A final text that does not begin with what streamed is recorded, the
     /// streamed pieces standing.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's stream reader finishes each streamed block through it"
-    )]
     pub(crate) fn finish(
         &mut self,
         frame: &ClaudeMessageFrame,
@@ -375,28 +344,16 @@ impl ClaudeStreamedBlocks {
 
     /// The key of the block the open turn's assistant frame `message_uuid` finished, if it
     /// streamed.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code stream reader keys a finished block's rows by it"
-    )]
     pub(crate) fn block_key_for(&self, message_uuid: &str) -> Option<&ClaudeStreamedBlockKey> {
         self.block_key_by_message_uuid.get(message_uuid)
     }
 
     /// Forgets the open turn's assistant frames, as the next turn opens.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code stream reader calls it as each turn opens"
-    )]
     pub(crate) fn open_turn(&mut self) {
         self.block_key_by_message_uuid.clear();
     }
 
     /// Answers what still waits of the blocks `run_id`'s turn left unfinished, as the turn ends.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code stream reader calls it as each turn ends"
-    )]
     pub(crate) fn end_turn(&mut self, run_id: RunId) -> Vec<ClaudeStreamedPiece> {
         let pieces = self.text.end_turn(&run_id.to_string());
         self.streaming_block_by_message.clear();
@@ -408,10 +365,6 @@ impl ClaudeStreamedBlocks {
     }
 
     /// Answers what still waits of every block, as the session's process is gone.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code stream reader calls it as its process ends"
-    )]
     pub(crate) fn end_all(&mut self) -> Vec<ClaudeStreamedPiece> {
         let pieces = self.text.end_all();
         let rows = self.rows_of(pieces);

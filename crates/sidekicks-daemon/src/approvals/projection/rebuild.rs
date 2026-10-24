@@ -236,7 +236,9 @@ fn push_answer(
         client_resolution_id: resolved.client_resolution_id.clone(),
         decision,
         effective_scope: resolved.effective_scope.clone(),
+        asked_scope: resolved.remembered_scope.clone(),
         edited_action: resolved.edited_action.clone(),
+        decline_reason: resolved.decline_reason.clone(),
         resolved_at,
     }));
 }
@@ -310,7 +312,9 @@ mod tests {
                     client_resolution_id: resolved.client_resolution_id.clone(),
                     decision,
                     effective_scope: resolved.effective_scope.clone(),
+                    asked_scope: resolved.remembered_scope.clone(),
                     edited_action: resolved.edited_action.clone(),
+                    decline_reason: resolved.decline_reason.clone(),
                     resolved_at: occurred_at.clone(),
                 }),
             ]
@@ -445,15 +449,16 @@ mod tests {
     }
 
     // The rows the live writes wrote are the rows a rebuild writes: an approval with its
-    // correction and its rule, a decline, a cancellation, and an ask a workflow gate's answer
-    // names, with its rule, which the clear keeps with its answer. Rebuilt whole, the gate-named
-    // ask's answer is written over the kept one; where the session skipped that answer as damaged,
-    // the ask settles as the gate's row says; where it skipped only the rule, the answer is
-    // written without it. Every rebuild leaves the cursor current at the log's head. A clear that
-    // drops the gate-named ask breaks the gate's reference, one that drops its answer or a missing
-    // settle leaves it pending or unanswered, a plain insert of its answer collides with the kept
-    // one, and a rewrite that keeps the kept answer's rule keeps one the log no longer holds, each
-    // failing a case.
+    // correction, a decline with its words, a cancellation, and an ask a workflow gate's answer
+    // names, with the rule it asked for and made, which the clear keeps with its answer. Rebuilt
+    // whole, the gate-named ask's answer is written over the kept one; where the session skipped
+    // that answer as damaged, the ask settles as the gate's row says; where it skipped only the
+    // rule, the answer is written without the rule made and with the rule asked for, which its own
+    // event carries. Every rebuild leaves the cursor current at the log's head. A clear that drops
+    // the gate-named ask breaks the gate's reference, one that drops its answer or a missing settle
+    // leaves it pending or unanswered, a plain insert of its answer collides with the kept one, a
+    // rewrite that keeps the kept answer's rule made keeps one the log no longer holds, and one
+    // that clears the rule asked for drops one the answer's event holds, each failing a case.
     #[rstest]
     #[case::rebuilt_whole(GateNamedSkip::Nothing)]
     #[case::skipping_the_gate_named_answer(GateNamedSkip::AnswerAndRule)]
@@ -494,14 +499,22 @@ mod tests {
             }
             ask.event(session_id, "approval.requested", &extra)
         };
-        let answer = |ask: &Ask, event_type: &str, edited_action: Option<&str>| {
+        // `said` is what the person added to the answer: a correction, or a decline's words.
+        let answer = |ask: &Ask, event_type: &str, said: Option<(&str, &str)>| {
             let mut extra = json!({
                 "effectiveScope": "npm run build",
                 "deviceId": "device-1",
                 "clientResolutionId": mint_uuid_v7().to_string(),
             });
-            if let Some(edited_action) = edited_action {
-                extra["editedAction"] = json!(edited_action);
+            if let Some((field, text)) = said {
+                extra[field] = json!(text);
+            }
+            if ask.id == gate_named.id {
+                extra["rememberedScope"] = json!({
+                    "kind": "session",
+                    "pattern": "npm run",
+                    "sense": "allow",
+                });
             }
             ask.event(session_id, event_type, &extra)
         };
@@ -525,11 +538,14 @@ mod tests {
             answer(
                 &approved,
                 "approval.approved",
-                Some("npm run build -- --watch"),
+                Some(("editedAction", "npm run build -- --watch")),
             ),
-            remembered(&approved),
             requested(&rejected, Some("ask-2")),
-            answer(&rejected, "approval.rejected", None),
+            answer(
+                &rejected,
+                "approval.rejected",
+                Some(("declineReason", "not on the build machine")),
+            ),
             requested(&canceled, None),
             canceled.event(session_id, "approval.canceled", &json!({})),
             requested(&gate_named, Some("ask-3")),
@@ -590,7 +606,8 @@ mod tests {
             .expect("the gate's row is written");
         let (live_requests, mut live_resolutions) = approval_rows(&reader);
         if let GateNamedSkip::Rule = skip {
-            // A rebuild that never reads the gate-named ask's rule writes its answer without it.
+            // A rebuild that never reads the gate-named ask's rule writes its answer without the
+            // rule made, and keeps the rule asked for, which the answer's own event carries.
             let columns = reader
                 .prepare("SELECT * FROM approval_resolutions")
                 .expect("the read prepares");

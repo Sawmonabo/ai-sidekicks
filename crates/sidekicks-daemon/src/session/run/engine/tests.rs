@@ -21,8 +21,6 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_platforms::Spawner;
-use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 
 use crate::database::connection::read_pool::DatabaseReadPool;
@@ -34,13 +32,14 @@ use crate::pause_point::PausePoint;
 use crate::policy::execution_posture_service::{
     ExecutionPostureService, compose_execution_posture,
 };
-use crate::provider::driver::DriverServices;
 use crate::provider::driver::registry::ProviderRegistry;
+use crate::provider::driver::test_registry::test_driver_services;
 use crate::session::run::engine::limits::LimitStop;
 use crate::session::run::engine::live::lock;
 use crate::session::run::engine::turns::{ProviderTurnEnd, StepCount, TurnOutcome};
 use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
 use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
+use crate::session::run::live_count::LiveRunCount;
 use crate::session::run::start_request::{DriverStep, RunContinueRequest, RunTurnStart};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -60,10 +59,7 @@ pub(crate) fn test_engine(
     event_log: Arc<EventLogService>,
     home: &Path,
 ) -> Arc<RunEngine> {
-    let services = DriverServices {
-        spawner: Spawner::new(Handle::current()).expect("the spawner thread starts"),
-        data_folder: PathBuf::from("data"),
-    };
+    let services = test_driver_services();
     Arc::new(RunEngine::new(RunEngineDeps {
         pool: Arc::new(DatabaseReadPool::new(
             database.path(),
@@ -75,6 +71,7 @@ pub(crate) fn test_engine(
             home.join("session-token"),
         )),
         providers: Arc::new(ProviderRegistry::register_from(&[], &services)),
+        live_runs: Arc::new(LiveRunCount::default()),
     }))
 }
 
@@ -275,6 +272,7 @@ pub(crate) fn turn_started_at(
         run_version: run_version(version),
         turn_number: turn(turn_number),
         position: None,
+        provider_turn_id: None,
     })
 }
 

@@ -15,14 +15,13 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
 use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use strum::IntoStaticStr;
 
-use crate::provider::driver::callback_tool::{
-    CallbackToolInvocation, CallbackToolResult, PROVIDER_TOOL_CALL_ID_MAX_LEN,
-};
+use crate::provider::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -64,11 +63,12 @@ pub(crate) enum CallbackToolApprovalOutcome {
 
 /// The approval pipeline's evaluation, which the daemon's start binds to the composed check.
 pub(crate) trait CallbackToolApprovalSeam: Send + Sync {
-    /// Adjudicates `invocation`, whose arguments a policy may read. An error when it could not
-    /// adjudicate, which the host answers `denied`.
+    /// Adjudicates `invocation`, whose arguments a policy may read, made by `provider`'s process.
+    /// An error when it could not adjudicate, which the host answers `denied`.
     fn evaluate<'a>(
         &'a self,
         invocation: &'a CallbackToolInvocation,
+        provider: &'a ProviderId,
     ) -> BoxFuture<'a, Result<CallbackToolApprovalOutcome, CallbackToolPortError>>;
 }
 
@@ -112,7 +112,7 @@ pub(crate) struct CallbackToolActivityRecord {
     /// The tool called.
     pub(crate) tool_name: FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>,
     /// The provider's id for the call, unchanged, since a tool's start and end pair on it.
-    pub(crate) tool_call_id: FreeFormText<PROVIDER_TOOL_CALL_ID_MAX_LEN>,
+    pub(crate) tool_call_id: ToolCallId,
     /// How it settled.
     pub(crate) disposition: CallbackToolActivityDisposition,
     /// How it was adjudicated; `None` when it was refused before adjudication.
@@ -284,7 +284,7 @@ impl CallbackToolHost {
         session_id: SessionId,
         run_id: RunId,
         tool_name: FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>,
-        tool_call_id: FreeFormText<PROVIDER_TOOL_CALL_ID_MAX_LEN>,
+        tool_call_id: ToolCallId,
         fault: &dyn Display,
     ) -> CallbackToolResult {
         let provider = self
@@ -517,13 +517,17 @@ impl CallbackToolHost {
                     .to_owned(),
             )),
             (Some(_), Err((refusal, detail))) => Err((refusal, detail.to_owned())),
-            (Some(seam), Ok(())) => seam.evaluate(&invocation).await.map_err(|error| {
-                let detail = format!(
-                    "the approval seam failed before adjudicating; refusing rather than \
-                     completing without adjudication ({error})"
-                );
-                (Refusal::NoSeam, detail)
-            }),
+            (Some(seam), Ok(())) => {
+                seam.evaluate(&invocation, &token.0.provider)
+                    .await
+                    .map_err(|error| {
+                        let detail = format!(
+                            "the approval seam failed before adjudicating; refusing rather than \
+                             completing without adjudication ({error})"
+                        );
+                        (Refusal::NoSeam, detail)
+                    })
+            }
         };
         let outcome = match adjudication {
             Ok(outcome) => outcome,

@@ -31,7 +31,7 @@ The figures, measured on Oct 12, 2026 on an Apple M1 Pro (headless Chromium 156 
 | A row's block records at 92,310 blocks | 11.7 MB per reader, two readers; the same records as typed arrays 2.51 MB in all |
 | One reader's cut, fingerprint and record pass at 92,310 blocks | 121 ms |
 
-A stored body is capped at 256 KiB (`CONTENT_PAYLOAD_PLAINTEXT_MAX`), a body over 32 KiB reaches the window as its size alone until it is opened (`TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES`), and a streamed reply is stored as many rows; one multi-MiB body arrives with the planned live reply, and the 8 MiB bench reply stands in for it.
+A stored body is kept whole, however long, and stored as zstd frames of at most one page each from 1 KiB, so a body read decodes only the frames its part covers; a body over 32 KiB reaches the window as its size alone until it is opened (`TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES`), and a streamed reply is stored as many rows; one multi-MiB body arrives with the planned live reply, and the 8 MiB bench reply stands in for it.
 
 ## Problem Statement
 

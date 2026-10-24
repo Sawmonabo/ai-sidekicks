@@ -36,7 +36,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use tokio::time::Instant;
 
 use crate::provider::driver::diagnostics::{
-    DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
+    DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics, emit_driver_diagnostic,
 };
 
 /// The capability a thread-scoped frame carries, which selects its carve-out: `Usage` and
@@ -218,6 +218,8 @@ pub(crate) struct ThreadFrameRouter<Frame> {
     pending_holds: VecDeque<PendingHold<Frame>>,
     /// The quarantine, oldest first.
     quarantined_frames: VecDeque<QuarantinedFrame>,
+    /// The families quarantined so far, each reported once.
+    quarantine_reports: OnceReportedDiagnostics,
 }
 
 impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
@@ -231,6 +233,7 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
             child_attributions_by_thread_id: HashMap::new(),
             pending_holds: VecDeque::new(),
             quarantined_frames: VecDeque::new(),
+            quarantine_reports: OnceReportedDiagnostics::default(),
         }
     }
 
@@ -442,13 +445,16 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
         taken.into_iter().map(|held| held.frame).collect()
     }
 
+    // Quarantines `frame`, reporting the first of its family and the first shed of each family;
+    // one the build sends every turn would otherwise log on every frame.
     fn quarantine(&mut self, frame: &Frame, reason: &str) -> ThreadFrameRoute {
-        self.emit(
+        let record = self.record(
             DriverDiagnosticKind::ThreadFrameQuarantined,
             Some(frame.raw_wire_type()),
             reason,
             [("threadId", Value::from(frame.thread_id()))],
         );
+        self.quarantine_reports.report(&record);
         self.quarantined_frames.push_back(QuarantinedFrame {
             raw_wire_type: frame.raw_wire_type().to_owned(),
             thread_id: frame.thread_id().map(str::to_owned),
@@ -456,7 +462,7 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
         if self.quarantined_frames.len() > self.config.max_quarantined_frames
             && let Some(shed_frame) = self.quarantined_frames.pop_front()
         {
-            self.emit(
+            let record = self.record(
                 DriverDiagnosticKind::ThreadQuarantineShed,
                 Some(shed_frame.raw_wire_type.as_str()),
                 "quarantine buffer exceeded its declared cap; oldest entry shed (a diagnostic \
@@ -469,6 +475,7 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
                     ),
                 ],
             );
+            self.quarantine_reports.report(&record);
         }
         ThreadFrameRoute::Quarantined
     }
@@ -480,7 +487,17 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
         disposition_reason: &str,
         details: [(&str, Value); FIELDS],
     ) {
-        emit_driver_diagnostic(&DriverDiagnosticRecord {
+        emit_driver_diagnostic(&self.record(kind, raw_wire_type, disposition_reason, details));
+    }
+
+    fn record<const FIELDS: usize>(
+        &self,
+        kind: DriverDiagnosticKind,
+        raw_wire_type: Option<&str>,
+        disposition_reason: &str,
+        details: [(&str, Value); FIELDS],
+    ) -> DriverDiagnosticRecord {
+        DriverDiagnosticRecord {
             provider: self.provider.clone(),
             provider_account_id: None,
             kind,
@@ -490,7 +507,7 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
                 .into_iter()
                 .map(|(name, value)| (name.to_owned(), value))
                 .collect::<Map<String, Value>>(),
-        });
+        }
     }
 }
 
@@ -614,13 +631,15 @@ mod tests {
         );
     }
 
+    // Killed by shedding any frame but the oldest, and by reporting every shed of a family once
+    // the buffer stays full (`first` shed twice).
     #[test]
     fn the_quarantine_sheds_its_oldest_frame_at_its_cap() {
         let recorded = RecordedEvents::default();
         recorded.record_during(|| {
             let mut router = router_for_session();
             let now = Instant::now();
-            for raw_wire_type in ["first", "second", "third"] {
+            for raw_wire_type in ["first", "second", "first", "second", "first"] {
                 let unknown = TestFrame {
                     raw_wire_type: raw_wire_type.to_owned(),
                     family_class: ThreadFrameFamilyClass::Unknown,
@@ -635,7 +654,7 @@ mod tests {
 
         assert_eq!(
             recorded.field_on("driver.threadRouter.quarantineShed", "raw_wire_type"),
-            ["first"]
+            ["first", "second"]
         );
     }
 }

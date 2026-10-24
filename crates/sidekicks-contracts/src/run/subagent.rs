@@ -8,6 +8,7 @@ use crate::event::envelope::{
 };
 use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::provider::id::ProviderId;
+use crate::provider::tool_call::ToolCallId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -37,8 +38,8 @@ pub struct SubagentLifecyclePayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
-    pub parent_tool_call_id: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    #[schemars(with = "ToolCallId")]
+    pub parent_tool_call_id: Option<ToolCallId>,
     /// The execution epoch a late row is attributed to; comes with `source_position`.
     #[serde(
         default,

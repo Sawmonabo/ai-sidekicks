@@ -1,19 +1,27 @@
-//! The errors a Claude session raises, the refusal each reaches a caller as, and the recovery
-//! condition a failure leaves the session in.
+//! The errors a Claude session raises, the refusal each reaches a caller as, the recovery
+//! condition a failure leaves the session in, and the record of a failure no caller hears.
 
+use std::error::Error;
 use std::io;
 
+use serde_json::{Value, json};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::error_description::describe_error;
 use crate::provider::driver::capabilities::DriverCapabilityFlag;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::session::transport::control::ClaudeControlSubtype;
 use crate::provider::driver::contract::{DriverError, bound_failure_detail};
+use crate::provider::driver::diagnostics::{
+    DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
+};
 use crate::provider::driver::error_causes::{
-    RequestUnanswered, UNSPECIFIED_PROVIDER_FAILURE_DETAIL, provider_failure_refusal,
+    ProviderAxis, ProviderAxisInvalid, RequestUnanswered, UNSPECIFIED_PROVIDER_FAILURE_DETAIL,
+    provider_failure_refusal,
 };
 use crate::provider::driver::registry::provider_capability_refused;
 
@@ -29,80 +37,49 @@ pub(crate) const CLAUDE_AUTH_PROBE_REACHED_DETAIL: &str =
 /// Why the driver cannot carry out a session or run operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeSessionUnavailableReason {
-    /// The spawned process announced a session id other than the one pinned.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle refuses with it"
-    )]
-    SessionIdPinDiverged,
     /// No live session is bound to the session.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session and run controls refuse with it"
-    )]
     NoLiveSession,
     /// No live session is bound to the run.
-    #[expect(dead_code, reason = "the Claude driver's run controls refuse with it")]
     NoLiveRun,
     /// The run's turn is already dispatched and has not settled.
-    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     RunAlreadyDispatched,
     /// Another run's turn is still in flight on the session.
-    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     SessionTurnInFlight,
     /// The run's execution posture differs from the one the session was spawned with.
-    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     ExecutionPostureMismatch,
     /// The run requires schema-constrained output and the session was spawned without a schema.
-    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     OutputSchemaUnbound,
     /// The run's output schema differs from the one the session was spawned with.
-    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     OutputSchemaMismatch,
-    /// The request named a provider account that is present but empty.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle refuses with it"
-    )]
-    ProviderAccountUnusable,
     /// Two resolvers name different provider accounts for the session.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle refuses with it"
-    )]
     ProviderAccountAmbiguous,
     /// The process exited before it answered.
     ProcessExited,
     /// The session holds no execution posture, so a turn the daemon starts has no level to run at.
-    #[expect(dead_code, reason = "the Claude driver's run start refuses with it")]
     ExecutionPostureAbsent,
     /// Claude Code cannot run the session at that permission level.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session controls refuse with it"
-    )]
     PermissionLevelUnavailable,
     /// The installed Claude Code lists no code-review skill for the session.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's review command refuses with it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start registers the Claude driver, whose review command \
+                      refuses with it"
+        )
     )]
     ReviewSkillAbsent,
     /// Claude Code's model id names its window, so a session takes no larger-window figure.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session controls refuse with it"
-    )]
     LargerWindowFigureUnsupported,
+    /// A folder the session's commands are kept from could not be resolved, so no process starts
+    /// with it unprotected.
+    CredentialFolderUnresolvable,
 }
 
 impl ClaudeSessionUnavailableReason {
     // The words a refusal for this reason reads.
     fn message(self) -> &'static str {
         match self {
-            Self::SessionIdPinDiverged => {
-                "The spawned Claude process announced a session id other than the pinned one."
-            }
             Self::NoLiveSession => "No live Claude session is bound to this session.",
             Self::NoLiveRun => "No live Claude session is bound to this run.",
             Self::RunAlreadyDispatched => {
@@ -123,10 +100,6 @@ impl ClaudeSessionUnavailableReason {
                 "The run's output schema differs from the schema the Claude session was spawned \
                  with."
             }
-            Self::ProviderAccountUnusable => {
-                "The request named a provider account that is present but empty; an account was \
-                 meant to be bound and none was."
-            }
             Self::ProviderAccountAmbiguous => {
                 "Two resolvers name different provider accounts for this Claude session."
             }
@@ -145,6 +118,10 @@ impl ClaudeSessionUnavailableReason {
                 "Claude Code's model id names its window, so a Claude session takes no \
                  larger-window figure."
             }
+            Self::CredentialFolderUnresolvable => {
+                "A folder the session's commands are kept from could not be resolved, so the \
+                 Claude Code process was not started."
+            }
         }
     }
 }
@@ -154,23 +131,13 @@ impl ClaudeSessionUnavailableReason {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeSessionSlotState {
     /// A create or resume is in flight.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle names the slot a create meets with it"
-    )]
     Establishing,
     /// A live session holds the slot.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle names the slot a create meets with it"
-    )]
     Live,
     /// The session is still being torn down.
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle names the slot a create meets with it"
-    )]
     Closing,
+    /// The session's process refused to end; a close must take it down first.
+    Quarantined,
 }
 
 /// Why a control request got no answer once anything of it was written.
@@ -189,7 +156,7 @@ pub(crate) enum ClaudeUnansweredCause {
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ClaudeSessionError {
     /// The driver cannot carry out the operation now.
-    #[error("{}{}", .reason.message(), .detail.as_ref().map(|detail| format!(" {detail}")).unwrap_or_default())]
+    #[error("{}{}", .reason.message(), detail_suffix(.detail.as_deref()))]
     Unavailable {
         /// Why.
         reason: ClaudeSessionUnavailableReason,
@@ -209,7 +176,8 @@ pub(crate) enum ClaudeSessionError {
         not(test),
         expect(
             dead_code,
-            reason = "the Claude driver's sign-in probe and stream reader report a refused sign-in"
+            reason = "the daemon's start registers the Claude driver, whose sign-in probe reports \
+                      a refused sign-in with it"
         )
     )]
     AuthenticationRequired {
@@ -232,25 +200,35 @@ pub(crate) enum ClaudeSessionError {
         /// Claude Code's words.
         provider_error: String,
     },
+    /// Claude Code refused the session's model at the start's `set_model`: its build does not
+    /// offer it.
+    #[error("Claude Code does not offer the model {model}: {provider_error}")]
+    ModelNotOffered {
+        /// The session's lead, whose binding names the model.
+        agent_id: AgentId,
+        /// The model as the session asked for it.
+        model: String,
+        /// Claude Code's words.
+        provider_error: String,
+    },
     /// A process already holds the session's slot.
     #[error("a Claude session already holds this session's slot ({holder_state:?})")]
-    #[expect(
-        dead_code,
-        reason = "the Claude driver's session lifecycle refuses a second process with it"
-    )]
     SessionAlreadyLive {
         /// The state the slot is in.
         holder_state: ClaudeSessionSlotState,
     },
 }
 
+// A refusal's further words after its reason's, set off by a space.
+fn detail_suffix(detail: Option<&str>) -> String {
+    detail
+        .map(|detail| format!(" {detail}"))
+        .unwrap_or_default()
+}
+
 impl ClaudeSessionError {
     /// The recovery condition the failure leaves the session in: sign in again after a refused
     /// sign-in, recover after anything else.
-    #[expect(
-        dead_code,
-        reason = "the Claude session lifecycle reports a failed resume's recovery condition"
-    )]
     pub(crate) fn recovery_condition(&self) -> RecoveryCondition {
         match self {
             Self::AuthenticationRequired { .. } => RecoveryCondition::ReauthRequired,
@@ -258,6 +236,7 @@ impl ClaudeSessionError {
             | Self::InputUnwritable(_)
             | Self::Unanswered { .. }
             | Self::ControlRequestRefused { .. }
+            | Self::ModelNotOffered { .. }
             | Self::SessionAlreadyLive { .. } => RecoveryCondition::RecoveryNeeded,
         }
     }
@@ -270,7 +249,8 @@ impl From<ClaudeSessionError> for DriverError {
     /// its deadline and `provider.unavailable` otherwise; a refused `cancel_async_message`,
     /// `mcp_set_servers` or `rewind_conversation` means the build lacks it, answered
     /// `provider.capability.unsupported` on the steer, tool-server or rollback flag with Claude
-    /// Code's words; every other refusal and a held slot are internal failures.
+    /// Code's words; a model refused at the start answers `agent.providerAxisInvalid` naming the
+    /// agent and the model; every other refusal and a held slot are internal failures.
     fn from(error: ClaudeSessionError) -> Self {
         let provider = DESCRIPTOR.provider_id();
         match &error {
@@ -320,6 +300,13 @@ impl From<ClaudeSessionError> for DriverError {
                 }
                 None => Self::Internal(Box::new(error)),
             },
+            ClaudeSessionError::ModelNotOffered {
+                agent_id, model, ..
+            } => Self::ProviderAxisInvalid(ProviderAxisInvalid {
+                agent_id: *agent_id,
+                axis: ProviderAxis::ModelId,
+                value: Value::String(model.clone()),
+            }),
             ClaudeSessionError::SessionAlreadyLive { .. } => Self::Internal(Box::new(error)),
         }
     }
@@ -346,8 +333,30 @@ fn missing_capability(subtype: ClaudeControlSubtype) -> Option<DriverCapabilityF
         | ClaudeControlSubtype::BackgroundTasks
         | ClaudeControlSubtype::GenerateSessionTitle
         | ClaudeControlSubtype::RenameSession
-        | ClaudeControlSubtype::SideQuestion => None,
+        | ClaudeControlSubtype::NegativeControl => None,
     }
+}
+
+/// Records a failure no caller hears, as `kind`'s diagnostic on `session_id` where one is named:
+/// `step` names in plain words what failed, and the reason carries `error` with its causes.
+pub(crate) fn record_unheard_claude_failure(
+    kind: DriverDiagnosticKind,
+    session_id: impl Into<Option<SessionId>>,
+    step: &str,
+    error: &(dyn Error + 'static),
+) {
+    emit_driver_diagnostic(&DriverDiagnosticRecord {
+        provider: DESCRIPTOR.provider_id(),
+        provider_account_id: None,
+        kind,
+        raw_wire_type: None,
+        disposition_reason: format!("{step} failed: {}", describe_error(error)),
+        details: session_id
+            .into()
+            .map(|session_id| ("sessionId".to_owned(), json!(session_id)))
+            .into_iter()
+            .collect(),
+    });
 }
 
 #[cfg(test)]
@@ -355,28 +364,24 @@ mod tests {
     use rstest::rstest;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 
-    use super::{
-        ClaudeControlSubtype, ClaudeSessionError, ClaudeUnansweredCause, RequestUnanswered,
-    };
+    use sidekicks_contracts::agent::definition::AgentId;
+
+    use super::{ClaudeControlSubtype, ClaudeSessionError, ClaudeUnansweredCause};
+    use crate::ipc::registry::HandlerError;
     use crate::provider::driver::contract::DriverError;
 
-    // The refusal's code a driver error answers with, `None` for a failure that is no refusal.
-    fn refusal_code(error: &DriverError) -> Option<RefusalCode> {
-        match error {
-            DriverError::Refused(refusal)
-            | DriverError::Unanswered(RequestUnanswered { refusal }) => Some(refusal.code),
-            DriverError::SteerTurnEnded(_)
-            | DriverError::CapabilityProbe(_)
-            | DriverError::ExecutableUnresolvable(_)
-            | DriverError::ModelCatalogUnreadable(_)
-            | DriverError::ProviderAxisInvalid(_)
-            | DriverError::Internal(_) => None,
+    // The refusal's code a driver error answers a call with; `None` for a failure that is none.
+    fn refusal_code(error: DriverError) -> Option<RefusalCode> {
+        match HandlerError::from(error) {
+            HandlerError::Refused(refusal) => Some(refusal.code),
+            HandlerError::Internal(_) | HandlerError::Canceled => None,
         }
     }
 
     // Killed by mapping a deadline to `provider.unavailable`, an exit or a cut write to
     // `provider.timeout`, an unanswered request to a plain refusal, a refused `set_model` to a
-    // missing capability, or a refused rewind to an internal failure.
+    // missing capability, a model the start's `set_model` refused to an internal failure, or a
+    // refused rewind to an internal failure.
     #[rstest]
     #[case::deadline(
         ClaudeSessionError::Unanswered {
@@ -418,6 +423,15 @@ mod tests {
         false,
         None
     )]
+    #[case::model_not_offered(
+        ClaudeSessionError::ModelNotOffered {
+            agent_id: AgentId::new("0190f3a2-7b4c-7d1e-8f00-000000000002").expect("an agent id"),
+            model: "claude-retired".to_owned(),
+            provider_error: "model not offered".to_owned(),
+        },
+        false,
+        Some(RefusalCode::AgentProviderAxisInvalid)
+    )]
     #[case::refused_sign_in(
         ClaudeSessionError::AuthenticationRequired { detail: "signed out".to_owned() },
         false,
@@ -434,6 +448,6 @@ mod tests {
             matches!(driver_error, DriverError::Unanswered(_)),
             is_unanswered
         );
-        assert_eq!(refusal_code(&driver_error), code);
+        assert_eq!(refusal_code(driver_error), code);
     }
 }

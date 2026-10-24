@@ -74,10 +74,6 @@ const fn is_claude_flag_declared(flag: DriverCapabilityFlag) -> bool {
 /// Reads the capabilities of the build `version` describes: probes that same build through
 /// `exchange`, reports each flag the probe withdrew, and composes the driver's flags, tools and
 /// the version it printed. Fails with [`DriverError::CapabilityProbe`] when the probe read fails.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's capability read answers through it on attach and each refresh"
-)]
 pub(crate) async fn read_claude_capabilities(
     version: &SpawnedProviderVersionReading,
     exchange: &mut impl CapabilityProbeExchange,
@@ -98,10 +94,6 @@ pub(crate) async fn read_claude_capabilities(
 /// `spawn_environment`: the catalog, each row with the context window held for its model id at
 /// that environment's endpoint, the one this reading's `get_context_usage` reported among them.
 /// Fails as [`normalize_claude_model_catalog`] does; no stored list stands in for the provider's.
-#[expect(
-    dead_code,
-    reason = "the Claude driver's model list answers through it after its control-only read"
-)]
 pub(crate) fn resolve_claude_model_catalog(
     reading: ClaudeModelCatalogReading,
     figures: &ClaudeModelFigures,

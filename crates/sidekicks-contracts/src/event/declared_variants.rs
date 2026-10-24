@@ -1,10 +1,10 @@
 //! The payloads of the session events this module declares itself: event compaction and agent
 //! and tool activity, with the members the append path owns on every body-bearing payload.
 //!
-//! An agent or tool row's body lives outside the canonical bytes, in the stored row's content;
-//! its payload carries only the body's length and whether it was cut, and a reader pairs the two.
-//! The strict payloads refuse a spliced body. `contentType` is the producer's; the length and the
-//! cut mark are the append path's, which refuses a producer that sends either.
+//! An agent or tool row's body lives outside the canonical bytes, in the stored row's content,
+//! always whole; its payload carries only the body's length and how it is stored, and a reader
+//! pairs the two. The strict payloads refuse a spliced body. `contentType` is the producer's; the
+//! length and the encoding are the append path's, which refuses a producer that sends either.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -14,6 +14,7 @@ use crate::event::envelope::{
 };
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::machine::id::MachineId;
+use crate::provider::tool_call::ToolCallId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::transcript::row::TranscriptOmittedPatch;
@@ -24,18 +25,22 @@ use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
 use crate::wire::text::FreeFormText;
 
+/// How a stored body's bytes are encoded when they are not its UTF-8 as it is: a body of 1 KiB or
+/// more is compressed, and its payload names the encoding so a reader decodes it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ContentEncoding {
+    /// A zstd stream of one frame per page of text.
+    Zstd,
+}
+
 ts_constants! {
-    /// The payload key carrying the body's UTF-8 byte length before any cut, so a cut row still
-    /// reports how much was dropped.
+    /// The payload key carrying the stored body's UTF-8 byte length, the whole body's.
     pub const CONTENT_LENGTH_PAYLOAD_KEY: &str = "contentLength";
-    /// The payload key marking a body stored as a prefix. Present only as `true`, never `false`,
-    /// so a complete row's canonical bytes are what they would be without the bound.
+    /// The payload key naming the stored body's encoding, present only on a compressed body.
+    pub const CONTENT_ENCODING_PAYLOAD_KEY: &str = "contentEncoding";
+    /// The payload member that marks the stored body as a prefix.
     pub const CONTENT_TRUNCATED_PAYLOAD_KEY: &str = "contentTruncated";
-    /// The largest body one stored row keeps, in code points. A longer body is cut at a code point
-    /// boundary, never refused, so the turn is never lost. A tool completion whose body holds its
-    /// file patches is the one exception: each file is stored in parts of at most this many code
-    /// points, so every patch reads back whole.
-    pub const CONTENT_PAYLOAD_PLAINTEXT_MAX: usize = 262_144;
 }
 
 /// Refuses a deleted range that ends before it starts.
@@ -86,12 +91,56 @@ pub struct SessionEventCompactedPayload {
     pub removed_sessions: BoundedVec<SessionEventCompactedRemovedSession, 1, { usize::MAX }>,
 }
 
-/// Declares a body-bearing payload: the struct as written, followed by the two members the append
-/// path owns, `contentLength` and `contentTruncated`, each optional because a row may have no body.
-/// The struct's attributes come with it and include `#[garde(allow_unvalidated)]`.
+/// A payload whose events may carry a body kept apart from it: one declared through
+/// `with_machine_content_descriptor!`, or a union of such payloads.
+pub(crate) trait MachineContentDescriptor {}
+
+/// Refuses a cut mark on a payload that reports no body length.
+pub(crate) fn requires_length_beside_cut_mark(
+    is_truncated: bool,
+    has_length: bool,
+) -> garde::Result {
+    if is_truncated && !has_length {
+        Err(garde::Error::new("a cut body reports its length"))
+    } else {
+        Ok(())
+    }
+}
+
+/// The schema twin of [`requires_length_beside_cut_mark`], merged into the payload's own
+/// `dependentRequired` so the epoch stamp's pairs stay beside it.
+pub(crate) fn add_truncation_length_rule(schema: &mut schemars::Schema) {
+    let rule = serde_json::json!([CONTENT_LENGTH_PAYLOAD_KEY]);
+    match schema
+        .get_mut("dependentRequired")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        Some(dependent_required) => {
+            dependent_required.insert(CONTENT_TRUNCATED_PAYLOAD_KEY.to_owned(), rule);
+        }
+        None => {
+            schema.insert(
+                "dependentRequired".into(),
+                serde_json::json!({ CONTENT_TRUNCATED_PAYLOAD_KEY: rule }),
+            );
+        }
+    }
+}
+
+/// Declares a body-bearing payload: the struct as written, followed by the three members the append
+/// path owns, `contentLength`, `contentTruncated` and `contentEncoding`, each optional because a row
+/// may have no body, the cut mark only beside a length, and a small body stored as it is. The
+/// struct's attributes come with it and include `#[garde(allow_unvalidated)]`.
 macro_rules! with_machine_content_descriptor {
     ($(#[$meta:meta])* pub struct $name:ident { $($members:tt)* }) => {
         $(#[$meta])*
+        #[garde(custom(|payload: &Self, (): &()| {
+            $crate::event::declared_variants::requires_length_beside_cut_mark(
+                payload.content_truncated.is_some(),
+                payload.content_length.is_some(),
+            )
+        }))]
+        #[schemars(transform = $crate::event::declared_variants::add_truncation_length_rule)]
         pub struct $name {
             $($members)*
             /// The stored body's UTF-8 byte length before any cut.
@@ -110,7 +159,17 @@ macro_rules! with_machine_content_descriptor {
             )]
             #[schemars(with = "crate::wire::True")]
             pub content_truncated: Option<$crate::wire::True>,
+            /// How the stored body is encoded, present only when it is compressed.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "crate::event::declared_variants::ContentEncoding")]
+            pub content_encoding: Option<$crate::event::declared_variants::ContentEncoding>,
         }
+
+        impl $crate::event::declared_variants::MachineContentDescriptor for $name {}
     };
 }
 
@@ -258,6 +317,9 @@ pub enum AgentOutputPayload {
     Voice(#[garde(dive)] VoiceAgentOutputPayload),
 }
 
+/// Both arms are declared with the content members.
+impl MachineContentDescriptor for AgentOutputPayload {}
+
 with_machine_content_descriptor! {
     /// The payload of `agent.toolCall.invoked`, `agent.toolCall.completed` and
     /// `agent.toolCall.failed`; the call's arguments, result or error body is kept apart from it.
@@ -280,8 +342,8 @@ with_machine_content_descriptor! {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "FreeFormText<EVENT_FIELD_MAX_LEN>")]
-        pub tool_call_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+        #[schemars(with = "ToolCallId")]
+        pub tool_call_id: Option<ToolCallId>,
         /// How long the call took, in milliseconds.
         #[serde(
             default,
@@ -329,6 +391,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     doc: "The payloads of the session events this module declares itself: event compaction and \
           agent and tool activity.",
     definitions: &[
+        Definition::read::<ContentEncoding>(),
         Definition::read::<SessionEventCompactedRemovedSession>(),
         Definition::read::<SessionEventCompactedPayload>().checked(),
         Definition::read::<ProviderBlock>(),

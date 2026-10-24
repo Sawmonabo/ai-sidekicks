@@ -5,9 +5,7 @@
 //! manifest straight from the folder; that is why the manifest's shape is a contract. A backup is
 //! a plain copy that holds no key, so any computer can restore it.
 
-use std::borrow::Cow;
-
-use schemars::{JsonSchema, Schema, SchemaGenerator};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::error::ERROR_MESSAGE_MAX_LEN;
@@ -20,7 +18,7 @@ use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::{ListKey, UniqueList};
-use crate::wire::text::FreeFormText;
+use crate::wire::text::{FreeFormText, branded_free_form_text};
 
 /// The manifest's file name, beside each backup's database copy.
 pub const BACKUP_MANIFEST_FILE_NAME: &str = "manifest.json";
@@ -37,37 +35,9 @@ ts_constants! {
     pub const BACKUP_LABEL_MAX_LEN: usize = 256;
 }
 
-/// One backup's id, minted by the service when it writes the backup. Opaque to every client.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct BackupId(FreeFormText<BACKUP_LABEL_MAX_LEN>);
-
-impl BackupId {
-    /// The id's text.
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-}
-
-impl JsonSchema for BackupId {
-    fn schema_name() -> Cow<'static, str> {
-        "BackupId".into()
-    }
-
-    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
-        let mut schema = FreeFormText::<BACKUP_LABEL_MAX_LEN>::json_schema(generator);
-        schema.insert(
-            "description".into(),
-            "One backup's id, minted by the service when it writes the backup. Opaque to every \
-             client."
-                .into(),
-        );
-        schema.insert(
-            "tsType".into(),
-            "string & { readonly __brand: \"BackupId\" }".into(),
-        );
-        schema
-    }
+branded_free_form_text! {
+    /// One backup's id, minted by the service when it writes the backup. Opaque to every client.
+    pub struct BackupId(BACKUP_LABEL_MAX_LEN);
 }
 
 /// What a backup records about itself: when it was taken, the app and service versions that wrote

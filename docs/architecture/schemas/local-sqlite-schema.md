@@ -42,7 +42,8 @@ The transaction that creates the schema writes its fingerprint, the first 31 bit
 ```sql
 -- Owner: Plan-001 | Extended by: Plan-004 (event taxonomy), Plan-025 (received-row provenance marker), Plan-012 (projection cursors)
 CREATE TABLE session_events (
-  id                     TEXT PRIMARY KEY,           -- ULID or UUID
+  rowid                  INTEGER PRIMARY KEY,        -- declared, so a VACUUM keeps the search index's keys
+  id                     TEXT NOT NULL UNIQUE,       -- ULID or UUID
   session_id             TEXT NOT NULL,              -- real session ULID/UUID, or a reserved daemon-scope sentinel for daemon-scope events (no FK; see Spec-005 §Daemon-Scope Event Binding)
   sequence               INTEGER NOT NULL,           -- monotonic per session
   occurred_at            TEXT NOT NULL,              -- RFC 3339 UTC with ms precision (wall-clock; display + audit)
@@ -51,7 +52,7 @@ CREATE TABLE session_events (
   type                   TEXT NOT NULL,              -- specific event type within category
   actor                  TEXT,                       -- the payload's own actor: the device a connection sent the event from, the agent_id, or 'daemon' on an intervention the daemon made itself; NULL when the payload names none
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON event payload
-  content_payload        BLOB,                       -- Agent- and tool-generated prose (Spec-005 §Agent Output + §Tool Activity): the agent message body, the reasoning-update body, tool-call arguments / result / error bodies. Stored as written, never encrypted by the app. A body of 1 KiB or more is compressed with zstd at level 3, and the encoding is recorded in the payload as `contentEncoding: "zstd"`; a smaller body is stored as its UTF-8 bytes. NULL on every row whose event type carries no prose, eventMaintenance rows among them. This column is machine-authored session work product (Spec-020 §PII Data Map).
+  content_payload        BLOB,                       -- Agent- and tool-generated prose (Spec-005 §Agent Output + §Tool Activity): the agent message body, the reasoning-update body, tool-call arguments / result / error bodies, and a stopped command's provider summary. Stored as written, never encrypted by the app. A body of 1 KiB or more is compressed with zstd at level 3, and the encoding is recorded in the payload as `contentEncoding: "zstd"`; a smaller body is stored as its UTF-8 bytes. NULL on every row whose event type carries no prose, eventMaintenance rows among them. This column is machine-authored session work product (Spec-020 §PII Data Map).
   correlation_id         TEXT,                       -- links related events
   causation_id           TEXT,                       -- parent event that caused this one
   version                TEXT NOT NULL DEFAULT '1.0'
@@ -173,7 +174,7 @@ END;
 
 **Turn once backstops.** `idx_session_events_turn_end_once` holds a turn to one end: a second `agent.turn.completed`, `agent.turn.interrupted` or `agent.turn.failed` row for the same `(run_id, turn_number)` fails loud with a `UNIQUE` violation. The run engine's emission gate, keyed by run and turn number, drops a duplicate report before it reaches the write, and this index is the backstop behind it. A row with a NULL `run_id` or `turn_number` would pass the index, as a NULL run key would pass the terminal one, so the turn-end trio guards it as the terminal trio guards its index: `trg_turn_end_key_insert` refuses a turn-end insert missing either, `trg_turn_end_key_update` refuses an update that clears, rewrites or de-scopes a committed turn end's key, and `trg_turn_end_key_promote` refuses re-typing any other row into a turn end, so turn ends are insert-only. A turn end is the one row a run's log can take after the run's terminal row, a provider report that arrived late written once as that turn's end, so the terminal index does not cover it ([Spec-005 §Run Lifecycle](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-runlifecycle)). `idx_session_events_turn_start_once` holds a turn number to one start: the run engine numbers each `agent.turn.started` its run's newest start plus one, read inside the write, and a start that raced another to the same number is refused and numbered again. A row with a NULL `run_id` or `turn_number` would pass that index too, so the turn-start trio guards it the same way: `trg_turn_start_key_insert` refuses a turn-start insert missing either, `trg_turn_start_key_update` refuses an update that clears, rewrites or de-scopes a committed turn start's key, and `trg_turn_start_key_promote` refuses re-typing any other row into a turn start, so turn starts are insert-only.
 
-**Content payload (machine-authored prose).** `content_payload` is the durable home for the prose the _machine_ side of a session produces — the agent message body, the reasoning-update body, and tool-call arguments / result / error bodies. It exists because [ADR-027](../../decisions/027-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session, and a projection rebuilt from `session_events` can only be authoritative for content the rows actually hold. It holds machine-authored session work product ([Spec-020 §PII Data Map](../../specs/020-data-retention-export-and-deletion.md#pii-data-map)), stored plain like every other column. A body of 1 KiB or more is compressed with zstd at level 3 before it is written, and the encoding is recorded in the payload as `contentEncoding`, so every reader decodes it through the daemon's one codec (`crates/sidekicks-daemon/src/events/content/codec.rs`); a smaller body is stored as its UTF-8 bytes.
+**Content payload (machine-authored prose).** `content_payload` is the durable home for the prose the _machine_ side of a session produces — the agent message body, the reasoning-update body, tool-call arguments / result / error bodies, and a stopped command's provider summary. It exists because [ADR-027](../../decisions/027-canonical-transcript-is-authoritative.md) rules the daemon's canonical transcript authoritative for the content of a provider session, and a projection rebuilt from `session_events` can only be authoritative for content the rows actually hold. It holds machine-authored session work product ([Spec-020 §PII Data Map](../../specs/020-data-retention-export-and-deletion.md#pii-data-map)), stored plain like every other column. A body of 1 KiB or more is stored as one zstd stream at level 3, made of one frame per page of text (`PAGE_MAX_BYTES`), each frame cut at a character boundary and recording its decoded size and a checksum, so a part read decodes only the frames it covers; a smaller body is stored as its UTF-8 bytes. The payload records the encoding as `contentEncoding` and the body's whole UTF-8 length as `contentLength`, and every reader decodes through the daemon's one codec (`crates/sidekicks-daemon/src/events/content/codec.rs`), which treats a body that fails a frame's checksum or does not decode to exactly `contentLength` bytes of UTF-8 as damaged.
 
 **Long bodies.** Unlike a person's message, `content_payload` admits machine-scale text: a tool result is routinely a file dump or a command's whole stdout. A body is kept whole, never truncated, refused or dropped, and a client fetches a long one on demand through the daemon's read rather than receiving it inside the event. Nothing removes a body in the background: a session's rows, bodies included, are kept until the person deletes the session with `Delete old data` ([Spec-005 §Event Compaction Policy](../../specs/005-session-event-taxonomy-and-audit-log.md#event-compaction-policy)).
 
@@ -633,12 +634,23 @@ CREATE TABLE approval_resolutions (
                                               -- its provider did not keep (Spec-010 §Interfaces And Contracts)
                            CHECK(remembered_scope_kind IS NULL OR remembered_scope_kind IN ('session', 'project')),
   remembered_scope_pattern TEXT,              -- the derived subject of that rule, nullable
+  asked_scope_kind         TEXT               -- 'session' | 'project' when the answer asked for a rule, written with the
+                                              -- answer, so a resend under the same client resolution id records that rule
+                                              -- and no other; rebuilt from approval.approved / approval.rejected's
+                                              -- rememberedScope; NULL for a one-time answer
+                           CHECK(asked_scope_kind IS NULL OR asked_scope_kind IN ('session', 'project')),
+  asked_scope_pattern      TEXT,              -- the derived subject of the rule asked for, nullable
   edited_action            TEXT,              -- the command or path as the person corrected it on the card, which is what
                                               -- runs (approval.approved.editedAction); NULL for an answer that changed
                                               -- nothing and for every decline
+  decline_reason           TEXT,              -- the words the person typed on a decline, which go back to the agent
+                                              -- (approval.rejected.declineReason); NULL for a decline without words and
+                                              -- for every approval
   resolved_at              TEXT NOT NULL,
   CHECK((remembered_scope_kind IS NULL) = (remembered_scope_pattern IS NULL)), -- a rule names its subject
-  CHECK(edited_action IS NULL OR decision = 'approved')
+  CHECK((asked_scope_kind IS NULL) = (asked_scope_pattern IS NULL)),           -- a rule asked for names its subject
+  CHECK(edited_action IS NULL OR decision = 'approved'),
+  CHECK(decline_reason IS NULL OR decision = 'rejected')
 ) STRICT;
 
 -- Owner: Plan-009

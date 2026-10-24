@@ -3,6 +3,7 @@
 //! whose manifest was taken last. A folder whose manifest does not read is no backup.
 
 use std::error::Error;
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -28,13 +29,12 @@ pub(crate) enum BackupManifestError {
     Check(#[source] garde::Report),
 }
 
-/// The manifest of the backup in `backup_path`, `None` when it has none. Fails when the file
-/// system refuses the read or the manifest does not parse or check.
-pub(crate) async fn read_backup_manifest(
+/// The manifest of the backup in `backup_path`, `None` when it has none, read on the calling
+/// thread. Fails when the file system refuses the read or the manifest does not parse or check.
+pub(crate) fn read_backup_manifest(
     backup_path: &Path,
 ) -> Result<Option<BackupManifest>, BackupManifestError> {
-    let Some(manifest_bytes) = tokio::fs::read(backup_path.join(BACKUP_MANIFEST_FILE_NAME))
-        .await
+    let Some(manifest_bytes) = fs::read(backup_path.join(BACKUP_MANIFEST_FILE_NAME))
         .none_if_missing()
         .map_err(BackupManifestError::Read)?
     else {
@@ -49,20 +49,19 @@ pub(crate) async fn read_backup_manifest(
 /// The newest backup's database copy in `backup_folder`, `None` when the folder holds none. A
 /// backup whose manifest is missing is passed over, and one whose manifest or time does not read,
 /// or that holds no database copy, is passed over and named in the service log; any other
-/// file-system failure fails the call.
-pub(crate) async fn find_newest_backup_database(
-    backup_folder: &Path,
-) -> io::Result<Option<PathBuf>> {
-    let Some(mut entries) = tokio::fs::read_dir(backup_folder).await.none_if_missing()? else {
+/// file-system failure fails the call. Reads on the calling thread.
+pub(crate) fn find_newest_backup_database(backup_folder: &Path) -> io::Result<Option<PathBuf>> {
+    let Some(entries) = fs::read_dir(backup_folder).none_if_missing()? else {
         return Ok(None);
     };
     let mut newest: Option<(i64, PathBuf)> = None;
-    while let Some(entry) = entries.next_entry().await? {
-        if !entry.file_type().await?.is_dir() {
+    for entry in entries {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
             continue;
         }
         let backup_path = entry.path();
-        let Some(taken_at) = read_taken_at(&backup_path).await? else {
+        let Some(taken_at) = read_taken_at(&backup_path)? else {
             continue;
         };
         if newest
@@ -72,7 +71,7 @@ pub(crate) async fn find_newest_backup_database(
             continue;
         }
         let database_path = backup_path.join(BACKUP_DATABASE_FILE_NAME);
-        if !tokio::fs::try_exists(&database_path).await? {
+        if !fs::exists(&database_path)? {
             warn!(
                 backup = %backup_path.display(),
                 "the backup holds no database copy and is passed over"
@@ -86,8 +85,8 @@ pub(crate) async fn find_newest_backup_database(
 
 // When the backup in `backup_path` was taken, in Unix milliseconds by its manifest; `None` when it
 // has none that reads.
-async fn read_taken_at(backup_path: &Path) -> io::Result<Option<i64>> {
-    let manifest = match read_backup_manifest(backup_path).await {
+fn read_taken_at(backup_path: &Path) -> io::Result<Option<i64>> {
+    let manifest = match read_backup_manifest(backup_path) {
         Ok(manifest) => manifest,
         Err(BackupManifestError::Read(failure)) => return Err(failure),
         Err(error @ (BackupManifestError::Parse(_) | BackupManifestError::Check(_))) => {
@@ -148,8 +147,8 @@ mod tests {
         .expect("a JSON value writes")
     }
 
-    #[tokio::test]
-    async fn finds_the_greatest_taken_at_among_the_backups_that_read() {
+    #[test]
+    fn finds_the_greatest_taken_at_among_the_backups_that_read() {
         let backup_folder = tempfile::tempdir().expect("a scratch folder is made");
         let backups = backup_folder.path();
         write_backup(
@@ -200,14 +199,11 @@ mod tests {
             .expect("both ties are listed");
 
         assert_eq!(
-            find_newest_backup_database(backups)
-                .await
-                .expect("the backup folder reads"),
+            find_newest_backup_database(backups).expect("the backup folder reads"),
             Some(backups.join(first_tie).join("daemon.db"))
         );
         assert_eq!(
             find_newest_backup_database(&backups.join("missing"))
-                .await
                 .expect("a missing backup folder reads as none"),
             None
         );

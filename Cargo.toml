@@ -63,7 +63,7 @@ tracing-subscriber.features = ["fmt", "std", "tracing-log"]
 # Storage.
 deadpool = { version = "0.13.1", default-features = false, features = ["managed"] }
 libsqlite3-sys = "0.38.2"
-rusqlite = { version = "0.40.2", features = ["backup", "bundled", "hooks"] }
+rusqlite = { version = "0.40.2", features = ["backup", "blob", "bundled", "hooks"] }
 tantivy = { version = "0.26.2", default-features = false }
 tantivy-common = "0.11.0"
 tempfile = "3.27.0"
@@ -279,6 +279,9 @@ rquickjs = { version = "=0.14.0", features = ["futures", "rust-alloc"] }
 
 # Crash reports.
 crash-handler = "0.8.1"
+minidump = "0.27.0"
+minidump-processor = { version = "0.27.0", default-features = false }
+minidump-unwind = "0.27.0"
 minidumper = "0.11.0"
 
 # The desktop's Node-API addon.
@@ -362,6 +365,11 @@ satteri-pulldown-cmark.rev = "e16b7bcd04445ce2435fa3f0efbd21835821294d"
 # carries the fix.
 tree-sitter-bash.git = "https://github.com/tree-sitter/tree-sitter-bash"
 tree-sitter-bash.rev = "35cc06e9e460a6c8066eae72df1698bb42c3d756"
+
+# Development and test builds carry line tables only: a backtrace keeps its file and line, and the
+# workspace's rlibs and test binaries drop the variable and type records no debugger reads here.
+[profile.dev]
+debug = "line-tables-only"
 
 # The WebAssembly builds: small and fast, with no unwinding to carry. The release profile the other
 # crates build with stays as it is.

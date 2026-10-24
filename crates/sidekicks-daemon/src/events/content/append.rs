@@ -1,6 +1,7 @@
-//! The content partition of an append: machine-authored prose kept in
+//! The content partition of an append: machine-authored prose kept whole in
 //! `session_events.content_payload` beside the event, with the description members it adds to
-//! `payload`, and the check that refuses a payload seeding those members. A tool completion whose
+//! `payload` (its length, and its encoding once it is stored compressed), and the check that
+//! refuses a payload seeding those members. A tool completion whose
 //! body holds file patches is stored across rows: its own keeps the opening of the file list, and
 //! each part of each file is a row that joins it, so a range of one file is read without the rest.
 //! The log service writes the rows; this module touches no database.
@@ -9,37 +10,27 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::declared_variants::{
-    CONTENT_LENGTH_PAYLOAD_KEY, CONTENT_PAYLOAD_PLAINTEXT_MAX, CONTENT_TRUNCATED_PAYLOAD_KEY,
+    CONTENT_ENCODING_PAYLOAD_KEY, CONTENT_LENGTH_PAYLOAD_KEY,
 };
 use sidekicks_contracts::event::registry::SessionEventType;
 
-use crate::text_cut::cut_to_code_points;
+use crate::events::content::codec::StoredBody;
 use crate::transcript::whole_patch::{
     OMITTED_PATCHES_PAYLOAD_KEY, PATCH_FILES_OPENING, WholePatchFile, patch_file_parts,
 };
 
 /// The `payload` members only this module may set; `contentType` is the producer's.
 const CONTENT_DESCRIPTION_PAYLOAD_KEYS: [&str; 2] =
-    [CONTENT_LENGTH_PAYLOAD_KEY, CONTENT_TRUNCATED_PAYLOAD_KEY];
-
-/// The event types whose registered payload declares the content members, the only ones that may
-/// carry a machine-authored content partition.
-const BODY_BEARING_EVENT_TYPES: [SessionEventType; 5] = [
-    SessionEventType::AgentMessageSent,
-    SessionEventType::AgentThinkingUpdated,
-    SessionEventType::AgentToolCallInvoked,
-    SessionEventType::AgentToolCallCompleted,
-    SessionEventType::AgentToolCallFailed,
-];
+    [CONTENT_LENGTH_PAYLOAD_KEY, CONTENT_ENCODING_PAYLOAD_KEY];
 
 /// A producer pre-seeded a content description member; it names the key only.
 #[derive(Debug, thiserror::Error)]
 #[error(
     "{refuser} refuses an event whose payload already carries {seeded_key}: the append path is \
-     the only producer of {} and {}, each measured from the body it actually stores. Pass the \
-     prose as the content body; contentType is the producer's member and is unaffected.",
+     the only producer of {} and {}, each set from the body it actually stores. Pass the prose \
+     as the content body; contentType is the producer's member and is unaffected.",
     CONTENT_LENGTH_PAYLOAD_KEY,
-    CONTENT_TRUNCATED_PAYLOAD_KEY
+    CONTENT_ENCODING_PAYLOAD_KEY
 )]
 pub(crate) struct ContentDescriptionSeededError {
     /// Who refused, as the append path names itself.
@@ -48,8 +39,8 @@ pub(crate) struct ContentDescriptionSeededError {
     pub(crate) seeded_key: &'static str,
 }
 
-/// Refuses a payload that pre-seeds a content description member, so a false length or truncation
-/// claim cannot be stored on either append path.
+/// Refuses a payload that pre-seeds a content description member, so a false length or encoding
+/// cannot be stored on either append path.
 pub(crate) fn assert_no_seeded_content_description(
     payload: &Map<String, Value>,
     refuser: &'static str,
@@ -80,37 +71,44 @@ pub(crate) struct ContentPartitionRefusedError {
 }
 
 fn body_bearing_type_names() -> String {
-    BODY_BEARING_EVENT_TYPES
-        .map(SessionEventType::as_str)
+    SessionEventType::ALL
+        .iter()
+        .filter(|event_type| event_type.carries_content())
+        .map(|event_type| event_type.as_str())
+        .collect::<Vec<_>>()
         .join(", ")
 }
 
 /// Adds to `payload` the description of `body`, an event of `event_type`'s machine-authored prose,
-/// and returns the bytes `content_payload` holds: the body's UTF-8, or its prefix when it is over
-/// `CONTENT_PAYLOAD_PLAINTEXT_MAX` code points, the cap a stored body is read back under, cut at a
-/// character boundary, not refused, since refusing would drop the turn; a patch-bearing completion
-/// is stored by [`compose_patch_file_rows`] instead. Fails on a type that declares no content
-/// members.
+/// and returns the body `content_payload` stores whole, however long; a patch-bearing completion is
+/// stored by [`compose_patch_file_rows`] instead. Fails on a type that declares no content members.
 pub(crate) fn compose_content_payload(
     event_type: SessionEventType,
     payload: &mut Map<String, Value>,
-    body: &str,
-) -> Result<Vec<u8>, ContentPartitionRefusedError> {
-    if !BODY_BEARING_EVENT_TYPES.contains(&event_type) {
+    body: String,
+) -> Result<StoredBody, ContentPartitionRefusedError> {
+    if !event_type.carries_content() {
         return Err(ContentPartitionRefusedError {
             event_type: event_type.as_str().to_owned(),
         });
     }
-    // The length reported is the whole body's, so a cut row still says how much was dropped.
-    let stored_body = cut_to_code_points(body, CONTENT_PAYLOAD_PLAINTEXT_MAX);
+    Ok(describe_stored_body(payload, StoredBody::new(body)))
+}
+
+/// Writes into `payload` the length of `body` and, when it is stored compressed, its encoding, and
+/// hands the body back.
+fn describe_stored_body(payload: &mut Map<String, Value>, body: StoredBody) -> StoredBody {
     payload.insert(
         CONTENT_LENGTH_PAYLOAD_KEY.to_owned(),
         Value::from(body.len()),
     );
-    if stored_body.len() < body.len() {
-        payload.insert(CONTENT_TRUNCATED_PAYLOAD_KEY.to_owned(), Value::Bool(true));
+    if let Some(encoding) = body.encoding() {
+        payload.insert(
+            CONTENT_ENCODING_PAYLOAD_KEY.to_owned(),
+            serde_json::to_value(encoding).expect("an encoding writes as its word"),
+        );
     }
-    Ok(stored_body.as_bytes().to_vec())
+    body
 }
 
 /// Whether an event of `event_type` with `payload` is a tool completion naming one or more files
@@ -171,13 +169,13 @@ pub(crate) struct PatchPartRow {
     /// Where it sits.
     pub(crate) place: PatchPartPlace,
     /// Its stored body.
-    pub(crate) body: Vec<u8>,
+    pub(crate) body: StoredBody,
 }
 
 /// A patch-bearing completion's body as its rows store it.
 pub(crate) struct PatchFileRows {
     /// The completion's own stored body: the opening of the file list.
-    pub(crate) opening: Vec<u8>,
+    pub(crate) opening: StoredBody,
     /// Every part of every file, in the body's order.
     pub(crate) parts: Vec<PatchPartRow>,
 }
@@ -193,7 +191,7 @@ struct PatchFilesBody<'body> {
 /// Cuts `body`, the `{"files": [...]}` body of a tool completion whose `payload` names each of its
 /// files in `omittedPatches`, into the parts that store it, describing the completion's own body in
 /// `payload`: the parts' bodies joined read as the file list again, every file whole, and each
-/// part holds at most [`CONTENT_PAYLOAD_PLAINTEXT_MAX`] code points. Fails when the body is not a
+/// part holds at most a page of UTF-8. Fails when the body is not a
 /// file list, holds another count of files than the payload names, or holds a file of no shape.
 pub(crate) fn compose_patch_file_rows(
     payload: &mut Map<String, Value>,
@@ -220,28 +218,19 @@ pub(crate) fn compose_patch_file_rows(
             .map_err(|cause| PatchFilesRefusedError::File { file_index, cause })?;
         for part in patch_file_parts(&file, file_index, files.len()) {
             let mut payload = part_payload.clone();
-            payload.insert(
-                CONTENT_LENGTH_PAYLOAD_KEY.to_owned(),
-                Value::from(part.body.len()),
-            );
+            let body = describe_stored_body(&mut payload, StoredBody::new(part.body));
             parts.push(PatchPartRow {
                 payload,
                 place: PatchPartPlace {
                     file_index,
                     text_offset: part.text_offset,
                 },
-                body: part.body.into_bytes(),
+                body,
             });
         }
     }
-    payload.insert(
-        CONTENT_LENGTH_PAYLOAD_KEY.to_owned(),
-        Value::from(PATCH_FILES_OPENING.len()),
-    );
-    Ok(PatchFileRows {
-        opening: PATCH_FILES_OPENING.as_bytes().to_vec(),
-        parts,
-    })
+    let opening = describe_stored_body(payload, StoredBody::new(PATCH_FILES_OPENING.to_owned()));
+    Ok(PatchFileRows { opening, parts })
 }
 
 #[cfg(test)]
