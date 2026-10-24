@@ -636,7 +636,7 @@ async fn move_home_link_beside(
 // service answering on the link in its place, Codex's managed daemon in use, keeps it, and this
 // service lets go of it; a failed move is reported, the service then unreached by a plain `codex`.
 async fn restore_held_socket_link(service: &CodexService, physical_socket: &Path) {
-    match restore_socket_link(&service.socket.home_socket, physical_socket).await {
+    match restore_socket_link(&service.socket.home_socket, physical_socket, &[]).await {
         Ok(true) => {}
         Ok(false) => service.set_holds_home_link(false),
         Err(error) => CodexTransportDiagnostic::HomeLinkRestoreFailed {

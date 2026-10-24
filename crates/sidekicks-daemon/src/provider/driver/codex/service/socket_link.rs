@@ -8,7 +8,7 @@
 //! socket itself and there is no link.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use sidekicks_platforms::{
     connect_unix_domain_socket, read_socket_link, remove_socket_link, replace_socket_link,
@@ -44,13 +44,21 @@ pub(crate) async fn clear_blocking_socket_link(home_link: &Path) -> io::Result<b
 
 /// Points `home_link` at `real_socket`, where a service's socket really is, unless another service
 /// answers through it: a link naming nothing, an ended socket or `real_socket` itself ends up
-/// naming `real_socket`. Answers whether it names `real_socket` once done; fails with the link's
-/// read error, the connect's other failures and the move's error.
-pub(crate) async fn restore_socket_link(home_link: &Path, real_socket: &Path) -> io::Result<bool> {
-    if read_socket_link(home_link)?.as_deref() == Some(real_socket) {
+/// naming `real_socket`. A link naming one of `ended_sockets`, the sockets of services the caller
+/// found ended, is moved without a connect, which a process still closing its listener answers.
+/// Answers whether it names `real_socket` once done; fails with the link's read error, the
+/// connect's other failures and the move's error.
+pub(crate) async fn restore_socket_link(
+    home_link: &Path,
+    real_socket: &Path,
+    ended_sockets: &[PathBuf],
+) -> io::Result<bool> {
+    let target = read_socket_link(home_link)?;
+    if target.as_deref() == Some(real_socket) {
         return Ok(true);
     }
-    if is_listening(home_link).await? {
+    let is_ended = target.is_some_and(|target| ended_sockets.contains(&target));
+    if !is_ended && is_listening(home_link).await? {
         return Ok(false);
     }
     let home_link = home_link.to_owned();
