@@ -871,6 +871,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "breakpad-symbols"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2dae6ece2d0e62389d1b24953ee54da7e385cf56653324304afd6c89c4bc73b5"
+dependencies = [
+ "async-trait",
+ "cachemap2",
+ "circular",
+ "debugid",
+ "futures-util",
+ "minidump-common 0.27.0",
+ "nom 7.1.3",
+ "range-map",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
 name = "bs58"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -938,6 +956,12 @@ name = "bytes"
 version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
+
+[[package]]
+name = "cachemap2"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68ccbd3153aa153b2f5eff557537ffce81e4dd6c50ae0eddc41dc8d0c388436f"
 
 [[package]]
 name = "calendrical_calculations"
@@ -1197,6 +1221,12 @@ dependencies = [
  "crypto-common 0.2.2",
  "inout 0.2.2",
 ]
+
+[[package]]
+name = "circular"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0fc239e0f6cb375d2402d48afb92f76f5404fd1df208a41930ec81eda078bea"
 
 [[package]]
 name = "clap"
@@ -3176,7 +3206,7 @@ checksum = "daa0a64d21a7eb230583b4c5f4e23b7e4e57974f96620f42a7e75e08ae66d745"
 dependencies = [
  "log",
  "plain",
- "scroll",
+ "scroll 0.12.0",
 ]
 
 [[package]]
@@ -5185,6 +5215,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
+name = "minidump"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a03516f742a87e757019a3019707b38900663397d63cdb0442721c5dbd29ed6b"
+dependencies = [
+ "debugid",
+ "encoding_rs",
+ "memmap2",
+ "minidump-common 0.27.0",
+ "num-traits",
+ "procfs-core",
+ "prost",
+ "range-map",
+ "scroll 0.13.0",
+ "thiserror 2.0.21",
+ "time",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "minidump-common"
 version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5192,11 +5243,60 @@ checksum = "2e16d10087ae9e375bad7a40e8ef5504bc08e808ccc6019067ff9de42a84570f"
 dependencies = [
  "bitflags 2.13.2",
  "debugid",
- "num-derive",
+ "num-derive 0.4.2",
  "num-traits",
  "range-map",
- "scroll",
+ "scroll 0.12.0",
  "smart-default",
+]
+
+[[package]]
+name = "minidump-common"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c8e6411f30cf59f8a4815820a9b5d0c38962a719f5c43f80f5afbb71e791af16"
+dependencies = [
+ "bitflags 2.13.2",
+ "debugid",
+ "num-derive 0.5.1",
+ "num-traits",
+ "range-map",
+ "scroll 0.13.0",
+ "smart-default",
+]
+
+[[package]]
+name = "minidump-processor"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18ca2c7f6f820b83a1e4916178aa678eded0b9aad0eab1e1a71f573283a13ff0"
+dependencies = [
+ "async-trait",
+ "breakpad-symbols",
+ "debugid",
+ "futures-util",
+ "minidump",
+ "minidump-common 0.27.0",
+ "minidump-unwind",
+ "scroll 0.13.0",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
+name = "minidump-unwind"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a98fe0ffc82b1f29b0f9510fceb345b90f87820cb7923b06a74280abee4a45f"
+dependencies = [
+ "async-trait",
+ "breakpad-symbols",
+ "minidump",
+ "minidump-common 0.27.0",
+ "scroll 0.13.0",
+ "tracing",
 ]
 
 [[package]]
@@ -5216,10 +5316,10 @@ dependencies = [
  "log",
  "mach2 0.6.0",
  "memmap2",
- "minidump-common",
+ "minidump-common 0.26.1",
  "process-backend",
  "procfs-core",
- "scroll",
+ "scroll 0.12.0",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -5238,7 +5338,7 @@ dependencies = [
  "minidump-writer",
  "parking_lot",
  "polling",
- "scroll",
+ "scroll 0.12.0",
  "thiserror 2.0.21",
  "uds",
 ]
@@ -5623,6 +5723,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "num-derive"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4e98dc3b890f6c23a0f9d3d491a2823d0dea0fa656302a13dd225fa924112a8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
 ]
 
 [[package]]
@@ -7711,7 +7822,16 @@ version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ab8598aa408498679922eff7fa985c25d58a90771bd6be794434c5277eab1a6"
 dependencies = [
- "scroll_derive",
+ "scroll_derive 0.12.1",
+]
+
+[[package]]
+name = "scroll"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1257cd4248b4132760d6524d6dda4e053bc648c9070b960929bf50cfb1e7add"
+dependencies = [
+ "scroll_derive 0.13.2",
 ]
 
 [[package]]
@@ -7723,6 +7843,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "scroll_derive"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1a36a382ed65dbcc0ab47fd5e9a94112417ccd34560a392ef3b7b0f0ec39148"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
 ]
 
 [[package]]
@@ -8349,6 +8480,9 @@ dependencies = [
  "llrt_crypto",
  "lru 0.19.0",
  "memchr",
+ "minidump",
+ "minidump-processor",
+ "minidump-unwind",
  "minidumper",
  "mockall",
  "notify",
@@ -8414,6 +8548,7 @@ dependencies = [
  "url",
  "uuid",
  "vte",
+ "walkdir",
  "web-push-native",
  "webp",
  "x-wing",
@@ -8499,6 +8634,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "sidekicks-contracts",
  "sidekicks-platforms",
  "strum 0.28.0",
  "tantivy",
@@ -9621,6 +9757,7 @@ version = "0.1.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
 dependencies = [
+ "log",
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",

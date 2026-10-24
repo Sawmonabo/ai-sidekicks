@@ -61,6 +61,7 @@ use crate::artifacts::validation::{
     FILE_NAME_MEMBER, SpooledPayload, Utf8Check, keep_leading_bytes, normalize_file_name,
     validate_and_store,
 };
+use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::events::session::appender::SessionEventAppender;
 use crate::keyed_lock::KeyedLock;
@@ -506,18 +507,26 @@ impl ArtifactIngestService {
 
     /// One pass of the reaper: ends every stream past its lifetime, open or completed, releasing
     /// what it held, and deletes every spool no stream holds that has gone unwritten past its time
-    /// to live. Fails with the one failure, or every failure together, once the rest are done.
-    pub(crate) async fn reap(&self) -> Result<(), SettleFailures<ArtifactError>> {
-        let expired_ids: Vec<String> = {
+    /// to live, its blocking work charged to `meter`. Answers the artifacts it examined: each
+    /// stream the registry held and each entry of the spool folder. Fails with the one failure, or
+    /// every failure together, once the rest are done.
+    pub(crate) async fn reap(
+        &self,
+        meter: &ProcessorMeter,
+    ) -> Result<u64, SettleFailures<ArtifactError>> {
+        let (streams_examined, expired_ids): (usize, Vec<String>) = {
             let _ledger_hold = self.admission.hold_still().await;
             let now = self.clock.now();
-            self.lock_registry()
+            let registry = self.lock_registry();
+            let expired_ids = registry
                 .streams
                 .iter()
                 .filter(|(_, stream)| is_past_lifetime(now, stream.opened_at()))
                 .map(|(ingest_id, _)| ingest_id.clone())
-                .collect()
+                .collect();
+            (registry.streams.len(), expired_ids)
         };
+        let mut examined = u64::try_from(streams_examined).expect("a stream count fits in u64");
         let mut outcomes = Vec::with_capacity(expired_ids.len() + 1);
         for ingest_id in expired_ids {
             let _stream_hold = self.stream_lock.acquire(ingest_id.clone()).await;
@@ -534,17 +543,24 @@ impl ArtifactIngestService {
                     None
                 }
             };
-            if let Some(stream) = removed {
-                outcomes.push(delete_spool_of(stream).await.map_err(ArtifactError::Disk));
+            if let Some(spool_path) = removed.and_then(spool_of) {
+                let deleted = meter.run_blocking(move || remove_spool(&spool_path)).await;
+                outcomes.push(
+                    deleted
+                        .map_err(io::Error::other)
+                        .and_then(|removed| removed)
+                        .map_err(ArtifactError::Disk),
+                );
             }
         }
-        match self.reap_abandoned_spools().await {
-            Ok(failures) => {
+        match self.reap_abandoned_spools(meter).await {
+            Ok((spools_examined, failures)) => {
+                examined = examined.saturating_add(spools_examined);
                 outcomes.extend(failures.into_iter().map(|failure| Err(failure.into())));
             }
             Err(interrupted) => outcomes.push(Err(interrupted.into())),
         }
-        settle_all(outcomes, "reaping the ingest streams").map(drop)
+        settle_all(outcomes, "reaping the ingest streams").map(|_| examined)
     }
 
     // The stream `ingest_id` names, or why there is none to go on with.
@@ -593,18 +609,20 @@ impl ArtifactIngestService {
         failure.with_cleanup_failures(cleanup_failures, "ending the ingest stream")
     }
 
-    // Deletes every spool no stream holds that has gone unwritten past its time to live, and
-    // answers each failure it met.
-    async fn reap_abandoned_spools(&self) -> Result<Vec<io::Error>, JoinError> {
+    // Deletes every spool no stream holds that has gone unwritten past its time to live, on
+    // `meter`, and answers the spool folder's entries it examined and each failure it met.
+    async fn reap_abandoned_spools(
+        &self,
+        meter: &ProcessorMeter,
+    ) -> Result<(u64, Vec<io::Error>), JoinError> {
         let held_ids: HashSet<String> = self.lock_registry().streams.keys().cloned().collect();
         let spool_folder = self.admission.spool_folder().to_owned();
         let Some(reap_before) = self.clock.now().checked_sub(ABANDONED_SPOOL_TTL) else {
-            return Ok(Vec::new());
+            return Ok((0, Vec::new()));
         };
-        tokio::task::spawn_blocking(move || {
-            remove_abandoned_spools(&spool_folder, &held_ids, reap_before)
-        })
-        .await
+        meter
+            .run_blocking(move || remove_abandoned_spools(&spool_folder, &held_ids, reap_before))
+            .await
     }
 
     fn lock_registry(&self) -> MutexGuard<'_, Registry> {
@@ -677,31 +695,44 @@ fn hold_completed(registry: &mut Registry, ingest_id: String) {
 
 // Deletes an ended stream's spool, once its place and reservation are given back.
 async fn delete_spool_of(stream: IngestStream) -> Result<(), io::Error> {
-    let spool_path = match stream {
-        IngestStream::Open(stream) => stream.spool_path,
-        IngestStream::Completed(_) => return Ok(()),
+    let Some(spool_path) = spool_of(stream) else {
+        return Ok(());
     };
-    tokio::task::spawn_blocking(move || std::fs::remove_file(&spool_path).none_if_missing())
+    tokio::task::spawn_blocking(move || remove_spool(&spool_path))
         .await
         .map_err(io::Error::other)?
-        .map(drop)
+}
+
+// The spool an ended stream leaves behind; a completed stream's spool moved into the store.
+fn spool_of(stream: IngestStream) -> Option<PathBuf> {
+    match stream {
+        IngestStream::Open(stream) => Some(stream.spool_path),
+        IngestStream::Completed(_) => None,
+    }
+}
+
+// Deletes a spool, one already gone counting as deleted.
+fn remove_spool(spool_path: &Path) -> io::Result<()> {
+    std::fs::remove_file(spool_path).none_if_missing().map(drop)
 }
 
 // Removes each spool in `spool_folder` that `held_ids` does not name and that was last written
-// before `reap_before`, and answers each failure; one its stream removed while this pass looked is
-// skipped.
+// before `reap_before`, and answers the entries it examined and each failure; one its stream
+// removed while this pass looked is skipped.
 fn remove_abandoned_spools(
     spool_folder: &Path,
     held_ids: &HashSet<String>,
     reap_before: SystemTime,
-) -> Vec<io::Error> {
+) -> (u64, Vec<io::Error>) {
     let entries = match std::fs::read_dir(spool_folder).none_if_missing() {
         Ok(Some(entries)) => entries,
-        Ok(None) => return Vec::new(),
-        Err(failure) => return vec![failure],
+        Ok(None) => return (0, Vec::new()),
+        Err(failure) => return (0, vec![failure]),
     };
+    let mut examined = 0_u64;
     let mut failures = Vec::new();
     for entry in entries {
+        examined += 1;
         let removal = entry.and_then(|entry| {
             if held_ids.contains(entry.file_name().to_string_lossy().as_ref())
                 || entry.metadata()?.modified()? >= reap_before
@@ -714,7 +745,7 @@ fn remove_abandoned_spools(
             failures.push(failure);
         }
     }
-    failures
+    (examined, failures)
 }
 
 // An ingest id as the wire carries it.

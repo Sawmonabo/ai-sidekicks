@@ -4,16 +4,20 @@
 //! database before it answers its first search; a search waits for the open, and so does the
 //! provider start, so no provider process adds to a build's memory. From then on each commit of
 //! the daemon's writer applies what the outbox holds, each durable index commit has its outbox rows
-//! deleted and wakes the merging. A failed open, rebuild or apply fails every search waiting and
-//! every later one, and is reported once. A close takes no new search, lets the searches taken,
-//! the apply and the merge under way finish, ends a build under way once its process has exited,
-//! then closes the index and waits for the outbox deletes.
+//! deleted and wakes the merging. A failed open, rebuild or first catch-up fails every search
+//! waiting and every later one, and is reported once. A failed apply after the open is logged
+//! once and leaves searches answering from the last durable commit; it is tried again only once a
+//! wait of 1 s doubling to 60 s runs out, a commit of the writer meanwhile waiting with it, and its
+//! recovery is logged once.
+//! A close takes no new search, lets the searches taken, the apply and the merge under way finish,
+//! ends a build under way once its process has exited, then closes the index and waits for the
+//! outbox deletes.
 
 use std::cmp;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
@@ -24,10 +28,11 @@ use sidekicks_platforms::Spawner;
 use sidekicks_search::index::{SearchIndex, SearchIndexError};
 use tokio::sync::{Notify, OwnedRwLockReadGuard, RwLock, watch};
 use tokio::task::JoinError;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::cleanup_failures::CleanupFailures;
-use crate::daemon::scheduler::{ScheduledJobHandle, Scheduler};
+use crate::daemon::scheduler::{JobCondition, ScheduledJobHandle, Scheduler};
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::writer::DatabaseWriter;
 use crate::ipc::registry::HandlerError;
@@ -44,6 +49,11 @@ use crate::session::search::transcript::{TranscriptSearchError, search_transcrip
 
 // The scheduler's name for the job that lets go of expired held searches.
 const HELD_SEARCH_EXPIRY_JOB: &str = "search_held_expiry";
+
+// The wait before a failed apply is tried again without a commit, doubled after each failure up to
+// the longest.
+const APPLY_RETRY_FIRST_WAIT: Duration = Duration::from_secs(1);
+const APPLY_RETRY_LONGEST_WAIT: Duration = Duration::from_mins(1);
 
 /// What the live index is started with.
 pub struct LiveIndexOptions {
@@ -81,7 +91,7 @@ pub enum LiveIndexError {
     /// The index built again still could not serve, for this reason.
     #[error("the search index was built again and still could not serve: {}", <&str>::from(.0))]
     StillUnservable(SearchIndexRebuildReason),
-    /// An apply of the outbox failed, so the index is behind the database.
+    /// The open's catch-up with the outbox failed, so the index is behind the database.
     #[error(transparent)]
     Apply(#[from] SearchIndexApplyError),
     /// The index refused the groups' members.
@@ -104,7 +114,7 @@ pub(crate) enum LiveIndexSearchError<Failure> {
     /// The live index has closed, or a close came while the search waited for the open.
     #[error("the search index has closed; the search did not run")]
     Closed,
-    /// The open, a rebuild or an apply failed, so the index cannot answer.
+    /// The open, a rebuild or the open's catch-up failed, so the index cannot answer.
     #[error("the search index failed")]
     Failed(#[source] Arc<LiveIndexError>),
     /// The search's read did not reach a connection.
@@ -218,8 +228,8 @@ impl LiveIndex {
             .expect("the live index holds the state's sender");
     }
 
-    /// Settles with why the open, a rebuild or an apply failed, once one has; never settles
-    /// otherwise. Every search waiting and every later one fails with the same failure.
+    /// Settles with why the open, a rebuild or the open's catch-up failed, once one has; never
+    /// settles otherwise. Every search waiting and every later one fails with the same failure.
     pub async fn when_failed(&self) -> Arc<LiveIndexError> {
         let mut state = self.shared.state.subscribe();
         let failed = state
@@ -234,6 +244,10 @@ impl LiveIndex {
 
     /// One page of a `session.search`, once the index is open. Fails as the search does, or with
     /// the live index's failure or close.
+    #[expect(
+        dead_code,
+        reason = "the daemon's session.search handler, registered at its start"
+    )]
     pub(crate) async fn search_sessions(
         &self,
         request: SessionSearchRequest,
@@ -257,6 +271,10 @@ impl LiveIndex {
     /// One page of a `transcript.search`, once the index is open; a session whose history is
     /// damaged from `damaged_from_sequence` on is searched before that point. Fails as the search
     /// does, or with the live index's failure or close.
+    #[expect(
+        dead_code,
+        reason = "the daemon's transcript.search handler, registered at its start"
+    )]
     pub(crate) async fn search_transcript(
         &self,
         request: TranscriptSearchRequest,
@@ -319,10 +337,6 @@ impl LiveIndex {
                 Ok::<_, DatabaseReadError>(answer)
             })
             .await?;
-        // An apply that failed while the search ran leaves the index behind its answer.
-        if let LiveIndexState::Failed(failure) = &*self.shared.state.borrow() {
-            return Err(LiveIndexSearchError::Failed(Arc::clone(failure)));
-        }
         answer.map_err(LiveIndexSearchError::Search)
     }
 
@@ -445,12 +459,15 @@ fn arm_held_search_expiry(shared: &Arc<LiveIndexShared>) {
         return;
     };
     let expiring = Arc::downgrade(shared);
-    let scheduled = shared
-        .scheduler
-        .schedule_at(HELD_SEARCH_EXPIRY_JOB, instant, move |_| {
+    let scheduled = shared.scheduler.schedule_at(
+        HELD_SEARCH_EXPIRY_JOB,
+        JobCondition::Always,
+        instant,
+        move |_| {
             let_go_of_expired_searches(&expiring);
             async { Ok(()) }.boxed()
-        });
+        },
+    );
     match scheduled {
         Ok(job) => *armed = Some(HeldSearchExpiry { instant, job }),
         // The searches stay held until a later search arms the expiry or the bound on held
@@ -522,7 +539,7 @@ async fn serve(
     let mut merging = None;
     let mut failures = Vec::new();
     if !shared.stop.is_cancelled() {
-        let served = match catch_up(shared, &open, deletes, &index_commits).await {
+        match catch_up(shared, &open, deletes, &index_commits).await {
             Ok(()) => {
                 let is_open = shared.state.send_if_modified(|state| {
                     let is_opening = matches!(state, LiveIndexState::Opening);
@@ -542,17 +559,14 @@ async fn serve(
                         Arc::clone(&open.index),
                         Arc::clone(&index_commits),
                     ));
-                    follow_commits(shared, &open, commits, deletes, &index_commits).await
-                } else {
-                    Ok(())
+                    follow_commits(shared, &open, commits, deletes, &index_commits).await;
                 }
             }
-            Err(failure) => Err(failure),
-        };
-        if let Err(failure) = served
-            && let Err(failure) = shared.fail(failure)
-        {
-            failures.push(failure);
+            Err(failure) => {
+                if let Err(failure) = shared.fail(failure) {
+                    failures.push(failure);
+                }
+            }
         }
     }
     if let Some(merging) = merging
@@ -635,26 +649,58 @@ async fn catch_up(
         .map_err(LiveIndexError::GroupMembers)
 }
 
-// Applies what the outbox holds after each commit of the writer, until the close or a failure.
-// An apply under way when the close comes finishes first.
+// Applies what the outbox holds after each commit of the writer, until the close. A failed apply
+// leaves the index at its last durable commit, which searches go on reading; it is logged once and
+// tried again only once its wait runs out, the wait doubling while it fails, so a commit meanwhile
+// starts no apply and a lasting failure costs one apply a wait. An apply under way when the close
+// comes finishes first.
 async fn follow_commits(
     shared: &LiveIndexShared,
     open: &OpenIndex,
     commits: &mut watch::Receiver<u64>,
     deletes: &watch::Sender<Option<AppliedOutbox>>,
     index_commits: &Notify,
-) -> Result<(), LiveIndexError> {
+) {
+    // While an apply's failure stands: the wait it was given, and when it runs out.
+    let mut retry: Option<(Duration, Instant)> = None;
     loop {
+        let retry_at = retry.map(|(_, at)| at);
         tokio::select! {
             biased;
-            () = shared.stop.cancelled() => return Ok(()),
+            () = shared.stop.cancelled() => return,
             changed = commits.changed() => {
                 if changed.is_err() {
                     // The writer is gone, so no write commits again before the close.
                     shared.stop.cancelled().await;
-                    return Ok(());
+                    return;
                 }
-                apply_waiting(shared, open, deletes, index_commits).await?;
+                // While a failure stands, the commit's rows wait for the retry, which applies
+                // everything waiting.
+                if retry_at.is_some_and(|at| Instant::now() < at) {
+                    continue;
+                }
+            }
+            () = tokio::time::sleep_until(retry_at.unwrap_or_else(Instant::now)),
+                if retry_at.is_some() => {}
+        }
+        match apply_waiting(shared, open, deletes, index_commits).await {
+            Ok(()) => {
+                if retry.take().is_some() {
+                    tracing::info!("search_index_apply_recovered");
+                }
+            }
+            Err(failure) => {
+                let wait = match retry {
+                    None => {
+                        tracing::warn!(
+                            error = &failure as &(dyn Error + 'static),
+                            "search_index_apply_failed"
+                        );
+                        APPLY_RETRY_FIRST_WAIT
+                    }
+                    Some((wait, _)) => cmp::min(wait * 2, APPLY_RETRY_LONGEST_WAIT),
+                };
+                retry = Some((wait, Instant::now() + wait));
             }
         }
     }

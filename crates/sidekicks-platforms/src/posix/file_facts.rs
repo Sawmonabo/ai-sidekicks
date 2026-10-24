@@ -7,8 +7,8 @@ use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::entry_identity::EntryIdentity;
 use crate::file_facts::FileFacts;
+use crate::posix::entry_identity::identity_of;
 
 /// The facts of the file at `path`, from one `stat` that follows a link: its device and inode, its
 /// size, and its modification and change times. Opens nothing, so no lock the process holds on the
@@ -16,10 +16,7 @@ use crate::file_facts::FileFacts;
 pub fn file_facts(path: &Path) -> io::Result<FileFacts> {
     let metadata = fs::metadata(path)?;
     Ok(FileFacts {
-        identity: EntryIdentity {
-            volume: metadata.dev(),
-            file: u128::from(metadata.ino()),
-        },
+        identity: identity_of(&metadata),
         size: metadata.size(),
         modified: nanoseconds(metadata.mtime(), metadata.mtime_nsec()),
         changed: nanoseconds(metadata.ctime(), metadata.ctime_nsec()),

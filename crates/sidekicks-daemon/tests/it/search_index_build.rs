@@ -4,6 +4,7 @@
 use std::path::Path;
 use std::time::Duration;
 
+use sidekicks_daemon::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
 use sidekicks_daemon::database::writer::test_file::TestDatabase;
 use sidekicks_daemon::session::directory::test_rows::insert_session_row;
 use sidekicks_daemon::session::search::index::live::test_services::TestDaemonServices;
@@ -97,7 +98,7 @@ async fn a_close_during_a_build_settles_once_the_build_has_exited() {
     store_titled_sessions(&database);
     let services = TestDaemonServices::open(&database).await;
     let folder = tempfile::tempdir().expect("the test makes a temporary folder");
-    let index_folder = folder.path().join("search-index");
+    let index_folder = folder.path().join(SEARCH_INDEX_FOLDER_NAME);
     let live = LiveIndex::start(LiveIndexOptions {
         database_path: database.path(),
         index_folder: index_folder.clone(),

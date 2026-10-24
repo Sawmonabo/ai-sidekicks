@@ -202,6 +202,7 @@ pub(crate) fn read_claude_assistant_rows(
         source_position: None,
         content_length: None,
         content_truncated: None,
+        content_encoding: None,
     };
     for block in frame.blocks() {
         let block_type = block.block_type.as_deref();
@@ -364,6 +365,7 @@ fn tool_activity(
         source_position: None,
         content_length: None,
         content_truncated: None,
+        content_encoding: None,
     }
 }
 

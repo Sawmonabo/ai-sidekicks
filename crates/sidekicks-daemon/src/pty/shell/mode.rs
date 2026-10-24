@@ -12,6 +12,7 @@ use std::process::ExitCode;
 use sidekicks_platforms::{ShellStart, describe_start_failure, prepare_shell_start, start_program};
 
 use crate::error_description::describe_error;
+use crate::standard_error::write_error_line;
 
 /// The word the daemon's own program is started with, before the daemon's process id, to run the
 /// `shell` mode.
@@ -70,12 +71,6 @@ fn write_fallback_notice(
 
 // Writes why the mode started no shell to standard error, and answers the failure's exit code.
 fn fail(why: &str) -> ExitCode {
-    // Nothing is left to report a failed write to; the exit status still says the mode failed.
-    if let Err(error) = writeln!(
-        io::stderr().lock(),
-        "The shell mode started no shell: {why}"
-    ) {
-        drop(error);
-    }
+    write_error_line(&format!("the shell mode started no shell: {why}"));
     ExitCode::FAILURE
 }

@@ -11,7 +11,7 @@ use futures::future::BoxFuture;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
-    ExistingSocket, RunningProgramPath, bind_socket_listener, pin_running_process,
+    ExistingSocket, LeftoverSweep, RunningProgramPath, bind_socket_listener, pin_running_process,
     read_running_program_path, replace_file_atomically, replace_socket_link,
 };
 use tokio::sync::mpsc;
@@ -114,7 +114,8 @@ fn write_stand_in_script(folder: &Path) -> PathBuf {
          exec '{}' --exact {APP_SERVER_STAND_IN} --include-ignored >/dev/null 2>&1\n",
         program.display()
     );
-    replace_file_atomically(&script, body.as_bytes(), 0o755).expect("the script is written");
+    replace_file_atomically(&script, body.as_bytes(), 0o755, LeftoverSweep::Unswept)
+        .expect("the script is written");
     script
 }
 

@@ -36,8 +36,6 @@ pub enum DeclaredLossKind {
     /// A logged turn's body could not be read, so the turn is carried with its position and an
     /// empty body.
     TurnContentUnavailable,
-    /// A logged turn's body passed the stored-text ceiling and is carried as a prefix.
-    TurnContentTruncated,
 }
 
 ts_constants! {

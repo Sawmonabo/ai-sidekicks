@@ -9,6 +9,7 @@ mod cursor;
 mod directory;
 mod engine;
 mod find;
+mod long_row;
 mod membership;
 mod merge_policy;
 mod phrase;
@@ -25,6 +26,8 @@ use tantivy::TantivyError;
 
 pub use self::engine::SearchIndex;
 pub use self::find::mark_matches;
+pub use self::long_row::documents::{LongRowDocument, LongRowDocuments};
+pub use self::tokenizer::{find_page_end, find_tail_start};
 pub use self::view::HeldSearch;
 
 /// Why the index failed a call.
@@ -61,11 +64,12 @@ pub enum IndexRowKind {
     Tag,
 }
 
-/// One row handed to the index, with its text as the database holds it now.
+/// One row handed to the index whole, with its text as the database holds it now, as one
+/// document; a row longer than a page of text is handed as its `LongRowDocuments` instead.
 #[derive(Clone, Debug)]
 pub struct IndexRow {
-    /// The row's key, unique across the index: its source row's rowid times four plus its kind's
-    /// slot.
+    /// The row's key: its source row's rowid times four plus its kind's slot, so no two rows share
+    /// it.
     pub key: u64,
     /// What the row holds, which sets its key's slot and whom it counts toward.
     pub kind: IndexRowKind,
@@ -102,8 +106,15 @@ pub struct RemovedOwner {
 pub struct IndexBatch {
     /// The highest outbox id the batch carries; the commit records it.
     pub last_outbox_id: u64,
-    /// Rows to index; a row already indexed under the same key is replaced.
+    /// Rows to index whole; a row already indexed under the same key is replaced.
     pub rows: Vec<IndexRow>,
+    /// The documents of rows longer than a page, each row's in order; a row already indexed under
+    /// the same key is replaced, its old documents deleted before its first one here.
+    pub long_row_documents: Vec<LongRowDocument>,
+    /// The key of a row an earlier batch began: its documents here follow the ones that batch
+    /// added, so nothing is deleted under it. A batch records the outbox id before such a row until
+    /// the one holding its last documents.
+    pub continued_key: Option<u64>,
     /// Keys of rows to remove; a key the index does not hold is passed over.
     pub removed_keys: Vec<u64>,
     /// Owners whose every row leaves the index, the files that held them rewritten by the merges.

@@ -255,6 +255,7 @@ impl ClaudeStreamedBlocks {
                             source_position: None,
                             content_length: None,
                             content_truncated: None,
+                            content_encoding: None,
                         },
                     });
                 self.text.append(&key, &run.run_id.to_string(), &piece, now)

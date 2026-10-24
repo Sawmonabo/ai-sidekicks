@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::OptionalExtension as _;
 
 use crate::artifacts::refusals::ArtifactError;
+use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::{MissingEntry as _, is_missing_entry};
@@ -170,15 +171,17 @@ impl PayloadStore {
 
     /// Unlinks each payload of `content_hashes` that no reference names any more, whether one does
     /// read on `reads` under the payload's key, so an admit of the same bytes keeps them; for a
-    /// purge, after its rows' delete committed. A payload already gone counts as removed; one whose
-    /// read or removal fails is logged and left to the orphan sweep.
+    /// purge, after its rows' delete committed. Each removal is charged to `meter`, the meter of
+    /// the job or call it runs under. A payload already gone counts as removed; one whose read or
+    /// removal fails is logged and left to the orphan sweep.
     pub(crate) async fn reclaim_unreferenced(
         &self,
         reads: &DatabaseReadPool,
         content_hashes: impl IntoIterator<Item = ContentHash>,
+        meter: &ProcessorMeter,
     ) {
         for content_hash in content_hashes {
-            if let Err(error) = self.reclaim(reads, content_hash).await {
+            if let Err(error) = self.reclaim(reads, content_hash, meter).await {
                 tracing::warn!(
                     error = &error as &(dyn Error + 'static),
                     "a stored payload no reference names was not removed; the orphan sweep \
@@ -190,60 +193,76 @@ impl PayloadStore {
 
     /// Reclaims every stored payload no reference names, as
     /// [`PayloadStore::reclaim_unreferenced`] does, for bytes a crash left behind: run at the
-    /// daemon's start and on the ingest reaper's cadence. Fails when the store's folder cannot be
-    /// listed or the referenced keys read.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start and the ingest reaper's pass sweep the store"
+    /// daemon's start and on the ingest reaper's cadence, its listing, reads and removals charged
+    /// to `meter`. Answers the payloads it examined, each one stored. Fails when the store's folder
+    /// cannot be listed or the referenced keys read.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start schedules the reaper, whose pass sweeps"
+        )
     )]
     pub(crate) async fn sweep_orphans(
         &self,
         reads: &DatabaseReadPool,
-    ) -> Result<(), PayloadReclaimError> {
+        meter: &ProcessorMeter,
+    ) -> Result<u64, PayloadReclaimError> {
         let algorithm_folder = self.objects_folder.join(CONTENT_HASH_ALGORITHM);
-        let stored = tokio::task::spawn_blocking(move || list_stored(&algorithm_folder))
+        let stored = meter
+            .run_blocking(move || list_stored(&algorithm_folder))
             .await
             .map_err(io::Error::other)??;
+        let read_meter = meter.clone();
         let referenced = reads
-            .read(ReadLength::Long, |connection| {
-                connection
-                    .prepare_cached(REFERENCED_KEYS_SQL)?
-                    .query_map([], |row| row.get::<_, String>(0))?
-                    .collect::<rusqlite::Result<HashSet<String>>>()
-                    .map_err(PayloadReclaimError::from)
+            .read(ReadLength::Long, move |connection| {
+                read_meter.measure(|| {
+                    connection
+                        .prepare_cached(REFERENCED_KEYS_SQL)?
+                        .query_map([], |row| row.get::<_, String>(0))?
+                        .collect::<rusqlite::Result<HashSet<String>>>()
+                        .map_err(PayloadReclaimError::from)
+                })
             })
             .await?;
+        let examined = u64::try_from(stored.len()).expect("a payload count fits in u64");
         // Each is read again under its key, since an admit may reference it after the list.
         let orphans = stored
             .into_iter()
             .filter(|content_hash| !referenced.contains(content_hash.as_str()));
-        self.reclaim_unreferenced(reads, orphans).await;
-        Ok(())
+        self.reclaim_unreferenced(reads, orphans, meter).await;
+        Ok(examined)
     }
 
-    // Removes the payload once, under its key, no reference names it.
+    // Removes the payload once, under its key, no reference names it, the read and the removal
+    // charged to `meter`.
     async fn reclaim(
         &self,
         reads: &DatabaseReadPool,
         content_hash: ContentHash,
+        meter: &ProcessorMeter,
     ) -> Result<(), PayloadReclaimError> {
         let _key_hold = self.storage_key_lock.acquire(content_hash.clone()).await;
         let key = content_hash.as_str().to_owned();
+        let read_meter = meter.clone();
         let is_referenced = reads
             .read(ReadLength::Short, move |connection| {
-                connection
-                    .prepare_cached(KEY_REFERENCED_SQL)?
-                    .query_row([key], |_row| Ok(()))
-                    .optional()
-                    .map(|found| found.is_some())
-                    .map_err(PayloadReclaimError::from)
+                read_meter.measure(|| {
+                    connection
+                        .prepare_cached(KEY_REFERENCED_SQL)?
+                        .query_row([key], |_row| Ok(()))
+                        .optional()
+                        .map(|found| found.is_some())
+                        .map_err(PayloadReclaimError::from)
+                })
             })
             .await?;
         if is_referenced {
             return Ok(());
         }
         let object_path = self.object_path_of(&content_hash);
-        tokio::task::spawn_blocking(move || std::fs::remove_file(&object_path).none_if_missing())
+        meter
+            .run_blocking(move || std::fs::remove_file(&object_path).none_if_missing())
             .await
             .map_err(io::Error::other)??;
         Ok(())
@@ -308,7 +327,6 @@ fn move_into_store(source: &Path, object: &Path, objects_folder: &Path) -> io::R
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
     use std::sync::Arc;
 
     use sha2::{Digest as _, Sha256};
@@ -316,51 +334,11 @@ mod tests {
 
     use super::{ContentHash, PayloadStore};
     use crate::artifacts::refusals::ArtifactError;
-    use crate::artifacts::test_store::ArtifactTestStore;
-    use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-    use crate::database::writer::DatabaseWriter;
-    use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use crate::artifacts::test_store::{ArtifactTestStore, write_payload_reference};
+    use crate::daemon::scheduler::budget::ProcessorMeter;
 
     fn content_hash_of(bytes: &[u8]) -> ContentHash {
         ContentHash::of_sha256(&Sha256::digest(bytes))
-    }
-
-    // Writes a manifest of `session_id` over `content_hash` and its payload reference.
-    async fn reference(writer: &DatabaseWriter, session_id: SessionId, content_hash: &ContentHash) {
-        let manifest_id = mint_uuid_v7().to_string();
-        let reference_id = mint_uuid_v7().to_string();
-        writer
-            .write(vec![
-                WriteStatement {
-                    sql: Cow::Borrowed(
-                        "INSERT INTO artifact_manifests (id, session_id, artifact_type, \
-                         content_hash, size_bytes, created_at) VALUES (@manifestId, @sessionId, \
-                         'file', @contentHash, 1, '2026-10-19T09:00:00.000Z')",
-                    ),
-                    bindings: StatementBindings::Named(vec![
-                        text_binding("@manifestId", &manifest_id),
-                        text_binding("@sessionId", session_id.text().as_str()),
-                        text_binding("@contentHash", content_hash.as_str()),
-                    ]),
-                    expected_row_count: Some(1),
-                },
-                WriteStatement {
-                    sql: Cow::Borrowed(
-                        "INSERT INTO artifact_payload_refs (id, manifest_id, storage_path, \
-                         media_type, size_bytes, created_at) VALUES (@referenceId, @manifestId, \
-                         @contentHash, 'text/plain', 1, '2026-10-19T09:00:00.000Z')",
-                    ),
-                    bindings: StatementBindings::Named(vec![
-                        text_binding("@referenceId", &reference_id),
-                        text_binding("@manifestId", &manifest_id),
-                        text_binding("@contentHash", content_hash.as_str()),
-                    ]),
-                    expected_row_count: Some(1),
-                },
-            ])
-            .await
-            .expect("the test's manifest is written");
     }
 
     // Stores `bytes` with no reference and answers their hash.
@@ -388,7 +366,7 @@ mod tests {
     async fn a_reclaim_removes_only_bytes_no_reference_names_under_their_key() {
         let store = ArtifactTestStore::open().await;
         let named = store_unreferenced(&store, b"named", "named").await;
-        reference(&store.writer, store.session_id, &named).await;
+        write_payload_reference(&store.writer, store.session_id, &named).await;
         let unnamed = store_unreferenced(&store, b"unnamed", "unnamed").await;
         let admitted = store_unreferenced(&store, b"admitted", "admitted").await;
 
@@ -406,18 +384,20 @@ mod tests {
                     .admit(spool, &admitted.clone(), async move {
                         reached.send(()).expect("the test waits for the key's hold");
                         released.await.expect("the test releases the admit");
-                        reference(&writer, session_id, &admitted).await;
+                        write_payload_reference(&writer, session_id, &admitted).await;
                         Ok(())
                     })
                     .await
             }
         });
         holding.await.expect("the admit holds the key");
+        let meter = ProcessorMeter::default();
         let reclaiming = tokio::spawn({
             let payloads = Arc::clone(&store.payloads);
             let reads = Arc::clone(&store.reads);
             let hashes = vec![admitted.clone(), named.clone(), unnamed.clone()];
-            async move { payloads.reclaim_unreferenced(&reads, hashes).await }
+            let meter = meter.clone();
+            async move { payloads.reclaim_unreferenced(&reads, hashes, &meter).await }
         });
         // The reclaim reaches the admitted bytes' key while the admit still holds it.
         tokio::task::yield_now().await;
@@ -427,6 +407,10 @@ mod tests {
             .expect("the admit ends")
             .expect("the admit records");
         reclaiming.await.expect("the reclaim ends");
+        // Each key's read and the one unlink are measured on the meter they ran under, read as the
+        // pieces it measured, since a clock that moves in ticks may count none of the time. Killed
+        // by a removal or a read off the meter.
+        assert_eq!(meter.take_spent().expect("the clock reads").readings, 4);
 
         assert!(
             store.payloads.object_path_of(&named).exists(),
@@ -440,6 +424,14 @@ mod tests {
             store.payloads.object_path_of(&admitted).exists(),
             "bytes an admit referenced under their key stay"
         );
+        // The sweep counts each payload it examined, the two kept ones that it does not remove.
+        // Killed by a count of the payloads removed in place of those examined.
+        let examined = store
+            .payloads
+            .sweep_orphans(&store.reads, &ProcessorMeter::default())
+            .await
+            .expect("the sweep ends cleanly");
+        assert_eq!(examined, 2);
     }
 
     #[tokio::test]

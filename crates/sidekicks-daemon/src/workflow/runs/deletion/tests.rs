@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use rstest::rstest;
 use rusqlite::{Connection, params};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
@@ -277,6 +278,57 @@ async fn a_bulk_delete_removes_what_its_preview_counted() {
         .await
         .expect("the preview reads");
     assert_eq!(counts(&after), (0, 1, 2));
+}
+
+/// A cutoff between two stored milliseconds rounds up to the later one, so the preview counts and
+/// the bulk delete removes a run started at the earlier one and not one started at the later; a
+/// cutoff on a millisecond takes no run started at it. Mutation: cut the cutoff down to its
+/// millisecond, or drop the digits past the ninth without rounding up.
+#[rstest]
+#[case::half_a_millisecond_past("2026-10-10T00:00:00.0005Z", true)]
+#[case::a_digit_past_the_ninth("2026-10-10T00:00:00.0000000001Z", true)]
+#[case::on_the_millisecond("2026-10-10T00:00:00.000Z", false)]
+#[case::zeros_past_the_ninth_digit("2026-10-10T00:00:00.0000000000Z", false)]
+#[tokio::test]
+async fn a_cutoff_between_milliseconds_takes_the_runs_started_before_it(
+    #[case] cutoff: &str,
+    #[case] takes_the_earlier_run: bool,
+) {
+    let database = TestDatabase::new();
+    let (deletion, rows) = open_deletion(&database).await;
+    for (number, started_at) in [
+        (1, "2026-10-10T00:00:00.000Z"),
+        (2, "2026-10-10T00:00:00.001Z"),
+    ] {
+        insert_run(
+            &rows,
+            &run_id(number),
+            VERSION_ID,
+            WorkflowRunStatus::Succeeded,
+            started_at,
+            Some(NEW),
+        );
+    }
+    let taken: Vec<WorkflowRunId> = if takes_the_earlier_run {
+        vec![workflow_run_id(1)]
+    } else {
+        Vec::new()
+    };
+
+    let preview = deletion
+        .preview_delete_older_than(&instant(cutoff))
+        .await
+        .expect("the preview reads");
+    assert_eq!(preview.delete_count.get(), taken.len() as u64);
+    let deleted: Vec<WorkflowRunId> = deletion
+        .delete_older_than(&instant(cutoff))
+        .await
+        .expect("the bulk delete commits")
+        .iter()
+        .map(|run| run.workflow_run_id)
+        .collect();
+    assert_eq!(deleted, taken);
+    assert_eq!(run_row_count(&rows, &run_id(2)), 1);
 }
 
 /// A bulk delete write whose guard refuses a run kept since its page was read drops that run and

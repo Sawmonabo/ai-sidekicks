@@ -55,6 +55,31 @@ pub struct DaemonDataExportSubscribeRequest {
     pub job_id: DataExportJobId,
 }
 
+/// The export job to stop. A job already finished stays as it ended.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct DaemonDataExportCancelRequest {
+    /// The job.
+    pub job_id: DataExportJobId,
+}
+
+/// The details of `daemon.dataExport.alreadyRunning`: the export that runs now.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DaemonDataExportAlreadyRunningDetails {
+    /// The running job.
+    pub job_id: DataExportJobId,
+}
+
+/// The details of `daemon.dataExport.destination.notWritable`: the folder that could not be made.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DaemonDataExportDestinationNotWritableDetails {
+    /// The folder.
+    pub path: FilesystemPath,
+}
+
 /// Where an export stands, told apart by its `state`. A running export exports one session at a
 /// time, so it counts sessions, never past its total.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -87,6 +112,11 @@ pub enum DataExportProgress {
         /// The cause.
         message: FreeFormText<ERROR_MESSAGE_MAX_LEN>,
     },
+    /// The person canceled the export; the folder holds what was written before.
+    Canceled {
+        /// The folder the export was writing.
+        path: FilesystemPath,
+    },
 }
 
 impl DataExportProgress {
@@ -99,7 +129,10 @@ impl DataExportProgress {
             } if sessions_exported > sessions_total => Err(garde::Error::new(
                 "sessionsExported cannot exceed sessionsTotal",
             )),
-            Self::Running { .. } | Self::Completed { .. } | Self::Failed { .. } => Ok(()),
+            Self::Running { .. }
+            | Self::Completed { .. }
+            | Self::Failed { .. }
+            | Self::Canceled { .. } => Ok(()),
         }
     }
 }
@@ -122,22 +155,33 @@ methods! {
             mutating: true,
             params: DaemonDataExportStartRequest,
             result: DaemonDataExportStartResponse,
-            refusals: [],
+            refusals: [
+                DaemonDataExportAlreadyRunning,
+                DaemonDataExportDestinationAlreadyExists,
+                DaemonDataExportDestinationNotWritable,
+            ],
         },
-        /// Streams an export's progress.
+        /// Streams an export's progress: where it stands, then each change.
         DaemonDataExportSubscribe = subscription "daemon.dataExport.subscribe" {
             mutating: false,
             params: DaemonDataExportSubscribeRequest,
             result: SubscribeAcknowledgmentResponse,
             emission: DataExportProgress,
-            refusals: [],
+            refusals: [DaemonDataExportNotFound],
+        },
+        /// Stops a running export.
+        DaemonDataExportCancel = mutation "daemon.dataExport.cancel" {
+            mutating: true,
+            params: DaemonDataExportCancelRequest,
+            result: EmptyPayload,
+            refusals: [DaemonDataExportNotFound],
         },
         /// Erases everything the service keeps.
         DaemonDataErase = mutation "daemon.data.erase" {
             mutating: true,
             params: EmptyPayload,
             result: EmptyPayload,
-            refusals: [DaemonDataStoreUnavailable],
+            refusals: [DaemonDataStoreUnavailable, DaemonDataEraseRunning],
         },
     ];
 }
@@ -152,6 +196,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DaemonDataExportStartRequest>().checked(),
         Definition::read::<DaemonDataExportStartResponse>().checked(),
         Definition::read::<DaemonDataExportSubscribeRequest>().checked(),
+        Definition::read::<DaemonDataExportCancelRequest>().checked(),
+        Definition::read::<DaemonDataExportAlreadyRunningDetails>().checked(),
+        Definition::read::<DaemonDataExportDestinationNotWritableDetails>().checked(),
         Definition::read::<DataExportProgress>().checked(),
         Definition::read::<DaemonDataStoreUnavailableDetails>().checked(),
     ],

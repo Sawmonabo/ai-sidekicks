@@ -1,4 +1,5 @@
-//! The tail of a child's error output, which the child's failure carries in its message.
+//! A helper mode's error output: the tail of it the daemon keeps, which the child's failure carries
+//! in its message.
 
 use std::io;
 

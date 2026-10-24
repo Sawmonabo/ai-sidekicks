@@ -130,7 +130,8 @@ fn search_index_schema_sql() -> String {
 -- records always means the same row.
 -- index_key is the index row's key: its source row's rowid times four plus its kind's slot (event
 -- 0, title 1, group 2, tag 3). owner_key is the session's rowid in sessions, or for a group's row
--- the group's rowid in session_groups. Nothing vacuums this database, so those rowids never move.
+-- the group's rowid in session_groups. Each of the four source tables declares its rowid as its
+-- INTEGER PRIMARY KEY, so the repack's VACUUM keeps every rowid and no key moves.
 -- operation is 'row' to read the row at index_key again, 'owner' when the session or group whose
 -- row is at index_key is deleted with every row it owns, and 'members' to read the group's members
 -- again.

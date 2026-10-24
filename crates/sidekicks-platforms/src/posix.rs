@@ -28,6 +28,7 @@ pub(crate) mod socket;
 pub(crate) mod stop_request;
 pub(crate) mod system_locale;
 pub(crate) mod terminal;
+pub(crate) mod thread_cpu_time;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod uptime;
 pub(crate) mod xdg_data_folders;

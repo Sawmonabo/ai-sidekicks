@@ -41,15 +41,17 @@ pub enum DatabaseOpenError {
     },
 }
 
+/// The service's store's file name in its data folder.
+pub(crate) const DAEMON_DATABASE_FILE_NAME: &str = "daemon.db";
+
+/// The search index's folder name in the data folder, beside the store whose rows it indexes.
+pub const SEARCH_INDEX_FOLDER_NAME: &str = "search-index";
+
 /// Opens the daemon's database at `database_path` for its one writer, creating the file and its
 /// schema when they are missing. Fails as SQLite does, with [`DatabaseOpenError::PragmaNotTaken`]
 /// for a durability pragma that reads back other than it was set, or with
 /// [`DatabaseOpenError::SchemaFromAnotherBuild`] for a file whose schema is not this build's; the
 /// connection is closed first, with the close's own failure beside the original when that fails.
-#[cfg_attr(
-    not(any(test, feature = "test-support")),
-    expect(dead_code, reason = "the daemon's start opens the writer through it")
-)]
 pub(crate) fn open_database(
     database_path: &Path,
 ) -> Result<Connection, CleanupFailures<DatabaseOpenError, rusqlite::Error>> {

@@ -2,6 +2,7 @@
 //! keeping where each token sat in the source text.
 
 use icu_casemap::{CaseMapper, CaseMapperBorrowed};
+use sidekicks_contracts::transcript::limits::TRANSCRIPT_SEARCH_TEXT_MAX_LEN;
 use tantivy::tokenizer::MAX_TOKEN_LEN;
 use unicode_normalization::char::{canonical_combining_class, decompose_canonical};
 use unicode_properties::{GeneralCategory, GeneralCategoryGroup, UnicodeGeneralCategory};
@@ -23,15 +24,31 @@ pub(crate) struct TextToken {
     pub(crate) end: u32,
 }
 
+/// The places of a text's tokens a query's phrase can reach across a page's edge: a phrase of `t`
+/// tokens takes at least `2t - 1` code points, one character a token and one between each, so the
+/// longest find query holds a phrase of half its code points rounded up, and a phrase across an
+/// edge keeps at least one of them on each side.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the longest query's phrase is a few thousand tokens"
+)]
+pub(crate) const EDGE_PLACES: u32 = (TRANSCRIPT_SEARCH_TEXT_MAX_LEN.div_ceil(2) - 1) as u32;
+
 /// Splits `text` into folded tokens in order. A token starts at a letter or a digit and runs
 /// through letters, digits and combining marks, so a decomposed accent stays inside its word. A
 /// token whose folded form is longer than Tantivy indexes is dropped, as Tantivy would drop it,
 /// keeping its place.
+pub(crate) fn tokenize(text: &str) -> Vec<TextToken> {
+    tokenize_with_places(text).0
+}
+
+/// `tokenize`, with the text's place count: its tokens' places, a dropped token's included, so a
+/// dropped token at the text's end still holds its place.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "a character is one or two UTF-16 code units, read for every character of the text"
 )]
-pub(crate) fn tokenize(text: &str) -> Vec<TextToken> {
+pub(crate) fn tokenize_with_places(text: &str) -> (Vec<TextToken>, u32) {
     let mut tokens = Vec::new();
     let mut position = 0u32;
     let mut offset = 0u32;
@@ -39,10 +56,7 @@ pub(crate) fn tokenize(text: &str) -> Vec<TextToken> {
     let mut scratch = String::new();
     for character in text.chars() {
         let group = character.general_category_group();
-        let starts = matches!(
-            group,
-            GeneralCategoryGroup::Letter | GeneralCategoryGroup::Number
-        );
+        let starts = is_token_start(group);
         let continues = starts || matches!(group, GeneralCategoryGroup::Mark);
         match open.as_mut() {
             Some((folded, _)) if continues => fold_into(character, folded, &mut scratch),
@@ -62,7 +76,55 @@ pub(crate) fn tokenize(text: &str) -> Vec<TextToken> {
     if let Some((folded, start)) = open {
         close_token(&mut tokens, &mut position, folded, start, offset);
     }
-    tokens
+    (tokens, position)
+}
+
+/// Where a page of a long text ends so no token is cut in two: the start of the token the text
+/// ends inside, which the next page then begins with, or the text's end when it ends between
+/// tokens or inside one longer than the index keeps or begun before the text.
+pub fn find_page_end(text: &str) -> usize {
+    for (offset, character) in text.char_indices().rev() {
+        let group = character.general_category_group();
+        if !is_token_start(group) && !matches!(group, GeneralCategoryGroup::Mark) {
+            return offset + character.len_utf8();
+        }
+        if text.len() - offset >= MAX_TOKEN_LEN {
+            break;
+        }
+    }
+    text.len()
+}
+
+/// Where the stretch of `text` holding its last `EDGE_PLACES` token places begins, as a byte
+/// offset: the start of that many tokens from the end, or 0 when the text holds fewer. A query's
+/// phrase across the text's end reaches back no further, so a page read after `text` is marked
+/// with that stretch before it.
+pub fn find_tail_start(text: &str) -> usize {
+    let mut places = 0;
+    // The earliest letter or digit of the run of token characters being read back through.
+    let mut run_start: Option<usize> = None;
+    for (offset, character) in text.char_indices().rev() {
+        let group = character.general_category_group();
+        if is_token_start(group) {
+            run_start = Some(offset);
+        } else if !matches!(group, GeneralCategoryGroup::Mark)
+            && let Some(start) = run_start.take()
+        {
+            places += 1;
+            if places == EDGE_PLACES {
+                return start;
+            }
+        }
+    }
+    0
+}
+
+// Whether a character of `group` starts a token: a letter or a digit.
+fn is_token_start(group: GeneralCategoryGroup) -> bool {
+    matches!(
+        group,
+        GeneralCategoryGroup::Letter | GeneralCategoryGroup::Number
+    )
 }
 
 fn close_token(
