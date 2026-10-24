@@ -6,6 +6,7 @@
 //! item before the next, so the session's events keep their order, and the driver's calls on the
 //! session's record take their place among its frames.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -31,9 +32,15 @@ use crate::provider::driver::codex::server_requests::{
 };
 use crate::provider::driver::codex::session::calls::CodexSessionReading;
 use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::codex::session::recovery::{
+    CodexDroppedTurns, CodexInPlaceResumeCall,
+};
+use crate::provider::driver::codex::session::rewind::CodexMessageTurn;
 use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
+use crate::provider::driver::session_control::{
+    DriverResumeResult, MoveSessionToForkParams, MoveSessionToForkResult,
+};
 
 /// The depth past which a session's queue is logged, then again at each doubling.
 const CODEX_SESSION_INBOUND_DEPTH_MARK: usize = 512;
@@ -178,6 +185,51 @@ pub(crate) enum CodexSessionCall {
         turn_id: String,
         /// Where `true` goes when the turn runs on as the run's.
         reply: oneshot::Sender<bool>,
+    },
+    /// Drops every turn the session held on a service whose process ended, with what waits on
+    /// them, and answers the runs they belonged to and the binding they ran under.
+    DropTurns {
+        /// Where the dropped runs and the binding go.
+        reply: oneshot::Sender<CodexDroppedTurns>,
+    },
+    /// Ends the live safety holds a process exit left on the session's turns.
+    EndSafetyHolds {
+        /// Answered once they ended.
+        reply: oneshot::Sender<()>,
+    },
+    /// Resumes the session's conversation in place on `service`, once the caller claimed the slot,
+    /// and ends the turns the resume lists as ended that the session still owed an end.
+    ResumeInPlace {
+        /// The resume.
+        resume: Box<CodexInPlaceResumeCall>,
+        /// Where the resume's result goes.
+        reply: oneshot::Sender<DriverResumeResult>,
+    },
+    /// Cuts the conversation back to before `turn_id` with `thread/revert`, once the caller
+    /// claimed the slot.
+    RevertBefore {
+        /// The conversation the caller read the turn on.
+        thread_id: String,
+        /// The first turn the cut drops.
+        turn_id: String,
+        /// Where `false` goes when the session moved to another conversation meanwhile, or the
+        /// cut's failure.
+        reply: oneshot::Sender<Result<bool, CodexError>>,
+    },
+    /// Reads the turn one of the person's messages started, from what the session recorded.
+    ReadMessageTurn {
+        /// The message's id.
+        message_id: String,
+        /// Where the turn and the conversation it is on go; the turn `None` when the session
+        /// recorded none for the message.
+        reply: oneshot::Sender<CodexMessageTurn>,
+    },
+    /// Records the turns of the person's messages a conversation's history listed.
+    RecordMessageTurns {
+        /// The conversation the history was read on.
+        thread_id: String,
+        /// Each message's turn, by the message's id.
+        turn_id_by_client_message_id: HashMap<String, String>,
     },
     /// Forks the conversation to just before a retried turn on the faster model, once the caller
     /// claimed the slot.

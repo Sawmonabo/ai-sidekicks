@@ -32,6 +32,12 @@ use crate::provider::driver::codex::session::fork::{
 use crate::provider::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundSender,
 };
+use crate::provider::driver::codex::session::recovery::{
+    drop_codex_turns, resume_codex_session_in_place,
+};
+use crate::provider::driver::codex::session::rewind::{
+    read_codex_message_turn, record_codex_message_turns, revert_codex_turns,
+};
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
 
@@ -170,6 +176,37 @@ pub(crate) async fn run_codex_session_call(
                 restore_codex_retried_turn(task.record, &dependencies.runs, run_id, &turn_id);
             let _unheard = reply.send(restored);
         }
+        CodexSessionCall::DropTurns { reply } => {
+            let _unheard = reply.send(drop_codex_turns(task, dependencies));
+        }
+        CodexSessionCall::EndSafetyHolds { reply } => {
+            dependencies
+                .forks
+                .delivery
+                .end_safety_holds(task.record)
+                .await;
+            let _unheard = reply.send(());
+        }
+        CodexSessionCall::ResumeInPlace { resume, reply } => {
+            let (result, released) =
+                Box::pin(resume_codex_session_in_place(task, dependencies, *resume)).await;
+            routed = released;
+            let _unheard = reply.send(result);
+        }
+        CodexSessionCall::RevertBefore {
+            thread_id,
+            turn_id,
+            reply,
+        } => {
+            let _unheard = reply.send(revert_codex_turns(task.record, &thread_id, &turn_id).await);
+        }
+        CodexSessionCall::ReadMessageTurn { message_id, reply } => {
+            let _unheard = reply.send(read_codex_message_turn(task.record, &message_id));
+        }
+        CodexSessionCall::RecordMessageTurns {
+            thread_id,
+            turn_id_by_client_message_id,
+        } => record_codex_message_turns(task.record, &thread_id, turn_id_by_client_message_id),
         CodexSessionCall::ForkForRetry {
             turn_id,
             model,

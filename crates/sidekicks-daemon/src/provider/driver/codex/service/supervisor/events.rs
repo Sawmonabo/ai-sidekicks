@@ -1,5 +1,6 @@
 //! What a Codex service tells the session's recovery about the conversations on it: its process
-//! ended, it is back and they need resuming, it stays down, or it asks for a planned restart.
+//! ended, it is back and they need resuming, it stays down, or it asks for a planned restart; and
+//! what it tells the account's usage: its rate-limit readings changed.
 
 use std::sync::Arc;
 
@@ -31,6 +32,9 @@ pub(crate) trait CodexServiceEvents: Send + Sync {
 
     /// The crash window filled, so the service stays down until the person restarts it.
     fn crash_loop(&self, service: &Arc<CodexService>);
+
+    /// The account's rate-limit readings changed on a push from the service.
+    fn rate_limits_observed(&self, service: &Arc<CodexService>);
 
     /// The terminal service asks for a second service on the program as it is now, its
     /// conversations moved and the first stopped once no terminal session is inside it.

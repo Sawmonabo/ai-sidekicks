@@ -32,6 +32,7 @@ mod native_program;
 mod notification_routing;
 mod output_speed;
 mod permission_level;
+mod rate_limits;
 mod rules;
 mod run;
 mod server_requests;

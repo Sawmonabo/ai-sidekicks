@@ -101,6 +101,15 @@ pub(crate) struct CodexRoutedFrames {
     pub(crate) context_windows: Vec<CodexContextWindowReading>,
 }
 
+impl CodexRoutedFrames {
+    /// Appends what routing later frames produced, after what this holds.
+    pub(crate) fn extend(&mut self, later: Self) {
+        self.dispatches.extend(later.dispatches);
+        self.metered_usage.extend(later.metered_usage);
+        self.context_windows.extend(later.context_windows);
+    }
+}
+
 /// One session's frame router, usage accountant and terminal gate, kept on its task beside its
 /// record; the gate outlives each record, since a close covers whichever run is in flight.
 pub(crate) struct CodexSessionRouting {

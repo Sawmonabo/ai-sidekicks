@@ -3,7 +3,7 @@
 //! the session's queue handed to the test, which handles it the way the session's task does.
 
 use std::num::NonZeroUsize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use futures::FutureExt as _;
@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
@@ -28,10 +28,13 @@ use tokio_util::task::TaskTracker;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, insert_lead};
 use crate::events::log_service::tests::open_log;
-use crate::policy::execution_posture_service::compose_execution_posture;
+use crate::policy::execution_posture_service::{
+    ExecutionPostureService, compose_execution_posture,
+};
 use crate::provider::compaction_wait::PendingCompactionRegistry;
 use crate::provider::driver::attachments::{AttachmentResolver, ProviderAttachment};
 use crate::provider::driver::codex::DESCRIPTOR;
+use crate::provider::driver::codex::commands::CodexProviderCommandCache;
 use crate::provider::driver::codex::delivery::frames::{
     CodexFrameDelivery, CodexFrameDeliveryDependencies, CodexFrameEffects,
 };
@@ -55,11 +58,15 @@ use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndWaiters;
 use crate::provider::driver::codex::server_requests::{
     CodexAskKind, CodexInboundServerRequest, CodexServerRequestDecision,
 };
+use crate::provider::driver::codex::service::registry::CodexServiceRegistry;
 use crate::provider::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
 use crate::provider::driver::codex::session::calls::{
     CodexSessionCallDependencies, CodexSessionTask, run_codex_session_call,
+};
+use crate::provider::driver::codex::session::establishment::{
+    CodexSessionEstablishment, CodexSessionEstablishmentDependencies,
 };
 use crate::provider::driver::codex::session::fork::CodexForkDependencies;
 use crate::provider::driver::codex::session::fork::config_change::CodexConfigForks;
@@ -78,10 +85,14 @@ use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, RunToolBoundary,
 };
+use crate::provider::driver::{
+    PROVIDERS, ProviderAccountFolders, SessionSpawnContext, SessionSpawnContextResolver,
+};
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::provider::runtime_binding::store::{RuntimeBindingSpawnConfig, RuntimeBindingStore};
 use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
+use crate::provider::spawn_environment::ReservedEnvironmentNames;
 use crate::session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
 use crate::session::run::engine::tests::test_engine;
 use crate::session::run::epochs::{EpochBinding, ExecutionEpochs};
@@ -310,6 +321,71 @@ impl TestCodexSession {
                 RUN_START_POSITION,
             )
             .expect("the binding has no cursor yet");
+    }
+}
+
+impl TestCodexSession {
+    /// An establishment on the session's service and delivery, every conversation it composes
+    /// running in `folder`'s `work` on the person's own sign-in.
+    pub(crate) fn establishment(&self, folder: &Path) -> CodexSessionEstablishment {
+        CodexSessionEstablishment::new(CodexSessionEstablishmentDependencies {
+            services: CodexServiceRegistry::holding(&self.scripted),
+            spawn_contexts: Arc::new(OneFolder(folder.join("work"))),
+            execution_postures: Arc::new(ExecutionPostureService::new(
+                folder,
+                folder.join("session-token"),
+            )),
+            base_environment: Arc::from([]),
+            reserved_names: Arc::new(ReservedEnvironmentNames::of_providers(PROVIDERS)),
+            helper_roles_folder: folder.join("roles"),
+            tool_server_route: Arc::new(PortRegistration::new("tool server route")),
+            delivery: Arc::clone(&self.task.calls.forks.delivery),
+            pending_compactions: self.task.calls.forks.pending_compactions.clone(),
+            provider_commands: CodexProviderCommandCache::new(
+                Arc::new(PortRegistration::new("server prompts")),
+                Arc::new(|_session_id| None),
+            ),
+        })
+    }
+}
+
+/// Every session runs in one folder on the person's own sign-in, whose generation is never read.
+pub(crate) struct OneFolder(pub(crate) PathBuf);
+
+impl SessionSpawnContextResolver for OneFolder {
+    fn resolve_spawn_context(
+        &self,
+        _session_id: SessionId,
+        _provider_account_id: Option<ProviderAccountId>,
+    ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn std::error::Error + Send + Sync>>> {
+        let working_directory = self.0.clone();
+        async move {
+            Ok(SessionSpawnContext {
+                working_directory,
+                git_common_folder: None,
+                every_project_rows: Vec::new(),
+                project_rows: Vec::new(),
+                account_folders: None,
+            })
+        }
+        .boxed()
+    }
+
+    fn resolve_account_folders(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<
+        '_,
+        Result<Option<ProviderAccountFolders>, Box<dyn std::error::Error + Send + Sync>>,
+    > {
+        async { Ok(None) }.boxed()
+    }
+
+    fn read_credential_generation(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn std::error::Error + Send + Sync>>> {
+        async { Err("the test reads no generation".into()) }.boxed()
     }
 }
 

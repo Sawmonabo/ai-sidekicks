@@ -263,6 +263,15 @@ impl CodexSessionClaim<'_> {
         self.slots.lock().entry(self.session_id).or_default().live = Some(live);
     }
 
+    /// The queue of the session's live record, while it has one; a transition holding the slot
+    /// reaches the record through it.
+    pub(crate) fn live(&self) -> Option<CodexSessionInboundSender> {
+        self.slots
+            .lock()
+            .get(&self.session_id)
+            .and_then(|slot| slot.live.clone())
+    }
+
     /// Records the session closed: its record leaves the slot, and an establishment that waited
     /// behind this close is refused.
     #[cfg_attr(

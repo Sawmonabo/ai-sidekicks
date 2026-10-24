@@ -7,7 +7,7 @@
 //! up; a service draining toward its exit refuses new work while its turns run on.
 
 mod drain;
-pub(super) mod events;
+pub(crate) mod events;
 mod reconnect;
 pub(crate) mod routing;
 mod runner;
@@ -309,6 +309,16 @@ impl CodexService {
         self.lock_routing().rate_limits.clone()
     }
 
+    /// Replaces the account's rate-limit readings with a complete read's.
+    pub(crate) fn store_rate_limit_read(&self, observation: CodexRateLimitObservation) {
+        self.lock_routing().rate_limits = observation;
+    }
+
+    /// The queue of every session attached to the service.
+    pub(crate) fn attached_sessions(&self) -> Vec<CodexSessionInboundSender> {
+        self.lock_routing().attached()
+    }
+
     /// The `--listen` address a launch on `socket` starts with: a bare `unix://` on the home's own
     /// control socket, the path otherwise.
     pub(crate) fn listen_address(&self, socket: &Path) -> String {
@@ -489,6 +499,23 @@ impl CodexService {
     )]
     pub(crate) fn request_planned_restart(&self) {
         self.send(SupervisorEvent::PlannedRestart);
+    }
+
+    /// Restarts an account's service on the program as it is now and answers once it is up
+    /// again, the start bounded as [`Self::ensure_started`] bounds it. Fails as that start fails.
+    pub(crate) async fn restart_planned(&self) -> Result<(), CodexError> {
+        let mut availability = self.availability.subscribe();
+        availability.borrow_and_update();
+        self.send(SupervisorEvent::PlannedRestart);
+        // Up again only once it left Up, so the old process is never taken for the new one.
+        if availability
+            .wait_for(|current| !matches!(current, CodexServiceAvailability::Up))
+            .await
+            .is_err()
+        {
+            return Err(shut_down_refusal());
+        }
+        self.ensure_started(self.dependencies.startup_timeout).await
     }
 
     /// The daemon's last conversation on the service closed, so Codex's managed daemon it joined

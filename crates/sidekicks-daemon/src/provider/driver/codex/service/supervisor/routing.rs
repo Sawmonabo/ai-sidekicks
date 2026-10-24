@@ -86,6 +86,11 @@ impl CodexServiceRouting {
         self.sessions.get(session_id)
     }
 
+    /// The queue of every session attached.
+    pub(super) fn attached(&self) -> Vec<CodexSessionInboundSender> {
+        self.sessions.values().cloned().collect()
+    }
+
     /// Waits on `thread_id`'s unload.
     pub(super) fn wait_for_closed(&mut self, thread_id: String) -> oneshot::Receiver<()> {
         let (closed, receiver) = oneshot::channel();
@@ -190,8 +195,10 @@ impl CodexService {
             return;
         }
         let thread_id = read_codex_frame_thread_id(method, &params);
-        let audience = {
+        let (audience, has_rate_limits_changed) = {
             let mut routing = self.lock_routing();
+            let rate_limits_before = (method == CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD)
+                .then(|| routing.rate_limits.clone());
             // Only reported here, once per connection, when the method is outside the table; the
             // session's frame handler reads the route itself.
             let _route = resolve_codex_frame_emission_route(
@@ -204,11 +211,17 @@ impl CodexService {
             {
                 routing.settle_closed(Some(thread_id));
             }
-            match &thread_id {
+            let audience = match &thread_id {
                 None => self.route_unthreaded(&mut routing, method, &params),
                 Some(_) => FrameAudience::Nobody,
-            }
+            };
+            let has_rate_limits_changed =
+                rate_limits_before.is_some_and(|before| before != routing.rate_limits);
+            (audience, has_rate_limits_changed)
         };
+        if has_rate_limits_changed {
+            self.dependencies.events.rate_limits_observed(self);
+        }
         if let FrameAudience::Sessions(sessions) = audience {
             for session_id in sessions {
                 self.deliver(&session_id, method, &params);

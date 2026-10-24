@@ -235,7 +235,7 @@ pub(crate) enum CodexTransportDiagnostic {
         /// The conversation.
         thread_id: String,
     },
-    /// `thread/read` could not confirm a conversation unloaded; its resume decides.
+    /// The loaded conversations could not be read to confirm one unloaded; its resume decides.
     ConversationUnloadUnconfirmed {
         /// The conversation.
         thread_id: String,

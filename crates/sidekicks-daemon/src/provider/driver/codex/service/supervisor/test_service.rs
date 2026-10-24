@@ -36,7 +36,9 @@ use crate::provider::driver::codex::transport::connection::scripted_service::{
     ScriptedService, connect_scripted_service,
 };
 use crate::provider::driver::contract::DriverError;
-use crate::provider::spawned_version::ResolvedProviderExecutable;
+use crate::provider::spawned_version::{
+    ResolvedProviderExecutable, SpawnedProviderVersionReading, parse_cli_version_report,
+};
 
 /// The largest message the scripted service takes, far above any a test sends.
 const SCRIPTED_MESSAGE_LIMIT: usize = 1 << 20;
@@ -64,6 +66,14 @@ impl ScriptedCodexService {
             .availability
             .send_replace(CodexServiceAvailability::Reconnecting);
         connection
+    }
+
+    /// Records `raw` as the version the running service reported at its connect.
+    pub(crate) fn report_version(&self, raw: &str) {
+        self.service.lock_live().version = Some(SpawnedProviderVersionReading {
+            resolved_executable_path: PathBuf::from("/opt/codex/bin/codex"),
+            report: parse_cli_version_report(raw),
+        });
     }
 
     /// Publishes the service up again on `connection`.
@@ -204,6 +214,8 @@ impl CodexServiceEvents for UnheardEvents {
     fn recovered(&self, _service: &Arc<CodexService>, _cause: CodexServiceRecoveryCause) {}
 
     fn crash_loop(&self, _service: &Arc<CodexService>) {}
+
+    fn rate_limits_observed(&self, _service: &Arc<CodexService>) {}
 
     fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
 }

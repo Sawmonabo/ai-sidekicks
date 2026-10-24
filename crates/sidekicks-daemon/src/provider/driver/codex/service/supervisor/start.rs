@@ -703,7 +703,7 @@ pub(super) async fn connect(
 
 /// Every conversation the service has loaded, read page by page. Fails as a page's request does,
 /// and with `CodexError::Transport` for a reply that is not a page or a cursor past the bound.
-pub(super) async fn read_codex_loaded_threads(
+pub(crate) async fn read_codex_loaded_threads(
     connection: &CodexAppServerConnection,
 ) -> Result<Vec<String>, CodexError> {
     let mut thread_ids = Vec::new();
