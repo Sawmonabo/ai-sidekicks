@@ -1,7 +1,12 @@
 //! A Codex session's name: drawn from its first exchange in one short pass of Codex's own, on a
-//! throwaway, read-only conversation of the session's service where its conversation is live, else
-//! in a one-shot `codex exec`; and told to Codex with `thread/name/set`, so its own session list
-//! shows it. A conversation the person's own terminal already named keeps that name.
+//! throwaway, read-only conversation with no tool, MCP server or hook, on the session's service
+//! where its conversation is live, else in a one-shot `codex exec`; and told to Codex with
+//! `thread/name/set`, so its own session list shows it. A conversation the person's own terminal
+//! already named keeps that name.
+
+mod lockdown;
+#[cfg(test)]
+mod tests;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,12 +19,14 @@ use tokio::sync::mpsc;
 
 use super::CodexDriver;
 use crate::provider::driver::codex::app_server_protocol::{
-    AskForApproval, SandboxMode, ThreadReadParams, ThreadSetNameParams, ThreadStartParams,
+    AskForApproval, ConfigReadParams, SandboxMode, ThreadReadParams, ThreadSetNameParams,
+    ThreadSource, ThreadStartParams,
 };
 use crate::provider::driver::codex::attachments::compose_codex_text_input;
 use crate::provider::driver::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_TURN_COMPLETED_METHOD,
 };
+use crate::provider::driver::codex::lifecycle::views::CodexConversationView;
 use crate::provider::driver::codex::service::command::run_codex_command;
 use crate::provider::driver::codex::service::home::CodexServiceKind;
 use crate::provider::driver::codex::service::supervisor::CodexService;
@@ -28,10 +35,12 @@ use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::thread::settings::CodexTurnStartParams;
 use crate::provider::driver::codex::thread::view::read_thread;
 use crate::provider::driver::codex::transport::connection::{
-    CodexConnectionEvents, CodexForgottenRequest, read_codex_object,
+    CodexAppServerConnection, CodexConnectionEvents, CodexForgottenRequest, read_codex_object,
 };
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::session_control::NameSessionParams;
+
+const CONFIG_READ_METHOD: &str = "config/read";
 
 const THREAD_START_METHOD: &str = "thread/start";
 
@@ -43,6 +52,15 @@ const TURN_START_METHOD: &str = "turn/start";
 
 /// The item type of the pass's reply.
 const CODEX_AGENT_MESSAGE_ITEM_TYPE: &str = "agentMessage";
+
+/// What a title conversation is started from, as Codex names its own title pass's.
+const TITLE_THREAD_SOURCE: &str = "thread_title";
+
+/// The sandbox a title conversation's start must answer it runs under.
+const READ_ONLY_SANDBOX_TYPE: &str = "readOnly";
+
+/// The longest answer a pass reads a title from, in UTF-8 bytes; a longer one names nothing.
+const TITLE_ANSWER_MAX_BYTES: usize = 8 * 1024;
 
 /// The file the one-shot pass reads its answer's schema from, in its own empty folder.
 const TITLE_SCHEMA_FILE_NAME: &str = "title-schema.json";
@@ -72,8 +90,8 @@ impl CodexDriver {
         let named = async {
             // The one-shot pass runs on the live session's own account, else on the person's own.
             let service = match self.views.conversation(params.session_id) {
-                Some((service, thread_id)) => {
-                    match name_on_service(&service, &thread_id, &prompt).await {
+                Some(conversation) => {
+                    match name_on_service(&conversation, &prompt).await {
                         Ok(Some(name)) => return Ok(Some(name)),
                         Ok(None) => {}
                         Err(error) => tracing::info!(
@@ -82,7 +100,7 @@ impl CodexDriver {
                             "a codex session's name could not be drawn on its service"
                         ),
                     }
-                    service
+                    conversation.service
                 }
                 None => self.registry.service_for(None).await?,
             };
@@ -102,7 +120,10 @@ impl CodexDriver {
         session_id: SessionId,
         name: String,
     ) -> Result<(), DriverError> {
-        let Some((service, thread_id)) = self.views.conversation(session_id) else {
+        let Some(CodexConversationView {
+            service, thread_id, ..
+        }) = self.views.conversation(session_id)
+        else {
             return Err(CodexError::Transport {
                 detail: format!("No live Codex session for \"{session_id}\" to rename."),
                 cause: None,
@@ -143,8 +164,11 @@ struct TitleAnswer {
     title: String,
 }
 
-// The title an answer holds, trimmed; `None` for one that holds none.
+// The title an answer holds, trimmed; `None` for one that holds none or runs past the cap.
 fn read_title(answer: &str) -> Option<String> {
+    if answer.len() > TITLE_ANSWER_MAX_BYTES {
+        return None;
+    }
     let title = serde_json::from_str::<TitleAnswer>(answer.trim())
         .ok()?
         .title;
@@ -153,22 +177,58 @@ fn read_title(answer: &str) -> Option<String> {
 }
 
 // The name the person's own terminal gave a joined service's conversation, else one drawn on a
-// throwaway conversation of `service` over a connection of its own.
+// throwaway conversation of `conversation`'s service over a connection of its own.
 async fn name_on_service(
-    service: &CodexService,
-    thread_id: &str,
+    conversation: &CodexConversationView,
     prompt: &str,
 ) -> Result<Option<String>, CodexError> {
     let (sender, mut frames) = mpsc::unbounded_channel();
+    let service = &conversation.service;
     let connection = service
         .open_detached_connection(Arc::new(TitleConnectionEvents { frames: sender }))
         .await?;
-    if service.kind() == CodexServiceKind::Joined {
+    // The throwaway conversation is ephemeral, so it ends with the connection, dropped here.
+    draw_title(
+        &connection,
+        &mut frames,
+        &TitleRequest {
+            thread_id: &conversation.thread_id,
+            is_joined: service.kind() == CodexServiceKind::Joined,
+            working_directory: &conversation.working_directory.to_string_lossy(),
+            prompt,
+        },
+    )
+    .await
+}
+
+/// What a title pass on a live service reads of the session's conversation.
+struct TitleRequest<'pass> {
+    /// The session's conversation, whose given name a joined service is asked for.
+    thread_id: &'pass str,
+    /// Whether the service is the person's own, where their terminal may have named it.
+    is_joined: bool,
+    /// The session's folder, whose config the title conversation is read and started under.
+    working_directory: &'pass str,
+    /// The pass's prompt.
+    prompt: &'pass str,
+}
+
+// The title of `request`'s conversation drawn over `connection`, whose notifications arrive on
+// `frames`: a name a joined service's conversation already has, else one answer of a throwaway
+// conversation that runs read-only, with no environment, tool, MCP server, hook or feature, which
+// fails closed when the config naming the MCP servers cannot be read or the start does not answer
+// read-only.
+async fn draw_title(
+    connection: &CodexAppServerConnection,
+    frames: &mut mpsc::UnboundedReceiver<(String, Box<RawValue>)>,
+    request: &TitleRequest<'_>,
+) -> Result<Option<String>, CodexError> {
+    if request.is_joined {
         let reply = connection
             .request(
                 THREAD_READ_METHOD,
                 &ThreadReadParams {
-                    thread_id: thread_id.to_owned(),
+                    thread_id: request.thread_id.to_owned(),
                     include_turns: Some(false),
                 },
             )
@@ -180,24 +240,56 @@ async fn name_on_service(
             return Ok(given);
         }
     }
+    let config = connection
+        .request(
+            CONFIG_READ_METHOD,
+            &ConfigReadParams {
+                cwd: Some(request.working_directory.to_owned()),
+                include_layers: Some(false),
+            },
+        )
+        .await?;
+    let server_names = lockdown::read_config_server_names(&config)?;
     let reply = connection
         .request(
             THREAD_START_METHOD,
             &ThreadStartParams {
+                cwd: Some(request.working_directory.to_owned()),
                 ephemeral: Some(true),
                 sandbox: Some(SandboxMode::ReadOnly),
                 approval_policy: Some(AskForApproval::Never),
+                runtime_workspace_roots: Some(Vec::new()),
+                environments: Some(Vec::new()),
+                dynamic_tools: Some(Vec::new()),
+                selected_capability_roots: Some(Vec::new()),
+                thread_source: Some(ThreadSource(TITLE_THREAD_SOURCE.to_owned())),
+                config: Some(
+                    lockdown::compose_title_overrides(&server_names)
+                        .into_iter()
+                        .collect(),
+                ),
                 ..ThreadStartParams::default()
             },
         )
         .await?;
+    if read_codex_object::<StartedSandbox>(reply.get())
+        .and_then(|reply| reply.sandbox)
+        .and_then(|sandbox| sandbox.sandbox_type)
+        .as_deref()
+        != Some(READ_ONLY_SANDBOX_TYPE)
+    {
+        return Err(CodexError::Transport {
+            detail: "Codex did not start the title conversation read-only.".to_owned(),
+            cause: None,
+        });
+    }
     let title_thread_id = read_thread(&reply, THREAD_START_METHOD)?.id;
     connection
         .request(
             TURN_START_METHOD,
             &CodexTurnStartParams {
                 thread_id: title_thread_id.clone(),
-                input: vec![compose_codex_text_input(prompt.to_owned())],
+                input: vec![compose_codex_text_input(request.prompt.to_owned())],
                 approvals_reviewer: None,
                 collaboration_mode: None,
                 model: None,
@@ -238,7 +330,6 @@ async fn name_on_service(
     .await
     .ok()
     .flatten();
-    // The throwaway conversation is ephemeral, so it ends with the connection, dropped here.
     Ok(answered.as_deref().and_then(read_title))
 }
 
@@ -319,6 +410,18 @@ struct TitleItem {
     #[serde(rename = "type")]
     item_type: Option<String>,
     text: Option<String>,
+}
+
+// The sandbox a title conversation's start answers it runs under.
+#[derive(Deserialize)]
+struct StartedSandbox {
+    sandbox: Option<SandboxReading>,
+}
+
+#[derive(Deserialize)]
+struct SandboxReading {
+    #[serde(rename = "type")]
+    sandbox_type: Option<String>,
 }
 
 #[derive(Deserialize)]

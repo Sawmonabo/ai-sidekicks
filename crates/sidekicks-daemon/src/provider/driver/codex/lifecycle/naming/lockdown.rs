@@ -1,0 +1,94 @@
+//! The config a title pass's throwaway conversation runs under, as Codex's own terminal sets it
+//! for a structured prompt over transcript text: every feature and tool switch off, web search
+//! off, the built-in read-only profile, and each configured MCP server disabled by name: Codex
+//! merges an override into the config it loaded, so only each server's `enabled` member changes.
+
+use serde::Deserialize;
+use serde_json::value::RawValue;
+use serde_json::{Map, Value, json};
+
+use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::codex::transport::connection::read_codex_object;
+
+/// The switches a title conversation turns off.
+const SWITCHES_OFF: [&str; 26] = [
+    "features.apps",
+    "features.code_mode",
+    "features.code_mode_only",
+    "features.context_management",
+    "features.current_time_reminder",
+    "features.deferred_executor",
+    "features.enable_fanout",
+    "features.goals",
+    "features.hooks",
+    "features.image_generation",
+    "features.memories",
+    "features.multi_agent",
+    "features.multi_agent_v2",
+    "features.plugins",
+    "features.request_permissions_tool",
+    "features.shell_snapshot",
+    "features.shell_tool",
+    "features.standalone_web_search",
+    "features.token_budget",
+    "features.tool_suggest",
+    "features.unified_exec",
+    "features.view_image",
+    "cloud.skills.enabled",
+    "skills.include_instructions",
+    "tools.experimental_request_user_input.enabled",
+    "tools.update_plan.enabled",
+];
+
+/// Web search's key, and the value that turns it off.
+const WEB_SEARCH_OFF: (&str, &str) = ("web_search", "disabled");
+
+/// The default permission profile's key, and Codex's built-in read-only profile.
+const READ_ONLY_PERMISSIONS: (&str, &str) = ("default_permissions", ":read-only");
+
+/// The config table of the MCP servers.
+const MCP_SERVERS_KEY: &str = "mcp_servers";
+
+/// The config overrides of a title conversation, each a dotted key and its value, with each of
+/// `server_names` disabled under the server table, where a name may hold a dot.
+pub(super) fn compose_title_overrides(server_names: &[String]) -> Vec<(String, Value)> {
+    let switches = SWITCHES_OFF
+        .iter()
+        .map(|key| ((*key).to_owned(), Value::Bool(false)));
+    let choices = [WEB_SEARCH_OFF, READ_ONLY_PERMISSIONS]
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), Value::String(value.to_owned())));
+    let servers: Map<String, Value> = server_names
+        .iter()
+        .map(|name| (name.clone(), json!({ "enabled": false })))
+        .collect();
+    switches
+        .chain(choices)
+        .chain([(MCP_SERVERS_KEY.to_owned(), Value::Object(servers))])
+        .collect()
+}
+
+// The members of a `config/read` reply the pass reads: the effective config, its TOML keys at
+// the top.
+#[derive(Deserialize)]
+struct ConfigReadReply {
+    config: Map<String, Value>,
+}
+
+/// The MCP servers a `config/read` reply's effective config names. Fails with
+/// `CodexError::Transport` on a reply that carries no config, so a pass never runs with a server
+/// it could not name.
+pub(super) fn read_config_server_names(reply: &RawValue) -> Result<Vec<String>, CodexError> {
+    let reply =
+        read_codex_object::<ConfigReadReply>(reply.get()).ok_or_else(|| CodexError::Transport {
+            detail: "Codex's config/read reply carried no config to name its MCP servers by."
+                .to_owned(),
+            cause: None,
+        })?;
+    Ok(reply
+        .config
+        .get(MCP_SERVERS_KEY)
+        .and_then(Value::as_object)
+        .map(|servers| servers.keys().cloned().collect())
+        .unwrap_or_default())
+}

@@ -27,6 +27,17 @@ struct CodexSessionView {
     declared_output_speed: Option<ProviderOutputSpeedState>,
 }
 
+/// A live session's conversation as its name is drawn and told: the service it is loaded on, the
+/// conversation and the folder it runs in.
+pub(crate) struct CodexConversationView {
+    /// The service.
+    pub(crate) service: Arc<CodexService>,
+    /// The conversation.
+    pub(crate) thread_id: String,
+    /// The session's folder.
+    pub(crate) working_directory: PathBuf,
+}
+
 impl CodexSessionView {
     fn of(record: &CodexSessionRecord) -> Self {
         Self {
@@ -94,15 +105,15 @@ impl CodexSessionViews {
             .map(|view| Arc::clone(&view.service))
     }
 
-    /// The service `session_id`'s conversation is loaded on and the conversation, `None` with no
-    /// live record.
-    pub(crate) fn conversation(
-        &self,
-        session_id: SessionId,
-    ) -> Option<(Arc<CodexService>, String)> {
+    /// `session_id`'s conversation, `None` with no live record.
+    pub(crate) fn conversation(&self, session_id: SessionId) -> Option<CodexConversationView> {
         self.lock()
             .get(&session_id)
-            .map(|view| (Arc::clone(&view.service), view.thread_id.clone()))
+            .map(|view| CodexConversationView {
+                service: Arc::clone(&view.service),
+                thread_id: view.thread_id.clone(),
+                working_directory: view.working_directory.clone(),
+            })
     }
 
     /// The tier `session_id`'s conversation last declared, `None` with no live record or no
