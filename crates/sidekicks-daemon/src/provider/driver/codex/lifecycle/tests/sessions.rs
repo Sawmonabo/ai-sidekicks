@@ -6,6 +6,8 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::{LiveCodexSession, TEST_TURN};
 use crate::database::writer::test_file::TestDatabase;
@@ -13,11 +15,13 @@ use crate::provider::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::provider::driver::codex::run::start::record::CodexTurnRequest;
 use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::codex::session::inbound::codex_session_inbound;
 use crate::provider::driver::codex::session::state::CodexTurnMessage;
 use crate::provider::driver::codex::session::test_session::{
     TEST_THREAD, turn_completed, turn_reply,
 };
 use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
+use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::provider::driver::session_control::CloseSessionParams;
 use crate::session::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
 
@@ -163,6 +167,67 @@ async fn a_close_interrupts_a_turn_whose_start_codex_answers_after_the_close_beg
         ),
         "the close withdrew the start before Codex named its turn"
     );
+}
+
+// Real time under a timeout, as above. Killed by dropping the refusal's read from
+// `claim_establishing`, by letting go only the sessions that held a record when the stop began,
+// and by interrupting turns on the stop: a create after the stop began would install a record no
+// one lets go, one claimed before it would keep its record, and the turn a later daemon resumes
+// would be stopped.
+#[tokio::test]
+async fn the_daemons_stop_refuses_a_create_and_lets_go_one_claimed_before_it_without_interrupts() {
+    let LiveCodexSession {
+        driver,
+        session_id,
+        mut scripted,
+        ..
+    } = LiveCodexSession::start(&[]).await;
+    let parts = Arc::clone(driver.parts().expect("the driver composes"));
+    let new_session =
+        || SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+    let claimed_before = new_session();
+    let create = parts
+        .slots
+        .claim_establishing(claimed_before)
+        .await
+        .expect("a create claims a free slot before the stop");
+
+    let shutdown = driver.shutdown(DaemonStopIntent::Restart);
+    tokio::pin!(shutdown);
+    tokio::select! {
+        biased;
+        () = &mut shutdown => panic!("the stop waits for the create claimed before it"),
+        () = std::future::ready(()) => {}
+    }
+    assert!(matches!(
+        parts.slots.claim_establishing(new_session()).await,
+        Err(CodexError::SessionClosed { .. })
+    ));
+    // The create's record, whose task has already ended.
+    create.install(codex_session_inbound(claimed_before).0);
+    drop(create);
+    let mut methods = Vec::new();
+    let deadline = tokio::time::sleep(CLOSE_BOUND);
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            () = &mut deadline => panic!("the stop ends within its bound"),
+            () = &mut shutdown => break,
+            sent = scripted.script.next_sent() => {
+                answer_close_request(&scripted.script, &sent);
+                methods.push(sent["method"].clone());
+            }
+        }
+    }
+
+    assert!(methods.contains(&json!("thread/unsubscribe")));
+    assert!(!methods.contains(&json!("turn/interrupt")));
+    for session_id in [session_id, claimed_before] {
+        assert!(
+            parts.slots.require_live(session_id).is_err(),
+            "the stop let the record go"
+        );
+    }
 }
 
 // Answers what a close sends: an interrupt, with its turn's end as Codex sends it on the abort,

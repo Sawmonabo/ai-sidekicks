@@ -4,7 +4,7 @@
 //! there, routes and waits first, so nothing reaches it after.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -48,6 +48,8 @@ pub(crate) struct CodexSessionSlots {
     /// Never held across an await.
     slots: Mutex<HashMap<SessionId, SessionSlot>>,
     next_claim_id: AtomicU64,
+    /// Set once the daemon's stop began, after which no establishment is claimed.
+    is_establishing_refused: AtomicBool,
 }
 
 /// One transition's hold on its session's slot, ended when dropped.
@@ -84,16 +86,19 @@ impl CodexSessionSlots {
             transitions: KeyedLock::new(),
             slots: Mutex::new(HashMap::new()),
             next_claim_id: AtomicU64::new(1),
+            is_establishing_refused: AtomicBool::new(false),
         }
     }
 
-    /// Every session that holds a live record now.
-    pub(crate) fn live_sessions(&self) -> Vec<SessionId> {
-        self.lock()
-            .iter()
-            .filter(|(_, slot)| slot.live.is_some())
-            .map(|(session_id, _)| *session_id)
-            .collect()
+    /// Every session that holds a live record or a claim now.
+    pub(crate) fn held_sessions(&self) -> Vec<SessionId> {
+        self.lock().keys().copied().collect()
+    }
+
+    /// Refuses every establishment from now on, as the daemon's stop begins, so no record is
+    /// installed after the stop let the records go; one that already took its turn goes on.
+    pub(crate) fn refuse_establishing(&self) {
+        self.is_establishing_refused.store(true, Ordering::Release);
     }
 
     /// Fails with `CodexError::SessionAlreadyLive`, naming the state the slot is held in, when a
@@ -140,17 +145,18 @@ impl CodexSessionSlots {
 
     /// Claims `session_id`'s slot for an establishment, a create, a resume or a fork, once every
     /// transition claimed before it ended. Fails with `CodexError::SessionClosed` when a close of
-    /// the session ended while it waited.
+    /// the session ended while it waited, and once the daemon's stop began.
     pub(crate) async fn claim_establishing(
         &self,
         session_id: SessionId,
     ) -> Result<CodexSessionClaim<'_>, CodexError> {
         let (claim_id, closes_seen) = self.publish(session_id, CodexSessionSlotState::Establishing);
         let claim = self.take_turn(session_id, claim_id).await;
-        let has_closed = self
-            .lock()
-            .get(&session_id)
-            .is_some_and(|slot| slot.closes > closes_seen);
+        let has_closed = self.is_establishing_refused.load(Ordering::Acquire)
+            || self
+                .lock()
+                .get(&session_id)
+                .is_some_and(|slot| slot.closes > closes_seen);
         if has_closed {
             return Err(CodexError::SessionClosed { session_id });
         }

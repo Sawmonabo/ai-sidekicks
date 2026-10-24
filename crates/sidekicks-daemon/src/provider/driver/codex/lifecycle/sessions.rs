@@ -213,13 +213,15 @@ impl CodexDriver {
         Ok(())
     }
 
-    /// Stops every service the driver dials, then lets each live record go, so its session's task
-    /// ends, and waits for the driver's tasks to end. A record let go once its service stopped
-    /// sends nothing; a later daemon resumes the conversation by its handle.
+    /// Refuses every establishment from now on, stops every service the driver dials, then waits
+    /// for each transition in flight and lets each live record go, so its session's task ends, and
+    /// waits for the driver's tasks to end. A record let go once its service stopped sends
+    /// nothing, no interrupt among it; a later daemon resumes the conversation by its handle.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent) {
         self.tasks.close();
+        self.slots.refuse_establishing();
         self.registry.shutdown(intent).await;
-        for session_id in self.slots.live_sessions() {
+        for session_id in self.slots.held_sessions() {
             let claim = self.slots.claim_closing(session_id).await;
             if let Some(inbound) = claim.live() {
                 let_go_codex_session_record(&inbound, CodexRecordExit::SessionContinues).await;
