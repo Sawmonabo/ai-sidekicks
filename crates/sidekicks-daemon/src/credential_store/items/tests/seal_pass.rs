@@ -37,14 +37,14 @@ async fn a_seal_pass_longer_than_a_call_lands_once() {
             .expect("the test fills the file");
     }
     let seal = TestSeal::new();
-    // Five items' seals, each inside the check's 200 ms and 750 ms in all, outlast the 600 ms
+    // Five items' seals, each inside the check's 400 ms and 1.5 s in all, outlast the 1.2 s
     // call; the probe's are not delayed.
-    seal.delay_seals_under(WORKFLOW, Duration::from_millis(150));
+    seal.delay_seals_under(WORKFLOW, Duration::from_millis(300));
     let items = secret_items(
         folder.path(),
         &TestStoreAccess::sealing(Arc::clone(&seal)),
         false,
-        HELD_CALL_TIMEOUT,
+        Duration::from_millis(1_200),
     );
     let keychain = items.keychain(KeychainService::WorkflowSecrets);
 
@@ -227,7 +227,7 @@ async fn a_cause_is_forgotten_once_the_items_open_again() {
     seal.seal_with(SealKey::SystemKey, 0);
     let sealed =
         SecretItemsFile::new(folder.path()).keychain(WORKFLOW, Some(Arc::clone(&seal) as _));
-    for account in [EARLIER, "second", "third", "fourth"] {
+    for account in [EARLIER, "second", "third", "fourth", "fifth"] {
         sealed
             .write(account, &SecretString::from("earlier value"))
             .await
@@ -238,7 +238,7 @@ async fn a_cause_is_forgotten_once_the_items_open_again() {
         folder.path(),
         &TestStoreAccess::sealing(Arc::clone(&seal)),
         false,
-        Duration::from_millis(900),
+        Duration::from_millis(1_200),
     );
     let keychain = items.keychain(KeychainService::WorkflowSecrets);
 
@@ -246,9 +246,9 @@ async fn a_cause_is_forgotten_once_the_items_open_again() {
     let status_missing = status(&items).await;
     seal.answer(TestSealAnswer::Serves);
     seal.seal_with(SealKey::Chip, 0);
-    // Four items' seals again, each inside the check's 300 ms and 1 s in all, outlast the 900 ms
+    // Five items' seals again, each inside the check's 400 ms and 1.5 s in all, outlast the 1.2 s
     // call; the probe's are not delayed.
-    seal.delay_seals_under(WORKFLOW, Duration::from_millis(250));
+    seal.delay_seals_under(WORKFLOW, Duration::from_millis(300));
     let ran_out = tokio::time::timeout(Duration::from_secs(5), keychain.read(EARLIER))
         .await
         .expect("the call answers within its time")
