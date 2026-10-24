@@ -21,7 +21,8 @@
 //!   secret, with the cause the status read names: the service gone or failing, the chip not
 //!   available (an item sealed with the chip fails while the probe sealed without it), each checked
 //!   again at the next call, or the key changed (an item fails under the key the probe opens with),
-//!   latched until the next start.
+//!   latched until the next start. The probe and the open check each take a share of the call's
+//!   time, so a service that gives no answer in it is named failing before the call runs out.
 //! - **Sealing again.** A later start whose probe seals bound to no boot state seals a plain file's
 //!   items once and records the sealed file, and seals again once each item sealed with a weaker
 //!   key than the probe's. A pass that would seal any item downward is abandoned and the file kept.
@@ -56,7 +57,8 @@ use tokio::sync::RwLock;
 use self::sealed_file::{Probe, is_definite_refusal, log_boot_bound};
 use crate::credential_store::file::{FileSecretKeychain, ItemsForm, SecretItemsFile};
 use crate::credential_store::os::{
-    CredentialStoreAccess, OsCredentialStore, OsSecretKeychain, SecretsOffer,
+    CredentialStoreAccess, OsCredentialStore, OsSecretKeychain, SEAL_CHECK_TIMEOUT_DIVISOR,
+    SecretsOffer,
 };
 use crate::credential_store::place::{self, PlaceRecord, SecretsPlace};
 use crate::credential_store::seal::SecretSeal;
@@ -104,6 +106,9 @@ pub(crate) struct SecretItems {
     probe_account: String,
     /// How long one secret call may take.
     call_timeout: Duration,
+    /// How long the seal service's probe and the sealed file's open check may each take, within a
+    /// call's time.
+    seal_check_timeout: Duration,
     /// The place and its check, read by every call and written by a pick, a check and a move.
     state: RwLock<PlaceState>,
 }
@@ -232,6 +237,7 @@ impl SecretItems {
             seal,
             probe_account,
             call_timeout,
+            seal_check_timeout: call_timeout / SEAL_CHECK_TIMEOUT_DIVISOR,
             state: RwLock::new(PlaceState::default()),
         }))
     }
@@ -495,6 +501,7 @@ impl SecretItems {
                     plain_file(DaemonSecretsPlainReason::SealFailed)
                 }
                 Probe::Failed(failure) => return Err(seal_refused(failure)),
+                Probe::NoAnswer => return Err(self.no_answer()),
                 Probe::Mismatch => {
                     state.verdict = Verdict::Mismatch;
                     log_mismatch();
@@ -551,6 +558,11 @@ impl SecretItems {
                 error = &failure as &(dyn Error + 'static),
                 "systemd's credential service did not seal the check's value, so the secrets \
                  stay plain until a later start"
+            ),
+            Probe::NoAnswer => tracing::info!(
+                timeout = ?self.seal_check_timeout,
+                "systemd's credential service gave no answer in time, so the secrets stay plain \
+                 until a later start"
             ),
             Probe::Mismatch => log_mismatch(),
         }

@@ -67,37 +67,48 @@ impl SecretItems {
 
     /// Empties the items file and the place record when the sealed file cannot be opened, for any
     /// cause, then picks the place again as at a first start; a place that opens is kept and
-    /// answered. Fails with [`KeychainRefusal`] when the file or the record cannot be removed, when
-    /// the new pick is refused, or when the call runs out of its time.
+    /// answered. A cause this run already holds empties the place without checking it again. The
+    /// wait for the place, the check and the new pick each take their own call time. Fails with
+    /// [`KeychainRefusal`] when the file or the record cannot be removed, when the new pick is
+    /// refused, or when a step runs out of its time.
     pub(crate) async fn empty_place(&self) -> Result<SecretsPlace, KeychainRefusal> {
-        tokio::time::timeout(self.call_timeout, async {
-            let mut state = self.state.write().await;
-            match self.settle_held(&mut state).await {
+        let mut state = self.within_call_time(self.state.write()).await?;
+        if state.cannot_open.is_none() {
+            match self.within_call_time(self.settle_held(&mut state)).await? {
                 Ok(place) => return Ok(place),
                 Err(refusal) if state.cannot_open.is_none() => return Err(refusal),
                 Err(_cannot_open) => {}
             }
-            tracing::warn!(
-                cause = ?state.cannot_open,
-                file = %self.plain_file.file_path().display(),
-                "the sealed secrets cannot be opened, so the relink deletes them and picks their \
-                 place again"
-            );
-            self.plain_file.remove_all().await?;
-            place::remove_record(&self.record_path).await?;
-            *state = PlaceState::default();
-            self.settle_held(&mut state).await
-        })
-        .await
-        .unwrap_or_else(|_elapsed| {
-            Err(KeychainRefusal::new(
-                KeychainRefusalCause::Unavailable,
-                format!(
-                    "the secrets' place was not picked again within {:?}",
-                    self.call_timeout
-                ),
-            ))
-        })
+        }
+        tracing::warn!(
+            cause = ?state.cannot_open,
+            file = %self.plain_file.file_path().display(),
+            "the sealed secrets cannot be opened, so the relink deletes them and picks their place \
+             again"
+        );
+        self.plain_file.remove_all().await?;
+        place::remove_record(&self.record_path).await?;
+        *state = PlaceState::default();
+        self.within_call_time(self.settle_held(&mut state)).await?
+    }
+
+    // Runs `step` within one call's time. Fails with [`KeychainRefusal`] when it runs out.
+    async fn within_call_time<Answer>(
+        &self,
+        step: impl Future<Output = Answer>,
+    ) -> Result<Answer, KeychainRefusal> {
+        tokio::time::timeout(self.call_timeout, step)
+            .await
+            .map_err(|elapsed| {
+                KeychainRefusal::new(
+                    KeychainRefusalCause::Unavailable,
+                    format!(
+                        "the secrets' place was not picked again within {:?}",
+                        self.call_timeout
+                    ),
+                )
+                .with_failure(elapsed)
+            })
     }
 
     // The operating system's store and how the erase treats it, or `None` where the machine offers

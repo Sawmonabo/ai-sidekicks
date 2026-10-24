@@ -30,6 +30,11 @@ use crate::keyed_lock::KeyedLock;
 #[expect(dead_code, reason = "the daemon's start passes it")]
 pub(crate) const KEYCHAIN_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// How many times shorter than a keychain call the seal service's probe and the sealed file's open
+/// check each are: one that does not answer runs out with the call's time still left to record why
+/// the sealed file cannot be opened and refuse the call.
+pub(crate) const SEAL_CHECK_TIMEOUT_DIVISOR: u32 = 3;
+
 /// What this machine offers for the daemon's secrets, and what holds them in words for the service
 /// log; a test supplies an offer of its own.
 pub(crate) trait CredentialStoreAccess: Send + Sync {

@@ -32,6 +32,9 @@ const BOOT_BOUND: &str = r#"{"place":{"kind":"plainFile","reason":"bootBound"}}"
 // The mask of a seal bound to PCR 7, the Secure Boot state.
 const PCR_7: u64 = 1 << 7;
 
+// A call time whose check's share a held seal outlasts, the call still answering in it.
+const HELD_CALL_TIMEOUT: Duration = Duration::from_millis(600);
+
 // The item each case files before the start, beside the one its call writes.
 const EARLIER: &str = "earlier";
 
@@ -466,6 +469,44 @@ async fn a_seal_with_no_answer_in_time_refuses_that_call_unavailable() {
     assert_eq!(served, Ok(Some("value".to_owned())));
 }
 
+/// A recorded sealed file whose service gives no answer within the check's time refuses that call
+/// `unavailable`, and the status names the service failing. Mutations: drop the probe's own time,
+/// so the call's time runs out and drops the settle before it records why; skip recording the
+/// cause.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sealed_file_whose_service_gives_no_answer_reads_as_failing() {
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    std::fs::write(folder.path().join(RECORD), SEALED).expect("the test writes the record");
+    let seal = TestSeal::new();
+    file_before(folder.path(), &seal, Before::Sealed(SealKey::Chip)).await;
+    let release = seal.hold_next_seal();
+    let items = secret_items(
+        folder.path(),
+        &TestStoreAccess::sealing(Arc::clone(&seal)),
+        false,
+        HELD_CALL_TIMEOUT,
+    );
+
+    let scenario = async {
+        let timed_out = write_and_read(&items, "secret", "value").await;
+        (timed_out, status(&items).await)
+    };
+    let (timed_out, status_after) = tokio::time::timeout(Duration::from_secs(5), scenario)
+        .await
+        .expect("every call answers within its time");
+    drop(release);
+
+    assert_eq!(timed_out, Err(KeychainRefusalCause::Unavailable));
+    assert_eq!(
+        status_after,
+        Some((
+            Protection::SealedWithChip,
+            None,
+            Some(Unopened::SealServiceFailing)
+        ))
+    );
+}
+
 /// The erase deletes a sealed items file without opening any item. Mutation: unseal each item
 /// before the delete, or keep the file.
 #[tokio::test]
@@ -491,32 +532,76 @@ async fn the_erase_deletes_a_sealed_file_opening_nothing() {
     assert_eq!(seal.unseals(), 0);
 }
 
+// Where the relink meets a seal held past the check's time.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Held {
+    Nowhere,
+    // At the relink's own check.
+    AtTheRelink,
+    // At an earlier call, which recorded the cause this run holds.
+    AtAnEarlierCall,
+}
+
 /// The relink's call empties a sealed file that cannot open, for every cause, with its record, and
-/// picks the place again as at a first start; a place that opens is kept byte for byte. Mutations:
-/// empty only under `keyChanged`; keep the record, so the old place is kept; empty a file that
-/// opens.
+/// picks the place again as at a first start; a place that opens is kept byte for byte. A service
+/// that gives no answer is named failing within the check's time, and a cause this run already
+/// holds empties the place without checking it again. Mutations: empty only under `keyChanged`;
+/// keep the record, so the old place is kept; empty a file that opens; drop the check's own time;
+/// settle again under a cause the run holds, so a service back since keeps the file.
 #[rstest]
 #[case::key_changed(
     SealNow::forgets(SealKey::Chip),
-    Some(SecretsPlace::SealedFile),
-    SEALED
+    Held::Nowhere,
+    Ok(SecretsPlace::SealedFile),
+    Some(SEALED),
+    true
 )]
 #[case::chip_off(
     SealNow::forgets(SealKey::SystemKey),
-    Some(SecretsPlace::SealedFile),
-    SEALED
+    Held::Nowhere,
+    Ok(SecretsPlace::SealedFile),
+    Some(SEALED),
+    true
 )]
 #[case::service_missing(
-    SealNow::answers(TestSealAnswer::Absent),
-    Some(SecretsPlace::PlainFile { reason: Reason::NoSealService }),
-    NO_SEAL_SERVICE
+    SealNow::answers(TestSealAnswer::Absent), Held::Nowhere,
+    Ok(SecretsPlace::PlainFile { reason: Reason::NoSealService }), Some(NO_SEAL_SERVICE), true
 )]
-#[case::opens(SealNow::serves(SealKey::Chip), None, SEALED)]
-#[tokio::test]
+#[case::service_failing(
+    refuses("io.systemd.System", Some(5)),
+    Held::Nowhere,
+    Err(KeychainRefusalCause::Unavailable),
+    None,
+    true
+)]
+#[case::no_answer(
+    SealNow::serves(SealKey::Chip),
+    Held::AtTheRelink,
+    Ok(SecretsPlace::SealedFile),
+    Some(SEALED),
+    true
+)]
+#[case::cause_held_from_an_earlier_call(
+    SealNow::serves(SealKey::Chip),
+    Held::AtAnEarlierCall,
+    Ok(SecretsPlace::SealedFile),
+    Some(SEALED),
+    true
+)]
+#[case::opens(
+    SealNow::serves(SealKey::Chip),
+    Held::Nowhere,
+    Ok(SecretsPlace::SealedFile),
+    Some(SEALED),
+    false
+)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_relink_empties_a_sealed_file_that_cannot_open_and_picks_again(
     #[case] seal_now: SealNow,
-    #[case] picked_again: Option<SecretsPlace>,
-    #[case] record_after: &str,
+    #[case] held: Held,
+    #[case] picked_again: Result<SecretsPlace, KeychainRefusalCause>,
+    #[case] record_after: Option<&str>,
+    #[case] is_emptied: bool,
 ) {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     std::fs::write(folder.path().join(RECORD), SEALED).expect("the test writes the record");
@@ -524,22 +609,40 @@ async fn the_relink_empties_a_sealed_file_that_cannot_open_and_picks_again(
     file_before(folder.path(), &seal, Before::Sealed(SealKey::Chip)).await;
     let bytes_before = std::fs::read(folder.path().join(ITEMS)).expect("the file is there");
     seal_now.apply(&seal);
+    let call_timeout = match held {
+        Held::Nowhere => Duration::from_secs(5),
+        Held::AtTheRelink | Held::AtAnEarlierCall => HELD_CALL_TIMEOUT,
+    };
     let items = secret_items(
         folder.path(),
         &TestStoreAccess::sealing(Arc::clone(&seal)),
         false,
-        Duration::from_secs(5),
+        call_timeout,
     );
 
-    let place = items.empty_place().await.expect("the place is picked");
+    let scenario = async {
+        if held == Held::AtAnEarlierCall {
+            let release = seal.hold_next_seal();
+            let refused = write_and_read(&items, "secret", "value").await;
+            assert_eq!(refused, Err(KeychainRefusalCause::Unavailable));
+            drop(release);
+        }
+        let release = (held == Held::AtTheRelink).then(|| seal.hold_next_seal());
+        let place = items.empty_place().await;
+        drop(release);
+        place
+    };
+    let place = tokio::time::timeout(Duration::from_secs(5), scenario)
+        .await
+        .expect("every step answers within its time");
 
-    assert_eq!(place, picked_again.unwrap_or(SecretsPlace::SealedFile));
+    assert_eq!(place.map_err(|refusal| refusal.cause()), picked_again);
     assert_eq!(
         read_text(&folder.path().join(RECORD)).as_deref(),
-        Some(record_after)
+        record_after
     );
     let bytes_after = std::fs::read(folder.path().join(ITEMS)).ok();
-    if picked_again.is_some() {
+    if is_emptied {
         assert_eq!(bytes_after, None, "the file and its items are gone");
     } else {
         assert_eq!(bytes_after, Some(bytes_before));

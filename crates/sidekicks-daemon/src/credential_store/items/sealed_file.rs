@@ -7,10 +7,11 @@ use std::error::Error;
 
 use secrecy::ExposeSecret as _;
 use sidekicks_contracts::daemon::status::DaemonSecretsFileUnopened;
+use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_platforms::{SealFailure, SealHeader, SealKey};
 
 use super::{PlaceState, SecretItems, Verdict, log_mismatch, mismatch, random_value};
-use crate::credential_store::file::{SealPass, credential_name, is_weaker};
+use crate::credential_store::file::{SealPass, SealedItem, credential_name, is_weaker};
 use crate::credential_store::place::SecretsPlace;
 use crate::credential_store::seal::SecretSeal;
 use crate::credential_store::service::KeychainService;
@@ -32,6 +33,8 @@ pub(super) enum Probe {
     // It kept another value than the probe gave it.
     Mismatch,
     Failed(SealFailure),
+    // It gave no answer within the check's time.
+    NoAnswer,
 }
 
 impl SecretItems {
@@ -81,6 +84,14 @@ impl SecretItems {
                 );
                 Err(state.refuse_opening(DaemonSecretsFileUnopened::SealServiceFailing))
             }
+            Probe::NoAnswer => {
+                tracing::warn!(
+                    timeout = ?self.seal_check_timeout,
+                    "systemd's credential service gave no answer in time, so the sealed secrets \
+                     cannot be opened now"
+                );
+                Err(state.refuse_opening(DaemonSecretsFileUnopened::SealServiceFailing))
+            }
             Probe::Mismatch => {
                 state.verdict = Verdict::Mismatch;
                 log_mismatch();
@@ -108,30 +119,23 @@ impl SecretItems {
             is_any_weaker |= key.is_some_and(|key| is_weaker(key, probe.key()));
             samples.entry(key.map(key_rank)).or_insert(item);
         }
-        for item in samples.into_values() {
-            let Err(failure) = seal.unseal(&item.name(), item.blob.expose_secret()).await else {
-                continue;
-            };
-            let cause = match &failure {
-                SealFailure::NoService(_) => DaemonSecretsFileUnopened::SealServiceMissing,
-                SealFailure::Failed(_) | SealFailure::Broken(_) => {
-                    DaemonSecretsFileUnopened::SealServiceFailing
-                }
-                SealFailure::Refused { .. } => match item.header().map(SealHeader::key) {
-                    Some(item_key) if is_weaker(probe.key(), item_key) => {
-                        DaemonSecretsFileUnopened::ChipUnavailable
-                    }
-                    Some(_) | None => DaemonSecretsFileUnopened::KeyChanged,
-                },
-            };
-            tracing::error!(
-                error = &failure as &(dyn Error + 'static),
-                service = item.service,
-                key = ?item.header().map(SealHeader::key),
-                probe_key = ?probe.key(),
-                cause = ?cause,
-                "an item of the sealed secrets does not open, so every secret call is refused"
-            );
+        let opened = tokio::time::timeout(
+            self.seal_check_timeout,
+            open_samples(seal, samples.into_values(), probe),
+        )
+        .await;
+        let cause = match opened {
+            Ok(cause) => cause,
+            Err(_elapsed) => {
+                tracing::warn!(
+                    timeout = ?self.seal_check_timeout,
+                    "systemd's credential service opened no item in time, so the sealed secrets \
+                     cannot be opened now"
+                );
+                Some(DaemonSecretsFileUnopened::SealServiceFailing)
+            }
+        };
+        if let Some(cause) = cause {
             return Err(state.refuse_opening(cause));
         }
         if is_any_weaker {
@@ -153,25 +157,78 @@ impl SecretItems {
     }
 
     // Seals a random value under this run's probe account, reads the key its blob names, opens it
-    // and compares. Fails with [`KeychainRefusal`] only when the system gives no random bytes.
+    // and compares, within the check's time. Fails with [`KeychainRefusal`] only when the system
+    // gives no random bytes.
     pub(super) async fn probe(&self, seal: &dyn SecretSeal) -> Result<Probe, KeychainRefusal> {
         let value = random_value()?;
         let name = credential_name(KeychainService::Probe.as_str(), &self.probe_account);
-        let blob = match seal.seal(&name, &value).await {
-            Ok(blob) => blob,
-            Err(failure) => return Ok(Probe::Failed(failure)),
-        };
-        let Some(header) = SealHeader::read(&blob) else {
-            return Ok(Probe::Failed(SealFailure::Broken(
-                "the check's sealed value names no key the daemon knows",
-            )));
-        };
-        Ok(match seal.unseal(&name, &blob).await {
-            Ok(opened) if holds_value(Some(&opened), &value) => Probe::Sealed(header),
-            Ok(_other) => Probe::Mismatch,
-            Err(failure) => Probe::Failed(failure),
+        let probed = tokio::time::timeout(self.seal_check_timeout, async {
+            let blob = match seal.seal(&name, &value).await {
+                Ok(blob) => blob,
+                Err(failure) => return Probe::Failed(failure),
+            };
+            let Some(header) = SealHeader::read(&blob) else {
+                return Probe::Failed(SealFailure::Broken(
+                    "the check's sealed value names no key the daemon knows",
+                ));
+            };
+            match seal.unseal(&name, &blob).await {
+                Ok(opened) if holds_value(Some(&opened), &value) => Probe::Sealed(header),
+                Ok(_other) => Probe::Mismatch,
+                Err(failure) => Probe::Failed(failure),
+            }
         })
+        .await;
+        Ok(probed.unwrap_or(Probe::NoAnswer))
     }
+
+    // The refusal of a first start whose probe gave no answer in time; nothing is recorded, so the
+    // next call probes again.
+    pub(super) fn no_answer(&self) -> KeychainRefusal {
+        KeychainRefusal::new(
+            KeychainRefusalCause::Unavailable,
+            format!(
+                "systemd's credential service gave no answer within {:?}",
+                self.seal_check_timeout
+            ),
+        )
+    }
+}
+
+// Opens each of `samples`, the probe's blob having shown `probe`, and answers why the first that
+// fails does not open, or `None` when every one opens.
+async fn open_samples(
+    seal: &dyn SecretSeal,
+    samples: impl Iterator<Item = SealedItem>,
+    probe: SealHeader,
+) -> Option<DaemonSecretsFileUnopened> {
+    for item in samples {
+        let Err(failure) = seal.unseal(&item.name(), item.blob.expose_secret()).await else {
+            continue;
+        };
+        let cause = match &failure {
+            SealFailure::NoService(_) => DaemonSecretsFileUnopened::SealServiceMissing,
+            SealFailure::Failed(_) | SealFailure::Broken(_) => {
+                DaemonSecretsFileUnopened::SealServiceFailing
+            }
+            SealFailure::Refused { .. } => match item.header().map(SealHeader::key) {
+                Some(item_key) if is_weaker(probe.key(), item_key) => {
+                    DaemonSecretsFileUnopened::ChipUnavailable
+                }
+                Some(_) | None => DaemonSecretsFileUnopened::KeyChanged,
+            },
+        };
+        tracing::error!(
+            error = &failure as &(dyn Error + 'static),
+            service = item.service,
+            key = ?item.header().map(SealHeader::key),
+            probe_key = ?probe.key(),
+            cause = ?cause,
+            "an item of the sealed secrets does not open, so every secret call is refused"
+        );
+        return Some(cause);
+    }
+    None
 }
 
 // Whether `failure` is one a first start reads as the service unable to seal on this computer.
