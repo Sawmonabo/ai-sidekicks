@@ -1,12 +1,15 @@
 #[cfg(unix)]
 mod one_shot;
 mod rest;
+#[cfg(unix)]
+mod spent_deadline;
 
 use rstest::rstest;
 use serde_json::{Value, json};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use super::{TitleRequest, draw_title};
+use super::{CODEX_NAMING_DEADLINE, TitleRequest, draw_title};
 use crate::provider::driver::codex::session::detached_conversation::CodexDetachedFrames;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::transport::connection::CodexConnectionHandlers;
@@ -57,6 +60,7 @@ fn start_pass(
                 prompt: "Name this.",
             },
             &cancel,
+            Instant::now() + CODEX_NAMING_DEADLINE,
         )
         .await
     });

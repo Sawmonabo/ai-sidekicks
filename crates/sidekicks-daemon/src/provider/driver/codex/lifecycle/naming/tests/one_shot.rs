@@ -6,9 +6,10 @@ use std::sync::Arc;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_platforms::{LeftoverSweep, replace_file_atomically};
+use tokio::time::Instant;
 
 use super::locked_down_config;
-use crate::provider::driver::codex::lifecycle::naming::name_in_one_shot;
+use crate::provider::driver::codex::lifecycle::naming::{CODEX_NAMING_DEADLINE, name_in_one_shot};
 use crate::provider::driver::codex::service::home::{
     CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
@@ -114,7 +115,13 @@ async fn a_one_shot_pass_disables_every_listed_server_or_runs_no_exec(
         })
     });
 
-    let named = name_in_one_shot(&service, "Name this.", Some("gpt-5")).await;
+    let named = name_in_one_shot(
+        &service,
+        "Name this.",
+        Some("gpt-5"),
+        Instant::now() + CODEX_NAMING_DEADLINE,
+    )
+    .await;
 
     if let Some(catalog) = catalog {
         assert_eq!(

@@ -15,6 +15,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::mpsc;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::CodexDriver;
@@ -78,7 +79,8 @@ const TITLE_ANSWER_FILE_NAME: &str = "title.json";
 /// the pass's own bound.
 const CODEX_SERVER_LIST_DEADLINE: Duration = Duration::from_secs(10);
 
-/// How long either pass's turn may take to answer.
+/// How long a whole naming pass may run, its pass on the live service and its one-shot pass
+/// together.
 const CODEX_NAMING_DEADLINE: Duration = Duration::from_secs(90);
 
 /// Codex's small model, which its own terminal names a conversation with where the account's
@@ -102,14 +104,17 @@ impl CodexDriver {
     /// The session's name from its first exchange: on the session's live service, a name the
     /// person's own terminal gave its conversation first, else a pass there; with no live leg, a
     /// failed pass or no name, a one-shot pass of Codex's program on the account the session's
-    /// leg runs on. `None` when both gave no name, the session never ran, or once `cancel` fired.
-    /// Fails as the stored leg cannot be read, the one-shot pass's launch cannot be composed or
+    /// leg runs on. `None` when both gave no name, the session never ran, once `cancel` fired, or
+    /// once the pass ran past [`CODEX_NAMING_DEADLINE`], its turn then stopped as a cancel stops
+    /// it. Fails as the stored leg cannot be read, the one-shot pass's launch cannot be composed or
     /// the MCP servers it disables cannot be listed.
     pub(crate) async fn name_session(
         &self,
         params: NameSessionParams,
     ) -> Result<Option<String>, DriverError> {
         let cancel = params.cancel;
+        // One deadline over both passes: the one-shot pass gets what the live one left.
+        let deadline = Instant::now() + CODEX_NAMING_DEADLINE;
         let prompt = compose_title_prompt(&params.first_message, &params.first_reply);
         // The one-shot pass runs on the session's own account, live or at rest.
         let (service, session_model) =
@@ -121,6 +126,7 @@ impl CodexDriver {
                     conversation,
                     prompt.clone(),
                     cancel.clone(),
+                    deadline,
                 ));
                 match pass.await {
                     Ok(Ok(Some(name))) => return Ok(Some(name)),
@@ -155,7 +161,9 @@ impl CodexDriver {
         tokio::select! {
             biased;
             () = cancel.cancelled() => Ok(None),
-            named = name_in_one_shot(&service, &prompt, session_model.as_deref()) => Ok(named?),
+            named = name_in_one_shot(&service, &prompt, session_model.as_deref(), deadline) => {
+                Ok(named?)
+            }
         }
     }
 
@@ -238,17 +246,19 @@ fn read_title(answer: &str) -> Option<String> {
 
 // The name the person's own terminal gave a joined service's conversation, else one drawn on a
 // throwaway conversation of `conversation`'s service over a connection of its own; `None` once
-// `cancel` fired.
+// `cancel` fired or `deadline` passed.
 async fn name_on_service(
     conversation: CodexConversationView,
     prompt: String,
     cancel: CancellationToken,
+    deadline: Instant,
 ) -> Result<Option<String>, CodexError> {
     let (events, mut frames) = CodexDetachedFrames::new();
     let service = &conversation.service;
     let connection = tokio::select! {
         biased;
         () = cancel.cancelled() => return Ok(None),
+        () = tokio::time::sleep_until(deadline) => return Ok(None),
         connection = service.open_detached_connection(events) => connection?,
     };
     // The throwaway conversation is ephemeral, so it ends with the connection, dropped here.
@@ -263,6 +273,7 @@ async fn name_on_service(
             prompt: &prompt,
         },
         &cancel,
+        deadline,
     )
     .await
 }
@@ -297,18 +308,39 @@ enum TitleThread {
 }
 
 // The title of `request`'s conversation drawn over `connection`, whose notifications arrive on
-// `frames`, as `start_title_thread` starts it; `None` once `cancel` fired. A turn the pass leaves
-// before it ends, at its deadline or its cancel, is stopped first, one canceled during its start
-// once the start named it.
+// `frames`, as `start_title_thread` starts it; `None` once `cancel` fired or `deadline` passed,
+// either of which stops its turn.
 async fn draw_title(
     connection: &CodexAppServerConnection,
     frames: &mut mpsc::UnboundedReceiver<CodexDetachedFrame>,
     request: &TitleRequest<'_>,
     cancel: &CancellationToken,
+    deadline: Instant,
+) -> Result<Option<String>, CodexError> {
+    let stop = cancel.child_token();
+    let drawn = draw_title_until_stopped(connection, frames, request, &stop);
+    tokio::pin!(drawn);
+    tokio::select! {
+        drawn = &mut drawn => drawn,
+        () = tokio::time::sleep_until(deadline) => {
+            // Awaited on, so the turn is stopped as a cancel stops it.
+            stop.cancel();
+            drawn.await
+        }
+    }
+}
+
+// `draw_title` until `stop` fires: a turn the pass leaves before it ends is stopped first, one
+// stopped during its start once the start named it.
+async fn draw_title_until_stopped(
+    connection: &CodexAppServerConnection,
+    frames: &mut mpsc::UnboundedReceiver<CodexDetachedFrame>,
+    request: &TitleRequest<'_>,
+    stop: &CancellationToken,
 ) -> Result<Option<String>, CodexError> {
     let started = tokio::select! {
         biased;
-        () = cancel.cancelled() => return Ok(None),
+        () = stop.cancelled() => return Ok(None),
         started = start_title_thread(connection, request) => started?,
     };
     let (title_thread_id, effort) = match started {
@@ -332,7 +364,7 @@ async fn draw_title(
     let reply = tokio::select! {
         biased;
         reply = &mut start => reply?,
-        () = cancel.cancelled() => {
+        () = stop.cancelled() => {
             stop_detached_turn(connection, &title_thread_id, async {
                 read_turn_id(&(&mut start).await?, TURN_START_METHOD)
             })
@@ -343,11 +375,8 @@ async fn draw_title(
     let turn_id = read_turn_id(&reply, TURN_START_METHOD)?;
     let answered = tokio::select! {
         biased;
-        () = cancel.cancelled() => None,
-        answered = tokio::time::timeout(
-            CODEX_NAMING_DEADLINE,
-            read_title_answer(frames, &title_thread_id),
-        ) => answered.ok(),
+        () = stop.cancelled() => None,
+        answer = read_title_answer(frames, &title_thread_id) => Some(answer),
     };
     let Some(answer) = answered else {
         stop_detached_turn(connection, &title_thread_id, async { Ok(turn_id) }).await;
@@ -504,12 +533,18 @@ async fn choose_title_model(
 
 // One `codex exec` of the account's home, ephemeral and in an empty folder of its own, under the
 // title conversation's config with each MCP server the home lists disabled, its answer held to the
-// title's schema. Fails as the launch cannot be composed or the servers cannot be listed.
+// title's schema, all within `deadline`; `None` with nothing launched once it passed. Fails as the
+// launch cannot be composed or the servers cannot be listed.
 async fn name_in_one_shot(
     service: &CodexService,
     prompt: &str,
     session_model: Option<&str>,
+    deadline: Instant,
 ) -> Result<Option<String>, CodexError> {
+    let time_left = || deadline.saturating_duration_since(Instant::now());
+    if time_left().is_zero() {
+        return Ok(None);
+    }
     let folder = tempfile::tempdir().map_err(|error| CodexError::Transport {
         detail: "The folder of Codex's naming pass could not be made.".to_owned(),
         cause: Some(Box::new(error)),
@@ -528,7 +563,12 @@ async fn name_in_one_shot(
         .resolve(service.home())
         .await
         .map_err(CodexError::Driver)?;
-    let server_names = list_mcp_server_names(dependencies, &executable).await?;
+    let server_names = list_mcp_server_names(
+        dependencies,
+        &executable,
+        time_left().min(CODEX_SERVER_LIST_DEADLINE),
+    )
+    .await?;
     // The catalog is read on the service where it is up; the one-shot pass starts none.
     let connection = service.connection().ok();
     let title_model = choose_title_model(connection.as_deref(), session_model).await;
@@ -560,8 +600,12 @@ async fn name_in_one_shot(
     let mut launch =
         compose_codex_native_launch(&dependencies.data_folder, &executable, arguments).await?;
     launch.working_folder = folder.path().to_owned();
+    let left = time_left();
+    if left.is_zero() {
+        return Ok(None);
+    }
     // The answer is read from its file, since the pass prints more than the answer.
-    match run_codex_command(&dependencies.spawner, launch, CODEX_NAMING_DEADLINE).await {
+    match run_codex_command(&dependencies.spawner, launch, left).await {
         Ok(_printed) => match tokio::fs::read_to_string(&answer_file).await {
             Ok(answer) => Ok(read_title(&answer)),
             Err(error) => {
@@ -582,11 +626,12 @@ async fn name_in_one_shot(
     }
 }
 
-// The MCP servers `codex mcp list --json` names on the home `executable` runs for. Fails with
-// `CodexError::Transport` when the list cannot be run or read.
+// The MCP servers `codex mcp list --json` names on the home `executable` runs for, within
+// `deadline`. Fails with `CodexError::Transport` when the list cannot be run or read.
 async fn list_mcp_server_names(
     dependencies: &CodexServiceDependencies,
     executable: &ResolvedProviderExecutable,
+    deadline: Duration,
 ) -> Result<Vec<String>, CodexError> {
     let launch = compose_codex_native_launch(
         &dependencies.data_folder,
@@ -594,7 +639,7 @@ async fn list_mcp_server_names(
         vec!["mcp".to_owned(), "list".to_owned(), "--json".to_owned()],
     )
     .await?;
-    let listing = run_codex_command(&dependencies.spawner, launch, CODEX_SERVER_LIST_DEADLINE)
+    let listing = run_codex_command(&dependencies.spawner, launch, deadline)
         .await
         .map_err(|error| CodexError::Transport {
             detail: "Codex's MCP server list could not be read.".to_owned(),

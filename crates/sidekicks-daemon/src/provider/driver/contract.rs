@@ -384,7 +384,8 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// with a name, else, when no leg is live or the verb fails or returns no name, in a one-shot
     /// pass of the provider's program on the account the session's leg runs on. `None` only when
     /// both returned no name, or the session never ran. A pass whose `cancel` fires ends at once
-    /// and returns `None`.
+    /// and returns `None`, and so does one that runs past the driver's own bound on the whole pass,
+    /// which stops what it started as a cancel does.
     fn name_session(
         &self,
         params: NameSessionParams,
