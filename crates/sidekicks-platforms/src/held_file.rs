@@ -9,11 +9,11 @@ use std::path::Path;
 
 use crate::AtomicWriteError;
 use crate::entry_identity::EntryIdentity;
+use crate::open_file_identity;
 #[cfg(unix)]
-use crate::posix::entry_identity::is_marked_for_deletion;
+use crate::posix::entry_identity::{is_marked_for_deletion, named_identity};
 #[cfg(target_os = "windows")]
-use crate::windows::entry_identity::is_marked_for_deletion;
-use crate::{entry_identity, open_file_identity};
+use crate::windows::entry_identity::{is_marked_for_deletion, named_identity};
 
 // How many fresh names a held create tries: a name is lost only when a sweep removed the file in
 // the instant between its create and its lock.
@@ -70,8 +70,7 @@ pub fn create_held_file<Name: AsRef<Path>>(
 // deletion, as Windows refuses a removed name another handle still holds. Fails with any other
 // error reading the name or the file, a refusal of a file not so marked among them.
 fn is_name_lost(path: &Path, file: &File) -> io::Result<bool> {
-    let named = entry_identity(path).map(|named| named.identity);
-    is_named_identity_lost(named, open_file_identity(file)?, || {
+    is_named_identity_lost(named_identity(path), open_file_identity(file)?, || {
         is_marked_for_deletion(file)
     })
 }

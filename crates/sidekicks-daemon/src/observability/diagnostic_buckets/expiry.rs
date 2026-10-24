@@ -4,8 +4,8 @@
 //! diagnostic bucket, the crash dumps and crash reports, and the provider diagnostic folders in
 //! each account home, and asks each account home's driver to expire what its provider keeps there
 //! beyond those folders. A file still being written, the one the service log holds open, a running
-//! provider service's log or a partial crash dump, which the crash pass removes itself once no
-//! monitor holds it, is never deleted, and a running service's log past its cap is cut instead. A
+//! provider service's log, a partial crash dump or a crash-safe write's temporary file in either
+//! crash folder, which the crash pass removes itself once no writer holds it, is never deleted, and a running service's log past its cap is cut instead. A
 //! file in `logs/` that is no diagnostic log is never touched, and no folder is removed. A file
 //! that cannot be read, cut or deleted is told in the service log and the pass goes on. Each pass
 //! is metered against its processor budget.
@@ -19,6 +19,7 @@ use std::time::{Duration, SystemTime};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use sidekicks_platforms::atomic_write_target_of;
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
@@ -131,9 +132,11 @@ async fn run_expiry(deps: Arc<DiagnosticExpiryDeps>, meter: ProcessorMeter) -> M
         .filter_map(|file| file.file_name().map(ToOwned::to_owned))
         .collect();
     let logs_folder = service_log_folder(&deps.data_folder);
-    let dumps_folder = deps.data_folder.join(CRASH_DUMPS_FOLDER_NAME);
+    let crash_folders = [
+        deps.data_folder.join(CRASH_DUMPS_FOLDER_NAME),
+        deps.data_folder.join(CRASH_REPORTS_FOLDER_NAME),
+    ];
     let mut folders = diagnostic_bucket_folders(&deps.data_folder).to_vec();
-    folders.push(deps.data_folder.join(CRASH_REPORTS_FOLDER_NAME));
     let mut driven_homes: Vec<(Arc<dyn ProviderDriver>, PathBuf)> = Vec::new();
     match read_account_homes(&deps.reads, &meter).await {
         Ok(account_homes) => {
@@ -165,8 +168,13 @@ async fn run_expiry(deps: Arc<DiagnosticExpiryDeps>, meter: ProcessorMeter) -> M
             for folder in &folders {
                 expire_folder(folder, cutoff, &mut count, |_name| false);
             }
-            // A partial dump is the crash pass's: it removes one no monitor holds, under its lock.
-            expire_folder(&dumps_folder, cutoff, &mut count, is_partial_dump_name);
+            // A partial dump and a write's temporary file are the crash pass's: it removes one no
+            // writer holds, under its lock.
+            for folder in &crash_folders {
+                expire_folder(folder, cutoff, &mut count, |name| {
+                    is_partial_dump_name(name) || atomic_write_target_of(name).is_some()
+                });
+            }
             for (driver, home) in &driven_homes {
                 match driver.expire_account_home_diagnostics(home, cutoff) {
                     Ok(rows_deleted) => count.rows_deleted += rows_deleted,
@@ -365,11 +373,12 @@ mod tests {
     // A pass deletes whole every diagnostic file past the bound and keeps a newer one of each kind:
     // the service log, each bucket, the crash dumps and reports, and every folder each provider's
     // descriptor names in its account home, where a session's file of the same age stays; a file in
-    // `logs/` that is no log stays too, and so does a partial dump, the crash pass's; and each
-    // account home's driver is asked once to expire what its provider keeps there, with the bound's
-    // cutoff. Killed by a per-session folder in a descriptor's list, by a bucket or crash folder
-    // left out of the pass, by a partial dump expired, by the account homes left unread, by the
-    // driver never asked or asked about another home, and by a cutoff off the bound.
+    // `logs/` that is no log stays too, and so do a partial dump and a write's temporary file, the
+    // crash pass's; and each account home's driver is asked once to expire what its provider keeps
+    // there, with the bound's cutoff. Killed by a per-session folder in a descriptor's list, by a
+    // bucket or crash folder left out of the pass, by a partial dump or a crash folder's temporary
+    // file expired, by the account homes left unread, by the driver never asked or asked about
+    // another home, and by a cutoff off the bound.
     #[tokio::test]
     async fn a_pass_deletes_every_diagnostic_past_the_bound_and_no_session_file() {
         let database = TestDatabase::new();
@@ -394,6 +403,8 @@ mod tests {
         let mut kept_old = vec![
             logs.join("notes.txt"),
             data.join(CRASH_DUMPS_FOLDER_NAME).join("crash.dmp.partial"),
+            data.join(CRASH_REPORTS_FOLDER_NAME)
+                .join("x.json.a1b2c3.tmp"),
         ];
         let mut kept_new = vec![logs.join("service-2026-10-20T00-00-00-000.log")];
         for bucket in diagnostic_bucket_folders(data) {

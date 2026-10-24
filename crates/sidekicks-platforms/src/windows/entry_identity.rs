@@ -26,13 +26,7 @@ const NAME_SURROGATE_TAG_BIT: u32 = 0x2000_0000;
 /// it. The file id is the 128-bit one, since the 64-bit index is not unique on `ReFS`. Fails with
 /// the system's error from the open or a read, `NotFound` when nothing is there.
 pub fn entry_identity(path: &Path) -> io::Result<IdentifiedEntry> {
-    // Opened as std opens a path, so the entry is the one std made there; the shares let a rename
-    // of the entry go on while the handle is open, and a folder opens only with backup semantics.
-    let opened = OpenOptions::new()
-        .access_mode(FILE_READ_ATTRIBUTES)
-        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
-        .open(path)?;
+    let opened = open_entry(path)?;
     let identity = open_file_identity(&opened)?;
     let attributes: FILE_ATTRIBUTE_TAG_INFO = read_information(&opened, FileAttributeTagInfo)?;
     let metadata = opened.metadata()?;
@@ -43,6 +37,24 @@ pub fn entry_identity(path: &Path) -> io::Result<IdentifiedEntry> {
         identity,
         metadata,
     })
+}
+
+/// The identity of the entry at `path` alone, read from one handle opened on the entry itself as
+/// [`entry_identity`] opens it. Fails with the system's error from the open or the read, `NotFound`
+/// when nothing is there.
+pub(crate) fn named_identity(path: &Path) -> io::Result<EntryIdentity> {
+    open_file_identity(&open_entry(path)?)
+}
+
+// The entry at `path` itself, opened as std opens a path, so the entry is the one std made there;
+// the shares let a rename of the entry go on while the handle is open, and a folder opens only with
+// backup semantics.
+fn open_entry(path: &Path) -> io::Result<File> {
+    OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
 }
 
 /// The identity of the open file `file`, equal to [`entry_identity`]'s of any name that still

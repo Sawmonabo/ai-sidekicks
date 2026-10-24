@@ -58,6 +58,11 @@ const PANIC_RECORD_MAX_BYTES: usize = 60 * 1024;
 /// The suffix of a dump being written.
 pub(crate) const DUMP_IN_PROGRESS_SUFFIX: &str = ".partial";
 
+/// The file name of the dump `<stem>.dmp` while it is being written.
+pub(crate) fn partial_dump_name(stem: &str) -> String {
+    format!("{stem}.{DUMP_EXTENSION}{DUMP_IN_PROGRESS_SUFFIX}")
+}
+
 /// Whether `file_name` names a dump while it is being written, `<stem>.dmp.partial`.
 pub(crate) fn is_partial_dump_name(file_name: &str) -> bool {
     file_name
@@ -323,10 +328,9 @@ impl ServerHandler for DumpWriter {
     /// pass could remove it.
     fn create_minidump_file(&self) -> Result<(File, PathBuf), io::Error> {
         let created = create_held_file(|| {
-            let path = self.dumps_folder.join(format!(
-                "{}.{DUMP_EXTENSION}{DUMP_IN_PROGRESS_SUFFIX}",
-                mint_uuid_v7()
-            ));
+            let path = self
+                .dumps_folder
+                .join(partial_dump_name(&mint_uuid_v7().to_string()));
             let file = sidekicks_platforms::create_new_file(&path, CRASH_FILE_MODE)?;
             Ok((file, path))
         });

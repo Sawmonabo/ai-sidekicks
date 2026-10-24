@@ -46,8 +46,8 @@ use walkdir::WalkDir;
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::crash::monitor::{
-    CRASH_DUMPS_FOLDER_NAME, DUMP_EXTENSION, DUMP_IN_PROGRESS_SUFFIX, PANIC_RECORD_SUFFIX,
-    PanicRecord, is_partial_dump_name, panic_record_path,
+    CRASH_DUMPS_FOLDER_NAME, DUMP_EXTENSION, PANIC_RECORD_SUFFIX, PanicRecord,
+    is_partial_dump_name, panic_record_path, partial_dump_name,
 };
 use crate::daemon::machine::settings::file::MachineSettingsFile;
 use crate::daemon::panic_hook::{PANIC_RECORD_FILE_EXTENSION, PANIC_RECORD_FILE_PREFIX};
@@ -364,9 +364,9 @@ fn list_finished_dumps(folder: &Path) -> io::Result<Vec<(PathBuf, u64)>> {
 // Deletes what a failed write of the monitor left in the dumps folder `folder`: each partial dump
 // no monitor holds, removed under the pass's own lock, each panic record whose dump is not there,
 // and each panic record's temporary file whose partial dump no monitor holds, since a monitor
-// writes the record only while holding it. The folder is listed once, and a partial dump's lock is
-// tried for its own entry and at most once more for the files beside it. Runs on past a check or a
-// removal that fails, answering each failure.
+// writes the record only while holding it. The folder is listed once, and each partial dump's lock
+// is tried once, by its own entry or by the first file beside it. Runs on past a check or a removal
+// that fails, answering each failure.
 fn remove_monitor_leftovers(folder: &Path) -> Vec<io::Error> {
     let entries = match fs::read_dir(folder).none_if_missing() {
         Ok(Some(entries)) => entries,
@@ -387,11 +387,8 @@ fn remove_monitor_leftovers(folder: &Path) -> Vec<io::Error> {
             continue;
         };
         if is_partial_dump_name(name) {
-            match remove_unless_held(&path) {
-                Ok(is_held) => {
-                    held.insert(name.to_owned(), is_held);
-                }
-                Err(failure) => failures.push(failure),
+            if let Err(failure) = is_partial_dump_held(folder, name.to_owned(), &mut held) {
+                failures.push(failure);
             }
             continue;
         }
@@ -418,11 +415,6 @@ fn remove_monitor_leftovers(folder: &Path) -> Vec<io::Error> {
     failures
 }
 
-// The file name of the dump `<stem>.dmp` while it is being written.
-fn partial_dump_name(stem: &str) -> String {
-    format!("{stem}.{DUMP_EXTENSION}{DUMP_IN_PROGRESS_SUFFIX}")
-}
-
 // Whether the panic record of the dump `<stem>.dmp` has lost its dump: no monitor holds the dump
 // while writing it, and it is not finished either. The partial dump is looked at first, since a
 // monitor renames it to the finished name while it holds it.
@@ -440,7 +432,8 @@ fn is_record_orphaned(
 }
 
 // Whether a monitor holds the partial dump named `name` in `folder`, as `held` recorded it earlier
-// in the pass or as its lock answers now, recorded for the rest of the pass.
+// in the pass or as its lock answers now, recorded for the rest of the pass; one no monitor holds is
+// removed under the pass's own lock.
 fn is_partial_dump_held(
     folder: &Path,
     name: String,
@@ -449,7 +442,7 @@ fn is_partial_dump_held(
     if let Some(&is_partial_held) = held.get(&name) {
         return Ok(is_partial_held);
     }
-    let is_partial_held = is_held(&folder.join(&name))?;
+    let is_partial_held = remove_unless_held(&folder.join(&name))?;
     held.insert(name, is_partial_held);
     Ok(is_partial_held)
 }

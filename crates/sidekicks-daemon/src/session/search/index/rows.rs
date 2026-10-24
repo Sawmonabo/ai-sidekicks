@@ -170,9 +170,9 @@ pub(crate) enum PageReadError {
     Refused(rusqlite::Error),
 }
 
-// `error` as the damage of the row it was read from when it is rusqlite's conversion or UTF-8 error,
-// which a value that does not read as its type fails with; any other error fails the read, handed
-// back.
+// `error` as the damage of the row it was read from when it is rusqlite's conversion or UTF-8
+// error, which a value that does not read as its type fails with; any other error fails the read,
+// handed back.
 fn damage_of(
     error: rusqlite::Error,
     key: u64,
@@ -564,7 +564,10 @@ mod tests {
     // a UTF-8 error left out of the damage, which stalls indexing on one flipped bit.
     #[rstest]
     #[case::out_of_memory(out_of_memory_read_failure(), false)]
-    #[case::column_type(rusqlite::Error::InvalidColumnType(2, "text".to_owned(), Type::Integer), false)]
+    #[case::column_type(
+        rusqlite::Error::InvalidColumnType(2, "text".to_owned(), Type::Integer),
+        false
+    )]
     #[case::conversion(
         rusqlite::Error::FromSqlConversionFailure(
             2,

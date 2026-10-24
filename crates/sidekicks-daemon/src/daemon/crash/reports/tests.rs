@@ -14,8 +14,8 @@ use super::{
     read_crash_reports,
 };
 use crate::daemon::crash::monitor::{
-    CRASH_DUMPS_FOLDER_NAME, DUMP_EXTENSION, DUMP_IN_PROGRESS_SUFFIX, PANIC_RECORD_SUFFIX,
-    attach_crash_handler, connect_crash_monitor, crash_monitor_socket_path, serve_crash_monitor,
+    CRASH_DUMPS_FOLDER_NAME, DUMP_EXTENSION, PANIC_RECORD_SUFFIX, attach_crash_handler,
+    connect_crash_monitor, crash_monitor_socket_path, partial_dump_name, serve_crash_monitor,
 };
 use crate::daemon::machine::settings::file::MachineSettingsFile;
 use crate::daemon::panic_hook::{install_panic_hook, send_panics_to_monitor};
@@ -251,8 +251,7 @@ async fn a_pass_deletes_what_a_failed_dump_left(#[case] is_kept: bool) {
     let reports = data_folder.join(CRASH_REPORTS_FOLDER_NAME);
     fs::create_dir_all(dumps.join("sub")).expect("the dumps folder is made");
     fs::create_dir_all(&reports).expect("the reports folder is made");
-    let partial =
-        |stem: &str| dumps.join(format!("{stem}.{DUMP_EXTENSION}{DUMP_IN_PROGRESS_SUFFIX}"));
+    let partial = |stem: &str| dumps.join(partial_dump_name(stem));
     let record = |stem: &str| dumps.join(format!("{stem}{PANIC_RECORD_SUFFIX}"));
     let record_temporary =
         |stem: &str| dumps.join(format!("{stem}{PANIC_RECORD_SUFFIX}.a1b2c3.tmp"));

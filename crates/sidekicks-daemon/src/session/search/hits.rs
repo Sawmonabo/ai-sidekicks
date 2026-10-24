@@ -2,10 +2,10 @@
 //! read a page at a time with the tail of the page before, marked where the search first matches
 //! it. The index stores no text, so a hit whose row is gone since the index saw it is passed over,
 //! and one whose text changed is marked on its current text, or passed over once that text no
-//! longer holds a match. A hit whose row is damaged, in a value of its own or its stored body, shows
-//! no line and is logged: a search writes nothing, so the row leaves the index only when it changes
-//! or a skipped range covers it. A search with words marks them as the index finds them; a search
-//! by tags alone marks each tag's levels the queried tag names.
+//! longer holds a match. A hit whose row is damaged, in a value of its own or its stored body,
+//! shows no line and is logged: a search writes nothing, so the row leaves the index only when it
+//! changes or a skipped range covers it. A search with words marks them as the index finds them; a
+//! search by tags alone marks each tag's levels the queried tag names.
 
 use std::collections::HashSet;
 use std::error::Error;
