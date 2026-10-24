@@ -35,7 +35,7 @@ use crate::database::statement::{
 use crate::database::stored_column::{closed_word, text_column};
 use crate::database::writer::messages::WriteJobFailure;
 use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::events::session::append_lock::SESSION_APPEND_LOCK;
+use crate::events::session::append_lock::{SESSION_APPEND_LOCK, SessionAppendHold};
 use crate::events::session::read::{MalformedStoredEventError, SessionLogReadError};
 use crate::recovery::database_file::damage::DatabaseDamageWatch;
 use crate::session::service::{
@@ -198,6 +198,15 @@ pub(crate) enum ProjectionRebuildError {
     /// The read pool is closed, a connection did not open, or the read did not finish.
     #[error("the read pool did not run the rebuild's read")]
     Pool(#[from] DatabaseReadError),
+    /// The caller's hold is of another session than the one it asked to rebuild; nothing was read
+    /// or written.
+    #[error("a hold of session {held_session_id} cannot rebuild session {session_id}")]
+    HoldOfAnotherSession {
+        /// The session the hold is on.
+        held_session_id: SessionId,
+        /// The session the rebuild names.
+        session_id: SessionId,
+    },
 }
 
 /// A rebuild of one session: `is_forced` rebuilds it even when its projections are current,
@@ -362,10 +371,12 @@ impl ProjectionRebuildService {
     }
 
     /// Rebuilds the session's projections unless they are current and `is_forced` is not set,
-    /// holding the session's append lock throughout, so no event lands while it reads and writes.
-    /// Fails with [`ProjectionRebuildError::ProjectionFailure`] naming the first event it could not
-    /// fold, after marking the session's cursor stale, when the log cannot be folded into rows;
-    /// with [`ProjectionRebuildError::Stopped`] once `stop` is canceled; any other failure is the
+    /// holding the session's append lock throughout, so no event lands while it reads and writes:
+    /// `hold` where the caller holds the session already, else a hold the rebuild takes. Fails
+    /// with [`ProjectionRebuildError::HoldOfAnotherSession`] for a hold of another session; with
+    /// [`ProjectionRebuildError::ProjectionFailure`] naming the first event it could not fold,
+    /// after marking the session's cursor stale, when the log cannot be folded into rows; with
+    /// [`ProjectionRebuildError::Stopped`] once `stop` is canceled; any other failure is the
     /// store's own.
     #[cfg_attr(
         not(test),
@@ -374,11 +385,25 @@ impl ProjectionRebuildService {
     pub(crate) async fn rebuild(
         &self,
         request: ProjectionRebuildRequest,
+        hold: Option<&SessionAppendHold>,
     ) -> Result<ProjectionRebuildResponse, ProjectionRebuildError> {
-        let rebuilt = self.rebuild_held(request).await;
+        let rebuilt = match hold {
+            Some(hold) if *hold.key() != request.session_id => {
+                Err(ProjectionRebuildError::HoldOfAnotherSession {
+                    held_session_id: *hold.key(),
+                    session_id: request.session_id,
+                })
+            }
+            Some(_) => self.rebuild_held(request).await,
+            None => {
+                let _hold = SESSION_APPEND_LOCK.acquire(request.session_id).await;
+                self.rebuild_held(request).await
+            }
+        };
         self.reported(rebuilt)
     }
 
+    // The rebuild, run while the session's append lock is held.
     async fn rebuild_held(
         &self,
         request: ProjectionRebuildRequest,
@@ -389,7 +414,6 @@ impl ProjectionRebuildService {
             before_sequence,
             stop,
         } = request;
-        let _hold = SESSION_APPEND_LOCK.acquire(session_id).await;
         // Appends queued before the hold commit first, so the reads below see them.
         self.writer.flush().await;
         let (head_sequence, cursor) = self

@@ -34,6 +34,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::events::log_service::EventAppendError;
+use crate::events::session::append_lock::SessionAppendHold;
 use crate::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
@@ -387,21 +388,23 @@ impl RunStateChangeWriter {
     /// unknown run, [`RunRefusal::AlreadyEnded`] for a terminal of a run that has ended or whose
     /// run version already holds one, [`RunRefusal::InvalidTransition`] for a move the table does
     /// not allow from the state the run is in, and [`RunStateChangeError::CompanionRefused`] when
-    /// a companion statement refuses; each refusal writes nothing.
+    /// a companion statement refuses; each refusal writes nothing. Every write goes under `hold`
+    /// where the caller holds the run's session.
     pub(crate) async fn write(
         &self,
         change: RunStateChange,
         companions: RunStateChangeCompanions,
+        hold: Option<&SessionAppendHold>,
     ) -> Result<RunRead, RunStateChangeError> {
         for attempt in 1..MAX_WRITE_ATTEMPTS {
             if let AttemptOutcome::Written(run) = self
-                .attempt(change.clone(), companions.clone(), attempt > 1)
+                .attempt(change.clone(), companions.clone(), attempt > 1, hold)
                 .await?
             {
                 return Ok(run);
             }
         }
-        match self.attempt(change, companions, true).await? {
+        match self.attempt(change, companions, true, hold).await? {
             AttemptOutcome::Written(run) => Ok(run),
             AttemptOutcome::Moved(refusal) => Err(refusal.into()),
         }
@@ -415,6 +418,7 @@ impl RunStateChangeWriter {
         change: RunStateChange,
         companions: RunStateChangeCompanions,
         is_retry: bool,
+        hold: Option<&SessionAppendHold>,
     ) -> Result<AttemptOutcome, RunStateChangeError> {
         let run_id = change.run_id;
         let new_state = change.entry.state();
@@ -475,17 +479,15 @@ impl RunStateChangeWriter {
             transactional_prelude.len()..transactional_prelude.len() + statements.len();
         transactional_prelude.extend(statements);
         let draft = SessionEventDraft::of_session(run.session_id, &change.into_event(&swap))?;
-        let appended = self
-            .appender
-            .append(
-                draft,
-                SessionEventLinkage {
-                    transactional_prelude,
-                    preceding_events,
-                    ..SessionEventLinkage::default()
-                },
-            )
-            .await;
+        let linkage = SessionEventLinkage {
+            transactional_prelude,
+            preceding_events,
+            ..SessionEventLinkage::default()
+        };
+        let appended = match hold {
+            Some(hold) => self.appender.append_held(hold, draft, linkage).await,
+            None => self.appender.append(draft, linkage).await,
+        };
         let Err(error) = appended else {
             self.live_runs.record(swap.previous_state, new_state.into());
             return Ok(AttemptOutcome::Written(RunRead {

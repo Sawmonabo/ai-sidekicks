@@ -87,7 +87,7 @@ async fn committed_changes_move_the_count_by_the_states_they_leave_and_enter() {
             RunStateChangeCompanions::default()
         };
         let written = changes
-            .write(RunStateChange::new(run_id, entry.clone()), companions)
+            .write(RunStateChange::new(run_id, entry.clone()), companions, None)
             .await
             .map(|run| run.state)
             .map_err(|_refused| ());

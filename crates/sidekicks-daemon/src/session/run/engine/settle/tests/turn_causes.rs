@@ -168,7 +168,11 @@ async fn a_restart_ends_each_turn_of_a_log_with_the_cause_the_live_path_writes(
     // Restart: the daemon goes down before either, and the restart settles the same log.
     drop(before_restart);
     test_engine(&restart_database, restart_log.service, home.path())
-        .settle_run_after_restart(&running_at(session_id, run_id, run_version), "not resumed")
+        .settle_run_after_restart(
+            &running_at(session_id, run_id, run_version),
+            "not resumed",
+            None,
+        )
         .await
         .expect("the restart settles the run");
 

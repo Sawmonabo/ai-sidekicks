@@ -221,12 +221,15 @@ async fn a_rebuild_leaves_its_cursor_where_its_fold_ended(
     }
 
     let rebuilt = service
-        .rebuild(ProjectionRebuildRequest {
-            session_id,
-            is_forced: true,
-            before_sequence,
-            stop: Some(stop),
-        })
+        .rebuild(
+            ProjectionRebuildRequest {
+                session_id,
+                is_forced: true,
+                before_sequence,
+                stop: Some(stop),
+            },
+            None,
+        )
         .await;
 
     let ended = match rebuilt {

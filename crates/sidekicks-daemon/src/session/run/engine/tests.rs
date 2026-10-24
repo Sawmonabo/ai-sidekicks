@@ -213,6 +213,7 @@ pub(crate) async fn append(engine: &RunEngine, session_id: SessionId, event: &Se
             SessionEventDraft::of_session(session_id, event).expect("the event passes its checks"),
             Vec::new(),
             Vec::new(),
+            None,
         )
         .await
         .expect("the test's event is appended");

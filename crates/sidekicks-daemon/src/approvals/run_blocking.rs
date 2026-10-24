@@ -28,6 +28,7 @@ use crate::approvals::permission_asks::PermissionAsks;
 use crate::approvals::service::ApprovalService;
 use crate::approvals::store::ApprovalRequestReader;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
+use crate::events::session::append_lock::SessionAppendHold;
 use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use crate::events::session::pending::PendingSessions;
 use crate::keyed_lock::KeyedLock;
@@ -283,11 +284,12 @@ impl RunSetupGate for ApprovalRunEnd {
     fn on_run_terminal<'a>(
         &'a self,
         context: &'a RunTerminalContext,
+        hold: Option<&'a SessionAppendHold>,
     ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
         Box::pin(async move {
             self.permission_asks.forget_run(context.run_id);
             self.service
-                .cancel_pending_for_run(context.run_id, None)
+                .cancel_pending_for_run(context.run_id, hold)
                 .await
                 .map_err(|failures| RunSetupGateError::Failed(Box::new(failures)))
         })

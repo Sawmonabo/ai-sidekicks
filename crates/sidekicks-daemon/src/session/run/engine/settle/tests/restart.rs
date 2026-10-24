@@ -104,7 +104,7 @@ async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
     .await;
 
     engine
-        .settle_run_after_restart(&running_at(session_id, run_id, 1), "not resumed")
+        .settle_run_after_restart(&running_at(session_id, run_id, 1), "not resumed", None)
         .await
         .expect("the restart settles the run");
 
@@ -414,7 +414,7 @@ async fn a_restart_ends_each_turn_a_limits_row_names_with_the_limit(
     expected.extend_from_slice(settled_events);
 
     engine
-        .settle_run_after_restart(&running_at(session_id, run_id, 1), "not resumed")
+        .settle_run_after_restart(&running_at(session_id, run_id, 1), "not resumed", None)
         .await
         .expect("the restart settles the run");
 
@@ -473,7 +473,7 @@ async fn a_restart_after_an_overtaken_token_stop_and_a_continue_stops_the_run() 
     let restarted = test_engine(&database, log.service, home.path());
 
     restarted
-        .settle_run_after_restart(&running_at(session_id, run_id, 3), "not resumed")
+        .settle_run_after_restart(&running_at(session_id, run_id, 3), "not resumed", None)
         .await
         .expect("the restart settles the run");
 
@@ -548,6 +548,7 @@ async fn a_message_queued_while_a_restart_settles_a_queued_run_leaves_it_queued(
                 has_queued_item: false,
             },
             "the run could not be resumed",
+            None,
         )
         .await
         .expect("a run its queue still starts is left");
@@ -600,7 +601,7 @@ async fn a_restart_settle_is_refused_by_an_interrupt_asked_for_after_its_read() 
     );
 
     let settled = engine
-        .settle_run_from_facts(&run, &facts, "not resumed")
+        .settle_run_from_facts(&run, &facts, "not resumed", None)
         .await;
 
     let rows_read = facts.pending_interrupts.len();
