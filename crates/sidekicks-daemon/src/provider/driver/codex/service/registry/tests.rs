@@ -220,5 +220,6 @@ async fn a_failed_switch_off_wait_puts_the_service_back_only_into_an_empty_slot(
 }
 
 mod former_services;
+mod hooks;
 mod socket_link;
 mod stand_in;

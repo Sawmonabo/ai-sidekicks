@@ -5,22 +5,23 @@
 //! With a draining service holding the home's own socket, it launches beside it on a socket of its
 //! own and moves the home's link there. It otherwise joins Codex's own managed daemon while a
 //! conversation is loaded on it and stops it once none is, joins a listener no pid file names as
-//! it is, and otherwise starts the lasting service under Codex's start lock with the daemon's two
-//! hooks, trusted before any conversation. A planned restart's second service ends what its own
-//! ended process left before it starts again, and points the home's link back at itself before it
-//! lets go of Codex's start lock.
+//! it is, and otherwise starts the lasting service under Codex's start lock, with the daemon's two
+//! hooks, trusted before any conversation, while the daemon's program dispatches its hook mode. A
+//! planned restart's second service ends what its own ended process left before it starts again,
+//! and points the home's link back at itself before it lets go of Codex's start lock.
 
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde_json::value::RawValue;
-use sidekicks_platforms::{RunningProgramPath, read_running_program_path, replace_socket_link};
+use sidekicks_platforms::replace_socket_link;
 use tokio_util::sync::CancellationToken;
 
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::service::command_line::{
-    LastingServiceVerdict, compare_daemon_hook_commands, compose_daemon_hook_commands,
+    LastingServiceVerdict, TerminalServiceHooks, compare_daemon_hook_commands,
+    read_terminal_service_hooks,
 };
 use crate::provider::driver::codex::service::home::CodexServiceKind;
 use crate::provider::driver::codex::service::managed_daemon::stop_codex_managed_daemon;
@@ -239,9 +240,10 @@ async fn join_listener(
 
 // A lasting service a former daemon left, joined on `physical_socket`, where its record says its
 // socket really is, so the join reaches that record's service whatever the home's link names; its
-// hooks are compared with this daemon's. A join the service fails, in its dial and answer, its
-// hook list or its version, hands it back with the failure, so the start's teardown stops it and
-// removes its record; a failure on the daemon's own side leaves it running in its record.
+// hooks are compared with the ones this daemon would start it with. A join the service fails, in
+// its dial and answer, its hook list or its version, hands it back with the failure, so the
+// start's teardown stops it and removes its record; a failure on the daemon's own side leaves it
+// running in its record.
 async fn join_former_service(
     service: &Arc<CodexService>,
     launch: u64,
@@ -251,16 +253,9 @@ async fn join_former_service(
     record_file: LastingServiceRecordFile,
     physical_socket: PathBuf,
 ) -> Result<StartedService, StartFailure> {
-    let daemon_program = read_running_program_path()
-        .map_err(|error| start_failed("The daemon's own program could not be read.", error))?;
-    let composed = match &daemon_program {
-        RunningProgramPath::OnDisk(path) => {
-            Some(compose_daemon_hook_commands(path).map_err(|error| {
-                start_failed("The daemon's hook commands could not be written.", error)
-            })?)
-        }
-        RunningProgramPath::Replaced => None,
-    };
+    let hooks = read_terminal_service_hooks().map_err(|error| {
+        start_failed("The daemon's hook commands could not be composed.", error)
+    })?;
     let joined = async {
         let (connection, reply) = connect(
             service,
@@ -272,10 +267,8 @@ async fn join_former_service(
         )
         .await?;
         let listed = list_codex_hooks(&connection).await?;
-        let is_restart_owed = composed.as_ref().is_none_or(|composed| {
-            compare_daemon_hook_commands(&listed, composed, &daemon_program)
-                == LastingServiceVerdict::Restart
-        });
+        let is_restart_owed =
+            compare_daemon_hook_commands(&listed, &hooks) == LastingServiceVerdict::Restart;
         let version = read_service_version(&reply, executable)?;
         Ok::<_, CodexError>((connection, version, is_restart_owed))
     }
@@ -299,8 +292,8 @@ async fn join_former_service(
 
 // Launches the lasting service on `launch_socket` under Codex's start lock and the record's, keeps
 // its record, and lets go of the start lock once it listens, the home's link moved onto a service
-// launched beside a draining one and pointed back at a service that holds it; its hooks are
-// trusted before any conversation.
+// launched beside a draining one and pointed back at a service that holds it; its hooks, while the
+// daemon runs any, are trusted before any conversation.
 async fn launch_terminal_service(
     service: &Arc<CodexService>,
     launch: u64,
@@ -319,30 +312,23 @@ async fn launch_terminal_service(
             "the Codex folder's socket link could not be checked"
         );
     }
-    let daemon_program = match read_running_program_path() {
-        Ok(RunningProgramPath::OnDisk(path)) => path,
-        Ok(RunningProgramPath::Replaced) => {
+    let hook_commands = match read_terminal_service_hooks()
+        .map_err(|error| start_failed("The daemon's hook commands could not be composed.", error))?
+    {
+        TerminalServiceHooks::NoHooks => None,
+        TerminalServiceHooks::Daemon(hook_commands) => Some(hook_commands),
+        TerminalServiceHooks::ProgramReplaced => {
             return Err(StartFailure::from(CodexError::Transport {
                 detail: "The daemon's own program was replaced, so its hooks cannot run it."
                     .to_owned(),
                 cause: None,
             }));
         }
-        Err(error) => {
-            return Err(start_failed(
-                "The daemon's own program could not be read.",
-                error,
-            ));
-        }
     };
-    let hook_commands = compose_daemon_hook_commands(&daemon_program).map_err(|error| {
-        StartFailure::from(CodexError::Transport {
-            detail: "The daemon's hook commands could not be written.".to_owned(),
-            cause: Some(Box::new(error)),
-        })
-    })?;
     let mut overrides = dependencies.additional_config_overrides.clone();
-    overrides.extend(hook_commands.config_overrides());
+    if let Some(hook_commands) = &hook_commands {
+        overrides.extend(hook_commands.config_overrides());
+    }
     let process_launch = compose_launch(service, executable, overrides, launch_socket).await?;
     // A start stood down before its launch launches nothing.
     if cancel.is_cancelled() {
@@ -402,7 +388,9 @@ async fn launch_terminal_service(
                 detail: "The Codex service's record could not be kept.".to_owned(),
                 cause: Some(Box::new(error)),
             })?;
-        trust_codex_daemon_hooks(&connection, &hook_commands).await?;
+        if let Some(hook_commands) = &hook_commands {
+            trust_codex_daemon_hooks(&connection, hook_commands).await?;
+        }
         let version = read_service_version(&reply, executable)?;
         // Only a start that succeeded takes the link. A plain `codex` that waited on Codex's
         // start lock re-reads the link once it is free, so the link names this service first.

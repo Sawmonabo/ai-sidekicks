@@ -1,7 +1,8 @@
 //! Trust for the daemon's two command hooks on the terminal service the daemon starts on the
-//! person's own Codex folder. Codex runs a command hook only once its hash is recorded as trusted
-//! and skips an untrusted one without a word, so the daemon lists the hooks, records the hash of
-//! each of its own that is not yet trusted, and lists again to confirm before any conversation.
+//! person's own Codex folder, and the read of the hooks a running service's command line set.
+//! Codex runs a command hook only once its hash is recorded as trusted and skips an untrusted one
+//! without a word, so the daemon lists the hooks, records the hash of each of its own that is not
+//! yet trusted, and lists again to confirm before any conversation.
 
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -109,10 +110,10 @@ pub(crate) async fn trust_codex_daemon_hooks(
     Ok(())
 }
 
-/// Every command hook the service lists, with its event as the daemon's hooks name it
-/// (`PreToolUse`), for the comparison with the hooks this daemon would start the service with.
-/// Fails as the connection's request does, and with `CodexError::Transport` for an unreadable
-/// reply.
+/// Every hook the service's command line set, with its event as the daemon's hooks name it
+/// (`PreToolUse`), for the comparison with the hooks this daemon would start the service with; a
+/// member the reply leaves out reads empty, so the hook still counts. Fails as the connection's
+/// request does, and with `CodexError::Transport` for an unreadable reply.
 pub(crate) async fn list_codex_hooks(
     connection: &CodexAppServerConnection,
 ) -> Result<Vec<CodexListedHook>, CodexError> {
@@ -121,12 +122,11 @@ pub(crate) async fn list_codex_hooks(
         .data
         .into_iter()
         .flat_map(|entry| entry.hooks)
-        .filter_map(|hook| {
-            Some(CodexListedHook {
-                event_name: hook_event_name(&hook.event_name?),
-                command: hook.command?,
-                timeout_seconds: hook.timeout_sec?,
-            })
+        .filter(|hook| hook.source.as_deref() == Some(SESSION_FLAGS_HOOK_SOURCE))
+        .map(|hook| CodexListedHook {
+            event_name: hook_event_name(&hook.event_name.unwrap_or_default()),
+            command: hook.command.unwrap_or_default(),
+            timeout_seconds: hook.timeout_sec.unwrap_or_default(),
         })
         .collect())
 }

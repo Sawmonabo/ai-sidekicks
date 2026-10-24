@@ -11,12 +11,11 @@ use futures::future::BoxFuture;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
-    ExistingSocket, LeftoverSweep, RunningProgramPath, bind_socket_listener, pin_running_process,
-    read_running_program_path, replace_file_atomically, replace_socket_link,
+    ExistingSocket, LeftoverSweep, bind_socket_listener, pin_running_process,
+    replace_file_atomically, replace_socket_link,
 };
 use tokio::sync::mpsc;
 
-use crate::provider::driver::codex::service::command_line::compose_daemon_hook_commands;
 use crate::provider::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
 use crate::provider::driver::codex::service::record::LastingServiceRecordFile;
 use crate::provider::driver::codex::service::registry::OneHome;
@@ -71,14 +70,8 @@ async fn an_app_server_stand_in() {
     let listener = bind_socket_listener(&real_socket, ExistingSocket::Refuse)
         .expect("the real socket listens");
     replace_socket_link(&link, &real_socket).expect("the link names the real socket");
-    let RunningProgramPath::OnDisk(program) =
-        read_running_program_path().expect("the program reads")
-    else {
-        panic!("the test program was replaced");
-    };
-    let hooks = Arc::new(compose_daemon_hook_commands(&program).expect("the hooks compose"));
     while let Ok(stream) = listener.accept().await {
-        tokio::spawn(answer_as_codex_service(stream, Arc::clone(&hooks)));
+        tokio::spawn(answer_as_codex_service(stream));
     }
 }
 
@@ -104,16 +97,21 @@ impl CodexServiceEvents for ExitsHeard {
     fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
 }
 
-// The script the services start as Codex: it hands the stand-in the address its `--listen` names,
-// and has it ignore the hang-up where the test's program asks.
+/// The file the stand-in's script keeps its last launch's arguments in, one to a line.
+const LAUNCH_ARGUMENTS_FILE: &str = "codex-arguments";
+
+// The script the services start as Codex: it keeps its arguments, hands the stand-in the address
+// its `--listen` names, and has it ignore the hang-up where the test's program asks.
 fn write_stand_in_script(folder: &Path) -> PathBuf {
     let program = std::env::current_exe().expect("the test program names itself");
     let script = folder.join("codex");
     let body = format!(
-        "#!/bin/sh\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = --listen ]; then \
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n\
+         while [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = --listen ]; then \
          {LISTEN_ADDRESS_NAME}=\"$2\"; export {LISTEN_ADDRESS_NAME}; fi\n  shift\ndone\n\
          if [ -n \"${HANG_UP_IGNORED_NAME}\" ]; then trap '' HUP; fi\n\
          exec '{}' --exact {APP_SERVER_STAND_IN} --include-ignored >/dev/null 2>&1\n",
+        folder.join(LAUNCH_ARGUMENTS_FILE).display(),
         program.display()
     );
     replace_file_atomically(&script, body.as_bytes(), 0o755, LeftoverSweep::Unswept)
@@ -200,6 +198,15 @@ pub(super) fn this_daemon(services: &StandInServices) -> CodexServiceRegistry {
         Arc::new(OneHome(services.home.clone())),
         Arc::clone(&services.dependencies),
     )
+}
+
+/// The arguments the stand-in's last launch under `services` ran with.
+pub(super) fn last_launch_arguments(services: &StandInServices) -> Vec<String> {
+    std::fs::read_to_string(services.folder.join(LAUNCH_ARGUMENTS_FILE))
+        .expect("the launch's arguments were kept")
+        .lines()
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Whether the process `process_id` still runs.

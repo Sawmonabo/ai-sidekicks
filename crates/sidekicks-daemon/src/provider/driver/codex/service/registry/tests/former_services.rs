@@ -3,8 +3,7 @@ use std::time::Duration;
 
 use interprocess::local_socket::traits::tokio::Listener as _;
 use sidekicks_platforms::{
-    CAN_LINK_A_SOCKET, ExistingSocket, RunningProgramPath, bind_socket_listener,
-    read_running_program_path, read_socket_link, replace_socket_link,
+    CAN_LINK_A_SOCKET, ExistingSocket, bind_socket_listener, read_socket_link, replace_socket_link,
 };
 
 use super::stand_in::{
@@ -12,7 +11,6 @@ use super::stand_in::{
     is_running, mark_kept_records_draining, send_signal, stand_in_services, this_daemon,
     wait_for_end_and_record_removal, wait_until_gone,
 };
-use crate::provider::driver::codex::service::command_line::compose_daemon_hook_commands;
 use crate::provider::driver::codex::service::registry::home_socket_path;
 use crate::provider::driver::codex::service::supervisor::test_service::answer_as_codex_service;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
@@ -103,15 +101,9 @@ async fn a_restart_joins_an_unrecorded_service_on_the_link_and_drains_the_record
     let unrecorded_socket = services.home.codex_home.join("unrecorded.sock");
     let unrecorded = bind_socket_listener(&unrecorded_socket, ExistingSocket::Refuse)
         .expect("the unrecorded listener listens");
-    let RunningProgramPath::OnDisk(program) =
-        read_running_program_path().expect("the program reads")
-    else {
-        panic!("the test program was replaced");
-    };
-    let hooks = Arc::new(compose_daemon_hook_commands(&program).expect("the hooks compose"));
     let answering = tokio::spawn(async move {
         while let Ok(stream) = unrecorded.accept().await {
-            tokio::spawn(answer_as_codex_service(stream, Arc::clone(&hooks)));
+            tokio::spawn(answer_as_codex_service(stream));
         }
     });
     replace_socket_link(&home_socket, &unrecorded_socket).expect("the link names the listener");

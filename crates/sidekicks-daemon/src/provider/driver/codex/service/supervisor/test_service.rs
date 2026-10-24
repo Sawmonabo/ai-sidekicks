@@ -18,7 +18,9 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
-use crate::provider::driver::codex::service::command_line::CodexHookCommands;
+use crate::provider::driver::codex::service::command_line::{
+    TerminalServiceHooks, read_terminal_service_hooks,
+};
 use crate::provider::driver::codex::service::home::{
     CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
@@ -225,12 +227,17 @@ impl CodexServiceEvents for UnheardEvents {
     fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
 }
 
-/// Answers one connection's requests on `stream` as far as a start needs: the version, `hooks` as
-/// trusted, and no loaded conversation.
-pub(crate) async fn answer_as_codex_service(
-    stream: impl AsyncRead + AsyncWrite + Unpin,
-    hooks: Arc<CodexHookCommands>,
-) {
+/// Answers one connection's requests on `stream` as far as a start needs: the version, the hooks
+/// the daemon starts a terminal service with, as trusted, and no loaded conversation; a config
+/// write is refused, so a start that writes trust fails.
+pub(crate) async fn answer_as_codex_service(stream: impl AsyncRead + AsyncWrite + Unpin) {
+    let hooks = match read_terminal_service_hooks().expect("the daemon's hooks read") {
+        TerminalServiceHooks::Daemon(hooks) => vec![
+            listed_hook("preToolUse", &hooks.pre_tool_use),
+            listed_hook("postToolUse", &hooks.post_tool_use),
+        ],
+        TerminalServiceHooks::NoHooks | TerminalServiceHooks::ProgramReplaced => Vec::new(),
+    };
     // A probe that only connects ends before the upgrade.
     let Ok(mut socket) = tokio_tungstenite::accept_async(stream).await else {
         return;
@@ -243,16 +250,16 @@ pub(crate) async fn answer_as_codex_service(
         if request.get("id").is_none() {
             continue;
         }
-        let result = match request["method"].as_str() {
-            Some("initialize") => json!({"userAgent": "ai-sidekicks-daemon/0.130.0 (test)"}),
-            Some("hooks/list") => json!({"data": [{"hooks": [
-                listed_hook("preToolUse", &hooks.pre_tool_use),
-                listed_hook("postToolUse", &hooks.post_tool_use),
-            ]}]}),
-            Some("thread/loaded/list") => json!({"data": []}),
-            _ => json!({}),
+        let id = &request["id"];
+        let reply = match request["method"].as_str() {
+            Some("config/value/write") => json!({"id": id,
+                "error": {"code": -32603, "message": "the test service writes no config"}}),
+            Some("initialize") => json!({"id": id,
+                "result": {"userAgent": "ai-sidekicks-daemon/0.130.0 (test)"}}),
+            Some("hooks/list") => json!({"id": id, "result": {"data": [{"hooks": hooks}]}}),
+            Some("thread/loaded/list") => json!({"id": id, "result": {"data": []}}),
+            _ => json!({"id": id, "result": {}}),
         };
-        let reply = json!({"id": request["id"], "result": result});
         if socket
             .send(Message::Text(reply.to_string().into()))
             .await
