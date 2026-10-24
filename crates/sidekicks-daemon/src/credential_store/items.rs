@@ -181,7 +181,7 @@ impl PlaceState {
         }
     }
 
-    // Records that `place` passed its check.
+    // Records that `place` passed its check, once its record names it.
     fn accept(&mut self, place: SecretsPlace) -> SecretsPlace {
         self.picked = Some(place);
         self.verdict = Verdict::Accepted;
@@ -474,9 +474,9 @@ impl SecretItems {
         } else if let Some(seal) = &self.seal {
             match self.probe(seal.as_ref()).await? {
                 Probe::Sealed(header) if !header.is_boot_bound() => {
-                    let place = self.open_sealed(state, header).await?;
-                    self.record(state, place).await?;
-                    return Ok(place);
+                    self.open_sealed(state, header).await?;
+                    self.record(state, SecretsPlace::SealedFile).await?;
+                    return Ok(state.accept(SecretsPlace::SealedFile));
                 }
                 Probe::Sealed(header) => {
                     log_boot_bound(header);
@@ -513,7 +513,7 @@ impl SecretItems {
         };
         self.check_written(state, place).await?;
         self.record(state, place).await?;
-        Ok(place)
+        Ok(state.accept(place))
     }
 
     // Checks the place `recorded` names, sealing a Linux plain file once the service seals for it.
@@ -524,13 +524,15 @@ impl SecretItems {
     ) -> Result<SecretsPlace, KeychainRefusal> {
         let reason = match recorded {
             SecretsPlace::OperatingSystem | SecretsPlace::LoggedOutServiceFile => {
-                return self.check_written(state, recorded).await;
+                self.check_written(state, recorded).await?;
+                return Ok(state.accept(recorded));
             }
             SecretsPlace::SealedFile => return self.settle_sealed(state).await,
             SecretsPlace::PlainFile { reason } => reason,
         };
         let Some(seal) = &self.seal else {
-            return self.check_written(state, recorded).await;
+            self.check_written(state, recorded).await?;
+            return Ok(state.accept(recorded));
         };
         // A pass that sealed the file and stopped before its record leaves the sealed form under
         // this record, which moves with no seal.
@@ -547,11 +549,10 @@ impl SecretItems {
             Probe::Sealed(header) => {
                 log_boot_bound(header);
                 if reason != DaemonSecretsPlainReason::BootBound {
-                    self.record(state, plain_file(DaemonSecretsPlainReason::BootBound))
-                        .await?;
-                    return self
-                        .check_written(state, plain_file(DaemonSecretsPlainReason::BootBound))
-                        .await;
+                    let place = plain_file(DaemonSecretsPlainReason::BootBound);
+                    self.record(state, place).await?;
+                    self.check_written(state, place).await?;
+                    return Ok(state.accept(place));
                 }
             }
             Probe::Failed(failure) => tracing::info!(
@@ -566,17 +567,19 @@ impl SecretItems {
             ),
             Probe::Mismatch => log_mismatch(),
         }
-        self.check_written(state, recorded).await
+        self.check_written(state, recorded).await?;
+        Ok(state.accept(recorded))
     }
 
-    // Runs the write-read-delete check on `place` and accepts it once it passes.
+    // Runs the write-read-delete check on `place`; the caller accepts it once its record names
+    // it. Fails with the refusal the caller answers with.
     async fn check_written(
         &self,
         state: &mut PlaceState,
         place: SecretsPlace,
-    ) -> Result<SecretsPlace, KeychainRefusal> {
+    ) -> Result<(), KeychainRefusal> {
         match self.check(place).await {
-            Check::Accepted => Ok(state.accept(place)),
+            Check::Accepted => Ok(()),
             Check::Mismatch => {
                 state.verdict = Verdict::Mismatch;
                 log_mismatch();

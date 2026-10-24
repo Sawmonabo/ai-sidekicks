@@ -55,7 +55,8 @@ impl SecretItems {
         }
         self.record(state, SecretsPlace::SealedFile).await?;
         tracing::info!(key = ?header.key(), "the daemon's secrets were sealed");
-        self.open_sealed(state, header).await.map(Some)
+        self.open_sealed(state, header).await?;
+        Ok(Some(state.accept(SecretsPlace::SealedFile)))
     }
 
     // Probes the service for the recorded sealed file and opens it.
@@ -67,7 +68,10 @@ impl SecretItems {
             return Err(state.refuse_opening(DaemonSecretsFileUnopened::SealServiceMissing));
         };
         match self.probe(seal.as_ref()).await? {
-            Probe::Sealed(header) => self.open_sealed(state, header).await,
+            Probe::Sealed(header) => {
+                self.open_sealed(state, header).await?;
+                Ok(state.accept(SecretsPlace::SealedFile))
+            }
             Probe::Failed(SealFailure::NoService(failure)) => {
                 tracing::warn!(
                     error = &failure as &(dyn Error + 'static),
@@ -102,12 +106,13 @@ impl SecretItems {
     }
 
     // Opens one item of the sealed file per key it holds, the probe's blob having shown `probe`,
-    // then seals again once each item sealed with a weaker key than the probe's.
+    // then seals again once each item sealed with a weaker key than the probe's; the caller accepts
+    // the sealed file once its record names it. Fails with the refusal the caller answers with.
     pub(super) async fn open_sealed(
         &self,
         state: &mut PlaceState,
         probe: SealHeader,
-    ) -> Result<SecretsPlace, KeychainRefusal> {
+    ) -> Result<(), KeychainRefusal> {
         let (seal, sealed_file) = (self.seal()?, self.sealed_file()?);
         let mut samples = BTreeMap::new();
         let mut is_any_weaker = false;
@@ -153,7 +158,7 @@ impl SecretItems {
             pcr_mask = probe.pcr_mask(),
             "systemd's credential service seals the daemon's secrets"
         );
-        Ok(state.accept(SecretsPlace::SealedFile))
+        Ok(())
     }
 
     // Seals a random value under this run's probe account, reads the key its blob names, opens it

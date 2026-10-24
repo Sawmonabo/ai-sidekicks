@@ -14,6 +14,7 @@ use super::{SecretItems, SecretItemsStart};
 use crate::credential_store::SecretKeychain;
 use crate::credential_store::file::SecretItemsFile;
 use crate::credential_store::os::{SystemCredentialStore, TestStoreAccess};
+use crate::credential_store::seal::{TestSeal, TestSealAnswer};
 use crate::credential_store::service::KeychainService;
 use crate::random_hex::random_hex;
 
@@ -252,6 +253,60 @@ async fn a_move_whose_store_is_gone_waits_and_finishes_once_it_returns() {
         read_text(&folder.path().join(RECORD)).as_deref(),
         Some(OPERATING_SYSTEM)
     );
+}
+
+// The place a first start picks before its record write fails.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FirstPlace {
+    OperatingSystem,
+    SealedFile,
+    PlainFile,
+}
+
+/// A first start whose record cannot be written refuses that call and the next, and no item lands
+/// in the place it picked, so no later start that picks another place strands one. The store's
+/// record fails for a data folder that is gone, a file's for a folder made at the record's path
+/// once the record was read. Mutation: accept the place before its record is written, so the
+/// second call is served.
+#[rstest]
+#[case::operating_system(FirstPlace::OperatingSystem)]
+#[case::sealed_file(FirstPlace::SealedFile)]
+#[case::plain_file(FirstPlace::PlainFile)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_place_whose_record_cannot_be_written_serves_no_call(#[case] place: FirstPlace) {
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let credentials = CredentialStore::in_memory();
+    let seal = TestSeal::new();
+    let (data_folder, access) = match place {
+        FirstPlace::OperatingSystem => (
+            folder.path().join("gone"),
+            TestStoreAccess::new(credentials.clone()),
+        ),
+        FirstPlace::SealedFile | FirstPlace::PlainFile => (
+            folder.path().to_path_buf(),
+            TestStoreAccess::sealing(Arc::clone(&seal)),
+        ),
+    };
+    if place == FirstPlace::PlainFile {
+        seal.answer(TestSealAnswer::Absent);
+    }
+    let items = secret_items(&data_folder, &access, false, Duration::from_secs(5));
+    let release = seal.hold_next_seal();
+    let block_the_record = async {
+        if place != FirstPlace::OperatingSystem {
+            seal.wait_for_seals(1).await;
+            std::fs::create_dir(folder.path().join(RECORD)).expect("the test makes the folder");
+        }
+        drop(release);
+    };
+
+    let (first, ()) = tokio::join!(write_and_read(&items, "secret", "value"), block_the_record);
+    let second = write_and_read(&items, "secret", "value").await;
+
+    assert_eq!(first, Err(KeychainRefusalCause::Unavailable));
+    assert_eq!(second, Err(KeychainRefusalCause::Unavailable));
+    assert_eq!(stored(&credentials, WORKFLOW, "secret"), None);
+    assert!(!data_folder.join(ITEMS).exists());
 }
 
 /// The check writes under a fresh account each start, so a leftover from an earlier build that
