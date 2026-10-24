@@ -76,13 +76,21 @@ mod tests {
         Wait::InSelect
     };
 
+    // How a `select` reader holding another source its wait may be on reads: Linux reads the set
+    // holds the terminal, macOS refuses the mark.
+    const OTHER_SOURCE_SELECT_WAIT: Wait = if cfg!(target_os = "linux") {
+        Wait::OnTerminal
+    } else {
+        Wait::None
+    };
+
     // Fails when a thread's run state is taken as a wait (`sleep 30` and the shell waiting on it
     // after `read -t` wait in the kernel too), when a stopped reader or one with input typed ahead
-    // reads as waiting, when a read on a FIFO is taken for the terminal's,
-    // when echo is read as off only with canonical input on (`vim` turns both off), when echo off
-    // alone reads as a password prompt (`stty -echo -icanon`), when a read on the terminal, a
-    // `kevent` on a read knote, a `select` or a read through `/dev/tty` is missed, or when a
-    // `select` in a process holding a socket reads as a wait on the terminal, or when an orphan
+    // reads as waiting, when a read on a FIFO is taken for the terminal's, when echo is read as off
+    // only with canonical input on (`vim` turns both off), when echo off alone reads as a password
+    // prompt (`stty -echo -icanon`), when a read on the terminal, a `kevent` on a read knote, a
+    // `select` or a read through `/dev/tty` is missed, when a `select` in a process holding a
+    // socket, a pipe or FIFO open for reading or a kqueue is marked on macOS, or when an orphan
     // reader outside the session leader's tree is missed.
     #[rstest]
     #[case::node_readline(
@@ -151,6 +159,33 @@ mod tests {
         "ready",
         Act::Nothing,
         reading(SELECT_WAIT, Echo::On)
+    )]
+    // Its `select` holds the terminal, and a pipe open for reading its wait may be on instead.
+    #[case::pipe_holding_select(
+        "exec python3 -c \"import os, select, sys; read_end, write_end = os.pipe(); \
+         print('ready', flush=True); select.select([sys.stdin], [], [])\"",
+        "ready",
+        Act::Nothing,
+        reading(OTHER_SOURCE_SELECT_WAIT, Echo::On)
+    )]
+    // The same with a FIFO a quiet writer holds open.
+    #[case::fifo_holding_select(
+        "mkfifo pipe; sleep 600 > pipe & exec python3 -c \"import select, sys; \
+         fifo = open('pipe'); print('ready', flush=True); select.select([sys.stdin], [], [])\"",
+        "ready",
+        Act::Nothing,
+        reading(OTHER_SOURCE_SELECT_WAIT, Echo::On)
+    )]
+    // The same with a kqueue, whose knotes its wait may be on instead; Linux has no kqueue.
+    #[cfg_attr(
+        target_os = "macos",
+        case::kqueue_holding_select(
+            "exec python3 -c \"import select, sys; queue = select.kqueue(); \
+             print('ready', flush=True); select.select([sys.stdin], [], [])\"",
+            "ready",
+            Act::Nothing,
+            reading(OTHER_SOURCE_SELECT_WAIT, Echo::On)
+        )
     )]
     // Bound to the loopback address, which no firewall prompt guards.
     #[case::socket_server(
