@@ -358,7 +358,7 @@ impl SecretItemsFile {
                 let (value, floor) = match text.form {
                     ItemsForm::Plain => (stored, probe.key()),
                     ItemsForm::Sealed => match SealHeader::read(stored.expose_secret()) {
-                        Some(old) if is_weaker(old.key(), probe.key()) => {
+                        Some(old) if old.key() < probe.key() => {
                             match within_pass_time(time, seal.unseal(&name, stored.expose_secret()))
                                 .await
                             {
@@ -380,7 +380,7 @@ impl SecretItemsFile {
                     Err(abandoned) => return Ok(SealPass::Abandoned(abandoned)),
                 };
                 match SealHeader::read(&blob) {
-                    Some(new) if !is_weaker(new.key(), floor) && !new.is_boot_bound() => {}
+                    Some(new) if new.key() >= floor && !new.is_boot_bound() => {}
                     Some(_) | None => return Ok(SealPass::Abandoned(PassAbandoned::Weaker)),
                 }
                 sealed
@@ -673,11 +673,6 @@ fn form_of(seal: Option<&dyn SecretSeal>) -> ItemsForm {
     } else {
         ItemsForm::Plain
     }
-}
-
-/// Whether `key` is weaker than `than` in the strength order [`SealKey`] declares.
-pub(crate) fn is_weaker(key: SealKey, than: SealKey) -> bool {
-    key < than
 }
 
 // Runs one seal or unseal of a pass within `time`; the pass stops when it fails or runs out.

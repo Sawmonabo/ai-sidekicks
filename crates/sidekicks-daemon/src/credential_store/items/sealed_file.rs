@@ -13,7 +13,7 @@ use sidekicks_platforms::{SealFailure, SealHeader};
 
 use super::{PlaceState, SecretItems, log_mismatch, random_value};
 use crate::credential_store::file::{
-    ItemsReadFailure, PassAbandoned, SealPass, SealedItem, credential_name, is_weaker,
+    ItemsReadFailure, PassAbandoned, SealPass, SealedItem, credential_name,
 };
 use crate::credential_store::place::SecretsPlace;
 use crate::credential_store::seal::SecretSeal;
@@ -144,7 +144,7 @@ impl SecretItems {
                 continue;
             }
             let key = item.header().map(SealHeader::key);
-            is_any_weaker |= key.is_some_and(|key| is_weaker(key, probe.key()));
+            is_any_weaker |= key.is_some_and(|key| key < probe.key());
             samples.entry(key).or_insert(item);
         }
         let opened = tokio::time::timeout(
@@ -264,10 +264,10 @@ async fn open_samples(
             // or, both holding the chip, in a key form this systemd cannot open; an item no
             // stronger lost the key it was sealed with.
             SealFailure::Refused { .. } => match item.header().map(SealHeader::key) {
-                Some(item_key) if is_weaker(probe.key(), item_key) && !probe.key().uses_chip() => {
+                Some(item_key) if probe.key() < item_key && !probe.key().uses_chip() => {
                     DaemonSecretsFileUnopened::ChipUnavailable
                 }
-                Some(item_key) if is_weaker(probe.key(), item_key) => {
+                Some(item_key) if probe.key() < item_key => {
                     DaemonSecretsFileUnopened::SealServiceMissing
                 }
                 Some(_) | None => DaemonSecretsFileUnopened::KeyChanged,

@@ -133,19 +133,20 @@ fn item_keys(folder: &Path) -> Vec<Option<SealKey>> {
 /// recorded, and a sealed file found there recording its place before any probe), and a later start
 /// keeping its record (a sealed file that cannot open refused with its cause and left byte for
 /// byte, a chip item failing under a probe without the chip read as the chip off, a pinned chip
-/// item failing under a plain chip probe as a key form this systemd cannot open, an item
-/// failing under the probe's own key or a weaker one as the key changed, a plain file sealed once
-/// the service seals unbound, its reason recorded again from the probe, an item sealed with a
-/// weaker key sealed again with the probe's, a file mixing keys read by the weakest). Mutations:
-/// drop the allow-list (any refusal then picks the plain file); read every refusal as definite;
-/// read a bound probe as sealed; read every failing item as `keyChanged`, or every chip item as
-/// `chipUnavailable`; drop the `sealServiceMissing` arm of `open_samples`; `is_weaker` back to
-/// `!key.uses_chip() && than.uses_chip()`; keep a plain record when the service seals; keep a plain
-/// record's reason when the probe gives another; skip the upward re-seal; invert the pass's floor
-/// check in `seal_held` (`!is_weaker(new.key(), floor)` to `is_weaker(new.key(), floor)`); write
-/// the record before the open; open a first start's plain file as sealed, which refuses it on its
-/// form; read a first start's form after the probe, so a sealed file under an absent service picks
-/// the plain file; read the protection from any chip item rather than every one.
+/// item failing under a plain chip probe as a key form this systemd cannot open, an item failing
+/// under the probe's own key or a weaker one as the key changed, a plain file sealed once the
+/// service seals unbound, its reason recorded again from the probe, an item sealed with a weaker
+/// key sealed again with the probe's, a file mixing keys read by the weakest). Mutations: drop the
+/// allow-list (any refusal then picks the plain file); read every refusal as definite; read a bound
+/// probe as sealed; read every failing item as `keyChanged`, or every chip item as
+/// `chipUnavailable`; drop the `sealServiceMissing` arm of `open_samples`; compare keys in
+/// `open_samples` by `uses_chip` alone rather than `SealKey`'s order; keep a plain record when the
+/// service seals; keep a plain record's reason when the probe gives another; skip the upward
+/// re-seal; invert the pass's floor check in `seal_held` (`new.key() >= floor` to `new.key() <
+/// floor`); write the record before the open; open a first start's plain file as sealed, which
+/// refuses it on its form; read a first start's form after the probe, so a sealed file under an
+/// absent service picks the plain file; read the protection from any chip item rather than every
+/// one.
 #[rstest]
 #[case::first_start_sealed_with_the_chip(
     None, Before::Nothing, SealNow::serves(SealKey::Chip),
@@ -395,35 +396,6 @@ async fn a_sealed_file_under_a_plain_record_moves_the_record_and_seals_nothing()
     );
 }
 
-/// A pinned chip item that does not open under a plain chip probe, sealed by a newer systemd than
-/// this one, refuses each call with `sealServiceMissing` and is checked again at the next, one
-/// probe per call, so an updated systemd opens it with no restart. Mutation: latch the cause in
-/// `refuse_opening` as `keyChanged` is, so the second call probes nothing.
-#[tokio::test]
-async fn a_key_form_this_systemd_cannot_produce_is_checked_again_each_call() {
-    let folder = tempfile::tempdir().expect("the test makes a folder");
-    std::fs::write(folder.path().join(RECORD), SEALED).expect("the test writes the record");
-    let seal = TestSeal::new();
-    file_before(folder.path(), &seal, Before::Sealed(SealKey::ChipPinned)).await;
-    SealNow::forgets(SealKey::Chip).apply(&seal);
-    let seals_before = seal.seals();
-    let items = secret_items(
-        folder.path(),
-        &TestStoreAccess::sealing(Arc::clone(&seal)),
-        false,
-        Duration::from_secs(5),
-    );
-    let downgraded = Some(json!({"protection":"sealedWithChip","cannotOpen":"sealServiceMissing"}));
-
-    for call in 1..=2 {
-        let answer = write_and_read(&items, "secret", "value").await;
-
-        assert_eq!(answer, Err(KeychainRefusalCause::Unavailable));
-        assert_eq!(seal.seals() - seals_before, call, "each call probes once");
-        assert_eq!(status(&items).await, downgraded);
-    }
-}
-
 // What latches the sealed file's cause for the run.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Latch {
@@ -568,37 +540,54 @@ async fn a_latched_cause_refuses_every_call_until_the_relink(
     );
 }
 
-// What refuses a sealed record's call though the file reads.
+// What refuses a sealed record's call with a cause checked again at the next.
 #[derive(Clone, Copy)]
 enum NotLatched {
+    // A pinned chip item does not open under a plain chip probe.
+    KeyFormThisSystemdCannotOpen,
     // The file is plain.
     PlainForm,
     // A write cut short left a leftover that cannot be removed.
     LeftoverSweep,
 }
 
-/// A sealed record whose file is plain, or whose folder holds a leftover the sweep cannot remove,
-/// refuses each call with its own words and checks again at the next, one probe per call, the
-/// status naming no cause, since a restart mends neither. Mutation: in `open_sealed`, latch a
-/// `Refused` read as an `Unreadable` one, so the second call probes nothing.
+/// A pinned chip item that does not open under a plain chip probe, read as `sealServiceMissing`, a
+/// plain file under a sealed record, and a leftover the sweep cannot remove each refuse every call
+/// with their own words and are checked again at the next, one probe per call, so an updated
+/// systemd opens the item with no restart, and a restart, which mends neither of the others, is
+/// never asked for. Mutations: latch the cause in `refuse_opening` as `keyChanged` is; in
+/// `open_sealed`, latch a `Refused` read as an `Unreadable` one; either makes the second call probe
+/// nothing.
 #[rstest]
+#[case::key_form_this_systemd_cannot_open(
+    NotLatched::KeyFormThisSystemdCannotOpen,
+    "cannot open the key form that sealed them",
+    json!({"protection":"sealedWithChip","cannotOpen":"sealServiceMissing"})
+)]
 #[case::plain_form(
     NotLatched::PlainForm,
-    "keeps its secrets in another form than this call opens"
+    "keeps its secrets in another form than this call opens",
+    json!({"protection":"sealedWithSystemKey"})
 )]
 #[case::leftover_sweep(
     NotLatched::LeftoverSweep,
-    "the leftovers of an items file write cut short could not be removed"
+    "the leftovers of an items file write cut short could not be removed",
+    json!({"protection":"sealedWithChip"})
 )]
 #[tokio::test]
-async fn a_refusal_the_file_does_not_cause_is_checked_again_each_call(
+async fn a_cause_a_restart_does_not_mend_is_checked_again_each_call(
     #[case] not_latched: NotLatched,
     #[case] words: &str,
+    #[case] status_now: serde_json::Value,
 ) {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     std::fs::write(folder.path().join(RECORD), SEALED).expect("the test writes the record");
     let seal = TestSeal::new();
     match not_latched {
+        NotLatched::KeyFormThisSystemdCannotOpen => {
+            file_before(folder.path(), &seal, Before::Sealed(SealKey::ChipPinned)).await;
+            SealNow::forgets(SealKey::Chip).apply(&seal);
+        }
         NotLatched::PlainForm => file_before(folder.path(), &seal, Before::Plain).await,
         NotLatched::LeftoverSweep => {
             file_before(folder.path(), &seal, Before::Sealed(SealKey::Chip)).await;
@@ -622,10 +611,10 @@ async fn a_refusal_the_file_does_not_cause_is_checked_again_each_call(
             .await
             .expect_err("the call is refused");
 
+        assert_eq!(refusal.cause(), KeychainRefusalCause::Unavailable);
         assert!(refusal.reason().contains(words), "{}", refusal.reason());
         assert_eq!(seal.seals() - seals_before, call, "each call probes once");
-        let status_now = status(&items).await.expect("the file holds an item");
-        assert_eq!(status_now.get("cannotOpen"), None);
+        assert_eq!(status(&items).await.as_ref(), Some(&status_now));
     }
 }
 

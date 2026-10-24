@@ -326,11 +326,15 @@ impl SecretItems {
                     if !state.is_pass_refused {
                         return Err(sealing_abandoned());
                     }
-                    plain_file_place(DaemonSecretsPlainReason::SealFailed)
+                    SecretsPlace::PlainFile {
+                        reason: DaemonSecretsPlainReason::SealFailed,
+                    }
                 }
                 Probe::Sealed(header) => {
                     log_boot_bound(header);
-                    plain_file_place(DaemonSecretsPlainReason::BootBound)
+                    SecretsPlace::PlainFile {
+                        reason: DaemonSecretsPlainReason::BootBound,
+                    }
                 }
                 Probe::Failed(SealFailure::NoService(failure)) => {
                     tracing::warn!(
@@ -339,7 +343,9 @@ impl SecretItems {
                         "systemd's credential service is not running, so the secrets are kept \
                          plain in the items file"
                     );
-                    plain_file_place(DaemonSecretsPlainReason::NoSealService)
+                    SecretsPlace::PlainFile {
+                        reason: DaemonSecretsPlainReason::NoSealService,
+                    }
                 }
                 Probe::Failed(failure) if is_definite_refusal(&failure) => {
                     tracing::warn!(
@@ -348,7 +354,9 @@ impl SecretItems {
                         "systemd's credential service cannot seal on this computer, so the \
                          secrets are kept plain in the items file"
                     );
-                    plain_file_place(DaemonSecretsPlainReason::SealFailed)
+                    SecretsPlace::PlainFile {
+                        reason: DaemonSecretsPlainReason::SealFailed,
+                    }
                 }
                 Probe::Failed(failure) => return Err(seal_refused(failure)),
                 Probe::NoAnswer => return Err(self.no_answer()),
@@ -435,7 +443,7 @@ impl SecretItems {
         };
         let place = match reason_now {
             Some(now) if now != reason => {
-                let place = plain_file_place(now);
+                let place = SecretsPlace::PlainFile { reason: now };
                 self.record(state, place).await?;
                 place
             }
@@ -639,11 +647,6 @@ impl SecretKeychain for ItemsKeychain {
     fn accounts(&self) -> BoxFuture<'_, Result<Vec<String>, KeychainRefusal>> {
         Box::pin(self.items.serve(self, |keychain| keychain.accounts()))
     }
-}
-
-// A plain Linux file kept for `reason`.
-fn plain_file_place(reason: DaemonSecretsPlainReason) -> SecretsPlace {
-    SecretsPlace::PlainFile { reason }
 }
 
 // A random value for a check.
