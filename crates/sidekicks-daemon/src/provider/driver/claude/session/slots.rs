@@ -402,10 +402,9 @@ mod tests {
         ClaudeSessionError, ClaudeSessionSlotState,
     };
     use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel;
-    use crate::provider::driver::claude::session::scripted::{
-        mint_session_id, scripted_live_session,
-    };
+    use crate::provider::driver::claude::session::scripted::scripted_live_session;
     use crate::provider::driver::claude::session::state::LiveClaudeSession;
+    use crate::provider::driver::test_registry::new_session_id;
     use sidekicks_contracts::session::id::SessionId;
 
     fn live(session_id: SessionId) -> Arc<LiveClaudeSession> {
@@ -429,7 +428,7 @@ mod tests {
     #[test]
     fn a_closing_slot_refuses_a_create_and_a_failed_disposal_quarantines_its_process() {
         let slots = ClaudeSessionSlots::new(Arc::new(|_predecessor| {}));
-        let session_id = mint_session_id();
+        let session_id = new_session_id();
         let live = live(session_id);
         install(&slots, &live);
 
@@ -469,7 +468,7 @@ mod tests {
                     .push(predecessor);
             })
         });
-        let session_id = mint_session_id();
+        let session_id = new_session_id();
         let predecessor = live(session_id);
         install(&slots, &predecessor);
 

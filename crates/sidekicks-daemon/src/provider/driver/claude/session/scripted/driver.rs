@@ -28,9 +28,7 @@ use super::daemon_services::{
 };
 use super::run_engine::RecordingRunEngine;
 use super::starts::{ScriptedStartRecord, ScriptedStarts};
-use super::{
-    SCRIPTED_PROVIDER_SESSION_ID, hand_scripted_frame, mint_session_id, scripted_staged_changes,
-};
+use super::{SCRIPTED_PROVIDER_SESSION_ID, hand_scripted_frame, scripted_staged_changes};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::mutex_lock::lock;
@@ -41,7 +39,7 @@ use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::provider::driver::claude::lifecycle::ClaudeDriver;
 use crate::provider::driver::ports::SessionRelaunchListener;
 use crate::provider::driver::session_control::{CreateSessionParams, DriverResumeResult};
-use crate::provider::driver::test_registry::test_driver_services;
+use crate::provider::driver::test_registry::{new_session_id, test_driver_services};
 use crate::provider::driver::{
     DriverServices, ProviderAccountFolders, SessionSpawnContext, SessionSpawnContextResolver,
 };
@@ -248,7 +246,7 @@ impl ScriptedDriver {
 
     /// Opens a session on `channel` through the driver's create.
     pub(crate) async fn create(&self, channel: &Arc<ScriptedChannel>) -> SessionId {
-        let session_id = mint_session_id();
+        let session_id = new_session_id();
         self.starts.script_session(Arc::clone(channel));
         self.driver
             .create_session(create_params(session_id))

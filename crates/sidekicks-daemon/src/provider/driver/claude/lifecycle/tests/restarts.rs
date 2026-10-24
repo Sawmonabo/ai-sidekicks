@@ -15,13 +15,13 @@ use crate::provider::driver::claude::session::establishment::context::CLAUDE_ADV
 use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::provider::driver::claude::session::scripted::daemon_services::PortCall;
 use crate::provider::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
-use crate::provider::driver::claude::session::scripted::{binding_id, mint_session_id, settle};
+use crate::provider::driver::claude::session::scripted::{binding_id, settle};
 use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::session_control::{
     CloseSessionParams, DriverResumeResult, ProviderBuildChange, ResumeSessionParams,
 };
-use crate::provider::driver::test_registry::new_run_id;
+use crate::provider::driver::test_registry::{new_run_id, new_session_id};
 use crate::session::directory::test_rows::insert_session_row;
 
 // Killed by restarting past a full crash window: the fifth exit inside it reports the loop and
@@ -149,7 +149,7 @@ async fn a_later_start_keeps_the_advisor_claude_code_resolved_at_the_first_start
         .session_advisors
         .register(Arc::new(writer))
         .expect("the advisor store registers once");
-    let session_id = mint_session_id();
+    let session_id = new_session_id();
     insert_session_row(
         &fixture.database.reader(),
         session_id.text().as_str(),

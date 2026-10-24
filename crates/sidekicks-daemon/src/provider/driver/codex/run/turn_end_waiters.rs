@@ -18,10 +18,6 @@ use crate::provider::driver::codex::transport::connection::CODEX_REQUEST_TIMEOUT
 
 /// What one wait waits for on a session's record.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(
-    dead_code,
-    reason = "the Codex start, retry, undo, goal and `Allow once` name what they wait for"
-)]
 pub(crate) enum CodexTurnWait {
     /// The turn `turn_id` to end: neither live, nor stopped by the daemon and still ending, nor
     /// started by Codex with no run.
@@ -32,6 +28,10 @@ pub(crate) enum CodexTurnWait {
     /// No turn the daemon is stopping still ending, and none Codex started running with no run.
     StoppedTurns,
     /// A turn to run, start or open its run.
+    #[expect(
+        dead_code,
+        reason = "the `session.goal.update` handler waits through the driver for a turn in flight"
+    )]
     TurnInFlight,
     /// No turn to run, start, still end or open its run, so the session is idle.
     Idle,

@@ -5,7 +5,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
 use crate::provider::driver::ProviderAccountFolders;
 use crate::provider::driver::claude::session::scripted::driver::ScriptedDriver;
-use crate::provider::driver::claude::session::scripted::mint_session_id;
+use crate::provider::driver::test_registry::new_session_id;
 use crate::provider::runtime_binding::test_store::record_session_leg;
 
 /// The conversation the session's stored leg names.
@@ -26,7 +26,7 @@ async fn a_rename_at_rest_after_a_restart_names_the_conversation_its_stored_leg_
     std::fs::create_dir_all(&project_folder).expect("the project folder is made");
     let file = project_folder.join(format!("{STORED_CONVERSATION}.jsonl"));
     std::fs::write(&file, "{\"type\":\"user\"}\n").expect("the conversation is written");
-    let session_id = mint_session_id();
+    let session_id = new_session_id();
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
     record_session_leg(&fixture.database, session_id, account, STORED_CONVERSATION).await;
 

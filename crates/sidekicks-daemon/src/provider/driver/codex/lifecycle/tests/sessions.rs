@@ -15,7 +15,6 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::controls::methods::{
     PermissionLevel, SessionMode, SideQuestionId,
 };
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::record::Record;
 
@@ -48,7 +47,9 @@ use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::provider::driver::session_control::{
     AskSideQuestionParams, CloseSessionParams, ResumeSessionParams,
 };
-use crate::provider::driver::test_registry::{new_run_id, terminal_events, test_driver_services};
+use crate::provider::driver::test_registry::{
+    new_run_id, new_session_id, terminal_events, test_driver_services,
+};
 use crate::session::run::engine::tests::test_engine;
 use crate::session::run::epochs::ExecutionEpochs;
 use crate::session::run::inbound::RunInboundDispatch;
@@ -297,9 +298,7 @@ async fn the_daemons_stop_refuses_a_create_and_lets_go_one_claimed_before_it_wit
         ..
     } = LiveCodexSession::start(&[]).await;
     let parts = Arc::clone(driver.parts().expect("the driver composes"));
-    let new_session =
-        || SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
-    let claimed_before = new_session();
+    let claimed_before = new_session_id();
     let create = parts
         .slots
         .claim_establishing(claimed_before)
@@ -314,7 +313,7 @@ async fn the_daemons_stop_refuses_a_create_and_lets_go_one_claimed_before_it_wit
         () = std::future::ready(()) => {}
     }
     assert!(matches!(
-        parts.slots.claim_establishing(new_session()).await,
+        parts.slots.claim_establishing(new_session_id()).await,
         Err(CodexError::SessionClosed { .. })
     ));
     // The create's record, whose task has already ended.
@@ -420,7 +419,7 @@ async fn driver_holding(
 // A side question on a session at rest whose stored conversation is `stored-thread`, at Ask on the
 // person's own sign-in.
 fn resting_question(folder: &Path) -> AskSideQuestionParams {
-    let session_id = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+    let session_id = new_session_id();
     AskSideQuestionParams {
         session_id,
         side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),

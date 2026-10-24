@@ -13,7 +13,7 @@ use crate::provider::driver::claude::session::scripted::channel::{
 };
 use crate::provider::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
 use crate::provider::driver::claude::session::scripted::{
-    SCRIPTED_PROVIDER_SESSION_ID, hand_scripted_frame, mint_session_id, settle,
+    SCRIPTED_PROVIDER_SESSION_ID, hand_scripted_frame, settle,
 };
 use crate::provider::driver::claude::session::transport::declarations::{
     ClaudeInitializeDeclaration, ClaudeOfferedModel,
@@ -23,6 +23,7 @@ use crate::provider::driver::error_causes::ProviderAxis;
 use crate::provider::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult,
 };
+use crate::provider::driver::test_registry::new_session_id;
 
 // Killed by a failed bring-up leaving its claim behind, which refuses the next create, and by a
 // close that finds a bring-up in flight returning before it settles, which leaves its process
@@ -30,7 +31,7 @@ use crate::provider::driver::session_control::{
 #[tokio::test(start_paused = true)]
 async fn a_failed_bring_up_frees_its_claim_and_a_close_waits_for_one_in_flight() {
     let fixture = ScriptedDriver::new();
-    let session_id = mint_session_id();
+    let session_id = new_session_id();
     fixture.starts.script_failed_session("the spawn failed");
     assert!(
         fixture
@@ -106,7 +107,7 @@ async fn a_new_session_switches_to_an_unlisted_model_and_refuses_one_claude_code
     fixture.starts.script_session(Arc::clone(&channel));
     let params = CreateSessionParams {
         model: ProviderToken::new(model.to_owned()).expect("the model fits"),
-        ..create_params(mint_session_id())
+        ..create_params(new_session_id())
     };
     let agent_id = params.agent_id;
 
@@ -155,7 +156,7 @@ async fn a_resume_starts_at_its_conversations_turn_count_and_fails_on_an_unreada
 
     let resumed = fixture
         .driver
-        .resume_session(resume_params(mint_session_id()))
+        .resume_session(resume_params(new_session_id()))
         .await
         .expect("the resume answers");
 
@@ -181,7 +182,7 @@ async fn a_resume_starts_at_its_conversations_turn_count_and_fails_on_an_unreada
 #[tokio::test(start_paused = true)]
 async fn a_resumed_conversation_reads_no_handshake_until_its_new_process_declares_one() {
     let fixture = ScriptedDriver::new();
-    let session_id = mint_session_id();
+    let session_id = new_session_id();
     let parts = fixture.driver.composed_parts().expect("composed");
     let (routes, handshakes) = (&parts.run_start.routes, &parts.run_start.handshakes);
     let handle = resume_params(session_id).resume_handle;

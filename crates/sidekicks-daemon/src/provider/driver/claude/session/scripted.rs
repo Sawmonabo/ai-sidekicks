@@ -63,7 +63,7 @@ use crate::provider::driver::claude::session::transport::inbound::{
 };
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::provider::driver::test_registry::new_run_id;
+use crate::provider::driver::test_registry::{new_run_id, new_session_id};
 use crate::queue::delivery::ProviderProcessIdentity;
 
 /// Staged-change worktrees under a scratch folder of their own, on a spawner of their own.
@@ -77,11 +77,6 @@ pub(crate) fn scripted_staged_changes() -> StagedChangesWorktrees {
 
 /// The provider session every scripted process runs under.
 pub(crate) const SCRIPTED_PROVIDER_SESSION_ID: &str = "provider-session";
-
-/// A fresh session id.
-pub(crate) fn mint_session_id() -> SessionId {
-    SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
-}
 
 /// A runtime binding id spelled from `name`.
 pub(crate) fn binding_id(name: &str) -> RuntimeBindingId {
@@ -216,7 +211,7 @@ impl ScriptedSession {
         });
         let channel = Arc::new(ScriptedChannel::default());
         starts.script_session(Arc::clone(&channel));
-        let session_id = mint_session_id();
+        let session_id = new_session_id();
         driver
             .create_session(create_params(session_id))
             .await

@@ -120,7 +120,7 @@ impl CallerCheck {
             Some(SignatureCheck::NotMet { status }) => {
                 tracing::debug!(
                     status,
-                    "A tokenless caller's signature did not meet the desktop client's requirement"
+                    "a tokenless caller's signature did not meet the desktop client's requirement"
                 );
                 CallerAdmission::TokenRequired
             }
