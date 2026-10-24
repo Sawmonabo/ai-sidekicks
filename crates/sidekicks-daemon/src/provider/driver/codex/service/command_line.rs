@@ -273,7 +273,12 @@ mod tests {
     // when the daemon joins a service whose hooks run a program since replaced, or when a daemon
     // that runs no hooks joins a service still running a former daemon's.
     #[rstest]
-    #[case::the_same_hooks(Some(""), CODEX_HOOK_TIMEOUT.as_secs(), "daemon", LastingServiceVerdict::Adopt)]
+    #[case::the_same_hooks(
+        Some(""),
+        CODEX_HOOK_TIMEOUT.as_secs(),
+        "daemon",
+        LastingServiceVerdict::Adopt
+    )]
     #[case::another_program(
         Some("-old"),
         CODEX_HOOK_TIMEOUT.as_secs(),

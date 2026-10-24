@@ -55,8 +55,8 @@ use crate::provider::service_log::provider_service_log_file;
 use crate::provider::spawned_version::ResolvedProviderExecutable;
 
 /// Starts the terminal service on the person's own Codex folder under the start ticket `launch`;
-/// `cancel` stands the start down, and `start_lock` is Codex's start lock, held from the stop of the
-/// managed daemon this start takes the place of.
+/// `cancel` stands the start down, and `start_lock` is Codex's start lock, held from the stop of
+/// the managed daemon this start takes the place of.
 pub(super) async fn start_terminal_service(
     service: &Arc<CodexService>,
     launch: u64,
