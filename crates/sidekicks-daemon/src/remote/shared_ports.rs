@@ -2,5 +2,6 @@
 //! and in memory, each port's close signal, the readers of the list, and the loopback connect that
 //! checks the list before it dials.
 
+pub(crate) mod loopback;
 pub(crate) mod schema;
 pub(crate) mod store;
