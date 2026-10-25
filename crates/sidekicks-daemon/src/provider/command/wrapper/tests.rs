@@ -16,6 +16,7 @@ use crate::provider::command::channel::{
     CommandChannel, DaemonRequest, PartyRecord, ReceivedRecord,
 };
 use crate::provider::command::harness_test_name;
+use crate::provider::driver::PROVIDERS;
 
 /// The variable a started wrapper reads its own arguments from, joined by the unit separator.
 const WRAPPER_ARGUMENTS_VARIABLE: &str = "SIDEKICKS_TEST_WRAPPER_ARGUMENTS";
@@ -92,6 +93,45 @@ fn open_channel(folder: &Path) -> CommandChannel {
     .expect("the channel opens")
 }
 
+/// The id of a provider that runs its commands through a shell prefix, from the providers' table.
+fn prefixing_provider() -> &'static str {
+    PROVIDERS
+        .iter()
+        .find(|descriptor| descriptor.shell_prefix_command.is_some())
+        .expect("a provider prefixes its commands")
+        .id
+}
+
+/// This binary started as a wrapper over the one `line` that provider hands it, its line's shell
+/// named `/bin/sh`.
+fn line_wrapper(line: &str) -> Command {
+    let mut command = wrapper(&[line], None);
+    command
+        .env(COMMAND_PROVIDER_VARIABLE, prefixing_provider())
+        .env("SHELL", "/bin/sh");
+    command
+}
+
+/// An agent's Bash line running `command` as the provider writes it, its working folder kept in
+/// `folder`.
+fn bash_line(command: &str, folder: &Path) -> String {
+    format!(
+        "eval '{}' < /dev/null && pwd -P >| {}",
+        command.replace('\'', r#"'"'"'"#),
+        folder.join("cwd").display()
+    )
+}
+
+/// Runs `command` to its end, answering its exit's success, its output and its errors.
+fn run_to_end(mut command: Command) -> (bool, String, String) {
+    let output = command.output().expect("the wrapper runs");
+    (
+        output.status.success(),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
 fn with_channel(command: &mut Command, channel: &CommandChannel) {
     for (name, value) in channel.environment() {
         command.env(name, value);
@@ -141,13 +181,9 @@ async fn a_hook_line_runs_unchanged_and_a_bash_line_waits_for_go_both_with_sigpi
     let folder = tempfile::tempdir().expect("a folder");
     let channel = open_channel(folder.path());
     let mut watch = channel.watch().await.expect("the channel is watched");
-    let bash_line = format!(
-        "eval 'yes | head -1' < /dev/null && pwd -P >| {}",
-        folder.path().join("cwd").display()
-    );
+    let bash_line = bash_line("yes | head -1", folder.path());
     for (line, is_agent_command) in [("yes | head -1", false), (bash_line.as_str(), true)] {
-        let mut command = wrapper(&[line], None);
-        command.env(COMMAND_PROVIDER_VARIABLE, "claude");
+        let mut command = line_wrapper(line);
         with_channel(&mut command, &channel);
         let mut child = command.spawn().expect("the wrapper starts");
         if is_agent_command {
@@ -255,12 +291,67 @@ async fn a_terminal_command_takes_ctrl_c_the_interrupt_and_a_stop_past_an_ignore
         .send_request(party, &DaemonRequest::Stop {})
         .await
         .expect("the stop is sent");
-    let mut is_stopped = false;
-    while !is_stopped {
-        is_stopped = next_records(&channel, &mut watch)
-            .await
-            .iter()
-            .any(|received| received.record == PartyRecord::Stopped {});
+    let mut told = Vec::new();
+    while !told
+        .iter()
+        .any(|record| matches!(record, PartyRecord::Exited { .. }))
+    {
+        told.extend(
+            next_records(&channel, &mut watch)
+                .await
+                .into_iter()
+                .map(|received| received.record)
+                .filter(|record| {
+                    matches!(record, PartyRecord::Stopped {} | PartyRecord::Exited { .. })
+                }),
+        );
     }
+    assert_eq!(told.first(), Some(&PartyRecord::Stopped {}));
     assert_eq!(ended_by(&mut child).as_deref(), Some("SIGKILL"));
+}
+
+// Fails when a channel the wrapper cannot join leaves its command running uncovered with nothing
+// said, as the wrapper keeps no log. Mutation: drop the standard-error line in `join_channel`.
+#[test]
+fn a_channel_the_wrapper_cannot_join_says_its_command_runs_uncovered() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let mut command = line_wrapper(&bash_line("echo ran", folder.path()));
+    command
+        .env("SIDEKICKS_COMMAND_CHANNEL", folder.path())
+        .env("SIDEKICKS_COMMAND_CHANNEL_KEY", "not a key");
+    let (is_success, output, errors) = run_to_end(command);
+    assert!(is_success, "{errors}");
+    assert!(output.lines().any(|line| line == "ran"), "{output}");
+    assert!(errors.contains("runs uncovered"), "{errors}");
+}
+
+// Fails when a line that is no agent's command starts as the orphans' subreaper, which its
+// program then stays across the exec. Mutation: call `take_in_orphans` before the form is read.
+// Run on Linux, in the container leg.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_hook_line_starts_with_no_subreaper_set() {
+    let reader = "python3 -c 'import ctypes; libc = ctypes.CDLL(None); value = ctypes.c_int(); \
+                  libc.prctl(37, ctypes.byref(value)); print(value.value)'";
+    let (is_success, output, errors) = run_to_end(line_wrapper(reader));
+    assert!(is_success, "{errors}");
+    assert!(output.lines().any(|line| line == "0"), "{output}");
+}
+
+// Fails when an agent's line runs under `/bin/sh` where the provider named bash, which on Linux is
+// dash and knows no `builtin`. Mutation: run every line with `FALLBACK_SHELL`. Run on Linux, in
+// the container leg.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_agent_line_runs_with_the_shell_the_provider_named() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let line = format!(
+        "{{ \\builtin test -n \"${{X-}}\" && \\builtin export Y=\"$X\"; }} && {}",
+        bash_line("echo $Y", folder.path())
+    );
+    let mut command = line_wrapper(&line);
+    command.env("SHELL", "/bin/bash").env("X", "carried");
+    let (is_success, output, errors) = run_to_end(command);
+    assert!(is_success, "{errors}");
+    assert!(output.lines().any(|line| line == "carried"), "{output}");
 }

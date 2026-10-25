@@ -97,6 +97,34 @@ pub fn pass_on_stop_signals(
     Ok(())
 }
 
+/// Starts the child `command` makes in a process group of its own, which it leads, so a signal the
+/// wrapper's own group takes reaches it only as the wrapper passes it on.
+pub fn start_in_own_group(command: &mut Command) {
+    command.process_group(0);
+}
+
+/// Sends `signal` to every process of the group `group` leads; a group already gone is no failure.
+/// Fails with `InvalidInput` for a group of 0 or past `i32::MAX`, and with the system's error when
+/// the send is refused.
+pub fn signal_command_group(group: u32, signal: TerminalSignal) -> io::Result<()> {
+    signal_group_once(group, posix_signal(signal))?;
+    Ok(())
+}
+
+/// The number the system gives `signal`, as a child's end by it reads.
+pub fn stop_signal_number(signal: TerminalSignal) -> Option<i32> {
+    Some(posix_signal(signal) as i32)
+}
+
+/// Ends this process by `signal`'s default action, as a process that took it with no handler
+/// ends. Returns only when the action could not be taken, with the system's error.
+pub fn end_by_stop_signal(signal: TerminalSignal) -> io::Error {
+    match signal_hook::low_level::emulate_default_handler(posix_signal(signal) as i32) {
+        Ok(()) => io::Error::other("the signal's default action left the process running"),
+        Err(error) => error,
+    }
+}
+
 /// Ends this process the way its child whose exit is `status` ended: a signal's end raised again
 /// as that signal's default action, else the child's own code. Answers the code to exit with only
 /// where the raise did not end the process: 128 and the signal's number, as a shell reads it.

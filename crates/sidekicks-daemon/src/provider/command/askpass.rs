@@ -11,6 +11,7 @@ use std::process::ExitCode;
 
 use crate::provider::command::channel::party::{ChannelParty, PartyStart};
 use crate::provider::command::channel::{DaemonRequest, PartyRecord};
+use crate::standard_error::write_error_line;
 
 /// The name of the link git and ssh run as their askpass, which reaches this mode.
 pub(crate) const COMMAND_ASKPASS_PROGRAM_NAME: &str = "sidekicks-command-askpass";
@@ -25,20 +26,19 @@ pub(crate) fn run_command_askpass() -> ExitCode {
             match writeln!(output, "{answer}").and_then(|()| output.flush()) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(error) => {
-                    tracing::warn!(
-                        error = &error as &(dyn std::error::Error + 'static),
-                        "the command askpass could not print its answer"
-                    );
+                    write_error_line(&format!(
+                        "sidekicks-command-askpass could not print its answer: {error}"
+                    ));
                     ExitCode::FAILURE
                 }
             }
         }
         Ok(None) => ExitCode::FAILURE,
         Err(error) => {
-            tracing::warn!(
-                error = &error as &(dyn std::error::Error + 'static),
-                "the command askpass could not reach the daemon"
-            );
+            write_error_line(&format!(
+                "sidekicks-command-askpass could not reach the daemon, so the prompt is canceled: \
+                 {error}"
+            ));
             ExitCode::FAILURE
         }
     }

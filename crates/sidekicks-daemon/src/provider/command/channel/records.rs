@@ -121,6 +121,13 @@ async fn take_record(
             set.wrapper_ended(session_id, party);
             channel.forget_party(party);
         }
+        PartyRecord::Warning { message } => {
+            tracing::warn!(
+                party,
+                message,
+                "a command's party could not do what it meant to"
+            );
+        }
         PartyRecord::Stopped {} => {
             tracing::debug!(
                 party,

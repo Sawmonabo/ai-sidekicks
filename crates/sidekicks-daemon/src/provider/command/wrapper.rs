@@ -1,27 +1,31 @@
 //! The `sidekicks-command-wrapper` mode a provider runs every shell command through. A line that is
 //! no agent's command (a hook, a status line, a tool server's start) is run at once as
 //! `/bin/sh -c <line>` and nothing else. An agent's command is told to the daemon over the
-//! conversation's channel, started, its stop signals passed on and its end told and taken as the
-//! wrapper's own; one Codex starts with a terminal runs in a terminal the wrapper opens, whose
-//! master the wrapper holds, so it copies bytes both ways and reports what the master shows. The
-//! wrapper runs no runtime: blocking reads and writes, one signal thread and a thread per copy.
+//! conversation's channel, started in a process group of its own (an agent's line by the shell the
+//! provider wrote it for), its stop signals passed on to that group and its end told and taken as
+//! the wrapper's own; one the provider starts with a terminal runs in a terminal the wrapper opens,
+//! whose master the wrapper holds, so it copies bytes both ways and reports what the master shows.
+//! The wrapper runs no runtime and keeps no log: blocking reads and writes, one signal thread and a
+//! thread per copy; what it could not do goes to the daemon as a record, and on standard error
+//! where it changes how the command runs.
 
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, Read as _, Write as _};
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, ExitStatus};
-use std::sync::mpsc;
-use std::sync::{Arc, Condvar, Mutex, Once, PoisonError};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, Once, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use alacritty_terminal::event::WindowSize;
 use sidekicks_platforms::{
     InnerTerminal, RawStandardInput, TerminalSignal, blocking_terminal_master, end_as_child_ended,
-    end_terminal_session, exec_command, name_program, pass_on_stop_signals, read_child_exit,
-    read_descriptor_path, read_standard_input_window_size, read_terminal_master, send_signal,
-    signal_foreground_group, start_inner_terminal, take_in_orphans, terminal_options,
-    wait_for_terminal_command,
+    end_by_stop_signal, end_terminal_session, exec_command, name_program, pass_on_stop_signals,
+    read_child_exit, read_descriptor_path, read_standard_input_window_size, read_terminal_master,
+    signal_command_group, signal_foreground_group, start_in_own_group, start_inner_terminal,
+    stop_signal_number, take_in_orphans, terminal_options, wait_for_terminal_command,
 };
 
 use crate::provider::command::channel::party::{
@@ -41,6 +45,10 @@ pub(crate) const COMMAND_PROVIDER_VARIABLE: &str = "SIDEKICKS_COMMAND_PROVIDER";
 
 /// How long the wrapper waits for the daemon's `go` before it runs the command uncovered.
 const GO_WAIT: Duration = Duration::from_secs(10);
+
+/// The shell a line runs with where no other is named: a hook's, and an agent's line whose
+/// provider named no usable shell.
+const FALLBACK_SHELL: &str = "/bin/sh";
 
 /// The variables the wrapper and its terminal add, which the command never sees: the party's
 /// secret descriptor, and the two `alacritty_terminal` sets on the program it starts.
@@ -65,16 +73,25 @@ const FALLBACK_WINDOW: WindowSize = WindowSize {
 /// How many of the command's last output bytes the wrapper keeps for its last line.
 const OUTPUT_TAIL_BYTES: usize = 1024;
 
-/// How long the wrapper waits for its terminal's last output once the command exited.
-const LAST_OUTPUT_WAIT: Duration = Duration::from_millis(200);
+/// How long the terminal's output stays quiet, once its command exited, before the wrapper stops
+/// waiting for the rest: 10 ms, the quiet `script` drains to once its child is gone.
+const OUTPUT_QUIET: Duration = Duration::from_millis(10);
+
+/// The longest the wrapper drains a terminal whose output keeps coming after its command exited:
+/// 2 s, the drain cap Codex's exec uses for a grandchild holding its output open.
+const OUTPUT_DRAIN_CAP: Duration = Duration::from_secs(2);
+
+/// The party's records, shared by the threads that write them; `None` where the command runs
+/// uncovered.
+type SharedRecords = Arc<Mutex<Option<PartyRecords>>>;
 
 /// The forms the wrapper is started in.
 #[derive(Debug, PartialEq, Eq)]
 enum WrapperForm {
-    /// A provider's shell prefix: one line, which `/bin/sh -c` runs.
+    /// A provider's shell prefix: one line, which a shell runs.
     Line(OsString),
-    /// The relay's rewrite of a Codex start: the command's own words, the name it runs under, the
-    /// provider's handle on its process and whether it runs in a terminal.
+    /// The relay's rewrite of a command's start: the command's own words, the name it runs under,
+    /// the provider's handle on its process and whether it runs in a terminal.
     Relayed {
         process: String,
         arg0: Option<OsString>,
@@ -149,12 +166,6 @@ pub(crate) fn run_command_wrapper_with(
     process_arguments: &[OsString],
     own_arguments: &[OsString],
 ) -> ExitCode {
-    if let Err(error) = take_in_orphans() {
-        tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
-            "the command wrapper could not take in its command's orphans"
-        );
-    }
     let Some(form) = read_form(own_arguments) else {
         write_error_line(
             "sidekicks-command-wrapper takes one line, or the relay's flags and words",
@@ -167,10 +178,19 @@ pub(crate) fn run_command_wrapper_with(
                 .ok()
                 .and_then(|provider| shell_prefix_command_of(&provider))
                 .zip(line.to_str())
-                .and_then(|(prefix, line)| (prefix.read_agent_command)(line));
+                .and_then(|(prefix, line)| {
+                    (prefix.read_agent_command)(line)
+                        .map(|command| (prefix.shell_variable, command))
+                });
             match agent_command {
-                None => exec_failed(&exec_command(&mut shell_line(&line))),
-                Some(command) => run_line_command(process_arguments, &line, command),
+                None => exec_failed(&exec_command(&mut shell_line(
+                    Path::new(FALLBACK_SHELL),
+                    &line,
+                ))),
+                Some((shell_variable, command)) => {
+                    let shell = named_shell(shell_variable);
+                    run_line_command(process_arguments, &shell, &line, command)
+                }
             }
         }
         WrapperForm::Relayed {
@@ -185,14 +205,32 @@ pub(crate) fn run_command_wrapper_with(
     }
 }
 
-/// `/bin/sh -c <line>`, run under the name `sh`, without the wrapper's own variables.
-fn shell_line(line: &OsStr) -> Command {
-    let mut command = Command::new("/bin/sh");
-    if let Err(error) = name_program(&mut command, OsStr::new("sh")) {
-        tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
-            "the shell's name could not be set"
-        );
+/// The shell `variable` names by its absolute path, which the provider wrote an agent's line for;
+/// `/bin/sh`, said on standard error, where it names none.
+fn named_shell(variable: &str) -> PathBuf {
+    match std::env::var_os(variable).map(PathBuf::from) {
+        Some(shell) if shell.is_absolute() && shell.is_file() => shell,
+        named => {
+            let named =
+                named.map_or_else(|| "nothing".to_owned(), |named| named.display().to_string());
+            write_error_line(&format!(
+                "sidekicks-command-wrapper runs the command with {FALLBACK_SHELL}, since {variable} \
+                 names {named}, no shell's absolute path"
+            ));
+            PathBuf::from(FALLBACK_SHELL)
+        }
+    }
+}
+
+/// `<shell> -c <line>`, run under the shell's file name, without the wrapper's own variables.
+fn shell_line(shell: &Path, line: &OsStr) -> Command {
+    let mut command = Command::new(shell);
+    if let Some(name) = shell.file_name()
+        && let Err(error) = name_program(&mut command, name)
+    {
+        write_error_line(&format!(
+            "sidekicks-command-wrapper could not name the shell: {error}"
+        ));
     }
     command.arg("-c").arg(line);
     without_own_variables(command)
@@ -208,10 +246,9 @@ fn word_command(arg0: Option<&OsStr>, words: &[OsString]) -> Command {
     if let Some(arg0) = arg0
         && let Err(error) = name_program(&mut command, arg0)
     {
-        tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
-            "a relayed command's name could not be set"
-        );
+        write_error_line(&format!(
+            "sidekicks-command-wrapper could not name the command: {error}"
+        ));
     }
     command.args(arguments);
     without_own_variables(command)
@@ -232,34 +269,58 @@ fn exec_failed(error: &io::Error) -> ExitCode {
     ExitCode::from(126)
 }
 
-/// Joins the conversation's channel; `None`, the command then run uncovered, when no channel is
-/// named or joining fails, which is logged.
-fn join_channel(process_arguments: &[OsString]) -> Option<ChannelParty> {
-    match ChannelParty::join(process_arguments) {
-        Ok(PartyStart::Joined(party)) => Some(*party),
-        Ok(PartyStart::Unchanneled) => None,
+/// Joins the conversation's channel: its records and its requests, both `None`, the command then
+/// run uncovered, when no channel is named or joining fails, which is said on standard error.
+fn join_channel(process_arguments: &[OsString]) -> (SharedRecords, Option<PartyRequests>) {
+    let (records, requests) = match ChannelParty::join(process_arguments) {
+        Ok(PartyStart::Joined(party)) => (Some(party.records), Some(party.requests)),
+        Ok(PartyStart::Unchanneled) => (None, None),
         Err(error) => {
-            tracing::warn!(
-                error = &error as &(dyn std::error::Error + 'static),
-                "the command wrapper could not join its channel, so its command runs uncovered"
-            );
-            None
+            write_error_line(&format!(
+                "sidekicks-command-wrapper could not join its channel, so the command runs \
+                 uncovered: {error}"
+            ));
+            (None, None)
         }
+    };
+    let records = Arc::new(Mutex::new(records));
+    // The command's own processes that outlive their parent stay below the wrapper.
+    if let Err(error) = take_in_orphans() {
+        note(
+            &records,
+            &format!("could not take in its command's orphans: {error}"),
+        );
+    }
+    (records, requests)
+}
+
+fn lock_records(records: &Mutex<Option<PartyRecords>>) -> MutexGuard<'_, Option<PartyRecords>> {
+    records.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Sends `record`; a failure is said on standard error, since the command runs on whether or not
+/// the daemon hears of it.
+fn send_record(records: &Mutex<Option<PartyRecords>>, record: &PartyRecord) {
+    if let Some(records) = lock_records(records).as_mut()
+        && let Err(error) = records.send(record)
+    {
+        write_error_line(&format!(
+            "sidekicks-command-wrapper could not write a record: {error}"
+        ));
     }
 }
 
-/// Sends `record`, logging a failure: the command runs on whether or not the daemon hears of it.
-fn send_record(records: &Mutex<Option<PartyRecords>>, record: &PartyRecord) {
-    if let Some(records) = records
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .as_mut()
-        && let Err(error) = records.send(record)
-    {
-        tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
-            "the command wrapper could not write a record"
-        );
+/// Tells the daemon what the wrapper could not do while its command runs on as it is: a record
+/// when it joined its channel, else a line on standard error.
+fn note(records: &Mutex<Option<PartyRecords>>, message: &str) {
+    let mut records = lock_records(records);
+    let sent = records.as_mut().map(|records| {
+        records.send(&PartyRecord::Warning {
+            message: format!("the command wrapper {message}"),
+        })
+    });
+    if !matches!(sent, Some(Ok(()))) {
+        write_error_line(&format!("sidekicks-command-wrapper {message}"));
     }
 }
 
@@ -271,15 +332,71 @@ fn exited_record(status: ExitStatus) -> PartyRecord {
     }
 }
 
-/// Runs a provider's line for an agent's `command`: told to the daemon, started once the daemon
-/// answers `go` or ten seconds pass, its stop signals passed on and its end told.
-fn run_line_command(process_arguments: &[OsString], line: &OsStr, command: String) -> ExitCode {
-    let party = join_channel(process_arguments);
-    let (records, mut requests) = match party {
-        Some(party) => (Some(party.records), Some(party.requests)),
-        None => (None, None),
-    };
-    let records = Mutex::new(records);
+/// Where the wrapper's command is, which the signal thread, the daemon's stop and the wait read
+/// under one lock, so a stop or a signal never reaches a reaped command's reused id and `Stopped`
+/// is sent before `Exited`.
+enum CommandState {
+    /// Not started yet: a stop signal ends the wrapper as that signal would.
+    NotStarted,
+    /// Running, leading the process group `group`.
+    Running { group: u32 },
+    /// Reaped.
+    Reaped,
+}
+
+type SharedState = Arc<Mutex<CommandState>>;
+
+fn lock_state(state: &Mutex<CommandState>) -> MutexGuard<'_, CommandState> {
+    state.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Hands each stop signal the wrapper receives to its command's process group from now on: before
+/// the command starts, the signal's end is told and taken as the wrapper's own.
+fn pass_signals_to_group(state: &SharedState, records: &SharedRecords) {
+    let (state, signaled_records) = (Arc::clone(state), Arc::clone(records));
+    let started = pass_on_stop_signals(move |signal| match *lock_state(&state) {
+        CommandState::NotStarted => {
+            send_record(
+                &signaled_records,
+                &PartyRecord::Exited {
+                    exit_code: None,
+                    signal: stop_signal_number(signal),
+                },
+            );
+            let error = end_by_stop_signal(signal);
+            write_error_line(&format!(
+                "sidekicks-command-wrapper could not end by its signal: {error}"
+            ));
+        }
+        CommandState::Running { group } => {
+            if let Err(error) = signal_command_group(group, signal) {
+                note(
+                    &signaled_records,
+                    &format!("could not pass a signal on: {error}"),
+                );
+            }
+        }
+        CommandState::Reaped => {}
+    });
+    if let Err(error) = started {
+        write_error_line(&format!(
+            "sidekicks-command-wrapper cannot pass its signals on: {error}"
+        ));
+    }
+}
+
+/// Runs a provider's line for an agent's `command` with `shell`: its signals passed on from the
+/// start, told to the daemon, started once the daemon answers `go` or ten seconds pass, and its end
+/// told.
+fn run_line_command(
+    process_arguments: &[OsString],
+    shell: &Path,
+    line: &OsStr,
+    command: String,
+) -> ExitCode {
+    let (records, requests) = join_channel(process_arguments);
+    let state = Arc::new(Mutex::new(CommandState::NotStarted));
+    pass_signals_to_group(&state, &records);
     let stdout_path = read_descriptor_path(io::stdout()).ok();
     send_record(
         &records,
@@ -289,73 +406,82 @@ fn run_line_command(process_arguments: &[OsString], line: &OsStr, command: Strin
             process: None,
         },
     );
-    if let Some(requests) = requests.as_mut() {
+    if let Some(mut requests) = requests {
         let deadline = Instant::now() + GO_WAIT;
         loop {
             match requests.next_request(Some(deadline)) {
                 Ok(Some(DaemonRequest::Go {})) => break,
                 Ok(Some(DaemonRequest::Answer { .. } | DaemonRequest::Stop {})) => {}
                 Ok(None) => {
-                    tracing::warn!(
-                        "the daemon did not answer go in time, so the command runs uncovered"
+                    write_error_line(
+                        "sidekicks-command-wrapper: the daemon did not answer go in time, so the \
+                         command runs uncovered",
                     );
                     break;
                 }
                 Err(error) => {
-                    tracing::warn!(
-                        error = &error as &(dyn std::error::Error + 'static),
-                        "the command wrapper could not read its requests"
-                    );
+                    write_error_line(&format!(
+                        "sidekicks-command-wrapper could not read its requests, so the command \
+                         runs uncovered: {error}"
+                    ));
                     break;
                 }
             }
         }
     }
-    run_child(shell_line(line), &records)
+    run_child(shell_line(shell, line), &state, &records, None)
 }
 
-/// Starts `command` as the wrapper's child, passes its stop signals on to it, and tells and takes
-/// its end.
-fn run_child(mut command: Command, records: &Mutex<Option<PartyRecords>>) -> ExitCode {
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) => return exec_failed(&error),
+/// Starts `command` as the wrapper's child leading a process group of its own, follows the
+/// daemon's stops in `requests` where given, and tells and takes its end.
+fn run_child(
+    mut command: Command,
+    state: &SharedState,
+    records: &SharedRecords,
+    requests: Option<PartyRequests>,
+) -> ExitCode {
+    start_in_own_group(&mut command);
+    let mut child = {
+        let mut state = lock_state(state);
+        match command.spawn() {
+            Ok(child) => {
+                *state = CommandState::Running { group: child.id() };
+                child
+            }
+            Err(error) => return exec_failed(&error),
+        }
     };
-    let child_id = child.id();
-    pass_signals(move |signal| send_signal(child_id, signal));
-    let status = match child.wait() {
-        Ok(status) => status,
+    if let Some(requests) = requests {
+        let (state, records) = (Arc::clone(state), Arc::clone(records));
+        follow_stops(requests, move || {
+            // Held until `Stopped` is sent, so the wait's `Exited` comes after it.
+            let state = lock_state(&state);
+            if let CommandState::Running { group } = *state {
+                signal_command_group(group, TerminalSignal::Kill)?;
+                send_record(&records, &PartyRecord::Stopped {});
+            }
+            Ok(())
+        });
+    }
+    let waited = child.wait();
+    let mut state = lock_state(state);
+    *state = CommandState::Reaped;
+    match waited {
+        Ok(status) => {
+            send_record(records, &exited_record(status));
+            end_as_child_ended(status)
+        }
         Err(error) => {
             write_error_line(&format!(
                 "sidekicks-command-wrapper lost its command: {error}"
             ));
-            return ExitCode::FAILURE;
+            ExitCode::FAILURE
         }
-    };
-    send_record(records, &exited_record(status));
-    end_as_child_ended(status)
-}
-
-/// Hands each stop signal the wrapper receives to `pass_on`, logging what cannot be passed.
-fn pass_signals(pass_on: impl Fn(TerminalSignal) -> io::Result<()> + Send + 'static) {
-    let started = pass_on_stop_signals(move |signal| {
-        if let Err(error) = pass_on(signal) {
-            tracing::warn!(
-                error = &error as &(dyn std::error::Error + 'static),
-                "the command wrapper could not pass a signal on"
-            );
-        }
-    });
-    if let Err(error) = started {
-        tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
-            "the command wrapper cannot pass its signals on"
-        );
     }
 }
 
-/// Runs a relayed Codex command: told to the daemon by its process handle, then run as the
-/// wrapper's child or, with a terminal, in a terminal of its own; the daemon's stop ends it.
+/// Runs a relayed command: told to the daemon by its process handle, then run as the wrapper's
+/// child or, with a terminal, in a terminal of its own; the daemon's stop ends it.
 fn run_relayed_command(
     process_arguments: &[OsString],
     process: &str,
@@ -363,12 +489,11 @@ fn run_relayed_command(
     is_tty: bool,
     words: &[OsString],
 ) -> ExitCode {
-    let party = join_channel(process_arguments);
-    let (records, requests) = match party {
-        Some(party) => (Some(party.records), Some(party.requests)),
-        None => (None, None),
-    };
-    let records = Arc::new(Mutex::new(records));
+    let (records, requests) = join_channel(process_arguments);
+    let state = Arc::new(Mutex::new(CommandState::NotStarted));
+    if !is_tty {
+        pass_signals_to_group(&state, &records);
+    }
     send_record(
         &records,
         &PartyRecord::Starting {
@@ -381,41 +506,10 @@ fn run_relayed_command(
             process: Some(process.to_owned()),
         },
     );
-    if !is_tty {
-        let mut command = word_command(arg0, words);
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(error) => return exec_failed(&error),
-        };
-        let child_id = child.id();
-        pass_signals(move |signal| send_signal(child_id, signal));
-        let stopping = Arc::new(Mutex::new(()));
-        if let Some(requests) = requests {
-            let records = Arc::clone(&records);
-            let stopping = Arc::clone(&stopping);
-            follow_stops(requests, move || {
-                let _stopping = stopping.lock().unwrap_or_else(PoisonError::into_inner);
-                send_signal(child_id, TerminalSignal::Kill)?;
-                send_record(&records, &PartyRecord::Stopped {});
-                Ok(())
-            });
-        }
-        return match child.wait() {
-            Ok(status) => {
-                // A stop under way tells the daemon it stopped the command before its end does.
-                drop(stopping.lock().unwrap_or_else(PoisonError::into_inner));
-                send_record(&records, &exited_record(status));
-                end_as_child_ended(status)
-            }
-            Err(error) => {
-                write_error_line(&format!(
-                    "sidekicks-command-wrapper lost its command: {error}"
-                ));
-                ExitCode::FAILURE
-            }
-        };
+    if is_tty {
+        return run_in_terminal(process_arguments, arg0, words, &state, &records, requests);
     }
-    run_in_terminal(process_arguments, arg0, words, &records, requests)
+    run_child(word_command(arg0, words), &state, &records, requests)
 }
 
 /// Follows the daemon's requests on a thread of its own, running `stop` at each `Stop`.
@@ -427,28 +521,27 @@ fn follow_stops(mut requests: PartyRequests, stop: impl Fn() -> io::Result<()> +
                 match requests.next_request(None) {
                     Ok(Some(DaemonRequest::Stop {})) => {
                         if let Err(error) = stop() {
-                            tracing::warn!(
-                                error = &error as &(dyn std::error::Error + 'static),
-                                "the command wrapper could not stop its command"
-                            );
+                            write_error_line(&format!(
+                                "sidekicks-command-wrapper could not stop its command: {error}"
+                            ));
                         }
                     }
                     Ok(Some(DaemonRequest::Go {} | DaemonRequest::Answer { .. }) | None) => {}
                     Err(error) => {
-                        tracing::warn!(
-                            error = &error as &(dyn std::error::Error + 'static),
-                            "the command wrapper stopped reading its requests"
-                        );
+                        write_error_line(&format!(
+                            "sidekicks-command-wrapper stopped reading its requests, so the \
+                             daemon cannot stop the command: {error}"
+                        ));
                         return;
                     }
                 }
             }
         });
     if let Err(error) = followed {
-        tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
-            "the command wrapper cannot follow its requests"
-        );
+        write_error_line(&format!(
+            "sidekicks-command-wrapper cannot follow its requests, so the daemon cannot stop the \
+             command: {error}"
+        ));
     }
 }
 
@@ -463,22 +556,23 @@ struct OutputTail {
 type SharedTail = Arc<(Mutex<OutputTail>, Condvar)>;
 
 /// Runs a relayed command in a terminal of its own, the wrapper restarted inside it in its inner
-/// form: Codex's terminal set raw, bytes copied both ways, the stop signals passed to the inner
-/// terminal's foreground group, what its master shows reported on the cheap checks' schedule, and
-/// the daemon's stop ending its whole session.
+/// form: the provider's terminal set raw, bytes copied both ways, the stop signals passed to the
+/// inner terminal's foreground group, what its master shows reported on the cheap checks'
+/// schedule while the channel is joined, and the daemon's stop ending its whole session.
 fn run_in_terminal(
     process_arguments: &[OsString],
     arg0: Option<&OsStr>,
     words: &[OsString],
-    records: &Arc<Mutex<Option<PartyRecords>>>,
+    state: &SharedState,
+    records: &SharedRecords,
     requests: Option<PartyRequests>,
 ) -> ExitCode {
     let window = match read_standard_input_window_size() {
         Ok(window) => window.unwrap_or(FALLBACK_WINDOW),
         Err(error) => {
-            tracing::warn!(
-                error = &error as &(dyn std::error::Error + 'static),
-                "the command wrapper could not read its terminal's size"
+            note(
+                records,
+                &format!("could not read its terminal's size: {error}"),
             );
             FALLBACK_WINDOW
         }
@@ -498,12 +592,12 @@ fn run_in_terminal(
         Ok(terminal) => terminal,
         Err(error) => return exec_failed(&error),
     };
+    *lock_state(state) = CommandState::Running {
+        group: pty.child().id(),
+    };
     let pty = Arc::new(pty);
     let raw_input = RawStandardInput::enter().unwrap_or_else(|error| {
-        tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
-            "the command wrapper could not set its terminal raw"
-        );
+        note(records, &format!("could not set its terminal raw: {error}"));
         None
     });
     let master = match blocking_terminal_master(&pty) {
@@ -519,29 +613,46 @@ fn run_in_terminal(
     ));
     copy_input(&master);
     let output_ended = copy_output(master, Arc::clone(&tail));
-    let signaled = Arc::clone(&pty);
-    pass_signals(move |signal| signal_foreground_group(&signaled, signal));
-    let stopping = Arc::new(Mutex::new(()));
+    let (signaled, signaled_records) = (Arc::clone(&pty), Arc::clone(records));
+    let started = pass_on_stop_signals(move |signal| {
+        if let Err(error) = signal_foreground_group(&signaled, signal) {
+            note(
+                &signaled_records,
+                &format!("could not pass a signal on: {error}"),
+            );
+        }
+    });
+    if let Err(error) = started {
+        write_error_line(&format!(
+            "sidekicks-command-wrapper cannot pass its signals on: {error}"
+        ));
+    }
     if let Some(requests) = requests {
-        let stopped = Arc::clone(&pty);
-        let records = Arc::clone(records);
-        let stopping = Arc::clone(&stopping);
+        let (stopped, records, state) = (Arc::clone(&pty), Arc::clone(records), Arc::clone(state));
         follow_stops(requests, move || {
-            let _stopping = stopping.lock().unwrap_or_else(PoisonError::into_inner);
-            end_terminal_session(&stopped)?;
-            send_record(&records, &PartyRecord::Stopped {});
+            // Held until `Stopped` is sent, so the wait's `Exited` comes after it.
+            let state = lock_state(&state);
+            if matches!(*state, CommandState::Running { .. }) {
+                end_terminal_session(&stopped)?;
+                send_record(&records, &PartyRecord::Stopped {});
+            }
             Ok(())
         });
     }
-    report_terminal(Arc::clone(&pty), device, Arc::clone(records), tail);
-    let status = wait_for_terminal_command(&pty);
-    // The output a command printed just before it exited is still on its way to Codex.
-    if output_ended.recv_timeout(LAST_OUTPUT_WAIT).is_err() {
-        tracing::debug!("the command's terminal kept its output open past the command's exit");
+    if lock_records(records).is_some() {
+        report_terminal(
+            Arc::clone(&pty),
+            device,
+            Arc::clone(records),
+            Arc::clone(&tail),
+        );
     }
+    let status = wait_for_terminal_command(&pty);
+    let mut state = lock_state(state);
+    *state = CommandState::Reaped;
+    // The output a command printed just before it exited is still on its way to the provider.
+    wait_for_last_output(&output_ended, &tail);
     drop(raw_input);
-    // A stop under way tells the daemon it stopped the command before its end does.
-    drop(stopping.lock().unwrap_or_else(PoisonError::into_inner));
     match status {
         Ok(status) => {
             send_record(records, &exited_record(status));
@@ -556,15 +667,41 @@ fn run_in_terminal(
     }
 }
 
-/// Copies what is typed into Codex's terminal into the command's, on a thread of its own.
+/// Waits for the output copier to end, which it does once every descriptor on the terminal's
+/// program side closed; stops at the first `OUTPUT_QUIET` with no output, as a background process
+/// holding the terminal open keeps it from ending, and at `OUTPUT_DRAIN_CAP` past the command's
+/// exit whatever comes.
+fn wait_for_last_output(output_ended: &mpsc::Receiver<()>, tail: &SharedTail) {
+    let cap = Instant::now() + OUTPUT_DRAIN_CAP;
+    loop {
+        let left = cap.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return;
+        }
+        match output_ended.recv_timeout(OUTPUT_QUIET.min(left)) {
+            Ok(()) | Err(RecvTimeoutError::Disconnected) => return,
+            Err(RecvTimeoutError::Timeout) => {
+                let last_output = tail
+                    .0
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .last_output;
+                if last_output.elapsed() >= OUTPUT_QUIET {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+/// Copies what is typed into the provider's terminal into the command's, on a thread of its own.
 fn copy_input(master: &std::fs::File) {
     let mut master = match master.try_clone() {
         Ok(master) => master,
         Err(error) => {
-            tracing::warn!(
-                error = &error as &(dyn std::error::Error + 'static),
-                "the command wrapper cannot pass its input on"
-            );
+            write_error_line(&format!(
+                "sidekicks-command-wrapper cannot pass its input on: {error}"
+            ));
             return;
         }
     };
@@ -574,7 +711,7 @@ fn copy_input(master: &std::fs::File) {
             let mut input = io::stdin().lock();
             let mut buffer = [0_u8; 4096];
             loop {
-                // Codex's terminal closing ends the input, as a read error does.
+                // The provider's terminal closing ends the input, as a read error does.
                 match input.read(&mut buffer) {
                     Ok(0) | Err(_) => return,
                     Ok(count) => {
@@ -586,14 +723,13 @@ fn copy_input(master: &std::fs::File) {
             }
         });
     if let Err(error) = copied {
-        tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
-            "the command wrapper cannot pass its input on"
-        );
+        write_error_line(&format!(
+            "sidekicks-command-wrapper cannot pass its input on: {error}"
+        ));
     }
 }
 
-/// Copies the command's output into Codex's terminal on a thread of its own, keeping its last
+/// Copies the command's output into the provider's terminal on a thread of its own, keeping its last
 /// bytes in `tail`; the receiver hears once the output has ended.
 fn copy_output(mut master: std::fs::File, tail: SharedTail) -> mpsc::Receiver<()> {
     let (ended, output_ended) = mpsc::channel();
@@ -623,15 +759,12 @@ fn copy_output(mut master: std::fs::File, tail: SharedTail) -> mpsc::Receiver<()
                 piece_came.notify_one();
             }
             // The receiver is gone once the wrapper stopped waiting, which leaves no one to tell.
-            if ended.send(()).is_err() {
-                tracing::debug!("the command's output ended after the wrapper stopped waiting");
-            }
+            ended.send(()).unwrap_or_default();
         });
     if let Err(error) = copied {
-        tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
-            "the command wrapper cannot pass its output on"
-        );
+        write_error_line(&format!(
+            "sidekicks-command-wrapper cannot pass its output on: {error}"
+        ));
     }
     output_ended
 }
@@ -642,9 +775,10 @@ fn copy_output(mut master: std::fs::File, tail: SharedTail) -> mpsc::Receiver<()
 fn report_terminal(
     pty: Arc<alacritty_terminal::tty::Pty>,
     device: sidekicks_platforms::TerminalDevice,
-    records: Arc<Mutex<Option<PartyRecords>>>,
+    records: SharedRecords,
     tail: SharedTail,
 ) {
+    let records_for_failure = Arc::clone(&records);
     let reported = thread::Builder::new()
         .name("command terminal".to_owned())
         .spawn(move || {
@@ -678,13 +812,8 @@ fn report_terminal(
                 checks_done += 1;
                 let master = match read_terminal_master(&pty, &peer_failure_noted) {
                     Ok(master) => master,
-                    Err(error) => {
-                        tracing::debug!(
-                            error = &error as &(dyn std::error::Error + 'static),
-                            "the command's terminal can no longer be read, so its reports end"
-                        );
-                        return;
-                    }
+                    // The terminal closes once its command ends, which ends the reports.
+                    Err(_closed) => return,
                 };
                 let report = (master, output_tail);
                 if last_report.as_ref() != Some(&report) {
@@ -701,9 +830,9 @@ fn report_terminal(
             }
         });
     if let Err(error) = reported {
-        tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
-            "the command wrapper cannot report its terminal"
+        note(
+            &records_for_failure,
+            &format!("cannot report its terminal: {error}"),
         );
     }
 }

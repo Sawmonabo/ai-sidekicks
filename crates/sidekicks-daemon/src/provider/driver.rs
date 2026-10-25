@@ -135,8 +135,9 @@ pub(crate) struct ProviderDescriptor {
 }
 
 /// A provider's contract with the command wrapper's link when it prefixes every shell command it
-/// runs with it: the variable it reads the link's path from, and how a line it hands the link
-/// tells an agent's command from its hooks', status line's and tool servers' starts.
+/// runs with it: the variable it reads the link's path from, the variable it names the shell an
+/// agent's line was written for in, and how a line it hands the link tells an agent's command from
+/// its hooks', status line's and tool servers' starts.
 pub(crate) struct ShellPrefixCommand {
     /// The variable the provider reads the link's absolute path from.
     #[expect(
@@ -144,8 +145,11 @@ pub(crate) struct ShellPrefixCommand {
         reason = "the provider's process environment sets the link's path in this variable"
     )]
     pub(crate) variable: &'static str,
-    /// The command an agent ran that `line` runs, as the provider's tool call named it; `None` for
-    /// a line that is no agent's command, which the wrapper runs as it is at once.
+    /// The variable the provider sets, in an agent's command's environment, to the absolute path
+    /// of the shell it wrote the command's line for, which runs the line.
+    pub(crate) shell_variable: &'static str,
+    /// The command an agent ran that `line` runs, as the line runs it; `None` for a line that is no
+    /// agent's command, which the wrapper runs as it is at once.
     pub(crate) read_agent_command: fn(&str) -> Option<String>,
 }
 

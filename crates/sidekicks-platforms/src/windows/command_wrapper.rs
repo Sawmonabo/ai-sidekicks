@@ -43,6 +43,24 @@ pub fn pass_on_stop_signals(
     Err(unwrapped())
 }
 
+/// Changes nothing: Windows runs no command through the wrapper.
+pub fn start_in_own_group(_command: &mut Command) {}
+
+/// Signals no group. Always fails with `Unsupported`.
+pub fn signal_command_group(_group: u32, _signal: TerminalSignal) -> io::Result<()> {
+    Err(unwrapped())
+}
+
+/// No number: Windows has no stop signals.
+pub fn stop_signal_number(_signal: TerminalSignal) -> Option<i32> {
+    None
+}
+
+/// Ends nothing. Always answers `Unsupported`.
+pub fn end_by_stop_signal(_signal: TerminalSignal) -> io::Error {
+    unwrapped()
+}
+
 /// The code to exit with as the child whose exit is `status` did; a code past what `ExitCode`
 /// holds exits as a failure.
 pub fn end_as_child_ended(status: ExitStatus) -> ExitCode {

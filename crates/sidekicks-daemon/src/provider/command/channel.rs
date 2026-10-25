@@ -100,6 +100,12 @@ pub(crate) enum PartyRecord {
     /// An askpass's prompt is open; its words are the askpass's own argument, which the daemon
     /// reads at its admission.
     Asking {},
+    /// Something the party could not do that leaves its command running as it is, in its own
+    /// words, for the daemon's log.
+    Warning {
+        /// What it could not do.
+        message: String,
+    },
 }
 
 /// A request the daemon writes to one party.
