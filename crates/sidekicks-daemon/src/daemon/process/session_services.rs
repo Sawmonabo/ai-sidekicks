@@ -429,8 +429,8 @@ pub(crate) struct SessionAttachments {
 }
 
 /// Starts the session services' follows of `followers`: the binding cursors', the approval side's,
-/// the related sessions' rescoring and the self-naming. Called once the start's recovery pass has settled the
-/// runs, inside the daemon's runtime.
+/// the related sessions' rescoring and the self-naming. Called once the start's recovery pass has
+/// settled the runs, inside the daemon's runtime.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) fn start_session_attachments(
     services: &SessionServices,
