@@ -8,9 +8,13 @@ use crate::process_start::ProcessStart;
 
 /// The arguments and environment process `process_id` started with, bytes that are not UTF-8 read
 /// lossily; `None` when the system refuses the read because the process ended or another user runs
-/// it. Blocks on the reads; fails with the system's error on any other refusal.
+/// it, and when it shows no arguments: a process its parent just started, whose exec has not yet
+/// set them, as the parent can see once its own wait on the start returns, or a kernel thread.
+/// Blocks on the reads; fails with the system's error on any other refusal.
 pub fn read_process_start(process_id: u32) -> io::Result<Option<ProcessStart>> {
-    let Some(arguments) = read_entries(process_id, "cmdline")? else {
+    let Some(arguments) =
+        read_entries(process_id, "cmdline")?.filter(|entries| !entries.is_empty())
+    else {
         return Ok(None);
     };
     let Some(environment) = read_entries(process_id, "environ")? else {
@@ -31,7 +35,7 @@ fn read_entries(process_id: u32, file: &str) -> io::Result<Option<Vec<String>>> 
         Err(error) if error.raw_os_error() == Some(libc::EACCES) => return Ok(None),
         Err(error) => return Err(error),
     };
-    // Each entry ends in a zero byte, and a kernel thread's files are empty.
+    // Each entry ends in a zero byte, and a file with no entries is empty.
     if bytes.is_empty() {
         return Ok(Some(Vec::new()));
     }
