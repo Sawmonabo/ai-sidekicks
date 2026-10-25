@@ -1,6 +1,7 @@
 //! The `/` list's tool-server prompts: each working server's prompts for a session, read with
-//! `prompts/list` over the connection the client already holds, and the listeners told when a
-//! server says its prompts changed (rmcp drops its own cached list on that notification too).
+//! `prompts/list` over the connections the client already holds, every server at once so a slow
+//! one delays no other, and the listeners told when a server says its prompts changed (rmcp drops
+//! its own cached list on that notification too).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -88,15 +89,24 @@ impl ServerPromptPort for McpClient {
         binding: ProviderCommandBinding,
     ) -> BoxFuture<'_, Vec<ProviderCommandEntry>> {
         async move {
+            let connections = self.session_connections(session_id);
+            let read = futures::future::join_all(
+                connections
+                    .iter()
+                    .map(|connection| connection.requests.list_all_prompts()),
+            )
+            .await;
             let mut entries = Vec::new();
-            for connection in self.session_connections(session_id) {
-                let server = connection.scope.server_name.clone();
-                match connection.requests.list_all_prompts().await {
+            for (connection, prompts) in connections.iter().zip(read) {
+                let server = &connection.scope.server_name;
+                match prompts {
                     Ok(prompts) => entries.extend(
                         prompts
                             .into_iter()
-                            .filter_map(|prompt| prompt_entry(prompt, &server, &binding)),
+                            .filter_map(|prompt| prompt_entry(prompt, server, &binding)),
                     ),
+                    // The list carries only prompts that exist; the server's failure shows on
+                    // its own row, not here.
                     Err(error) => tracing::warn!(
                         error = &error as &(dyn std::error::Error + 'static),
                         server = server.as_str(),
