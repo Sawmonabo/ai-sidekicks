@@ -1,5 +1,6 @@
 //! The database file's open and close as the daemon's start and stop run them.
 
+use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,6 +16,9 @@ use super::{DatabaseFile, DatabaseFileStart, close_database_file, open_database_
 use crate::bootstrap::secure_defaults::{SecureDefaults, SecureDefaultsConfig};
 use crate::daemon::process::supervision::ProcessStateTracker;
 use crate::database::connection::writer_open::DAEMON_DATABASE_FILE_NAME;
+use crate::database::statement::{StatementBindings, WriteStatement};
+use crate::database::writer::WriteError;
+use crate::database::writer::messages::WriteJob;
 use crate::database::writer::test_file::{test_envelope, test_session_id};
 use crate::events::log_service::{
     EventAppendError, EventLogAppendOptions, EventReadAfterCursorRequest,
@@ -263,6 +267,57 @@ async fn damage_found_mid_run_ends_the_writer_and_leaves_the_log_for_the_repair(
             .expect("the damage record reads")
             .as_deref(),
         Some("page 3 is damaged")
+    );
+    assert_ne!(harness.last_run().await, LastRunEnd::Clean);
+}
+
+// A stop while the check still walks a file nothing vouches for ends the check and waits for its
+// connection to close before the writer closes, so the writer is the file's last connection and
+// leaves no log behind, and the writes the check held fail as closed while held; the file stays
+// unvouched. Killed by the follower returning at the stop without awaiting the check's answer (the
+// check's connection may outlive the writer's), and by the hold's sender dropped before the
+// writer's close (the held write fails as the writer's end instead, and the log stays).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stop_during_the_check_waits_for_it_and_closes_the_writer_last() {
+    let harness = Harness::new();
+    let first = harness.open().await;
+    let failures = close_database_file(first, CLOSE_BOUND, false).await;
+    assert!(failures.is_empty(), "{failures:?}");
+    // Pages enough that the check still walks at the close; the change leaves the file unvouched.
+    let connection = rusqlite::Connection::open(&harness.database_path).expect("the file opens");
+    connection
+        .execute_batch(
+            "CREATE TABLE filler (n INTEGER PRIMARY KEY, text TEXT);
+             WITH RECURSIVE counter(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM counter
+               WHERE n < 20000)
+             INSERT INTO filler SELECT n, printf('%.2000c', 'x') FROM counter;",
+        )
+        .expect("the rows are written");
+    drop(connection);
+
+    let file = harness.open().await;
+    let held = file
+        .writer
+        .enqueue(
+            WriteJob {
+                statements: vec![WriteStatement {
+                    sql: Cow::Borrowed("INSERT INTO filler (n, text) VALUES (0, 'held')"),
+                    bindings: StatementBindings::Positional(Vec::new()),
+                    expected_row_count: None,
+                }],
+                events: Vec::new(),
+            },
+            None,
+        )
+        .expect("the writer takes the write");
+    let failures = close_database_file(file, CLOSE_BOUND, false).await;
+
+    assert!(failures.is_empty(), "{failures:?}");
+    let held = held.await;
+    assert!(matches!(held, Err(WriteError::ClosedWhileHeld)), "{held:?}");
+    assert!(
+        std::fs::metadata(harness.log_path()).map_or(true, |log| log.len() == 0),
+        "the writer closed last and left no log"
     );
     assert_ne!(harness.last_run().await, LastRunEnd::Clean);
 }

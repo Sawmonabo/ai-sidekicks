@@ -53,6 +53,7 @@ use crate::events::log_service::{
 };
 use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::events::session::followers::SessionEventFollowers;
+use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
 use crate::events::session::purge::rows::SESSION_PURGE_STATEMENT_CAPACITY;
 use crate::file::atomic_write::AtomicWriteError;
 use crate::git::turn_snapshot::service::TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY;
@@ -294,6 +295,8 @@ pub(crate) struct DatabaseFile {
     pub(crate) followers: Arc<SessionEventFollowers>,
     /// The count of live runs, read after each commit.
     pub(crate) live_runs: watch::Receiver<u32>,
+    /// Truncates the write-ahead log, asked once the check has answered and after each purge.
+    pub(crate) truncation: Arc<WriteAheadLogTruncation>,
     check: CheckFollower,
     // Ends the writer once damage is found; aborted with the file.
     damage_follower: AbortOnDropHandle<()>,
@@ -396,6 +399,7 @@ pub(crate) async fn open_database_file(
     )
     .await?;
     let is_vouched = Arc::new(AtomicBool::new(is_vouched));
+    let truncation = Arc::new(WriteAheadLogTruncation::new(Arc::clone(&writer)));
     // A new file has nothing to check. The check starts after the writer's open, which rebuilds a
     // crashed run's log index under locks the check's own open would be refused by.
     let check = if last_run == LastRunEnd::NewFile {
@@ -407,6 +411,7 @@ pub(crate) async fn open_database_file(
             damage: Arc::clone(&damage),
             process_state,
             is_vouched: Arc::clone(&is_vouched),
+            truncation: Arc::clone(&truncation),
         })
     };
     let pool = Arc::new(DatabaseReadPool::new(
@@ -443,6 +448,7 @@ pub(crate) async fn open_database_file(
         event_log,
         followers,
         live_runs,
+        truncation,
         check,
         damage_follower,
         is_vouched,
@@ -473,6 +479,7 @@ pub(crate) async fn close_database_file(
         pool,
         damage,
         status,
+        truncation,
         check,
         damage_follower,
         is_vouched,
@@ -480,10 +487,15 @@ pub(crate) async fn close_database_file(
     } = file;
     drop(damage_follower);
     let mut failures = Vec::new();
-    // The check's connection closes first, so the writer is the last to close the file.
-    if let Err(failure) = check.stop().await {
-        failures.push(DatabaseFileCloseFailure::Check(failure));
-    }
+    // The check's connection closes first, so the writer is the last to close the file. Writes
+    // still held stay held until the writer has closed, which fails them as closed while held.
+    let writes_release = match check.stop().await {
+        Ok(writes_release) => writes_release,
+        Err(failure) => {
+            failures.push(DatabaseFileCloseFailure::Check(failure));
+            None
+        }
+    };
     if damage.is_found() {
         let found = damage.when_found().await;
         stop_writes_for_damage(found, &status, &writer);
@@ -491,6 +503,8 @@ pub(crate) async fn close_database_file(
             failures.push(DatabaseFileCloseFailure::DamageRecord(failure));
         }
     }
+    // Before the writer closes, so no truncation waits on a closed writer.
+    truncation.stop().await;
     let was_ended = writer.is_ended();
     let drain_within = remaining.saturating_sub(closing_started.elapsed());
     let unfinished = if was_ended {
@@ -501,6 +515,7 @@ pub(crate) async fn close_database_file(
         close_pool(&pool, &mut failures).await;
         close_writer(&writer, drain_within, &mut failures).await
     };
+    drop(writes_release);
     let is_clean = is_vouched.load(Ordering::Acquire)
         && !damage.is_found()
         && !was_ended
@@ -619,20 +634,25 @@ async fn close_writer(
     }
 }
 
+/// Lets the writer's held writes go, or refuses them.
+type WritesRelease = oneshot::Sender<Result<(), WritesHeldError>>;
+
 /// The task that acts on the check's answer, and the stop that ends the check.
 struct CheckFollower {
     stop: CancellationToken,
-    task: Option<JoinHandle<()>>,
+    /// Answers the hold's release when the answer let no writes go.
+    task: Option<JoinHandle<Option<WritesRelease>>>,
 }
 
 /// What the check's answer acts on.
 struct CheckActs {
     database_path: PathBuf,
     /// Lets the held writes go; `None` when the file was vouched for and nothing is held.
-    writes_release: Option<oneshot::Sender<Result<(), WritesHeldError>>>,
+    writes_release: Option<WritesRelease>,
     damage: Arc<DatabaseDamageWatch>,
     process_state: Arc<ProcessStateTracker>,
     is_vouched: Arc<AtomicBool>,
+    truncation: Arc<WriteAheadLogTruncation>,
 }
 
 impl CheckFollower {
@@ -655,27 +675,41 @@ impl CheckFollower {
         }
     }
 
-    // Ends the check if it still runs, which stops its walk within one page, and waits for its
-    // answer to have been acted on.
-    async fn stop(self) -> Result<(), JoinError> {
+    // Ends the check if it still runs, which stops its walk within one page, and waits for the
+    // check's thread to end and its answer to have been acted on; answers the hold's release when
+    // the answer let no writes go.
+    async fn stop(self) -> Result<Option<WritesRelease>, JoinError> {
         self.stop.cancel();
         match self.task {
             Some(task) => task.await,
-            None => Ok(()),
+            None => Ok(None),
         }
     }
 }
 
-// Waits for the check's answer, or for the stop, which drops the check and so ends its walk, then
-// acts on the answer: a sound file vouched for and its writes let go, damage told to the watch, and
-// a check that could not run leaving the daemon degraded, its writes let go and the file
-// unvouched.
-async fn follow_check(check: DatabaseFileCheck, stop: CancellationToken, acts: CheckActs) {
+// Waits for the check's answer; a stop ends the check and waits for its answer too, so the check's
+// connection has closed before the file's other connections do. Then acts on the answer: a sound
+// file vouched for, its writes let go and its log's truncation asked for, damage told to the
+// watch, and a check that could not run leaving the daemon degraded, its writes let go, its log's
+// truncation asked for and the file unvouched. Answers the hold's release when no writes were let
+// go, so the hold ends only with the writer's close.
+async fn follow_check(
+    mut check: DatabaseFileCheck,
+    stop: CancellationToken,
+    acts: CheckActs,
+) -> Option<WritesRelease> {
     let check_started = Instant::now();
-    let answer = tokio::select! {
+    let answered = tokio::select! {
         biased;
-        answer = check.answer() => answer,
-        () = stop.cancelled() => return,
+        answer = check.answer() => Some(answer),
+        () = stop.cancelled() => None,
+    };
+    let answer = match answered {
+        Some(answer) => answer,
+        None => {
+            check.stop();
+            check.answer().await
+        }
     };
     let CheckActs {
         database_path,
@@ -683,6 +717,7 @@ async fn follow_check(check: DatabaseFileCheck, stop: CancellationToken, acts: C
         damage,
         process_state,
         is_vouched,
+        truncation,
     } = acts;
     match answer {
         Ok(DatabaseFileCheckAnswer::Sound) => {
@@ -701,14 +736,16 @@ async fn follow_check(check: DatabaseFileCheck, stop: CancellationToken, acts: C
                 }
             }
             release_writes(writes_release);
+            truncation.request();
+            None
         }
-        // The held writes never reach a damaged file: the hold's sender drops with this task,
-        // which ends the writer.
+        // The held writes never reach a damaged file: the damage's follower ends the writer.
         Ok(DatabaseFileCheckAnswer::Damaged(found)) => {
             tracing::warn!(damage = %found, "the database file's check found it damaged");
             damage.find(found);
+            writes_release
         }
-        Ok(DatabaseFileCheckAnswer::Stopped) => {}
+        Ok(DatabaseFileCheckAnswer::Stopped) => writes_release,
         Err(failure) => {
             tracing::warn!(
                 error = &failure as &(dyn Error + 'static),
@@ -717,6 +754,7 @@ async fn follow_check(check: DatabaseFileCheck, stop: CancellationToken, acts: C
             );
             process_state.mark_degraded();
             release_writes(writes_release);
+            truncation.request();
             // A file the last run vouched for is vouched for no longer.
             if is_vouched.swap(false, Ordering::AcqRel)
                 && let Err(failure) = forget_last_run(&database_path).await
@@ -727,12 +765,13 @@ async fn follow_check(check: DatabaseFileCheck, stop: CancellationToken, acts: C
                      before its check answers"
                 );
             }
+            None
         }
     }
 }
 
 // Lets the held writes go, when any are held.
-fn release_writes(writes_release: Option<oneshot::Sender<Result<(), WritesHeldError>>>) {
+fn release_writes(writes_release: Option<WritesRelease>) {
     if let Some(release) = writes_release
         && release.send(Ok(())).is_err()
     {
