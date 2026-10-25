@@ -13,7 +13,7 @@
 //! recording the damage beside the file, and its next start repairs it before anything opens it.
 
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -405,7 +405,7 @@ pub(crate) async fn open_database_file(
     let check = if last_run == LastRunEnd::NewFile {
         CheckFollower::none()
     } else {
-        CheckFollower::start(CheckActs {
+        CheckFollower::start(CheckAnswerDeps {
             database_path: database_path.clone(),
             writes_release,
             damage: Arc::clone(&damage),
@@ -531,7 +531,7 @@ pub(crate) async fn close_database_file(
 // Opens the writer on the file at `database_path`. A file holding another build's schema fails as
 // that; one too damaged to open has its damage recorded, so the next start repairs it.
 async fn open_writer(
-    database_path: &std::path::Path,
+    database_path: &Path,
     options: DatabaseWriterOptions,
 ) -> Result<Arc<DatabaseWriter>, DatabaseFileOpenError> {
     let opened_path = database_path.to_path_buf();
@@ -645,7 +645,7 @@ struct CheckFollower {
 }
 
 /// What the check's answer acts on.
-struct CheckActs {
+struct CheckAnswerDeps {
     database_path: PathBuf,
     /// Lets the held writes go; `None` when the file was vouched for and nothing is held.
     writes_release: Option<WritesRelease>,
@@ -665,7 +665,7 @@ impl CheckFollower {
     }
 
     // Starts the check of the file and the task acting on its answer.
-    fn start(acts: CheckActs) -> Self {
+    fn start(acts: CheckAnswerDeps) -> Self {
         let check = DatabaseFileCheck::start(acts.database_path.clone());
         let stop = CancellationToken::new();
         let task = tokio::spawn(follow_check(check, stop.clone(), acts));
@@ -696,7 +696,7 @@ impl CheckFollower {
 async fn follow_check(
     mut check: DatabaseFileCheck,
     stop: CancellationToken,
-    acts: CheckActs,
+    acts: CheckAnswerDeps,
 ) -> Option<WritesRelease> {
     let check_started = Instant::now();
     let answered = tokio::select! {
@@ -704,14 +704,13 @@ async fn follow_check(
         answer = check.answer() => Some(answer),
         () = stop.cancelled() => None,
     };
-    let answer = match answered {
-        Some(answer) => answer,
-        None => {
-            check.stop();
-            check.answer().await
-        }
+    let answer = if let Some(answer) = answered {
+        answer
+    } else {
+        check.stop();
+        check.answer().await
     };
-    let CheckActs {
+    let CheckAnswerDeps {
         database_path,
         writes_release,
         damage,

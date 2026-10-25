@@ -1,6 +1,6 @@
 //! The writer's scheduled maintenance: the passive WAL checkpoint every five minutes, and the
-//! daily `PRAGMA optimize` a long-lived connection runs to keep its query planner's statistics
-//! current. Each run is metered against its processor budget.
+//! daily optimize a long-lived connection runs to keep the query planner's statistics current.
+//! Each run is metered against its processor budget.
 
 use std::sync::Arc;
 use std::time::Duration;

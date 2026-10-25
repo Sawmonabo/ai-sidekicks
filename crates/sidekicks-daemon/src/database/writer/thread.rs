@@ -18,6 +18,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::scheduler::budget::{Measured, ThreadProcessorTime};
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
+use crate::database::connection::writer_open::OPTIMIZE_SQL;
 use crate::database::statement::{
     StatementBindings, StatementResult, WriteStatement, named_bindings,
 };
@@ -43,8 +44,6 @@ const UNDO_JOB_SAVEPOINT_SQL: &str = "ROLLBACK TO write_job; RELEASE write_job";
 
 const BATCH_OPERATION: &str = "running a write batch";
 const CHECKPOINT_OPERATION: &str = "running a WAL checkpoint";
-
-// The operation an optimize's failure names.
 const OPTIMIZE_OPERATION: &str = "running PRAGMA optimize";
 const CLOSE_OPERATION: &str = "closing the writer's connection";
 
@@ -255,7 +254,7 @@ pub(super) fn serve_request(
         }
         ThreadRequest::Optimize { reply } => {
             let mut processor_time = ThreadProcessorTime::default();
-            let optimized = processor_time.measure(|| connection.execute_batch("PRAGMA optimize"));
+            let optimized = processor_time.measure(|| connection.execute_batch(OPTIMIZE_SQL));
             reply
                 .send(
                     optimized

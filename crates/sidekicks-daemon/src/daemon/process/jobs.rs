@@ -23,7 +23,7 @@ use crate::observability::diagnostic_buckets::expiry::{
     DIAGNOSTIC_LOG_EXPIRY_INTERVAL, DiagnosticExpiryDeps, diagnostic_expiry_job,
 };
 
-/// How often the crash report pass runs after its first: on the diagnostic-log expiry's tick, so a
+/// How often the crash report pass runs after its first: hourly, as the diagnostic-log expiry, so a
 /// dump a crash left is reported within the hour.
 const CRASH_REPORT_INTERVAL: Duration = DIAGNOSTIC_LOG_EXPIRY_INTERVAL;
 
