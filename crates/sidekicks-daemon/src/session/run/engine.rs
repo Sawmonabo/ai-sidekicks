@@ -404,9 +404,12 @@ impl RunEngine {
 
     /// Adds a setup gate after those already registered; its terminal hook runs before theirs.
     /// Gates are registered while the daemon wires its services, before the engine is shared.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start, which registers each feature's setup gate"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start, which registers each feature's setup gate"
+        )
     )]
     pub(crate) fn register_setup_gate(&mut self, gate: Arc<dyn RunSetupGate>) {
         self.gates.register(gate);

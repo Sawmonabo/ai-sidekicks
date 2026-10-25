@@ -22,19 +22,23 @@ use crate::session::service::{
 };
 
 // A pass leaves a session damaged mid-log beside a healthy one; `Continue from here` then skips
-// the damaged events through the head under the hold it took, settles the session's run and opens
-// it to writes, reads skip the range, and the writer counts no live run. Killed by the continue's
-// settle taking the session's append lock again (the continue never ends), and by the count's
+// the damaged events through the head under the hold it took, settles the session's run, its
+// pending ask canceled by the run's end, and opens it to writes, reads skip the range, and the
+// writer counts no live run. Killed by the continue's settle taking the session's append lock
+// again, and by the run-end gate's cancel doing so (`approvals/run_blocking.rs`, `hold` passed to
+// `cancel_pending_for_run` as `None`), either of which never ends the continue; and by the count's
 // cursor clause deleted (it reads 1 after the pass).
 #[tokio::test]
 async fn continuing_a_damaged_session_skips_its_damage_and_settles_its_runs() {
     let fixture = PassFixture::new().await;
     let (damaged, damaged_run) = fixture.stale_session(3, Some(1)).await;
+    let ask = fixture.record_pending_ask(damaged, damaged_run);
     fixture
         .pass(Arc::clone(&fixture.status))
         .run(&CancellationToken::new())
         .await;
     assert_eq!(*fixture.live_runs.borrow(), 0);
+    assert_eq!(fixture.state("approval_requests", &ask), "pending");
 
     tokio::time::timeout(
         SETTLE_WAIT,
@@ -55,6 +59,13 @@ async fn continuing_a_damaged_session_skips_its_damage_and_settles_its_runs() {
     assert_eq!(
         stored_run_state(&fixture.store.database, &damaged_run).0,
         "failed"
+    );
+    assert_eq!(fixture.state("approval_requests", &ask), "canceled");
+    assert_eq!(
+        fixture
+            .payloads(&damaged, SessionEventType::ApprovalCanceled)
+            .len(),
+        1
     );
     assert!(refuse_call_naming_session(&fixture.status, &damaged, "session.pin").is_ok());
     assert_eq!(fixture.status.read_session_write_refusal(&damaged), None);

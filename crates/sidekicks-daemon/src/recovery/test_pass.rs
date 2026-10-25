@@ -4,7 +4,7 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use rusqlite::params;
 use serde_json::{Value, json};
@@ -20,6 +20,8 @@ use tempfile::TempDir;
 use tokio::runtime::Handle;
 use tokio::sync::watch;
 
+use crate::approvals::permission_asks::{PermissionAsks, PermissionAsksDeps};
+use crate::approvals::run_blocking::ApprovalRunEnd;
 use crate::approvals::service::tests::test_approval_service;
 use crate::artifacts::test_store::ArtifactTestStore;
 use crate::database::connection::read_pool::DatabaseReadPool;
@@ -34,6 +36,9 @@ use crate::events::session::followers::SessionEventFollowers;
 use crate::events::session::purge::SessionPurge;
 use crate::events::session::purge::tests::{TestPurge, test_purge};
 use crate::plans::service::PlansService;
+use crate::policy::permission_check::tests::test_permission_check;
+use crate::provider::driver::registry::ProviderRegistry;
+use crate::provider::driver::test_registry::test_driver_services;
 use crate::pty::shell::test_table::TableFixture;
 use crate::recovery::damaged_history::{DamagedHistory, DamagedHistoryDeps};
 use crate::recovery::database_file::copy::DatabaseFileCopier;
@@ -154,7 +159,38 @@ impl PassFixture {
         } = test_purge(&database, &log, Arc::clone(&status)).await;
         let store = ArtifactTestStore::open_on(database, log);
         let home = tempfile::tempdir().expect("the test makes a home folder");
-        let engine = test_engine(&store.database, Arc::clone(&store.event_log), home.path());
+        let mut engine = test_engine(&store.database, Arc::clone(&store.event_log), home.path());
+        // Its cancels never move a run, so its holds reach no engine.
+        let (run_end_approvals, _run_holds) = test_approval_service(
+            &store.database,
+            Arc::clone(&store.event_log),
+            Arc::clone(&store.appender),
+            Arc::clone(&store.writer),
+            Weak::new(),
+        );
+        let permission_check = test_permission_check(
+            &store.database.path(),
+            &store.appender,
+            &store.writer,
+            &run_end_approvals,
+            home.path(),
+        );
+        let permission_asks = Arc::new(PermissionAsks::new(PermissionAsksDeps {
+            reads: Arc::clone(&store.reads),
+            approvals: Arc::clone(&run_end_approvals),
+            check: permission_check.check,
+            rules: permission_check.rules,
+            providers: Arc::new(ProviderRegistry::register_from(
+                &[],
+                &test_driver_services(),
+            )),
+        }));
+        Arc::get_mut(&mut engine)
+            .expect("no one shares the engine before its gates are registered")
+            .register_setup_gate(Arc::new(ApprovalRunEnd::new(
+                run_end_approvals,
+                permission_asks,
+            )));
         let data_folder = tempfile::tempdir().expect("the test makes a data folder");
         // The copy mode's arguments are `database copy <source> <destination>`.
         let copier = data_folder.path().join("copy");

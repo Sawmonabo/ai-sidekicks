@@ -261,9 +261,12 @@ pub(crate) struct ApprovalRunEnd {
 impl ApprovalRunEnd {
     /// The gate letting go of a run's provider asks in `permission_asks` and canceling its cards
     /// through `service`.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start registers the run-end gate with the run engine"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start registers the run-end gate with the run engine"
+        )
     )]
     pub(crate) fn new(service: Arc<ApprovalService>, permission_asks: Arc<PermissionAsks>) -> Self {
         Self {
