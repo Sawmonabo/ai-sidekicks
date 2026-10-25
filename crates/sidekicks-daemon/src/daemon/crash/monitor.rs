@@ -6,6 +6,7 @@
 //! report builder never reads one half written nor takes it for a leftover. The monitor ends once
 //! it has written a dump or its service has gone.
 
+use std::error::Error;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io;
@@ -23,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::{
     LeftoverSweep, SocketPathRefused, check_socket_path, create_held_file, create_private_folder,
-    rename_replacing, replace_file_atomically,
+    pin_running_process, rename_replacing, replace_file_atomically,
 };
 
 use crate::cleanup_failures::CleanupFailures;
@@ -138,16 +139,77 @@ pub(crate) enum PanicRecordSendError {
     Ended,
 }
 
-/// The socket a service with process id `daemon_pid` reaches its monitor at, in its run folder.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start starts its crash monitor at it"
-    )
-)]
+// The start of a monitor socket's name; the process id of the service it serves follows.
+const MONITOR_SOCKET_PREFIX: &str = "crash-";
+
+/// The socket a service with process id `daemon_pid` reaches its monitor at, in its run folder:
+/// one per service, since a crashed service's monitor still serves its own while the next starts.
 pub(crate) fn crash_monitor_socket_path(run_folder: &Path, daemon_pid: u32) -> PathBuf {
-    run_folder.join(format!("crash-monitor-{daemon_pid}.sock"))
+    run_folder.join(format!("{MONITOR_SOCKET_PREFIX}{daemon_pid}"))
+}
+
+/// Removes each monitor socket in `run_folder` whose service has ended, as a crashed service's
+/// monitor leaves it; this service's and a running one's stay. An entry that cannot be read or
+/// removed is logged and left, since a start needs nothing of it.
+pub(crate) async fn remove_dead_monitor_sockets(run_folder: &Path) {
+    let run_folder = run_folder.to_path_buf();
+    if let Err(ended) =
+        tokio::task::spawn_blocking(move || remove_dead_monitor_sockets_in(&run_folder)).await
+    {
+        tracing::warn!(
+            error = &ended as &(dyn Error + 'static),
+            "the removal of ended services' crash monitor sockets ended before it finished"
+        );
+    }
+}
+
+// Removes the ended services' monitor sockets in `run_folder`, on the calling thread.
+fn remove_dead_monitor_sockets_in(run_folder: &Path) {
+    let entries = match std::fs::read_dir(run_folder) {
+        Ok(entries) => entries,
+        Err(failure) => {
+            log_unremoved_socket(run_folder, &failure);
+            return;
+        }
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(failure) => {
+                log_unremoved_socket(run_folder, &failure);
+                continue;
+            }
+        };
+        let Some(service_pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.strip_prefix(MONITOR_SOCKET_PREFIX))
+            .and_then(|pid| pid.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if service_pid == std::process::id() {
+            continue;
+        }
+        let path = entry.path();
+        match pin_running_process(service_pid) {
+            Ok(Some(_running)) => {}
+            Ok(None) => {
+                if let Err(failure) = std::fs::remove_file(&path).none_if_missing() {
+                    log_unremoved_socket(&path, &failure);
+                }
+            }
+            Err(failure) => log_unremoved_socket(&path, &failure),
+        }
+    }
+}
+
+fn log_unremoved_socket(path: &Path, failure: &io::Error) {
+    tracing::warn!(
+        path = %path.display(),
+        error = failure as &(dyn Error + 'static),
+        "an ended service's crash monitor socket could not be removed"
+    );
 }
 
 /// Runs the `minidump` mode on the argument after the mode's own, the socket's path, writing dumps
@@ -201,10 +263,6 @@ pub(crate) fn serve_crash_monitor(
 
 /// Connects the service to its monitor at `socket_path`, trying for up to ten seconds while the
 /// monitor starts. Blocking. Fails when the path cannot be used or no monitor answers in time.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start connects to its crash monitor")
-)]
 pub(crate) fn connect_crash_monitor(socket_path: &Path) -> Result<Client, CrashMonitorError> {
     let name = socket_name(socket_path)?;
     let give_up_at = Instant::now() + CONNECT_BOUND;
@@ -221,10 +279,6 @@ pub(crate) fn connect_crash_monitor(socket_path: &Path) -> Result<Client, CrashM
 
 /// Attaches the crash handler, which asks the monitor `client` reaches for a dump when the process
 /// crashes or aborts, as a panic does. Fails when the system refuses the handler.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start attaches its crash handler")
-)]
 #[expect(
     unsafe_code,
     reason = "the crash handler's event is built through its library's one unsafe constructor"

@@ -80,13 +80,6 @@ impl OrphanGuard {
 /// Sweeps what a previous run left in `data_folder`'s registry, empties it, logs what the sweep
 /// did and answers a guard over it. Fails when this boot cannot be read, the sweep's task ends
 /// early or the registry cannot be read or written.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start opens the guard before any shell starts"
-    )
-)]
 pub(crate) async fn open_orphan_guard(data_folder: &Path) -> Result<OrphanGuard, OrphanGuardError> {
     let boot_id = process_identity(std::process::id())
         .map_err(OrphanGuardError::Process)?

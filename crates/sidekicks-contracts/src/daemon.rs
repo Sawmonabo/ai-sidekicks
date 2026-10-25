@@ -1,5 +1,5 @@
 //! The daemon's own methods: lifecycle, status, configuration, data, backup, retention,
-//! recovery and diagnostics.
+//! recovery and diagnostics, and the status file a failed start leaves.
 
 use crate::typescript::TypeScriptModule;
 
@@ -10,6 +10,7 @@ pub mod data;
 pub mod lifecycle;
 pub mod recovery;
 pub mod retention;
+pub mod service_status;
 pub mod status;
 
 /// The topic's TypeScript modules.
@@ -21,5 +22,6 @@ pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &lifecycle::TYPESCRIPT_MODULE,
     &recovery::TYPESCRIPT_MODULE,
     &retention::TYPESCRIPT_MODULE,
+    &service_status::TYPESCRIPT_MODULE,
     &status::TYPESCRIPT_MODULE,
 ];

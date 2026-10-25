@@ -37,13 +37,6 @@ static CRASH_MONITOR: OnceLock<Arc<minidumper::Client>> = OnceLock::new();
 
 /// Sends each later panic's message and place to the crash monitor `client` reaches, before the
 /// abort that asks it for a dump. The first call wins; a later one is dropped.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start connects its panics to the crash monitor"
-    )
-)]
 pub(crate) fn send_panics_to_monitor(client: Arc<minidumper::Client>) {
     if CRASH_MONITOR.set(client).is_err() {
         tracing::warn!("the panics were already sent to a crash monitor");

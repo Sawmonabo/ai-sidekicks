@@ -52,10 +52,6 @@ const MARKER_RANDOM_BYTES: usize = 16;
 /// `HOME` from `home_folder`, `SHELL` where the account names one, `USER` and `LOGNAME`, `PATH` as
 /// `/usr/bin:/bin`, and `TMPDIR` where the system keeps one per account. Fails with the system's
 /// error only when the account cannot be read.
-#[expect(
-    dead_code,
-    reason = "the daemon's start captures it once, before any provider starts"
-)]
 pub(crate) async fn capture_provider_base_environment(
     spawner: &Spawner,
     home_folder: &Path,

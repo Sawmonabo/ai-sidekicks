@@ -44,7 +44,6 @@ pub(crate) struct DatabaseDamageWatch {
 
 impl DatabaseDamageWatch {
     /// A watch that has found no damage.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new() -> Self {
         Self {
             found: SetOnce::new(),
@@ -74,13 +73,6 @@ impl DatabaseDamageWatch {
     /// Records `error` as damage when SQLite raised it for a damaged file; any other failure is
     /// left to its caller. The start, the recovery pass and every read that meets a failure call
     /// it; nothing is built for a failure that is no damage, or once damage is found.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start and its recovery pass, which report each failure they meet"
-        )
-    )]
     pub(crate) fn report(&self, error: &(dyn Error + 'static)) {
         if !self.is_found() && is_database_damage_error(error) {
             self.find(describe_error(error));
@@ -90,13 +82,6 @@ impl DatabaseDamageWatch {
     /// Records a call's or a feed's failure as damage as [`DatabaseDamageWatch::report`] does.
     /// An internal fault forwards its message and sources straight through, so its source walk
     /// skips the fault itself; the fault is reported directly, where its own SQLite code is read.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which puts the damage gate before the registry"
-        )
-    )]
     pub(crate) fn report_dispatch_failure(&self, error: &DispatchError) {
         if let DispatchError::Internal(fault) = error {
             self.report(fault.as_ref());

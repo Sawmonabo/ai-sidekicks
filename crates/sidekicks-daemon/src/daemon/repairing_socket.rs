@@ -157,8 +157,8 @@ async fn bind_repairing_socket(
         &mut builder,
         &LifecycleMethodsDeps {
             // Nothing is open to write while the file is repaired.
-            flush: Arc::new(|| async { Ok(()) }.boxed()),
-            accept_stop: Arc::new(move || repair_stop.cancel()),
+            flush: Arc::new(|_caller| async { Ok(()) }.boxed()),
+            accept_stop: Arc::new(move |_intent| repair_stop.cancel()),
         },
     )?;
     let registry = Arc::new(builder.freeze());
