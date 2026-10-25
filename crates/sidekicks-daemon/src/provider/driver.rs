@@ -373,17 +373,8 @@ impl ReportedVersionReading {
     }
 }
 
-/// Every provider's descriptor, in the order the providers are listed and their drivers registered.
-pub(crate) const PROVIDERS: &[&ProviderDescriptor] = &[&claude::DESCRIPTOR, &codex::DESCRIPTOR];
-
-const _: () = assert!(
-    has_valid_ids(PROVIDERS),
-    "a provider id breaks the id pattern"
-);
-const _: () = assert!(has_unique_ids(PROVIDERS), "two providers share an id");
-
-/// Every provider's registration, in [`PROVIDERS`]' order, which the daemon's start builds the
-/// registry from once.
+/// The one table of providers: each provider's registration, in the order the providers are listed
+/// and their drivers registered, which the daemon's start builds the registry from once.
 pub(crate) const PROVIDER_REGISTRATIONS: &[ProviderRegistration] = &[
     ProviderRegistration {
         descriptor: &claude::DESCRIPTOR,
@@ -395,10 +386,15 @@ pub(crate) const PROVIDER_REGISTRATIONS: &[ProviderRegistration] = &[
     },
 ];
 
+/// Every provider's descriptor, in the table's order.
+pub(crate) const PROVIDERS: &[&ProviderDescriptor] =
+    &descriptors_of::<{ PROVIDER_REGISTRATIONS.len() }>(PROVIDER_REGISTRATIONS);
+
 const _: () = assert!(
-    is_registered_in_order(PROVIDER_REGISTRATIONS, PROVIDERS),
-    "the registrations and the providers differ"
+    has_valid_ids(PROVIDERS),
+    "a provider id breaks the id pattern"
 );
+const _: () = assert!(has_unique_ids(PROVIDERS), "two providers share an id");
 
 /// The shared services every driver's build takes, one bundle, so adding a provider never edits the
 /// daemon's start. Each field is a handle a driver reads, every one provider-neutral: a provider's
@@ -518,22 +514,17 @@ const fn has_valid_ids(table: &[&ProviderDescriptor]) -> bool {
     true
 }
 
-/// Whether `registrations` holds `providers`' descriptors, one each, in their order.
-const fn is_registered_in_order(
+/// The descriptors of the first `N` of `registrations`, in their order; `N` is at least one.
+const fn descriptors_of<const N: usize>(
     registrations: &[ProviderRegistration],
-    providers: &[&ProviderDescriptor],
-) -> bool {
-    if registrations.len() != providers.len() {
-        return false;
-    }
-    let mut i = 0;
-    while i < providers.len() {
-        if !is_same_text(registrations[i].descriptor.id, providers[i].id) {
-            return false;
-        }
+) -> [&'static ProviderDescriptor; N] {
+    let mut descriptors = [registrations[0].descriptor; N];
+    let mut i = 1;
+    while i < N {
+        descriptors[i] = registrations[i].descriptor;
         i += 1;
     }
-    true
+    descriptors
 }
 
 /// Whether no two entries of `table` share an id.

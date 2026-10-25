@@ -131,7 +131,7 @@ pub(crate) struct MethodTableServices {
 /// Fails when a method is registered twice.
 #[expect(
     dead_code,
-    reason = "the daemon's start, which the composition wires, registers the tables through it"
+    reason = "the daemon's start registers the tables through it"
 )]
 pub(crate) fn register_method_tables(
     builder: &mut MethodRegistryBuilder,
@@ -179,10 +179,7 @@ pub(crate) fn register_method_tables(
 
 /// The chain a call on the serving socket passes through, and its gate that records mutating calls,
 /// which the flush and the stop wait on.
-#[expect(
-    dead_code,
-    reason = "the daemon's start and stop, which the composition wires, read the gates"
-)]
+#[expect(dead_code, reason = "the daemon's start and stop read the gates")]
 pub(crate) struct GateChain {
     /// The outermost gate, which the gateway dispatches every call to.
     pub(crate) dispatch: Arc<dyn Dispatch>,
@@ -192,11 +189,9 @@ pub(crate) struct GateChain {
 
 /// Builds, over the frozen `registry`, the chain a call passes: the handshake's gate, then the
 /// recovery's write gate, then the record of mutating calls, then the damage report, then the
-/// registry, so a refused call is never recorded and every failure a call meets reaches `damage`.
-#[expect(
-    dead_code,
-    reason = "the daemon's start, which the composition wires, builds the gates through it"
-)]
+/// registry, so a refused call is never recorded and every failure a handler answers reaches
+/// `damage`.
+#[expect(dead_code, reason = "the daemon's start builds the gates through it")]
 pub(crate) fn gate_chain(
     negotiator: &Arc<ProtocolNegotiator>,
     registry: &Arc<MethodRegistry>,

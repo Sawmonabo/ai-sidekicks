@@ -370,7 +370,7 @@ impl TestCodexSession {
 pub(crate) fn one_folder_spawn_contexts(
     folder: PathBuf,
 ) -> Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>> {
-    let spawn_contexts = Arc::new(PortRegistration::new("spawn contexts"));
+    let spawn_contexts = DriverPorts::new().spawn_contexts;
     spawn_contexts
         .register(Arc::new(OneFolder(folder)) as Arc<dyn SessionSpawnContextResolver>)
         .expect("a fresh port registers");

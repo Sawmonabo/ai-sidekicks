@@ -85,10 +85,7 @@ pub(crate) struct ProviderStart {
 
 /// The providers the daemon runs: their registry, the ports their drivers read, the capability
 /// refresh and the provider services the daemon holds a connection to.
-#[expect(
-    dead_code,
-    reason = "the daemon's start and stop, which the composition wires, read the providers"
-)]
+#[expect(dead_code, reason = "the daemon's start and stop read the providers")]
 pub(crate) struct Providers {
     /// Every driver, in the table's order.
     pub(crate) registry: Arc<ProviderRegistry>,
@@ -126,7 +123,7 @@ pub(crate) struct Providers {
     not(test),
     expect(
         dead_code,
-        reason = "the daemon's start, which the composition wires, builds the providers through it"
+        reason = "the daemon's start builds the providers through it"
     )
 )]
 pub(crate) fn build_providers(
@@ -282,7 +279,7 @@ pub(crate) fn native_session_places(base_environment: &[(String, String)]) -> Ar
 /// already, which only a second call does.
 #[expect(
     dead_code,
-    reason = "the daemon's start, which the composition wires, registers the ports through it"
+    reason = "the daemon's start registers the ports through it"
 )]
 pub(crate) fn register_driver_ports(
     ports: &DriverPorts,
@@ -334,7 +331,7 @@ pub(crate) enum SessionInboxAddressesError {
 /// Fails when no driver answers one, or a place is foreign to this computer's system.
 #[expect(
     dead_code,
-    reason = "the daemon's start, which the composition wires, builds session.read's addresses \
+    reason = "the daemon's start builds session.read's addresses \
               through it"
 )]
 pub(crate) fn compose_session_inbox_addresses(
@@ -446,7 +443,7 @@ impl ProvidersRegistration {
     not(test),
     expect(
         dead_code,
-        reason = "the daemon's start, which the composition wires, starts the registration through it"
+        reason = "the daemon's start starts the registration through it"
     )
 )]
 pub(crate) fn register_providers(
@@ -553,10 +550,7 @@ fn report_row_apply_failure(
 
 /// Ends every driver's work for `intent`, all at once, and answers each driver's failure, in the
 /// table's order.
-#[expect(
-    dead_code,
-    reason = "the daemon's stop, which the composition wires, ends the drivers through it"
-)]
+#[expect(dead_code, reason = "the daemon's stop ends the drivers through it")]
 pub(crate) async fn shut_down_drivers(
     registry: &ProviderRegistry,
     intent: DaemonStopIntent,
