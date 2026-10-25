@@ -30,7 +30,8 @@ pub(crate) type PortListeningSink = Arc<dyn Fn(PortListeningReadings) + Send + S
 pub(crate) trait SharedPortListeningSource: Send + Sync {
     /// Follows the listeners on the ports `listed` holds, the list changing as ports are shared
     /// and removed: sends `sink` every listed port's reading once it has them and again whenever
-    /// one changes, until `stop` is canceled. It reads nothing while `listed` is empty.
+    /// one changes, until `stop` is canceled. It reads nothing while `listed` is empty, and
+    /// nothing at all when `stop` is canceled already, as a reader that left at once leaves it.
     fn follow(
         &self,
         listed: watch::Receiver<Vec<Port>>,
