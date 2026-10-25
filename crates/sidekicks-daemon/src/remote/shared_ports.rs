@@ -340,44 +340,61 @@ fn added_after(newest: Option<Timestamp>) -> WireInstant {
 mod tests {
     use std::io;
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
+    use jiff::{SignedDuration, Timestamp};
     use rstest::rstest;
     use serde_json::json;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::preview::port::{PreviewPortShareListFrame, PreviewSharedPort};
     use sidekicks_contracts::wire::integer::Port;
+    use sidekicks_contracts::wire::text::NonEmptyText;
     use tokio::sync::watch;
     use tokio_util::sync::CancellationToken;
 
-    use super::listening::{PortListeningSink, SharedPortListeningSource};
+    use super::listening::{
+        PortListening, PortListeningReadings, PortListeningSink, SharedPortListeningSource,
+    };
     use super::loopback::SharedPortConnectError;
     use super::methods::port_not_shared;
     use super::store::SHARED_PORTS_STATEMENT_CAPACITY;
-    use super::{SharedPortAddError, SharedPorts};
+    use super::{SharedPortAddError, SharedPorts, added_after};
     use crate::database::connection::read_pool::DatabaseReadPool;
     use crate::database::writer::test_file::TestDatabase;
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use crate::ipc::domain_error::refusal_fields;
-    use crate::ipc::stream::feed::{CreditGate, Feed as _};
+    use crate::ipc::stream::feed::{CreditGate, Feed};
     use crate::ipc::stream::latest_value::LatestValueFeed;
+    use crate::mutex_lock::lock;
 
     const WAIT: Duration = Duration::from_secs(10);
 
     // How long a reader waits to be sure no list was sent.
     const QUIET: Duration = Duration::from_millis(200);
 
-    /// A listening source that never reads anything, so every port reads as not listening.
-    struct NothingListens;
+    /// A listening source that reads nothing itself, so every port reads as not listening until a
+    /// test sends readings through a follow it kept.
+    #[derive(Default)]
+    struct KeptFollows {
+        /// Each follow's sink and stop, in the order the follows started.
+        follows: Mutex<Vec<(PortListeningSink, CancellationToken)>>,
+    }
 
-    impl SharedPortListeningSource for NothingListens {
+    impl KeptFollows {
+        fn follow_sink(&self, index: usize) -> PortListeningSink {
+            Arc::clone(&lock(&self.follows)[index].0)
+        }
+    }
+
+    impl SharedPortListeningSource for KeptFollows {
         fn follow(
             &self,
             _listed: watch::Receiver<Vec<Port>>,
-            _sink: PortListeningSink,
-            _stop: CancellationToken,
+            sink: PortListeningSink,
+            stop: CancellationToken,
         ) {
+            lock(&self.follows).push((sink, stop));
         }
     }
 
@@ -393,10 +410,40 @@ mod tests {
         database: &TestDatabase,
         writer: Arc<DatabaseWriter>,
     ) -> Arc<SharedPorts> {
+        open_shared_ports_reading(database, writer, Arc::new(KeptFollows::default())).await
+    }
+
+    async fn open_shared_ports_reading(
+        database: &TestDatabase,
+        writer: Arc<DatabaseWriter>,
+        listening_source: Arc<KeptFollows>,
+    ) -> Arc<SharedPorts> {
         let reads = DatabaseReadPool::new(database.path(), SHARED_PORTS_STATEMENT_CAPACITY);
-        SharedPorts::open(&reads, writer, Arc::new(NothingListens))
+        SharedPorts::open(&reads, writer, listening_source)
             .await
             .expect("the shared ports read")
+    }
+
+    async fn follow_list(
+        shared_ports: &Arc<SharedPorts>,
+    ) -> impl Feed<Emission = PreviewPortShareListFrame> + use<> {
+        let shared_ports = Arc::clone(shared_ports);
+        LatestValueFeed::open(|outlet| async move { Ok(shared_ports.follow(outlet)) })
+            .await
+            .expect("the list is followed")
+    }
+
+    // The ports of the next list `feed` reads.
+    async fn next_ports(
+        feed: &mut impl Feed<Emission = PreviewPortShareListFrame>,
+        gate: &CreditGate,
+    ) -> Vec<PreviewSharedPort> {
+        tokio::time::timeout(WAIT, feed.next(gate))
+            .await
+            .expect("a list comes")
+            .expect("the list reads")
+            .expect("the stream goes on")
+            .ports
     }
 
     fn port(number: u16) -> Port {
@@ -545,32 +592,18 @@ mod tests {
         let writer = open_writer(&database).await;
         let shared_ports = open_shared_ports(&database, Arc::clone(&writer)).await;
         let gate = CreditGate::with_credit(1);
-        let mut feed = LatestValueFeed::open(|outlet| {
-            let shared_ports = Arc::clone(&shared_ports);
-            async move { Ok(shared_ports.follow(outlet)) }
-        })
-        .await
-        .expect("the list is followed");
-        let mut next_list = async || -> Vec<PreviewSharedPort> {
-            let frame: PreviewPortShareListFrame = tokio::time::timeout(WAIT, feed.next(&gate))
-                .await
-                .expect("a list comes")
-                .expect("the list reads")
-                .expect("the stream goes on");
-            frame.ports
-        };
-        assert_eq!(next_list().await, Vec::new());
+        let mut feed = follow_list(&shared_ports).await;
+        assert_eq!(next_ports(&mut feed, &gate).await, Vec::new());
 
         let first_added_at = shared_ports.add(first).await.expect("the port is shared");
-        let after_first = next_list().await;
+        let after_first = next_ports(&mut feed, &gate).await;
         assert_eq!(after_first.len(), 1);
         assert_eq!(after_first[0].port, first);
         assert_eq!(after_first[0].added_at, first_added_at);
         assert!(!after_first[0].listening);
         assert_eq!(after_first[0].framework, None);
         let second_added_at = shared_ports.add(second).await.expect("the port is shared");
-        assert!(second_added_at.as_str() > first_added_at.as_str());
-        let after_second = next_list().await;
+        let after_second = next_ports(&mut feed, &gate).await;
 
         let Err(SharedPortAddError::AlreadyShared { port: refused }) =
             shared_ports.add(first).await
@@ -596,24 +629,97 @@ mod tests {
         drop(writer);
 
         let reopened = open_shared_ports(&database, open_writer(&database).await).await;
-        let mut reopened_feed =
-            LatestValueFeed::open(|outlet| async move { Ok(reopened.follow(outlet)) })
-                .await
-                .expect("the list is followed");
-        let reopened_list: PreviewPortShareListFrame =
-            tokio::time::timeout(WAIT, reopened_feed.next(&gate))
-                .await
-                .expect("a list comes")
-                .expect("the list reads")
-                .expect("the stream goes on");
-        assert_eq!(reopened_list.ports, after_second);
+        let reopened_list = next_ports(&mut follow_list(&reopened).await, &gate).await;
+        assert_eq!(reopened_list, after_second);
         assert_eq!(
             reopened_list
-                .ports
                 .iter()
                 .map(|shared| (shared.port, shared.added_at.clone()))
                 .collect::<Vec<_>>(),
             vec![(first, first_added_at), (second, second_added_at)]
+        );
+    }
+
+    // Killed by `frame` keeping a listener the loopback connect does not reach, its filter deleted
+    // or swapped for `IpAddr::is_loopback` (the `127.0.0.2` port would read listening), by a sink
+    // that takes a stopped follow's readings (the late reading would reach the next reader), and by
+    // a new follow that keeps the last one's readings (its first list would read listening).
+    #[tokio::test]
+    async fn only_a_listener_the_loopback_connect_reaches_reads_listening() {
+        let database = TestDatabase::new();
+        let listening_source = Arc::new(KeptFollows::default());
+        let shared_ports = open_shared_ports_reading(
+            &database,
+            open_writer(&database).await,
+            Arc::clone(&listening_source),
+        )
+        .await;
+        let (reached, unreached) = (port(5173), port(5174));
+        for shared in [reached, unreached] {
+            shared_ports.add(shared).await.expect("the port is shared");
+        }
+        let listener = |address: Ipv4Addr, framework: &str| PortListening {
+            bound_address: address.into(),
+            framework: Some(
+                NonEmptyText::new(framework.to_owned()).expect("the test names a framework"),
+            ),
+        };
+        let readings = PortListeningReadings::from([
+            (reached, listener(Ipv4Addr::LOCALHOST, "vite")),
+            (unreached, listener(Ipv4Addr::new(127, 0, 0, 2), "next")),
+        ]);
+        let listening_of = |ports: Vec<PreviewSharedPort>| {
+            ports
+                .into_iter()
+                .map(|shared| {
+                    let framework = shared.framework.map(NonEmptyText::into_string);
+                    (shared.port, shared.listening, framework)
+                })
+                .collect::<Vec<_>>()
+        };
+        let nothing_read = vec![(reached, false, None), (unreached, false, None)];
+        let gate = CreditGate::with_credit(1);
+
+        let mut feed = follow_list(&shared_ports).await;
+        assert_eq!(
+            listening_of(next_ports(&mut feed, &gate).await),
+            nothing_read
+        );
+        let first_follow = listening_source.follow_sink(0);
+        first_follow(readings.clone());
+        assert_eq!(
+            listening_of(next_ports(&mut feed, &gate).await),
+            vec![
+                (reached, true, Some("vite".to_owned())),
+                (unreached, false, None)
+            ]
+        );
+
+        drop(feed);
+        let mut next_feed = follow_list(&shared_ports).await;
+        assert_eq!(
+            listening_of(next_ports(&mut next_feed, &gate).await),
+            nothing_read
+        );
+        first_follow(readings);
+        assert!(
+            tokio::time::timeout(QUIET, next_feed.next(&gate))
+                .await
+                .is_err(),
+            "a stopped follow's reading is not announced"
+        );
+    }
+
+    // Killed by an `added_after` that reads only the clock, so a port added after the clock stepped
+    // back would sort before the ports already on the list.
+    #[test]
+    fn a_port_is_added_a_millisecond_after_a_newest_instant_ahead_of_the_clock() {
+        let newest = Timestamp::now()
+            .checked_add(SignedDuration::from_hours(1))
+            .expect("an hour from now is a timestamp");
+        assert_eq!(
+            added_after(Some(newest)).unix_millisecond(),
+            Some(newest.as_millisecond() + 1)
         );
     }
 }
