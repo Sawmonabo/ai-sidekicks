@@ -149,6 +149,7 @@ fn start(id: &str, name: &str) -> CommandStart {
         run_id: RunId::new(RUN).expect("a run id"),
         name: NonEmptyText::new(name.to_owned()).expect("a name"),
         started_at: WireInstant::now(),
+        line: Some(name.to_owned()),
         process_id: None,
         is_backgrounded: false,
         can_move_to_background: true,

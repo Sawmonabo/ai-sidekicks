@@ -99,7 +99,7 @@ impl CommandEndingAppender for RunInboundDispatch {
 /// The wrapper a channel record comes from, and what it says of its command.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum WrapperCommand {
-    /// A command the agent ran as this shell line.
+    /// A command whose shell line runs this text.
     Line(String),
     /// A command the provider's executor names by this process.
     Process(String),
@@ -727,7 +727,7 @@ fn drawn_row(row: &CommandRow) -> RunningCommand {
 // Whether `row` is the command a wrapper reports running.
 fn row_runs(row: &CommandRow, command: &WrapperCommand) -> bool {
     match command {
-        WrapperCommand::Line(line) => row.start.name.as_str() == line,
+        WrapperCommand::Line(line) => row.start.line.as_deref() == Some(line),
         WrapperCommand::Process(process) => row.start.process_id.as_deref() == Some(process),
     }
 }

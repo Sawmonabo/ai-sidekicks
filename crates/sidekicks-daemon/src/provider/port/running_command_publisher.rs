@@ -28,6 +28,9 @@ pub(crate) struct CommandStart {
     pub(crate) name: NonEmptyText,
     /// When it started.
     pub(crate) started_at: WireInstant,
+    /// The text the provider's shell line runs for it, which its wrapper names at its start, where
+    /// the provider runs it through a shell prefix.
+    pub(crate) line: Option<String>,
     /// The process the provider's executor names it by, where the provider runs it through one.
     pub(crate) process_id: Option<String>,
     /// Whether it runs in the background from its start.
