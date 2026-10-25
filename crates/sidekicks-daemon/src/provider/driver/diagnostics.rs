@@ -53,6 +53,9 @@ pub(crate) enum DriverDiagnosticKind {
     ThreadDuplicateChildAnnouncement,
     /// A capability re-declaration failed or missed its liveness deadline.
     CapabilityRefreshFailed,
+    /// A Settings row's value could not be applied at the daemon's start, so the provider runs on
+    /// what it had.
+    SettingsRowApplyFailed,
     /// The provider's stored capability reading could not be rebuilt at the daemon's start, so
     /// its gated calls wait for the first refresh.
     StoredCapabilitiesUnreadable,
@@ -170,6 +173,7 @@ impl DriverDiagnosticKind {
                 "driver.threadRouter.duplicateChildAnnouncement"
             }
             Self::CapabilityRefreshFailed => "driver.capabilityRefresh.declarationFailed",
+            Self::SettingsRowApplyFailed => "driver.settingsRow.applyFailed",
             Self::StoredCapabilitiesUnreadable => "driver.capabilityRefresh.storedUnreadable",
             Self::CapabilityFlagWithdrawn => "driver.capabilityRefresh.flagWithdrawn",
             Self::CallbackToolSeamAbsent => "driver.callbackTool.seamAbsent",

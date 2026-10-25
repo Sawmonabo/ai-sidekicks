@@ -490,6 +490,11 @@ impl ProviderDriver for ClaudeDriver {
         self.read_rows(app_values).boxed()
     }
 
+    // Both rows follow Claude Code's own values until the app stores one.
+    fn row_defaults(&self) -> ProviderRowValues {
+        ProviderRowValues::default()
+    }
+
     // Both rows reach sessions started later through the values each start is handed.
     fn apply_row_value(
         &self,

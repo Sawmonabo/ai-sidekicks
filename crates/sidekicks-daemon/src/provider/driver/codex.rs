@@ -463,6 +463,10 @@ impl ProviderDriver for CodexDriver {
         ready(Ok(self.read_rows(&app_values))).boxed()
     }
 
+    fn row_defaults(&self) -> ProviderRowValues {
+        self.row_defaults()
+    }
+
     fn apply_row_value(
         &self,
         params: ApplyRowValueParams,

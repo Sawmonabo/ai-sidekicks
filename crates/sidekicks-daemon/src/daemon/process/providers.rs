@@ -3,16 +3,23 @@
 //! services behind them exist, and the drivers' first capability reads, which a provider with a
 //! lasting service answers by connecting to it.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use futures::future::join_all;
 use serde_json::{Map, Value};
+use sidekicks_contracts::machine::settings::{ProviderRowValue, ProviderSettingValues};
+use sidekicks_contracts::place::Place;
+use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, ProviderValue};
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_platforms::{PathRules, Spawner};
 use tokio::task::JoinHandle;
 
 use crate::approvals::permission_asks::PermissionAsks;
 use crate::approvals::reviewer_denials::ReviewerDenials;
 use crate::approvals::rules::ApprovalRules;
+use crate::daemon::machine::settings::file::MachineSettingsFile;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::DatabaseWriter;
 use crate::error_description::describe_error;
@@ -31,7 +38,7 @@ use crate::provider::driver::attachments::AttachmentResolver;
 use crate::provider::driver::capabilities::writer::{
     CapabilityHydration, DriverCapabilitiesWriter,
 };
-use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::contract::{ApplyRowValueParams, DriverError};
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
@@ -338,17 +345,24 @@ pub(crate) fn compose_session_inbox_addresses(
 /// Starts the providers' registration on its own task, not awaited: once `index_opened` settles,
 /// the staged reviews' worktrees a stopped daemon left are swept, then every driver's capabilities
 /// are read, declared and recorded at once, a provider with a lasting service connecting to it in
-/// its read. The handle ends once every read landed, failed or missed its deadline; a failure is
-/// logged, never returned.
-#[expect(
-    dead_code,
-    reason = "the daemon's start, which the composition wires, starts the registration through it"
+/// its read, then each driver's Settings rows take their values, each one `settings_file` stores
+/// over the driver's default. The handle ends once every read landed, failed or missed its
+/// deadline and every value was applied; a failure is logged, never returned. A value changed
+/// later is applied by the provider settings' update, through the same driver call.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which the composition wires, starts the registration through it"
+    )
 )]
 pub(crate) fn register_providers(
     providers: &Providers,
     index_opened: impl Future<Output = ()> + Send + 'static,
+    settings_file: Arc<MachineSettingsFile>,
 ) -> JoinHandle<()> {
     let refresher = Arc::clone(&providers.refresher);
+    let registry = Arc::clone(&providers.registry);
     let staged_changes = providers.staged_changes.clone();
     tokio::spawn(async move {
         index_opened.await;
@@ -361,7 +375,93 @@ pub(crate) fn register_providers(
         if !refresher.refresh_now().await {
             tracing::warn!("the capability refresh ended before the providers' first reads");
         }
+        match settings_file.read().await {
+            Ok(reading) => apply_row_values(&registry, &reading.settings.provider_settings).await,
+            Err(error) => tracing::error!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the providers' stored settings could not be read, so none was applied"
+            ),
+        }
     })
+}
+
+// Applies to every driver its rows' values, all drivers at once: each value `stored` holds for a
+// row over the driver's default for it, place by place.
+async fn apply_row_values(registry: &ProviderRegistry, stored: &ProviderSettingValues) {
+    join_all(registry.drivers().map(|(provider, driver)| async move {
+        let stored_rows = stored
+            .as_map()
+            .get(provider)
+            .map(|rows| rows.as_map().clone())
+            .unwrap_or_default();
+        let mut defaults = driver.row_defaults().into_map();
+        let row_ids: BTreeSet<ProviderDeclarationId> =
+            defaults.keys().chain(stored_rows.keys()).cloned().collect();
+        for row_id in row_ids {
+            let mut values = defaults
+                .remove(&row_id)
+                .map(placed_values)
+                .unwrap_or_default();
+            let stored_row = stored_rows.get(&row_id).cloned();
+            for (place, value) in stored_row.map(placed_values).unwrap_or_default() {
+                match values.iter_mut().find(|(placed, _)| *placed == place) {
+                    Some(placed) => placed.1 = value,
+                    None => values.push((place, value)),
+                }
+            }
+            for (place, value) in values {
+                let applied = driver
+                    .apply_row_value(ApplyRowValueParams {
+                        row_id: row_id.clone(),
+                        place,
+                        value,
+                    })
+                    .await;
+                if let Err(error) = applied {
+                    report_row_apply_failure(provider, &row_id, &error);
+                }
+            }
+        }
+    }))
+    .await;
+}
+
+// A row's value as each place's value: a switch's entry in each place it names, else one value
+// naming no place.
+fn placed_values(value: ProviderRowValue) -> Vec<(Option<Place>, Option<ProviderValue>)> {
+    match value {
+        ProviderRowValue::Places(switches) => switches
+            .as_slice()
+            .iter()
+            .map(|switch| {
+                (
+                    switch.place.clone(),
+                    Some(ProviderValue::Switch(switch.enabled)),
+                )
+            })
+            .collect(),
+        ProviderRowValue::Value(text) => vec![(None, text.map(ProviderValue::Text))],
+    }
+}
+
+fn report_row_apply_failure(
+    provider: &ProviderId,
+    row_id: &ProviderDeclarationId,
+    error: &DriverError,
+) {
+    emit_driver_diagnostic(&DriverDiagnosticRecord {
+        provider: provider.clone(),
+        provider_account_id: None,
+        kind: DriverDiagnosticKind::SettingsRowApplyFailed,
+        raw_wire_type: None,
+        disposition_reason: "settings row value not applied at the start; applied again at the \
+                             next change"
+            .to_owned(),
+        details: Map::from_iter([
+            ("rowId".to_owned(), Value::from(row_id.as_str())),
+            ("message".to_owned(), Value::from(describe_error(error))),
+        ]),
+    });
 }
 
 /// Ends every driver's work for `intent`, all at once, and answers each driver's failure, in the
@@ -387,26 +487,41 @@ pub(crate) async fn shut_down_drivers(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, LazyLock};
+    use std::collections::BTreeMap;
+    use std::sync::{Arc, LazyLock, Mutex};
 
+    use futures::FutureExt as _;
+
+    use sidekicks_contracts::machine::settings::{
+        MachineSettings, ProviderRowValue, ProviderRowValues,
+    };
+    use sidekicks_contracts::provider::declaration::{
+        ProviderDeclarationId, ProviderPlaceSwitch, ProviderPlaceSwitches, ProviderValue,
+    };
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::record::Record;
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_platforms::Spawner;
     use tempfile::TempDir;
     use tokio::runtime::Handle;
 
-    use super::{ProviderStart, Providers, build_providers, hydrate_capabilities};
+    use super::{
+        ProviderStart, Providers, build_providers, hydrate_capabilities, register_providers,
+    };
+    use crate::daemon::machine::settings::file::MachineSettingsFile;
     use crate::database::connection::read_pool::DatabaseReadPool;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::events::log_service::tests::open_log;
     use crate::git::process::{GitLimits, GitRunner};
+    use crate::mutex_lock::lock;
     use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
     use crate::provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
     use crate::provider::driver::contract::{
-        DriverCliVersionReport, GetCapabilitiesResult, MockProviderDriver,
+        ApplyRowValueParams, DriverCliVersionReport, DriverError, GetCapabilitiesResult,
+        MockProviderDriver,
     };
     use crate::provider::driver::test_registry::{NothingServed, registrations_of_first_providers};
     use crate::provider::driver::{PROVIDERS, ProviderRegistration};
@@ -543,6 +658,94 @@ mod tests {
                 .registry
                 .check_capability(&provider, DriverCapabilityFlag::Steer)
                 .is_err()
+        );
+    }
+
+    fn row_id(id: &str) -> ProviderDeclarationId {
+        ProviderDeclarationId::new(id.to_owned()).expect("a test row id")
+    }
+
+    fn switch_row(enabled: bool) -> ProviderRowValue {
+        ProviderRowValue::Places(
+            ProviderPlaceSwitches::new(vec![ProviderPlaceSwitch {
+                place: None,
+                enabled,
+            }])
+            .expect("one place is within the bounds"),
+        )
+    }
+
+    fn rows(values: Vec<(&str, ProviderRowValue)>) -> ProviderRowValues {
+        Record::new(
+            values
+                .into_iter()
+                .map(|(id, value)| (row_id(id), value))
+                .collect::<BTreeMap<_, _>>(),
+        )
+        .expect("no test row is the prototype key")
+    }
+
+    // The registration applies each row's value once the first reads ran: the driver's default
+    // where the app stored none, the stored value over it where it did. Killed by leaving the
+    // replay out, which applies nothing, or by applying the defaults alone.
+    #[tokio::test]
+    async fn the_registration_applies_each_rows_stored_value_over_the_drivers_default() {
+        let start = TestStart::new();
+        let applied = Arc::new(Mutex::new(Vec::new()));
+        let mut driver = MockProviderDriver::new();
+        driver.expect_get_capabilities().returning(|| {
+            async { Err(DriverError::Internal("no read in the test".into())) }.boxed()
+        });
+        driver.expect_row_defaults().returning(|| {
+            rows(vec![
+                ("reach", switch_row(true)),
+                ("style", switch_row(true)),
+            ])
+        });
+        let applying = Arc::clone(&applied);
+        driver
+            .expect_apply_row_value()
+            .returning(move |params: ApplyRowValueParams| {
+                lock(&applying).push((
+                    params.row_id.as_str().to_owned(),
+                    params.place,
+                    params.value,
+                ));
+                async { Ok(()) }.boxed()
+            });
+        let providers = start
+            .build(&registrations_of_first_providers(vec![Arc::new(driver)]))
+            .await;
+        let provider = ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id");
+        let settings_path = start.home.path().join("machine-settings.json");
+        let settings = MachineSettings {
+            provider_settings: Record::new(BTreeMap::from([(
+                provider,
+                rows(vec![("style", switch_row(false))]),
+            )]))
+            .expect("no provider id is the prototype key"),
+            ..MachineSettings::default()
+        };
+        std::fs::write(
+            &settings_path,
+            serde_json::to_vec(&settings).expect("the settings serialize"),
+        )
+        .expect("the test stores the settings");
+
+        register_providers(
+            &providers,
+            async {},
+            Arc::new(MachineSettingsFile::new(settings_path)),
+        )
+        .await
+        .expect("the registration ends");
+
+        assert_eq!(
+            *lock(&applied),
+            [
+                ("reach".to_owned(), None, Some(ProviderValue::Switch(true))),
+                ("style".to_owned(), None, Some(ProviderValue::Switch(false))),
+            ]
         );
     }
 }

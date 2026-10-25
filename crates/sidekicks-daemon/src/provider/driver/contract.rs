@@ -456,6 +456,11 @@ pub(crate) trait ProviderDriver: Send + Sync {
         app_values: ProviderRowValues,
     ) -> BoxFuture<'_, Result<Vec<ProviderRow>, DriverError>>;
 
+    /// The values the driver's Settings rows take where the app stored none, each in the shape a
+    /// stored value takes; the daemon's start applies each through [`Self::apply_row_value`],
+    /// a stored value in its place. Empty for a driver whose rows follow the provider's own values.
+    fn row_defaults(&self) -> ProviderRowValues;
+
     /// Applies a value the daemon checked against the row's declaration and stored: a setting
     /// reaches sessions started later, and a per-place switch that runs something starts or stops
     /// it in that place.
