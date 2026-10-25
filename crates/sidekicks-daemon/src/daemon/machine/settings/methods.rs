@@ -51,13 +51,6 @@ impl From<MachineSettingsFileError> for HandlerError {
 /// Registers `machine.settings.read`, `machine.settings.update` and `machine.settings.subscribe`.
 /// An update with a refused environment row or branch-name pattern is refused before anything is
 /// written. Fails the start when a method is already registered.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start registers the settings methods once the file is open"
-    )
-)]
 pub(crate) fn register_machine_settings_methods(
     registry: &mut MethodRegistryBuilder,
     deps: MachineSettingsMethodsDeps,

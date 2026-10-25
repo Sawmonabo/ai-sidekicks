@@ -191,10 +191,6 @@ struct CapabilitySnapshot {
 
 impl DriverCapabilitiesWriter {
     /// A writer reading through `reads` and writing through `writer`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start builds the one writer")
-    )]
     pub(crate) fn new(reads: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
         Self {
             reads,

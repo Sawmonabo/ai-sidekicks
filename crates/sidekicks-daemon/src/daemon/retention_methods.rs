@@ -128,13 +128,6 @@ impl From<SelectionReadError> for HandlerError {
 
 /// Registers `daemon.retention.read`, `.update`, `.purge` and `.subscribe`. Fails the start when a
 /// method is already registered.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start registers the retention methods"
-    )
-)]
 pub(crate) fn register_retention_methods(
     registry: &mut MethodRegistryBuilder,
     deps: RetentionMethodsDeps,

@@ -36,13 +36,6 @@ pub(crate) struct ReservedEnvironmentNames {
 impl ReservedEnvironmentNames {
     /// The names every one of `descriptors` sets, so a row naming any of them is dropped whichever
     /// provider the session runs, and their background-work switches.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start reserves every provider's names through it"
-        )
-    )]
     pub(crate) fn of_providers(descriptors: &[&ProviderDescriptor]) -> Self {
         Self {
             names: descriptors

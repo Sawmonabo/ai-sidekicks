@@ -37,10 +37,6 @@ impl From<ConfigurationError> for HandlerError {
 
 /// Registers `daemon.config.read` and `daemon.config.update`; an update changes exactly one
 /// setting and answers the settings with it. Fails the start when a method is already registered.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start registers the config methods")
-)]
 pub(crate) fn register_config_methods(
     registry: &mut MethodRegistryBuilder,
     deps: ConfigMethodsDeps,

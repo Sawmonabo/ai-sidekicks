@@ -46,13 +46,6 @@ pub(crate) enum SupersededTurnsReadError {
 
 /// Reads one stored `agent.run.rolledBack` payload into its contract. Fails with
 /// [`StoredRollbackMismatchError`] when it does not match.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the run state reply, which reads each rollback a run's log holds"
-    )
-)]
 pub(crate) fn parse_stored_rollback(
     payload: &Map<String, Value>,
     session_id: &SessionId,
@@ -66,13 +59,6 @@ pub(crate) fn parse_stored_rollback(
 }
 
 // Seeks the run's readable rollbacks through the event log's run-and-type index.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the transcript's turn attribution, which reads the turns undos superseded"
-    )
-)]
 static SELECT_RUN_ROLLBACKS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT sequence, payload FROM session_events AS event
@@ -87,13 +73,6 @@ static SELECT_RUN_ROLLBACKS_SQL: LazyLock<String> = LazyLock::new(|| {
 /// damaged session's last good point (`read_damaged_from_sequence`, `None` for a session that
 /// reads whole) or in a range it skipped. Fails with [`SupersededTurnsReadError`] when SQLite
 /// refuses the read or a stored rollback does not match its contract.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the transcript's turn attribution, which reads the turns undos superseded"
-    )
-)]
 pub(crate) fn read_superseded_turns(
     reader: &Connection,
     read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,

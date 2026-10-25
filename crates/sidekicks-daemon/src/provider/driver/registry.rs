@@ -84,13 +84,6 @@ pub(crate) struct ProviderRegistry {
 impl ProviderRegistry {
     /// Builds every provider in `table`, in its order, from the one bundle of shared services. A
     /// build does no I/O and starts no process, so it cannot fail.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start registers every provider through it"
-        )
-    )]
     pub(crate) fn register_from(table: &[ProviderRegistration], services: &DriverServices) -> Self {
         Self {
             drivers: table

@@ -129,13 +129,6 @@ fn damage_record_path(database_path: &Path) -> PathBuf {
 
 /// The gate that tells the watch of every failure a call meets, then hands the failure on to the
 /// caller unchanged.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which puts the gate in front of the registry"
-    )
-)]
 pub(crate) struct DamageReportGate {
     /// The dispatch the calls go on to.
     next: Arc<dyn Dispatch>,
@@ -145,7 +138,6 @@ pub(crate) struct DamageReportGate {
 
 impl DamageReportGate {
     /// The gate over `next`, telling `watch` of each failure.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(next: Arc<dyn Dispatch>, watch: Arc<DatabaseDamageWatch>) -> Self {
         Self { next, watch }
     }

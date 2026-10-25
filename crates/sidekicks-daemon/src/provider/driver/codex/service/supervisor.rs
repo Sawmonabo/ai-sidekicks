@@ -495,14 +495,6 @@ impl CodexService {
     }
 
     /// The person's restart of a service left down: forgets the crash window and starts it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the `session.restart` handler brings back a service left down after a \
-                      crash loop through the driver"
-        )
-    )]
     pub(crate) fn restart(&self) {
         self.send(SupervisorEvent::Restart);
     }

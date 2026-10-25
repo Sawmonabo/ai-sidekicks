@@ -24,10 +24,6 @@ pub(crate) struct ForeignPlaceError {
 }
 
 /// Composes each session's inbox addresses on this computer.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start builds it for session.read")
-)]
 pub(crate) struct SessionInboxAddresses {
     /// The computer's own system: `windows` on Windows, `None` on macOS and Linux.
     own_system: Option<Place>,
@@ -43,13 +39,6 @@ impl SessionInboxAddresses {
     /// The composer for a computer whose own system follows `native_rules`, with a messaging
     /// provider installed in `installed_places` and addresses answered by `addresser`. Refuses a
     /// place the computer's own system cannot hold: `None` on Windows, any place elsewhere.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds it from its place discovery"
-        )
-    )]
     pub(crate) fn new(
         native_rules: PathRules,
         installed_places: Vec<Option<Place>>,
@@ -78,13 +67,6 @@ impl SessionInboxAddresses {
     /// `own_place` is `None`), then each other installed place's once. The own place's entry is
     /// always built, so the list is never empty; on a computer without a WSL 2 distribution it is
     /// that one entry, naming no place.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "session.read composes each session's addresses with it"
-        )
-    )]
     pub(crate) fn addresses_of(
         &self,
         session_id: &SessionId,

@@ -95,13 +95,6 @@ impl CapabilityRefresher {
     /// A refresher over the registered drivers, declaring through `writer`, and its pass task,
     /// spawned on the current tokio runtime, so it must run inside one; no pass runs until one is
     /// asked for.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the one refresher every trigger asks"
-        )
-    )]
     pub(crate) fn start(
         providers: Arc<ProviderRegistry>,
         writer: Arc<DriverCapabilitiesWriter>,
@@ -132,14 +125,6 @@ impl CapabilityRefresher {
     /// reported as a diagnostic, never returned. Asked while a pass runs, it waits for the one
     /// pass after it. Returns `false` when the task, ended by its handle's stop or drop, ended
     /// before that pass finished.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, `Check again`, a provider's start and a stale model \
-                      catalog ask for a refresh through it"
-        )
-    )]
     pub(crate) async fn refresh_now(&self) -> bool {
         let needed = {
             let mut state = lock(&self.asks.state);
