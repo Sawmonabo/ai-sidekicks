@@ -238,13 +238,6 @@ impl ApprovalService {
     /// The service reading through `reads`, recording through `events` and `writer`, marking
     /// `working_folders` stale and reconciling runs through `run_holds`; no closed session's asks
     /// are canceled until [`ApprovalService::start`].
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the approval service with the run holds"
-        )
-    )]
     pub(crate) fn new(
         reads: Arc<DatabaseReadPool>,
         events: Arc<SessionEventAppender>,

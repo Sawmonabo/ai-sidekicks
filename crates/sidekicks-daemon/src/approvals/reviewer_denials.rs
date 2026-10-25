@@ -310,13 +310,6 @@ impl ReviewerDenials {
     /// The blocks read through `reads`, recorded through `events`, and allowed once through the
     /// drivers `providers` registered; nothing wakes a waiting block until
     /// [`ReviewerDenials::start`].
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the approvals composer builds it and registers it as the drivers' port"
-        )
-    )]
     pub(crate) fn new(
         reads: Arc<DatabaseReadPool>,
         events: Arc<SessionEventAppender>,
@@ -340,10 +333,6 @@ impl ReviewerDenials {
     /// Follows `followers`, so a block waiting for its call's row is woken when the row commits
     /// and refused when its run ends without one, until [`ReviewerDenials::stop`] takes the
     /// returned attachment.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the approvals composer starts it with the daemon")
-    )]
     pub(crate) fn start(
         self: &Arc<Self>,
         followers: &Arc<SessionEventFollowers>,
@@ -358,10 +347,6 @@ impl ReviewerDenials {
 
     /// Stops following the log and refuses every block still waiting, since nothing will now
     /// record it; a block taken after the stop is refused too.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the approvals composer stops it with the daemon")
-    )]
     pub(crate) fn stop(&self, attachment: FollowerAttachment) {
         self.is_stopped.store(true, Ordering::SeqCst);
         drop(attachment);

@@ -57,13 +57,6 @@ pub(crate) struct MachineRegistry {
 
 impl MachineRegistry {
     /// The registrations of `machine`, read through `reads` and written through `writer`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds it once this machine is read"
-        )
-    )]
     pub(crate) fn new(
         reads: Arc<DatabaseReadPool>,
         writer: Arc<DatabaseWriter>,
