@@ -28,9 +28,11 @@ use crate::events::session::appender::SessionEventAppender;
 use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use crate::events::session::read::DamagedFromSequenceReader;
 use crate::events::session::version::SESSION_EVENT_VERSION;
+use crate::git::process::GitRunner;
 use crate::git::worktree::watch::WorkingFolderWatcher;
 use crate::highlight::colorer::{CodeHighlighter, CodeHighlighterOptions};
 use crate::interventions::service::{InterventionService, InterventionServiceDeps};
+use crate::ipc::handlers::run::safety_holds::RunSafetyHolds;
 use crate::plans::service::PlansService;
 use crate::policy::authorizer::Authorizer;
 use crate::policy::execution_posture_service::ExecutionPostureService;
@@ -54,9 +56,11 @@ use crate::session::related::ranking::{RelatedRescoring, SessionRelatedRanking};
 use crate::session::run::binding_cursors::RunBindingCursors;
 use crate::session::run::engine::{RunEngine, RunEngineDeps};
 use crate::session::run::epochs::ExecutionEpochs;
+use crate::session::run::inbound::RunInboundDispatch;
 use crate::session::run::pause::RunPauseControl;
 use crate::session::run::provider_choice::ProviderChoiceResolver;
 use crate::session::run::setup_gates::RunSetupGate;
+use crate::session::search::files::service::FileSearchService;
 use crate::session::service::SessionService;
 use crate::session::tags::SessionTagService;
 use crate::workspace::managed::write_watcher::ManagedWorkspaceWrite;
@@ -97,6 +101,8 @@ pub(crate) struct SessionServiceStart {
     pub(crate) data_folder: PathBuf,
     /// The working folders an answer marks stale.
     pub(crate) working_folders: Arc<WorkingFolderWatcher>,
+    /// The daemon's git, which lists a working folder for the `@` file search.
+    pub(crate) git: GitRunner,
     /// The session list's feed.
     pub(crate) list_feed: Arc<SessionListFeed>,
     /// The artifact store's payloads, which a chat's versions are stored into.
@@ -143,6 +149,12 @@ pub(crate) struct SessionServices {
     /// Each run's binding cursors, which follow the log so a run's end and a session's close
     /// drop them.
     pub(crate) binding_cursors: Arc<RunBindingCursors>,
+    /// Where each provider delivery is attributed to its run and moves it.
+    pub(crate) inbound_dispatch: Arc<RunInboundDispatch>,
+    /// Each session's live safety holds, which the dispatch sends and the run state stream reads.
+    pub(crate) run_safety_holds: Arc<RunSafetyHolds>,
+    /// The `@` file search over each session's working folder; the stop waits for its listings.
+    pub(crate) file_search: Arc<FileSearchService>,
     /// Starts, continues and ends runs.
     pub(crate) engine: Arc<RunEngine>,
     /// The approval side.
@@ -209,6 +221,7 @@ pub(crate) fn build_session_services(
         authorizer,
         data_folder,
         working_folders,
+        git,
         list_feed,
         payloads,
         publisher,
@@ -259,7 +272,7 @@ pub(crate) fn build_session_services(
     let binding_cursors = Arc::new(RunBindingCursors::new(
         Arc::clone(&reads),
         Arc::clone(&runtime_bindings),
-        epochs,
+        Arc::clone(&epochs),
     ));
     let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
         pool: Arc::clone(&reads),
@@ -297,6 +310,13 @@ pub(crate) fn build_session_services(
     engine
         .set_limit_interrupter(Arc::downgrade(&interventions) as Weak<_>)
         .expect("a new engine holds no interventions service yet");
+    let run_safety_holds = RunSafetyHolds::new();
+    let inbound_dispatch = Arc::new(RunInboundDispatch::new(
+        Arc::clone(&engine),
+        epochs,
+        Arc::clone(&run_safety_holds) as Arc<_>,
+        Arc::clone(&event_log),
+    ));
     let choices = Arc::new(ProviderChoiceResolver::new(
         Arc::clone(&reads),
         Arc::clone(&engine),
@@ -339,6 +359,9 @@ pub(crate) fn build_session_services(
         pauses,
         choices,
         binding_cursors,
+        inbound_dispatch,
+        run_safety_holds,
+        file_search: Arc::new(FileSearchService::new(Arc::clone(&reads), git)),
         sessions: Arc::new(SessionService::new(
             Arc::clone(&reads),
             read_damaged_from_sequence,
@@ -426,8 +449,8 @@ pub(crate) fn start_session_attachments(
 }
 
 impl SessionAttachments {
-    /// Stops every follow and waits for the work under way; answers each follower whose task
-    /// ended abnormally, every one having stopped.
+    /// Stops every follow and waits for the work under way, the file search's listings among it;
+    /// answers each follower whose task ended abnormally, every one having stopped.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the daemon's stop, which the composition wires")
@@ -439,10 +462,11 @@ impl SessionAttachments {
             related_rescoring,
             auto_titling,
         } = self;
-        let (mut failures, rescoring, ()) = tokio::join!(
+        let (mut failures, rescoring, (), ()) = tokio::join!(
             approvals.stop(&services.approvals),
             related_rescoring.stop(),
             auto_titling.stop(),
+            services.file_search.stop(),
         );
         if let Err(error) = rescoring {
             failures.push(FollowerStopFailure {

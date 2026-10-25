@@ -118,6 +118,7 @@ async fn fixture() -> Fixture {
     let RepoServices {
         folder_watch,
         workspace_writes,
+        git,
         ..
     } = repo;
     let appender = Arc::new(SessionEventAppender::new(
@@ -172,6 +173,7 @@ async fn fixture() -> Fixture {
         authorizer: Arc::new(Authorizer::load_built_in().expect("the built-in rules load")),
         data_folder: home.path().join("data"),
         working_folders: Arc::clone(&folder_watch),
+        git,
         list_feed,
         payloads,
         publisher,

@@ -190,10 +190,6 @@ pub(crate) struct FileSearchService {
 impl FileSearchService {
     /// The search reading each session's working folder through `pool` and listing it through
     /// `git`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start builds the `@` file search")
-    )]
     pub(crate) fn new(pool: Arc<DatabaseReadPool>, git: GitRunner) -> Self {
         Self {
             pool,
@@ -222,13 +218,6 @@ impl FileSearchService {
     }
 
     /// Settles once every listing under way has ended.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's stop waits for the file search's listings"
-        )
-    )]
     pub(crate) async fn stop(&self) {
         self.listing_tasks.close();
         self.listing_tasks.wait().await;

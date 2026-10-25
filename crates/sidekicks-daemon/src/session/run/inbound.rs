@@ -380,10 +380,6 @@ impl RunInboundDispatch {
     /// A dispatch moving runs through `engine`, attributing on `epochs`, the cursors the binding
     /// cursors keep, sending live states to `run_state_publisher` and appending rows to
     /// `event_log`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start builds the one dispatch")
-    )]
     pub(crate) fn new(
         engine: Arc<RunEngine>,
         epochs: Arc<Mutex<ExecutionEpochs>>,
