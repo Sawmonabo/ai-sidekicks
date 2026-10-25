@@ -6,8 +6,11 @@ use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use tokio::task::JoinError;
+
 use crate::daemon::process::DaemonProcess;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::workspace::clone::askpass::broker::AskpassBrokerError;
 
 /// Why a step of the stop failed; every other step still ran.
 #[derive(Debug, thiserror::Error)]
@@ -15,6 +18,23 @@ pub(crate) enum DaemonStopFailure {
     /// The crash monitor could not be ended, or its socket stayed.
     #[error(transparent)]
     CrashMonitor(#[from] CrashMonitorEndFailure),
+    /// A service's background task ended abnormally.
+    #[error(transparent)]
+    Task(#[from] TaskStopFailure),
+    /// The askpass broker's listening task ended abnormally at its close.
+    #[error(transparent)]
+    Askpass(#[from] AskpassBrokerError),
+}
+
+/// A service's background task, a follow of the log among them, that ended abnormally at the stop.
+#[derive(Debug, thiserror::Error)]
+#[error("the {task} ended abnormally at the stop")]
+pub(crate) struct TaskStopFailure {
+    /// What the task does, in plain words.
+    pub(crate) task: &'static str,
+    /// How it ended.
+    #[source]
+    pub(crate) error: JoinError,
 }
 
 /// Why the crash monitor's end failed.

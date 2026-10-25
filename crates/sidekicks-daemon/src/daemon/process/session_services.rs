@@ -18,9 +18,9 @@ use crate::artifacts::payload_store::PayloadStore;
 use crate::artifacts::publish::ArtifactPublishService;
 use crate::daemon::machine::local::LocalMachine;
 use crate::daemon::process::approvals::{
-    ApprovalAttachments, ApprovalStart, Approvals, FollowerStopFailure, build_approvals,
-    start_approval_attachments,
+    ApprovalAttachments, ApprovalStart, Approvals, build_approvals, start_approval_attachments,
 };
+use crate::daemon::process::stop::TaskStopFailure;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::DatabaseWriter;
 use crate::events::log_service::EventLogService;
@@ -461,7 +461,7 @@ impl SessionAttachments {
         self,
         services: &mut SessionServices,
         workspaces: &ManagedWorkspaceService,
-    ) -> Vec<FollowerStopFailure> {
+    ) -> Vec<TaskStopFailure> {
         let Self {
             binding_cursors,
             approvals,
@@ -485,13 +485,13 @@ impl SessionAttachments {
             services.file_search.stop(),
             chat_versions,
         );
-        for (follower, stopped) in [
+        for (task, stopped) in [
             ("related sessions' rescoring", rescoring),
             ("chats' file recount", recount),
             ("chat version recording", recorded),
         ] {
             if let Err(error) = stopped {
-                failures.push(FollowerStopFailure { follower, error });
+                failures.push(TaskStopFailure { task, error });
             }
         }
         drop(binding_cursors);

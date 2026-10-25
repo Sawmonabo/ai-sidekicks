@@ -81,10 +81,7 @@ impl CallbackToolApprovals {
     /// `gates_by_tool` declares it.
     #[cfg_attr(
         not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start binds the seam to the callback-tool host"
-        )
+        expect(dead_code, reason = "the agent tool server's gate map")
     )]
     pub(crate) fn new(
         check: Arc<PermissionCheck>,

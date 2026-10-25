@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 
 use futures::FutureExt as _;
-use tokio::task::JoinError;
 
 use crate::approvals::permission_asks::{PermissionAsks, PermissionAsksDeps};
 use crate::approvals::reviewer_denials::ReviewerDenials;
@@ -19,6 +18,7 @@ use crate::approvals::service::ApprovalService;
 use crate::approvals::service::session_sweep::ApprovalSweep;
 use crate::daemon::machine::local::LocalMachine;
 use crate::daemon::machine::registry::MachineRegistry;
+use crate::daemon::process::stop::TaskStopFailure;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
 use crate::database::writer::DatabaseWriter;
 use crate::events::session::appender::SessionEventAppender;
@@ -195,17 +195,6 @@ fn revoke_at_session_provider(deps: &ApprovalStart) -> RevokeAtProvider {
     })
 }
 
-/// A follower of the log whose task ended abnormally at the stop.
-#[derive(Debug, thiserror::Error)]
-#[error("the {follower} ended abnormally at the stop")]
-pub(crate) struct FollowerStopFailure {
-    /// What follows the log, in plain words.
-    pub(crate) follower: &'static str,
-    /// How its task ended.
-    #[source]
-    pub(crate) error: JoinError,
-}
-
 /// The approval side's follows of the log, held for the stop.
 pub(crate) struct ApprovalAttachments {
     // The reviewer's blocks' wakes, stopped first so no block waits on a stopped follow.
@@ -241,7 +230,7 @@ impl ApprovalAttachments {
         not(test),
         expect(dead_code, reason = "the daemon's stop, which the composition wires")
     )]
-    pub(crate) async fn stop(self, approvals: &Approvals) -> Vec<FollowerStopFailure> {
+    pub(crate) async fn stop(self, approvals: &Approvals) -> Vec<TaskStopFailure> {
         let Self {
             denials,
             sweep,
@@ -257,11 +246,7 @@ impl ApprovalAttachments {
             ("approval run holds", run_holds),
         ]
         .into_iter()
-        .filter_map(|(follower, stopped)| {
-            stopped
-                .err()
-                .map(|error| FollowerStopFailure { follower, error })
-        })
+        .filter_map(|(task, stopped)| stopped.err().map(|error| TaskStopFailure { task, error }))
         .collect()
     }
 }

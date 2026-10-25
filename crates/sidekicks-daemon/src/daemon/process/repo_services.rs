@@ -17,7 +17,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::already_running_error::{DaemonAlreadyRunningError, HeldPlace};
-use crate::daemon::process::approvals::FollowerStopFailure;
+use crate::daemon::process::stop::TaskStopFailure;
 use crate::daemon::scheduler::{
     JobCondition, ScheduleError, ScheduledJobHandle, Scheduler, WakeSignal,
 };
@@ -287,15 +287,15 @@ impl RepoAttachments {
     /// canceled and before the scheduler and the working-folder watch stop; answers the triggers'
     /// task when it ended abnormally.
     #[expect(dead_code, reason = "the daemon's stop")]
-    pub(crate) async fn stop(self, services: &RepoServices) -> Option<FollowerStopFailure> {
+    pub(crate) async fn stop(self, services: &RepoServices) -> Option<TaskStopFailure> {
         self.health_tick.cancel();
         let (triggers, (), ()) = tokio::join!(
             self.health_triggers,
             services.live_folders.stop(),
             services.fetch.stop(),
         );
-        triggers.err().map(|error| FollowerStopFailure {
-            follower: "repository health re-probe",
+        triggers.err().map(|error| TaskStopFailure {
+            task: "repository health re-probe",
             error,
         })
     }
