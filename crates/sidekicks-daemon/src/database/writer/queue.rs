@@ -501,6 +501,10 @@ impl WriteQueue {
             after_commit_failure,
         } = committed;
         if let Some(failure) = &after_commit_failure {
+            tracing::warn!(
+                error = failure as &(dyn Error + 'static),
+                "the read after a commit failed; its watch keeps the value of the last that read"
+            );
             self.report_failure(failure);
         }
         let mut outcomes = outcomes.into_iter();

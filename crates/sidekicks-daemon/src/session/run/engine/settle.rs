@@ -438,10 +438,14 @@ impl RunEngine {
                 companion_index: QUEUED_RUN_WAITING_ITEM_GUARD_COMPANION_INDEX,
                 ..
             })) if is_queued => Ok(run.run.clone()),
-            // The run moved from the state its facts were read in, so it is left as it is now.
-            Err(RunEngineError::Refused(
-                RunRefusal::InvalidTransition { .. } | RunRefusal::AlreadyEnded { .. },
-            )) => Ok(run.run.clone()),
+            // The run moved from the state its facts were read in, so it is left as it is now; a
+            // move the table refuses from that very state is the settle's own failure.
+            Err(RunEngineError::Refused(RunRefusal::InvalidTransition { from_state, .. }))
+                if from_state != run.run.state =>
+            {
+                Ok(run.run.clone())
+            }
+            Err(RunEngineError::Refused(RunRefusal::AlreadyEnded { .. })) => Ok(run.run.clone()),
             settled => settled,
         }
     }

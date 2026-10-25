@@ -88,7 +88,7 @@ pub struct AgentRunRefusalChoiceRequestedPayload {
 /// among them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub enum RunRefusalChoiceCanceled {
+pub enum RunRefusalChoiceUnanswered {
     /// An interrupt or a message sent while it waited, or its run's interrupted end.
     Canceled,
     /// Any other end of its run.
@@ -102,7 +102,7 @@ pub enum RunRefusalChoiceSettlement {
     /// The person's answer.
     Answered(RunRefusalChoice),
     /// An end with no answer.
-    Canceled(RunRefusalChoiceCanceled),
+    Canceled(RunRefusalChoiceUnanswered),
 }
 
 /// The payload of `agent.run.refusalChoice.resolved`: the answer that settled the choice, and the
@@ -246,7 +246,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<RunRefusalChoice>(),
         Definition::read::<AgentRunRefusalChoiceResolveRequest>().checked(),
         Definition::read::<AgentRunRefusalChoiceRequestedPayload>().checked(),
-        Definition::read::<RunRefusalChoiceCanceled>(),
+        Definition::read::<RunRefusalChoiceUnanswered>(),
         Definition::read::<RunRefusalChoiceSettlement>(),
         Definition::read::<AgentRunRefusalChoiceResolvedPayload>().checked(),
         Definition::read::<RunUsageCreditsChoice>(),

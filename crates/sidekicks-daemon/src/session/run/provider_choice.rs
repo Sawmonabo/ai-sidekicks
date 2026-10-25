@@ -22,8 +22,8 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{
     AgentRunRefusalChoiceRequestedPayload, AgentRunRefusalChoiceResolveRequest,
     AgentRunRefusalChoiceResolvedPayload, AgentRunUsageCreditsChoiceResolveRequest,
-    AgentRunUsageCreditsChoiceResolvedPayload, RunRefusalChoice, RunRefusalChoiceCanceled,
-    RunRefusalChoiceSettlement, RunUsageCreditsChoiceSettlement, RunUsageCreditsChoiceUnanswered,
+    AgentRunUsageCreditsChoiceResolvedPayload, RunRefusalChoice, RunRefusalChoiceSettlement,
+    RunRefusalChoiceUnanswered, RunUsageCreditsChoiceSettlement, RunUsageCreditsChoiceUnanswered,
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
@@ -641,9 +641,9 @@ pub(crate) fn read_open_choice_settlements(
                     session_id,
                     run_id,
                     choice: RunRefusalChoiceSettlement::Canceled(if is_interrupted {
-                        RunRefusalChoiceCanceled::Canceled
+                        RunRefusalChoiceUnanswered::Canceled
                     } else {
-                        RunRefusalChoiceCanceled::RunEnded
+                        RunRefusalChoiceUnanswered::RunEnded
                     }),
                     device_id: None,
                 })

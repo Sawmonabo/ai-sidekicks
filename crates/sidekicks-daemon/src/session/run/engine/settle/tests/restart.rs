@@ -23,6 +23,7 @@ use crate::session::run::engine::tests::{
     stored_events, stored_run_state, test_engine, token_limit, turn_completed_at, turn_started_at,
 };
 use crate::session::run::read::{LiveRun, RunRead};
+use crate::session::run::refusals::RunRefusal;
 use crate::session::run::restart::{RestartFacts, read_restart_facts};
 use crate::session::run::state_change::{RunStateChangeCompanions, RunStateChangeError};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -623,6 +624,79 @@ async fn a_restart_settle_is_refused_by_an_interrupt_asked_for_after_its_read() 
     assert!(stored_events(&database, &run_id).is_empty());
 }
 
+#[tokio::test]
+async fn a_restart_settle_the_table_refuses_from_the_state_read_is_an_error() {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let connection = database.reader();
+    connection
+        .execute(
+            "UPDATE runs SET state = 'starting' WHERE run_id = ?1",
+            params![run_id.text().as_str()],
+        )
+        .expect("the test leaves the run starting");
+    let engine = test_engine(&database, log.service, home.path());
+    // The log owes a token stop whose interrupt failed, so the settle decides `stopped`, which the
+    // table does not let a starting run reach.
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 1, 1),
+    )
+    .await;
+    append(
+        &engine,
+        session_id,
+        &token_limit_reached(session_id, run_id),
+    )
+    .await;
+    connection
+        .execute(
+            "INSERT INTO interventions (id, target_run_id, type, state, payload, device_id,
+               expected_run_version, client_idempotency_key, created_at)
+             VALUES (?1, ?2, 'interrupt', 'failed', ?3, NULL, 1, ?1, '2026-01-01T00:00:00.000Z')",
+            params![
+                LIMIT_INTERRUPT_ID,
+                run_id.text().as_str(),
+                limit_record("tokenLimit", 1)
+            ],
+        )
+        .expect("the test records the limit's failed interrupt");
+    let run = LiveRun {
+        run_id,
+        run: RunRead {
+            version: 1,
+            session_id,
+            state: RunState::Starting,
+        },
+        parent_run_id: None,
+        reached_by: None,
+    };
+
+    let settled = engine
+        .settle_run_after_restart(&run, "not resumed", None)
+        .await;
+
+    assert!(
+        matches!(
+            settled,
+            Err(RunEngineError::Refused(RunRefusal::InvalidTransition {
+                from_state: RunState::Starting,
+                ..
+            }))
+        ),
+        "the settle answers {settled:?}"
+    );
+    assert_eq!(
+        stored_run_state(&database, &run_id),
+        ("starting".to_owned(), 1)
+    );
+}
+
 // What lands between a restart settle's read of a run's facts and its write.
 #[derive(Clone, Copy, Debug)]
 enum LandedMeanwhile {
@@ -674,7 +748,7 @@ async fn a_restart_settle_meets_what_landed_after_its_read(
         }
     };
     let engine = test_engine(&database, log.service, home.path());
-    let paused = engine.restart_facts_pause.arm();
+    let paused = engine.restart_facts_pause().arm();
     let mut settling = Box::pin(engine.settle_run_after_restart(&run, "not resumed", None));
 
     tokio::select! {

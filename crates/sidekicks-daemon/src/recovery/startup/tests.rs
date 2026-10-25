@@ -13,12 +13,13 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio_util::sync::CancellationToken;
 
 use crate::approvals::service::tests::SETTLE_WAIT;
+use crate::database::writer::test_file::test_run_id;
 use crate::events::session::append_lock::SESSION_APPEND_LOCK;
 use crate::provider::port::plan::ProviderPlan;
 use crate::recovery::restart_settle::RESTART_FAILURE_DETAIL;
 use crate::recovery::session_write_refusal::{refuse_call_naming_session, refuse_session_event};
 use crate::recovery::status::RecoveryStatusTracker;
-use crate::recovery::test_pass::{PassFixture, new_run_id};
+use crate::recovery::test_pass::PassFixture;
 use crate::session::run::engine::tests::{insert_running_run, stored_run_state};
 
 // The folders the store's files were copied aside into.
@@ -96,7 +97,7 @@ async fn a_pass_settles_what_a_restart_left_in_a_session_in_order() {
             [ended_run.text().as_str()],
         )
         .expect("the run ended before the restart");
-    let running_run = new_run_id();
+    let running_run = test_run_id();
     insert_running_run(&fixture.store.database, session_id, running_run);
     let running_ask = fixture.record_pending_ask(session_id, running_run);
     let sent_retry = fixture.record_intervention(running_run, "fasterModelRetry", "accepted", "{}");
@@ -306,7 +307,7 @@ async fn a_session_the_pass_rebuilds_refuses_its_calls_alone_until_settled() {
     let pass = Arc::new(fixture.pass(Arc::clone(&fixture.status)));
     let held = SESSION_APPEND_LOCK.acquire(stale).await;
     let held_alone = SESSION_APPEND_LOCK.queue_handle_count(stale);
-    let settle_paused = fixture.engine.restart_facts_pause.arm();
+    let settle_paused = fixture.engine.restart_facts_pause().arm();
     let running = tokio::spawn({
         let pass = Arc::clone(&pass);
         async move { pass.run(&CancellationToken::new()).await }

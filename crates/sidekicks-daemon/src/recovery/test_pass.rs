@@ -26,7 +26,9 @@ use crate::approvals::service::tests::test_approval_service;
 use crate::artifacts::test_store::ArtifactTestStore;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::statement::{DATABASE_NOW_SQL, WriteStatement};
-use crate::database::writer::test_file::{TestDatabase, session_event_row, test_session_id};
+use crate::database::writer::test_file::{
+    TestDatabase, session_event_row, test_run_id, test_session_id,
+};
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::events::log_service::tests::TestLog;
 use crate::events::log_service::{
@@ -344,7 +346,7 @@ impl PassFixture {
                 )
                 .expect("the test breaks the stored row");
         }
-        let run_id = new_run_id();
+        let run_id = test_run_id();
         insert_running_run(&self.store.database, session_id, run_id);
         (session_id, run_id)
     }
@@ -460,11 +462,6 @@ impl PassFixture {
         let event: SessionEvent = serde_json::from_value(event).expect("the test's event reads");
         crate::session::run::engine::tests::append(&self.engine, session_id, &event).await;
     }
-}
-
-/// A fresh run id.
-pub(crate) fn new_run_id() -> RunId {
-    RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
 }
 
 // The services the pass and damaged history share.

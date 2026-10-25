@@ -8,6 +8,8 @@
 
 use std::sync::Arc;
 
+use tokio_util::sync::CancellationToken;
+
 use rusqlite::Connection;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
@@ -33,6 +35,11 @@ use crate::settle_all::SettleFailures;
 /// The provider failure detail a run the restart left live ends `failed` with.
 pub(crate) const RESTART_FAILURE_DETAIL: &str =
     "The service restarted and no provider session was restored";
+
+/// The statements the settle's own reads run, each of one session: its live runs, its pending
+/// retries, and its ended runs with an open turn, with a pending ask and with an open choice.
+#[expect(dead_code, reason = "the daemon's start")]
+pub(crate) const RESTART_SETTLE_STATEMENT_CAPACITY: usize = 5;
 
 /// What the restart settle reads and writes through.
 pub(crate) struct RestartSettleDeps {
@@ -80,6 +87,10 @@ pub(crate) enum RestartSettleError {
     /// A pending retry's settlement was not written.
     #[error("a pending retry's settlement was not written")]
     Retry(#[from] SessionEventAppendError),
+    /// The service's stop came before a step; what the steps before it wrote is kept, and the next
+    /// start settles the rest.
+    #[error("the service's stop came before the session was settled")]
+    Stopped,
     /// A run, its turns, its interventions or its choices could not be settled.
     #[error("a run the restart left could not be settled")]
     Run(#[from] RunEngineError),
@@ -100,19 +111,23 @@ impl RestartSettle {
 
     /// Settles `session_id`'s pending faster-model retries, then ends each run of it still live as
     /// [`RunEngine::settle_run_after_restart`] decides, writing under `hold` where the caller holds
-    /// the session's appends; answers the runs it ended. Fails at the first read or write that
-    /// fails.
+    /// the session's appends and reading `stop`, where the caller has one, before each step;
+    /// answers the runs it ended. Fails at the first read or write that fails, or with `Stopped`.
     pub(crate) async fn settle_live(
         &self,
         session_id: SessionId,
         hold: Option<&SessionAppendHold>,
+        stop: Option<&CancellationToken>,
     ) -> Result<RestartTally, RestartSettleError> {
+        check_stop(stop)?;
         self.settle_pending_retries(session_id, hold).await?;
+        check_stop(stop)?;
         let live_runs = self
             .read(move |reader| RunStateReader::new(reader).list_live_runs(Some(&session_id)))
             .await?;
         let mut tally = RestartTally::default();
         for live_run in &live_runs {
+            check_stop(stop)?;
             let settled = self
                 .deps
                 .run_engine
@@ -138,12 +153,15 @@ impl RestartSettle {
 
     /// Settles what `session_id`'s runs that had ended left open: their open turns, then their
     /// interventions with no outcome, their pending asks, their unsettled choices and the plans a
-    /// lost request held. Fails at the first step that fails.
+    /// lost request held, reading `stop`, where the caller has one, before each step. Fails at the
+    /// first step that fails, or with `Stopped`.
     pub(crate) async fn settle_ended(
         &self,
         session_id: SessionId,
+        stop: Option<&CancellationToken>,
     ) -> Result<(), RestartSettleError> {
         let engine = &self.deps.run_engine;
+        check_stop(stop)?;
         let with_open_turns = self
             .read(move |reader| {
                 RunStateReader::new(reader).list_ended_runs_with_open_turns(Some(&session_id))
@@ -152,7 +170,9 @@ impl RestartSettle {
         engine
             .end_open_turns_of_ended_runs(&run_ids(&with_open_turns))
             .await?;
+        check_stop(stop)?;
         engine.settle_unresolved_of_ended_runs(session_id).await?;
+        check_stop(stop)?;
         let with_pending_asks = self
             .read(move |reader| {
                 ApprovalRequestReader::new(reader).list_ended_runs_with_pending(Some(&session_id))
@@ -164,6 +184,7 @@ impl RestartSettle {
                 .cancel_pending_for_run(run.run_id, None)
                 .await?;
         }
+        check_stop(stop)?;
         let with_open_choices = self
             .read(move |reader| read_ended_runs_with_open_choices(reader, Some(&session_id)))
             .await?;
@@ -171,6 +192,7 @@ impl RestartSettle {
             settle_open_choices_of_ended_run(&self.deps.reads, &self.deps.appender, run.run_id)
                 .await?;
         }
+        check_stop(stop)?;
         self.deps
             .plans
             .end_holds_lost_at_restart(session_id)
@@ -222,6 +244,15 @@ impl RestartSettle {
                 Ok::<_, RestartSettleError>(read(reader)?)
             })
             .await
+    }
+}
+
+// The stop's word before a step, where the caller has a stop: a step past it would write what the
+// next start settles again.
+fn check_stop(stop: Option<&CancellationToken>) -> Result<(), RestartSettleError> {
+    match stop {
+        Some(stop) if stop.is_cancelled() => Err(RestartSettleError::Stopped),
+        _ => Ok(()),
     }
 }
 

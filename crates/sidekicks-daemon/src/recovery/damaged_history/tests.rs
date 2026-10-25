@@ -69,6 +69,22 @@ async fn continuing_a_damaged_session_skips_its_damage_and_settles_its_runs() {
     );
     assert!(refuse_call_naming_session(&fixture.status, &damaged, "session.pin").is_ok());
     assert_eq!(fixture.status.read_session_write_refusal(&damaged), None);
+    fixture
+        .append(
+            damaged,
+            json!({
+                "type": "agent.run.refusalChoice.requested",
+                "payload": {"sessionId": damaged, "runId": damaged_run,
+                            "refusedModel": "model-a", "fallbackModel": "model-b"},
+            }),
+        )
+        .await;
+    assert_eq!(
+        fixture
+            .payloads(&damaged, SessionEventType::AgentRunRefusalChoiceRequested)
+            .len(),
+        1
+    );
     let reads = Arc::new(DatabaseReadPool::new(
         fixture.store.database.path(),
         SESSION_SERVICE_STATEMENT_CAPACITY,

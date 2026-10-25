@@ -248,7 +248,7 @@ impl DamagedHistory {
             Ok(()) => self
                 .deps
                 .restart_settle
-                .settle_ended(session_id)
+                .settle_ended(session_id, None)
                 .await
                 .map_err(RecoveryActionError::from),
             Err(failure) => Err(failure),
@@ -287,11 +287,14 @@ impl DamagedHistory {
                 &ProcessorMeter::default(),
             )
             .await;
-        match report.outcomes.into_iter().next() {
-            Some((_, SessionPurgeOutcome::Refused(failure))) => {
-                Err(RecoveryActionError::Purge(failure))
-            }
-            Some((_, SessionPurgeOutcome::Removed { .. })) | None => Ok(()),
+        let (_, outcome) = report
+            .outcomes
+            .into_iter()
+            .next()
+            .expect("a purge answers one outcome for each session id it was given");
+        match outcome {
+            SessionPurgeOutcome::Refused(failure) => Err(RecoveryActionError::Purge(failure)),
+            SessionPurgeOutcome::Removed { .. } => Ok(()),
         }
     }
 
@@ -315,7 +318,7 @@ impl DamagedHistory {
             .await?;
         self.deps
             .restart_settle
-            .settle_live(session_id, Some(hold))
+            .settle_live(session_id, Some(hold), None)
             .await?;
         Ok(())
     }

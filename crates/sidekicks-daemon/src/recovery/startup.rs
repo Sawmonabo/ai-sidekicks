@@ -63,9 +63,12 @@ use crate::recovery::status::RecoveryStatusTracker;
 use crate::session::run::provider_choice::read_ended_runs_with_open_choices;
 use crate::session::run::read::RunStateReader;
 
-/// The statements the pass's own reads run: the failed passes since the last that succeeded.
+/// The statements the pass's own reads run: the failed passes since the last that succeeded, and
+/// the seven every-session listings of what the restart left (the live runs, the pending retries,
+/// the ended runs with an open turn, with an unresolved intervention, with a pending ask and with
+/// an open choice, and the held plans).
 #[expect(dead_code, reason = "the daemon's start")]
-pub(crate) const STARTUP_RECOVERY_STATEMENT_CAPACITY: usize = 1;
+pub(crate) const STARTUP_RECOVERY_STATEMENT_CAPACITY: usize = 8;
 
 // The failed passes since the last one that succeeded, read from the service's own session.
 static COUNT_FAILURES_SINCE_SUCCESS_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -371,12 +374,15 @@ impl StartupRecovery {
         let settled = self
             .deps
             .restart_settle
-            .settle_live(session_id, None)
+            .settle_live(session_id, None, Some(stop))
             .await?;
         tally.restart.failed += settled.failed;
         tally.restart.interrupted += settled.interrupted;
         tally.restart.stopped += settled.stopped;
-        self.deps.restart_settle.settle_ended(session_id).await?;
+        self.deps
+            .restart_settle
+            .settle_ended(session_id, Some(stop))
+            .await?;
         status.mark_session_healthy(&session_id);
         Ok(())
     }
@@ -391,7 +397,9 @@ impl StartupRecovery {
         let is_stopped = stop.is_cancelled()
             || matches!(
                 failure,
-                PassFailure::Stopped | PassFailure::Rebuild(ProjectionRebuildError::Stopped)
+                PassFailure::Stopped
+                    | PassFailure::Rebuild(ProjectionRebuildError::Stopped)
+                    | PassFailure::Settle(RestartSettleError::Stopped)
             );
         if is_stopped {
             tracing::info!(
