@@ -1,18 +1,30 @@
 //! A task on a 2025-11-25 server: the call goes out task-augmented as the client's own
 //! `tools/call`, and `tasks/get` and `tasks/result` are read from the raw copy, which keeps the
-//! task's `ttl` and `pollInterval`. On `input_required` the client calls `tasks/result` at once,
-//! whose stream carries the server's `elicitation/create` requests and ends with the result.
+//! task's `ttl` and `pollInterval`. On `input_required` the client holds `tasks/result` on the
+//! side, whose stream carries the server's `elicitation/create` requests and ends with the result,
+//! and keeps polling `tasks/get` meanwhile, so the task's contact is read from answered polls
+//! however long the person takes.
 
+use std::error::Error;
+use std::sync::{Arc, Mutex};
+
+use futures::FutureExt as _;
 use serde_json::{Value, json};
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
+use tokio_util::task::AbortOnDropHandle;
 
 use crate::mcp::client::connection::McpServerConnection;
 use crate::mcp::client::poll::{PollStep, follow_task as poll_until_end};
-use crate::mcp::client::requests::{McpRequestError, RequestWait};
+use crate::mcp::client::requests::{McpRequestError, RequestWait, ServerRequests};
 use crate::mcp::client::tasks::{
     McpTaskContact, McpTaskGeneration, McpTaskHandleSink, McpToolCall, McpToolCallEnd,
     McpToolCallError, extract_mcp_task_id, observe_mcp_task_acceptance,
 };
+use crate::mutex_lock::lock;
+
+/// A task's `tasks/result` held in a task of its own while the polls go on; dropped, it stops
+/// waiting and the server is told the request is canceled.
+type HeldResult = AbortOnDropHandle<Result<McpToolCallEnd, McpRequestError>>;
 
 /// One `tasks/get` reply as a 2025-11-25 server sends it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,16 +78,26 @@ pub(super) async fn follow_task(
         .scope
         .task_watches
         .watch(&connection.scope, call, mcp_task_id);
-    let end = poll_until_end(&watch.wake, contact, || poll_once(connection, mcp_task_id)).await;
+    let held = Mutex::new(None);
+    let end = poll_until_end(&watch.wake, contact, || {
+        poll_once(connection, mcp_task_id, &watch.wake, &held)
+    })
+    .await;
     watch.finish().await;
     end
 }
 
-/// One poll: the task's status, and on `input_required` or a terminal status its result.
+/// One poll: a held result that came back ends the call; else the task's status, which holds the
+/// result on `input_required` and reads it at a terminal status.
 async fn poll_once(
     connection: &McpServerConnection,
     mcp_task_id: &str,
+    wake: &Arc<Notify>,
+    held: &Mutex<Option<HeldResult>>,
 ) -> Result<PollStep<McpToolCallEnd>, McpRequestError> {
+    if let Some(end) = take_held_end(connection, held) {
+        return Ok(PollStep::End(end));
+    }
     let reading = read_task(connection, mcp_task_id).await?;
     tracing::debug!(
         status = reading.status.as_str(),
@@ -85,17 +107,64 @@ async fn poll_once(
     );
     match reading.status.as_str() {
         "cancelled" => Ok(PollStep::End(McpToolCallEnd::Canceled)),
-        // The result of a task waiting on input is held until the person answers.
-        "input_required" => read_result(connection, mcp_task_id, RequestWait::ToolCall)
-            .await
-            .map(PollStep::End),
-        "completed" | "failed" => read_result(connection, mcp_task_id, RequestWait::Ordinary)
-            .await
-            .map(PollStep::End),
-        _ => Ok(PollStep::Wait {
-            suggested_interval_ms: reading.poll_interval_ms,
-        }),
+        "completed" | "failed" => {
+            if let Some(end) = take_held_end(connection, held) {
+                return Ok(PollStep::End(end));
+            }
+            // A hold still waiting is dropped and the result read afresh.
+            *lock(held) = None;
+            read_result(&connection.requests, mcp_task_id, RequestWait::Ordinary)
+                .await
+                .map(PollStep::End)
+        }
+        status => {
+            if status == "input_required" {
+                lock(held).get_or_insert_with(|| hold_result(connection, mcp_task_id, wake));
+            }
+            Ok(PollStep::Wait {
+                suggested_interval_ms: reading.poll_interval_ms,
+            })
+        }
     }
+}
+
+/// Holds the task's `tasks/result` in a task of its own, within the total bound alone, and wakes
+/// the poll once it comes back.
+fn hold_result(
+    connection: &McpServerConnection,
+    mcp_task_id: &str,
+    wake: &Arc<Notify>,
+) -> HeldResult {
+    let requests = connection.requests.clone();
+    let mcp_task_id = mcp_task_id.to_owned();
+    let wake = Arc::clone(wake);
+    AbortOnDropHandle::new(tokio::spawn(async move {
+        let read = read_result(&requests, &mcp_task_id, RequestWait::HeldResult).await;
+        wake.notify_one();
+        read
+    }))
+}
+
+/// The end the held result came back with, taking the hold; `None` while it waits or when there
+/// is none, and when it failed, which is logged, so the next `input_required` holds it again.
+fn take_held_end(
+    connection: &McpServerConnection,
+    held: &Mutex<Option<HeldResult>>,
+) -> Option<McpToolCallEnd> {
+    let mut held = lock(held);
+    let came_back = held.as_mut()?.now_or_never()?;
+    *held = None;
+    let failed: Box<dyn Error + Send + Sync> = match came_back {
+        Ok(Ok(end)) => return Some(end),
+        Ok(Err(error)) => Box::new(error),
+        Err(error) => Box::new(error),
+    };
+    tracing::warn!(
+        error = &*failed as &(dyn Error + 'static),
+        server = connection.scope.server_name.as_str(),
+        "a tool server task's held result failed; it is held again at the task's next question"
+    );
+    None
 }
 
 /// The task's `tasks/get` reply, read raw. Fails as the request fails or when the reply names no
@@ -129,12 +198,11 @@ pub(super) async fn read_task(
 /// The task's result through `tasks/result`, waiting within `wait`'s bound: the tool's result,
 /// or the JSON-RPC error the task failed with.
 async fn read_result(
-    connection: &McpServerConnection,
+    requests: &ServerRequests,
     mcp_task_id: &str,
     wait: RequestWait,
 ) -> Result<McpToolCallEnd, McpRequestError> {
-    match connection
-        .requests
+    match requests
         .send_raw("tasks/result", Some(json!({ "taskId": mcp_task_id })), wait)
         .await
     {
@@ -200,8 +268,8 @@ mod tests {
 
     // Mutations: in `read_task`, read `ttl` from a missing member ("ttlMs"), or pass `None` as
     // `poll_once`'s suggested interval, which polls at the 2 s default; move
-    // `observe_mcp_task_acceptance` after `follow_task`; drop "input_required" from the arm that
-    // reads the result; or in `connection.rs`'s `create_elicitation`, read the task id from the
+    // `observe_mcp_task_acceptance` after `follow_task`; never hold the result on
+    // "input_required"; or in `connection.rs`'s `create_elicitation`, read the task id from the
     // request's params instead of `context.meta`, which leaves the question unasked.
     #[tokio::test(start_paused = true)]
     async fn a_2025_11_25_task_keeps_its_handle_and_interval_and_asks_its_question_on_the_card() {
@@ -340,6 +408,131 @@ mod tests {
             .expect("the call ends at the next poll")
             .expect("the call ends");
         assert!(matches!(end, McpToolCallEnd::Answered { .. }));
+    }
+
+    /// A 2025-11-25 task waiting on input from its second poll, whose polls answer through
+    /// `poll_reply` past that and whose first `tasks/result` asks the question, a later one
+    /// answering at once.
+    fn held_question_server(poll_reply: impl Fn(usize) -> Reply + Send + 'static) -> Responder {
+        let mut results = 0;
+        task_server(
+            move |poll| match poll {
+                1 => status_reply("working"),
+                _ => poll_reply(poll),
+            },
+            move || {
+                results += 1;
+                if results > 1 {
+                    return Reply::Answer(json!({ "result": text_result("tracked") }));
+                }
+                let mut params = board_form();
+                params["_meta"] = json!({
+                    "io.modelcontextprotocol/related-task": { "taskId": "task-1" },
+                });
+                Reply::AskFirst {
+                    request: json!({ "method": "elicitation/create", "params": params }),
+                    then: json!({ "result": text_result("tracked") }),
+                }
+            },
+        )
+    }
+
+    // Mutations: in `hold_result`, hold the result under `RequestWait::ToolCall`, whose 30 min
+    // idle window on stdio ends the hold, so the server is told it was canceled and asked for the
+    // result again; or in `poll_once`, await the result in the "input_required" arm, which stops
+    // the polls while the question waits.
+    #[tokio::test(start_paused = true)]
+    async fn a_task_whose_question_waits_31_minutes_keeps_one_held_result_and_its_contact() {
+        let (client, card) = test_client();
+        let (connection, server) = open_test_server(
+            &client,
+            held_question_server(|_| status_reply("input_required")),
+        )
+        .await;
+        let sink = CountingSink::new(&server);
+        let contact = contact();
+        let mut seen = contact.subscribe();
+        let call = connection.call_tool(track_call(), &sink, &contact);
+        tokio::pin!(call);
+
+        tokio::select! {
+            _ = &mut call => panic!("the call ended while its question waited"),
+            changed = seen.wait_for(|state| *state == McpTaskContact::Lost) => {
+                changed.expect("the state is kept");
+                panic!("the contact read lost while every poll was answered");
+            }
+            () = tokio::time::sleep(Duration::from_mins(31)) => {}
+        }
+
+        assert_eq!(card.taken().len(), 1, "the question is asked once");
+        assert!(
+            server.requests("tasks/get").len() > 300,
+            "the task is polled at its 5 s interval while its result is held"
+        );
+        assert_eq!(
+            server.requests("tasks/result").len(),
+            1,
+            "one result is held the whole time"
+        );
+        assert!(
+            server.requests("notifications/cancelled").is_empty(),
+            "the held result is never canceled"
+        );
+    }
+
+    // Mutation: in `poll_once`, await the result in the "input_required" arm instead of holding
+    // it on the side; no poll then runs while the question waits, and the contact never reads
+    // lost.
+    #[tokio::test(start_paused = true)]
+    async fn a_task_holding_its_result_reads_contact_lost_when_its_polls_go_unanswered() {
+        let (client, _card) = test_client();
+        let (connection, server) = open_test_server(
+            &client,
+            held_question_server(|poll| match poll {
+                2 | 3 | 11 => status_reply("input_required"),
+                4..=10 => Reply::Silent,
+                _ => status_reply("completed"),
+            }),
+        )
+        .await;
+        let sink = CountingSink::new(&server);
+        let contact = contact();
+        let mut seen = contact.subscribe();
+        let started = Instant::now();
+        let call = connection.call_tool(track_call(), &sink, &contact);
+        tokio::pin!(call);
+
+        tokio::select! {
+            _ = &mut call => panic!("the call ended while its server was silent"),
+            changed = seen.wait_for(|state| *state == McpTaskContact::Lost) => {
+                changed.expect("the state is kept");
+            }
+            () = tokio::time::sleep(Duration::from_secs(400)) => panic!("never lost"),
+        }
+        let lost_at = started.elapsed();
+        assert!(
+            lost_at >= Duration::from_secs(300) && lost_at < Duration::from_secs(400),
+            "contact reads lost once 300 s pass with no answered poll, not at {lost_at:?}"
+        );
+        tokio::select! {
+            _ = &mut call => panic!("the call ended before an answered poll cleared the state"),
+            changed = seen.wait_for(|state| *state == McpTaskContact::Reached) => {
+                changed.expect("the state is kept");
+            }
+            () = tokio::time::sleep(Duration::from_secs(600)) => panic!("never reached"),
+        }
+        assert_eq!(server.requests("tasks/get").len(), 11);
+
+        let end = timeout(Duration::from_secs(60), call)
+            .await
+            .expect("the call ends at the next poll")
+            .expect("the call ends");
+        assert!(matches!(end, McpToolCallEnd::Answered { .. }));
+        assert_eq!(
+            server.requests("tasks/result").len(),
+            2,
+            "the result still held at the end is dropped and read afresh"
+        );
     }
 
     // Mutation: in `tasks.rs`'s `cancel_task`, send the cancel under another method or without

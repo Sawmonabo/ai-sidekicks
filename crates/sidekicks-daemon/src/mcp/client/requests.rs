@@ -1,8 +1,9 @@
 //! A connection's own requests to its server, each bounded in time through rmcp's request options:
 //! an ordinary request waits 60 s, a tool call that may run long waits out an idle window that
-//! each progress notification restarts, held to one total bound. When a bound runs out rmcp tells
-//! the server the request is canceled; a request whose caller stops waiting tells it the same, and
-//! its raw reply, should one still come, is dropped.
+//! each progress notification restarts, held to one total bound, and a task's result held while
+//! the task waits on the person waits within that total bound alone. When a bound runs out rmcp
+//! tells the server the request is canceled; a request whose caller stops waiting tells it the
+//! same, and its raw reply, should one still come, is dropped.
 
 use std::collections::HashSet;
 use std::time::Duration;
@@ -74,9 +75,11 @@ impl PageCursors {
 pub(super) enum RequestWait {
     /// An ordinary request: 60 s.
     Ordinary,
-    /// A tool call, or a task result held until the person answers: the connection's idle
-    /// window, restarted by progress, within the total bound.
+    /// A tool call: the connection's idle window, restarted by progress, within the total bound.
     ToolCall,
+    /// A task's result held while the task waits on the person: the total bound alone, since the
+    /// person may take longer than any idle window and the task's polls show the server answers.
+    HeldResult,
 }
 
 /// Why a request the client reads raw has no result.
@@ -156,6 +159,9 @@ impl ServerRequests {
             RequestWait::ToolCall => PeerRequestOptions::with_timeout(self.tool_call_idle_timeout)
                 .reset_timeout_on_progress()
                 .with_max_total_timeout(TOOL_CALL_MAX_TOTAL_TIMEOUT),
+            RequestWait::HeldResult => {
+                PeerRequestOptions::no_options().with_max_total_timeout(TOOL_CALL_MAX_TOTAL_TIMEOUT)
+            }
         }
     }
 
