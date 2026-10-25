@@ -33,7 +33,9 @@ use crate::ipc::handlers::driver::resolution::LiveRunDriverError;
 use crate::keyed_lock::KeyedLock;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::port::question::{ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort};
+use crate::provider::port::question::{
+    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, ToolServerQuestionAnswer,
+};
 use crate::provider::port::registration::{PortRegistration, PortRegistrationError};
 use crate::questions::schema::QuestionState;
 use crate::questions::store::{
@@ -67,11 +69,7 @@ static RUN_INTERRUPTED_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 /// The provider request a held question's answer goes back under.
-#[derive(Clone, Debug)]
-#[expect(
-    clippy::struct_field_names,
-    reason = "a held request is the three ids it is found and answered under"
-)]
+#[derive(Clone)]
 pub(super) struct HeldRequest {
     /// The session.
     pub(super) session_id: SessionId,
@@ -79,6 +77,17 @@ pub(super) struct HeldRequest {
     pub(super) run_id: RunId,
     /// The provider's own request id.
     pub(super) request_id: String,
+    /// Who sends the answer on.
+    pub(super) answered_by: HeldRequestAnswerer,
+}
+
+/// Who sends a held question's answer to whoever asked it.
+#[derive(Clone)]
+pub(crate) enum HeldRequestAnswerer {
+    /// The run's driver, to its provider.
+    Driver,
+    /// The tool-server client, to the server whose task asked.
+    ToolServerTask(Arc<dyn ToolServerQuestionAnswer>),
 }
 
 /// Why a question was not recorded, answered or withdrawn; nothing of the failed write is kept.
@@ -129,6 +138,9 @@ pub(crate) enum QuestionError {
     /// The workflow wait did not take the answer.
     #[error("the workflow wait did not take the answer")]
     Wait(#[source] Box<dyn Error + Send + Sync>),
+    /// The tool server whose task asked could not be sent the answer; nothing was written.
+    #[error("the tool server's task did not take the answer")]
+    ToolServerTask(#[source] Box<dyn Error + Send + Sync>),
     /// A read of the question rows did not reach a connection.
     #[error(transparent)]
     Read(#[from] DatabaseReadError),
@@ -184,11 +196,13 @@ impl QuestionsService {
     }
 
     /// Records `question` open under a minted id: when its agent waits, in the write that moves
-    /// its run from `running` to `waitingForInput`, keeping its request for the answer; else in a
-    /// write of its own, the run unmoved. Fails as the draft, the move or the write fails.
+    /// its run from `running` to `waitingForInput`, keeping its request for the answer, which
+    /// `answered_by` sends on; else in a write of its own, the run unmoved. Fails as the draft,
+    /// the move or the write fails.
     pub(crate) async fn take_question(
         &self,
         question: ProviderQuestion,
+        answered_by: HeldRequestAnswerer,
     ) -> Result<QuestionId, QuestionError> {
         let ProviderQuestion {
             session_id,
@@ -245,6 +259,7 @@ impl QuestionsService {
                 session_id,
                 run_id,
                 request_id,
+                answered_by,
             },
         );
         Ok(question_id)
@@ -372,7 +387,17 @@ impl QuestionPort for QuestionsService {
         &self,
         question: ProviderQuestion,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        QuestionsService::take_question(self, question)
+        QuestionsService::take_question(self, question, HeldRequestAnswerer::Driver)
+            .map(|taken| taken.map(drop).map_err(Into::into))
+            .boxed()
+    }
+
+    fn take_tool_server_question(
+        &self,
+        question: ProviderQuestion,
+        answer: Arc<dyn ToolServerQuestionAnswer>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        QuestionsService::take_question(self, question, HeldRequestAnswerer::ToolServerTask(answer))
             .map(|taken| taken.map(drop).map_err(Into::into))
             .boxed()
     }

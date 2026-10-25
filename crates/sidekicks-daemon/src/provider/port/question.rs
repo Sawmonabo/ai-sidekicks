@@ -1,10 +1,13 @@
 //! Where a driver hands the structured questions a provider asks the person, so the questions card
-//! asks them and the answer goes back through the driver's `respond_to_request`.
+//! asks them and the answer goes back through the driver's `respond_to_request`; and where the
+//! daemon's tool-server client hands the questions a tool server's task asks, whose answer goes
+//! back through the client.
 
 use std::error::Error;
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
-use sidekicks_contracts::question::QuestionPrompt;
+use sidekicks_contracts::question::{QuestionAnswer, QuestionPrompt};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
@@ -34,6 +37,17 @@ pub(crate) struct ProviderQuestionWithdrawal {
     pub(crate) request_id: String,
 }
 
+/// Where the person's answers to a tool server task's question go: the tool-server client, which
+/// sends them to the server that asked.
+pub(crate) trait ToolServerQuestionAnswer: Send + Sync {
+    /// Sends `answers`, one per question in the question's order. An error when the server could
+    /// not be sent them.
+    fn answer(
+        &self,
+        answers: Vec<QuestionAnswer>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+}
+
 /// The questions card's intake, registered through a `PortRegistration`. Until it is registered, a
 /// question stays pending at the provider: nothing answers it.
 pub(crate) trait QuestionPort: Send + Sync {
@@ -41,6 +55,14 @@ pub(crate) trait QuestionPort: Send + Sync {
     fn take_question(
         &self,
         question: ProviderQuestion,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+
+    /// Records `question`, asked by a tool server's task during the run, whose answer goes to
+    /// `answer` rather than the run's driver. An error when it could not be recorded.
+    fn take_tool_server_question(
+        &self,
+        question: ProviderQuestion,
+        answer: Arc<dyn ToolServerQuestionAnswer>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
 
     /// Settles a withdrawn question's card canceled. An error when it could not be settled.

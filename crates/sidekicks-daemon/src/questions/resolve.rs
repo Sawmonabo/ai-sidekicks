@@ -1,6 +1,6 @@
 //! `question.resolve`: the person's answers to every question of one record, checked against its
 //! pages before anything goes out. A question its run waits on gets its answers through the run's
-//! driver first; only then does one write settle the record `answered`, append the person's turn
+//! driver first, or through the tool-server client when a tool server's task asked it; only then does one write settle the record `answered`, append the person's turn
 //! and move the run back to `running`, guarded so a second answer that raced the first, or the
 //! run's end, is refused whole and reads the state back. A question a workflow wait holds gets its
 //! answers through the wait. A settled record answers its state and sends nothing.
@@ -30,7 +30,9 @@ use crate::ipc::registry::HandlerError;
 use crate::provider::driver::contract::{ProviderRequestAnswer, RespondToRequestParams};
 use crate::questions::answer_text::compose_answer_text;
 use crate::questions::schema::QuestionState;
-use crate::questions::service::{HeldRequest, QuestionError, QuestionsService};
+use crate::questions::service::{
+    HeldRequest, HeldRequestAnswerer, QuestionError, QuestionsService,
+};
 use crate::questions::store::{
     QuestionHolder, read_asked, read_question, settle_question_statement,
 };
@@ -105,19 +107,29 @@ impl QuestionsService {
             session_id,
             run_id,
             request_id,
+            answered_by,
         } = self
             .held_request(&question_id)
             .ok_or(QuestionError::RequestNotHeld { question_id })?;
         let message = MessageContent::new(compose_answer_text(&answers))
             .map_err(QuestionError::AnswerText)?;
-        let driver = read_run_driver::<QuestionError>(&self.reads, &self.providers, run_id).await?;
-        driver
-            .respond_to_request(RespondToRequestParams {
-                run_id,
-                request_id,
-                response: ProviderRequestAnswer::Question { answers },
-            })
-            .await?;
+        match answered_by {
+            HeldRequestAnswerer::Driver => {
+                let driver =
+                    read_run_driver::<QuestionError>(&self.reads, &self.providers, run_id).await?;
+                driver
+                    .respond_to_request(RespondToRequestParams {
+                        run_id,
+                        request_id,
+                        response: ProviderRequestAnswer::Question { answers },
+                    })
+                    .await?;
+            }
+            HeldRequestAnswerer::ToolServerTask(answer) => answer
+                .answer(answers)
+                .await
+                .map_err(QuestionError::ToolServerTask)?,
+        }
         let turn = SessionEventDraft::new(
             UserMessageSentPayload {
                 session_id,
@@ -186,6 +198,7 @@ impl From<QuestionError> for HandlerError {
             | QuestionError::AnswerText(_)
             | QuestionError::WaitsUnregistered(_)
             | QuestionError::Wait(_)
+            | QuestionError::ToolServerTask(_)
             | QuestionError::Read(_)
             | QuestionError::Database(_)) => Self::Internal(Box::new(fault)),
         }

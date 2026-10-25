@@ -22,7 +22,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use tempfile::TempDir;
 
-use super::{QUESTION_STATEMENT_CAPACITY, QuestionError, QuestionsService};
+use super::{HeldRequestAnswerer, QUESTION_STATEMENT_CAPACITY, QuestionError, QuestionsService};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
@@ -40,7 +40,9 @@ use crate::provider::driver::contract::{MockProviderDriver, ProviderRequestAnswe
 use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
-use crate::provider::port::question::{ProviderQuestion, ProviderQuestionWithdrawal};
+use crate::provider::port::question::{
+    ProviderQuestion, ProviderQuestionWithdrawal, ToolServerQuestionAnswer,
+};
 use crate::questions::projection::{QuestionsProjection, question_projection_statements};
 use crate::recovery::database_file::damage::DatabaseDamageWatch;
 use crate::recovery::projection_rebuild::{
@@ -58,6 +60,22 @@ const SECRET: &str = "the-secret-value-41";
 
 /// Each answer the stand-in driver was handed: its request id and its answers.
 type HandedAnswers = Arc<Mutex<Vec<(String, Vec<QuestionAnswer>)>>>;
+
+/// A stand-in tool-server task that records each answer it is sent.
+struct RecordingTaskAnswer(HandedAnswers);
+
+impl ToolServerQuestionAnswer for RecordingTaskAnswer {
+    fn answer(
+        &self,
+        answers: Vec<QuestionAnswer>,
+    ) -> futures::future::BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+        self.0
+            .lock()
+            .expect("the test's record is never poisoned")
+            .push(("task".to_owned(), answers));
+        async { Ok(()) }.boxed()
+    }
+}
 
 /// A running run bound to a stand-in driver, its engine, the log with the queued answers'
 /// statements, and the questions service.
@@ -158,17 +176,38 @@ impl Fixture {
         }
     }
 
-    /// Asks `pages` under `request_id`, held by the run when `is_agent_waiting`.
+    /// Asks `pages` under `request_id`, held by the run when `is_agent_waiting`, its answer sent
+    /// on through the driver.
     async fn ask(&self, request_id: &str, pages: Value, is_agent_waiting: bool) -> QuestionId {
+        self.ask_answered_by(
+            request_id,
+            pages,
+            is_agent_waiting,
+            HeldRequestAnswerer::Driver,
+        )
+        .await
+    }
+
+    /// Asks as [`Self::ask`] does, its answer sent on by `answered_by`.
+    async fn ask_answered_by(
+        &self,
+        request_id: &str,
+        pages: Value,
+        is_agent_waiting: bool,
+        answered_by: HeldRequestAnswerer,
+    ) -> QuestionId {
         self.questions
-            .take_question(ProviderQuestion {
-                session_id: self.session_id,
-                run_id: self.run_id,
-                request_id: request_id.to_owned(),
-                questions: serde_json::from_value::<Vec<QuestionPrompt>>(pages)
-                    .expect("the test's pages read"),
-                is_agent_waiting,
-            })
+            .take_question(
+                ProviderQuestion {
+                    session_id: self.session_id,
+                    run_id: self.run_id,
+                    request_id: request_id.to_owned(),
+                    questions: serde_json::from_value::<Vec<QuestionPrompt>>(pages)
+                        .expect("the test's pages read"),
+                    is_agent_waiting,
+                },
+                answered_by,
+            )
             .await
             .expect("the question is recorded")
     }
@@ -286,17 +325,36 @@ fn refusal_of(failure: QuestionError) -> (RefusalCode, Value) {
     )
 }
 
-// A held question moves its run to `waitingForInput` with its record; its answer goes to the
-// driver once, under the provider's request id, before one write settles it `answered`, appends
-// the person's turn with the device and the secret masked, and moves the run back to `running`;
-// the secret is in no stored row. A second answer reads the state back and sends nothing. Killed
-// by writing before the driver call, by storing the secret, by a missing device, and by dropping
-// the settled-state read.
+// A held question moves its run to `waitingForInput` with its record; its answer goes once to
+// whoever sends it on, the driver under the provider's request id or the tool-server task that
+// asked, and never to the other, before one write settles it `answered`, appends the person's
+// turn with the device and the secret masked, and moves the run back to `running`; the secret is
+// in no stored row. A second answer reads the state back and sends nothing. Killed by writing
+// before the answer goes out, by sending a task's answer to the driver, by storing the secret, by
+// a missing device, and by dropping the settled-state read.
+#[rstest]
+#[case::through_the_driver(false)]
+#[case::through_the_tool_server_task(true)]
 #[tokio::test]
-async fn a_held_questions_answer_goes_to_the_driver_then_settles_it_in_one_write() {
+async fn a_held_questions_answer_goes_to_its_asker_then_settles_it_in_one_write(
+    #[case] is_asked_by_a_task: bool,
+) {
     let fixture = Fixture::new().await;
+    let sent_to_task = HandedAnswers::default();
+    let answered_by = if is_asked_by_a_task {
+        HeldRequestAnswerer::ToolServerTask(Arc::new(RecordingTaskAnswer(Arc::clone(
+            &sent_to_task,
+        ))))
+    } else {
+        HeldRequestAnswerer::Driver
+    };
     let question_id = fixture
-        .ask("request-1", json!([choice_page(), secret_page()]), true)
+        .ask_answered_by(
+            "request-1",
+            json!([choice_page(), secret_page()]),
+            true,
+            answered_by,
+        )
         .await;
     assert_eq!(fixture.run_state(), "waitingForInput");
     assert_eq!(fixture.state(question_id), "open");
@@ -316,9 +374,18 @@ async fn a_held_questions_answer_goes_to_the_driver_then_settles_it_in_one_write
         second.expect("a second answer reads the state"),
         QuestionSettledState::Answered
     );
-    assert_eq!(fixture.handed_count(), 1);
-    let handed = fixture.handed.lock().expect("never poisoned")[0].clone();
-    assert_eq!(handed.0, "request-1");
+    let sent_to_task = sent_to_task.lock().expect("never poisoned").clone();
+    let handed = if is_asked_by_a_task {
+        assert_eq!(fixture.handed_count(), 0);
+        assert_eq!(sent_to_task.len(), 1);
+        sent_to_task[0].clone()
+    } else {
+        assert_eq!(sent_to_task.len(), 0);
+        assert_eq!(fixture.handed_count(), 1);
+        let handed = fixture.handed.lock().expect("never poisoned")[0].clone();
+        assert_eq!(handed.0, "request-1");
+        handed
+    };
     assert!(matches!(&handed.1[1], QuestionAnswer::Secret { value } if value.as_str() == SECRET));
     assert_eq!(fixture.state(question_id), "answered");
     assert_eq!(fixture.run_state(), "running");
