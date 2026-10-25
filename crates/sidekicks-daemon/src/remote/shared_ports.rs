@@ -34,6 +34,7 @@ use crate::remote::shared_ports::store::{
 
 pub(crate) mod listening;
 pub(crate) mod loopback;
+pub(crate) mod methods;
 pub(crate) mod schema;
 pub(crate) mod store;
 
