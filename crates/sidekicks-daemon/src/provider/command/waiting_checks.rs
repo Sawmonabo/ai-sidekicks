@@ -81,7 +81,7 @@ pub(crate) fn cheap_check_delay(checks_done: usize) -> Duration {
 /// The line `output` leaves the cursor on, as a terminal shows it: its trailing line ends taken
 /// off, the text after its last line break, then after its last carriage return, every escape
 /// sequence removed.
-pub(crate) fn last_line(output: &str) -> String {
+fn last_line(output: &str) -> String {
     let ended = output.trim_end_matches(['\r', '\n']);
     let line = ended.rsplit('\n').next().unwrap_or(ended);
     let shown = line.rsplit('\r').next().unwrap_or(line);
@@ -89,7 +89,7 @@ pub(crate) fn last_line(output: &str) -> String {
 }
 
 /// Whether `line`, a last line as [`last_line`] reads it, reads as a prompt.
-pub(crate) fn reads_as_prompt(line: &str) -> bool {
+fn reads_as_prompt(line: &str) -> bool {
     PROMPT_LINE.is_match(line)
 }
 

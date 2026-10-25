@@ -15,6 +15,7 @@ use crate::ipc::caller_process::system_reader::ProcessTableReader;
 use crate::provider::command::channel::{
     CommandChannel, DaemonRequest, PartyRecord, ReceivedRecord,
 };
+use crate::provider::command::harness_test_name;
 
 /// The variable a started wrapper reads its own arguments from, joined by the unit separator.
 const WRAPPER_ARGUMENTS_VARIABLE: &str = "SIDEKICKS_TEST_WRAPPER_ARGUMENTS";
@@ -22,18 +23,11 @@ const WRAPPER_ARGUMENTS_VARIABLE: &str = "SIDEKICKS_TEST_WRAPPER_ARGUMENTS";
 /// The test the started wrapper runs as.
 const WRAPPER_PROCESS_TEST: &str = "a_wrapper_process_runs_its_arguments";
 
-fn wrapper_test_name() -> String {
-    let module = module_path!()
-        .split_once("::")
-        .map_or(module_path!(), |(_, path)| path);
-    format!("{module}::{WRAPPER_PROCESS_TEST}")
-}
-
 /// The harness arguments that run this binary as a wrapper.
 fn harness_arguments() -> [String; 5] {
     [
         "--exact".to_owned(),
-        wrapper_test_name(),
+        harness_test_name(module_path!(), WRAPPER_PROCESS_TEST),
         "--ignored".to_owned(),
         "--nocapture".to_owned(),
         "--quiet".to_owned(),

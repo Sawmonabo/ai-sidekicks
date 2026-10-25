@@ -10,7 +10,6 @@ use std::ffi::OsString;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Instant;
 
 use hpke::aead::ChaCha20Poly1305;
 use hpke::kdf::HkdfSha256;
@@ -18,19 +17,21 @@ use hpke::kem::X25519HkdfSha256;
 use hpke::{Deserializable, Kem as _, OpModeR, OpModeS, Serializable};
 use serde::{Deserialize, Serialize};
 use sidekicks_platforms::{
-    FolderArrivalWait, FolderArrivalWatch, LeftoverSweep, ParentProcess, TerminalDevice,
-    TerminalMasterReading, create_file_atomically, create_private_folder, exec_with_secret,
-    name_program, pin_running_process, read_process_start, take_inherited_secret,
+    FolderArrivalWatch, LeftoverSweep, ParentProcess, TerminalDevice, TerminalMasterReading,
+    create_file_atomically, create_private_folder, pin_running_process, read_process_start,
 };
 use zeroize::Zeroizing;
 
 use crate::ipc::caller_process::contract::CallerProcessReader;
 
+pub(crate) mod party;
+pub(crate) mod records;
+
 /// The variable naming a conversation's channel folder to the parties its commands start.
-pub(crate) const COMMAND_CHANNEL_VARIABLE: &str = "SIDEKICKS_COMMAND_CHANNEL";
+const COMMAND_CHANNEL_VARIABLE: &str = "SIDEKICKS_COMMAND_CHANNEL";
 
 /// The variable holding the daemon's public key for a conversation's channel, in hexadecimal.
-pub(crate) const COMMAND_CHANNEL_KEY_VARIABLE: &str = "SIDEKICKS_COMMAND_CHANNEL_KEY";
+const COMMAND_CHANNEL_KEY_VARIABLE: &str = "SIDEKICKS_COMMAND_CHANNEL_KEY";
 
 /// The variable naming the descriptor a restarted party reads its private key from, which the
 /// party removes before it starts anything.
@@ -203,6 +204,12 @@ fn write_record(folder: &Path, name: &str, sealed: &[u8]) -> io::Result<()> {
 
 fn public_key_hex(key: &ChannelPublicKey) -> String {
     base16ct::lower::encode_string(&key.to_bytes())
+}
+
+// The public key in hexadecimal a restarted party's key argument holds; `None` for any other
+// argument.
+fn party_key_of(argument: &str) -> Option<&str> {
+    argument.strip_prefix(PARTY_KEY_ARGUMENT_PREFIX)
 }
 
 fn parse_public_key(hex: &str) -> Option<ChannelPublicKey> {
@@ -453,7 +460,7 @@ impl CommandChannel {
         let Some(public_key) = start
             .arguments
             .get(1)
-            .and_then(|argument| argument.strip_prefix(PARTY_KEY_ARGUMENT_PREFIX))
+            .and_then(|argument| party_key_of(argument))
             .and_then(parse_public_key)
         else {
             return Ok(None);
@@ -493,191 +500,6 @@ impl CommandChannel {
     }
 }
 
-/// A channel as a party holds it: what it writes to the daemon and what it reads back, each usable
-/// from a thread of its own.
-pub(crate) struct ChannelParty {
-    /// The party's records to the daemon.
-    pub(crate) records: PartyRecords,
-    /// The daemon's requests to the party.
-    pub(crate) requests: PartyRequests,
-}
-
-/// What a party writes to the daemon: its channel's folder, its own key pair, the daemon's key and
-/// the sequence number its last record took.
-pub(crate) struct PartyRecords {
-    folder: PathBuf,
-    party: PartyId,
-    keys: (ChannelPrivateKey, ChannelPublicKey),
-    daemon_key: ChannelPublicKey,
-    last_sequence: u64,
-}
-
-/// The daemon's requests to one party, waited on by the party's thread: its private key, the
-/// daemon's key, the last sequence number opened and the watch on the `requests` folder.
-pub(crate) struct PartyRequests {
-    party: PartyId,
-    private_key: ChannelPrivateKey,
-    daemon_key: ChannelPublicKey,
-    last_sequence: u64,
-    watch: FolderArrivalWait,
-}
-
-/// How a party program goes on: run without a channel, or joined to one.
-pub(crate) enum PartyStart {
-    /// No channel is named, so the program runs without one.
-    Unchanneled,
-    /// The program joined its channel; its own arguments follow its key's, the second of its
-    /// process's arguments.
-    Joined(Box<ChannelParty>),
-}
-
-impl ChannelParty {
-    /// Joins the channel the environment names, restarting this program once with a key pair of
-    /// its own first: the public half as its first argument, the private half on a pipe, its name
-    /// and its other `process_arguments` kept. Answers [`PartyStart::Unchanneled`] when no channel
-    /// is named; returns only once joined after the restart. Fails when the restart, the key's
-    /// read or the requests' watch fails.
-    pub(crate) fn join(process_arguments: &[OsString]) -> io::Result<PartyStart> {
-        let (Some(folder), Some(daemon_key)) = (
-            std::env::var_os(COMMAND_CHANNEL_VARIABLE),
-            std::env::var_os(COMMAND_CHANNEL_KEY_VARIABLE),
-        ) else {
-            return Ok(PartyStart::Unchanneled);
-        };
-        let daemon_key = daemon_key
-            .to_str()
-            .and_then(parse_public_key)
-            .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "no channel key named"))?;
-        let Some(own_key) = party_key_argument(process_arguments) else {
-            return Err(restart_with_key(process_arguments));
-        };
-        let public_key = parse_public_key(own_key)
-            .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "no party key named"))?;
-        let descriptor = std::env::var_os(PARTY_SECRET_VARIABLE)
-            .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "no party secret named"))?;
-        let secret = Zeroizing::new(take_inherited_secret(&descriptor)?);
-        let private_key = ChannelPrivateKey::from_bytes(&secret).map_err(io::Error::other)?;
-        let folder = PathBuf::from(folder);
-        let party = std::process::id();
-        let watch = FolderArrivalWait::watch(&folder.join(REQUESTS_FOLDER))?;
-        Ok(PartyStart::Joined(Box::new(Self {
-            records: PartyRecords {
-                folder,
-                party,
-                keys: (private_key.clone(), public_key),
-                daemon_key: daemon_key.clone(),
-                last_sequence: 0,
-            },
-            requests: PartyRequests {
-                party,
-                private_key,
-                daemon_key,
-                last_sequence: 0,
-                watch,
-            },
-        })))
-    }
-}
-
-/// The arguments a party program was started with past its name, and past its key where it was
-/// restarted with one.
-pub(crate) fn own_arguments(process_arguments: &[OsString]) -> &[OsString] {
-    let skipped = if party_key_argument(process_arguments).is_some() {
-        2
-    } else {
-        1
-    };
-    process_arguments.get(skipped..).unwrap_or_default()
-}
-
-// The public key in hexadecimal a restarted party's first argument holds.
-fn party_key_argument(process_arguments: &[OsString]) -> Option<&str> {
-    process_arguments
-        .get(1)?
-        .to_str()?
-        .strip_prefix(PARTY_KEY_ARGUMENT_PREFIX)
-}
-
-impl PartyRecords {
-    /// Writes `record` to the daemon, sealed with this party's key. Blocks; fails with the
-    /// write's error.
-    pub(crate) fn send(&mut self, record: &PartyRecord) -> io::Result<()> {
-        self.last_sequence += 1;
-        let data = additional_data(Direction::ToDaemon, self.party, self.last_sequence);
-        let plaintext = Zeroizing::new(serde_json::to_vec(record).map_err(io::Error::other)?);
-        let sealed = seal(&self.keys, &self.daemon_key, &data, &plaintext)?;
-        write_record(
-            &self.folder,
-            &record_name(self.party, self.last_sequence),
-            &sealed,
-        )
-    }
-}
-
-impl PartyRequests {
-    /// The daemon's next request to this party, waiting on this thread until one comes or
-    /// `deadline` passes, `None` then; each request read is removed, and one that does not open or
-    /// comes out of order is dropped. Fails with the watch's or a read's error.
-    pub(crate) fn next_request(
-        &mut self,
-        deadline: Option<Instant>,
-    ) -> io::Result<Option<DaemonRequest>> {
-        loop {
-            let arrivals = self.watch.next_arrivals(deadline)?;
-            if arrivals.is_empty() {
-                return Ok(None);
-            }
-            for path in arrivals {
-                let Some((party, sequence)) = parse_record_name(&path) else {
-                    continue;
-                };
-                if party != self.party {
-                    continue;
-                }
-                let sealed = std::fs::read(&path)?;
-                std::fs::remove_file(&path)?;
-                if sequence <= self.last_sequence {
-                    continue;
-                }
-                let data = additional_data(Direction::ToParty, party, sequence);
-                let Some(plaintext) = open(&self.private_key, &self.daemon_key, &data, &sealed)
-                else {
-                    continue;
-                };
-                let Ok(request) = serde_json::from_slice(&plaintext) else {
-                    continue;
-                };
-                self.last_sequence = sequence;
-                return Ok(Some(request));
-            }
-        }
-    }
-}
-
-/// Restarts this program with a new key pair, its public half before its other arguments and its
-/// private half on a pipe; returns only on failure.
-fn restart_with_key(process_arguments: &[OsString]) -> io::Error {
-    let (private_key, public_key) = ChannelKem::gen_keypair();
-    let program = match std::env::current_exe() {
-        Ok(program) => program,
-        Err(error) => return error,
-    };
-    let mut command = std::process::Command::new(program);
-    if let Some(name) = process_arguments.first()
-        && let Err(error) = name_program(&mut command, name)
-    {
-        return error;
-    }
-    command
-        .arg(format!(
-            "{PARTY_KEY_ARGUMENT_PREFIX}{}",
-            public_key_hex(&public_key)
-        ))
-        .args(process_arguments.iter().skip(1));
-    let secret = Zeroizing::new(private_key.to_bytes().to_vec());
-    exec_with_secret(&mut command, PARTY_SECRET_VARIABLE, &secret)
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::{BufRead as _, BufReader};
@@ -691,6 +513,7 @@ mod tests {
         PartyRecord, additional_data, public_key_hex, seal,
     };
     use crate::ipc::caller_process::system_reader::ProcessTableReader;
+    use crate::provider::command::harness_test_name;
 
     /// The process a test starts as a party: it prints `ready` and waits for its input to end.
     const PARTY_PROCESS_TEST: &str = "a_party_process_waits_for_its_input_to_end";
@@ -749,7 +572,7 @@ mod tests {
     async fn a_party_outside_the_providers_process_is_refused_at_its_first_record() {
         let folder = tempfile::tempdir().expect("a folder");
         let keys = ChannelKem::gen_keypair();
-        let test_name = format!("{}::{PARTY_PROCESS_TEST}", test_module_path());
+        let test_name = harness_test_name(module_path!(), PARTY_PROCESS_TEST);
         let mut party = Command::new(std::env::current_exe().expect("the test program"))
             .arg(format!(
                 "{PARTY_KEY_ARGUMENT_PREFIX}{}",
@@ -792,13 +615,6 @@ mod tests {
         party.wait().expect("the party ends once its input does");
         outsider.kill().expect("the test's own child ends");
         outsider.wait().expect("it is reaped");
-    }
-
-    /// The test's module path without the crate's name, as the test harness names its tests.
-    fn test_module_path() -> &'static str {
-        module_path!()
-            .split_once("::")
-            .map_or(module_path!(), |(_, path)| path)
     }
 
     #[test]

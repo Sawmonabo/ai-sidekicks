@@ -24,10 +24,10 @@ use sidekicks_platforms::{
     wait_for_terminal_command,
 };
 
-use crate::provider::command::channel::{
-    ChannelParty, DaemonRequest, PARTY_SECRET_VARIABLE, PartyRecord, PartyRecords, PartyStart,
-    own_arguments,
+use crate::provider::command::channel::party::{
+    ChannelParty, PartyRecords, PartyRequests, PartyStart, own_arguments,
 };
+use crate::provider::command::channel::{DaemonRequest, PARTY_SECRET_VARIABLE, PartyRecord};
 use crate::provider::command::waiting_checks::cheap_check_delay;
 use crate::provider::driver::shell_prefix_command_of;
 use crate::standard_error::write_error_line;
@@ -419,10 +419,7 @@ fn run_relayed_command(
 }
 
 /// Follows the daemon's requests on a thread of its own, running `stop` at each `Stop`.
-fn follow_stops(
-    mut requests: crate::provider::command::channel::PartyRequests,
-    stop: impl Fn() -> io::Result<()> + Send + 'static,
-) {
+fn follow_stops(mut requests: PartyRequests, stop: impl Fn() -> io::Result<()> + Send + 'static) {
     let followed = thread::Builder::new()
         .name("command requests".to_owned())
         .spawn(move || {
@@ -474,7 +471,7 @@ fn run_in_terminal(
     arg0: Option<&OsStr>,
     words: &[OsString],
     records: &Arc<Mutex<Option<PartyRecords>>>,
-    requests: Option<crate::provider::command::channel::PartyRequests>,
+    requests: Option<PartyRequests>,
 ) -> ExitCode {
     let window = match read_standard_input_window_size() {
         Ok(window) => window.unwrap_or(FALLBACK_WINDOW),
