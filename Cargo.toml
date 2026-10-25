@@ -397,3 +397,7 @@ strip = true
 lto = true
 panic = "abort"
 codegen-units = 1
+
+# The wasm-bindgen tool needs the link's `target_features` section and strips the rest itself.
+[profile.wasm-release.package.sidekicks-contracts]
+strip = "debuginfo"
