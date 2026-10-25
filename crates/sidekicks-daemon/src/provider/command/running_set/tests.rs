@@ -17,11 +17,13 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 use tokio::sync::mpsc;
 
 use super::{
-    CommandEndingAppender, CommandInput, RunningCommandFeed, RunningCommandSets, WrapperCommand,
+    CommandEndingAppender, CommandInput, PromptAnswer, RunningCommandFeed, RunningCommandSets,
+    WrapperCommand,
 };
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::ipc::stream::feed::{CreditGate, Feed as _};
+use crate::provider::command::waiting_checks::WaitingState;
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::port::running_command_publisher::{
     CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandPublisher as _,
@@ -85,7 +87,12 @@ fn scripted_driver(script: &Arc<DriverScript>, moved: bool) -> MockProviderDrive
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take();
-        async move { refusal.map_or(Ok(()), Err) }.boxed()
+        // The provider answers after a turn of the runtime, so a second stop can come meanwhile.
+        async move {
+            tokio::task::yield_now().await;
+            refusal.map_or(Ok(()), Err)
+        }
+        .boxed()
     });
     let moving = Arc::clone(script);
     driver
@@ -195,6 +202,37 @@ fn end(code: Option<i64>, summary: Option<&str>) -> ProviderCommandEnd {
     ProviderCommandEnd {
         exit_code: code.and_then(SafeSignedInt::new),
         summary: summary.map(str::to_owned),
+        is_stopped_by_provider: false,
+    }
+}
+
+fn refused_stop(acts: &DriverScript) {
+    *acts
+        .stop_refusal
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = Some(DriverError::Refused(DomainError::new(
+        "gone",
+        RefusalCode::ProviderUnavailable,
+    )));
+}
+
+/// The row `id` in `set`.
+fn row<'a>(set: &'a [RunningCommand], id: &str) -> &'a RunningCommand {
+    set.iter()
+        .find(|row| row.command_id == command(id))
+        .expect("the row")
+}
+
+/// The next set the feed sends in which `holds` holds.
+async fn next_set_where(
+    feed: &mut RunningCommandFeed,
+    holds: impl Fn(&[RunningCommand]) -> bool,
+) -> Vec<RunningCommand> {
+    loop {
+        let set = next_set(feed).await;
+        if holds(&set) {
+            return set;
+        }
     }
 }
 
@@ -202,7 +240,11 @@ fn end(code: Option<i64>, summary: Option<&str>) -> ProviderCommandEnd {
 // not ending a command by the person, a summary kept on a finished ending or dropped from a failed
 // one, a reseed that keeps an unlisted background row or ends a foreground one outside its scope,
 // a move refused or allowed in the wrong state, a write taken by a command that takes no input,
-// a refused stop that leaves the row stopping, or a provider exit that drops the wrapper's code.
+// a refused stop that leaves the row stopping, a second stop answered before the first, a provider's
+// own stop read by its exit code, a waiting reading dropped, a wrapper that starts before its row
+// left unpaired, or a provider exit that drops the wrapper's code. Mutations: `facts.waiting =
+// Some(state)` dropped; `unpaired.paired.send_replace(true)` dropped; `end.is_stopped_by_provider`
+// read as false; the `Stopping` arm of `stop` answering `Ok(())` at once.
 #[tokio::test]
 async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     let mut fixture = fixture();
@@ -268,19 +310,25 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
         }
     );
 
-    // The person's stop on a running command is the provider's act; a second stop answers at once,
-    // and the provider's end then ends it by the person, no summary kept.
-    fixture
-        .sets
-        .stop(&driver, session(), &command("stop-me"))
-        .await
-        .expect("stopped");
-    fixture
-        .sets
-        .stop(&driver, session(), &command("stop-me"))
-        .await
-        .expect("stopped again");
+    // The person's stop on a running command is the provider's act, sent once: a second stop while
+    // it is under way is answered as it is, and the provider's end then ends it by the person, no
+    // summary kept. A row stopping is moved by no one.
+    let stop_me = command("stop-me");
+    let (first, second) = tokio::join!(
+        fixture.sets.stop(&driver, session(), &stop_me),
+        fixture.sets.stop(&driver, session(), &stop_me),
+    );
+    first.expect("stopped");
+    second.expect("stopped again");
     assert_eq!(acts.asked(), ["stop"]);
+    let refused = fixture
+        .sets
+        .move_to_background(&driver, session(), &command("stop-me"))
+        .await;
+    assert_eq!(
+        refusal_code(refused.expect_err("refused")),
+        RefusalCode::AgentCommandNotInForeground
+    );
     fixture.sets.command_ended(
         session(),
         command("stop-me"),
@@ -292,23 +340,26 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
         (command("stop-me"), CommandEnding::EndedByPerson, None)
     );
 
-    // A refused stop puts the row back as it was.
+    // A refused stop refuses the stop that waited on it too, and puts the row back as it was.
     fixture.sets.command_started(start("refuse-stop", "top"));
-    *acts
-        .stop_refusal
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner) = Some(DriverError::Refused(DomainError::new(
-        "gone",
-        RefusalCode::ProviderUnavailable,
-    )));
-    let refused = fixture
-        .sets
-        .stop(&driver, session(), &command("refuse-stop"))
-        .await;
-    assert_eq!(
-        refusal_code(refused.expect_err("refused")),
-        RefusalCode::ProviderUnavailable
+    refused_stop(&acts);
+    let refuse_stop = command("refuse-stop");
+    let (first, second) = tokio::join!(
+        fixture.sets.stop(&driver, session(), &refuse_stop),
+        fixture.sets.stop(&driver, session(), &refuse_stop),
     );
+    for refused in [first, second] {
+        assert_eq!(
+            refusal_code(refused.expect_err("refused")),
+            RefusalCode::ProviderUnavailable
+        );
+    }
+    let set = next_set_where(&mut feed, |set| {
+        set.iter()
+            .any(|row| row.command_id == command("refuse-stop"))
+    })
+    .await;
+    assert!(row(&set, "refuse-stop").can_move_to_background);
     fixture
         .sets
         .command_ended(session(), command("refuse-stop"), end(Some(0), None));
@@ -316,7 +367,7 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     assert_eq!(ending.ending, CommandEnding::Finished);
 
     // The provider's own end: exit 0 finishes with no summary; a provider's stop with its summary
-    // fails with the summary as the body.
+    // fails with the summary as the body, even where its wrapper's command exited 0.
     fixture.sets.command_started(start("finish", "ls"));
     fixture
         .sets
@@ -329,10 +380,18 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     fixture
         .sets
         .command_started(start("time-limit", "sleep 9999"));
-    let summary = "Stopped after 30 minutes";
     fixture
         .sets
-        .command_ended(session(), command("time-limit"), end(None, Some(summary)));
+        .wrapper_started(session(), 3, WrapperCommand::Line("sleep 9999".to_owned()));
+    fixture.sets.wrapper_exited(session(), 3, exit_code(0));
+    let summary = "Stopped after 30 minutes";
+    let stopped = ProviderCommandEnd {
+        is_stopped_by_provider: true,
+        ..end(None, Some(summary))
+    };
+    fixture
+        .sets
+        .command_ended(session(), command("time-limit"), stopped);
     let (_, ending, kept) = next_ending(&mut fixture).await;
     assert_eq!(
         (ending.ending, kept.as_deref()),
@@ -404,10 +463,34 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
         .await
         .expect("written");
     assert_eq!(acts.asked().last(), Some(&"write"));
-    fixture
-        .sets
-        .wrapper_started(session(), 7, WrapperCommand::Line("git push".to_owned()));
+    // A wrapper that starts before its row pairs once the row comes.
+    let paired =
+        fixture
+            .sets
+            .wrapper_started(session(), 7, WrapperCommand::Line("git push".to_owned()));
+    assert!(!*paired.borrow());
     fixture.sets.command_started(start("asking", "git push"));
+    assert!(*paired.borrow());
+    // A waiting reading reaches the row.
+    let reading = WaitingState {
+        is_waiting: true,
+        is_echo_off: true,
+    };
+    fixture.sets.waiting_read(session(), 7, reading);
+    let set = next_set_where(&mut feed, |set| {
+        set.iter()
+            .any(|row| row.command_id == command("asking") && row.waiting_for_input)
+    })
+    .await;
+    assert!(row(&set, "asking").echo_off && row(&set, "asking").prompt.is_none());
+    fixture.sets.waiting_read(
+        session(),
+        7,
+        WaitingState {
+            is_waiting: false,
+            is_echo_off: false,
+        },
+    );
     let answered = Arc::new(Mutex::new(None));
     let answer = Arc::clone(&answered);
     fixture.sets.prompt_opened(
@@ -415,18 +498,12 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
         7,
         NonEmptyText::new("Password for 'https://me@example.com': ".to_owned()).expect("text"),
         true,
-        Box::new(move |text| *answer.lock().unwrap_or_else(PoisonError::into_inner) = Some(text)),
+        PromptAnswer::new(move |text| {
+            *answer.lock().unwrap_or_else(PoisonError::into_inner) = Some(text);
+        }),
     );
-    let set = loop {
-        let set = next_set(&mut feed).await;
-        if set.iter().any(|row| row.prompt.is_some()) {
-            break set;
-        }
-    };
-    let asking = set
-        .iter()
-        .find(|row| row.command_id == command("asking"))
-        .expect("the row");
+    let set = next_set_where(&mut feed, |set| set.iter().any(|row| row.prompt.is_some())).await;
+    let asking = row(&set, "asking");
     assert!(asking.echo_off && asking.waiting_for_input);
     let end_of_input = CommandInput {
         text: None,
@@ -446,8 +523,31 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     );
     assert_eq!(acts.asked().last(), Some(&"write"));
 
+    // A stopping row still takes the person's write.
+    fixture
+        .sets
+        .stop(&driver, session(), &command("typed"))
+        .await
+        .expect("stopped");
+    fixture
+        .sets
+        .write(&driver, session(), &command("typed"), input.clone())
+        .await
+        .expect("written while stopping");
+    assert_eq!(acts.asked().last(), Some(&"write"));
+
     // A reseed of background commands ends the background rows it does not list, leaving the
-    // foreground ones; a listed command the set lacks is added in the background.
+    // foreground ones: failed with no exit code, its wrapper's included, or by the person for one
+    // stopping. A listed command the set lacks is added in the background.
+    fixture
+        .sets
+        .stop(&driver, session(), &command("missed"))
+        .await
+        .expect("stopped");
+    fixture
+        .sets
+        .wrapper_started(session(), 8, WrapperCommand::Line("npm run dev".to_owned()));
+    fixture.sets.wrapper_exited(session(), 8, exit_code(5));
     fixture.sets.commands_listed(
         session(),
         ReseedScope::BackgroundCommands,
@@ -462,9 +562,24 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     assert_eq!(
         ended,
         [
-            (command("missed"), CommandEnding::Failed, None),
+            (command("missed"), CommandEnding::EndedByPerson, None),
             (command("move-me"), CommandEnding::Failed, None),
         ]
+    );
+
+    // A reseed of every command ends a foreground row it does not list too.
+    fixture.sets.commands_listed(
+        session(),
+        ReseedScope::EveryCommand,
+        ["asking", "listed", "typed", "unmovable"]
+            .into_iter()
+            .map(|id| start(id, id))
+            .collect(),
+    );
+    let (_, ending, _) = next_ending(&mut fixture).await;
+    assert_eq!(
+        (ending.command_id, ending.ending, ending.exit_code),
+        (command("unmoved"), CommandEnding::Failed, None)
     );
 
     // The provider's exit ends every row: a stopping one by the person, one whose wrapper reported
@@ -477,7 +592,7 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     fixture.sets.wrapper_exited(session(), 7, exit_code(128));
     fixture.sets.provider_exited(session());
     let mut ended = Vec::new();
-    for _ in 0..5 {
+    for _ in 0..4 {
         let (_, ending, _) = next_ending(&mut fixture).await;
         ended.push((
             ending.command_id.as_str().to_owned(),
@@ -491,11 +606,35 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
         [
             ("asking".to_owned(), CommandEnding::Failed, exit_code(128)),
             ("listed".to_owned(), CommandEnding::EndedByPerson, None),
-            ("typed".to_owned(), CommandEnding::Failed, None),
+            ("typed".to_owned(), CommandEnding::EndedByPerson, None),
             ("unmovable".to_owned(), CommandEnding::Failed, None),
-            ("unmoved".to_owned(), CommandEnding::Failed, None),
         ]
     );
+}
+
+// Fails when a feed holds a slow reader's output past the command's live tail, or loses the
+// newest piece: after 300 KiB the reader's output ends with the last piece written and holds no
+// more than the tail. Mutation: in `OutputRing::push`, drop the cut.
+#[tokio::test]
+async fn a_slow_reader_reads_the_live_tail_ending_with_the_last_piece() {
+    let fixture = fixture();
+    fixture.sets.command_started(start("loud", "yes"));
+    let mut feed = fixture.sets.subscribe(session());
+    next_set(&mut feed).await;
+    let piece = "x".repeat(1023) + "\n";
+    for _ in 0..300 {
+        fixture
+            .sets
+            .publish_output(session(), command("loud"), piece.clone());
+    }
+    fixture
+        .sets
+        .publish_output(session(), command("loud"), "the end".to_owned());
+    let AgentCommandSubscribeFrame::Output { data, .. } = next_frame(&mut feed).await else {
+        panic!("an output frame comes");
+    };
+    assert!(data.ends_with("the end"));
+    assert!(data.len() <= 64 * 1024, "{} bytes", data.len());
 }
 
 // Fails when a wrapper pairs by its line alone, so two runs of one command share a row.

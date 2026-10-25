@@ -1,0 +1,222 @@
+use std::io::{BufRead as _, BufReader, Write as _};
+use std::sync::Arc;
+use std::time::Duration;
+
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
+use hpke::Kem as _;
+use sidekicks_contracts::command::{
+    AgentCommandEndedPayload, AgentCommandSubscribeFrame, CommandId,
+};
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_platforms::{InputTerminal, InputWaitReading};
+use tokio::sync::watch;
+
+use super::{follow_channel_records, tail_output};
+use crate::ipc::stream::feed::{CreditGate, Feed as _};
+use crate::provider::command::channel::tests::{
+    end_party, open_channel, party_command, ready_parties, sealed,
+};
+use crate::provider::command::channel::{
+    ChannelKem, PartyId, PartyRecord, record_name, write_record,
+};
+use crate::provider::command::running_set::{
+    CommandEndingAppender, RunningCommandFeed, RunningCommandSets, WrapperCommand,
+};
+use crate::provider::command::waiting_checks::InputWaitReader;
+use crate::provider::port::running_command_publisher::{
+    CommandStart, RunningCommandPublisher as _,
+};
+
+const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
+
+/// Endings no test here reads.
+struct DroppedEndings;
+
+impl CommandEndingAppender for DroppedEndings {
+    fn append(
+        &self,
+        _binding_id: RuntimeBindingId,
+        _ending: AgentCommandEndedPayload,
+        _summary: Option<String>,
+    ) -> BoxFuture<'_, ()> {
+        async {}.boxed()
+    }
+}
+
+/// Input waits for a test whose commands report no terminal.
+struct NoTerminals;
+
+impl InputWaitReader for NoTerminals {
+    fn may_wait<'a>(
+        &'a self,
+        _terminal: &'a InputTerminal,
+    ) -> BoxFuture<'a, std::io::Result<bool>> {
+        async { Ok(false) }.boxed()
+    }
+
+    fn read<'a>(
+        &'a self,
+        _terminal: &'a InputTerminal,
+    ) -> BoxFuture<'a, std::io::Result<InputWaitReading>> {
+        async { Err(std::io::Error::other("no terminal")) }.boxed()
+    }
+}
+
+fn session() -> SessionId {
+    SessionId::new(SESSION).expect("a session id")
+}
+
+fn sets() -> Arc<RunningCommandSets> {
+    Arc::new(RunningCommandSets::new(
+        Arc::new(|_session: &SessionId| None),
+        Arc::new(DroppedEndings),
+    ))
+}
+
+/// A row `id` paired to the wrapper `party`, whose output the tail reads from a new file.
+struct TailedRow {
+    file: std::fs::File,
+    exited: watch::Sender<bool>,
+    tail: tokio::task::JoinHandle<()>,
+    _folder: tempfile::TempDir,
+}
+
+fn tailed_row(sets: &Arc<RunningCommandSets>, id: &str, party: PartyId) -> TailedRow {
+    sets.command_started(CommandStart {
+        session_id: session(),
+        command_id: CommandId::new(id.to_owned()).expect("a command id"),
+        run_id: RunId::new("0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0f").expect("a run id"),
+        name: NonEmptyText::new(id.to_owned()).expect("a name"),
+        started_at: WireInstant::now(),
+        line: Some(id.to_owned()),
+        process_id: None,
+        is_backgrounded: false,
+        can_move_to_background: false,
+        accepts_input: false,
+    });
+    let paired = sets.wrapper_started(session(), party, WrapperCommand::Line(id.to_owned()));
+    let folder = tempfile::tempdir().expect("a folder");
+    let path = folder.path().join("output");
+    let file = std::fs::File::create(&path).expect("the output file is made");
+    let (exited, ended) = watch::channel(false);
+    let tail = tokio::spawn(tail_output(
+        path,
+        Arc::clone(sets),
+        session(),
+        party,
+        paired,
+        ended,
+    ));
+    TailedRow {
+        file,
+        exited,
+        tail,
+        _folder: folder,
+    }
+}
+
+/// The data of the next output frame `feed` sends.
+async fn next_output(feed: &mut RunningCommandFeed) -> String {
+    let gate = CreditGate::with_credit(1);
+    loop {
+        let frame = tokio::time::timeout(Duration::from_secs(5), feed.next(&gate))
+            .await
+            .expect("a frame comes")
+            .expect("the feed reads")
+            .expect("the feed is open");
+        if let AgentCommandSubscribeFrame::Output { data, .. } = frame {
+            return data;
+        }
+    }
+}
+
+async fn tail_ends(tail: tokio::task::JoinHandle<()>) {
+    tokio::time::timeout(Duration::from_secs(5), tail)
+        .await
+        .expect("the tail ends")
+        .expect("the tail ran");
+}
+
+// Fails when the last bytes written before the command's exit are lost, a character split across
+// two reads is decoded apart, or the bytes held back at the end are dropped. Mutations: drop the
+// `drain` call; treat `InvalidData` in `drain` as a failure that skips `decoder.finish`; decode
+// each read lossily on its own.
+#[tokio::test]
+async fn the_output_tail_reads_every_byte_written_before_the_exit() {
+    let sets = sets();
+    let mut feed = sets.subscribe(session());
+    let mut row = tailed_row(&sets, "cmd", 7);
+    row.file.write_all(b"first \xE2\x82").expect("written");
+    let mut output = next_output(&mut feed).await;
+    row.file.write_all(b"\xAC last").expect("written");
+    row.exited.send_replace(true);
+    // The tail reads the last bytes before the file is cut, as the end of its writer leaves it.
+    while output.len() < "first € last".len() {
+        output.push_str(&next_output(&mut feed).await);
+    }
+    row.file.set_len(0).expect("the file is cut");
+    tail_ends(row.tail).await;
+    assert_eq!(output, "first € last");
+
+    // A file cut after the read, its writer then ended, ends the output with what was held back.
+    let mut row = tailed_row(&sets, "cut", 8);
+    row.file.write_all(b"held \xE2").expect("written");
+    assert_eq!(next_output(&mut feed).await, "held ");
+    row.file.set_len(0).expect("the file is cut");
+    row.exited.send_replace(true);
+    tail_ends(row.tail).await;
+    assert_eq!(next_output(&mut feed).await, "\u{FFFD}");
+}
+
+// Fails when a wrapper that dies without its `Exited` record is held for good: its pairing, its
+// output tail and its place on the channel. Mutation: drop the `process_ended.send(party)` call.
+#[tokio::test]
+async fn a_wrapper_killed_after_its_start_is_let_go() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let keys = ChannelKem::gen_keypair();
+    let mut party = party_command(&keys, None)
+        .spawn()
+        .expect("the party starts");
+    let mut lines = BufReader::new(party.stdout.take().expect("its output")).lines();
+    let party_id = ready_parties(&mut lines, 1)[0];
+    let channel = Arc::new(open_channel(folder.path(), std::process::id()));
+    let sets = sets();
+    let follower = tokio::spawn(follow_channel_records(
+        session(),
+        Arc::clone(&channel),
+        Arc::clone(&sets),
+        Arc::new(NoTerminals),
+    ));
+    let stdout_path = folder.path().join("output");
+    std::fs::write(&stdout_path, b"").expect("the output file is made");
+    let starting = PartyRecord::Starting {
+        command: "sleep 30".to_owned(),
+        stdout_path: Some(stdout_path),
+        process: None,
+    };
+    // The follower's watch may start after the record lands; the record is written until it is
+    // taken.
+    let mut sequence = 0;
+    while sets.unpaired_count(session()) == 0 {
+        sequence += 1;
+        let record = sealed(&channel, &keys, party_id, sequence, &starting);
+        write_record(&channel.folder, &record_name(party_id, sequence), &record)
+            .expect("the record is written");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    party.kill().expect("the wrapper is killed");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while sets.unpaired_count(session()) > 0 || channel.party_process(party_id).is_some() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the wrapper is let go");
+    follower.abort();
+    end_party(party);
+}

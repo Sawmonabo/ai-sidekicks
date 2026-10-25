@@ -16,8 +16,8 @@ use zeroize::Zeroizing;
 use super::{
     COMMAND_CHANNEL_KEY_VARIABLE, COMMAND_CHANNEL_VARIABLE, ChannelKem, ChannelPrivateKey,
     ChannelPublicKey, DaemonRequest, Direction, PARTY_KEY_ARGUMENT_PREFIX, PARTY_SECRET_VARIABLE,
-    PartyId, PartyRecord, REQUESTS_FOLDER, additional_data, open, parse_public_key,
-    parse_record_name, party_key_of, public_key_hex, record_name, seal, write_record,
+    PartyId, PartyRecord, REQUESTS_FOLDER, open, parse_public_key, parse_record_name, party_key_of,
+    public_key_hex, record_context, record_name, seal, write_record,
 };
 
 /// A channel as a party holds it: what it writes to the daemon and what it reads back, each usable
@@ -127,9 +127,9 @@ impl PartyRecords {
     /// write's error.
     pub(crate) fn send(&mut self, record: &PartyRecord) -> io::Result<()> {
         self.last_sequence += 1;
-        let data = additional_data(Direction::ToDaemon, self.party, self.last_sequence);
+        let context = record_context(Direction::ToDaemon, self.party, self.last_sequence);
         let plaintext = Zeroizing::new(serde_json::to_vec(record).map_err(io::Error::other)?);
-        let sealed = seal(&self.keys, &self.daemon_key, &data, &plaintext)?;
+        let sealed = seal(&self.keys, &self.daemon_key, &context, &plaintext)?;
         write_record(
             &self.folder,
             &record_name(self.party, self.last_sequence),
@@ -163,8 +163,8 @@ impl PartyRequests {
                 if sequence <= self.last_sequence {
                     continue;
                 }
-                let data = additional_data(Direction::ToParty, party, sequence);
-                let Some(plaintext) = open(&self.private_key, &self.daemon_key, &data, &sealed)
+                let context = record_context(Direction::ToParty, party, sequence);
+                let Some(plaintext) = open(&self.private_key, &self.daemon_key, &context, &sealed)
                 else {
                     continue;
                 };

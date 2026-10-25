@@ -1,31 +1,28 @@
 //! The commands each session's agents run, provider-neutral: one row per command the provider
 //! reports, in start order, paired with the wrapper that runs it where one does, so its output,
-//! input wait and askpass prompt reach its row. Every change sends the whole set to the session's
-//! subscribers, output goes to them as it prints and is never stored, and each command's ending is
+//! input wait and askpass prompt reach its row. Every change reaches the session's subscribers as
+//! the whole set, a command's output is kept only as its live tail, and each command's ending is
 //! appended once on the session's binding at the time it ends, so a fork move changes nothing.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::json;
 use sidekicks_contracts::command::{
-    AgentCommandEndedPayload, AgentCommandSubscribeFrame, CommandEnding, CommandId, CommandPrompt,
-    ExitCode, RunningCommand,
+    AgentCommandEndedPayload, CommandEnding, CommandId, CommandPrompt, ExitCode, RunningCommand,
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use tokio::sync::Notify;
+use tokio::sync::watch;
 use tokio::time::Instant;
 
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
-use crate::ipc::stream::feed::{Feed, SendGate};
 use crate::provider::command::channel::PartyId;
 use crate::provider::command::waiting_checks::WaitingState;
 use crate::provider::driver::contract::ProviderDriver;
@@ -36,15 +33,13 @@ use crate::provider::port::running_command_publisher::{
 use crate::session::run::inbound::rows::LateAppendableRow;
 use crate::session::run::inbound::{DeliveryBinding, InboundDelivery, RunInboundDispatch};
 
+mod feed;
+
+use feed::OutputRing;
+pub(crate) use feed::RunningCommandFeed;
+
 #[cfg(test)]
 mod tests;
-
-/// The most output bytes a subscriber's feed holds while its reader is slow; past it the oldest
-/// pieces are dropped, since the whole output lands as the tool call's result.
-const FEED_OUTPUT_BYTES: usize = 256 * 1024;
-
-/// The most output bytes a wrapper holds before its command's row is known.
-const UNPAIRED_OUTPUT_BYTES: usize = 64 * 1024;
 
 /// The binding a session runs on now, where it has one.
 pub(crate) type SessionBindingLookup =
@@ -55,7 +50,7 @@ pub(crate) type SessionBindingLookup =
     not(test),
     expect(
         dead_code,
-        reason = "the running set appends each command's ending through it"
+        reason = "the daemon's start hands the running set its ending appender"
     )
 )]
 pub(crate) trait CommandEndingAppender: Send + Sync {
@@ -114,21 +109,56 @@ pub(crate) struct CommandInput {
     pub(crate) is_end_of_input: bool,
 }
 
-/// Where an askpass prompt's answer goes; called once, with the empty answer for `End input`.
-pub(crate) type PromptAnswer = Box<dyn FnOnce(String) + Send>;
+/// Where an askpass prompt's answer goes, called once; one dropped unanswered, as a prompt closed
+/// by its command's exit or never shown is, answers empty, so its git or ssh never waits on it.
+pub(crate) struct PromptAnswer(Option<Box<dyn FnOnce(String) + Send>>);
 
-/// The running commands of every session, and their subscribers.
+impl PromptAnswer {
+    /// The answer that `answer` takes.
+    pub(crate) fn new(answer: impl FnOnce(String) + Send + 'static) -> Self {
+        Self(Some(Box::new(answer)))
+    }
+
+    fn answer(mut self, text: String) {
+        if let Some(answer) = self.0.take() {
+            answer(text);
+        }
+    }
+}
+
+impl Drop for PromptAnswer {
+    fn drop(&mut self) {
+        if let Some(answer) = self.0.take() {
+            answer(String::new());
+        }
+    }
+}
+
+/// The running commands of every session, and what their subscribers read.
 pub(crate) struct RunningCommandSets {
-    sessions: Mutex<HashMap<SessionId, SessionCommands>>,
+    sessions: Arc<Mutex<HashMap<SessionId, SessionCommands>>>,
     binding_of: SessionBindingLookup,
     endings: Arc<dyn CommandEndingAppender>,
 }
 
-#[derive(Default)]
 struct SessionCommands {
     rows: Vec<CommandRow>,
     unpaired: Vec<UnpairedWrapper>,
-    subscribers: Vec<Arc<FeedPlace>>,
+    /// Counts each change to the set as drawn, so a feed sends the set once per change it saw.
+    commands_version: u64,
+    /// Raised on every change, the set's or a command's output, waking each feed.
+    changed: watch::Sender<()>,
+}
+
+impl Default for SessionCommands {
+    fn default() -> Self {
+        Self {
+            rows: Vec::new(),
+            unpaired: Vec::new(),
+            commands_version: 0,
+            changed: watch::Sender::new(()),
+        }
+    }
 }
 
 struct CommandRow {
@@ -137,7 +167,13 @@ struct CommandRow {
     state: RowState,
     wrapper: Option<PartyId>,
     facts: WrapperFacts,
+    output: OutputRing,
+    // The person's stop under way or answered, which a later stop answers as.
+    stop_answer: Option<watch::Receiver<Option<StopAnswer>>>,
 }
+
+/// How the provider answered the person's stop: done, or refused with its code and words.
+type StopAnswer = Result<(), (RefusalCode, String)>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RowState {
@@ -171,7 +207,18 @@ struct UnpairedWrapper {
     party: PartyId,
     command: WrapperCommand,
     facts: WrapperFacts,
-    output: String,
+    // Raised once the wrapper pairs with its row.
+    paired: watch::Sender<bool>,
+}
+
+// Why a row ends.
+enum RowEnd {
+    // The provider's own end of it.
+    Provider(ProviderCommandEnd),
+    // The provider's list of its commands no longer names it.
+    Unlisted,
+    // The provider's process exited.
+    ProviderExited,
 }
 
 impl RunningCommandSets {
@@ -186,7 +233,7 @@ impl RunningCommandSets {
         endings: Arc<dyn CommandEndingAppender>,
     ) -> Self {
         Self {
-            sessions: Mutex::new(HashMap::new()),
+            sessions: Arc::new(Mutex::new(HashMap::new())),
             binding_of,
             endings,
         }
@@ -196,27 +243,29 @@ impl RunningCommandSets {
         self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Follows `session_id`'s running commands: the feed sends the whole set at once, then on
-    /// every change, and each command's output as it prints.
+    /// Follows `session_id`'s running commands: the feed sends the whole set at once, then after
+    /// every change, and each command's output from the start of its live tail.
     pub(crate) fn subscribe(&self, session_id: SessionId) -> RunningCommandFeed {
-        let place = Arc::new(FeedPlace::default());
-        let mut sessions = self.lock();
-        let commands = sessions.entry(session_id).or_default();
-        place.push_commands(session_id, commands);
-        commands.subscribers.push(Arc::clone(&place));
-        RunningCommandFeed { place }
+        let changed = self
+            .lock()
+            .entry(session_id)
+            .or_default()
+            .changed
+            .subscribe();
+        RunningCommandFeed::new(Arc::clone(&self.sessions), session_id, changed)
     }
 
     /// The person's stop, carried out by the session's `driver`: answered once the provider
-    /// acknowledged it, or at once for a command that is not running or whose stop was already
-    /// sent. Fails with the provider's refusal, the row then drawn as it was.
+    /// acknowledged it, at once for a command that is not running, and for a command whose stop
+    /// was already sent as that stop is answered. Fails with the provider's refusal, the row then
+    /// drawn as it was.
     pub(crate) async fn stop(
         &self,
         driver: &dyn ProviderDriver,
         session_id: SessionId,
         command_id: &CommandId,
     ) -> Result<(), HandlerError> {
-        let was_foreground = {
+        let sent = {
             let mut sessions = self.lock();
             let Some(commands) = sessions.get_mut(&session_id) else {
                 return Ok(());
@@ -224,14 +273,21 @@ impl RunningCommandSets {
             let Some(row) = commands.row_mut(command_id) else {
                 return Ok(());
             };
-            let was_foreground = match row.state {
-                RowState::Stopping { .. } => return Ok(()),
-                RowState::Foreground => true,
-                RowState::Background => false,
-            };
-            row.state = RowState::Stopping { was_foreground };
-            commands.publish_commands(session_id);
-            was_foreground
+            match row.state {
+                RowState::Stopping { .. } => Err(row.stop_answer.clone()),
+                RowState::Foreground | RowState::Background => {
+                    let was_foreground = row.state == RowState::Foreground;
+                    let (answer, answered) = watch::channel(None);
+                    row.state = RowState::Stopping { was_foreground };
+                    row.stop_answer = Some(answered);
+                    commands.publish_commands();
+                    Ok((was_foreground, answer))
+                }
+            }
+        };
+        let (was_foreground, answer) = match sent {
+            Ok(sent) => sent,
+            Err(answered) => return Self::answered_stop(answered, command_id).await,
         };
         let stopped = match self.command_params(session_id, command_id) {
             Ok(params) => driver
@@ -240,19 +296,55 @@ impl RunningCommandSets {
                 .map_err(HandlerError::from),
             Err(refusal) => Err(refusal.into()),
         };
-        if let Err(error) = stopped {
-            self.update_row(session_id, command_id, |row| {
-                if matches!(row.state, RowState::Stopping { .. }) {
-                    row.state = if was_foreground {
-                        RowState::Foreground
-                    } else {
-                        RowState::Background
-                    };
-                }
-            });
-            return Err(error);
+        let Err(error) = stopped else {
+            answer.send_replace(Some(Ok(())));
+            return Ok(());
+        };
+        answer.send_replace(Some(Err(match &error {
+            HandlerError::Refused(refusal) => (refusal.code, refusal.message.clone()),
+            HandlerError::Internal(_) | HandlerError::Canceled => (
+                RefusalCode::ProviderUnavailable,
+                "The provider did not take the stop.".to_owned(),
+            ),
+        })));
+        self.update_row(session_id, command_id, |row| {
+            if matches!(row.state, RowState::Stopping { .. }) {
+                row.state = if was_foreground {
+                    RowState::Foreground
+                } else {
+                    RowState::Background
+                };
+                row.stop_answer = None;
+            }
+        });
+        Err(error)
+    }
+
+    // A later stop of a command whose stop was sent: answered as that stop is, once it is.
+    async fn answered_stop(
+        answered: Option<watch::Receiver<Option<StopAnswer>>>,
+        command_id: &CommandId,
+    ) -> Result<(), HandlerError> {
+        let Some(mut answered) = answered else {
+            return Ok(());
+        };
+        let answer = answered
+            .wait_for(Option::is_some)
+            .await
+            .map(|answer| answer.clone());
+        match answer {
+            Ok(Some(Ok(()))) => Ok(()),
+            Ok(Some(Err((code, message)))) => Err(DomainError::new(message, code)
+                .with_detail(json!({ "commandId": command_id }))
+                .into()),
+            // The first stop's caller went away before the provider answered.
+            Ok(None) | Err(_) => Err(DomainError::new(
+                "The provider did not answer the stop.",
+                RefusalCode::ProviderUnavailable,
+            )
+            .with_detail(json!({ "commandId": command_id }))
+            .into()),
         }
-        Ok(())
     }
 
     /// The person's move to the background, carried out by the session's `driver`, for a command
@@ -308,8 +400,8 @@ impl RunningCommandSets {
                 return Err(takes_no_input(command_id).into());
             };
             if let Some(prompt) = row.facts.prompt.take() {
-                (prompt.answer)(input.text.unwrap_or_default());
-                commands.publish_commands(session_id);
+                prompt.answer.answer(input.text.unwrap_or_default());
+                commands.publish_commands();
                 return Ok(());
             }
             if !row.start.accepts_input {
@@ -349,42 +441,47 @@ impl RunningCommandSets {
     }
 
     /// Pairs the wrapper `party` with its command's row: a line with the oldest unpaired row whose
-    /// command reads the same, a process with the row the provider names by it; a wrapper whose row
-    /// is not known yet waits for it.
+    /// line runs the same text, a process with the row the provider names by it; a wrapper whose
+    /// row is not known yet waits for it. Answers the signal raised once it pairs, which its output
+    /// waits on.
     pub(crate) fn wrapper_started(
         &self,
         session_id: SessionId,
         party: PartyId,
         command: WrapperCommand,
-    ) {
+    ) -> watch::Receiver<bool> {
         let mut sessions = self.lock();
         let commands = sessions.entry(session_id).or_default();
         let found = commands
             .rows
             .iter_mut()
             .find(|row| row.wrapper.is_none() && row_runs(row, &command));
+        let (paired, is_paired) = watch::channel(found.is_some());
         match found {
             Some(row) => row.wrapper = Some(party),
             None => commands.unpaired.push(UnpairedWrapper {
                 party,
                 command,
                 facts: WrapperFacts::default(),
-                output: String::new(),
+                paired,
             }),
         }
+        is_paired
     }
 
-    /// Output the wrapper `party` read from its command, sent as its row's output frame.
+    /// Output the wrapper `party` read from its command, kept in its row's live tail; dropped for a
+    /// wrapper not paired.
     pub(crate) fn wrapper_output(&self, session_id: SessionId, party: PartyId, data: &str) {
         let mut sessions = self.lock();
         let Some(commands) = sessions.get_mut(&session_id) else {
             return;
         };
-        if let Some(row) = commands.rows.iter().find(|row| row.wrapper == Some(party)) {
-            let command_id = row.start.command_id.clone();
-            commands.publish_output(session_id, &command_id, data);
-        } else if let Some(unpaired) = commands.unpaired_mut(party) {
-            push_capped(&mut unpaired.output, data, UNPAIRED_OUTPUT_BYTES);
+        if let Some(index) = commands
+            .rows
+            .iter()
+            .position(|row| row.wrapper == Some(party))
+        {
+            commands.publish_output(index, data);
         }
     }
 
@@ -398,8 +495,7 @@ impl RunningCommandSets {
     ) {
         self.update_wrapper(session_id, party, |facts| {
             facts.exit = Some(WrapperExit { code: exit_code });
-            facts.prompt = None;
-            false
+            facts.prompt.take().is_some()
         });
     }
 
@@ -413,7 +509,8 @@ impl RunningCommandSets {
     }
 
     /// Opens an askpass prompt on the wrapper `party`'s command, in its own words, masked when its
-    /// kind is; `answer` takes the person's answer.
+    /// kind is; `answer` takes the person's answer, and answers empty for a wrapper the set holds
+    /// nothing of.
     pub(crate) fn prompt_opened(
         &self,
         session_id: SessionId,
@@ -432,7 +529,15 @@ impl RunningCommandSets {
         });
     }
 
-    /// Forgets the wrapper `party`, whose channel ended.
+    /// How many wrappers in `session_id` wait for their row.
+    #[cfg(test)]
+    pub(crate) fn unpaired_count(&self, session_id: SessionId) -> usize {
+        self.lock()
+            .get(&session_id)
+            .map_or(0, |commands| commands.unpaired.len())
+    }
+
+    /// Forgets the wrapper `party`, whose command ended or whose process did.
     pub(crate) fn wrapper_ended(&self, session_id: SessionId, party: PartyId) {
         let mut sessions = self.lock();
         if let Some(commands) = sessions.get_mut(&session_id) {
@@ -458,7 +563,7 @@ impl RunningCommandSets {
             .find(|row| row.wrapper == Some(party))
         {
             if change(&mut row.facts) {
-                commands.publish_commands(session_id);
+                commands.publish_commands();
             }
         } else if let Some(unpaired) = commands.unpaired_mut(party) {
             change(&mut unpaired.facts);
@@ -476,11 +581,12 @@ impl RunningCommandSets {
             && let Some(row) = commands.row_mut(command_id)
         {
             change(row);
-            commands.publish_commands(session_id);
+            commands.publish_commands();
         }
     }
 
-    // Adds a row for `start` in `state`, paired with a wrapper already waiting for it.
+    // Adds a row for `start` in `state`, paired with a wrapper already waiting for it, whose
+    // output then starts.
     fn add_row(commands: &mut SessionCommands, start: CommandStart, state: RowState) {
         let mut row = CommandRow {
             start,
@@ -488,48 +594,49 @@ impl RunningCommandSets {
             state,
             wrapper: None,
             facts: WrapperFacts::default(),
+            output: OutputRing::default(),
+            stop_answer: None,
         };
-        let waiting = commands
+        if let Some(index) = commands
             .unpaired
             .iter()
-            .position(|unpaired| row_runs(&row, &unpaired.command));
-        let held_output = waiting.map(|index| {
+            .position(|unpaired| row_runs(&row, &unpaired.command))
+        {
             let unpaired = commands.unpaired.remove(index);
             row.wrapper = Some(unpaired.party);
             row.facts = unpaired.facts;
-            unpaired.output
-        });
-        let session_id = row.start.session_id;
-        let command_id = row.start.command_id.clone();
-        commands.rows.push(row);
-        commands.publish_commands(session_id);
-        if let Some(output) = held_output.filter(|output| !output.is_empty()) {
-            commands.publish_output(session_id, &command_id, &output);
+            unpaired.paired.send_replace(true);
         }
+        commands.rows.push(row);
+        commands.publish_commands();
     }
 
-    // Removes the row at `index` and appends its ending: the person's stop ends it by the person,
-    // else its exit code decides, a summary riding only on a failed ending.
-    fn end_row(
-        &self,
-        commands: &mut SessionCommands,
-        index: usize,
-        exit_code: Option<ExitCode>,
-        summary: Option<String>,
-    ) {
+    // Removes the row at `index` and appends its ending: the person's stop ends it by the person;
+    // a row the provider stopped itself, or no longer lists, fails; else its exit code decides,
+    // the wrapper's where the provider gave none, a summary riding only on a failed ending.
+    fn end_row(&self, commands: &mut SessionCommands, index: usize, end: RowEnd) {
         let row = commands.rows.remove(index);
-        let exit_code = exit_code.or(row.facts.exit.and_then(|exit| exit.code));
+        let wrapper_code = row.facts.exit.and_then(|exit| exit.code);
+        let (exit_code, is_failed, summary) = match end {
+            RowEnd::Provider(end) => (
+                end.exit_code.or(wrapper_code),
+                end.is_stopped_by_provider,
+                end.summary,
+            ),
+            RowEnd::Unlisted => (None, true, None),
+            RowEnd::ProviderExited => (wrapper_code, false, None),
+        };
         let ending = match row.state {
             RowState::Stopping { .. } => CommandEnding::EndedByPerson,
             RowState::Foreground | RowState::Background
-                if exit_code.is_some_and(|code| code.get() == 0) =>
+                if !is_failed && exit_code.is_some_and(|code| code.get() == 0) =>
             {
                 CommandEnding::Finished
             }
             RowState::Foreground | RowState::Background => CommandEnding::Failed,
         };
         let session_id = row.start.session_id;
-        commands.publish_commands(session_id);
+        commands.publish_commands();
         let duration_ms = u64::try_from(row.started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let payload = AgentCommandEndedPayload {
             session_id,
@@ -558,9 +665,9 @@ impl RunningCommandPublisher for RunningCommandSets {
     fn publish_output(&self, session_id: SessionId, command_id: CommandId, data: String) {
         let mut sessions = self.lock();
         if let Some(commands) = sessions.get_mut(&session_id)
-            && commands.row(&command_id).is_some()
+            && let Some(index) = commands.index(&command_id)
         {
-            commands.publish_output(session_id, &command_id, &data);
+            commands.publish_output(index, &data);
         }
     }
 
@@ -580,13 +687,12 @@ impl RunningCommandPublisher for RunningCommandSets {
 
     fn command_moved_to_background(&self, start: CommandStart) {
         let mut sessions = self.lock();
-        let session_id = start.session_id;
-        let commands = sessions.entry(session_id).or_default();
+        let commands = sessions.entry(start.session_id).or_default();
         match commands.row_mut(&start.command_id) {
             Some(row) => {
                 if row.state == RowState::Foreground {
                     row.state = RowState::Background;
-                    commands.publish_commands(session_id);
+                    commands.publish_commands();
                 }
             }
             None => Self::add_row(commands, start, RowState::Background),
@@ -599,7 +705,7 @@ impl RunningCommandPublisher for RunningCommandSets {
             return;
         };
         if let Some(index) = commands.index(&command_id) {
-            self.end_row(commands, index, end.exit_code, end.summary);
+            self.end_row(commands, index, RowEnd::Provider(end));
         }
     }
 
@@ -627,7 +733,7 @@ impl RunningCommandPublisher for RunningCommandSets {
                 .iter()
                 .any(|start| start.command_id == row.start.command_id);
             if is_covered && !is_listed {
-                self.end_row(commands, index, None, None);
+                self.end_row(commands, index, RowEnd::Unlisted);
             } else {
                 index += 1;
             }
@@ -645,7 +751,7 @@ impl RunningCommandPublisher for RunningCommandSets {
             return;
         };
         while !commands.rows.is_empty() {
-            self.end_row(commands, 0, None, None);
+            self.end_row(commands, 0, RowEnd::ProviderExited);
         }
     }
 }
@@ -671,23 +777,16 @@ impl SessionCommands {
             .find(|unpaired| unpaired.party == party)
     }
 
-    // Sends the whole set to every subscriber, dropping those whose feed is gone.
-    fn publish_commands(&mut self, session_id: SessionId) {
-        self.subscribers
-            .retain(|place| Arc::strong_count(place) > 1);
-        let subscribers = std::mem::take(&mut self.subscribers);
-        for place in &subscribers {
-            place.push_commands(session_id, self);
-        }
-        self.subscribers = subscribers;
+    // Marks the set changed, so every feed sends it.
+    fn publish_commands(&mut self) {
+        self.commands_version += 1;
+        self.changed.send_replace(());
     }
 
-    fn publish_output(&mut self, session_id: SessionId, command_id: &CommandId, data: &str) {
-        self.subscribers
-            .retain(|place| Arc::strong_count(place) > 1);
-        for place in &self.subscribers {
-            place.push_output(session_id, command_id, data);
-        }
+    // Keeps `data` in the live tail of the row at `index` and wakes every feed.
+    fn publish_output(&mut self, index: usize, data: &str) {
+        self.rows[index].output.push(data);
+        self.changed.send_replace(());
     }
 
     fn running_commands(&self) -> Vec<RunningCommand> {
@@ -732,18 +831,6 @@ fn row_runs(row: &CommandRow, command: &WrapperCommand) -> bool {
     }
 }
 
-// Appends `data` to `held`, dropping its oldest characters past `cap` bytes.
-fn push_capped(held: &mut String, data: &str, cap: usize) {
-    held.push_str(data);
-    if held.len() > cap {
-        let mut cut = held.len() - cap;
-        while !held.is_char_boundary(cut) {
-            cut += 1;
-        }
-        held.drain(..cut);
-    }
-}
-
 fn not_in_foreground(command_id: &CommandId) -> DomainError {
     DomainError::new(
         "The agent is not waiting on this command.",
@@ -758,107 +845,4 @@ fn takes_no_input(command_id: &CommandId) -> DomainError {
         RefusalCode::AgentCommandTakesNoInput,
     )
     .with_detail(json!({ "commandId": command_id }))
-}
-
-/// What waits for one subscriber: its frames in order, the whole set kept only at its newest and
-/// a command's output joined while the reader is slow, with at most `FEED_OUTPUT_BYTES` of output.
-#[derive(Default)]
-struct FeedPlace {
-    waiting: Mutex<VecDeque<AgentCommandSubscribeFrame>>,
-    sent: Notify,
-}
-
-impl FeedPlace {
-    fn lock(&self) -> MutexGuard<'_, VecDeque<AgentCommandSubscribeFrame>> {
-        self.waiting.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn push_commands(&self, session_id: SessionId, commands: &SessionCommands) {
-        let set = UniqueList::new(commands.running_commands())
-            .expect("a session's rows name each command once");
-        {
-            let mut waiting = self.lock();
-            waiting.retain(|frame| !matches!(frame, AgentCommandSubscribeFrame::Commands { .. }));
-            waiting.push_back(AgentCommandSubscribeFrame::Commands {
-                session_id,
-                commands: set,
-            });
-        }
-        self.sent.notify_one();
-    }
-
-    fn push_output(&self, session_id: SessionId, command_id: &CommandId, data: &str) {
-        {
-            let mut waiting = self.lock();
-            match waiting.back_mut() {
-                Some(AgentCommandSubscribeFrame::Output {
-                    command_id: last,
-                    data: held,
-                    ..
-                }) if last == command_id => held.push_str(data),
-                Some(_) | None => waiting.push_back(AgentCommandSubscribeFrame::Output {
-                    session_id,
-                    command_id: command_id.clone(),
-                    data: data.to_owned(),
-                }),
-            }
-            drop_oldest_output(&mut waiting);
-        }
-        self.sent.notify_one();
-    }
-}
-
-// Drops the oldest output frames until the output waiting fits `FEED_OUTPUT_BYTES`.
-fn drop_oldest_output(waiting: &mut VecDeque<AgentCommandSubscribeFrame>) {
-    let output_bytes = |waiting: &VecDeque<AgentCommandSubscribeFrame>| {
-        waiting
-            .iter()
-            .map(|frame| match frame {
-                AgentCommandSubscribeFrame::Output { data, .. } => data.len(),
-                AgentCommandSubscribeFrame::Commands { .. } => 0,
-            })
-            .sum::<usize>()
-    };
-    let mut dropped = false;
-    while output_bytes(waiting) > FEED_OUTPUT_BYTES {
-        let Some(oldest) = waiting
-            .iter()
-            .position(|frame| matches!(frame, AgentCommandSubscribeFrame::Output { .. }))
-        else {
-            break;
-        };
-        waiting.remove(oldest);
-        dropped = true;
-    }
-    if dropped {
-        tracing::debug!("a slow reader's command output was dropped past its cap");
-    }
-}
-
-/// One subscriber's running-commands feed; dropping it ends the subscription's place in the set.
-pub(crate) struct RunningCommandFeed {
-    place: Arc<FeedPlace>,
-}
-
-impl Feed for RunningCommandFeed {
-    type Emission = AgentCommandSubscribeFrame;
-
-    fn next<'a>(
-        &'a mut self,
-        gate: &'a dyn SendGate,
-    ) -> BoxFuture<'a, Result<Option<AgentCommandSubscribeFrame>, HandlerError>> {
-        async move {
-            loop {
-                if gate.ready().await.is_err() {
-                    return Ok(None);
-                }
-                if let Some(frame) = self.place.lock().pop_front() {
-                    return Ok(Some(frame));
-                }
-                // A push between the check and this wait leaves a permit, so none is missed.
-                self.place.sent.notified().await;
-            }
-        }
-        .boxed()
-    }
 }

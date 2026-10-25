@@ -1,28 +1,33 @@
 //! What a conversation's channel records do to its session's running set: a wrapper's start pairs
 //! it with its row and is answered `go` at once, the file its command's standard output writes to
-//! is tailed as that row's output, its terminal's readings feed the row's waiting checks, its exit
-//! settles the row's exit code, and an askpass's prompt opens on the row of the wrapper above it,
-//! answered empty at once where no wrapper is.
+//! is tailed as that row's output once it pairs, its terminal's readings feed the row's waiting
+//! checks, its exit settles the row's exit code, and an askpass's prompt opens on the row of the
+//! wrapper above it, answered empty at once where no wrapper is. A wrapper is let go at its exit,
+//! or at its process's end where it died before saying so.
 
 use std::collections::HashMap;
 use std::io::{self, ErrorKind};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use sidekicks_contracts::command::ExitCode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeSignedInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_platforms::{FileAppendWatch, InputTerminal};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::askpass_prompt::is_masked_prompt;
 use crate::provider::command::channel::{
     CommandChannel, DaemonRequest, PartyId, PartyRecord, ReceivedRecord,
 };
-use crate::provider::command::running_set::{RunningCommandSets, WrapperCommand};
+use crate::provider::command::running_set::{PromptAnswer, RunningCommandSets, WrapperCommand};
 use crate::provider::command::waiting_checks::{InputWaitReader, WaitingChecks};
 use crate::utf8_stream::Utf8StreamDecoder;
+
+#[cfg(test)]
+mod tests;
 
 /// What the daemon holds of one wrapper while its command runs.
 struct FollowedWrapper {
@@ -31,11 +36,16 @@ struct FollowedWrapper {
     tail: Option<JoinHandle<()>>,
     checks: Option<WaitingChecks>,
     last_output_tail: String,
+    /// Waits for the wrapper's process to end, which lets the wrapper go where it said nothing.
+    process_end: Option<JoinHandle<()>>,
 }
 
 /// Follows `channel`'s records into `session_id`'s rows in `set`, the waiting checks reading
 /// through `waits`, until the channel's watch fails, with its error.
-#[expect(dead_code, reason = "each driver follows its conversations' channels")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "each driver follows its conversations' channels")
+)]
 pub(crate) async fn follow_channel_records(
     session_id: SessionId,
     channel: Arc<CommandChannel>,
@@ -43,120 +53,165 @@ pub(crate) async fn follow_channel_records(
     waits: Arc<dyn InputWaitReader>,
 ) -> io::Result<()> {
     let mut watch = channel.watch().await?;
-    let mut wrappers: HashMap<PartyId, FollowedWrapper> = HashMap::new();
+    let (process_ended, mut ended_parties) = mpsc::unbounded_channel();
+    let mut follower = RecordFollower {
+        session_id,
+        channel,
+        set,
+        waits,
+        wrappers: HashMap::new(),
+        process_ended,
+    };
     loop {
-        for received in channel.next_records(&mut watch).await? {
-            take_record(session_id, &channel, &set, &waits, &mut wrappers, received).await;
+        tokio::select! {
+            arrivals = watch.next_arrivals() => {
+                for received in follower.channel.take_records(arrivals?).await {
+                    follower.take_record(received).await;
+                }
+            }
+            Some(party) = ended_parties.recv() => {
+                // The records it wrote before its end are in the folder by now: they go first.
+                for received in follower.channel.take_records(watch.arrivals_now().await?).await {
+                    follower.take_record(received).await;
+                }
+                follower.release(party).await;
+            }
         }
     }
 }
 
-// Applies one record to the set.
-async fn take_record(
+/// One channel's follower: what its records reach, and the wrappers it holds.
+struct RecordFollower {
     session_id: SessionId,
-    channel: &Arc<CommandChannel>,
-    set: &Arc<RunningCommandSets>,
-    waits: &Arc<dyn InputWaitReader>,
-    wrappers: &mut HashMap<PartyId, FollowedWrapper>,
-    received: ReceivedRecord,
-) {
-    let party = received.party;
-    match received.record {
-        PartyRecord::Starting {
-            command,
-            stdout_path,
-            process,
-        } => {
-            let command = process.map_or(WrapperCommand::Line(command), WrapperCommand::Process);
-            set.wrapper_started(session_id, party, command);
-            send_request(channel, party, &DaemonRequest::Go {}).await;
-            let (exited, ended) = watch::channel(false);
-            let tail = stdout_path.map(|path| {
-                tokio::spawn(tail_output(path, Arc::clone(set), session_id, party, ended))
-            });
-            wrappers.insert(
-                party,
-                FollowedWrapper {
-                    exited,
-                    tail,
-                    checks: None,
-                    last_output_tail: String::new(),
-                },
-            );
-        }
-        PartyRecord::Terminal {
-            device,
-            master,
-            output_tail,
-        } => {
-            let Some(wrapper) = wrappers.get_mut(&party) else {
-                return;
-            };
-            let checks = wrapper.checks.get_or_insert_with(|| {
-                let set = Arc::clone(set);
-                WaitingChecks::start(Arc::clone(waits), move |state| {
-                    set.waiting_read(session_id, party, state);
-                })
-            });
-            if output_tail != wrapper.last_output_tail {
-                checks.output_printed();
-                wrapper.last_output_tail.clone_from(&output_tail);
+    channel: Arc<CommandChannel>,
+    set: Arc<RunningCommandSets>,
+    waits: Arc<dyn InputWaitReader>,
+    wrappers: HashMap<PartyId, FollowedWrapper>,
+    /// Takes the id of a wrapper whose process ended.
+    process_ended: mpsc::UnboundedSender<PartyId>,
+}
+
+impl RecordFollower {
+    // Applies one record to the set.
+    async fn take_record(&mut self, received: ReceivedRecord) {
+        let session_id = self.session_id;
+        let party = received.party;
+        match received.record {
+            PartyRecord::Starting {
+                command,
+                stdout_path,
+                process,
+            } => {
+                let command =
+                    process.map_or(WrapperCommand::Line(command), WrapperCommand::Process);
+                let paired = self.set.wrapper_started(session_id, party, command);
+                send_request(&self.channel, party, &DaemonRequest::Go {}).await;
+                let (exited, ended) = watch::channel(false);
+                let tail = stdout_path.map(|path| {
+                    let set = Arc::clone(&self.set);
+                    tokio::spawn(tail_output(path, set, session_id, party, paired, ended))
+                });
+                let process_end = self.channel.party_process(party).map(|process| {
+                    let process_ended = self.process_ended.clone();
+                    tokio::spawn(async move {
+                        match process.wait_for_end().await {
+                            Ok(()) => process_ended.send(party).unwrap_or_default(),
+                            Err(error) => tracing::warn!(
+                                party,
+                                error = &error as &(dyn std::error::Error + 'static),
+                                "a command wrapper's process end could not be watched"
+                            ),
+                        }
+                    })
+                });
+                self.wrappers.insert(
+                    party,
+                    FollowedWrapper {
+                        exited,
+                        tail,
+                        checks: None,
+                        last_output_tail: String::new(),
+                        process_end,
+                    },
+                );
             }
-            checks.terminal_read(InputTerminal { device, master }, output_tail);
-        }
-        PartyRecord::Exited { exit_code, .. } => {
-            let exit_code = exit_code.and_then(|code| SafeSignedInt::new(i64::from(code)));
-            set.wrapper_exited(session_id, party, exit_code);
-            if let Some(wrapper) = wrappers.remove(&party) {
-                wrapper.exited.send_replace(true);
-                if let Some(tail) = wrapper.tail
-                    && let Err(error) = tail.await
-                {
-                    tracing::warn!(
-                        error = &error as &(dyn std::error::Error + 'static),
-                        "a command's output tail ended abnormally"
-                    );
+            PartyRecord::Terminal {
+                device,
+                master,
+                output_tail,
+            } => {
+                let Some(wrapper) = self.wrappers.get_mut(&party) else {
+                    return;
+                };
+                let checks = wrapper.checks.get_or_insert_with(|| {
+                    let set = Arc::clone(&self.set);
+                    WaitingChecks::start(Arc::clone(&self.waits), move |state| {
+                        set.waiting_read(session_id, party, state);
+                    })
+                });
+                if output_tail != wrapper.last_output_tail {
+                    checks.output_printed();
+                    wrapper.last_output_tail.clone_from(&output_tail);
                 }
+                checks.terminal_read(InputTerminal { device, master }, output_tail);
             }
-            set.wrapper_ended(session_id, party);
-            channel.forget_party(party);
-        }
-        PartyRecord::Warning { message } => {
-            tracing::warn!(
-                party,
-                message,
-                "a command's party could not do what it meant to"
-            );
-        }
-        PartyRecord::Stopped {} => {
-            tracing::debug!(
-                party,
-                "a command wrapper ended its command's terminal session"
-            );
-        }
-        PartyRecord::Asking {} => {
-            let prompt = received.first_argument.and_then(NonEmptyText::new);
-            let Some((wrapper, prompt)) = received.wrapper.zip(prompt) else {
-                let text = String::new();
-                send_request(channel, party, &DaemonRequest::Answer { text }).await;
-                channel.forget_party(party);
-                return;
-            };
-            let is_masked = is_masked_prompt(prompt.as_str());
-            let channel = Arc::clone(channel);
-            set.prompt_opened(
-                session_id,
-                wrapper,
-                prompt,
-                is_masked,
-                Box::new(move |text| {
+            PartyRecord::Exited { exit_code, .. } => {
+                let exit_code: Option<ExitCode> =
+                    exit_code.and_then(|code| SafeSignedInt::new(i64::from(code)));
+                self.set.wrapper_exited(session_id, party, exit_code);
+                self.release(party).await;
+            }
+            PartyRecord::Warning { message } => {
+                tracing::warn!(
+                    party,
+                    message,
+                    "a command's party could not do what it meant to"
+                );
+            }
+            PartyRecord::Stopped {} => {
+                tracing::debug!(
+                    party,
+                    "a command wrapper ended its command's terminal session"
+                );
+            }
+            PartyRecord::Asking {} => {
+                let prompt = received.first_argument.and_then(NonEmptyText::new);
+                let channel = Arc::clone(&self.channel);
+                let answer = PromptAnswer::new(move |text| {
                     tokio::spawn(async move {
                         send_request(&channel, party, &DaemonRequest::Answer { text }).await;
-                        channel.forget_party(party);
+                        channel.forget_party(party).await;
                     });
-                }),
-            );
+                });
+                // A prompt with no wrapper to show it on is answered empty as `answer` drops.
+                if let Some((wrapper, prompt)) = received.wrapper.zip(prompt) {
+                    let is_masked = is_masked_prompt(prompt.as_str());
+                    self.set
+                        .prompt_opened(session_id, wrapper, prompt, is_masked, answer);
+                }
+            }
         }
+    }
+
+    // Lets the wrapper `party` go: its output read to the end, its checks stopped, its row's
+    // pairing and its place on the channel forgotten.
+    async fn release(&mut self, party: PartyId) {
+        if let Some(wrapper) = self.wrappers.remove(&party) {
+            if let Some(process_end) = wrapper.process_end {
+                process_end.abort();
+            }
+            wrapper.exited.send_replace(true);
+            if let Some(tail) = wrapper.tail
+                && let Err(error) = tail.await
+            {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a command's output tail ended abnormally"
+                );
+            }
+        }
+        self.set.wrapper_ended(self.session_id, party);
+        self.channel.forget_party(party).await;
     }
 }
 
@@ -170,13 +225,16 @@ async fn send_request(channel: &CommandChannel, party: PartyId, request: &Daemon
     }
 }
 
-// Tails the file at `path` as the wrapper `party`'s output until its command exited and its last
-// bytes are read; a file shorter than what was read, after the end, is the end of the output.
+// Tails the file at `path` as the wrapper `party`'s output, from its first byte once the wrapper
+// pairs with its row, until its command exited and its last bytes are read; the file held open
+// from the start is what holds the output before the pairing. A file shorter than what was read,
+// after the end, is the end of the output; a wrapper that ends unpaired has no output to show.
 async fn tail_output(
     path: PathBuf,
     set: Arc<RunningCommandSets>,
     session_id: SessionId,
     party: PartyId,
+    mut paired: watch::Receiver<bool>,
     mut ended: watch::Receiver<bool>,
 ) {
     let mut decoder = Utf8StreamDecoder::default();
@@ -195,6 +253,13 @@ async fn tail_output(
             return;
         }
     };
+    tokio::select! {
+        biased;
+        is_paired = paired.wait_for(|is_paired| *is_paired) => if is_paired.is_err() {
+            return;
+        },
+        _ = ended.wait_for(|has_exited| *has_exited) => return,
+    }
     loop {
         tokio::select! {
             biased;

@@ -17,8 +17,9 @@ use hpke::kem::X25519HkdfSha256;
 use hpke::{Deserializable, Kem as _, OpModeR, OpModeS, Serializable};
 use serde::{Deserialize, Serialize};
 use sidekicks_platforms::{
-    FolderArrivalWatch, LeftoverSweep, ParentProcess, TerminalDevice, TerminalMasterReading,
-    create_file_atomically, create_private_folder, pin_running_process, read_process_start,
+    FolderArrivalWatch, LeftoverSweep, ParentProcess, PinnedProcess, TerminalDevice,
+    TerminalMasterReading, create_file_atomically, create_private_folder, pin_running_process,
+    read_process_start,
 };
 use zeroize::Zeroizing;
 
@@ -43,7 +44,7 @@ const PARTY_KEY_ARGUMENT_PREFIX: &str = "party-key=";
 /// The folder inside a channel's folder that only the daemon writes.
 const REQUESTS_FOLDER: &str = "requests";
 
-/// The context string every seal and open binds.
+/// The context string every seal and open binds, ahead of the record's own context.
 const SEALING_INFO: &[u8] = b"sidekicks command channel";
 
 /// The bytes the encapsulated key takes at the head of a sealed record.
@@ -134,21 +135,22 @@ enum Direction {
     ToParty = 2,
 }
 
-/// The additional data a record's seal binds: its direction, its party and its sequence number.
-fn additional_data(direction: Direction, party: PartyId, sequence: u64) -> [u8; 13] {
-    let mut data = [0_u8; 13];
-    data[0] = direction as u8;
-    data[1..5].copy_from_slice(&party.to_be_bytes());
-    data[5..].copy_from_slice(&sequence.to_be_bytes());
-    data
+/// The context a record's seal binds as its setup's info, after [`SEALING_INFO`]: its direction,
+/// its party and its sequence number.
+fn record_context(direction: Direction, party: PartyId, sequence: u64) -> Vec<u8> {
+    let mut context = SEALING_INFO.to_vec();
+    context.push(direction as u8);
+    context.extend_from_slice(&party.to_be_bytes());
+    context.extend_from_slice(&sequence.to_be_bytes());
+    context
 }
 
-/// Seals `plaintext` from the holder of `sender` to `recipient`: the encapsulated key, then the
-/// ciphertext. Fails with the system's error when no random bytes can be read.
+/// Seals `plaintext` from the holder of `sender` to `recipient` under `context`: the encapsulated
+/// key, then the ciphertext. Fails with the system's error when no random bytes can be read.
 fn seal(
     sender: &(ChannelPrivateKey, ChannelPublicKey),
     recipient: &ChannelPublicKey,
-    data: &[u8],
+    context: &[u8],
     plaintext: &[u8],
 ) -> io::Result<Vec<u8>> {
     let mode = OpModeS::Auth((sender.0.clone(), sender.1.clone()));
@@ -156,19 +158,19 @@ fn seal(
         ChaCha20Poly1305,
         HkdfSha256,
         ChannelKem,
-    >(&mode, recipient, SEALING_INFO, plaintext, data)
+    >(&mode, recipient, context, plaintext, &[])
     .map_err(io::Error::other)?;
     let mut sealed = encapsulated.to_bytes().to_vec();
     sealed.extend_from_slice(&ciphertext);
     Ok(sealed)
 }
 
-/// Opens what `sender` sealed to the holder of `recipient` under `data`; `None` when it does not
+/// Opens what `sender` sealed to the holder of `recipient` under `context`; `None` when it does not
 /// open, as a forged, cut or misdirected record does not.
 fn open(
     recipient: &ChannelPrivateKey,
     sender: &ChannelPublicKey,
-    data: &[u8],
+    context: &[u8],
     sealed: &[u8],
 ) -> Option<Zeroizing<Vec<u8>>> {
     let (encapsulated, ciphertext) = sealed.split_at_checked(ENCAPSULATED_KEY_BYTES)?;
@@ -177,9 +179,9 @@ fn open(
         &OpModeR::Auth(sender.clone()),
         recipient,
         &encapsulated,
-        SEALING_INFO,
+        context,
         ciphertext,
-        data,
+        &[],
     )
     .ok()
     .map(Zeroizing::new)
@@ -228,18 +230,25 @@ struct AdmittedParty {
     public_key: ChannelPublicKey,
     last_sequence: u64,
     next_request: u64,
-    /// Whether the party is a wrapper, as its `starting` record shows.
+    /// Whether the party is a wrapper that speaks for its command, as its `starting` record shows.
     is_wrapper: bool,
+    /// Whether the party sits under another admitted party, so it speaks for no command: only an
+    /// askpass's `asking` is taken from it.
+    is_nested: bool,
     /// The first of the party's own arguments, which is an askpass's prompt.
     first_argument: Option<String>,
-    /// For an askpass, the nearest admitted wrapper above it.
+    /// The nearest admitted wrapper above it that speaks for its command.
     wrapper: Option<PartyId>,
+    /// The party's process, pinned at its admission, whose end releases what the daemon holds of
+    /// it.
+    process: PinnedProcess,
 }
 
 impl AdmittedParty {
     /// Opens the record `party` sealed under `sequence` to `daemon`; `None`, the record dropped,
-    /// when it does not open under this party's context or its number is not past the last one
-    /// opened. A number past the next one skips those between.
+    /// when it does not open under this party's context, its number is not past the last one
+    /// opened, or the party is nested and the record is no `asking`. A number past the next one
+    /// skips those between.
     fn open_record(
         &mut self,
         daemon: &ChannelPrivateKey,
@@ -250,15 +259,26 @@ impl AdmittedParty {
         if sequence <= self.last_sequence {
             return None;
         }
-        let data = additional_data(Direction::ToDaemon, party, sequence);
-        let plaintext = open(daemon, &self.public_key, &data, sealed)?;
+        let context = record_context(Direction::ToDaemon, party, sequence);
+        let plaintext = open(daemon, &self.public_key, &context, sealed)?;
         let record = serde_json::from_slice(&plaintext).ok()?;
         self.last_sequence = sequence;
+        if self.is_nested && !matches!(record, PartyRecord::Asking {}) {
+            tracing::debug!(party, "a nested command party's record was dropped");
+            return None;
+        }
         if matches!(record, PartyRecord::Starting { .. }) {
             self.is_wrapper = true;
         }
         Some(record)
     }
+}
+
+/// What a party's first record makes of it: admitted, or refused with the key its arguments hold
+/// where they hold one.
+enum Admission {
+    Admitted(AdmittedParty),
+    Refused(Option<ChannelPublicKey>),
 }
 
 /// A record the daemon opened: its party, the wrapper an askpass sits under, the record, and the
@@ -337,40 +357,61 @@ impl CommandChannel {
     }
 
     /// The records that arrived since the last call in name order, waiting on `watch` until one
-    /// does; each file is removed once read, and a record that does not open, from a party
-    /// outside the provider's process or out of order, is dropped. Fails with the watch's error.
+    /// does. Fails only with the watch's error.
+    #[cfg(test)]
     pub(crate) async fn next_records(
         &self,
         watch: &mut FolderArrivalWatch,
     ) -> io::Result<Vec<ReceivedRecord>> {
         loop {
-            let mut received = Vec::new();
-            for path in watch.next_arrivals().await? {
-                let read = tokio::fs::read(&path).await;
-                if let Err(error) = tokio::fs::remove_file(&path).await
-                    && error.kind() != ErrorKind::NotFound
-                {
-                    tracing::warn!(
-                        error = &error as &(dyn std::error::Error + 'static),
-                        "a command channel's record could not be removed"
-                    );
-                }
-                let Some((party, sequence)) = parse_record_name(&path) else {
-                    continue;
-                };
-                let sealed = match read {
-                    Ok(sealed) => sealed,
-                    Err(error) if error.kind() == ErrorKind::NotFound => continue,
-                    Err(error) => return Err(error),
-                };
-                if let Some(record) = self.open_record(party, sequence, &sealed).await? {
-                    received.push(record);
-                }
-            }
+            let received = self.take_records(watch.next_arrivals().await?).await;
             if !received.is_empty() {
                 return Ok(received);
             }
         }
+    }
+
+    /// The records in `arrivals`, in their order; each file is removed once read, and a record
+    /// that does not open, from a party outside the provider's process or out of order, is
+    /// dropped, as is one whose read or whose party's admission read fails, which is logged.
+    pub(crate) async fn take_records(&self, arrivals: Vec<PathBuf>) -> Vec<ReceivedRecord> {
+        let mut received = Vec::new();
+        for path in arrivals {
+            let read = tokio::fs::read(&path).await;
+            if let Err(error) = tokio::fs::remove_file(&path).await
+                && error.kind() != ErrorKind::NotFound
+            {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a command channel's record could not be removed"
+                );
+            }
+            let Some((party, sequence)) = parse_record_name(&path) else {
+                continue;
+            };
+            let sealed = match read {
+                Ok(sealed) => sealed,
+                Err(error) if error.kind() == ErrorKind::NotFound => continue,
+                Err(error) => {
+                    tracing::warn!(
+                        party,
+                        error = &error as &(dyn std::error::Error + 'static),
+                        "a command channel's record could not be read"
+                    );
+                    continue;
+                }
+            };
+            match self.open_record(party, sequence, &sealed).await {
+                Ok(Some(record)) => received.push(record),
+                Ok(None) => {}
+                Err(error) => tracing::warn!(
+                    party,
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a command channel's party could not be read for its admission"
+                ),
+            }
+        }
+        received
     }
 
     /// Writes `request` to `party`, sealed to its key. Fails with `NotFound` for a party not
@@ -389,8 +430,8 @@ impl CommandChannel {
             admitted.next_request += 1;
             (admitted.public_key.clone(), admitted.next_request)
         };
-        let data = additional_data(Direction::ToParty, party, sequence);
-        let sealed = seal(&self.keys, &public_key, &data, &plaintext)?;
+        let context = record_context(Direction::ToParty, party, sequence);
+        let sealed = seal(&self.keys, &public_key, &context, &plaintext)?;
         let folder = self.folder.join(REQUESTS_FOLDER);
         tokio::task::spawn_blocking(move || {
             write_record(&folder, &record_name(party, sequence), &sealed)
@@ -399,13 +440,50 @@ impl CommandChannel {
         .map_err(io::Error::other)?
     }
 
-    /// Forgets `party`, which has ended or been answered, so its key and numbers are not held;
-    /// a later record from its id is admitted afresh.
-    pub(crate) fn forget_party(&self, party: PartyId) {
+    /// Forgets `party`, which has ended or been answered, so its key and numbers are not held and
+    /// the requests it did not read are removed; a later record from its id is admitted afresh.
+    /// A request that cannot be removed is logged.
+    pub(crate) async fn forget_party(&self, party: PartyId) {
         self.parties
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&party);
+        let requests = self.folder.join(REQUESTS_FOLDER);
+        let removed =
+            tokio::task::spawn_blocking(move || remove_party_requests(&requests, party)).await;
+        if let Err(error) = removed
+            .map_err(io::Error::other)
+            .and_then(|removed| removed)
+        {
+            tracing::warn!(
+                party,
+                error = &error as &(dyn std::error::Error + 'static),
+                "a command party's unread requests could not be removed"
+            );
+        }
+    }
+
+    /// The process of the admitted `party`, pinned at its admission; `None` for a party not
+    /// admitted.
+    pub(crate) fn party_process(&self, party: PartyId) -> Option<PinnedProcess> {
+        self.parties
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&party)
+            .map(|admitted| admitted.process.clone())
+    }
+
+    /// Closes the channel once its conversation ended, removing its folder and everything in it.
+    /// Fails with the system's error when the folder cannot be removed.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "each driver closes a conversation's channel at its end"
+        )
+    )]
+    pub(crate) async fn close(self) -> io::Result<()> {
+        tokio::fs::remove_dir_all(&self.folder).await
     }
 
     /// Opens one record, admitting its party first when it is new; `None` when it is dropped.
@@ -421,12 +499,19 @@ impl CommandChannel {
             .unwrap_or_else(PoisonError::into_inner)
             .contains_key(&party);
         if !is_admitted {
-            let Some(admitted) = self.admit(party).await? else {
-                tracing::debug!(
-                    party,
-                    "a command channel refused a party outside its provider"
-                );
-                return Ok(None);
+            let admitted = match self.admit(party).await? {
+                Admission::Admitted(admitted) => admitted,
+                Admission::Refused(key) => {
+                    tracing::debug!(
+                        party,
+                        "a command channel refused a party outside its provider"
+                    );
+                    if let Some(key) = key {
+                        self.answer_refused_askpass(party, &key, sequence, sealed)
+                            .await?;
+                    }
+                    return Ok(None);
+                }
             };
             self.parties
                 .lock()
@@ -451,17 +536,47 @@ impl CommandChannel {
             }))
     }
 
+    /// Answers a refused party's `asking`, which it sealed under `sequence` with `key`, with the
+    /// empty answer, so its git or ssh reads the prompt as canceled and never waits on it; any
+    /// other record is left. Fails with the write's error.
+    async fn answer_refused_askpass(
+        &self,
+        party: PartyId,
+        key: &ChannelPublicKey,
+        sequence: u64,
+        sealed: &[u8],
+    ) -> io::Result<()> {
+        let context = record_context(Direction::ToDaemon, party, sequence);
+        let is_asking = open(&self.keys.0, key, &context, sealed)
+            .and_then(|plaintext| serde_json::from_slice::<PartyRecord>(&plaintext).ok())
+            .is_some_and(|record| matches!(record, PartyRecord::Asking {}));
+        if !is_asking {
+            return Ok(());
+        }
+        let answer = DaemonRequest::Answer {
+            text: String::new(),
+        };
+        let plaintext = Zeroizing::new(serde_json::to_vec(&answer).map_err(io::Error::other)?);
+        let context = record_context(Direction::ToParty, party, 1);
+        let sealed = seal(&self.keys, key, &context, &plaintext)?;
+        let folder = self.folder.join(REQUESTS_FOLDER);
+        tokio::task::spawn_blocking(move || write_record(&folder, &record_name(party, 1), &sealed))
+            .await
+            .map_err(io::Error::other)?
+    }
+
     /// Admits `party` by the key its first argument holds when it sits under the provider's
-    /// process, noting the nearest admitted wrapper above it; `None` when it does not, holds no
-    /// key or has ended. Fails when the system refuses a read.
-    async fn admit(&self, party: PartyId) -> io::Result<Option<AdmittedParty>> {
+    /// process, noting the nearest admitted wrapper above it and whether any admitted party is;
+    /// refused, with the key where it holds one, when it does not, holds no key or has ended.
+    /// Fails when the system refuses a read.
+    async fn admit(&self, party: PartyId) -> io::Result<Admission> {
         let read = tokio::task::spawn_blocking(move || {
             Ok::<_, io::Error>((read_process_start(party)?, pin_running_process(party)?))
         })
         .await
         .map_err(io::Error::other)??;
-        let (Some(start), Some(mut process)) = read else {
-            return Ok(None);
+        let (Some(start), Some(pinned)) = read else {
+            return Ok(Admission::Refused(None));
         };
         let Some(public_key) = start
             .arguments
@@ -469,168 +584,82 @@ impl CommandChannel {
             .and_then(|argument| party_key_of(argument))
             .and_then(parse_public_key)
         else {
-            return Ok(None);
+            return Ok(Admission::Refused(None));
         };
         let first_argument = start.arguments.get(2).cloned();
         let mut wrapper = None;
+        let mut is_nested = false;
+        let mut process = pinned.clone();
         loop {
             let parent = match self.reader.read_parent_process(process).await? {
                 ParentProcess::Pinned(parent) => parent,
-                ParentProcess::Root | ParentProcess::Ended => return Ok(None),
+                ParentProcess::Root | ParentProcess::Ended => {
+                    return Ok(Admission::Refused(Some(public_key)));
+                }
             };
             if parent.id() == self.provider_process_id {
-                return Ok(Some(AdmittedParty {
+                return Ok(Admission::Admitted(AdmittedParty {
                     public_key,
                     last_sequence: 0,
                     next_request: 0,
                     is_wrapper: false,
+                    is_nested,
                     first_argument,
                     wrapper,
+                    process: pinned,
                 }));
             }
             if parent.id() <= 1 {
-                return Ok(None);
+                return Ok(Admission::Refused(Some(public_key)));
             }
-            if wrapper.is_none()
-                && self
-                    .parties
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .get(&parent.id())
-                    .is_some_and(|ancestor| ancestor.is_wrapper)
+            if let Some(ancestor) = self
+                .parties
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(&parent.id())
             {
-                wrapper = Some(parent.id());
+                is_nested = true;
+                if wrapper.is_none() && ancestor.is_wrapper {
+                    wrapper = Some(parent.id());
+                }
             }
             process = parent;
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::io::{BufRead as _, BufReader};
-    use std::process::{Command, Stdio};
-    use std::sync::Arc;
-
-    use hpke::Kem as _;
-
-    use super::{
-        AdmittedParty, ChannelKem, CommandChannel, Direction, PARTY_KEY_ARGUMENT_PREFIX,
-        PartyRecord, additional_data, public_key_hex, seal,
-    };
-    use crate::ipc::caller_process::system_reader::ProcessTableReader;
-    use crate::provider::command::harness_test_name;
-
-    /// The process a test starts as a party: it prints `ready` and waits for its input to end.
-    const PARTY_PROCESS_TEST: &str = "a_party_process_waits_for_its_input_to_end";
-
-    fn record() -> PartyRecord {
-        PartyRecord::Exited {
-            exit_code: Some(0),
-            signal: None,
+// Removes the requests in `requests` addressed to `party`. Blocks; fails with the listing's or a
+// removal's error, a request already gone aside.
+fn remove_party_requests(requests: &Path, party: PartyId) -> io::Result<()> {
+    for entry in std::fs::read_dir(requests)? {
+        let path = entry?.path();
+        if parse_record_name(&path).is_some_and(|(addressed, _)| addressed == party) {
+            match std::fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
         }
     }
-
-    // Fails when a record opens under the other direction's context or another party's key, or
-    // when a number at or below the last one opened is taken, a replay among them.
-    #[test]
-    fn a_record_opens_only_under_its_own_context_key_and_a_rising_number() {
-        let daemon = ChannelKem::gen_keypair();
-        let party_keys = ChannelKem::gen_keypair();
-        let forger = ChannelKem::gen_keypair();
-        let party = 4242;
-        let plaintext = serde_json::to_vec(&record()).expect("a record writes");
-        let sealed = |keys, direction, sequence| {
-            seal(
-                keys,
-                &daemon.1,
-                &additional_data(direction, party, sequence),
-                &plaintext,
-            )
-            .expect("a record seals")
-        };
-        let mut admitted = AdmittedParty {
-            public_key: party_keys.1.clone(),
-            last_sequence: 0,
-            next_request: 0,
-            is_wrapper: false,
-            first_argument: None,
-            wrapper: None,
-        };
-        let mut open =
-            |sequence, sealed: Vec<u8>| admitted.open_record(&daemon.0, party, sequence, &sealed);
-        assert_eq!(open(1, sealed(&party_keys, Direction::ToParty, 1)), None);
-        assert_eq!(open(1, sealed(&forger, Direction::ToDaemon, 1)), None);
-        assert_eq!(open(2, sealed(&party_keys, Direction::ToDaemon, 1)), None);
-        let second = sealed(&party_keys, Direction::ToDaemon, 2);
-        assert_eq!(open(2, second.clone()), Some(record()));
-        assert_eq!(open(2, second), None);
-        assert_eq!(open(1, sealed(&party_keys, Direction::ToDaemon, 1)), None);
-        assert_eq!(
-            open(5, sealed(&party_keys, Direction::ToDaemon, 5)),
-            Some(record())
-        );
-    }
-
-    // Fails when a party's place under the provider's process goes unchecked, so a process outside
-    // it that holds a key is admitted.
-    #[tokio::test]
-    async fn a_party_outside_the_providers_process_is_refused_at_its_first_record() {
-        let folder = tempfile::tempdir().expect("a folder");
-        let keys = ChannelKem::gen_keypair();
-        let test_name = harness_test_name(module_path!(), PARTY_PROCESS_TEST);
-        let mut party = Command::new(std::env::current_exe().expect("the test program"))
-            .arg(format!(
-                "{PARTY_KEY_ARGUMENT_PREFIX}{}",
-                public_key_hex(&keys.1)
-            ))
-            .args(["--exact", &test_name, "--ignored", "--nocapture", "--quiet"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .expect("the party starts");
-        let mut lines = BufReader::new(party.stdout.take().expect("its output")).lines();
-        while !lines
-            .next()
-            .expect("the party prints")
-            .expect("a line")
-            .ends_with("ready")
-        {}
-        let mut outsider = Command::new("/bin/sleep")
-            .arg("30")
-            .spawn()
-            .expect("a process outside the party's tree starts");
-        let reader = Arc::new(ProcessTableReader::for_this_program().expect("a reader"));
-        for (provider, is_admitted) in [(outsider.id(), false), (std::process::id(), true)] {
-            let channel = CommandChannel::open(
-                folder.path().join(provider.to_string()),
-                provider,
-                Arc::clone(&reader) as _,
-            )
-            .expect("the channel opens");
-            let data = additional_data(Direction::ToDaemon, party.id(), 1);
-            let plaintext = serde_json::to_vec(&record()).expect("a record writes");
-            let sealed = seal(&keys, &channel.keys.1, &data, &plaintext).expect("it seals");
-            let opened = channel
-                .open_record(party.id(), 1, &sealed)
-                .await
-                .expect("the party's place reads");
-            assert_eq!(opened.is_some(), is_admitted, "provider {provider}");
-        }
-        drop(party.stdin.take());
-        party.wait().expect("the party ends once its input does");
-        outsider.kill().expect("the test's own child ends");
-        outsider.wait().expect("it is reaped");
-    }
-
-    #[test]
-    #[ignore = "run only as the party process another test starts"]
-    fn a_party_process_waits_for_its_input_to_end() {
-        let mut output = std::io::stdout().lock();
-        std::io::Write::write_all(&mut output, b"ready\n").expect("it prints");
-        std::io::Write::flush(&mut output).expect("it flushes");
-        drop(output);
-        let mut input = String::new();
-        while std::io::stdin().read_line(&mut input).expect("it reads") > 0 {}
-    }
+    Ok(())
 }
+
+/// Removes every conversation's channel folder under `root`, where the daemon opens them, at its
+/// start, when none is open. Fails with the system's error when one cannot be removed.
+#[expect(dead_code, reason = "the daemon's start, which the composition wires")]
+pub(crate) async fn remove_channel_folders(root: &Path) -> io::Result<()> {
+    let mut entries = match tokio::fs::read_dir(root).await {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    while let Some(entry) = entries.next_entry().await? {
+        if entry.file_type().await?.is_dir() {
+            tokio::fs::remove_dir_all(entry.path()).await?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;

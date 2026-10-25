@@ -50,7 +50,8 @@ impl FolderArrivalWatch {
     /// The paths of the records that arrived since the last call in name order, waiting until one
     /// does; a name ending in the temporary suffix a record is written under is never one. Fails
     /// with the system's error when the folder cannot be listed or the watch fails, and with
-    /// `NotFound` once the folder is removed or renamed away.
+    /// `NotFound` once the folder is removed or renamed away. Dropping the wait loses no arrival:
+    /// each listing that finds one returns it.
     pub async fn next_arrivals(&mut self) -> io::Result<Vec<PathBuf>> {
         loop {
             let names = list_names_off_runtime(&self.folder).await?;
@@ -60,6 +61,13 @@ impl FolderArrivalWatch {
             }
             self.wake.changed().await?;
         }
+    }
+
+    /// The paths of the records that arrived since the last call in name order, from one listing
+    /// with no wait, so empty when none has. Fails as [`Self::next_arrivals`] does.
+    pub async fn arrivals_now(&mut self) -> io::Result<Vec<PathBuf>> {
+        let names = list_names_off_runtime(&self.folder).await?;
+        Ok(take_arrivals(&self.folder, &mut self.known, names))
     }
 }
 

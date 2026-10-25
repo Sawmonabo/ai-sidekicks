@@ -41,12 +41,15 @@ pub(crate) struct CommandStart {
     pub(crate) accepts_input: bool,
 }
 
-/// How the provider reports a command ended: its exit code where it gave one, and its summary of
-/// a command it stopped itself.
+/// How the provider reports a command ended: its exit code where it gave one, whether the
+/// provider stopped it itself, and its summary of that stop.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ProviderCommandEnd {
     /// The process's exit code.
     pub(crate) exit_code: Option<ExitCode>,
+    /// Whether the provider stopped the command itself, as a time limit does, which fails it
+    /// whatever its code.
+    pub(crate) is_stopped_by_provider: bool,
     /// The provider's summary of a command it stopped itself, stored as the ending's body.
     pub(crate) summary: Option<String>,
 }
@@ -54,9 +57,12 @@ pub(crate) struct ProviderCommandEnd {
 /// Which commands a provider's list of its running commands covers: a command it covers and does
 /// not list has ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[expect(
-    dead_code,
-    reason = "each driver names what its list of running commands covers"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "each driver names what its list of running commands covers"
+    )
 )]
 pub(crate) enum ReseedScope {
     /// Only the commands running in the background.
