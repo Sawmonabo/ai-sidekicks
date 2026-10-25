@@ -26,14 +26,13 @@ use crate::provider::driver::codex::session::background_terminals::{
 };
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::inbound::CodexSessionInbound;
+use crate::provider::driver::codex::session::slots::THREAD_UNSUBSCRIBE_METHOD;
 use crate::provider::driver::codex::transport::connection::read_codex_object;
 use crate::provider::driver::codex::transport::diagnostics::{
     CodexTeardownStep, CodexTransportDiagnostic,
 };
 
 const THREAD_RESUME_METHOD: &str = "thread/resume";
-
-const THREAD_UNSUBSCRIBE_METHOD: &str = "thread/unsubscribe";
 
 /// The item type of a command Codex runs.
 const CODEX_COMMAND_ITEM_TYPE: &str = "commandExecution";
@@ -121,13 +120,6 @@ impl CodexConversationRelease {
     /// Lets go of `thread_id` now, or once the commands it still runs have ended; until then its
     /// frames stay routed to `session_id`, its command frames as the session's own. The holding
     /// is done before the first await, so no frame of the conversation finds it unregistered.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's fork, establishment and close let go of a conversation"
-        )
-    )]
     pub(crate) async fn let_go(
         self: &Arc<Self>,
         service: &Arc<CodexService>,
@@ -198,10 +190,6 @@ impl CodexConversationRelease {
     /// Forgets every conversation a session holds on `service`, its helpers' included, that
     /// `is_released` names, except those held here, whose frames keep reaching the session until
     /// their commands end.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's close, establishment, fork and recovery forget its threads"
-    )]
     pub(crate) fn release_session_threads(
         &self,
         service: &CodexService,
@@ -217,13 +205,6 @@ impl CodexConversationRelease {
     }
 
     /// Answers once no conversation on the service `service_id` is held here.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's recovery retires a service once it holds no conversation"
-        )
-    )]
     pub(crate) async fn when_none_held_on(&self, service_id: CodexServiceId) {
         let mut count = {
             let mut state = self.lock();
@@ -238,10 +219,6 @@ impl CodexConversationRelease {
     /// since a new connection holds none of the daemon's subscriptions, before any of them is let
     /// go; each then reads its list again. A conversation that cannot be subscribed to again is
     /// reported and dropped: no client holds it, so Codex unloads it and its commands end with it.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's recovery resubscribes a reconnected service's conversations"
-    )]
     pub(crate) async fn resubscribe_service(self: &Arc<Self>, service: &Arc<CodexService>) {
         let held: Vec<(String, SessionId, u64)> = self
             .lock()
@@ -296,13 +273,6 @@ impl CodexConversationRelease {
 
     /// Ends the commands of each conversation a closing session still holds, as its close does
     /// for its own, then reads each list again and lets each go once it is empty.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Codex session's close ends the commands of the conversations it moved off"
-        )
-    )]
     pub(crate) async fn forget_session(self: &Arc<Self>, session_id: &SessionId) {
         let held: Vec<(String, Weak<CodexService>, u64)> = self
             .lock()
@@ -324,10 +294,6 @@ impl CodexConversationRelease {
 
     /// Forgets the conversations held on a service whose process ended, or which the daemon
     /// stopped: the commands they ran ended with it.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's recovery forgets a service whose process ended"
-    )]
     pub(crate) fn forget_service(&self, service_id: CodexServiceId) {
         let dropped: Vec<(String, u64)> = self
             .lock()

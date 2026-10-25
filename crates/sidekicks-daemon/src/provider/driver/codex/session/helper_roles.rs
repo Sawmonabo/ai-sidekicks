@@ -50,10 +50,6 @@ impl CodexRoleFileWithheldField {
 }
 
 /// The members of `definition` a Codex role file cannot carry, in a fixed order.
-#[expect(
-    dead_code,
-    reason = "the Codex session start reports what a role file withholds"
-)]
 pub(crate) fn read_codex_role_file_withheld_fields(
     definition: &SubagentDefinition,
 ) -> Vec<CodexRoleFileWithheldField> {
@@ -96,13 +92,6 @@ struct ComposedRoleFile {
 /// goes. Each file is replaced in one rename, so a helper starting meanwhile reads a whole file. A
 /// blank prompt or description fails as `CodexError::DriverConfig` before anything is written; a
 /// file-system failure fails as an internal driver error.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session start and resume write the helpers' roles"
-    )
-)]
 pub(crate) async fn write_codex_helper_roles(
     roles_folder: &Path,
     session_id: SessionId,

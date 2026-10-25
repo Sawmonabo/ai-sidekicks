@@ -13,10 +13,6 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use crate::provider::record_readers::read_present_member;
 
 /// The `account/rateLimits/read` method, the pull carrier of a rate-limit snapshot (a reply).
-#[expect(
-    dead_code,
-    reason = "the Codex driver's account rate-limit read sends it to feed the quota snapshot"
-)]
 pub(crate) const CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD: &str = "account/rateLimits/read";
 
 /// The `account/rateLimits/updated` method, the push carrier of a rate-limit snapshot.
@@ -57,6 +53,21 @@ struct CodexRateLimitReached {
 pub(crate) struct CodexRateLimitObservation {
     windows_by_limit_id: BTreeMap<String, CodexLimitWindows>,
     reached: Option<CodexRateLimitReached>,
+}
+
+impl CodexRateLimitObservation {
+    /// Each window read, with the limit it belongs to: a limit's primary window, then its
+    /// secondary one, limits in id order.
+    pub(crate) fn windows(&self) -> impl Iterator<Item = (&str, &Value)> {
+        self.windows_by_limit_id
+            .iter()
+            .flat_map(|(limit_id, windows)| {
+                [windows.primary.as_ref(), windows.secondary.as_ref()]
+                    .into_iter()
+                    .flatten()
+                    .map(move |window| (limit_id.as_str(), window))
+            })
+    }
 }
 
 /// A snapshot's `limitId`, or Codex's own `codex` when it names none.
@@ -111,7 +122,7 @@ fn read_codex_spent_window_reset_epoch_seconds(window: Option<&Value>) -> Option
     clippy::cast_possible_truncation,
     reason = "the milliseconds are whole, and a value past i64 saturates to one jiff refuses"
 )]
-fn codex_epoch_seconds_to_wire_instant(epoch_seconds: f64) -> Option<WireInstant> {
+pub(crate) fn codex_epoch_seconds_to_wire_instant(epoch_seconds: f64) -> Option<WireInstant> {
     let epoch_milliseconds = (epoch_seconds * 1000.0).trunc() as i64;
     WireInstant::from_timestamp(Timestamp::from_millisecond(epoch_milliseconds).ok()?)
 }

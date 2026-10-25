@@ -40,6 +40,7 @@ use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use crate::provider::spawned_version::SpawnedProviderVersionReading;
+use crate::queue::delivery::ProviderProcessIdentity;
 
 /// How long the daemon's own service has to stop before it is killed, as long as the daemon
 /// gives every child at its own stop.
@@ -143,10 +144,12 @@ impl ServiceRunner {
     // redial reads whether its pinned process is gone.
     fn read_process_gone(&self, event: &mut SupervisorEvent) {
         let (SupervisorEvent::Dropped {
-            process_gone_at, ..
+            is_unwaited_process_gone,
+            ..
         }
         | SupervisorEvent::ReconnectFailed {
-            process_gone_at, ..
+            is_unwaited_process_gone,
+            ..
         }) = event
         else {
             return;
@@ -155,7 +158,7 @@ impl ServiceRunner {
             && service.exited().is_none()
         {
             match service.has_ended() {
-                Ok(true) => *process_gone_at = Some(SystemTime::now()),
+                Ok(true) => *is_unwaited_process_gone = true,
                 Ok(false) => {}
                 Err(error) => tracing::warn!(
                     error = &error as &(dyn std::error::Error + 'static),
@@ -216,10 +219,13 @@ impl ServiceRunner {
                     .events
                     .process_exited(service, exit.as_ref());
             }
-            SupervisorAction::ReportCrashLoop => {
+            SupervisorAction::ReportCrashLoop(start_failure) => {
                 clear_home_socket_link(service, service.physical_socket()).await;
                 report_crash_loop(service);
-                service.dependencies.events.crash_loop(service);
+                service
+                    .dependencies
+                    .events
+                    .crash_loop(service, start_failure);
             }
             SupervisorAction::RetireRecord => {
                 let retiring = Arc::clone(service);
@@ -314,10 +320,14 @@ impl ServiceRunner {
         };
         *service.lock_live() = super::LiveService {
             connection: Some(started.connection),
-            process_id: started
+            process: started
                 .process
                 .as_ref()
-                .and_then(CodexServiceProcess::process_id),
+                .and_then(CodexServiceProcess::process_id)
+                .map(|process_id| ProviderProcessIdentity {
+                    process_id,
+                    spawn_sequence: service.dependencies.processes.mint_spawn_sequence(),
+                }),
             version: Some(started.version),
         };
         self.process = started.process;
@@ -371,7 +381,7 @@ impl ServiceRunner {
         let connection = {
             let mut live = service.lock_live();
             if is_process_gone {
-                live.process_id = None;
+                live.process = None;
             }
             live.connection.take()
         };
@@ -460,7 +470,7 @@ impl ServiceRunner {
                     RunnerInput::event(SupervisorEvent::ReconnectFailed {
                         dial,
                         is_listening,
-                        process_gone_at: None,
+                        is_unwaited_process_gone: false,
                     })
                 }
             };
@@ -496,7 +506,7 @@ fn check_joined_service_free(service: &Arc<CodexService>, dial: u64) {
         return;
     };
     let checking = Arc::clone(service);
-    tokio::spawn(async move {
+    service.dependencies.tasks.spawn(async move {
         match read_codex_loaded_threads(&connection).await {
             Ok(loaded) if loaded.is_empty() => {}
             Ok(_still_used) => return,

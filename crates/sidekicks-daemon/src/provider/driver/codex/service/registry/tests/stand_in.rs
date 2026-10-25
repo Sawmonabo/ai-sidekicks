@@ -11,15 +11,14 @@ use futures::future::BoxFuture;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
-    ExistingSocket, LeftoverSweep, RunningProgramPath, bind_socket_listener, pin_running_process,
-    read_running_program_path, replace_file_atomically, replace_socket_link,
+    ExistingSocket, LeftoverSweep, bind_socket_listener, pin_running_process,
+    replace_file_atomically, replace_socket_link,
 };
 use tokio::sync::mpsc;
 
-use super::OneHome;
-use crate::provider::driver::codex::service::command_line::compose_daemon_hook_commands;
 use crate::provider::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
 use crate::provider::driver::codex::service::record::LastingServiceRecordFile;
+use crate::provider::driver::codex::service::registry::OneHome;
 use crate::provider::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
 use crate::provider::driver::codex::service::supervisor::events::{
     CodexServiceEvents, CodexServiceRecoveryCause,
@@ -30,6 +29,7 @@ use crate::provider::driver::codex::service::supervisor::test_service::{
 use crate::provider::driver::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceDependencies,
 };
+use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::provider::spawned_version::ResolvedProviderExecutable;
@@ -71,14 +71,8 @@ async fn an_app_server_stand_in() {
     let listener = bind_socket_listener(&real_socket, ExistingSocket::Refuse)
         .expect("the real socket listens");
     replace_socket_link(&link, &real_socket).expect("the link names the real socket");
-    let RunningProgramPath::OnDisk(program) =
-        read_running_program_path().expect("the program reads")
-    else {
-        panic!("the test program was replaced");
-    };
-    let hooks = Arc::new(compose_daemon_hook_commands(&program).expect("the hooks compose"));
     while let Ok(stream) = listener.accept().await {
-        tokio::spawn(answer_as_codex_service(stream, Arc::clone(&hooks)));
+        tokio::spawn(answer_as_codex_service(stream));
     }
 }
 
@@ -97,21 +91,28 @@ impl CodexServiceEvents for ExitsHeard {
         let _heard = self.recoveries.send(());
     }
 
-    fn crash_loop(&self, _service: &Arc<CodexService>) {}
+    fn crash_loop(&self, _service: &Arc<CodexService>, _start_failure: Option<Arc<CodexError>>) {}
+
+    fn rate_limits_observed(&self, _service: &Arc<CodexService>) {}
 
     fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
 }
 
-// The script the services start as Codex: it hands the stand-in the address its `--listen` names,
-// and has it ignore the hang-up where the test's program asks.
+/// The file the stand-in's script keeps its last launch's arguments in, one to a line.
+const LAUNCH_ARGUMENTS_FILE: &str = "codex-arguments";
+
+// The script the services start as Codex: it keeps its arguments, hands the stand-in the address
+// its `--listen` names, and has it ignore the hang-up where the test's program asks.
 fn write_stand_in_script(folder: &Path) -> PathBuf {
     let program = std::env::current_exe().expect("the test program names itself");
     let script = folder.join("codex");
     let body = format!(
-        "#!/bin/sh\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = --listen ]; then \
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n\
+         while [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = --listen ]; then \
          {LISTEN_ADDRESS_NAME}=\"$2\"; export {LISTEN_ADDRESS_NAME}; fi\n  shift\ndone\n\
          if [ -n \"${HANG_UP_IGNORED_NAME}\" ]; then trap '' HUP; fi\n\
          exec '{}' --exact {APP_SERVER_STAND_IN} --include-ignored >/dev/null 2>&1\n",
+        folder.join(LAUNCH_ARGUMENTS_FILE).display(),
         program.display()
     );
     replace_file_atomically(&script, body.as_bytes(), 0o755, LeftoverSweep::Unswept)
@@ -200,6 +201,15 @@ pub(super) fn this_daemon(services: &StandInServices) -> CodexServiceRegistry {
     )
 }
 
+/// The arguments the stand-in's last launch under `services` ran with.
+pub(super) fn last_launch_arguments(services: &StandInServices) -> Vec<String> {
+    std::fs::read_to_string(services.folder.join(LAUNCH_ARGUMENTS_FILE))
+        .expect("the launch's arguments were kept")
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
 /// Whether the process `process_id` still runs.
 pub(super) fn is_running(process_id: u32) -> bool {
     pin_running_process(process_id)
@@ -219,13 +229,21 @@ pub(super) fn send_signal(process_id: u32, signal: &str) -> bool {
 
 /// Answers once the process `process_id` ended, or `false` once [`CRASH_WAIT`] passed first.
 pub(super) async fn wait_until_gone(process_id: u32) -> bool {
-    tokio::time::timeout(CRASH_WAIT, async {
-        while is_running(process_id) {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .is_ok()
+    wait_for_end_within(process_id, CRASH_WAIT).await
+}
+
+// Answers once the process `process_id` ended, waiting on the system's exit notice, or `false`
+// once `bound` passed first; a process already gone has ended.
+async fn wait_for_end_within(process_id: u32, bound: Duration) -> bool {
+    let Some(process) = pin_running_process(process_id).expect("the process table reads") else {
+        return true;
+    };
+    tokio::time::timeout(bound, process.wait_for_end())
+        .await
+        .is_ok_and(|ended| {
+            ended.expect("the process's end is watched");
+            true
+        })
 }
 
 /// The record file of the service on the home's own socket.
@@ -245,21 +263,26 @@ pub(super) async fn wait_for_end_and_record_removal(
     services: &StandInServices,
     bound: Duration,
 ) -> bool {
+    let started_at = tokio::time::Instant::now();
+    if !wait_for_end_within(process_id, bound).await {
+        return false;
+    }
     let record_file = home_record_file(services);
-    let ended = async {
-        loop {
-            let is_record_kept = record_file
-                .lock()
-                .and_then(|locked| locked.read())
-                .expect("the record reads")
-                .is_some();
-            if !is_running(process_id) && !is_record_kept {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+    // The drain removes the record on a task of its own once the end is out, and nothing tells
+    // that removal, so the record is read again until it is gone.
+    let removed = async {
+        while record_file
+            .lock()
+            .and_then(|locked| locked.read())
+            .expect("the record reads")
+            .is_some()
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     };
-    tokio::time::timeout(bound, ended).await.is_ok()
+    tokio::time::timeout(bound.saturating_sub(started_at.elapsed()), removed)
+        .await
+        .is_ok()
 }
 
 /// Marks every record kept for the folder draining, as a former daemon's start does once its ask

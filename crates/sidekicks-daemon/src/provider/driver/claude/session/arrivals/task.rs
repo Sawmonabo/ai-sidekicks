@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use tokio::time::Instant;
@@ -39,7 +40,6 @@ use crate::provider::driver::claude::run::routes::ClaudeRunRoute;
 use crate::provider::driver::claude::run::self_started_turns::ClaudeSelfStartedTurns;
 use crate::provider::driver::claude::run::settlement::ClaudeTurnSettlement;
 use crate::provider::driver::claude::session::controls::ClaudeSessionControls;
-use crate::provider::driver::claude::session::permission_level::permission_level_of;
 use crate::provider::driver::claude::session::process::ClaudeProcessEnd;
 use crate::provider::driver::claude::session::restart::{
     ClaudeSessionRestarts, claude_process_exit_of,
@@ -124,7 +124,7 @@ impl ClaudeSessionTask {
         lock(&self.live.settings)
             .execution_posture
             .as_ref()
-            .map(permission_level_of)
+            .map(ExecutionPosture::permission_level)
     }
 
     async fn take_frame(&self, routed: ClaudeRoutedFrame) {

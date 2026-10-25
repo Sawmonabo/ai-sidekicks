@@ -75,15 +75,21 @@ impl CodexServiceRouting {
         self.sessions.insert(sender.session_id(), sender);
     }
 
-    /// Stops sending a session its frames and forgets the warnings it was told.
-    pub(super) fn detach(&mut self, session_id: &SessionId) {
-        self.sessions.remove(session_id);
+    /// Stops sending a session its frames and forgets the warnings it was told; answers whether it
+    /// was attached.
+    pub(super) fn detach(&mut self, session_id: &SessionId) -> bool {
         self.config_warnings.forget_session(session_id);
+        self.sessions.remove(session_id).is_some()
     }
 
     /// The queue of one session, when it is attached.
     pub(super) fn session(&self, session_id: &SessionId) -> Option<&CodexSessionInboundSender> {
         self.sessions.get(session_id)
+    }
+
+    /// The queue of every session attached.
+    pub(super) fn attached(&self) -> Vec<CodexSessionInboundSender> {
+        self.sessions.values().cloned().collect()
     }
 
     /// Waits on `thread_id`'s unload.
@@ -190,8 +196,10 @@ impl CodexService {
             return;
         }
         let thread_id = read_codex_frame_thread_id(method, &params);
-        let audience = {
+        let (audience, has_rate_limits_changed) = {
             let mut routing = self.lock_routing();
+            let rate_limits_before = (method == CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD)
+                .then(|| routing.rate_limits.clone());
             // Only reported here, once per connection, when the method is outside the table; the
             // session's frame handler reads the route itself.
             let _route = resolve_codex_frame_emission_route(
@@ -204,11 +212,22 @@ impl CodexService {
             {
                 routing.settle_closed(Some(thread_id));
             }
-            match &thread_id {
+            let audience = match &thread_id {
                 None => self.route_unthreaded(&mut routing, method, &params),
                 Some(_) => FrameAudience::Nobody,
-            }
+            };
+            let has_rate_limits_changed =
+                rate_limits_before.is_some_and(|before| before != routing.rate_limits);
+            (audience, has_rate_limits_changed)
         };
+        if has_rate_limits_changed {
+            self.dependencies.events.rate_limits_observed(self);
+        }
+        // Codex sends every client each unload, so a conversation of the person's ending in their
+        // terminal may leave a joined service free.
+        if method == CODEX_THREAD_CLOSED_METHOD {
+            self.last_conversation_closed();
+        }
         if let FrameAudience::Sessions(sessions) = audience {
             for session_id in sessions {
                 self.deliver(&session_id, method, &params);

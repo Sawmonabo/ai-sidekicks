@@ -34,6 +34,7 @@ use sidekicks_contracts::session::controls::methods::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::ipc::domain_error::DomainError;
@@ -164,20 +165,40 @@ pub(crate) struct NameSessionParams {
     pub(crate) cancel: CancellationToken,
 }
 
+/// Runs a naming pass, `pass`, under a stop that fires with `cancel` or at `deadline`, and awaits
+/// the pass to its end either way, so what it started is stopped as a cancel stops it.
+pub(crate) async fn run_naming_pass_until<Pass, Named>(
+    cancel: &CancellationToken,
+    deadline: Instant,
+    pass: impl FnOnce(CancellationToken) -> Pass,
+) -> Named
+where
+    Pass: Future<Output = Named>,
+{
+    let stop = cancel.child_token();
+    let pass = pass(stop.clone());
+    tokio::pin!(pass);
+    tokio::select! {
+        named = &mut pass => named,
+        () = tokio::time::sleep_until(deadline) => {
+            stop.cancel();
+            pass.await
+        }
+    }
+}
+
 /// The most of the first reply a naming pass reads, in UTF-8 bytes, as much as a short title
 /// needs.
 pub(crate) const NAME_SESSION_REPLY_MAX_BYTES: usize = 960;
 
-/// Params of `update_permission_level`: the level the session moves to and the roots it opens to
-/// writes, applied by the provider from its next request without a relaunch.
+/// Params of `update_permission_level`: the posture the session moves to, composed by the daemon,
+/// whose level and writable roots the provider applies from its next request without a relaunch.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct UpdatePermissionLevelParams {
     /// The session.
     pub(crate) session_id: SessionId,
-    /// The level it moves to.
-    pub(crate) level: PermissionLevel,
-    /// The roots the level opens to writes.
-    pub(crate) writable_roots: Vec<PathBuf>,
+    /// The posture it moves to.
+    pub(crate) execution_posture: ExecutionPosture,
 }
 
 /// Params of `revoke_rule`: a revoked rule taken out of force at one session's provider, out of

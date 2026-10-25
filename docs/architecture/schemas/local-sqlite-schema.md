@@ -239,7 +239,8 @@ CREATE TABLE queue_items (
   state           TEXT NOT NULL DEFAULT 'queued'
                   CHECK(state IN ('queued', 'admitted', 'superseded', 'canceled', 'notDelivered')),
   not_delivered_reason TEXT                    -- why a notDelivered item was not delivered: it waited past the
-                  CHECK(not_delivered_reason IN ('timedOut', 'failed')),  -- daemon's own delivery timeout, or its delivery failed outright
+                  CHECK(not_delivered_reason IN ('timedOut', 'failed', 'refusedByHook')),  -- daemon's own delivery timeout, its delivery failed outright, or the person's prompt hook refused it once handed
+  not_delivered_words TEXT,                   -- the hook's own words, present exactly on a refusedByHook item
   payload         TEXT NOT NULL DEFAULT '{}', -- JSON: context, metadata, identifiers, and the item's
                                               -- body, a person's send or an orchestration-authored
                                               -- prompt (a workflow step's input, an orchestrated
@@ -267,6 +268,7 @@ CREATE TABLE queue_items (
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL,
   CHECK((state = 'notDelivered') = (not_delivered_reason IS NOT NULL)),  -- a notDelivered item always says why
+  CHECK((not_delivered_reason IS 'refusedByHook') = (not_delivered_words IS NOT NULL)),  -- only a hook's refusal carries words
   UNIQUE(session_id, client_idempotency_key)  -- SQLite treats each NULL as distinct, so only sends dedupe
 ) STRICT;
 

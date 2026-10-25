@@ -1,13 +1,15 @@
 //! Trust for the daemon's two command hooks on the terminal service the daemon starts on the
-//! person's own Codex folder. Codex runs a command hook only once its hash is recorded as trusted
-//! and skips an untrusted one without a word, so the daemon lists the hooks, records the hash of
-//! each of its own that is not yet trusted, and lists again to confirm before any conversation.
+//! person's own Codex folder, and the read of the hooks a running service's command line set.
+//! Codex runs a command hook only once its hash is recorded as trusted and skips an untrusted one
+//! without a word, so the daemon lists the hooks, records the hash of each of its own that is not
+//! yet trusted, and lists again to confirm before any conversation.
 
-use std::collections::BTreeMap;
+use serde::Deserialize;
+use serde_json::{Map, Value, json};
 
-use serde::{Deserialize, Serialize};
-
-use crate::provider::driver::codex::app_server_protocol::HooksListParams;
+use crate::provider::driver::codex::app_server_protocol::{
+    ConfigValueWriteParams, HooksListParams, MergeStrategy,
+};
 use crate::provider::driver::codex::service::command_line::{CodexHookCommands, CodexListedHook};
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
@@ -57,46 +59,24 @@ struct DaemonHook<'reply> {
     is_trusted: bool,
 }
 
-// The `config/value/write` that records trusted hashes, merged into what the config holds.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct TrustedHashesWrite<'reply> {
-    key_path: &'static str,
-    value: BTreeMap<&'reply str, TrustedHash<'reply>>,
-    merge_strategy: &'static str,
-}
-
-#[derive(Serialize)]
-struct TrustedHash<'reply> {
-    trusted_hash: &'reply str,
-}
-
 /// Records the trusted hash of each of the daemon's `hook_commands` the terminal service lists
 /// untrusted, in one upsert, then lists the hooks again. Fails with `CodexError::Transport` when
 /// the service does not list a daemon hook with its key and hash, its reply cannot be read, or a
 /// daemon hook is still untrusted after the write, since an untrusted hook never runs; a failed
 /// request fails as the connection reports it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start trusts the terminal service's hooks before any conversation"
-    )
-)]
 pub(crate) async fn trust_codex_daemon_hooks(
     connection: &CodexAppServerConnection,
     hook_commands: &CodexHookCommands,
 ) -> Result<(), CodexError> {
     let reply = list_hooks(connection).await?;
-    let untrusted: BTreeMap<&str, TrustedHash<'_>> = read_daemon_hooks(&reply, hook_commands)?
+    // Each untrusted hook's key, naming its trusted hash, merged into what the config holds.
+    let untrusted: Map<String, Value> = read_daemon_hooks(&reply, hook_commands)?
         .into_iter()
         .filter(|hook| !hook.is_trusted)
         .map(|hook| {
             (
-                hook.key,
-                TrustedHash {
-                    trusted_hash: hook.current_hash,
-                },
+                hook.key.to_owned(),
+                json!({ "trusted_hash": hook.current_hash }),
             )
         })
         .collect();
@@ -106,10 +86,12 @@ pub(crate) async fn trust_codex_daemon_hooks(
     connection
         .request(
             CONFIG_VALUE_WRITE_METHOD,
-            &TrustedHashesWrite {
-                key_path: HOOK_STATE_KEY_PATH,
-                value: untrusted,
-                merge_strategy: "upsert",
+            &ConfigValueWriteParams {
+                key_path: HOOK_STATE_KEY_PATH.to_owned(),
+                value: Value::Object(untrusted),
+                merge_strategy: MergeStrategy::Upsert,
+                file_path: None,
+                expected_version: None,
             },
         )
         .await?;
@@ -128,10 +110,10 @@ pub(crate) async fn trust_codex_daemon_hooks(
     Ok(())
 }
 
-/// Every command hook the service lists, with its event as the daemon's hooks name it
-/// (`PreToolUse`), for the comparison with the hooks this daemon would start the service with.
-/// Fails as the connection's request does, and with `CodexError::Transport` for an unreadable
-/// reply.
+/// Every hook the service's command line set, with its event as the daemon's hooks name it
+/// (`PreToolUse`), for the comparison with the hooks this daemon would start the service with; a
+/// member the reply leaves out reads empty, so the hook still counts. Fails as the connection's
+/// request does, and with `CodexError::Transport` for an unreadable reply.
 pub(crate) async fn list_codex_hooks(
     connection: &CodexAppServerConnection,
 ) -> Result<Vec<CodexListedHook>, CodexError> {
@@ -140,12 +122,11 @@ pub(crate) async fn list_codex_hooks(
         .data
         .into_iter()
         .flat_map(|entry| entry.hooks)
-        .filter_map(|hook| {
-            Some(CodexListedHook {
-                event_name: hook_event_name(&hook.event_name?),
-                command: hook.command?,
-                timeout_seconds: hook.timeout_sec?,
-            })
+        .filter(|hook| hook.source.as_deref() == Some(SESSION_FLAGS_HOOK_SOURCE))
+        .map(|hook| CodexListedHook {
+            event_name: hook_event_name(&hook.event_name.unwrap_or_default()),
+            command: hook.command.unwrap_or_default(),
+            timeout_seconds: hook.timeout_sec.unwrap_or_default(),
         })
         .collect())
 }

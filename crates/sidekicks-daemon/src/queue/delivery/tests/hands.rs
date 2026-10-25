@@ -9,8 +9,9 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use rstest::rstest;
-use sidekicks_contracts::run::queue::QueueItemId;
+use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
@@ -22,9 +23,129 @@ use super::{
 use crate::ipc::handlers::driver::resolution::read_run_driver;
 use crate::provider::driver::contract::MockProviderDriver;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
+use crate::provider::driver::ports::{
+    MessageGivenBackListener as _, MessageRefusedListener as _, MessageTakenListener as _,
+};
 use crate::provider::driver::run_control::RunToolBoundary;
 use crate::queue::delivery::{DeliveryError, InterruptHoldRelease};
 use crate::queue::store::{QueueItemRecord, RecordedQueueItemState};
+
+/// What the provider reports of a message it was handed, through the queue's listener ports.
+#[derive(Clone, Copy, Debug)]
+enum ProviderReport {
+    Taken,
+    Refused,
+}
+
+// A handed message its provider took reads admitted, and one it refused reads not delivered with
+// the hook's words; either way its hand is let go, so the next message is handed. Killed by
+// keeping the hand, and by either listener settling the other's report.
+#[rstest]
+#[case::taken(ProviderReport::Taken)]
+#[case::refused(ProviderReport::Refused)]
+#[tokio::test]
+async fn a_handed_message_the_provider_settles_reads_its_settlement_and_lets_its_hand_go(
+    #[case] report: ProviderReport,
+) {
+    let mut driver = driver_handing(HANDS_AT_ONCE);
+    let steers = count_steers(&mut driver);
+    let fixture = fixture(driver).await;
+    let item = insert_item(&fixture).await;
+    hand(&fixture).await;
+    settle(&fixture).await;
+    let reason = QueueItemNotDeliveredReason::RefusedByHook {
+        words: FreeFormText::new("No secrets in prompts".to_owned()).expect("the hook's words"),
+    };
+
+    let message_id = item.id.text();
+    let settled = match report {
+        ProviderReport::Taken => {
+            fixture
+                .delivery
+                .message_taken(fixture.session_id, message_id.as_str(), fixture.run_id);
+            RecordedQueueItemState::Admitted
+        }
+        ProviderReport::Refused => {
+            fixture.delivery.message_refused(
+                fixture.session_id,
+                message_id.as_str(),
+                reason.clone(),
+            );
+            RecordedQueueItemState::NotDelivered { reason }
+        }
+    };
+    settle(&fixture).await;
+    let next = insert_item(&fixture).await;
+    hand(&fixture).await;
+    settle(&fixture).await;
+
+    assert_eq!(stored_item(&fixture, item.id).state, settled);
+    assert!(!fixture.delivery.is_handed(&item.id));
+    assert!(fixture.delivery.is_handed(&next.id));
+    assert_eq!(steers.load(Ordering::SeqCst), 2);
+}
+
+// A handed message its provider let go unsent waits again: a running run whose provider takes
+// messages at once is handed it again, while a pausing one, or one whose provider takes messages
+// at a tool boundary, is handed nothing, so the run's continue or its next boundary takes it.
+// Killed by keeping the hand, and by giving it back without handing the run's waiting messages
+// again (the at-once running case).
+#[rstest]
+#[case::running(HANDS_AT_ONCE, RunState::Running)]
+#[case::pausing(HANDS_AT_ONCE, RunState::Pausing)]
+#[case::at_a_tool_boundary(HANDS_AT_TOOL_BOUNDARY, RunState::Running)]
+#[tokio::test]
+async fn a_message_the_provider_gives_back_waits_again_and_an_at_once_running_run_takes_it(
+    #[case] handing: MessageHanding,
+    #[case] state: RunState,
+) {
+    let mut driver = driver_handing(handing);
+    let steers = count_steers(&mut driver);
+    let fixture = fixture(driver).await;
+    let item = insert_item(&fixture).await;
+    match handing.hands_at {
+        HandMoment::AtOnce => hand(&fixture).await,
+        HandMoment::AtToolBoundary => {
+            let deps = &fixture.delivery.shared.deps;
+            let driver =
+                read_run_driver::<DeliveryError>(&deps.pool, &deps.providers, fixture.run_id)
+                    .await
+                    .expect("the run's driver is read");
+            let hold = fixture.session_lock.hold_session(fixture.session_id).await;
+            fixture
+                .delivery
+                .hand_at_boundary(&hold, fixture.run_id, driver, handing)
+                .await
+                .expect("the boundary's steer is queued");
+        }
+    }
+    settle(&fixture).await;
+    assert!(fixture.delivery.is_handed(&item.id));
+    set_run_state(&fixture, state);
+
+    fixture
+        .delivery
+        .message_given_back(fixture.session_id, item.id.text().as_str());
+    settle(&fixture).await;
+    let tasks = &fixture.delivery.shared.tasks;
+    tasks.close();
+    timeout(WAIT, tasks.wait())
+        .await
+        .expect("the hand after the give-back ends");
+
+    assert_eq!(
+        stored_item(&fixture, item.id).state,
+        RecordedQueueItemState::Queued
+    );
+    if state == RunState::Running && handing.hands_at == HandMoment::AtOnce {
+        assert!(fixture.delivery.is_handed(&item.id));
+        assert_eq!(steers.load(Ordering::SeqCst), 2);
+    } else {
+        assert!(!fixture.delivery.is_handed(&item.id));
+        assert_eq!(steers.load(Ordering::SeqCst), 1);
+        assert_eq!(continued_ids(&fixture).await, [item.id]);
+    }
+}
 
 // Killed by a hand that joins the chain from a task of its own: a gate joined as soon as the
 // hand's call returns then runs ahead of the hand.

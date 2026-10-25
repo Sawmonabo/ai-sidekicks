@@ -9,6 +9,7 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::provider::callback_tools::host::CallbackToolHost;
@@ -27,13 +28,33 @@ use crate::provider::port::tool_server_route::ToolServerRoute;
 use crate::provider::port::usage_sink::UsageSink;
 use crate::session::run::engine::RunEngine;
 use crate::session::run::inbound::RunInboundDispatch;
-use crate::session::run::pause::RunPauseControl;
+use crate::session::run::pause::{ContinuedMessages, RunPauseControl};
 
 /// The run queue's intake of a message the provider took into a run's turn.
 pub(crate) trait MessageTakenListener: Send + Sync {
     /// The provider took the message `message_id`, which the queue handed it, into `run_id`'s turn
     /// on `session_id`.
     fn message_taken(&self, session_id: SessionId, message_id: &str, run_id: RunId);
+}
+
+/// The run queue's intake of a message the provider refused after the queue handed it.
+pub(crate) trait MessageRefusedListener: Send + Sync {
+    /// The provider refused the message `message_id`, which the queue handed it on `session_id`,
+    /// for `reason`.
+    fn message_refused(
+        &self,
+        session_id: SessionId,
+        message_id: &str,
+        reason: QueueItemNotDeliveredReason,
+    );
+}
+
+/// The run queue's intake of a message the provider was handed and let go unsent, so it waits
+/// again.
+pub(crate) trait MessageGivenBackListener: Send + Sync {
+    /// The provider let go unsent the message `message_id`, which the queue handed it on
+    /// `session_id`.
+    fn message_given_back(&self, session_id: SessionId, message_id: &str);
 }
 
 /// The run queue's intake of a session's provider process that ended, on its own or for a move to
@@ -81,6 +102,10 @@ pub(crate) struct DriverPorts {
     pub(crate) repositories: Arc<PortRegistration<Arc<dyn RepositoryReader>>>,
     /// The run queue's intake of a taken message.
     pub(crate) message_taken: Arc<PortRegistration<Arc<dyn MessageTakenListener>>>,
+    /// The run queue's intake of a handed message the provider refused.
+    pub(crate) message_refused: Arc<PortRegistration<Arc<dyn MessageRefusedListener>>>,
+    /// The run queue's intake of a handed message the provider let go unsent.
+    pub(crate) message_given_back: Arc<PortRegistration<Arc<dyn MessageGivenBackListener>>>,
     /// The session directory's intake of a relaunch.
     pub(crate) session_relaunched: Arc<PortRegistration<Arc<dyn SessionRelaunchListener>>>,
     /// The run queue's intake of an ended process.
@@ -104,19 +129,13 @@ pub(crate) struct DriverPorts {
     /// The daemon's tool servers, reached in process.
     pub(crate) in_process_tool_servers: Arc<PortRegistration<Arc<dyn InProcessToolServers>>>,
     /// The daemon's tool servers, reached at an address.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver's session start names each tool server at its address"
-    )]
     pub(crate) tool_server_route: Arc<PortRegistration<Arc<dyn ToolServerRoute>>>,
     /// The one callback-tool dispatcher, which each spawn's callback tools are bound through.
     pub(crate) callback_tool_host: Arc<PortRegistration<Arc<CallbackToolHost>>>,
     /// The pause and continue of runs.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver settles a continued run's kept messages through it"
-    )]
     pub(crate) run_pauses: Arc<PortRegistration<Arc<RunPauseControl>>>,
+    /// The messages waiting for paused runs, as the run queue holds them.
+    pub(crate) continued_messages: Arc<PortRegistration<Arc<dyn ContinuedMessages>>>,
 }
 
 impl DriverPorts {
@@ -128,6 +147,8 @@ impl DriverPorts {
             daemon_turn_bindings: Arc::new(PortRegistration::new("daemon turn bindings")),
             repositories: Arc::new(PortRegistration::new("repositories")),
             message_taken: Arc::new(PortRegistration::new("message taken")),
+            message_refused: Arc::new(PortRegistration::new("message refused")),
+            message_given_back: Arc::new(PortRegistration::new("message given back")),
             session_relaunched: Arc::new(PortRegistration::new("session relaunched")),
             process_gone: Arc::new(PortRegistration::new("process gone")),
             usage: Arc::new(PortRegistration::new("usage")),
@@ -142,6 +163,7 @@ impl DriverPorts {
             tool_server_route: Arc::new(PortRegistration::new("tool server route")),
             callback_tool_host: Arc::new(PortRegistration::new("callback tool host")),
             run_pauses: Arc::new(PortRegistration::new("run pauses")),
+            continued_messages: Arc::new(PortRegistration::new("continued messages")),
         }
     }
 }

@@ -5,30 +5,28 @@ use rstest::rstest;
 use rusqlite::params;
 use serde_json::json;
 use sidekicks_contracts::event::declared_variants::RunAgentOutputPayload;
-use sidekicks_contracts::event::envelope::SourcePosition;
+use sidekicks_contracts::event::envelope::{DAEMON_SCOPE_SENTINEL_SESSION_ID, SourcePosition};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
-use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::operations::REASONING_ENTRY_CONTENT_MAX_LEN;
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 use sidekicks_contracts::wire::integer::SafeInt;
 use tempfile::TempDir;
 
-use super::rows::LateAppendableRow;
+use super::rows::{LateAppendableRow, MachineScopedRow};
 use super::{
     DeliveryBinding, InboundDelivery, InboundDispatchError, InboundOutcome, LateEventAbsorbReason,
     RunInboundDispatch,
 };
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::events::log_service::tests::open_log;
 use crate::provider::driver::diagnostics::RecordedEvents;
 use crate::provider::driver::registry::test_provider;
-use crate::provider::port::run_state_publisher::RunStatePublisher;
+use crate::provider::driver::test_registry::{TestRunPorts, new_run_id};
 use crate::session::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, append, continue_request, held_driver, insert_running_run,
-    stored_run_state, test_engine, turn_completed_at, turn_started_at,
+    stored_run_state, turn_completed_at, turn_started_at,
 };
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::epochs::{
@@ -39,13 +37,6 @@ use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions
 use crate::transcript::reasoning::read_reasoning;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-/// A publisher no run state stream reads.
-pub(crate) struct UnreadPublisher;
-
-impl RunStatePublisher for UnreadPublisher {
-    fn publish(&self, _hold: RunSafetyBufferingUpdatedPayload) {}
-}
-
 // A dispatch over one binding of one run, its cursor remembering two operations.
 struct Harness {
     database: TestDatabase,
@@ -54,16 +45,27 @@ struct Harness {
     binding_id: RuntimeBindingId,
     epochs: Arc<Mutex<ExecutionEpochs>>,
     engine: Arc<RunEngine>,
-    dispatch: RunInboundDispatch,
+    dispatch: Arc<RunInboundDispatch>,
 }
 
 impl Harness {
     // A run stored in `state`, with its binding's cursor open at the run's start.
     async fn new(state: RunState) -> Self {
         let database = TestDatabase::new();
-        let log = open_log(&database, None).await;
         let home = tempfile::tempdir().expect("the test makes a home folder");
-        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        // Opening the writer creates the file with the daemon's schema.
+        let TestRunPorts {
+            engine,
+            dispatch,
+            epochs,
+            ..
+        } = TestRunPorts::open(
+            &database,
+            home.path(),
+            ExecutionEpochs::new(NonZeroUsize::new(2).expect("the cap is not zero")),
+        )
+        .await;
+        let run_id = new_run_id();
         insert_running_run(&database, test_session_id(), run_id);
         database
             .reader()
@@ -74,8 +76,9 @@ impl Harness {
             .expect("the test sets the run's state");
         let binding_id =
             RuntimeBindingId::new(mint_uuid_v7().to_string()).expect("a UUID is a binding id");
-        let mut epochs = ExecutionEpochs::new(NonZeroUsize::new(2).expect("the cap is not zero"));
         epochs
+            .lock()
+            .expect("no test thread panics holding the cursors")
             .open_binding(
                 EpochBinding {
                     id: binding_id.clone(),
@@ -86,14 +89,6 @@ impl Harness {
                 RUN_START_POSITION,
             )
             .expect("the binding has no cursor yet");
-        let epochs = Arc::new(Mutex::new(epochs));
-        let engine = test_engine(&database, Arc::clone(&log.service), home.path());
-        let dispatch = RunInboundDispatch::new(
-            Arc::clone(&engine),
-            Arc::clone(&epochs),
-            Arc::new(UnreadPublisher),
-            log.service,
-        );
         Self {
             database,
             _home: home,
@@ -488,7 +483,7 @@ async fn inbound_appends_a_piece_of_a_run_being_continued_after_its_running_writ
 #[tokio::test]
 async fn inbound_fails_a_piece_of_a_run_with_no_row() {
     let harness = Harness::new(RunState::Running).await;
-    let unknown = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    let unknown = new_run_id();
     let mut payload = harness.piece_payload("m1");
     payload.run_id = unknown;
 
@@ -601,4 +596,43 @@ async fn inbound_stores_long_reasoning_as_pieces_the_reasoning_read_joins_back()
         })
         .await;
     assert_eq!(harness.stored_event_count(), 4);
+}
+
+// An account's quota reading is filed under the machine's sentinel session with the account's
+// credential generation, so one from before a sign-in again reads as stale. Killed by dropping the
+// generation from the row.
+#[tokio::test]
+async fn inbound_files_a_rate_limit_reading_under_the_sentinel_session_with_its_generation() {
+    let harness = Harness::new(RunState::Running).await;
+    let reading = serde_json::from_value(json!({
+        "provider": "codex",
+        "providerAccountId": "account-1",
+        "credentialGeneration": 3,
+        "windowMins": 300,
+        "usedPercent": 42,
+    }))
+    .expect("the test writes a quota reading");
+
+    harness
+        .dispatched(InboundDelivery::MachineEvent {
+            row: MachineScopedRow::UsageRateLimitUpdated(reading),
+        })
+        .await;
+
+    let filed: Vec<(String, i64)> = harness
+        .database
+        .reader()
+        .prepare(
+            "SELECT type, json_extract(payload, '$.credentialGeneration') FROM session_events
+             WHERE session_id = ?1",
+        )
+        .and_then(|mut statement| {
+            statement
+                .query_map([DAEMON_SCOPE_SENTINEL_SESSION_ID.text().as_str()], |row| {
+                    Ok((row.get(0)?, row.get(1)?))
+                })?
+                .collect()
+        })
+        .expect("the test reads the sentinel session's rows");
+    assert_eq!(filed, [("usage.rateLimit.updated".to_owned(), 3)]);
 }

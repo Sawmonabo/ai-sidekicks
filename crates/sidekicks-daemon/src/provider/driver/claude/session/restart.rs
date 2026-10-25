@@ -481,6 +481,7 @@ impl ClaudeSessionRestarts {
                 provider: DESCRIPTOR.provider_id(),
                 exit_code,
                 signal,
+                start_failure: None,
             },
         )
         .await;

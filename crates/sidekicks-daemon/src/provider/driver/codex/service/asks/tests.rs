@@ -14,8 +14,10 @@ use crate::provider::driver::codex::server_requests::{
 use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
 use crate::provider::driver::codex::session::inbound::{
-    CodexSessionInboundHandler, codex_session_inbound, drain_codex_session_inbound,
+    CodexSessionCall, CodexSessionInboundHandler, codex_session_inbound,
+    drain_codex_session_inbound,
 };
+use crate::provider::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::provider::driver::contract::DriverError;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -68,6 +70,14 @@ impl CodexSessionInboundHandler for ArrivalOrder {
 
     fn deadline_reached(&mut self, _now: Instant) -> BoxFuture<'_, ()> {
         unreachable!("no deadline waits")
+    }
+
+    fn call(&mut self, _call: CodexSessionCall) -> BoxFuture<'_, ()> {
+        unreachable!("the driver makes no call")
+    }
+
+    fn lifecycle(&mut self, _call: CodexLifecycleCall) -> BoxFuture<'_, ()> {
+        unreachable!("the driver makes no call")
     }
 }
 

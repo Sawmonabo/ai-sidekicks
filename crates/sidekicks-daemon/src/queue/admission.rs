@@ -21,6 +21,7 @@ use std::error::Error;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::control::RunFailureCategory;
@@ -51,8 +52,9 @@ use crate::queue::error::QueueError;
 use crate::queue::provider_session::ProviderSessions;
 use crate::queue::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
 use crate::queue::session_lock::QueueSessionLock;
+use crate::queue::store::summary::summary_of;
 use crate::queue::store::{
-    QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState, summary_of,
+    QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
 };
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::read::read_run_through;
@@ -403,9 +405,15 @@ impl QueueAdmission {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), QueueError> {
-        let (provider, driver) = self.read_session_driver(session_id).await?;
+        let (provider, provider_account_id, driver) = self.read_session_driver(session_id).await?;
         match self
-            .take_place(&provider, driver.as_ref(), session_id, run_id)
+            .take_place(
+                &provider,
+                provider_account_id,
+                driver.as_ref(),
+                session_id,
+                run_id,
+            )
             .await?
         {
             Placed::Admitted => {}
@@ -413,7 +421,7 @@ impl QueueAdmission {
             Placed::TimedOut => {
                 let hold = self.deps.session_lock.hold_session(session_id).await;
                 return self
-                    .end_undelivered(&hold, run_id, QueueItemNotDeliveredReason::TimedOut)
+                    .end_undelivered(&hold, run_id, QueueItemNotDeliveredReason::TimedOut {})
                     .await;
             }
         }
@@ -474,7 +482,7 @@ impl QueueAdmission {
                     .as_ref()
                     .is_some_and(is_waiting)
             {
-                self.record_not_delivered(&opening, QueueItemNotDeliveredReason::Failed)
+                self.record_not_delivered(&opening, QueueItemNotDeliveredReason::Failed {})
                     .await?;
             }
             return Err(start_error.into());
@@ -515,7 +523,12 @@ impl QueueAdmission {
         let detail = bound_failure_detail(&describe_error(&error), START_FAILED_FALLBACK.clone());
         let hold = self.deps.session_lock.hold_session(session_id).await;
         let ended = self
-            .end_waiting_undelivered(&hold, run_id, QueueItemNotDeliveredReason::Failed, detail)
+            .end_waiting_undelivered(
+                &hold,
+                run_id,
+                QueueItemNotDeliveredReason::Failed {},
+                detail,
+            )
             .await;
         if let Err(end_error) = ended {
             log_failure(
@@ -527,15 +540,18 @@ impl QueueAdmission {
         }
     }
 
-    // Puts `run_id` in the gate's line and waits for its turn within the delivery timeout.
+    // Puts `run_id` in the gate's line and waits for its turn within the delivery timeout. The
+    // gate weighs a process start on `provider_account_id`, the account the run is admitted
+    // against.
     async fn take_place(
         &self,
         provider: &ProviderId,
+        provider_account_id: Option<ProviderAccountId>,
         driver: &dyn ProviderDriver,
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<Placed, QueueError> {
-        let starts_process = driver.starts_process(session_id).await;
+        let starts_process = driver.starts_process(session_id, provider_account_id).await;
         let work = provider_work(&self.deps.providers, provider, !starts_process)?;
         let mut admitted = {
             let mut state = self.lock();
@@ -581,7 +597,7 @@ impl QueueAdmission {
     ) -> Result<(), QueueError> {
         for item in self.read_waiting(run_id).await? {
             if item.child_handle.is_none() {
-                self.record_not_delivered(&item, reason).await?;
+                self.record_not_delivered(&item, reason.clone()).await?;
             }
         }
         Ok(())
@@ -610,7 +626,12 @@ impl QueueAdmission {
             .read_waiting(run_id)
             .await?
             .into_iter()
-            .map(|item| (item, QueueItemOutcome::NotDelivered { reason }))
+            .map(|item| {
+                let outcome = QueueItemOutcome::NotDelivered {
+                    reason: reason.clone(),
+                };
+                (item, outcome)
+            })
             .collect();
         self.end_queued_run(hold, run_id, outcomes, detail).await
     }
@@ -650,7 +671,14 @@ impl QueueAdmission {
     async fn read_session_driver(
         &self,
         session_id: SessionId,
-    ) -> Result<(ProviderId, Arc<dyn ProviderDriver>), QueueError> {
+    ) -> Result<
+        (
+            ProviderId,
+            Option<ProviderAccountId>,
+            Arc<dyn ProviderDriver>,
+        ),
+        QueueError,
+    > {
         read_session_driver::<QueueError>(
             &self.deps.pool,
             &self.deps.providers,

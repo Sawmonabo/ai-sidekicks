@@ -8,6 +8,7 @@ use std::sync::Arc;
 use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_platforms::PathRules;
 
 use crate::provider::driver::claude::DESCRIPTOR;
@@ -16,9 +17,7 @@ use crate::provider::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, read_claude_attached_advisor,
 };
 use crate::provider::driver::claude::session::errors::ClaudeSessionError;
-use crate::provider::driver::claude::session::permission_level::{
-    claude_permission_mode_for, permission_level_of,
-};
+use crate::provider::driver::claude::session::permission_level::claude_permission_mode_for;
 use crate::provider::driver::claude::session::process::{
     ClaudeCodeProcess, ClaudeProcessLaunch, ClaudeProcessListener, ClaudeTurnHolds,
 };
@@ -132,7 +131,11 @@ pub(crate) async fn bring_up_claude_process(
     let arguments = compose_claude_arguments(&ClaudeArgumentsRequest {
         model: &legs.model,
         permission_mode: permission_mode.unwrap_or_else(|| {
-            claude_permission_mode_for(legs.execution_posture.as_ref().map(permission_level_of))
+            claude_permission_mode_for(
+                legs.execution_posture
+                    .as_ref()
+                    .map(ExecutionPosture::permission_level),
+            )
         }),
         settings: &settings,
         output_schema: legs.output_schema.as_ref(),

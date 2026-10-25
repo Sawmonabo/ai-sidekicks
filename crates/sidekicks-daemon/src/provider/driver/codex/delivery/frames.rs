@@ -10,7 +10,7 @@
 mod items;
 mod notices;
 mod reviews;
-mod turns;
+pub(crate) mod turns;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -30,6 +31,7 @@ use crate::provider::driver::codex::run::routes::{CodexRunBinding, CodexRunRoute
 use crate::provider::driver::codex::server_requests::CodexAskKind;
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
 use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::provider::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::provider::driver::diagnostics::OnceReportedDiagnostics;
 use crate::provider::driver::run_control::RunToolBoundary;
@@ -40,12 +42,19 @@ use crate::provider::record_readers::read_non_empty_string;
 use crate::provider::terminal_emission_gate::TerminalEmissionGate;
 use crate::provider::thread_frame_router::ThreadFrameRoute;
 use crate::session::run::engine::RunEngine;
+use crate::session::run::engine::turns::ProviderTurnEnd;
 use crate::session::run::inbound::{InboundDelivery, InboundOutcome, RunInboundDispatch};
 
 /// What the rest of the Codex driver does for a frame, which the frame delivery cannot do itself.
 pub(crate) trait CodexFrameEffects: Send + Sync {
-    /// Settles the card of an ask Codex resolved or let go of itself.
-    fn withdraw_ask(&self, session_id: SessionId, request_id: &str, ask_kind: CodexAskKind);
+    /// Settles the card of an ask Codex resolved or let go of itself, on the session's account.
+    fn withdraw_ask(
+        &self,
+        session_id: SessionId,
+        provider_account_id: Option<&ProviderAccountId>,
+        request_id: &str,
+        ask_kind: CodexAskKind,
+    );
 
     /// Drops the corrections waiting on a turn that ended.
     fn forget_turn_corrections(&self, session_id: SessionId, turn_id: &str);
@@ -88,14 +97,18 @@ pub(crate) struct CodexTakenMessage {
     pub(crate) turn_id: String,
 }
 
-/// A `userPromptSubmit` hook run that blocked or stopped a prompt.
+/// One `userPromptSubmit` hook handler's run on one prompt, whatever its status.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CodexBlockedPrompt {
+pub(crate) struct CodexPromptHookRun {
     /// The turn the prompt was for, where the frame named one.
     pub(crate) turn_id: Option<String>,
-    /// Whether the hook stopped the turn rather than blocking the prompt.
+    /// The handler's id, the same on every prompt it runs for.
+    pub(crate) run_id: String,
+    /// Whether the handler blocked the prompt.
+    pub(crate) is_blocked: bool,
+    /// Whether the handler stopped the turn.
     pub(crate) is_stopped: bool,
-    /// The hook's words, each entry in order, else its status message.
+    /// A blocking or stopping handler's words, each entry in order, else its status message.
     pub(crate) words: Vec<String>,
 }
 
@@ -108,13 +121,18 @@ pub(crate) struct CodexRunMove {
     pub(crate) to: RunStateChangeState,
 }
 
-/// A turn of the session's own conversation that started or ended, with its run.
+/// A turn of the session's own conversation that ended, with its run.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexTurnMove {
     /// The turn.
     pub(crate) turn_id: String,
     /// Its run.
     pub(crate) run_id: RunId,
+    /// How the turn's run stood when the frame arrived.
+    pub(crate) ending: CodexTurnEnding,
+    /// The end the run engine records for a turn whose end moves no run: a paused or retried
+    /// turn's; `None` for an end the run's own move or its interrupt records.
+    pub(crate) turn_end: Option<ProviderTurnEnd>,
 }
 
 /// What one frame told the rest of the driver.
@@ -125,19 +143,17 @@ pub(crate) struct CodexFrameDispatch {
     pub(crate) resolved_request_id: Option<String>,
     /// The person's messages Codex took into a turn.
     pub(crate) taken_messages: Vec<CodexTakenMessage>,
-    /// The prompts a `userPromptSubmit` hook blocked or stopped.
-    pub(crate) blocked_prompts: Vec<CodexBlockedPrompt>,
+    /// The `userPromptSubmit` hook runs the frame reported.
+    pub(crate) prompt_hook_runs: Vec<CodexPromptHookRun>,
     /// The runs the frame moved.
     pub(crate) run_moves: Vec<CodexRunMove>,
-    /// The turns that started.
-    pub(crate) turns_started: Vec<CodexTurnMove>,
     /// The turns that ended.
     pub(crate) turns_ended: Vec<CodexTurnMove>,
 }
 
 /// How a turn's run stands when one of its frames arrives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CodexTurnEnding {
+pub(crate) enum CodexTurnEnding {
     /// The turn runs on its run.
     Live,
     /// An interrupt took it from its run.
@@ -184,10 +200,6 @@ pub(crate) struct CodexFrameDelivery {
 
 impl CodexFrameDelivery {
     /// The frame delivery over `dependencies`.
-    #[expect(
-        dead_code,
-        reason = "the Codex driver builds one frame delivery its sessions' tasks share"
-    )]
     pub(crate) fn new(dependencies: CodexFrameDeliveryDependencies) -> Self {
         Self {
             dependencies,
@@ -200,10 +212,6 @@ impl CodexFrameDelivery {
     /// `route` for it, while the turn bookkeeping still holds the turn's route; `gate` is the
     /// session's terminal gate, which outlives its records. Never fails: each delivery's failure
     /// is reported where it happens.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's task hands each frame of its queue to it"
-    )]
     pub(crate) async fn deliver(
         &self,
         record: &mut CodexSessionRecord,
@@ -218,8 +226,7 @@ impl CodexFrameDelivery {
         let mut dispatch = CodexFrameDispatch::default();
         match method {
             "turn/started" => {
-                self.deliver_turn_started(record, &members, &mut dispatch)
-                    .await;
+                self.deliver_turn_started(record, &members).await;
             }
             "turn/completed" => {
                 let frame = turns::TurnCompletedFrame {
@@ -241,13 +248,13 @@ impl CodexFrameDelivery {
             | "item/reasoning/summaryPartAdded"
             | "item/reasoning/textDelta" => self.deliver_prose_delta(record, method, &members),
             "item/commandExecution/outputDelta" => self.deliver_command_output(record, &members),
-            "error" => turns::note_turn_error(record, &members),
+            "error" => self.deliver_turn_error(record, &members).await,
             "guardianWarning"
             | "item/autoApprovalReview/completed"
             | "autoApprovalReview/strictReviewRequired" => {
                 self.deliver_reviewer_frame(record, method, &members).await;
             }
-            "hook/completed" => turns::read_blocked_prompt(&members, &mut dispatch),
+            "hook/completed" => turns::read_prompt_hook_run(&members, &mut dispatch),
             "serverRequest/resolved" => {
                 dispatch.resolved_request_id = self.forget_resolved_request(record, &members);
             }
@@ -261,10 +268,6 @@ impl CodexFrameDelivery {
 
     /// Sends the streamed pieces whose interval has passed by `now` and the tool rows whose wait
     /// for their start ran out, for the session's one timer at `record.delivery.next_deadline()`.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's task fires its timer for the pieces due"
-    )]
     pub(crate) async fn deliver_due(
         &self,
         record: &mut CodexSessionRecord,
@@ -289,8 +292,8 @@ impl CodexFrameDelivery {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
-    // Hands one delivery to the run engine, reporting its failure; `None` when it failed.
-    pub(super) async fn send(
+    /// Hands one delivery to the run engine, reporting its failure; `None` when it failed.
+    pub(crate) async fn send(
         &self,
         record: &CodexSessionRecord,
         delivery: InboundDelivery<'_>,
@@ -353,27 +356,7 @@ impl CodexFrameDelivery {
     // A live turn's run, else the run an interrupt, a pause or a retry took the turn from, whose
     // last frames still belong to it; `None` when no run holds it or its run ended.
     fn turn_run_for(&self, record: &CodexSessionRecord, turn_id: &str) -> Option<CodexTurnRun> {
-        let (run_id, ending) = record
-            .active_turn_run(turn_id)
-            .map(|run_id| (run_id, CodexTurnEnding::Live))
-            .or_else(|| {
-                record
-                    .interrupted_turn_run(turn_id)
-                    .map(|run_id| (run_id, CodexTurnEnding::Interrupted))
-            })
-            .or_else(|| {
-                record
-                    .paused_run_id_by_interrupted_turn_id
-                    .get(turn_id)
-                    .map(|run_id| (*run_id, CodexTurnEnding::Paused))
-            })
-            .or_else(|| {
-                record
-                    .delivery
-                    .retried_run_id_by_turn_id
-                    .get(turn_id)
-                    .map(|run_id| (*run_id, CodexTurnEnding::Retried))
-            })?;
+        let (run_id, ending) = find_turn_run_id(record, turn_id)?;
         let binding = self.dependencies.run_routes.binding_for(run_id)?;
         Some(CodexTurnRun {
             run_id,
@@ -403,6 +386,65 @@ impl CodexFrameDelivery {
             turn_id: turn_id.to_owned(),
             row: turn_run.row_run(),
         })
+    }
+}
+
+/// The run holding the turn `turn_id` and how: its live run, else the run an interrupt, a pause or
+/// a retry took the turn from, whose last frames still belong to it; `None` when no run holds it.
+/// A pause marks its turn before its interrupt goes and the mark leaves only once the turn's end
+/// was applied, so a marked turn reads paused even while it is still live, its end read by its
+/// status as `read_turn_ending` says.
+pub(crate) fn find_turn_run_id(
+    record: &CodexSessionRecord,
+    turn_id: &str,
+) -> Option<(RunId, CodexTurnEnding)> {
+    let is_pausing = record
+        .paused_run_id_by_interrupted_turn_id
+        .contains_key(turn_id);
+    record
+        .active_turn_run(turn_id)
+        .filter(|_| !is_pausing)
+        .map(|run_id| (run_id, CodexTurnEnding::Live))
+        .or_else(|| {
+            record
+                .interrupted_turn_run(turn_id)
+                .map(|run_id| (run_id, CodexTurnEnding::Interrupted))
+        })
+        .or_else(|| {
+            record
+                .paused_run_id_by_interrupted_turn_id
+                .get(turn_id)
+                .map(|run_id| (*run_id, CodexTurnEnding::Paused))
+        })
+        .or_else(|| {
+            record
+                .delivery
+                .retried_run_id_by_turn_id
+                .get(turn_id)
+                .map(|run_id| (*run_id, CodexTurnEnding::Retried))
+        })
+}
+
+// How the turn `turn_id`, which `find_turn_run_id` found standing `ending`, ended, by the status
+// its `turn/completed` reports. The daemon marks a turn before its interrupt goes, so a marked
+// turn that ends `interrupted` is the daemon's stop, never Codex's own: paused under a pause's
+// mark, else interrupted. A pause-marked turn that failed by itself ends as a live turn does, so
+// its failure surfaces, and so does one ending with a status Codex does not send; one that
+// completed by itself is the step that landed, so it reads paused.
+fn read_turn_ending(
+    record: &CodexSessionRecord,
+    turn_id: &str,
+    ending: CodexTurnEnding,
+    status: Option<CodexTurnStatus>,
+) -> CodexTurnEnding {
+    match (ending, status) {
+        (CodexTurnEnding::Paused, Some(CodexTurnStatus::Failed) | None) => CodexTurnEnding::Live,
+        (CodexTurnEnding::Live, Some(CodexTurnStatus::Interrupted))
+            if record.interrupting_turn_ids.contains(turn_id) =>
+        {
+            CodexTurnEnding::Interrupted
+        }
+        (ending, _) => ending,
     }
 }
 

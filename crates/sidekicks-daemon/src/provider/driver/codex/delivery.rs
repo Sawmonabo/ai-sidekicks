@@ -3,6 +3,7 @@
 //! what a session's deliveries remember between frames.
 
 mod ask_action;
+pub(super) mod asks;
 mod children;
 pub(super) mod elicitation_form;
 mod failure_cause;
@@ -12,4 +13,4 @@ mod notices;
 mod patches;
 pub(super) mod question_answers;
 mod reviewer;
-mod rows;
+pub(super) mod rows;

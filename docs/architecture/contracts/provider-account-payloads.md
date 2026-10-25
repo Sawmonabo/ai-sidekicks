@@ -654,15 +654,15 @@ type ProviderAccountNotification =
       window: ProviderAccountUsageWindow;
     };
 
-// The newest quota reading for one `(accountId, limitId)` pair — the wire mirror of
+// The newest quota reading for one `(accountId, limitId, windowMins)` key — the wire mirror of
 // `provider_account_usage_windows` (Spec-025 §Per-limit provider quota).
 //
-// `limitId` IS THE KEY, and `windowMins` is an attribute of the reading rather than part of its
-// identity: the pinned Claude surface publishes several limits at once of which more than one share
-// a 10080-minute window, so a `(account, windowMins)` key silently collapses them and the survivor
-// depends on arrival order. A reading naming no limit takes the reserved id `default`, so a
-// provider publishing one window needs no special case and the single-window shape stays valid as
-// the degenerate case.
+// `limitId` with `windowMins` IS THE KEY: the pinned Claude surface publishes several limits at once
+// of which more than one share a 10080-minute window, so a `(account, windowMins)` key silently
+// collapses them and the survivor depends on arrival order; and one Codex limit identifier publishes
+// up to two windows at once (its primary and secondary), so a `(account, limitId)` key keeps only
+// one of them. A reading naming no limit takes the reserved id `default`, so a provider publishing
+// one window needs no special case and the single-window shape stays valid as the degenerate case.
 //
 // WHERE EACH LEG'S `limitId` COMES FROM. On the Claude leg the windows are read from the
 // `get_usage` reply's `limits[]` list, and a `limitId` is that entry's kind together with the model
@@ -695,7 +695,7 @@ interface ProviderAccountUsageWindow {
   label?: string; // the provider's own display label where it publishes one; display-only, never parsed, never a key
   usedPercent: number; // NOT clamped to 100 on the wire: a provider may report over-consumption against a soft limit and clamping would misreport it. Renderers clamp for display.
   resetsAt?: string; // RFC 3339 UTC where the provider supplies it; absent = unknown, never "now" and never "never"
-  observedAt: string; // RFC 3339 UTC. THE ORDERING KEY: newest `observedAt` wins per `(accountId, limitId)`, and `source` breaks ONLY exact ties. Ordering by arrival, or by preferring one source, would let a stale reading mask real consumption. It is ALSO the read time the surface renders beside the figure: a percentage with no read time invites a reader to plan against a number that on an idle account will be hours old.
+  observedAt: string; // RFC 3339 UTC. THE ORDERING KEY: newest `observedAt` wins per `(accountId, limitId, windowMins)`, and `source` breaks ONLY exact ties. Ordering by arrival, or by preferring one source, would let a stale reading mask real consumption. It is ALSO the read time the surface renders beside the figure: a percentage with no read time invites a reader to plan against a number that on an idle account will be hours old.
   observedCredentialGeneration: number; // the account's `credentialGeneration` when this reading was taken — the same member `usage.rateLimit.updated` carries. A credential-home rebuild does NOT clear stored readings (the provider-side allowance keeps running while the home is empty), so a renderer compares this against `ProviderAccount.credentialGeneration` and renders a behind-generation reading as STALE rather than current. The stored health pair is the opposite case: a bump invalidates it outright.
   source: "probe" | "run"; // the deliberate limits read, or the account-scoped quota event from real traffic. The background observer performs THE SAME limits read on its cadence (Spec-025 §Credential-home health observation), so a reading it took is recorded as `probe`: it is another caller of one read, not another provenance — and so is the turn-end read the daemon sends to a live Claude process, which is the same read asked of a process that already exists. The Codex leg's rolling push with a turn is the `run` value. The two values also differ in COMPLETENESS, which is what the prune rule turns on — a `probe` reading describes the account's whole standing and replaces the stored set, while a `run` reading is the provider's own sparse push and is merged into it, pruning nothing it does not name.
 }

@@ -137,6 +137,7 @@ pub(crate) enum CodexInboundMethod {
     ThreadClosed,
     ThreadStatusChanged,
     ServerRequestResolved,
+    HookCompleted,
     SkillsChanged,
     ThreadGoalUpdated,
     ThreadGoalCleared,
@@ -213,6 +214,7 @@ impl CodexInboundMethod {
             Self::ThreadClosed => "thread/closed",
             Self::ThreadStatusChanged => CODEX_THREAD_STATUS_CHANGED_METHOD,
             Self::ServerRequestResolved => "serverRequest/resolved",
+            Self::HookCompleted => "hook/completed",
             Self::SkillsChanged => CODEX_SKILLS_CHANGED_METHOD,
             Self::ThreadGoalUpdated => "thread/goal/updated",
             Self::ThreadGoalCleared => "thread/goal/cleared",
@@ -323,6 +325,10 @@ impl CodexInboundMethod {
                 ASK,
                 Reads("Codex settled a request itself, so its held answer is let go"),
             ),
+            Self::HookCompleted => notification(
+                CONTENT,
+                Reads("a prompt the person's own hook blocked, refused at its turn's end"),
+            ),
             Self::SkillsChanged => {
                 notification(CONNECTION, Reads("the held command list is read again"))
             }
@@ -415,13 +421,6 @@ const fn notification(family: ThreadFrameFamilyClass, reading: CodexFrameReading
 
 /// Every notification the service is asked never to send, sent as `optOutNotificationMethods` at
 /// `initialize`: the service schema's notifications, in its order, less every one the table reads.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the service's `initialize` request sends it as the opted-out notifications"
-    )
-)]
 pub(crate) static CODEX_OPT_OUT_NOTIFICATION_METHODS: LazyLock<Vec<&'static str>> =
     LazyLock::new(|| {
         SERVER_NOTIFICATION_METHODS
@@ -533,10 +532,6 @@ pub(crate) fn resolve_codex_frame_emission_route(
 /// The method's routing family for the thread-frame router: a connection-scoped family needs no
 /// thread identity, a thread-scoped one demands one, and a method outside the table is `Unknown`,
 /// never presumed connection-scoped.
-#[expect(
-    dead_code,
-    reason = "the Codex connection's reader classifies each inbound frame for the router"
-)]
 pub(crate) fn classify_codex_frame_family_for_routing(method: &str) -> ThreadFrameFamilyClass {
     CodexInboundMethod::from_method(method).map_or(ThreadFrameFamilyClass::Unknown, |inbound| {
         inbound.row().family

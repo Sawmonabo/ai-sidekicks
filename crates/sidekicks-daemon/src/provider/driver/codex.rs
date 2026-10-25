@@ -1,36 +1,91 @@
 //! The Codex driver, over the one shared Codex app-server every session reaches by its socket.
 
+use std::error::Error;
+use std::path::Path;
+use std::sync::Arc;
+use std::time::SystemTime;
+
+use futures::FutureExt;
+use futures::future::{BoxFuture, ready};
+use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::declaration::{
+    ObservedProviderOptions, ProviderRow, ProviderSessionOption,
+};
+use sidekicks_contracts::provider::driver::capabilities::{ProviderMode, ProviderModel};
+use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup;
+use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
+use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
+use sidekicks_contracts::run::queue::QueuedSkillPick;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_platforms::{
     LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
     WindowsSystemFolder,
 };
 
-use crate::provider::driver::{
-    CommandSandboxNeeds, InstallFolder, InstallFolderBase, ProviderCommand, ProviderCommandLookup,
-    ProviderDescriptor, ProviderMemoryEstimates,
+use crate::provider::driver::codex::lifecycle::CodexDriver;
+use crate::provider::driver::codex::permission_level::list_codex_modes;
+use crate::provider::driver::contract::{
+    ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
+    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription, ProviderDriver,
+    RespondToRequestParams, StartRunParams,
 };
+use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
+use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use crate::provider::driver::run_control::{
+    AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
+    ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
+    FindTakenMessagesParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
+    PickedSkill, ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams,
+    WithdrawQueuedMessageResult,
+};
+use crate::provider::driver::session_control::{
+    AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
+    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverResumeResult,
+    MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
+    ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
+    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartReviewParams, StartingLevel,
+    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
+    UpdateSessionModeParams,
+};
+use crate::provider::driver::{
+    CommandSandboxNeeds, DriverServices, InstallFolder, InstallFolderBase, ProviderCommand,
+    ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
+};
+use crate::provider::port::session_inbox_address::SessionInboxAddresser;
 
 mod account_home_logs;
 mod app_server_protocol;
 mod ask_option_sets;
+mod attachments;
+mod auth_status;
 mod capabilities;
 mod capability_probe;
 mod commands;
+mod compaction;
 mod delivery;
 mod event_normalizer;
+mod goals;
 mod hooks;
 mod input_limit;
 mod intervention;
+mod lifecycle;
+mod model_windows;
 mod native_program;
+mod notification_routing;
+mod output_speed;
 mod permission_level;
+mod rate_limits;
 mod rules;
 mod run;
 mod server_requests;
 mod service;
 mod session;
 mod thread;
+mod token_usage;
 mod tools;
 mod transport;
 mod turn_evidence;
@@ -158,3 +213,326 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // expiry deletes.
     account_home_diagnostic_folders: &[&["log"]],
 };
+
+/// Builds the Codex driver over the shared services; it stores handles and does no I/O.
+#[expect(
+    dead_code,
+    reason = "the daemon's start registers the driver through it"
+)]
+pub(super) fn build(services: &DriverServices) -> Arc<dyn ProviderDriver> {
+    Arc::new(CodexDriver::new(services))
+}
+
+/// Codex takes a message the run queue hands a running turn as a steer between its steps, has no
+/// verb that takes one back, keeps nothing past its run, and marks no message as priority.
+const CODEX_MESSAGE_HANDING: MessageHanding = MessageHanding {
+    hands_at: HandMoment::AtToolBoundary,
+    can_withdraw: false,
+    kept_by_process: false,
+    reads_priority_message: false,
+};
+
+impl ProviderDriver for CodexDriver {
+    fn create_session(
+        &self,
+        params: CreateSessionParams,
+    ) -> BoxFuture<'_, Result<ProviderSessionHandle, DriverError>> {
+        self.create_session(params).boxed()
+    }
+
+    fn resume_session(
+        &self,
+        params: ResumeSessionParams,
+    ) -> BoxFuture<'_, Result<DriverResumeResult, DriverError>> {
+        self.resume_session(params).boxed()
+    }
+
+    fn start_run(&self, params: StartRunParams) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.start_run(params).boxed()
+    }
+
+    fn interrupt_run(&self, params: InterruptRunRequest) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.interrupt_run(params).boxed()
+    }
+
+    fn apply_intervention(
+        &self,
+        params: ApplyInterventionParams,
+    ) -> BoxFuture<'_, Result<ApplyInterventionResponse, DriverError>> {
+        self.apply_intervention(params).boxed()
+    }
+
+    fn move_session_to_fork(
+        &self,
+        params: MoveSessionToForkParams,
+    ) -> BoxFuture<'_, Result<MoveSessionToForkResult, DriverError>> {
+        self.move_session_to_fork(params).boxed()
+    }
+
+    fn rewind_conversation(
+        &self,
+        params: RewindConversationParams,
+    ) -> BoxFuture<'_, Result<RewindConversationResult, DriverError>> {
+        self.rewind_conversation(params).boxed()
+    }
+
+    fn respond_to_request(
+        &self,
+        params: RespondToRequestParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.respond_to_request(params).boxed()
+    }
+
+    fn override_denial(
+        &self,
+        params: OverrideDenialParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.override_denial(params).boxed()
+    }
+
+    fn pause_run(&self, params: PauseRunParams) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.pause_run(params).boxed()
+    }
+
+    fn resume_run(&self, params: ResumeRunParams) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.resume_run(params).boxed()
+    }
+
+    fn find_taken_messages(
+        &self,
+        params: FindTakenMessagesParams,
+    ) -> BoxFuture<'_, Result<TakenMessages, DriverError>> {
+        self.find_taken_messages(params).boxed()
+    }
+
+    // Codex has no verb that takes a steer back once it is sent.
+    fn withdraw_queued_message(
+        &self,
+        _params: WithdrawQueuedMessageParams,
+    ) -> BoxFuture<'_, Result<WithdrawQueuedMessageResult, DriverError>> {
+        ready(Ok(WithdrawQueuedMessageResult::AlreadyDelivered {})).boxed()
+    }
+
+    fn message_handing(&self) -> MessageHanding {
+        CODEX_MESSAGE_HANDING
+    }
+
+    fn starts_process(
+        &self,
+        session_id: SessionId,
+        provider_account_id: Option<ProviderAccountId>,
+    ) -> BoxFuture<'_, bool> {
+        self.starts_process(session_id, provider_account_id).boxed()
+    }
+
+    fn resolve_skill_picks(
+        &self,
+        session_id: SessionId,
+        provider_account_id: Option<ProviderAccountId>,
+        picks: Vec<QueuedSkillPick>,
+    ) -> BoxFuture<'_, Result<Vec<PickedSkill>, DriverError>> {
+        self.resolve_skill_picks(session_id, provider_account_id, picks)
+            .boxed()
+    }
+
+    // Codex holds no run on a refusal or a usage-credits choice.
+    fn answer_provider_choice(
+        &self,
+        _params: AnswerProviderChoiceParams,
+    ) -> BoxFuture<'_, Result<AnswerProviderChoiceResult, DriverError>> {
+        ready(Ok(AnswerProviderChoiceResult::NotPending {})).boxed()
+    }
+
+    fn retry_turn_on_faster_model(
+        &self,
+        params: FasterModelRetryParams,
+    ) -> BoxFuture<'_, Result<FasterModelRetryOutcome, DriverError>> {
+        self.retry_turn_on_faster_model(params).boxed()
+    }
+
+    fn read_starting_level(
+        &self,
+        params: StartingLevelParams,
+    ) -> BoxFuture<'_, Result<StartingLevel, DriverError>> {
+        self.read_starting_level(params).boxed()
+    }
+
+    fn update_permission_level(
+        &self,
+        params: UpdatePermissionLevelParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.update_permission_level(params).boxed()
+    }
+
+    fn revoke_rule(&self, params: RevokeRuleParams) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.revoke_rule(params).boxed()
+    }
+
+    fn restart_session(
+        &self,
+        params: ResumeSessionParams,
+    ) -> BoxFuture<'_, Result<DriverResumeResult, DriverError>> {
+        self.restart_session(params).boxed()
+    }
+
+    fn move_to_provider_build(
+        &self,
+        change: ProviderBuildChange,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.move_to_provider_build(&change);
+        ready(Ok(())).boxed()
+    }
+
+    fn purge_session(&self, params: PurgeSessionParams) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.purge_session(params).boxed()
+    }
+
+    fn set_session_goal(
+        &self,
+        params: SetSessionGoalParams,
+    ) -> BoxFuture<'_, Result<DriverGoalResult, DriverError>> {
+        self.set_session_goal(params).boxed()
+    }
+
+    fn clear_session_goal(
+        &self,
+        params: ClearSessionGoalParams,
+    ) -> BoxFuture<'_, Result<DriverGoalResult, DriverError>> {
+        self.clear_session_goal(params).boxed()
+    }
+
+    fn close_session(&self, params: CloseSessionParams) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.close_session(params).boxed()
+    }
+
+    fn name_session(
+        &self,
+        params: NameSessionParams,
+    ) -> BoxFuture<'_, Result<Option<String>, DriverError>> {
+        self.name_session(params).boxed()
+    }
+
+    fn tell_session_name(
+        &self,
+        session_id: SessionId,
+        name: String,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.tell_session_name(session_id, name).boxed()
+    }
+
+    fn list_models(
+        &self,
+        params: ListModelsParams,
+    ) -> BoxFuture<'_, Result<Vec<ProviderModel>, DriverError>> {
+        self.list_models(params).boxed()
+    }
+
+    fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
+        ready(Ok(list_codex_modes())).boxed()
+    }
+
+    fn get_capabilities(&self) -> BoxFuture<'_, Result<GetCapabilitiesResult, DriverError>> {
+        self.get_capabilities().boxed()
+    }
+
+    fn probe_auth(&self) -> BoxFuture<'_, Result<DriverAuthProbeResult, DriverError>> {
+        self.probe_auth().map(Ok).boxed()
+    }
+
+    fn compact_context(
+        &self,
+        params: CompactContextParams,
+    ) -> BoxFuture<'_, Result<AgentRunContextCompactResponse, DriverError>> {
+        self.compact_context(params).boxed()
+    }
+
+    fn list_provider_commands(
+        &self,
+        params: ListProviderCommandsParams,
+    ) -> BoxFuture<'_, Result<ProviderCommandBindingGroup, DriverError>> {
+        self.list_provider_commands(params).boxed()
+    }
+
+    fn observed_output_speed_for(
+        &self,
+        session_id: &SessionId,
+    ) -> Option<ProviderOutputSpeedState> {
+        self.observed_output_speed_for(*session_id)
+    }
+
+    fn read_rows(
+        &self,
+        app_values: ProviderRowValues,
+    ) -> BoxFuture<'_, Result<Vec<ProviderRow>, DriverError>> {
+        ready(Ok(self.read_rows(&app_values))).boxed()
+    }
+
+    fn apply_row_value(
+        &self,
+        params: ApplyRowValueParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.apply_row_value(params).boxed()
+    }
+
+    // Codex declares no session option.
+    fn session_options(&self) -> BoxFuture<'_, Result<Vec<ProviderSessionOption>, DriverError>> {
+        ready(Ok(Vec::new())).boxed()
+    }
+
+    // With no option declared, there is none to observe.
+    fn observed_options_for(&self, _session_id: &SessionId) -> Option<ObservedProviderOptions> {
+        None
+    }
+
+    fn update_session_mode(
+        &self,
+        params: UpdateSessionModeParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.update_session_mode(params).boxed()
+    }
+
+    // No Codex command changes more than the session it is typed in.
+    fn answer_session_command(
+        &self,
+        _params: AnswerSessionCommandParams,
+    ) -> BoxFuture<'_, Result<SessionCommandAnswer, DriverError>> {
+        ready(Ok(SessionCommandAnswer::NotAnswered {})).boxed()
+    }
+
+    fn ask_side_question(
+        &self,
+        params: AskSideQuestionParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.ask_side_question(params).boxed()
+    }
+
+    fn start_review(&self, params: StartReviewParams) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.start_review(params).boxed()
+    }
+
+    fn subscribe_provider_commands(
+        &self,
+        params: SubscribeProviderCommandsParams,
+        listener: ProviderCommandsListener,
+    ) -> ProviderCommandsSubscription {
+        self.subscribe_provider_commands(&params, listener)
+    }
+
+    fn shutdown(&self, intent: DaemonStopIntent) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.shutdown(intent).map(Ok).boxed()
+    }
+
+    // A Codex session takes a message through the daemon's own steer and turn start, never
+    // through an inbox of its own.
+    fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>> {
+        None
+    }
+
+    fn expire_account_home_diagnostics(
+        &self,
+        home: &Path,
+        cutoff: SystemTime,
+    ) -> Result<u64, Box<dyn Error + Send + Sync>> {
+        self.expire_account_home_diagnostics(home, cutoff)
+    }
+}

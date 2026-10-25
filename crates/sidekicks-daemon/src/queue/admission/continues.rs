@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
@@ -13,7 +14,8 @@ use super::{Placed, QueueAdmission, is_invalid_transition, is_waiting, log_failu
 use crate::database::connection::read_pool::ReadLength;
 use crate::provider::driver::contract::ProviderDriver;
 use crate::queue::error::QueueError;
-use crate::queue::store::{QueueItemReader, summary_of};
+use crate::queue::store::QueueItemReader;
+use crate::queue::store::summary::summary_of;
 use crate::session::run::engine::RunEngineError;
 use crate::session::run::read::read_run_through;
 use crate::session::run::start_request::RunContinueRequest;
@@ -24,9 +26,15 @@ impl QueueAdmission {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), QueueError> {
-        let (provider, driver) = self.read_session_driver(session_id).await?;
+        let (provider, provider_account_id, driver) = self.read_session_driver(session_id).await?;
         if !self
-            .admit_continue(&provider, driver.as_ref(), session_id, run_id)
+            .admit_continue(
+                &provider,
+                provider_account_id,
+                driver.as_ref(),
+                session_id,
+                run_id,
+            )
             .await?
         {
             return Ok(());
@@ -95,7 +103,7 @@ impl QueueAdmission {
                 return Err(QueueError::ContinueTakenOver { run_id });
             }
             if current.as_ref().is_some_and(is_waiting) {
-                self.record_not_delivered(&opening, QueueItemNotDeliveredReason::Failed)
+                self.record_not_delivered(&opening, QueueItemNotDeliveredReason::Failed {})
                     .await?;
             }
             return Err(error);
@@ -153,7 +161,7 @@ impl QueueAdmission {
         self.release(run_id);
         let hold = self.deps.session_lock.hold_session(session_id).await;
         let marked = self
-            .mark_waiting_undelivered(&hold, run_id, QueueItemNotDeliveredReason::Failed)
+            .mark_waiting_undelivered(&hold, run_id, QueueItemNotDeliveredReason::Failed {})
             .await;
         if let Err(mark) = marked {
             log_failure(
@@ -196,6 +204,7 @@ impl QueueAdmission {
     async fn admit_continue(
         &self,
         provider: &ProviderId,
+        provider_account_id: Option<ProviderAccountId>,
         driver: &dyn ProviderDriver,
         session_id: SessionId,
         run_id: RunId,
@@ -205,15 +214,19 @@ impl QueueAdmission {
             return Ok(true);
         }
         match self
-            .take_place(provider, driver, session_id, run_id)
+            .take_place(provider, provider_account_id, driver, session_id, run_id)
             .await?
         {
             Placed::Admitted => Ok(true),
             Placed::Released => Ok(false),
             Placed::TimedOut => {
                 let hold = self.deps.session_lock.hold_session(session_id).await;
-                self.mark_waiting_undelivered(&hold, run_id, QueueItemNotDeliveredReason::TimedOut)
-                    .await?;
+                self.mark_waiting_undelivered(
+                    &hold,
+                    run_id,
+                    QueueItemNotDeliveredReason::TimedOut {},
+                )
+                .await?;
                 Ok(false)
             }
         }

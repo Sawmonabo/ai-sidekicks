@@ -66,6 +66,13 @@ pub fn run_daemon_program(run_sqlite_shell: SqliteShell) -> ExitCode {
     }
 }
 
+/// Whether the dispatch above runs the `hook provider` mode a provider's hook command starts, so
+/// a driver composes and trusts a hook that runs this program only while it does. The mode's arm
+/// and this answer change together.
+pub(crate) const fn dispatches_hook_mode() -> bool {
+    false
+}
+
 // Runs SQLite's shell with the program's name and `arguments`, each passed as the system's own
 // bytes, its standard streams binary first, so a byte the shell reads or writes passes as it is;
 // the shell's exit code is the run's, a code past a byte reading as a failure.

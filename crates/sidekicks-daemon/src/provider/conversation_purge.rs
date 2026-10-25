@@ -5,20 +5,17 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use rusqlite::{Connection, named_params};
+use rusqlite::Connection;
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::stored_column::text_column;
 use crate::ipc::domain_error::DomainError;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::session_control::{PurgeSessionParams, PurgedConversation};
 use crate::provider::left_conversations::read_left_conversations;
-use crate::provider::runtime_binding::store::read_bindings_of_runs;
-use crate::session::run::ids::SESSION_RUN_IDS_SQL;
+use crate::provider::runtime_binding::resume::read_session_bindings;
 use crate::settle_all::{SettleFailures, settle_all};
 
 /// The statements the purge's read prepares on a read connection: the session's runs, their
@@ -82,7 +79,7 @@ impl ConversationPurge {
         let conversations = self
             .reads
             .read(ReadLength::Long, move |reader| {
-                Ok::<_, ConversationPurgeError>(read_conversations(reader, &session_id)?)
+                Ok::<_, ConversationPurgeError>(read_conversations(reader, session_id)?)
             })
             .await?;
         let mut purges = Vec::with_capacity(conversations.len());
@@ -114,17 +111,10 @@ impl ConversationPurge {
 // once, and the providers keep the order each was first met in.
 fn read_conversations(
     reader: &Connection,
-    session_id: &SessionId,
+    session_id: SessionId,
 ) -> rusqlite::Result<Vec<(ProviderId, Vec<PurgedConversation>)>> {
     let snapshot = reader.unchecked_transaction()?;
-    let run_ids = snapshot
-        .prepare_cached(SESSION_RUN_IDS_SQL)?
-        .query_map(
-            named_params! { "@sessionId": session_id.text().as_str() },
-            |row| text_column(row, 0, |text| RunId::new(&text)),
-        )?
-        .collect::<rusqlite::Result<Vec<RunId>>>()?;
-    let mut bound: Vec<_> = read_bindings_of_runs(&snapshot, &run_ids)?
+    let mut bound: Vec<_> = read_session_bindings(&snapshot, session_id)?
         .into_iter()
         .filter_map(|binding| {
             let resume_handle = binding.resume_handle.filter(|handle| !handle.is_empty())?;
@@ -137,7 +127,7 @@ fn read_conversations(
         })
         .collect();
     bound.sort_by(|first, second| second.0.cmp(&first.0));
-    let mut left = read_left_conversations(&snapshot, session_id)?;
+    let mut left = read_left_conversations(&snapshot, &session_id)?;
     left.reverse();
 
     let mut by_provider: Vec<(ProviderId, Vec<PurgedConversation>)> = Vec::new();

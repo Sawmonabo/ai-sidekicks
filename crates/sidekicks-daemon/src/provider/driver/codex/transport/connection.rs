@@ -13,8 +13,8 @@ use std::time::Duration;
 use futures::future::BoxFuture;
 use serde::de::{DeserializeOwned, IgnoredAny};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use serde_json::value::RawValue;
+use serde_json::{Value, json};
 use sidekicks_contracts::app_identity::APP_DISPLAY_NAME;
 use sidekicks_contracts::jsonrpc::message::JsonRpcId;
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
@@ -206,11 +206,12 @@ struct ConnectionState {
 type RequestAnswer = Result<Box<RawValue>, ErrorAnswer>;
 
 /// The members of an error answer the request reports; `0` and empty when it sent none usable,
-/// and the `reason` its `data` names as text, when it names one.
+/// the `reason` its `data` names as text, when it names one, and the `data` itself.
 struct ErrorAnswer {
     code: i64,
     message: String,
     reason: Option<String>,
+    data: Option<Box<Value>>,
 }
 
 // The members of a frame the connection reads, each kept raw so one unreadable member never
@@ -230,12 +231,6 @@ struct InboundError {
     code: Option<Box<RawValue>>,
     message: Option<Box<RawValue>>,
     data: Option<Box<RawValue>>,
-}
-
-// The member of an error answer's `data` the connection reads.
-#[derive(Deserialize)]
-struct InboundErrorData {
-    reason: Option<Box<RawValue>>,
 }
 
 #[derive(Serialize)]
@@ -327,12 +322,14 @@ impl CodexAppServerConnection {
                 code,
                 message,
                 reason,
+                data,
             }))) => {
                 let refusal = CodexError::ProviderRequest {
                     method: method.to_owned(),
                     code,
                     message,
                     reason,
+                    data,
                 };
                 if let CodexError::ProviderRequest { message, .. } = &refusal
                     && refusal.is_service_draining()
@@ -548,11 +545,14 @@ impl ConnectionShared {
         let answer = match frame.error {
             Some(error) => {
                 let error = read_codex_object::<InboundError>(error.get());
-                let reason = error
+                let data = error
                     .as_ref()
-                    .and_then(|error| error.data.as_deref())
-                    .and_then(|data| read_codex_object::<InboundErrorData>(data.get()))
-                    .and_then(|data| read_member::<String>(data.reason.as_deref()));
+                    .and_then(|error| read_member::<Value>(error.data.as_deref()));
+                let reason = data
+                    .as_ref()
+                    .and_then(|data| data.get("reason"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
                 Err(ErrorAnswer {
                     code: error
                         .as_ref()
@@ -562,6 +562,7 @@ impl ConnectionShared {
                         .and_then(|error| read_member::<String>(error.message.as_deref()))
                         .unwrap_or_default(),
                     reason,
+                    data: data.map(Box::new),
                 })
             }
             None => Ok(frame.result.unwrap_or_else(|| RawValue::NULL.to_owned())),

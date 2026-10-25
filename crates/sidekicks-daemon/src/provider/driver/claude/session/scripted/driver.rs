@@ -13,7 +13,7 @@ use serde_json::{Map, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -28,9 +28,7 @@ use super::daemon_services::{
 };
 use super::run_engine::RecordingRunEngine;
 use super::starts::{ScriptedStartRecord, ScriptedStarts};
-use super::{
-    SCRIPTED_PROVIDER_SESSION_ID, hand_scripted_frame, mint_session_id, scripted_staged_changes,
-};
+use super::{SCRIPTED_PROVIDER_SESSION_ID, hand_scripted_frame, scripted_staged_changes};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::mutex_lock::lock;
@@ -41,7 +39,7 @@ use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::provider::driver::claude::lifecycle::ClaudeDriver;
 use crate::provider::driver::ports::SessionRelaunchListener;
 use crate::provider::driver::session_control::{CreateSessionParams, DriverResumeResult};
-use crate::provider::driver::test_registry::test_driver_services;
+use crate::provider::driver::test_registry::{new_session_id, test_driver_services};
 use crate::provider::driver::{
     DriverServices, ProviderAccountFolders, SessionSpawnContext, SessionSpawnContextResolver,
 };
@@ -60,16 +58,17 @@ impl SessionSpawnContextResolver for FolderContexts {
     fn resolve_spawn_context(
         &self,
         _session_id: SessionId,
-        _provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: Option<ProviderAccountId>,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn std::error::Error + Send + Sync>>> {
         let working_directory = self.work.clone();
+        let account_folders = provider_account_id.and(self.account_folders.clone());
         async move {
             Ok(SessionSpawnContext {
                 working_directory,
                 git_common_folder: None,
                 every_project_rows: Vec::new(),
                 project_rows: Vec::new(),
-                account_folders: None,
+                account_folders,
             })
         }
         .boxed()
@@ -84,6 +83,14 @@ impl SessionSpawnContextResolver for FolderContexts {
     > {
         let account_folders = self.account_folders.clone();
         async move { Ok(account_folders) }.boxed()
+    }
+
+    fn read_credential_generation(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn std::error::Error + Send + Sync>>> {
+        async { Err("the scripted sessions read no account's credential generation".into()) }
+            .boxed()
     }
 }
 
@@ -239,7 +246,7 @@ impl ScriptedDriver {
 
     /// Opens a session on `channel` through the driver's create.
     pub(crate) async fn create(&self, channel: &Arc<ScriptedChannel>) -> SessionId {
-        let session_id = mint_session_id();
+        let session_id = new_session_id();
         self.starts.script_session(Arc::clone(channel));
         self.driver
             .create_session(create_params(session_id))

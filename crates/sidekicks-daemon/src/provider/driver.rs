@@ -10,7 +10,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::id::{ProviderId, is_provider_id};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
@@ -20,6 +20,7 @@ use sidekicks_platforms::{
 
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
+use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::command_search::ProviderCommandSearch;
@@ -411,6 +412,9 @@ pub(crate) struct DriverServices {
     pub(crate) pending_compactions: PendingCompactionRegistry,
     /// Which provider process runs each session, which each driver writes at spawn and exit.
     pub(crate) processes: Arc<ProviderProcessRegistry>,
+    /// The processes serving the provider services the daemon holds a connection to, which each
+    /// driver's dial holds and the daemon's caller check reads.
+    pub(crate) provider_services: Arc<ProviderServiceProcesses>,
     /// Where each session's provider process runs, resolved at every spawn.
     pub(crate) spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
     /// Points a session's binding at the conversation a driver moved it onto.
@@ -448,8 +452,9 @@ pub(crate) struct ProviderAccountFolders {
     pub(crate) credential_store_folder: PathBuf,
 }
 
-/// Resolves where a session's provider process runs, and an account's folders before any session
-/// runs on it, wired by the daemon.
+/// Resolves where a session's provider process runs, and reads the accounts a provider runs on:
+/// an account's folders before any session runs on it, and its credential generation. Wired by
+/// the daemon.
 pub(crate) trait SessionSpawnContextResolver: Send + Sync {
     /// The context `session_id` runs in on `provider_account_id`'s account, or on the person's own
     /// sign-in when `None`. Fails when the session or its folders cannot be read.
@@ -466,6 +471,14 @@ pub(crate) trait SessionSpawnContextResolver: Send + Sync {
         &self,
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<Option<ProviderAccountFolders>, Box<dyn Error + Send + Sync>>>;
+
+    /// The current credential generation of `provider_account_id`'s account, from the accounts
+    /// store, which a reading of the account carries so one from before a sign-in again reads as
+    /// stale. Fails when the account cannot be read.
+    fn read_credential_generation(
+        &self,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>>;
 }
 
 /// One registered provider: its descriptor and the function that builds its driver from the shared

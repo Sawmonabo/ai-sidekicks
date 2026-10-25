@@ -6,11 +6,14 @@ use sidekicks_contracts::command::AgentCommandEndedPayload;
 use sidekicks_contracts::event::declared_variants::{
     AgentOutputPayload, RunAgentOutputPayload, ToolActivityPayload,
 };
-use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
+use sidekicks_contracts::event::envelope::{
+    DAEMON_SCOPE_SENTINEL_SESSION_ID, SourceEpoch, SourcePosition,
+};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::usage::{
     AgentRunContextCompactedPayload, AgentTurnReroutedPayload, UsageApiRequestRetriedPayload,
-    UsageContextWindowUpdatedPayload, UsageCostUpdatedPayload, UsageTokenCountRecordedPayload,
+    UsageContextWindowUpdatedPayload, UsageCostUpdatedPayload, UsageRateLimitUpdatedPayload,
+    UsageTokenCountRecordedPayload,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{
@@ -109,7 +112,6 @@ macro_rules! unstamped_rows {
         /// the run: from before a cut it is absorbed, otherwise appended as it is. A settlement's
         /// run move is its own delivery.
         #[derive(Debug)]
-        #[expect(dead_code, reason = "the provider's event delivery builds each row it hands over")]
         pub(crate) enum UnstampedRow {
             $($(#[$doc])* $variant($payload),)+
         }
@@ -190,6 +192,26 @@ impl SessionScopedRow {
                 payload.session_id,
                 SessionEvent::SessionOutputStyleChanged(payload),
                 Vec::new(),
+            ),
+        }
+    }
+}
+
+/// A row about the machine rather than a session, on no binding: an account's quota reading, which
+/// carries the account's credential generation and is filed under the machine's sentinel session.
+#[derive(Debug)]
+pub(crate) enum MachineScopedRow {
+    /// `usage.rateLimit.updated`.
+    UsageRateLimitUpdated(UsageRateLimitUpdatedPayload),
+}
+
+impl MachineScopedRow {
+    /// The sentinel session the row is filed under, and its event.
+    pub(super) fn into_event(self) -> (SessionId, SessionEvent) {
+        match self {
+            Self::UsageRateLimitUpdated(payload) => (
+                *DAEMON_SCOPE_SENTINEL_SESSION_ID,
+                SessionEvent::UsageRateLimitUpdated(payload),
             ),
         }
     }

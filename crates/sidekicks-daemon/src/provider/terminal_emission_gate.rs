@@ -63,6 +63,11 @@ impl TerminalEmissionGate {
         self.is_intended_close_signaled = true;
     }
 
+    /// Whether the daemon asked to close the session.
+    pub(crate) fn is_intended_close_signaled(&self) -> bool {
+        self.is_intended_close_signaled
+    }
+
     /// Whether `frame` may go out and, if so, whether a close the daemon asked for came first. A
     /// suppressed frame is a decision, never an error.
     pub(crate) fn admit_terminal_frame(

@@ -63,13 +63,6 @@ pub(crate) struct LastingServiceRecordFile {
     lock: PathBuf,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start keeps the lasting Codex service's record under its lock"
-    )
-)]
 impl LastingServiceRecordFile {
     /// The record file of the service on `codex_home` listening on `socket`, in `data_folder`;
     /// `codex_home` is resolved first, so two spellings of one folder share one record. Fails with
@@ -145,13 +138,6 @@ fn home_record_folder(data_folder: &Path, codex_home: &Path) -> io::Result<PathB
     Ok(data_folder.join(RECORD_FOLDER_NAME).join(key))
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start reads, writes and removes the lasting Codex service's record"
-    )
-)]
 impl LockedServiceRecord {
     /// The record file the hold is on.
     pub(crate) fn file(&self) -> &LastingServiceRecordFile {

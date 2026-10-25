@@ -5,7 +5,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use strum::{IntoStaticStr, VariantArray};
+use strum::{EnumDiscriminants, IntoStaticStr, VariantArray};
 
 use crate::agent::definition::binding::ProviderToken;
 use crate::agent::tree::ChildHandle;
@@ -16,6 +16,7 @@ use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::stream_frame;
 use crate::method::KeyedRequest;
+use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::question::QuestionId;
 use crate::repo::mount::WorkspaceId;
 use crate::run::id::RunId;
@@ -65,28 +66,45 @@ pub enum QueueItemState {
     NotDelivered,
 }
 
-/// Why a taken message was never delivered: it waited past the daemon's own delivery timeout, or
-/// its delivery failed outright. Either way it can be sent again.
+/// Why a taken message was never delivered, tagged on `kind`: it waited past the daemon's own
+/// delivery timeout, its delivery failed outright, or the person's own `UserPromptSubmit` hook
+/// refused it after the provider was handed it, with the hook's words. Either way it can be sent
+/// again.
 #[derive(
     Clone,
-    Copy,
     Debug,
     PartialEq,
     Eq,
-    Hash,
     Serialize,
     Deserialize,
     JsonSchema,
-    IntoStaticStr,
-    VariantArray,
+    garde::Validate,
+    EnumDiscriminants,
 )]
-#[serde(rename_all = "camelCase")]
-#[strum(serialize_all = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+#[garde(allow_unvalidated)]
+#[strum_discriminants(
+    name(QueueItemNotDeliveredKind),
+    doc = "Why a taken message was never delivered, spelled as its reason's `kind` tag.",
+    derive(Hash, Serialize, Deserialize, IntoStaticStr, VariantArray),
+    serde(rename_all = "camelCase"),
+    strum(serialize_all = "camelCase")
+)]
 pub enum QueueItemNotDeliveredReason {
     /// It waited past the delivery timeout.
-    TimedOut,
+    TimedOut {},
     /// Its delivery failed.
-    Failed,
+    Failed {},
+    /// The person's own `UserPromptSubmit` hook refused it.
+    RefusedByHook {
+        /// The hook's own words.
+        words: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
+    },
 }
 
 /// The words of a message the person sends.

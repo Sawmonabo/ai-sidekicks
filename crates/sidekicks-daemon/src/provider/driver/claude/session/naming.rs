@@ -3,10 +3,14 @@
 //! nothing; and the name the session goes by, told to its live process with `rename_session` or,
 //! at rest, appended to its conversation file as the entry Claude Code's own rename writes.
 
+use std::time::Duration;
+
 use sidekicks_contracts::machine::settings::ProviderRowValues;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_platforms::PathRules;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::provider::driver::claude::session::conversation_file::conversation_file_of;
@@ -18,6 +22,7 @@ use crate::provider::driver::claude::session::establishment::ClaudeSpawnSources;
 use crate::provider::driver::claude::session::establishment::context::resolve_claude_spawn_context;
 use crate::provider::driver::claude::session::restart::ClaudeEndedConversation;
 use crate::provider::driver::claude::session::state::LiveClaudeSession;
+use crate::provider::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
 use crate::provider::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeSessionTitleReply, ClaudeTitleSource,
 };
@@ -30,22 +35,45 @@ use crate::provider::driver::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsRequest, build_claude_spawn_bound_legs,
 };
 use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::session_control::NameSessionParams;
+use crate::provider::driver::session_control::{NameSessionParams, run_naming_pass_until};
 use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
 
 /// The model a naming pass runs on when no process of the session is live: the small model
 /// Claude Code's own title pass runs on.
 const CLAUDE_NAMING_MODEL: &str = "haiku";
 
+/// How long a whole naming pass may run, its title verb and its one-turn pass together: as long
+/// as one request to the process may wait.
+const CLAUDE_NAMING_DEADLINE: Duration = CLAUDE_REQUEST_DEADLINE;
+
 /// Names the session from its first exchange: Claude Code's title verb on `live` where it answers
 /// with a title, else a one-turn pass on `live`'s legs, or, with no live process, on the session's
-/// own folder and home. `None` when both gave no title or `params.cancel` fired. Fails as the
-/// one-turn pass fails.
+/// own folder and the home of `rest_account`, the account its stored leg ran on. `None` when both
+/// gave no title, `params.cancel` fired, or the pass ran past [`CLAUDE_NAMING_DEADLINE`], where
+/// its one-turn process is stopped as a cancel stops it. Fails as the one-turn pass fails.
 pub(crate) async fn name_claude_session(
     live: Option<&LiveClaudeSession>,
     starts: &dyn ClaudeProcessStarts,
     sources: &ClaudeSpawnSources,
+    rest_account: Option<ProviderAccountId>,
     params: NameSessionParams,
+) -> Result<Option<String>, DriverError> {
+    let cancel = params.cancel.clone();
+    let deadline = Instant::now() + CLAUDE_NAMING_DEADLINE;
+    run_naming_pass_until(&cancel, deadline, |stop| async move {
+        draw_claude_title(live, starts, sources, rest_account, params, &stop).await
+    })
+    .await
+}
+
+// The title verb on `live`, else the one-turn pass, both ended by `stop`.
+async fn draw_claude_title(
+    live: Option<&LiveClaudeSession>,
+    starts: &dyn ClaudeProcessStarts,
+    sources: &ClaudeSpawnSources,
+    rest_account: Option<ProviderAccountId>,
+    params: NameSessionParams,
+    stop: &CancellationToken,
 ) -> Result<Option<String>, DriverError> {
     let description = compose_naming_description(&params.first_message, &params.first_reply);
     if let Some(live) = live {
@@ -57,7 +85,7 @@ pub(crate) async fn name_claude_session(
             });
         // A build without the verb, a failure or no title takes the one-turn pass.
         let title = tokio::select! {
-            () = params.cancel.cancelled() => return Ok(None),
+            () = stop.cancelled() => return Ok(None),
             answer = asked => answer.ok().and_then(|answer| {
                 answer
                     .response
@@ -82,12 +110,12 @@ pub(crate) async fn name_claude_session(
             &legs,
             live.admitted_provider_account_id.clone(),
             text,
-            &params.cancel,
+            stop,
         )
         .await
     } else {
-        let legs = compose_naming_legs(sources, params.session_id).await?;
-        run_naming_turn(starts, &legs, None, text, &params.cancel).await
+        let legs = compose_naming_legs(sources, params.session_id, rest_account.clone()).await?;
+        run_naming_turn(starts, &legs, rest_account, text, stop).await
     };
     match reply {
         Ok(reply) => Ok(clean_title(&reply)),
@@ -135,18 +163,36 @@ pub(crate) async fn tell_claude_session_name(
         .map_err(|error| DriverError::Internal(Box::new(error)))
 }
 
-// The legs of a naming pass on a session with no live process: its folder and home, the small
-// model, no tools and no level, since the pass's one turn asks for nothing.
+/// The conversation `provider_session_id` a session's stored leg names, at rest on
+/// `provider_account_id`'s account, where its file is found: the environment that account's
+/// process runs in. Fails as the session's folder or stored settings cannot be read.
+pub(crate) async fn stored_claude_conversation(
+    sources: &ClaudeSpawnSources,
+    session_id: SessionId,
+    provider_account_id: Option<ProviderAccountId>,
+    provider_session_id: String,
+) -> Result<ClaudeEndedConversation, DriverError> {
+    let legs = compose_naming_legs(sources, session_id, provider_account_id).await?;
+    Ok(ClaudeEndedConversation {
+        provider_session_id,
+        spawn_environment: legs.spawn_environment,
+    })
+}
+
+// The legs of a naming pass on a session with no live process: its folder and the home of
+// `provider_account_id`'s account, the small model, no tools and no level, since the pass's one
+// turn asks for nothing.
 async fn compose_naming_legs(
     sources: &ClaudeSpawnSources,
     session_id: SessionId,
+    provider_account_id: Option<ProviderAccountId>,
 ) -> Result<ClaudeSpawnBoundLegs, DriverError> {
     let no_rows: ProviderRowValues = Record::default();
     let context = resolve_claude_spawn_context(
         &*sources.spawn_contexts,
         &sources.pool,
         session_id,
-        None,
+        provider_account_id.clone(),
         &no_rows,
     )
     .await
@@ -160,7 +206,7 @@ async fn compose_naming_legs(
             tool_servers: None,
             output_schema: None,
             on_mcp_server_status: None,
-            provider_account_id: None,
+            provider_account_id,
             context,
         },
         &ClaudeSpawnLegServices::of(sources),
@@ -173,10 +219,14 @@ async fn compose_naming_legs(
 async fn run_naming_turn(
     starts: &dyn ClaudeProcessStarts,
     legs: &ClaudeSpawnBoundLegs,
-    provider_account_id: Option<sidekicks_contracts::provider::account::record::ProviderAccountId>,
+    provider_account_id: Option<ProviderAccountId>,
     text: OutboundText,
-    cancel: &CancellationToken,
+    stop: &CancellationToken,
 ) -> Result<String, ClaudeLaunchError> {
+    // A pass stopped while its legs were composed starts no process.
+    if stop.is_cancelled() {
+        return Err(ClaudeLaunchError::TurnStopped);
+    }
     starts
         .run_one_turn(ClaudeOneTurnRequest {
             spawn: ClaudeSessionSpawn {
@@ -190,7 +240,7 @@ async fn run_naming_turn(
             resume_handle: None,
             permission_mode: None,
             text,
-            stop: cancel.clone(),
+            stop: stop.clone(),
         })
         .await
         .map(|reply| reply.text)
@@ -218,3 +268,6 @@ fn clean_title(text: &str) -> Option<String> {
         .trim();
     (!title.is_empty()).then(|| title.to_owned())
 }
+
+#[cfg(test)]
+mod tests;

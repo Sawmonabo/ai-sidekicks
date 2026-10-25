@@ -522,8 +522,8 @@ impl ProviderAccount {
     }
 }
 
-/// One quota reading for one limit of one account. `limitId` is the key and `windowMins` an
-/// attribute, since a provider can publish several limits that share a window length.
+/// One quota reading for one window of one limit of one account, keyed by all three: a provider
+/// can publish several limits that share a window length, and one limit with two windows at once.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

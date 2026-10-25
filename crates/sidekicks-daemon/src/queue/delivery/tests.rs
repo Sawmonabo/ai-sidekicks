@@ -40,7 +40,7 @@ use crate::provider::driver::run_control::{
     WithdrawQueuedMessageResult,
 };
 use crate::provider::driver::test_registry::{
-    bind_run_to_first_provider, registry_of_first_provider,
+    bind_run_to_first_provider, new_run_id, registry_of_first_provider,
 };
 use crate::queue::changes::QueueChangeSignals;
 use crate::queue::recorder::{QueueRecorder, QueueRecorderDeps};
@@ -146,7 +146,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     let log = open_log(&database, None).await;
     let session_id = test_session_id();
     insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
-    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    let run_id = new_run_id();
     insert_running_run(&database, session_id, run_id);
     bind_run_to_first_provider(&database, run_id);
     let pool = Arc::new(DatabaseReadPool::new(

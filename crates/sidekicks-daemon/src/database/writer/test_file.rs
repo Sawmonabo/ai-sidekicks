@@ -10,10 +10,11 @@ use rusqlite::Connection;
 use tempfile::TempDir;
 #[cfg(test)]
 use {
+    rusqlite::params,
     serde_json::json,
     sidekicks_contracts::{
-        event::envelope::EventOccurredAt, event::session::SessionEvent, session::id::SessionId,
-        wire::integer::SafeInt,
+        agent::definition::AgentId, event::envelope::EventOccurredAt, event::session::SessionEvent,
+        session::id::SessionId, wire::instant::WireInstant, wire::integer::SafeInt,
     },
 };
 
@@ -73,6 +74,38 @@ impl TestDatabase {
 #[cfg(test)]
 pub(crate) fn test_session_id() -> SessionId {
     SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
+}
+
+/// Writes `session_id`'s creation, its lead bound to the provider `provider`, and answers the
+/// lead's agent.
+#[cfg(test)]
+pub(crate) fn insert_lead(
+    database: &TestDatabase,
+    session_id: SessionId,
+    provider: &str,
+) -> AgentId {
+    let agent_id = mint_uuid_v7().to_string();
+    database
+        .reader()
+        .execute(
+            "INSERT INTO session_events
+               (id, session_id, sequence, occurred_at, monotonic_ns, category, type, payload)
+             VALUES (?1, ?2, 0, ?3, 0, 'sessionLifecycle', 'session.created', ?4)",
+            params![
+                mint_uuid_v7().to_string(),
+                session_id.text().as_str(),
+                WireInstant::now().as_str(),
+                json!({
+                    "mainAgent": {
+                        "agentId": agent_id,
+                        "binding": { "providerName": provider },
+                    },
+                })
+                .to_string(),
+            ],
+        )
+        .expect("the test creates the session's lead");
+    AgentId::new(&agent_id).expect("a minted UUID is an agent id")
 }
 
 /// The envelope of `event` on `session_id`'s log, occurring now, with no linkage.

@@ -57,9 +57,9 @@ use crate::queue::refusals::{
 use crate::queue::run_lifecycle::{QueueRunLifecycle, QueueRunLifecycleDeps};
 use crate::queue::send::{QueueSendMessage, QueueSends, QueueSendsDeps};
 use crate::queue::session_lock::{QueueSessionLock, UnreleasedInterrupts};
+use crate::queue::store::summary::summary_of;
 use crate::queue::store::{
     QueueItemBody, QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
-    summary_of,
 };
 use crate::session::changes::refuse_unchangeable_session;
 use crate::session::run::engine::RunEngine;
@@ -238,7 +238,7 @@ impl RunQueue {
         device_id: DeviceId,
     ) -> Result<AgentQueueItemCreateResponse, QueueError> {
         let session_id = request.to.unwrap_or(request.session_id);
-        let (provider, driver) = read_session_driver::<QueueError>(
+        let (provider, provider_account_id, driver) = read_session_driver::<QueueError>(
             &self.pool,
             &self.providers,
             self.read_damaged_from_sequence.as_ref(),
@@ -263,6 +263,7 @@ impl RunQueue {
             .resolve_skill_picks(
                 session_id,
                 &provider,
+                provider_account_id,
                 driver.as_ref(),
                 request.skills.clone(),
             )

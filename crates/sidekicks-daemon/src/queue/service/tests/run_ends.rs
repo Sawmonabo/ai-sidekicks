@@ -165,7 +165,7 @@ async fn a_failed_start_leaves_its_opening_not_delivered_and_the_rest_to_a_next_
     assert_eq!(
         fixture.stored_state(opening),
         RecordedQueueItemState::NotDelivered {
-            reason: QueueItemNotDeliveredReason::Failed
+            reason: QueueItemNotDeliveredReason::Failed {}
         }
     );
     let rest_item = fixture.stored_item(rest);

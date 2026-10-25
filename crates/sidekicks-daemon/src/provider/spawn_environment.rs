@@ -141,13 +141,6 @@ pub(crate) fn build_provider_process_environment(
 /// credential variables and the driver's withheld names removed, then every driver's
 /// background-work switch and the account's folders. Fails as
 /// [`build_provider_process_environment`] does for the account's folders.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the conversation commands' launch builds its environment through it"
-    )
-)]
 pub(crate) fn build_conversation_command_environment(
     request: &ProviderEnvironmentRequest<'_>,
 ) -> Result<Vec<(String, String)>, SpawnEnvironmentError> {

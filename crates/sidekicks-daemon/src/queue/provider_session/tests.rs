@@ -6,7 +6,6 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use tokio::time::timeout;
@@ -18,7 +17,7 @@ use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
 use crate::provider::driver::contract::MockProviderDriver;
 use crate::provider::driver::session_control::DriverResumeResult;
-use crate::provider::driver::test_registry::registry_of_first_provider;
+use crate::provider::driver::test_registry::{new_run_id, registry_of_first_provider};
 use crate::provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, RuntimeBindingStore,
 };
@@ -33,10 +32,6 @@ const READ_STATEMENT_CAPACITY: usize = 16;
 
 /// Bounds the open, which waits on its own lock forever when it takes it twice.
 const WAIT: Duration = Duration::from_secs(5);
-
-fn new_run_id() -> RunId {
-    RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
-}
 
 // Opening a session whose conversation an earlier daemon left resumes it, records the binding the
 // resume minted on its predecessor's run, and records the opening run's own binding on it, all

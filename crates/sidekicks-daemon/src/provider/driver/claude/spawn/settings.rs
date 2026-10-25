@@ -13,7 +13,6 @@ use sidekicks_platforms::PathRules;
 
 use crate::policy::background_work::plain_background_work_forms;
 use crate::policy::execution_posture_service::{CredentialDenyPath, CredentialDenyPathKind};
-use crate::provider::driver::claude::session::permission_level::permission_level_of;
 use crate::provider::driver::claude::session::rules::{
     ClaudeRulesError, compose_claude_session_rule_lists, compose_path_content,
 };
@@ -216,7 +215,7 @@ pub(crate) fn compose_claude_spawn_settings(
     let writable_roots = posture
         .map(ExecutionPosture::writable_roots)
         .unwrap_or_default();
-    let level = posture.map(permission_level_of);
+    let level = posture.map(ExecutionPosture::permission_level);
     Ok(ClaudeSpawnSettings {
         cleanup_period_days: CLAUDE_CLEANUP_PERIOD_DAYS,
         disable_agent_view: AgentViewOff,
@@ -272,8 +271,8 @@ mod tests {
     };
 
     // Killed by dropping the memory allows or the `//` anchor, by a `Write(` rule Claude Code never
-    // reads, by the `.md` filter the design does not ask for, or by dropping the background deny
-    // rules at Sandboxed.
+    // reads, by narrowing the allows to `.md` files, which would keep the agent from its other
+    // memory files, or by dropping the background deny rules at Sandboxed.
     #[test]
     fn sandboxed_allows_the_agent_memory_folder_and_denies_background_work() {
         let memory_folders = [

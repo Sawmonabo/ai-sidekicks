@@ -52,7 +52,7 @@ pub fn compose_scoped_limit_id(kind: &str, model_display_name: &str) -> String {
 pub struct UsageTokenCountRecordedPayload {
     /// The session.
     pub session_id: SessionId,
-    /// The run, absent on a turn no session owns.
+    /// The run, absent on a turn no run owns.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -161,7 +161,7 @@ pub struct UsageTokenCountRecordedPayload {
 pub struct UsageCostUpdatedPayload {
     /// The session.
     pub session_id: SessionId,
-    /// The run, absent on a turn no session owns.
+    /// The run, absent on a turn no run owns.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -221,7 +221,7 @@ pub struct UsageCostUpdatedPayload {
 pub struct UsageContextWindowUpdatedPayload {
     /// The session.
     pub session_id: SessionId,
-    /// The run, absent on a turn no session owns.
+    /// The run, absent on a turn no run owns.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -320,7 +320,8 @@ fn window_dependent_required() -> Value {
 }
 
 /// The `usage.rateLimit.updated` payload: a snapshot of one of an account's quotas, keyed by the
-/// account and `limitId`. It names no session and no run; the envelope binds it to the machine's
+/// account, `limitId` and `windowMins`. It names no session and no run; the envelope binds it to
+/// the machine's
 /// sentinel session. A display reading only, never an input to a security or admission decision.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

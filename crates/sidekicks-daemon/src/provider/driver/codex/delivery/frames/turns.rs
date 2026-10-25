@@ -1,39 +1,46 @@
 //! A turn's frames: its start, which opens its execution and its numbered turn on the run; its
 //! end, which ends a live turn's run through the session's terminal gate; its errors, which the
-//! end's failure reads; the safety hold Codex keeps on it; the hook runs that block its prompt;
-//! and the asks it held, which its end or Codex's own settle withdraws.
+//! end's failure reads and whose retries file a retried request's row; the safety hold Codex keeps
+//! on it; the hook runs that block its prompt; and the asks it held, which its end or Codex's own
+//! settle withdraws.
 
 use serde_json::{Map, Value};
+use sidekicks_contracts::event::usage::{ApiRetryErrorKind, UsageApiRequestRetriedPayload};
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::delivery::failure_cause::{
-    CODEX_CONTEXT_WINDOW_EXCEEDED_ERROR, read_codex_turn_failure_cause,
+    CODEX_CONTEXT_WINDOW_EXCEEDED_ERROR, CODEX_RATE_LIMIT_EXCEEDED_ERROR,
+    CODEX_USAGE_LIMIT_EXCEEDED_ERROR, read_codex_turn_failure_cause,
 };
 use crate::provider::driver::codex::delivery::frames::{
-    CodexBlockedPrompt, CodexFrameDelivery, CodexFrameDispatch, CodexRunMove, CodexTurnEnding,
-    CodexTurnMove, CodexTurnRun, report_unattributed,
+    CodexFrameDelivery, CodexFrameDispatch, CodexPromptHookRun, CodexRunMove, CodexTurnEnding,
+    CodexTurnMove, CodexTurnRun, read_turn_ending, report_unattributed,
 };
 use crate::provider::driver::codex::delivery::memory::{
     CodexTurnErrorReading, read_codex_error_kind,
 };
 use crate::provider::driver::codex::delivery::notices::{provider_words, release_reroute};
 use crate::provider::driver::codex::delivery::reviewer::end_codex_review_turn;
-use crate::provider::driver::codex::delivery::rows::CodexRowRun;
+use crate::provider::driver::codex::delivery::rows::{CodexRow, CodexRowDelivery, CodexRowRun};
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
 use crate::provider::driver::codex::transport::diagnostics::{
     CodexDeliveryPort, CodexTransportDiagnostic,
 };
 use crate::provider::driver::codex::turn_evidence::{
-    CodexTurnTerminalInput, compose_codex_turn_terminal,
+    CodexTurnStatus, CodexTurnTerminalInput, compose_codex_turn_terminal,
 };
+use crate::provider::driver::run_control::SteerTurnEndedError;
 use crate::provider::record_readers::read_non_empty_string;
 use crate::provider::terminal_emission_gate::TerminalEmissionGate;
 use crate::provider::thread_frame_router::ThreadFrameRoute;
+use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
 use crate::session::run::epochs::DeliveryOperation;
+use crate::session::run::inbound::rows::LateAppendableRow;
 use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
 
 /// The hook event whose blocked or stopped run keeps the person's prompt from its turn.
@@ -52,10 +59,6 @@ pub(super) struct TurnCompletedFrame<'frame> {
 impl CodexFrameDelivery {
     /// Ends the live safety hold Codex kept on each of the session's turns, which a process exit
     /// leaves with no release, so the run's stream stops showing it.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's recovery lifts the holds a process exit left"
-    )]
     pub(crate) async fn end_safety_holds(&self, record: &mut CodexSessionRecord) {
         let holds: Vec<(String, CodexRowRun)> =
             record.delivery.safety_hold_run_by_turn_id.drain().collect();
@@ -72,7 +75,6 @@ impl CodexFrameDelivery {
         &self,
         record: &mut CodexSessionRecord,
         members: &Map<String, Value>,
-        dispatch: &mut CodexFrameDispatch,
     ) {
         if read_non_empty_string(members, "threadId") != Some(record.thread_id.as_str()) {
             return;
@@ -88,7 +90,7 @@ impl CodexFrameDelivery {
             record.add_active_turn(turn_id.clone(), starting_run_id);
             self.dependencies
                 .run_routes
-                .bind_run(starting_run_id, record.session_id, &turn_id);
+                .bind_run(starting_run_id, record.session_id);
         }
         let Some(turn_run) = self.turn_run_for(record, &turn_id) else {
             report_unattributed("turn/started", Some(&turn_id));
@@ -98,10 +100,6 @@ impl CodexFrameDelivery {
             .delivery
             .assign_turn_epoch(&turn_id, || self.mint_turn_epoch());
         self.open_turn(record, &turn_id, &turn_run).await;
-        dispatch.turns_started.push(CodexTurnMove {
-            turn_id,
-            run_id: turn_run.run_id,
-        });
     }
 
     // Opens the turn's execution and its numbered turn on the run, once.
@@ -148,9 +146,9 @@ impl CodexFrameDelivery {
 
     // The turn's end: rows still held for their start go out, a switch still waiting for its
     // sentence goes without one, the reviewer's warning on a turn it stopped is flagged, and a
-    // live turn's run ends through the terminal gate. An interrupted turn's end is written by the
-    // run engine, a paused one's by run control, and a retried one's run goes on in the turn the
-    // retry sends.
+    // live turn's run ends through the terminal gate, as does a pause's turn that failed by itself.
+    // An interrupted turn's end is written by the run engine, a paused one's by run control, and a
+    // retried one's run goes on in the turn the retry sends.
     pub(super) async fn deliver_turn_completed(
         &self,
         record: &mut CodexSessionRecord,
@@ -182,10 +180,16 @@ impl CodexFrameDelivery {
             self.send_row(record, reroute).await;
         }
         record.delivery.spawn_calls_by_thread_id.remove(&thread_id);
-        let turn_run = self.turn_run_for(record, &turn_id);
-        // A live turn ending interrupted is one Codex itself stopped, since the daemon's own
-        // interrupt takes the turn from its run first.
-        let is_stopped_by_codex = read_turn_status(members) == Some("interrupted");
+        let status = read_turn_status(members).and_then(CodexTurnStatus::read);
+        let turn_run = self
+            .turn_run_for(record, &turn_id)
+            .map(|turn_run| CodexTurnRun {
+                ending: read_turn_ending(record, &turn_id, turn_run.ending, status),
+                ..turn_run
+            });
+        // A live turn ending interrupted is one Codex itself stopped, since a turn the daemon
+        // interrupted reads interrupted or paused.
+        let is_stopped_by_codex = status == Some(CodexTurnStatus::Interrupted);
         let stopped_run = turn_run
             .as_ref()
             .filter(|turn_run| turn_run.ending == CodexTurnEnding::Live && is_stopped_by_codex)
@@ -221,9 +225,29 @@ impl CodexFrameDelivery {
                 } else if turn_run.ending == CodexTurnEnding::Interrupted {
                     self.dependencies.run_routes.forget_run(turn_run.run_id);
                 }
+                // Read before the turn's memory is forgotten below.
+                let turn_end = match turn_run.ending {
+                    CodexTurnEnding::Paused | CodexTurnEnding::Retried => {
+                        read_turn_end(record, &turn_id, members)
+                    }
+                    CodexTurnEnding::Live | CodexTurnEnding::Interrupted => None,
+                };
+                // A pause's turn that failed by itself leaves nothing to pause; a continue that
+                // waited on the pause is refused, so its resume leaves the messages waiting.
+                if turn_run.ending == CodexTurnEnding::Live
+                    && let Some(run_id) =
+                        record.paused_run_id_by_interrupted_turn_id.remove(&turn_id)
+                    && let Some(waiting) = record.continues_awaiting_pause.remove(&run_id)
+                {
+                    let _unheard = waiting
+                        .started
+                        .send(Err(SteerTurnEndedError { run_id }.into()));
+                }
                 dispatch.turns_ended.push(CodexTurnMove {
                     turn_id: turn_id.clone(),
                     run_id: turn_run.run_id,
+                    ending: turn_run.ending,
+                    turn_end,
                 });
             }
         }
@@ -375,6 +399,7 @@ impl CodexFrameDelivery {
             for forgotten in connection.forget_held_requests_of_turn(thread_id, turn_id) {
                 self.dependencies.effects.withdraw_ask(
                     record.session_id,
+                    record.provider_account_id.as_ref(),
                     &forgotten.request_id,
                     forgotten.ask_kind,
                 );
@@ -403,11 +428,31 @@ impl CodexFrameDelivery {
             .ok()
             .and_then(|connection| connection.forget_held_request(&request_id));
         if let Some(ask_kind) = ask_kind {
-            self.dependencies
-                .effects
-                .withdraw_ask(record.session_id, &request_id, ask_kind);
+            self.dependencies.effects.withdraw_ask(
+                record.session_id,
+                record.provider_account_id.as_ref(),
+                &request_id,
+                ask_kind,
+            );
         }
         Some(request_id)
+    }
+
+    /// An `error` frame: one Codex retries files the retried request's row on the turn's run; one
+    /// it will not retry is kept as the turn's final error.
+    pub(super) async fn deliver_turn_error(
+        &self,
+        record: &mut CodexSessionRecord,
+        members: &Map<String, Value>,
+    ) {
+        if !note_turn_error(record, members) {
+            return;
+        }
+        let Some(run) = self.row_run_for(record, members, "error") else {
+            return;
+        };
+        self.send_row(record, codex_request_retry(members, &run.row))
+            .await;
     }
 }
 
@@ -418,15 +463,16 @@ pub(crate) fn codex_compaction_wait_key(record: &CodexSessionRecord, thread_id: 
     format!("{}\u{0}{thread_id}", record.session_id)
 }
 
-/// An error Codex retries marks the turn retried; one it will not retry is the turn's final error.
-pub(super) fn note_turn_error(record: &mut CodexSessionRecord, members: &Map<String, Value>) {
+// An error Codex retries marks the turn retried; one it will not retry is the turn's final error.
+// Answers whether Codex retries the request.
+fn note_turn_error(record: &mut CodexSessionRecord, members: &Map<String, Value>) -> bool {
     let Some(turn_id) = read_non_empty_string(members, "turnId") else {
-        return;
+        return false;
     };
     let error = members.get("error");
     if members.get("willRetry").and_then(Value::as_bool) == Some(true) {
         record.delivery.retried_turn_ids.insert(turn_id.to_owned());
-        return;
+        return true;
     }
     let message = error
         .and_then(Value::as_object)
@@ -439,38 +485,81 @@ pub(super) fn note_turn_error(record: &mut CodexSessionRecord, members: &Map<Str
             error_kind: read_codex_error_kind(error),
         },
     );
+    false
 }
 
-/// A `hook/completed` of a `userPromptSubmit` hook that blocked or stopped the prompt, with the
-/// hook's words.
-pub(super) fn read_blocked_prompt(members: &Map<String, Value>, dispatch: &mut CodexFrameDispatch) {
+// The `usage.apiRequest.retried` row of an error Codex retries, on the turn's run, its kind read
+// from Codex's error arm.
+fn codex_request_retry(members: &Map<String, Value>, run: &CodexRowRun) -> CodexRowDelivery {
+    let error_kind = match read_codex_error_kind(members.get("error")).as_deref() {
+        Some("unauthorized") => ApiRetryErrorKind::AuthenticationFailed,
+        Some(CODEX_RATE_LIMIT_EXCEEDED_ERROR | CODEX_USAGE_LIMIT_EXCEEDED_ERROR) => {
+            ApiRetryErrorKind::RateLimit
+        }
+        Some("serverOverloaded") => ApiRetryErrorKind::Overloaded,
+        Some("internalServerError") => ApiRetryErrorKind::ServerError,
+        Some("badRequest") => ApiRetryErrorKind::InvalidRequest,
+        Some(_) | None => ApiRetryErrorKind::Unknown,
+    };
+    CodexRowDelivery {
+        binding_id: run.binding_id.clone(),
+        operation: None,
+        row: CodexRow::Late(LateAppendableRow::UsageApiRequestRetried(
+            UsageApiRequestRetriedPayload {
+                session_id: run.session_id,
+                run_id: Some(run.run_id),
+                provider: DESCRIPTOR.provider_id(),
+                error_kind,
+                retry_delay_ms: None,
+                attempt: None,
+                source_epoch: None,
+                source_position: None,
+            },
+        )),
+        body: None,
+        method: "error",
+    }
+}
+
+/// A `hook/completed` of a `userPromptSubmit` hook handler, of any status, with a blocking or
+/// stopping handler's words; a frame with no `run.id` is dropped.
+pub(super) fn read_prompt_hook_run(
+    members: &Map<String, Value>,
+    dispatch: &mut CodexFrameDispatch,
+) {
     let Some(run) = members.get("run").and_then(Value::as_object) else {
         return;
     };
     if run.get("eventName").and_then(Value::as_str) != Some(CODEX_USER_PROMPT_SUBMIT_HOOK) {
         return;
     }
-    let is_stopped = match run.get("status").and_then(Value::as_str) {
-        Some("blocked") => false,
-        Some("stopped") => true,
-        _ => return,
+    let Some(run_id) = read_non_empty_string(run, "id") else {
+        return;
     };
-    let mut words: Vec<String> = run
-        .get("entries")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|entry| entry.get("text").and_then(Value::as_str))
-        .filter(|text| !text.is_empty())
-        .map(str::to_owned)
-        .collect();
-    if words.is_empty()
-        && let Some(message) = read_non_empty_string(run, "statusMessage")
-    {
-        words.push(message.to_owned());
+    let status = run.get("status").and_then(Value::as_str);
+    let is_blocked = status == Some("blocked");
+    let is_stopped = status == Some("stopped");
+    let mut words: Vec<String> = Vec::new();
+    if is_blocked || is_stopped {
+        words.extend(
+            run.get("entries")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| entry.get("text").and_then(Value::as_str))
+                .filter(|text| !text.is_empty())
+                .map(str::to_owned),
+        );
+        if words.is_empty()
+            && let Some(message) = read_non_empty_string(run, "statusMessage")
+        {
+            words.push(message.to_owned());
+        }
     }
-    dispatch.blocked_prompts.push(CodexBlockedPrompt {
+    dispatch.prompt_hook_runs.push(CodexPromptHookRun {
         turn_id: read_non_empty_string(members, "turnId").map(str::to_owned),
+        run_id: run_id.to_owned(),
+        is_blocked,
         is_stopped,
         words,
     });
@@ -489,3 +578,30 @@ fn read_completed_turn_id(members: &Map<String, Value>) -> Option<String> {
 fn read_turn_status(members: &Map<String, Value>) -> Option<&str> {
     members.get("turn")?.get("status")?.as_str()
 }
+
+// The end a turn that moves no run reported, numbered as its start was; `None` for a turn never
+// numbered or a status that ends nothing.
+fn read_turn_end(
+    record: &CodexSessionRecord,
+    turn_id: &str,
+    members: &Map<String, Value>,
+) -> Option<ProviderTurnEnd> {
+    let turn_number = record
+        .delivery
+        .started_turn_by_turn_id
+        .get(turn_id)?
+        .turn_number;
+    let outcome = match CodexTurnStatus::read(read_turn_status(members)?)? {
+        CodexTurnStatus::Completed => TurnOutcome::Completed,
+        CodexTurnStatus::Interrupted => TurnOutcome::Interrupted(None),
+        CodexTurnStatus::Failed => TurnOutcome::Failed(None),
+        CodexTurnStatus::InProgress => return None,
+    };
+    Some(ProviderTurnEnd {
+        turn_number,
+        outcome,
+    })
+}
+
+#[cfg(test)]
+mod tests;

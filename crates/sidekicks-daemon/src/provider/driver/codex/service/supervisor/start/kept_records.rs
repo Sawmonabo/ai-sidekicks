@@ -245,14 +245,17 @@ pub(super) async fn reconcile_kept_records(
     deadline: Instant,
 ) -> Result<KeptRecordsOutcome, StartFailure> {
     let mut running = Vec::new();
+    let mut ended_services = Vec::new();
     for (kept_locked, record) in read_kept_records(locked).await? {
-        match repin(record.process.clone()).await? {
-            Some(lasting) => running.push(RunningRecord {
+        if let Some(lasting) = repin(record.process.clone()).await? {
+            running.push(RunningRecord {
                 locked: kept_locked,
                 record,
                 lasting,
-            }),
-            None => retire_former_service(&kept_locked, record.process).await?,
+            });
+        } else {
+            ended_services.push(record.process.clone());
+            retire_former_service(&kept_locked, record.process).await?;
         }
     }
     let link_target = read_socket_link(service.socket_path()).map_err(|error| {
@@ -269,7 +272,10 @@ pub(super) async fn reconcile_kept_records(
     );
     let joined = match holder {
         Some(holder) => Some(holder),
-        None => restore_link_to_running(service, &running, locked.file(), deadline).await?,
+        None => {
+            restore_link_to_running(service, &running, &ended_services, locked.file(), deadline)
+                .await?
+        }
     };
     let is_link_unrecorded = link_target.is_some()
         && !running
@@ -433,11 +439,13 @@ async fn settle_launch_blocking_drains(
 
 // With no running service holding the home's link, points it under Codex's start lock at a
 // running one not draining whose socket is recorded, the home socket's own `own` first, never over
-// a service answering on it; answers which of `running` it names, `None` where none can take it or
-// another service answers on it.
+// a service answering on it unless it is one of `ended_services`, the processes the records showed
+// ended; answers which of `running` it names, `None` where none can take it or another service
+// answers on it.
 async fn restore_link_to_running(
     service: &CodexService,
     running: &[RunningRecord],
+    ended_services: &[ProcessRecord],
     own: &LastingServiceRecordFile,
     deadline: Instant,
 ) -> Result<Option<usize>, StartFailure> {
@@ -456,7 +464,7 @@ async fn restore_link_to_running(
     };
     let remaining = deadline.saturating_duration_since(Instant::now());
     let start_lock = take_start_lock(&service.home().codex_home, remaining).await?;
-    let is_pointed = restore_socket_link(service.socket_path(), physical_socket)
+    let is_pointed = restore_socket_link(service.socket_path(), physical_socket, ended_services)
         .await
         .map_err(|error| {
             start_failed(

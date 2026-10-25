@@ -3,6 +3,7 @@
 //! its session is kept; a message's words ride its payload beside its `user.message.sent` row.
 
 pub(crate) mod send_now;
+pub(crate) mod summary;
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -20,7 +21,8 @@ use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::{
-    MessageContent, QueueItemId, QueueItemNotDeliveredReason, QueueItemState, QueueItemSummary,
+    MessageContent, QueueItemId, QueueItemNotDeliveredKind, QueueItemNotDeliveredReason,
+    QueueItemState,
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
@@ -29,6 +31,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::{ClientUuid, UuidText};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::sql_list::sql_list_of;
 use crate::database::statement::{
@@ -76,7 +79,7 @@ impl QueueItemBody {
 
 /// Where a queued message stands, as its row holds it: only a message never delivered carries,
 /// and always carries, the reason.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RecordedQueueItemState {
     /// Waiting for the agent's next step.
     Queued,
@@ -182,10 +185,10 @@ pub(crate) struct CurrentLeadRun {
 /// The columns every read of an item selects, in the order `record_of` reads them.
 pub(super) const COLUMNS: &str = "id, session_id, state, not_delivered_reason, payload, \
     target_run_id, child_handle, position, client_idempotency_key, created_at, updated_at, \
-    send_now_id";
+    send_now_id, not_delivered_words";
 
 /// The columns `COLUMNS` names; a read's own column follows them.
-pub(super) const COLUMN_COUNT: usize = 12;
+pub(super) const COLUMN_COUNT: usize = 13;
 
 /// An item's order within its queue: by place, and an edit's superseded item after its
 /// replacement.
@@ -214,7 +217,8 @@ static INSERT_SQL: LazyLock<String> = LazyLock::new(|| {
 static LEAVE_QUEUED_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE queue_items
-    SET state = @to, not_delivered_reason = @reason, updated_at = @now
+    SET state = @to, not_delivered_reason = @reason, not_delivered_words = @words,
+      updated_at = @now
   WHERE id = @id AND state = '{}'",
         <&'static str>::from(QueueItemState::Queued)
     )
@@ -248,7 +252,7 @@ static PLACE_SQL: LazyLock<String> = LazyLock::new(|| {
 fn leave_not_delivered_sql(to: QueueItemState) -> String {
     format!(
         "UPDATE queue_items
-    SET state = '{}', not_delivered_reason = NULL, updated_at = @now
+    SET state = '{}', not_delivered_reason = NULL, not_delivered_words = NULL, updated_at = @now
   WHERE id = @id AND state = '{}'",
         <&'static str>::from(to),
         <&'static str>::from(QueueItemState::NotDelivered)
@@ -467,7 +471,7 @@ pub(crate) fn leave_queued_statement(
         }
         QueueItemExit::Outcome(QueueItemOutcome::Canceled) => (QueueItemState::Canceled, None),
         QueueItemExit::Outcome(QueueItemOutcome::NotDelivered { reason }) => {
-            (QueueItemState::NotDelivered, Some(*reason))
+            (QueueItemState::NotDelivered, Some(reason))
         }
         QueueItemExit::Superseded => (QueueItemState::Superseded, None),
     };
@@ -476,7 +480,11 @@ pub(crate) fn leave_queued_statement(
         bindings: StatementBindings::Named(vec![
             text_binding("@id", id.text().as_str()),
             text_binding("@to", <&'static str>::from(to)),
-            nullable_text_binding("@reason", reason.map(<&'static str>::from)),
+            nullable_text_binding(
+                "@reason",
+                reason.map(|reason| <&'static str>::from(QueueItemNotDeliveredKind::from(reason))),
+            ),
+            nullable_text_binding("@words", reason.and_then(words_of)),
             text_binding("@now", now.as_str()),
         ]),
         expected_row_count: Some(1),
@@ -590,81 +598,6 @@ pub(crate) fn take_over_interrupted_statement(
             text_binding("@now", now.as_str()),
         ]),
         expected_row_count: None,
-    }
-}
-
-/// The pending row a screen draws for `record`.
-pub(crate) fn summary_of(record: QueueItemRecord) -> QueueItemSummary {
-    let QueueItemRecord {
-        id,
-        state,
-        body,
-        child_handle,
-        position,
-        sent_now_id,
-        created_at,
-        updated_at,
-        ..
-    } = record;
-    let is_sent_now = sent_now_id.is_some();
-    let content = body.content;
-    let attachments = body.attachments;
-    match state {
-        RecordedQueueItemState::Queued => QueueItemSummary::Queued {
-            id,
-            position,
-            content,
-            attachments,
-            child_handle,
-            is_sent_now,
-            created_at,
-            updated_at,
-            not_delivered_reason: None,
-        },
-        RecordedQueueItemState::Admitted => QueueItemSummary::Admitted {
-            id,
-            position,
-            content,
-            attachments,
-            child_handle,
-            is_sent_now,
-            created_at,
-            updated_at,
-            not_delivered_reason: None,
-        },
-        RecordedQueueItemState::Superseded => QueueItemSummary::Superseded {
-            id,
-            position,
-            content,
-            attachments,
-            child_handle,
-            is_sent_now,
-            created_at,
-            updated_at,
-            not_delivered_reason: None,
-        },
-        RecordedQueueItemState::Canceled => QueueItemSummary::Canceled {
-            id,
-            position,
-            content,
-            attachments,
-            child_handle,
-            is_sent_now,
-            created_at,
-            updated_at,
-            not_delivered_reason: None,
-        },
-        RecordedQueueItemState::NotDelivered { reason } => QueueItemSummary::NotDelivered {
-            id,
-            position,
-            content,
-            attachments,
-            child_handle,
-            is_sent_now,
-            created_at,
-            updated_at,
-            not_delivered_reason: reason,
-        },
     }
 }
 
@@ -787,8 +720,8 @@ impl<'reader> QueueItemReader<'reader> {
     }
 }
 
-/// A stored state paired with a reason only a not-delivered item carries, or the reverse, which the
-/// table's check refuses to write.
+/// A stored state paired with a reason only a not-delivered item carries, or a reason paired with
+/// words only a hook's refusal carries, or the reverse, which the table's checks refuse to write.
 #[derive(Debug, thiserror::Error)]
 #[error("the stored queue item state and its not-delivered reason do not pair")]
 struct UnpairedNotDeliveredReason;
@@ -803,7 +736,27 @@ struct NotAChildHandle;
 /// from a typed body.
 pub(super) fn record_of(row: &Row<'_>) -> rusqlite::Result<QueueItemRecord> {
     let state: QueueItemState = text_column(row, 2, closed_word)?;
-    let reason: Option<QueueItemNotDeliveredReason> = optional_text_column(row, 3, closed_word)?;
+    let kind: Option<QueueItemNotDeliveredKind> = optional_text_column(row, 3, closed_word)?;
+    let words = optional_text_column(row, 12, FreeFormText::new)?;
+    let reason = match (kind, words) {
+        (None, None) => None,
+        (Some(QueueItemNotDeliveredKind::TimedOut), None) => {
+            Some(QueueItemNotDeliveredReason::TimedOut {})
+        }
+        (Some(QueueItemNotDeliveredKind::Failed), None) => {
+            Some(QueueItemNotDeliveredReason::Failed {})
+        }
+        (Some(QueueItemNotDeliveredKind::RefusedByHook), Some(words)) => {
+            Some(QueueItemNotDeliveredReason::RefusedByHook { words })
+        }
+        (
+            Some(QueueItemNotDeliveredKind::TimedOut | QueueItemNotDeliveredKind::Failed) | None,
+            Some(_),
+        )
+        | (Some(QueueItemNotDeliveredKind::RefusedByHook), None) => {
+            return Err(unpaired_reason());
+        }
+    };
     let state = match (state, reason) {
         (QueueItemState::Queued, None) => RecordedQueueItemState::Queued,
         (QueueItemState::Admitted, None) => RecordedQueueItemState::Admitted,
@@ -820,11 +773,7 @@ pub(super) fn record_of(row: &Row<'_>) -> rusqlite::Result<QueueItemRecord> {
             Some(_),
         )
         | (QueueItemState::NotDelivered, None) => {
-            return Err(rusqlite::Error::FromSqlConversionFailure(
-                3,
-                rusqlite::types::Type::Text,
-                Box::new(UnpairedNotDeliveredReason),
-            ));
+            return Err(unpaired_reason());
         }
     };
     Ok(QueueItemRecord {
@@ -842,6 +791,23 @@ pub(super) fn record_of(row: &Row<'_>) -> rusqlite::Result<QueueItemRecord> {
         updated_at: text_column(row, 10, WireInstant::try_from)?,
         sent_now_id: optional_text_column(row, 11, |text| InterventionId::new(&text))?,
     })
+}
+
+// The read of a stored state, reason and words that do not pair.
+fn unpaired_reason() -> rusqlite::Error {
+    rusqlite::Error::FromSqlConversionFailure(
+        3,
+        rusqlite::types::Type::Text,
+        Box::new(UnpairedNotDeliveredReason),
+    )
+}
+
+// The words a reason carries: a hook's refusal carries the hook's own.
+fn words_of(reason: &QueueItemNotDeliveredReason) -> Option<&str> {
+    match reason {
+        QueueItemNotDeliveredReason::RefusedByHook { words } => Some(words.as_str()),
+        QueueItemNotDeliveredReason::TimedOut {} | QueueItemNotDeliveredReason::Failed {} => None,
+    }
 }
 
 // A statement on one item that changes only its time besides what its text sets.

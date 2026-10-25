@@ -16,6 +16,8 @@ use std::pin::Pin;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use futures::FutureExt;
+use futures::future::BoxFuture;
 use sidekicks_contracts::approval::RememberedRuleSense;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::PathRules;
@@ -27,8 +29,12 @@ use crate::git::exclude::{ExcludeError, add_repository_exclude};
 use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::MissingEntry;
 use crate::policy::destructive_git::covers_destructive_git;
+use crate::provider::driver::codex::DESCRIPTOR;
+use crate::provider::driver::codex::delivery::asks::CodexProjectRules;
 use crate::provider::driver::codex::rules::evaluator::RuleFileEvaluator;
 use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
+use crate::provider::port::registration::PortRegistration;
+use crate::provider::port::repository_reader::RepositoryReader;
 
 // The folder a project keeps its Codex settings in, and in it and in every other folder Codex
 // reads settings from, the folder of rule files and the extension Codex reads.
@@ -174,6 +180,89 @@ struct RuleFileText {
     is_project: bool,
 }
 
+/// The project rule files the daemon edits on the person's own Codex folder: a rule an answer made
+/// written into a project, and a revoked one taken back out.
+pub(crate) struct CodexProjectRuleFiles {
+    /// The person's own Codex folder, whose rules Codex reads before a project's.
+    pub(crate) codex_home: PathBuf,
+    /// The person's home folder.
+    pub(crate) home_folder: PathBuf,
+    /// The daemon's reads of the repository a project folder belongs to.
+    pub(crate) repositories: Arc<PortRegistration<Arc<dyn RepositoryReader>>>,
+}
+
+impl CodexProjectRuleFiles {
+    /// Takes a revoked `rule` back out of `project_folder`'s own rule file; a rule the file no
+    /// longer holds is already out of force. Fails as [`remove_codex_project_rule`] does otherwise.
+    #[expect(
+        dead_code,
+        reason = "the standing-rules list, which revokes a project's Codex rule from the rule list"
+    )]
+    pub(crate) async fn revoke(
+        &self,
+        project_folder: &Path,
+        rule: &ProviderAskRule,
+    ) -> Result<(), CodexRulesError> {
+        match remove_codex_project_rule(&self.sources(project_folder), rule).await {
+            Err(CodexRulesError::RuleNotFound) => Ok(()),
+            removed => removed,
+        }
+    }
+
+    // Where Codex reads the rules of `project_folder`'s sessions. The project's own files count
+    // only where Codex trusts it, which no read tells; they are read as trusted, so a rule another
+    // of them keeps is never reported gone.
+    fn sources<'a>(&'a self, project_folder: &'a Path) -> CodexRuleSources<'a> {
+        CodexRuleSources {
+            system_folder: &SYSTEM_FOLDER,
+            codex_home: &self.codex_home,
+            home_folder: &self.home_folder,
+            project_folder,
+            is_project_trusted: true,
+            path_rules: PathRules::NATIVE,
+            evaluation_time_limit: RULE_EVALUATION_TIME_LIMIT,
+        }
+    }
+}
+
+/// The folder Codex keeps its system settings in on the running system.
+static SYSTEM_FOLDER: LazyLock<PathBuf> = LazyLock::new(|| {
+    DESCRIPTOR
+        .managed_settings_folder()
+        .expect("Codex names its system settings folder on every system")
+});
+
+impl CodexProjectRules for CodexProjectRuleFiles {
+    fn write<'call>(
+        &'call self,
+        project_folder: &'call Path,
+        rule: &'call ProviderAskRule,
+    ) -> BoxFuture<'call, Result<(), CodexRulesError>> {
+        async move {
+            let repository = match self.repositories.port() {
+                Some(repositories) => repositories.read_repository(project_folder).await,
+                None => None,
+            };
+            let common_git_folder = repository.map(|reading| reading.common_git_folder);
+            write_codex_project_rule(
+                &self.sources(project_folder),
+                common_git_folder.as_deref(),
+                rule,
+            )
+            .await
+        }
+        .boxed()
+    }
+
+    fn remove<'call>(
+        &'call self,
+        project_folder: &'call Path,
+        rule: &'call ProviderAskRule,
+    ) -> BoxFuture<'call, Result<(), CodexRulesError>> {
+        async move { remove_codex_project_rule(&self.sources(project_folder), rule).await }.boxed()
+    }
+}
+
 /// Writes `rule` into the project's own rule file, replacing a rule of the other sense over the
 /// same subject; a file the daemon creates is first listed in the exclude list of
 /// `common_git_folder`, the repository the project folder belongs to, where it is one. One edit at
@@ -268,6 +357,13 @@ pub(crate) async fn remove_codex_project_rule(
 /// does not trust it or its `.codex` is the Codex home. A rule Codex asks on (`prompt`) is neither
 /// and is left out. Fails with `Unloadable` naming the first file Codex refuses, or one that did
 /// not finish in time, since Codex then drops every rule file's rules.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the standing-rules list, which reads a project's Codex rules for the rule list"
+    )
+)]
 pub(crate) async fn read_codex_project_rules(
     sources: &CodexRuleSources<'_>,
 ) -> Result<Vec<CodexProjectRule>, CodexRulesError> {
@@ -537,7 +633,8 @@ fn compose_rule_lines(rule: &ProviderAskRule) -> Result<Vec<String>, CodexRulesE
                 .iter()
                 .map(|protocol| {
                     format!(
-                        "network_rule(host={host}, protocol=\"{protocol}\", decision=\"{decision}\")"
+                        "network_rule(host={host}, \
+                         protocol=\"{protocol}\", decision=\"{decision}\")"
                     )
                 })
                 .collect())

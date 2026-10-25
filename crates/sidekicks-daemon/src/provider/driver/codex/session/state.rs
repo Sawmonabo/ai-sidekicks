@@ -12,31 +12,27 @@ use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
+use tokio::sync::oneshot;
 
 use crate::provider::driver::attachments::ProviderAttachment;
+use crate::provider::driver::codex::delivery::frames::CodexPromptHookRun;
 use crate::provider::driver::codex::delivery::memory::CodexDeliveryMemory;
 use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::session::inbound::CodexSessionInboundSender;
 use crate::provider::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
 use crate::provider::driver::codex::thread::settings::CodexThreadSettings;
+use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::run_control::{PickedSkill, ResumeRunParams};
 use crate::provider::thread_frame_router::ThreadFrameRouterConfig;
 
 /// How many interrupted runs whose ends are still owed a session keeps; past it the interrupt is
 /// refused rather than an entry dropped, since a dropped entry's end would reach no run.
-#[expect(
-    dead_code,
-    reason = "the Codex run's interrupt keeps the turn whose end is owed"
-)]
 const CODEX_INTERRUPTED_ROUTE_MEMORY: usize = 64;
 
 /// How many settled turn ids a session remembers, oldest dropped first.
-#[expect(
-    dead_code,
-    reason = "the Codex session's frame intake remembers each turn's end"
-)]
 const CODEX_SETTLED_TURN_MEMORY: usize = 64;
 
 /// The thread-frame router's bounds. The hold covers one short race, a helper's frames ahead of
@@ -51,10 +47,6 @@ pub(crate) const CODEX_THREAD_FRAME_ROUTER_CONFIG: ThreadFrameRouterConfig =
 /// One of the person's messages a turn is sent with: its words as typed, the skills picked for it,
 /// then its staged files.
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "the Codex run start sends a turn's messages and resends them on a retry"
-)]
 pub(crate) struct CodexTurnMessage {
     /// The words.
     pub(crate) text: String,
@@ -66,10 +58,6 @@ pub(crate) struct CodexTurnMessage {
 
 /// What a turn was sent with, kept so a faster-model retry can send it again, files and all.
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "the Codex run start keeps a turn's input for a faster-model retry"
-)]
 pub(crate) struct CodexTurnInput {
     /// The messages.
     pub(crate) messages: Vec<CodexTurnMessage>,
@@ -81,10 +69,6 @@ pub(crate) struct CodexTurnInput {
 
 /// A run whose turn is accepted and whose settled output speed is not yet reported.
 #[derive(Clone, Copy, Debug)]
-#[expect(
-    dead_code,
-    reason = "the Codex output speed reports the speed each accepted turn settled on"
-)]
 pub(crate) struct CodexUnsettledOutputSpeedRun {
     /// The run.
     pub(crate) run_id: RunId,
@@ -92,12 +76,57 @@ pub(crate) struct CodexUnsettledOutputSpeedRun {
     pub(crate) awaits_settings_notice: bool,
 }
 
+/// The steers sent into one live turn that Codex has yet to echo, each at its place among the
+/// steers the turn took, which is its prompt's place among the turn's prompts after the opening.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CodexUnechoedSteers {
+    /// Each unechoed steer's place and message, in send order.
+    pub(crate) steers: Vec<(usize, QueueItemId)>,
+    /// How many steers the turn took, which is the next one's place.
+    pub(crate) next_place: usize,
+}
+
+impl CodexUnechoedSteers {
+    /// Registers `message_id` at the turn's next place.
+    pub(crate) fn register(&mut self, message_id: QueueItemId) {
+        self.steers.push((self.next_place, message_id));
+        self.next_place += 1;
+    }
+
+    /// Takes back `message_id`, which Codex did not take: it holds no prompt, so every later
+    /// steer moves down one place.
+    pub(crate) fn withdraw(&mut self, message_id: QueueItemId) {
+        let Some(at) = self.steers.iter().position(|(_, held)| *held == message_id) else {
+            return;
+        };
+        let (place, _) = self.steers.remove(at);
+        for (later, _) in &mut self.steers {
+            if *later > place {
+                *later -= 1;
+            }
+        }
+        self.next_place -= 1;
+    }
+
+    /// Takes `message_id` out once Codex echoed it, the rest keeping their places; `false` when
+    /// it is not held.
+    pub(crate) fn take_echoed(&mut self, message_id: QueueItemId) -> bool {
+        let held = self.steers.len();
+        self.steers.retain(|(_, unechoed)| *unechoed != message_id);
+        self.steers.len() < held
+    }
+
+    /// The unechoed steers' messages, in send order.
+    pub(crate) fn message_ids(&self) -> Vec<QueueItemId> {
+        self.steers
+            .iter()
+            .map(|(_, message_id)| *message_id)
+            .collect()
+    }
+}
+
 /// Everything the driver keeps for one live Codex session. The session's task holds it and every
 /// change to it is made there, in the order the session's frames and calls arrive.
-#[expect(
-    dead_code,
-    reason = "the Codex session's start, resume, fork and controls keep and read the record"
-)]
 pub(crate) struct CodexSessionRecord {
     /// The session.
     pub(crate) session_id: SessionId,
@@ -148,6 +177,14 @@ pub(crate) struct CodexSessionRecord {
     pub(crate) interrupted_run_by_turn_id: Vec<(String, RunId)>,
     /// Turns whose `turn/interrupt` is on the wire: no steer is sent into one.
     pub(crate) interrupting_turn_ids: HashSet<String>,
+    /// The steers sent into each live turn whose `userMessage` echo has yet to arrive, by turn id,
+    /// each registered before its `turn/steer` is written: an echo takes one, an interrupt cancels
+    /// what its turn still holds, and the turn's end lets go of the rest. A turn's entry stays
+    /// until its end, so its places count every steer the turn took.
+    pub(crate) unechoed_steers_by_turn_id: HashMap<String, CodexUnechoedSteers>,
+    /// Every run of the person's own `userPromptSubmit` hook handlers on a live turn's prompts,
+    /// by turn id, in the order Codex reported them; each leaves with its turn's end.
+    pub(crate) prompt_hook_runs_by_turn_id: HashMap<String, Vec<CodexPromptHookRun>>,
     /// The newest steer sent on the conversation, settled either way; the next waits for it, so
     /// steers reach Codex one at a time in the order they were handed over.
     pub(crate) last_steer_send: Option<Shared<BoxFuture<'static, ()>>>,
@@ -156,21 +193,90 @@ pub(crate) struct CodexSessionRecord {
     /// Runs whose turn was interrupted to pause them, by that turn's id: its interrupted end is
     /// the pause taking effect, never the run's end.
     pub(crate) paused_run_id_by_interrupted_turn_id: HashMap<String, RunId>,
-    /// Continues asked for while a pause's interrupt was on its way, by the run.
-    pub(crate) continues_awaiting_pause: HashMap<RunId, ResumeRunParams>,
+    /// Continues asked for while a pause's interrupt was on its way, by the run, each with the
+    /// resume it answers once its turn started or the run ended.
+    pub(crate) continues_awaiting_pause: HashMap<RunId, CodexWaitingContinue>,
     /// What each live turn was sent with, by turn id; each leaves with its turn's end.
     pub(crate) turn_input_by_turn_id: HashMap<String, CodexTurnInput>,
     /// What the session's deliveries remember between frames.
     pub(crate) delivery: CodexDeliveryMemory,
 }
 
+/// What an establishment knows of a session's conversation, from which its record starts with
+/// every per-turn register empty.
+pub(crate) struct CodexEstablishedConversation {
+    /// The session.
+    pub(crate) session_id: SessionId,
+    /// The service the conversation is loaded on.
+    pub(crate) service: Arc<CodexService>,
+    /// The queue the session's frames and asks go to.
+    pub(crate) inbound: CodexSessionInboundSender,
+    /// The conversation.
+    pub(crate) thread_id: String,
+    /// The binding whose resume handle names the conversation; `None` until the first run.
+    pub(crate) binding_id: Option<RuntimeBindingId>,
+    /// The account the conversation runs on.
+    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The conversation's turn ids, oldest first.
+    pub(crate) turn_boundaries: Vec<String>,
+    /// The settings the conversation was established with.
+    pub(crate) thread_settings: CodexThreadSettings,
+    /// The session's level and roots.
+    pub(crate) execution_posture: ExecutionPosture,
+    /// Build or Plan.
+    pub(crate) session_mode: SessionMode,
+    /// The output-speed level the session asks for.
+    pub(crate) output_speed_request: Option<String>,
+    /// The tier the establishment's reply declared.
+    pub(crate) declared_output_speed: Option<ProviderOutputSpeedState>,
+    /// The reasoning effort the establishment's reply named.
+    pub(crate) reasoning_effort: Option<String>,
+}
+
 /// The interrupted turns a session can keep were all taken, so one more interrupt is refused.
 #[derive(Clone, Copy, Debug, thiserror::Error)]
 #[error("the session already keeps {CODEX_INTERRUPTED_ROUTE_MEMORY} interrupted turns")]
-#[expect(dead_code, reason = "the Codex run's interrupt refuses past the bound")]
 pub(crate) struct InterruptedRouteMemoryFull;
 
 impl CodexSessionRecord {
+    /// The record of a conversation just established, under the profile its settings ask for.
+    pub(crate) fn new(established: CodexEstablishedConversation) -> Self {
+        Self {
+            session_id: established.session_id,
+            service: established.service,
+            inbound: established.inbound,
+            thread_id: established.thread_id,
+            binding_id: established.binding_id,
+            provider_account_id: established.provider_account_id,
+            turn_boundaries: established.turn_boundaries,
+            turn_id_by_client_message_id: HashMap::new(),
+            permission_profiles: CodexThreadPermissionProfiles::established(
+                &established.thread_settings,
+            ),
+            thread_settings: established.thread_settings,
+            is_config_fork_owed: false,
+            left_thread_ids_awaiting_binding: Vec::new(),
+            execution_posture: established.execution_posture,
+            session_mode: established.session_mode,
+            output_speed_request: established.output_speed_request,
+            declared_output_speed: established.declared_output_speed,
+            reasoning_effort: established.reasoning_effort,
+            unsettled_output_speed_runs: HashMap::new(),
+            active_turns: Vec::new(),
+            settled_turn_ids: VecDeque::new(),
+            interrupted_run_by_turn_id: Vec::new(),
+            interrupting_turn_ids: HashSet::new(),
+            unechoed_steers_by_turn_id: HashMap::new(),
+            prompt_hook_runs_by_turn_id: HashMap::new(),
+            last_steer_send: None,
+            pause_run_id_by_turn_id: HashMap::new(),
+            paused_run_id_by_interrupted_turn_id: HashMap::new(),
+            continues_awaiting_pause: HashMap::new(),
+            turn_input_by_turn_id: HashMap::new(),
+            delivery: CodexDeliveryMemory::new(),
+        }
+    }
+
     /// The run of the live turn `turn_id`, if it is live.
     pub(crate) fn active_turn_run(&self, turn_id: &str) -> Option<RunId> {
         find_run(&self.active_turns, turn_id)
@@ -199,10 +305,6 @@ impl CodexSessionRecord {
     }
 
     /// Records that a turn's end was read, dropping the oldest past the memory's bound.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's frame intake remembers each turn's end"
-    )]
     pub(crate) fn remember_settled_turn(&mut self, turn_id: String) {
         self.settled_turn_ids.retain(|settled| *settled != turn_id);
         self.settled_turn_ids.push_back(turn_id);
@@ -218,10 +320,6 @@ impl CodexSessionRecord {
 
     /// Keeps an interrupted run's turn for its coming end. Fails at the bound, never dropping an
     /// entry, since a dropped one's end would reach no run; the caller ends the session.
-    #[expect(
-        dead_code,
-        reason = "the Codex run's interrupt keeps the turn whose end is owed"
-    )]
     pub(crate) fn remember_interrupted_run(
         &mut self,
         turn_id: String,
@@ -241,10 +339,6 @@ impl CodexSessionRecord {
     }
 
     /// Lets go of an interrupted turn whose end arrived.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's frame intake lets go of an interrupted turn at its end"
-    )]
     pub(crate) fn forget_interrupted_run(&mut self, turn_id: &str) {
         self.interrupted_run_by_turn_id
             .retain(|(kept, _)| kept != turn_id);
@@ -252,10 +346,6 @@ impl CodexSessionRecord {
 
     /// The turns the daemon stopped whose `turn/completed` has yet to arrive: interrupted,
     /// interrupted for a pause, or stopped for a faster-model retry.
-    #[expect(
-        dead_code,
-        reason = "the Codex run start reads whether a turn is still ending"
-    )]
     pub(crate) fn ending_turn_ids(&self) -> Vec<&str> {
         self.interrupted_run_by_turn_id
             .iter()
@@ -277,10 +367,6 @@ impl CodexSessionRecord {
     /// Whether a turn runs, is starting or is still ending, or one Codex started by itself is
     /// opening or runs with no run, so input the daemon sends would fold into it. The opening of
     /// `opening_turn_id` itself does not count, for the run that opening starts.
-    #[expect(
-        dead_code,
-        reason = "the Codex run start and steer read whether a turn is in flight"
-    )]
     pub(crate) fn is_turn_in_flight(&self, opening_turn_id: Option<&str>) -> bool {
         let opening = self.delivery.self_started_turn_opening.as_deref();
         !self.active_turns.is_empty()
@@ -312,4 +398,15 @@ fn find_run(turns: &[(String, RunId)], turn_id: &str) -> Option<RunId> {
         .iter()
         .find(|(kept, _)| kept == turn_id)
         .map(|(_, run_id)| *run_id)
+}
+
+/// A continue that waits on a pause's interrupt: its resume's params, and the reply its resume
+/// waits on, answered `Ok` once the continue's turn started and with a refusal when the pause's
+/// turn ended with no turn to start, so the queue admits the messages only once they were sent.
+pub(crate) struct CodexWaitingContinue {
+    /// The continue.
+    pub(crate) params: ResumeRunParams,
+    /// Answered when the continue's place resolves; dropped with the record, which its resume
+    /// reads as the conversation let go.
+    pub(crate) started: oneshot::Sender<Result<(), DriverError>>,
 }

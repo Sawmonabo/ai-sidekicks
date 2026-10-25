@@ -18,7 +18,9 @@ use crate::provider::driver::codex::delivery::memory::{
 use crate::provider::driver::codex::delivery::reviewer::end_codex_review_turn;
 use crate::provider::driver::codex::delivery::rows::CodexRowRun;
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::turn_evidence::compose_codex_child_terminal;
+use crate::provider::driver::codex::turn_evidence::{
+    CodexTurnStatus, compose_codex_child_terminal,
+};
 use crate::provider::record_readers::read_non_empty_string;
 use crate::session::run::epochs::DeliveryOperation;
 use crate::session::run::inbound::rows::LateAppendableRow;
@@ -93,10 +95,6 @@ impl CodexFrameDelivery {
     /// whose oldest unclaimed spawn call on the parent thread started it, else the parent helper's
     /// own child run, else the session's one live run. A helper whose parent run cannot be told,
     /// or beneath a helper that never started, is left unstarted, since no run can own it.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's frame routing starts each helper its conversation announces"
-    )]
     pub(crate) async fn start_child(
         &self,
         record: &mut CodexSessionRecord,
@@ -160,10 +158,6 @@ impl CodexFrameDelivery {
     /// Ends the child run of a helper whose last turn ended, with the `subagent.completed` row,
     /// after the asks that turn still held and the pieces it still had waiting; `turn_params` is
     /// that turn's `turn/completed` params.
-    #[expect(
-        dead_code,
-        reason = "the Codex session's frame routing ends each helper whose last turn ended"
-    )]
     pub(crate) async fn complete_child(
         &self,
         record: &mut CodexSessionRecord,
@@ -182,7 +176,8 @@ impl CodexFrameDelivery {
         let is_stopped_by_codex = turn
             .and_then(|turn| turn.get("status"))
             .and_then(serde_json::Value::as_str)
-            == Some("interrupted");
+            .and_then(CodexTurnStatus::read)
+            == Some(CodexTurnStatus::Interrupted);
         if let ChildRunLookup::Started {
             run,
             start_row_event_id,

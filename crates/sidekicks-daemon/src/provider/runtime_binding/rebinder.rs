@@ -14,11 +14,6 @@ use crate::provider::runtime_binding::store::{
 pub(crate) trait RuntimeBindingRebinder: Send + Sync {
     /// Points binding `rebind.binding_id` at the conversation its session moved onto, recording
     /// each conversation the session left in the same write. Fails when nothing was recorded.
-    #[expect(
-        dead_code,
-        reason = "a fork or a restart's resume points the binding at its new conversation \
-                  through it"
-    )]
     fn rebind(
         &self,
         rebind: RuntimeBindingRebind,

@@ -120,7 +120,7 @@ impl CallerCheck {
             Some(SignatureCheck::NotMet { status }) => {
                 tracing::debug!(
                     status,
-                    "A tokenless caller's signature did not meet the desktop client's requirement"
+                    "a tokenless caller's signature did not meet the desktop client's requirement"
                 );
                 CallerAdmission::TokenRequired
             }
@@ -171,7 +171,7 @@ impl CallerCheck {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::collections::HashSet;
     use std::io;
     use std::sync::Arc;
@@ -192,11 +192,11 @@ mod tests {
 
     /// A reader answering one responsible process, one parent and one signature verdict for every
     /// process, and recording whether a signature was read.
-    struct ScriptedReader {
-        responsible: ResponsibleProcess,
-        parent: ParentProcess,
-        is_desktop_client: bool,
-        was_signature_read: AtomicBool,
+    pub(crate) struct ScriptedReader {
+        pub(crate) responsible: ResponsibleProcess,
+        pub(crate) parent: ParentProcess,
+        pub(crate) is_desktop_client: bool,
+        pub(crate) was_signature_read: AtomicBool,
     }
 
     impl CallerProcessReader for ScriptedReader {

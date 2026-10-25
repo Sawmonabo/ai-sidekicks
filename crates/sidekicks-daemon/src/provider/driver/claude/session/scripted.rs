@@ -63,6 +63,7 @@ use crate::provider::driver::claude::session::transport::inbound::{
 };
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::provider::driver::test_registry::{new_run_id, new_session_id};
 use crate::queue::delivery::ProviderProcessIdentity;
 
 /// Staged-change worktrees under a scratch folder of their own, on a spawner of their own.
@@ -76,16 +77,6 @@ pub(crate) fn scripted_staged_changes() -> StagedChangesWorktrees {
 
 /// The provider session every scripted process runs under.
 pub(crate) const SCRIPTED_PROVIDER_SESSION_ID: &str = "provider-session";
-
-/// A fresh run id.
-pub(crate) fn mint_run_id() -> RunId {
-    RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
-}
-
-/// A fresh session id.
-pub(crate) fn mint_session_id() -> SessionId {
-    SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
-}
 
 /// A runtime binding id spelled from `name`.
 pub(crate) fn binding_id(name: &str) -> RuntimeBindingId {
@@ -220,7 +211,7 @@ impl ScriptedSession {
         });
         let channel = Arc::new(ScriptedChannel::default());
         starts.script_session(Arc::clone(&channel));
-        let session_id = mint_session_id();
+        let session_id = new_session_id();
         driver
             .create_session(create_params(session_id))
             .await
@@ -308,7 +299,7 @@ impl ScriptedSession {
 
     /// Holds the session's turn for a fresh lead run on `binding`, as a run's start does.
     pub(crate) fn hold_lead_turn(&self, binding: &str) -> RunId {
-        let run_id = mint_run_id();
+        let run_id = new_run_id();
         self.start
             .routes
             .hold_turn(run_id, self.session_id, binding_id(binding))
@@ -318,7 +309,7 @@ impl ScriptedSession {
 
     /// Binds a fresh child run for the helper `agent_id`, started beneath `parent_run_id`.
     pub(crate) fn bind_helper(&self, parent_run_id: RunId, agent_id: &str) -> RunId {
-        let run_id = mint_run_id();
+        let run_id = new_run_id();
         self.start.routes.bind_child_run(
             run_id,
             ClaudeChildRunRoute {

@@ -4,23 +4,18 @@
 //! all from the process's next request, with no relaunch.
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde_json::Value;
-use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::provider::driver::capabilities::{
-    CredentialPolicyRef, ExecutionPosture, ProviderMode,
-};
+use sidekicks_contracts::provider::driver::capabilities::ProviderMode;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::list::BoundedVec;
-use sidekicks_contracts::wire::text::{FreeFormText, TextError};
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{PathRules, Spawner};
 use strum::VariantArray;
 
 use crate::ipc::domain_error::DomainError;
 use crate::mutex_lock::lock;
-use crate::policy::execution_posture_service::CURATED_CREDENTIAL_POLICY_REF;
 use crate::provider::driver::CommandSandboxAvailability;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::session::errors::record_unheard_claude_failure;
@@ -99,35 +94,18 @@ pub(crate) enum ClaudeLevelMoveError {
     /// (`session.permissionLevel.notOffered`); nothing was sent.
     #[error(transparent)]
     NotOffered(DomainError),
-    /// A writable root is no path a posture can carry; nothing was sent.
-    #[error("the writable root {} is no path a posture carries", .path.display())]
-    WritableRoot {
-        /// The root.
-        path: PathBuf,
-        /// Why the path was refused.
-        #[source]
-        refusal: TextError,
-    },
-    /// The level opens no folder to writes and the move named some; nothing was sent.
-    #[error("the move named writable folders the {} level never opens", <&str>::from(.level))]
-    WritableRootsAtLevel {
-        /// The level.
-        level: PermissionLevel,
-    },
     /// The rules could not be composed, or Claude Code refused or did not answer a request.
     #[error(transparent)]
     Permissions(#[from] ClaudePermissionsError),
 }
 
 impl From<ClaudeLevelMoveError> for DriverError {
-    /// A level the session cannot run keeps its refusal, and a failed send its own answer; every
-    /// other failure is internal.
+    /// A level the session cannot run keeps its refusal, and a failed composition or send its own
+    /// answer.
     fn from(error: ClaudeLevelMoveError) -> Self {
         match error {
             ClaudeLevelMoveError::NotOffered(refusal) => Self::Refused(refusal),
             ClaudeLevelMoveError::Permissions(error) => error.into(),
-            error @ (ClaudeLevelMoveError::WritableRoot { .. }
-            | ClaudeLevelMoveError::WritableRootsAtLevel { .. }) => Self::Internal(Box::new(error)),
         }
     }
 }
@@ -141,17 +119,6 @@ pub(crate) fn claude_permission_mode_for(level: Option<PermissionLevel>) -> Clau
         Some(PermissionLevel::Reviewed) => ClaudePermissionMode::Auto,
         Some(PermissionLevel::Sandboxed) => ClaudePermissionMode::DontAsk,
         Some(PermissionLevel::Yolo) => ClaudePermissionMode::BypassPermissions,
-    }
-}
-
-/// The level a posture runs at.
-pub(crate) fn permission_level_of(posture: &ExecutionPosture) -> PermissionLevel {
-    match posture {
-        ExecutionPosture::Readonly { .. } => PermissionLevel::Readonly,
-        ExecutionPosture::Ask { .. } => PermissionLevel::Ask,
-        ExecutionPosture::Reviewed { .. } => PermissionLevel::Reviewed,
-        ExecutionPosture::Sandboxed { .. } => PermissionLevel::Sandboxed,
-        ExecutionPosture::Yolo { .. } => PermissionLevel::Yolo,
     }
 }
 
@@ -219,10 +186,11 @@ pub(crate) fn can_run_claude_level(
         && (level != PermissionLevel::Reviewed || auto_mode_models.contains(running_model))
 }
 
-/// Moves a live session to the level `params` names: its permission mode, unless the session
-/// plans, then its whole permission rules with `session_rules` in force and its command sandbox,
-/// on at Sandboxed and removed at every other level, then the posture it runs at. Refused before
-/// anything is sent for a level the model or system cannot run, or roots the level cannot carry.
+/// Moves a live session to the posture `params` names, at its level and writable roots: its
+/// permission mode, unless the session plans, then its whole permission rules with `session_rules`
+/// in force and its command sandbox, on at Sandboxed and removed at every other level, then the
+/// posture it runs at. Refused before anything is sent for a level the model or system cannot
+/// run.
 pub(crate) async fn move_claude_permission_level(
     live: &LiveClaudeSession,
     params: &UpdatePermissionLevelParams,
@@ -230,8 +198,9 @@ pub(crate) async fn move_claude_permission_level(
     session_rules: &[ProviderAskRule],
     path_rules: PathRules,
 ) -> Result<(), ClaudeLevelMoveError> {
-    let level = params.level;
-    let (current_posture, session_mode, is_runnable) = {
+    let posture = &params.execution_posture;
+    let level = posture.permission_level();
+    let (session_mode, is_runnable) = {
         let settings = lock(&live.settings);
         let is_runnable = can_run_claude_level(
             level,
@@ -239,25 +208,13 @@ pub(crate) async fn move_claude_permission_level(
             &live.initialize.auto_mode_models,
             can_run_sandbox,
         );
-        (
-            settings.execution_posture.clone(),
-            settings.session_mode,
-            is_runnable,
-        )
+        (settings.session_mode, is_runnable)
     };
     if !is_runnable {
         return Err(ClaudeLevelMoveError::NotOffered(
             permission_level_not_offered(level),
         ));
     }
-    let credential_policy_ref = current_posture.as_ref().map_or_else(
-        || {
-            CredentialPolicyRef::new(CURATED_CREDENTIAL_POLICY_REF.to_owned())
-                .expect("the curated list's short name is within a reference's cap")
-        },
-        |posture| posture.credential_policy_ref().clone(),
-    );
-    let posture = compose_level_posture(level, credential_policy_ref, &params.writable_roots)?;
     let permissions = compose_live_claude_permissions(
         live,
         posture.writable_roots(),
@@ -290,7 +247,7 @@ pub(crate) async fn move_claude_permission_level(
         })
         .await
         .map_err(ClaudePermissionsError::from)?;
-    lock(&live.settings).execution_posture = Some(posture);
+    lock(&live.settings).execution_posture = Some(posture.clone());
     Ok(())
 }
 
@@ -422,51 +379,6 @@ fn claude_permission_mode_name(mode: ClaudePermissionMode) -> String {
         .ok()
         .and_then(|name| name.as_str().map(str::to_owned))
         .expect("a permission mode serializes as its name")
-}
-
-// The posture at `level` writable in `writable_roots`, which only Ask, Reviewed and Sandboxed
-// carry.
-fn compose_level_posture(
-    level: PermissionLevel,
-    credential_policy_ref: CredentialPolicyRef,
-    writable_roots: &[PathBuf],
-) -> Result<ExecutionPosture, ClaudeLevelMoveError> {
-    let roots = writable_roots
-        .iter()
-        .map(|root| {
-            FilesystemPath::new(root.to_string_lossy().into_owned()).map_err(|refusal| {
-                ClaudeLevelMoveError::WritableRoot {
-                    path: root.clone(),
-                    refusal,
-                }
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let no_roots = |roots: Vec<FilesystemPath>| {
-        BoundedVec::new(roots).ok_or(ClaudeLevelMoveError::WritableRootsAtLevel { level })
-    };
-    Ok(match level {
-        PermissionLevel::Readonly => ExecutionPosture::Readonly {
-            credential_policy_ref,
-            writable_roots: no_roots(roots)?,
-        },
-        PermissionLevel::Ask => ExecutionPosture::Ask {
-            credential_policy_ref,
-            writable_roots: roots,
-        },
-        PermissionLevel::Reviewed => ExecutionPosture::Reviewed {
-            credential_policy_ref,
-            writable_roots: roots,
-        },
-        PermissionLevel::Sandboxed => ExecutionPosture::Sandboxed {
-            credential_policy_ref,
-            writable_roots: roots,
-        },
-        PermissionLevel::Yolo => ExecutionPosture::Yolo {
-            credential_policy_ref,
-            writable_roots: no_roots(roots)?,
-        },
-    })
 }
 
 #[cfg(test)]

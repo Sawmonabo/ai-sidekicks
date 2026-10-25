@@ -5,7 +5,6 @@
 use std::sync::LazyLock;
 
 use serde::Deserialize;
-use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::run::control::RunFailureCategory;
@@ -25,18 +24,8 @@ use crate::provider::terminal_emission_gate::{
     TerminalEmissionDecision, TerminalEmissionGate, TerminalRunFrame,
 };
 use crate::provider::thread_frame_router::ThreadFrameRoute;
-use crate::provider::turn_evidence::{
-    TurnEvidenceClass, TurnEvidenceClassification, UNRECOGNIZED_TURN_EVIDENCE,
-    observed_turn_evidence,
-};
 use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
-
-/// The item type that is the model's output; the `userMessage` echo is not.
-const CODEX_MODEL_OUTPUT_ITEM_TYPE: &str = "agentMessage";
-
-/// What every item notification's method starts with.
-const CODEX_ITEM_METHOD_PREFIX: &str = "item/";
 
 /// The detail of a failed turn whose error message is blank and for which Codex said nothing else.
 static BLANK_TURN_ERROR_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
@@ -48,21 +37,34 @@ static BLANK_TURN_ERROR_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_
 /// The turn statuses Codex sends, read from its open string; any other word reads as none, which
 /// a settled turn reports and fails its run on.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum CodexTurnStatus {
+pub(super) enum CodexTurnStatus {
+    /// The turn ran to its end.
     Completed,
+    /// The turn was stopped.
     Interrupted,
+    /// The turn failed.
     Failed,
+    /// The turn still runs.
     InProgress,
 }
 
 impl CodexTurnStatus {
-    fn read(status: &str) -> Option<Self> {
+    /// The status `status` names, `None` for a word Codex does not send.
+    pub(super) fn read(status: &str) -> Option<Self> {
         match status {
             "completed" => Some(Self::Completed),
             "interrupted" => Some(Self::Interrupted),
             "failed" => Some(Self::Failed),
             "inProgress" => Some(Self::InProgress),
             _ => None,
+        }
+    }
+
+    /// Whether the status ends its turn: every one but `inProgress`.
+    pub(super) fn is_terminal(self) -> bool {
+        match self {
+            Self::Completed | Self::Interrupted | Self::Failed => true,
+            Self::InProgress => false,
         }
     }
 }
@@ -73,30 +75,18 @@ struct TurnCompletedParams {
     turn: CompletedTurn,
 }
 
-/// The settled turn: its status, its items where loaded, each kept raw until its type is read,
-/// and its error where it failed.
+/// The settled turn: its status, and its error where it failed.
 #[derive(Deserialize)]
 struct CompletedTurn {
     status: String,
-    #[serde(default)]
-    items: Option<Vec<Box<RawValue>>>,
     #[serde(default)]
     error: Option<Value>,
 }
 
 impl CompletedTurn {
-    // The error's message where it carries one as text: only its presence is evidence, since the
-    // words are the provider's prose.
+    // The error's message where it carries one as text.
     fn error_message(&self) -> Option<&str> {
         self.error.as_ref()?.get("message")?.as_str()
-    }
-
-    // Whether an item is the model's output; an item whose type cannot be read is not.
-    fn has_model_output(&self) -> bool {
-        self.items.iter().flatten().any(|item| {
-            serde_json::from_str::<ItemHead>(item.get())
-                .is_ok_and(|head| head.item_type == CODEX_MODEL_OUTPUT_ITEM_TYPE)
-        })
     }
 
     // The turn's status, a word Codex does not send reported once on the connection as unmapped.
@@ -118,21 +108,6 @@ impl CompletedTurn {
     }
 }
 
-/// The members of an item notification's params the reading uses.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ItemNotificationParams {
-    turn_id: String,
-    item: ItemHead,
-}
-
-/// The one member of an item the reading uses.
-#[derive(Deserialize)]
-struct ItemHead {
-    #[serde(rename = "type")]
-    item_type: String,
-}
-
 // The settled turn in `turn/completed`'s params text; `None` when the params cannot be read.
 fn read_completed_turn(params: &str) -> Option<CompletedTurn> {
     serde_json::from_str::<TurnCompletedParams>(&decode_inbound_json(params.as_bytes()))
@@ -140,87 +115,8 @@ fn read_completed_turn(params: &str) -> Option<CompletedTurn> {
         .map(|params| params.turn)
 }
 
-/// One in-flight reading that a turn is producing model output, keyed by the turn it belongs to.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CodexTurnEvidenceObservation {
-    /// The turn the item belongs to.
-    pub(crate) turn_id: String,
-    /// What the item proves.
-    pub(crate) observation: TurnEvidenceClass,
-}
-
-/// Reads one in-flight notification's `params` JSON text for evidence that its turn produces model
-/// output: an `agentMessage` item, never the `userMessage` echo. `None` for any other frame, or
-/// params that cannot be read; the evidence accrues mid-turn because `turn/completed` can carry no
-/// items at all.
-#[expect(
-    dead_code,
-    reason = "the Codex event reader accrues each turn's output evidence before it settles"
-)]
-pub(crate) fn classify_codex_turn_evidence_observation(
-    method: &str,
-    params: &str,
-) -> Option<CodexTurnEvidenceObservation> {
-    if !method.starts_with(CODEX_ITEM_METHOD_PREFIX) {
-        return None;
-    }
-    let ItemNotificationParams { turn_id, item } =
-        serde_json::from_str::<ItemNotificationParams>(&decode_inbound_json(params.as_bytes()))
-            .ok()?;
-    (!turn_id.is_empty() && item.item_type == CODEX_MODEL_OUTPUT_ITEM_TYPE).then_some(
-        CodexTurnEvidenceObservation {
-            turn_id,
-            observation: TurnEvidenceClass::ModelOutput,
-        },
-    )
-}
-
-/// Reads a settling `turn/completed`'s `params` JSON text for typed evidence that a model turn
-/// happened; unrecognized when the params cannot be read or the status is not one Codex sends.
-/// No message text is read, and the turn's duration is no evidence: a quota-spent turn has one.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex event reader classifies each settled turn"
-    )
-)]
-pub(crate) fn classify_codex_turn_evidence(params: &str) -> TurnEvidenceClassification {
-    read_completed_turn(params).map_or(UNRECOGNIZED_TURN_EVIDENCE, |turn| {
-        classify_completed_turn(&turn)
-    })
-}
-
-fn classify_completed_turn(turn: &CompletedTurn) -> TurnEvidenceClassification {
-    let Some(status) = CodexTurnStatus::read(&turn.status) else {
-        return UNRECOGNIZED_TURN_EVIDENCE;
-    };
-    let mut observations = Vec::new();
-    if turn.has_model_output() {
-        observations.push(TurnEvidenceClass::ModelOutput);
-    }
-    let is_declared_failure = match status {
-        // An interrupt need not carry an error, so the status alone declares it.
-        CodexTurnStatus::Interrupted => true,
-        CodexTurnStatus::Failed => turn.error_message().is_some(),
-        // A command the client dispatches reports success too, so completion declares nothing.
-        CodexTurnStatus::Completed | CodexTurnStatus::InProgress => false,
-    };
-    if is_declared_failure {
-        observations.push(TurnEvidenceClass::DeclaredTurnFailure);
-    }
-    observed_turn_evidence(&observations)
-}
-
 /// What a session turn's end is composed from: the frame, its run, the turn and its epoch, the
 /// router's decision for the frame, and what failed it where Codex's readings name that.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex event reader ends each session turn through it"
-    )
-)]
 pub(crate) struct CodexTurnTerminalInput<'frame> {
     /// The `turn/completed` params' JSON text.
     pub(crate) params: &'frame str,
@@ -252,13 +148,6 @@ pub(crate) struct CodexTurnTerminal {
 /// retries that failed it, and for a status Codex does not send, which is reported once through
 /// `diagnostics`. `None` when the gate suppressed it, the params cannot be read, or the status is
 /// `inProgress`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex event reader ends each session turn through it"
-    )
-)]
 pub(crate) fn compose_codex_turn_terminal(
     input: CodexTurnTerminalInput<'_>,
     gate: &mut TerminalEmissionGate,
@@ -310,10 +199,6 @@ pub(crate) fn compose_codex_turn_terminal(
 /// JSON text: `completed`, `interrupted`, or `failed` for any other status or unreadable params,
 /// a status Codex does not send reported once through `diagnostics`. A helper's turns carry no
 /// epoch of the session's runs, so no terminal gate admits it.
-#[expect(
-    dead_code,
-    reason = "the Codex helper roles end each helper's child run through it"
-)]
 pub(crate) fn compose_codex_child_terminal(
     child_run_id: RunId,
     params: &str,
@@ -398,14 +283,10 @@ mod tests {
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_contracts::wire::text::FreeFormText;
 
-    use super::{
-        CodexTurnTerminal, CodexTurnTerminalInput, classify_codex_turn_evidence,
-        compose_codex_turn_terminal,
-    };
+    use super::{CodexTurnTerminal, CodexTurnTerminalInput, compose_codex_turn_terminal};
     use crate::provider::driver::diagnostics::OnceReportedDiagnostics;
     use crate::provider::terminal_emission_gate::TerminalEmissionGate;
     use crate::provider::thread_frame_router::ThreadFrameRoute;
-    use crate::provider::turn_evidence::TurnEvidenceClass;
     use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
     use crate::session::run::state_change::{RunStateChange, RunStateEntry};
 
@@ -487,33 +368,5 @@ mod tests {
             },
         });
         assert_eq!(terminal, expected);
-    }
-
-    #[rstest]
-    #[case::interrupted_without_error(
-        r#"{"turn":{"status":"interrupted"}}"#,
-        &[TurnEvidenceClass::DeclaredTurnFailure]
-    )]
-    #[case::failed_without_error(r#"{"turn":{"status":"failed","items":[]}}"#, &[])]
-    #[case::failed_with_error(
-        r#"{"turn":{"status":"failed","error":{"message":""}}}"#,
-        &[TurnEvidenceClass::DeclaredTurnFailure]
-    )]
-    #[case::completed_with_output(
-        concat!(
-            r#"{"turn":{"status":"completed","#,
-            r#""items":[{"type":"userMessage"},{"type":"agentMessage"}]}}"#
-        ),
-        &[TurnEvidenceClass::ModelOutput]
-    )]
-    #[case::in_progress(r#"{"turn":{"status":"inProgress"}}"#, &[])]
-    fn a_settled_turn_declares_its_failure_only_by_its_status_and_error(
-        #[case] params: &str,
-        #[case] observations: &[TurnEvidenceClass],
-    ) {
-        let evidence = classify_codex_turn_evidence(params);
-
-        assert!(evidence.recognized);
-        assert_eq!(evidence.observations, observations);
     }
 }

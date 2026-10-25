@@ -124,6 +124,8 @@ pub use base_environment::{BaseEnvironmentSource, base_environment_source};
 pub use bash_start::{BashStart, BashStartInput, start_bash};
 #[cfg(not(target_os = "macos"))]
 pub use caller_process::read_responsible_process;
+#[cfg(unix)]
+pub use caller_process::unix_domain_listener_process;
 pub use caller_process::{ParentProcess, ResponsibleProcess};
 #[cfg(not(target_os = "linux"))]
 pub use child_command::leave_daemon_scope;
@@ -353,6 +355,7 @@ pub use shell_folder_start::ShellFolderStart;
 pub use shell_line_command::{command_shell, shell_line_command};
 pub use shell_start::SHELL_START_CONFIRMATION;
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
+pub use socket::connection::found_no_listener;
 pub use socket::listener::ExistingSocket;
 pub use socket::path::{SocketPathEntry, SocketPathRefused};
 pub use spawner::Spawner;
@@ -385,7 +388,7 @@ pub use windows::allocator::{
 pub use windows::askpass::askpass_listener;
 #[cfg(target_os = "windows")]
 pub use windows::caller_process::{
-    read_parent_process, read_peer_process, unix_domain_peer_process,
+    read_parent_process, read_peer_process, unix_domain_listener_process, unix_domain_peer_process,
 };
 #[cfg(target_os = "windows")]
 pub use windows::child_command::{

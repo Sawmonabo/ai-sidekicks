@@ -50,6 +50,7 @@ fn label(delivery: &InboundDelivery<'static>) -> String {
         | InboundDelivery::ThinkingUpdate { .. }
         | InboundDelivery::SessionNotice { .. }
         | InboundDelivery::SessionEvent { .. }
+        | InboundDelivery::MachineEvent { .. }
         | InboundDelivery::PermissionAsk { .. }
         | InboundDelivery::SessionRow { .. } => "otherDelivery".to_owned(),
     }

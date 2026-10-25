@@ -5,6 +5,7 @@ use rstest::rstest;
 
 use super::{Supervision, SupervisorEvent, SupervisorState};
 use crate::provider::driver::codex::service::home::CodexServiceKind;
+use crate::provider::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 
@@ -25,7 +26,7 @@ fn dropped(dial: u64, after: u64, is_process_gone: bool) -> impl Fn(Instant) -> 
         dial,
         at: start + Duration::from_secs(after),
         wall_at: wall(after),
-        process_gone_at: is_process_gone.then(|| wall(after)),
+        is_unwaited_process_gone: is_process_gone,
     }
 }
 
@@ -176,16 +177,17 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
     &["Disconnect { is_process_gone: false }", "ReportDropped", "Dial { dial: 3, attempt: 0 }",
         "Publish(Reconnecting)"],
 )]
-#[case::a_drop_whose_process_ended_is_a_crash(
+// Killed by counting the end in the crash window, which leaves a crash loop no exit to name.
+#[case::a_drop_whose_unread_process_ended_restarts_it_with_no_crash_counted(
     CodexServiceKind::Account,
     vec![
         at_once(|_| SupervisorEvent::Start),
         boxed(started(1, CodexServiceKind::Account)),
         boxed(dropped(1, 10, true)),
     ],
-    "Restarting { wait: 2 }",
-    &["Disconnect { is_process_gone: true }", "ReportProcessExited",
-        "WaitToRestart { ticket: 2, wait: 0ns }", "Publish(Restarting)"],
+    "Starting { launch: 2, recovery: Some(Crash) }",
+    &["Disconnect { is_process_gone: true }", "ReportProcessExited", "Launch { launch: 2 }",
+        "Publish(Starting)"],
 )]
 #[case::a_joined_service_whose_process_ended_is_redialed(
     CodexServiceKind::Joined,
@@ -207,7 +209,7 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         at_once(|_| SupervisorEvent::ReconnectFailed {
             dial: 2,
             is_listening: false,
-            process_gone_at: None,
+            is_unwaited_process_gone: false,
         }),
     ],
     "Starting { launch: 3, recovery: Some(Crash) }",
@@ -441,7 +443,8 @@ fn the_supervisor_table(
 
 // Fails when the crash path stops counting on the crash window, which restarts a dying service
 // without bound, or a start is taken while the service is down for it, or the person's restart
-// does not start it again.
+// does not start it again under its own cause, which tells the sessions it brings back, or a
+// failed start after that restart leaves the service stopped rather than counting a crash.
 #[test]
 fn a_fifth_crash_within_three_minutes_leaves_the_service_down() {
     let start = Instant::now();
@@ -472,8 +475,20 @@ fn a_fifth_crash_within_three_minutes_leaves_the_service_down() {
 
     assert_eq!(state_after_start, SupervisorState::CrashLoop);
     assert_eq!(format!("{refused:?}"), "[Publish(CrashLoop)]");
-    assert!(matches!(
-        supervision.state(),
-        SupervisorState::Starting { .. }
-    ));
+    let SupervisorState::Starting {
+        launch: restarted,
+        recovery: Some(CodexServiceRecoveryCause::PersonRestart),
+    } = *supervision.state()
+    else {
+        panic!(
+            "the person's restart starts the service under its own cause: {:?}",
+            supervision.state()
+        );
+    };
+    supervision.transition(start_failed(restarted));
+    assert!(
+        matches!(supervision.state(), SupervisorState::Restarting { .. }),
+        "a failed start after the person's restart counts as a crash: {:?}",
+        supervision.state()
+    );
 }

@@ -10,9 +10,16 @@ use tokio::io::AsyncReadExt;
 use tokio::process::ChildStdout;
 
 use crate::provider::driver::codex::service::process::CodexProcessLaunch;
+use crate::provider::driver::codex::service::supervisor::CodexService;
+use crate::provider::driver::codex::service::supervisor::start::compose_codex_native_launch;
+use crate::provider::driver::codex::session::errors::CodexError;
 
 /// The most a short command may print; the catalog dump, the largest, measured near 660 KB.
 const CODEX_COMMAND_MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+
+/// How long `codex debug models` may run: Codex bounds its models fetch at 5 s, and the command's
+/// own start measured at most 119.5 ms over 20 signed-out runs.
+const CODEX_CATALOG_READ_DEADLINE: Duration = Duration::from_millis(5_120);
 
 /// Why a short Codex command gave no output.
 #[derive(Debug, thiserror::Error)]
@@ -65,10 +72,6 @@ pub(crate) enum CodexCommandError {
 /// answers its standard output; its input is closed and its error output discarded. Fails with
 /// [`CodexCommandError`] when it cannot start, prints past 16 MiB, outlives `deadline` (both of
 /// which kill it), exits with a failure code or a signal, or prints anything but UTF-8 text.
-#[expect(
-    dead_code,
-    reason = "the Codex driver's one-shot reads, its version and catalog among them, run it"
-)]
 pub(crate) async fn run_codex_command(
     spawner: &Spawner,
     launch: CodexProcessLaunch,
@@ -108,6 +111,32 @@ pub(crate) async fn run_codex_command(
         });
     }
     String::from_utf8(output).map_err(CodexCommandError::NotText)
+}
+
+/// The model catalog of `service`'s home as `codex debug models` prints it, run by the Codex
+/// command resolved now for that home. Fails with the resolve's driver error, as the launch's
+/// composition fails, and with `CodexError::Transport` carrying the command's failure.
+pub(crate) async fn read_codex_model_catalog_dump(
+    service: &CodexService,
+) -> Result<String, CodexError> {
+    let dependencies = service.dependencies();
+    let executable = dependencies
+        .program
+        .resolve(service.home())
+        .await
+        .map_err(CodexError::Driver)?;
+    let launch = compose_codex_native_launch(
+        &dependencies.data_folder,
+        &executable,
+        vec!["debug".to_owned(), "models".to_owned()],
+    )
+    .await?;
+    run_codex_command(&dependencies.spawner, launch, CODEX_CATALOG_READ_DEADLINE)
+        .await
+        .map_err(|error| CodexError::Transport {
+            detail: "Codex's model catalog could not be read.".to_owned(),
+            cause: Some(Box::new(error)),
+        })
 }
 
 // Reads the command's output to its end, killing it past the cap, then waits for its exit.

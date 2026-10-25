@@ -16,8 +16,10 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::DESCRIPTOR;
+use super::app_server_protocol::ModelListParams;
 use super::capability_probe::CAPABILITY_PROBE_RULES;
 use super::tools::codex_tool_metadata;
+use super::transport::connection::CodexAppServerConnection;
 use crate::provider::capability::probe::{CapabilityProbeExchange, read_provider_capabilities};
 use crate::provider::driver::capabilities::{DriverCapabilityFlag, DriverCapabilityFlags};
 use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult, bound_failure_detail};
@@ -93,10 +95,6 @@ const fn is_codex_flag_declared(flag: DriverCapabilityFlag) -> bool {
 /// Reads the capabilities of the build `version` describes: probes that same build through
 /// `exchange`, reports each flag the probe withdrew, and composes the driver's flags, tools and
 /// the version it printed. Fails with [`DriverError::CapabilityProbe`] when the probe read fails.
-#[expect(
-    dead_code,
-    reason = "the Codex driver's capability read answers through it on attach and each refresh"
-)]
 pub(crate) async fn read_codex_capabilities(
     version: &SpawnedProviderVersionReading,
     exchange: &mut impl CapabilityProbeExchange,
@@ -385,13 +383,6 @@ fn read_catalog_text(source: &Map<String, Value>, key: &str) -> Option<CatalogTe
 /// first with no cursor and then with each cursor a page answers, until a page answers none.
 /// Fails with the first page request's failure, or as [`CodexModelCatalogReader::read_page`]
 /// fails, at most 20 pages in; never answers a short catalog.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex driver's model list answers through it over the service connection"
-    )
-)]
 pub(crate) async fn read_codex_model_catalog<Page, PageReply>(
     mut request_page: Page,
     diagnostics: &mut OnceReportedDiagnostics,
@@ -409,6 +400,32 @@ where
             return Ok(reader.into_models());
         }
     }
+}
+
+/// Reads the whole model catalog of the service `connection` reaches, as
+/// [`read_codex_model_catalog`] does; a fault in a row is reported again on each read. Fails as
+/// that read does.
+pub(crate) async fn read_codex_service_model_catalog(
+    connection: &CodexAppServerConnection,
+) -> Result<Vec<ProviderModel>, DriverError> {
+    let mut diagnostics = OnceReportedDiagnostics::default();
+    read_codex_model_catalog(
+        |cursor| async move {
+            connection
+                .request(
+                    CODEX_MODEL_LIST_METHOD,
+                    &ModelListParams {
+                        cursor,
+                        include_hidden: None,
+                        limit: None,
+                    },
+                )
+                .await
+                .map_err(DriverError::from)
+        },
+        &mut diagnostics,
+    )
+    .await
 }
 
 #[cfg(test)]

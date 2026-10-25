@@ -7,16 +7,16 @@ use sidekicks_platforms::{
     CAN_LINK_A_SOCKET, ExistingSocket, bind_socket_listener, read_socket_link, replace_socket_link,
 };
 
-use super::OneHome;
 use super::stand_in::{
     CRASH_WAIT, FirstResolveOnly, another_daemon, is_running, send_signal, stand_in_services,
     this_daemon,
 };
 use crate::provider::driver::codex::service::home::CodexServiceKind;
+use crate::provider::driver::codex::service::registry::OneHome;
 use crate::provider::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
 use crate::provider::driver::codex::service::supervisor::CodexServiceSocket;
 use crate::provider::driver::codex::service::supervisor::test_service::{
-    drop_service_connection, script_codex_service,
+    drop_service_connection, script_codex_service, wait_until_disconnected,
 };
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 
@@ -144,13 +144,9 @@ async fn a_redial_reaches_the_service_s_own_socket_whatever_the_link_names() {
 
     replace_socket_link(&home_socket, &other_socket).expect("the link names the other listener");
     drop_service_connection(&service);
-    let is_disconnected = tokio::time::timeout(CRASH_WAIT, async {
-        while service.connection().is_ok() {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .is_ok();
+    let is_disconnected = tokio::time::timeout(CRASH_WAIT, wait_until_disconnected(&service))
+        .await
+        .is_ok_and(|()| service.connection().is_err());
     let redialed = service.ensure_started(CRASH_WAIT).await;
     let accepted_through_the_link = accepted.load(Ordering::Relaxed);
     registry.shutdown(DaemonStopIntent::Stop).await;
@@ -252,10 +248,11 @@ async fn a_planned_restart_during_the_switch_off_leaves_the_socket_link_and_fail
         .insert(services.home.codex_home.clone(), Arc::clone(&first));
     let inside = json!({"data": ["terminal-thread-1"]});
 
-    let stopping = {
-        let registry = Arc::clone(&registry);
-        tokio::spawn(async move { registry.stop_terminal_service().await })
-    };
+    let retiring = registry
+        .stop_terminal_service()
+        .await
+        .expect("the home resolves")
+        .expect("the folder's terminal service is retired");
     for _read in 0..2 {
         let loaded = script.next_sent().await;
         assert_eq!(loaded["method"], "thread/loaded/list", "{loaded}");
@@ -268,7 +265,8 @@ async fn a_planned_restart_during_the_switch_off_leaves_the_socket_link_and_fail
         "params": {"threadId": "terminal-thread-1"}}));
     let last = script.next_sent().await;
     script.answer(&last, &json!({"data": []}));
-    let stopped = stopping.await.expect("the stop ends");
+    retiring.await.expect("the retirement ends");
+    let is_first_stopped = !first.is_serving();
     registry.shutdown(DaemonStopIntent::Stop).await;
 
     assert!(
@@ -277,5 +275,5 @@ async fn a_planned_restart_during_the_switch_off_leaves_the_socket_link_and_fail
     );
     assert!(replaced.is_err());
     assert_eq!(link, Some(first_socket));
-    assert!(stopped.is_ok());
+    assert!(is_first_stopped);
 }

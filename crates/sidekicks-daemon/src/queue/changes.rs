@@ -24,9 +24,8 @@ use crate::database::stored_column::safe_int_column;
 use crate::events::session::read::{
     SessionEventReads, SessionLogReadError, readable_event_sql, session_read_bound,
 };
-use crate::queue::store::{
-    COLUMN_COUNT, COLUMNS, QUEUE_ORDER, QueueItemRecord, record_of, summary_of,
-};
+use crate::queue::store::summary::summary_of;
+use crate::queue::store::{COLUMN_COUNT, COLUMNS, QUEUE_ORDER, QueueItemRecord, record_of};
 
 /// One queue: the lead's of a session, or a child's by its handle.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

@@ -41,11 +41,18 @@ const CODEX_PROTOCOL_BUNDLE_SHA3_256: &str =
 const CODEX_PROTOCOL_RELEASE: &str = "rust-v0.163.0";
 
 /// The protocol types the daemon sends, generated with every type they reach.
-const CODEX_SENT_TYPES: [&str; 14] = [
+const CODEX_SENT_TYPES: [&str; 30] = [
     "ThreadStartParams",
     "ThreadResumeParams",
     "ThreadForkParams",
     "TurnStartParams",
+    "TurnSteerParams",
+    "TurnInterruptParams",
+    "ReviewStartParams",
+    "ThreadGoalSetParams",
+    "ThreadGoalClearParams",
+    "ThreadApproveGuardianDeniedActionParams",
+    "ModelListParams",
     "ThreadSettingsUpdateParams",
     "ThreadBackgroundTerminalsListParams",
     "ThreadBackgroundTerminalsTerminateParams",
@@ -56,6 +63,15 @@ const CODEX_SENT_TYPES: [&str; 14] = [
     "ThreadItemsListParams",
     "ThreadLoadedListParams",
     "HooksListParams",
+    "GetAccountParams",
+    "ThreadDeleteParams",
+    "ThreadCompactStartParams",
+    "ConfigValueWriteParams",
+    "ConfigReadParams",
+    "ThreadRevertParams",
+    "GetAccountRateLimitsParams",
+    "ThreadSetNameParams",
+    "ThreadReadParams",
 ];
 
 /// The sent types whose members carry absent, `null` and a value as three meanings, which

@@ -4,19 +4,19 @@
 //! its helper limit and its helpers' role files. A resume and a fork send them all again, so a
 //! conversation never falls back to what Codex persisted. Also the `turn/start` and
 //! `thread/settings/update` params, whose members carry absent, `null` and a value as three
-//! meanings, and the item-injection method a loaded conversation takes changed instructions
-//! through.
+//! meanings, the Build or Plan collaboration mode they carry, and the item-injection method a
+//! loaded conversation takes changed instructions through.
 
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::provider::driver::codex::app_server_protocol::{
-    ApprovalsReviewer, AskForApproval, CollaborationMode, ThreadForkParams, ThreadResumeParams,
-    ThreadStartParams, UserInput,
+    ApprovalsReviewer, AskForApproval, CollaborationMode, ModeKind, ReasoningEffort, Settings,
+    ThreadForkParams, ThreadResumeParams, ThreadStartParams, UserInput,
 };
 use crate::provider::driver::codex::permission_level::{
     CodexApprovalPolicy, CodexApprovalsReviewer, CodexProfileFolders,
@@ -36,13 +36,6 @@ const CODEX_DAEMON_TOOL_TIMEOUT_SECONDS: u64 = 300;
 const CODEX_UNLIMITED_HELPERS: i64 = i64::MAX;
 
 /// Everything one conversation's thread settings are composed from.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's start, resume and fork compose a conversation's settings"
-    )
-)]
 #[derive(Clone, Debug)]
 pub(crate) struct CodexThreadSettings {
     /// The session the conversation belongs to, which names its tool servers' addresses.
@@ -83,13 +76,6 @@ struct CodexThreadMembers {
 
 /// The `thread/start` params for `settings`, without the output speed, which the caller sets per
 /// request. With no tool-server route registered yet, the conversation reaches no tool server.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's start opens its conversation with these"
-    )
-)]
 pub(crate) fn compose_codex_thread_start_params(
     settings: &CodexThreadSettings,
     route: Option<&dyn ToolServerRoute>,
@@ -109,13 +95,6 @@ pub(crate) fn compose_codex_thread_start_params(
 
 /// The `thread/resume` params that resume `thread_id` under `settings`, without the output speed,
 /// which the caller sets per request.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's resume brings a conversation back with these"
-    )
-)]
 pub(crate) fn compose_codex_thread_resume_params(
     settings: &CodexThreadSettings,
     route: Option<&dyn ToolServerRoute>,
@@ -146,13 +125,6 @@ pub(crate) fn compose_codex_thread_resume_params(
 
 /// The `thread/fork` params that fork `thread_id` under `settings`, without the output speed,
 /// which the caller sets per request, or the turn the fork keeps up to.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex session's fork and rewind move a conversation with these"
-    )
-)]
 pub(crate) fn compose_codex_thread_fork_params(
     settings: &CodexThreadSettings,
     route: Option<&dyn ToolServerRoute>,
@@ -205,13 +177,6 @@ pub(crate) struct CodexServiceTierChange(pub(crate) Option<String>);
 /// The `turn/start` params the daemon sends: the turn's input and the overrides it carries from
 /// that turn on. `service_tier` keeps its three meanings: absent keeps the thread's tier, `null`
 /// returns it to standard, a value sets it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex run start and side questions send a turn with these"
-    )
-)]
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CodexTurnStartParams {
@@ -234,6 +199,9 @@ pub(crate) struct CodexTurnStartParams {
     /// The JSON Schema the turn's final message must follow.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) output_schema: Option<Value>,
+    /// The reasoning effort the turn runs at, from this turn on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) effort: Option<ReasoningEffort>,
     /// The thread's service tier from this turn on.
     #[serde(
         default,
@@ -253,13 +221,6 @@ pub(crate) struct CodexTurnStartParams {
 /// The `thread/settings/update` params the daemon sends, each member changing the thread from its
 /// next turn. `service_tier` keeps its three meanings: absent leaves the tier, `null` clears it, a
 /// value sets it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex mode move, level move and profile restore update a thread with these"
-    )
-)]
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CodexThreadSettingsUpdateParams {
@@ -288,6 +249,27 @@ pub(crate) struct CodexThreadSettingsUpdateParams {
         reason = "absent, `null` and a tier are three meanings the wire keeps apart"
     )]
     pub(crate) service_tier: Option<Option<String>>,
+}
+
+/// Codex's collaboration mode for Build or Plan on `model` at `reasoning_effort`, with the mode's
+/// built-in instructions. It takes precedence over a request's own model and effort, so both are
+/// carried; an effort Codex reported that this build's schema does not list is left out.
+pub(crate) fn compose_codex_collaboration_mode(
+    mode: SessionMode,
+    model: String,
+    reasoning_effort: Option<&str>,
+) -> CollaborationMode {
+    CollaborationMode {
+        mode: match mode {
+            SessionMode::Build => ModeKind::Default,
+            SessionMode::Plan => ModeKind::Plan,
+        },
+        settings: Settings {
+            developer_instructions: None,
+            model,
+            reasoning_effort: reasoning_effort.and_then(|effort| effort.parse().ok()),
+        },
+    }
 }
 
 /// Codex's item-injection method: appends items to a loaded thread's model-visible history, one
@@ -639,6 +621,7 @@ mod tests {
                 model: None,
                 client_user_message_id: None,
                 output_schema: None,
+                effort: None,
                 service_tier,
                 service_tier_for_turn: None,
             }),
@@ -694,6 +677,7 @@ mod tests {
                 model: Some("gpt".to_owned()),
                 client_user_message_id: Some("message".to_owned()),
                 output_schema: Some(json!({ "type": "object" })),
+                effort: Some("low".parse().expect("low is an effort")),
                 service_tier: Some(Some("fast".to_owned())),
                 service_tier_for_turn: Some("fast".to_owned()),
             }),

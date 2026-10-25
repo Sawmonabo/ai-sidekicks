@@ -5,8 +5,9 @@
 //! The steer's idempotency key rides the wire unchanged as `clientUserMessageId`; `turn/interrupt`
 //! has no such field, and a minted key would defeat the queue's dedupe on retry. `turn/steer`
 //! answers `{ turnId }`, so `applied` needs the targeted turn back; `turn/interrupt` answers an
-//! empty object, so the absence of an error is its only evidence. No shape check is made: the
-//! wire is additive, and a new member must not degrade every interrupt.
+//! empty object, so the absence of an error is its evidence, and the interrupt answers the steers
+//! Codex dropped as `cancelled`. No shape check is made: the wire is additive, and a new member
+//! must not degrade every interrupt.
 
 use std::sync::Arc;
 
@@ -56,8 +57,11 @@ pub(crate) trait CodexInterventionRuntime: Send + Sync {
         request: CodexSteerRunRequest,
     ) -> BoxFuture<'_, Result<CodexSteerAcknowledgment, DriverError>>;
 
-    /// Interrupts one run's turn.
-    fn interrupt_run(&self, params: InterruptRunRequest) -> BoxFuture<'_, Result<(), DriverError>>;
+    /// Interrupts one run's turn and answers the steers Codex dropped unechoed, in send order.
+    fn interrupt_run(
+        &self,
+        params: InterruptRunRequest,
+    ) -> BoxFuture<'_, Result<Vec<QueueItemId>, DriverError>>;
 }
 
 /// Routes normalized interventions onto Codex's native operations.
@@ -78,6 +82,7 @@ impl CodexInterventionDispatcher {
         &self,
         params: ApplyInterventionParams,
     ) -> Result<ApplyInterventionResponse, DriverError> {
+        let mut cancelled = Vec::new();
         let status = match params {
             ApplyInterventionParams::Steer {
                 target_run_id,
@@ -111,7 +116,8 @@ impl CodexInterventionDispatcher {
                 expected_run_version: _,
                 client_idempotency_key: _,
             } => {
-                self.runtime
+                cancelled = self
+                    .runtime
                     .interrupt_run(InterruptRunRequest {
                         run_id: target_run_id,
                         reason: payload.reason,
@@ -124,7 +130,7 @@ impl CodexInterventionDispatcher {
             status,
             fallback_action: None,
             delivered_run_id: None,
-            cancelled: Vec::new(),
+            cancelled,
         })
     }
 }
@@ -170,8 +176,8 @@ mod tests {
         fn interrupt_run(
             &self,
             _params: InterruptRunRequest,
-        ) -> BoxFuture<'_, Result<(), DriverError>> {
-            Box::pin(async { Ok(()) })
+        ) -> BoxFuture<'_, Result<Vec<QueueItemId>, DriverError>> {
+            Box::pin(async { Ok(Vec::new()) })
         }
     }
 

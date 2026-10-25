@@ -1,12 +1,15 @@
-//! The errors the Codex driver raises: transport, size, unanswered, provider, rewind-boundary, slot
-//! and configuration failures, and how each reaches the daemon as a driver error.
+//! The errors the Codex driver raises: transport, size, unanswered, provider, rewind-boundary,
+//! slot, turn-in-flight, withdrawn-turn, larger-window, port, driver-shaped and configuration
+//! failures, and how each reaches the daemon as a driver error; and the readers of Codex's
+//! active-writer and restart refusals.
 
 use std::error::Error;
 use std::time::Duration;
 
-use serde_json::json;
+use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -41,12 +44,17 @@ pub(crate) const CODEX_INVALID_REQUEST_CODE: i64 = -32600;
 /// The `data.reason` of the service's answer while it drains toward its exit.
 pub(crate) const CODEX_DRAINING_REASON: &str = "serverShuttingDown";
 
+/// The words of Codex's refusal to resume a conversation another runtime still writes.
+const CODEX_ACTIVE_WRITER_MESSAGE: &str = "active writer";
+
+/// The words of Codex's refusal of a catalog read that asks for the service to restart first.
+const CODEX_RESTART_REQUESTED_MESSAGE: &str = "Restart Codex";
+
+/// The `data.reason` a turn refused while another of the session's turns is in flight carries.
+const SESSION_TURN_IN_FLIGHT_REASON: &str = "sessionTurnInFlight";
+
 /// Which state holds a session's slot when a create is refused; a create is refused in all three,
 /// since a second start would orphan a process.
-#[expect(
-    dead_code,
-    reason = "the Codex session slots refuse a second create in the state they hold"
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexSessionSlotState {
     /// A live session holds the slot.
@@ -79,10 +87,6 @@ impl CodexSessionSlotState {
 
 /// A failure of the Codex driver, keeping its cause; `DriverError::from` turns each into the
 /// refusal a client reads or an internal failure.
-#[expect(
-    dead_code,
-    reason = "the Codex transport, connection and session raise these as they fail"
-)]
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CodexError {
     /// The service's socket or process failed, or the service refused the session.
@@ -128,6 +132,8 @@ pub(crate) enum CodexError {
         message: String,
         /// The `reason` member of the error answer's `data`, when it sent one as text.
         reason: Option<String>,
+        /// The error answer's `data`, as the service sent it, boxed so the error stays small.
+        data: Option<Box<Value>>,
     },
     /// The build takes `thread/fork` but refuses its boundary member, which the static rollback
     /// flag cannot see, since a build the driver admits may predate it.
@@ -151,6 +157,45 @@ pub(crate) enum CodexError {
         /// The state the slot is held in.
         holder_state: CodexSessionSlotState,
     },
+    /// A turn the daemon would start found another of the session's turns running, starting or
+    /// still ending, which the turn would fold into.
+    #[error("A turn of Codex session \"{session_id}\" is still in flight, so this turn waits.")]
+    SessionTurnInFlight {
+        /// The session.
+        session_id: SessionId,
+    },
+    /// A turn's start its run withdrew before the turn went; nothing was sent.
+    #[error("The run \"{run_id}\" withdrew its turn before it was sent.")]
+    TurnWithdrawn {
+        /// The run.
+        run_id: RunId,
+    },
+    /// A session asked for a larger window its model's catalog does not offer at that figure now;
+    /// no conversation was started.
+    #[error(
+        "Codex's catalog does not offer the {requested}-token window for model \"{model}\" now."
+    )]
+    LargerWindowUnavailable {
+        /// The model.
+        model: String,
+        /// The window asked for, in tokens.
+        requested: u64,
+        /// The larger window the catalog offers the model now, in tokens, if any.
+        offered: Option<u64>,
+    },
+    /// A port the daemon wired, which the driver reads or hands work to, failed.
+    #[error("the {port} port failed")]
+    PortFailed {
+        /// The port, as its registration names it.
+        port: &'static str,
+        /// Its failure.
+        #[source]
+        cause: Box<dyn Error + Send + Sync>,
+    },
+    /// A step that fails in the daemon's driver shape already, a catalog read among them, passed
+    /// on as it failed.
+    #[error(transparent)]
+    Driver(DriverError),
     /// The driver's configuration lacks the shape the driver needs: a wiring defect.
     #[error("the Codex driver's {field} configuration is unusable: {detail}")]
     DriverConfig {
@@ -194,6 +239,26 @@ impl std::fmt::Display for CodexUnansweredCause {
 }
 
 impl CodexError {
+    /// Whether this is Codex's refusal to resume a conversation another runtime still writes.
+    pub(crate) fn is_active_writer_refusal(&self) -> bool {
+        self.is_invalid_request_saying(CODEX_ACTIVE_WRITER_MESSAGE)
+    }
+
+    /// Whether this is Codex's refusal of a catalog read that asks for the service to restart
+    /// before it answers.
+    pub(crate) fn asks_for_restart(&self) -> bool {
+        self.is_invalid_request_saying(CODEX_RESTART_REQUESTED_MESSAGE)
+    }
+
+    // A `-32600` answer whose message holds `words`.
+    fn is_invalid_request_saying(&self, words: &str) -> bool {
+        matches!(
+            self,
+            Self::ProviderRequest { code: CODEX_INVALID_REQUEST_CODE, message, .. }
+                if message.contains(words)
+        )
+    }
+
     /// Whether this is the service's answer that it is draining toward its exit and takes no new
     /// work, while its running turns, reads and interrupts go on.
     pub(crate) fn is_service_draining(&self) -> bool {
@@ -208,10 +273,6 @@ impl CodexError {
 /// Turns a refused `thread/fork` that names the rewind boundary member into
 /// `RewindBoundaryUnsupported`, the service's words bounded as a failure detail; any other error
 /// is returned unchanged.
-#[expect(
-    dead_code,
-    reason = "the Codex rewind classifies a refused fork before it reports the failure"
-)]
 pub(crate) fn classify_rewind_fork_failure(error: CodexError) -> CodexError {
     if let CodexError::ProviderRequest {
         method, message, ..
@@ -241,10 +302,14 @@ impl From<CodexError> for DriverError {
     /// draining answers refuse `provider.unavailable`; a written request with no answer is
     /// `Unanswered`, `provider.timeout` past its deadline and `provider.unavailable` once the
     /// connection closed; each carries the failure's words bounded as `providerFailureDetail`; a
+    /// failure already in the driver's shape is passed on as it is; a
     /// refused fork boundary answers `provider.capability.unsupported` on the rollback flag with
     /// Codex's refusal bounded as `providerFailureDetail`, and a session closed under a wait
     /// `session.alreadyClosed`; the rest are internal failures.
     fn from(error: CodexError) -> Self {
+        if let CodexError::Driver(error) = error {
+            return error;
+        }
         match &error {
             CodexError::Transport { .. } => Self::Refused(provider_failure_refusal(
                 &DESCRIPTOR.provider_id(),
@@ -313,8 +378,38 @@ impl From<CodexError> for DriverError {
                         .with_source(error),
                 )
             }
+            CodexError::SessionTurnInFlight { session_id } => {
+                let session_id = *session_id;
+                Self::Refused(
+                    DomainError::new(error.to_string(), RefusalCode::ProviderUnavailable)
+                        .with_detail(json!({
+                            "sessionId": session_id,
+                            "reason": SESSION_TURN_IN_FLIGHT_REASON,
+                        }))
+                        .with_source(error),
+                )
+            }
+            CodexError::LargerWindowUnavailable {
+                model,
+                requested,
+                offered,
+            } => {
+                let detail = json!({
+                    "model": model,
+                    "largerWindow": requested,
+                    "offeredLargerWindow": offered,
+                });
+                Self::Refused(
+                    DomainError::new(error.to_string(), RefusalCode::ProviderUnavailable)
+                        .with_detail(detail)
+                        .with_source(error),
+                )
+            }
             CodexError::ProviderRequest { .. }
             | CodexError::SessionAlreadyLive { .. }
+            | CodexError::TurnWithdrawn { .. }
+            | CodexError::PortFailed { .. }
+            | CodexError::Driver(_)
             | CodexError::DriverConfig { .. } => Self::Internal(Box::new(error)),
         }
     }

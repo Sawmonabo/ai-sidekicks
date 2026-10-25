@@ -1,16 +1,16 @@
 //! A session names itself after its first completed exchange. One short pass of the session's own
 //! provider reads the first message and the first reply and proposes a name; when it returns
-//! nothing, fails or runs past its bound, the first words of the first message are the name. The
-//! name is written through the naming path only while the session is still unnamed, so a name the
-//! person typed, before or during, always wins, and a rename while the pass runs cancels it. A
-//! session whose name the person clears is named again the same way, and the fresh name is told to
-//! its providers, since no provider takes an empty name. A session left unnamed while the daemon
-//! was not following it is named at the next start, one session at a time.
+//! nothing or fails, the first words of the first message are the name. The name is written
+//! through the naming path only while the session is still unnamed, so a name the person typed,
+//! before or during, always wins, and a rename to a name while the pass runs cancels it. A session
+//! whose name the person clears is named again the same way, a pass under way finishing as that
+//! naming, and the fresh name is told to its providers, since no provider takes an empty name. A
+//! session left unnamed while the daemon was not following it is named at the next start, one
+//! session at a time.
 
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use serde_json::Value;
@@ -51,9 +51,6 @@ pub(crate) const SESSION_AUTO_TITLE_STATEMENT_CAPACITY: usize = 6;
 
 /// A fallback name reads as a few words: whole words up to this many code points.
 const FALLBACK_NAME_MAX_CODE_POINTS: usize = 40;
-
-/// How long one naming pass may run before it counts as having returned nothing.
-const NAMING_PASS_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// What joins one reply message to the next in the reply the pass reads.
 const REPLY_MESSAGE_SEPARATOR: &str = "\n\n";
@@ -116,7 +113,8 @@ struct NamingInput {
 struct PendingPass {
     generation: u64,
     cancel: CancellationToken,
-    /// A completion's pass was refused while this one ran, so it names the session once more.
+    /// A completion's or a clear's pass was refused while this one ran, so it names the session
+    /// once more.
     is_rerun_wanted: bool,
 }
 
@@ -213,14 +211,17 @@ impl SessionAutoTitle {
             if event_type == SessionEventType::AgentRunCompleted {
                 auto_title.spawn_pass(session_id, Some(event.sequence), &follower_runtime);
             } else if event_type == SessionEventType::SessionRenamed {
-                auto_title.cancel_pass(session_id);
-                // A cleared name is named again from the first exchange, as an unnamed session is.
                 let is_cleared = serde_json::from_value::<SessionRenamedPayload>(Value::Object(
                     event.envelope.payload().clone(),
                 ))
                 .is_ok_and(|renamed| renamed.name.is_none());
                 if is_cleared {
+                    // A cleared name is named again from the first exchange, as an unnamed session
+                    // is; a pass under way names it and one more runs after it, so the clear and
+                    // the start's sweep cost one pass of the provider, not two.
                     auto_title.spawn_pass(session_id, None, &follower_runtime);
+                } else {
+                    auto_title.cancel_pass(session_id);
                 }
             }
             Ok(())
@@ -349,8 +350,8 @@ impl SessionAutoTitle {
         }
     }
 
-    // One bounded pass on the driver of the session's first completed run; `None` when it
-    // returned nothing, failed, ran past its bound or was cancelled, or no driver answers.
+    // One pass on the driver of the session's first completed run, which bounds the pass itself;
+    // `None` when it returned nothing, failed or was cancelled, or no driver answers.
     async fn run_pass(
         &self,
         session_id: SessionId,
@@ -383,16 +384,12 @@ impl SessionAutoTitle {
         let outcome = tokio::select! {
             biased;
             () = cancel.cancelled() => return None,
-            outcome = tokio::time::timeout(NAMING_PASS_TIMEOUT, driver.name_session(params)) => {
-                outcome
-            }
+            outcome = driver.name_session(params) => outcome,
         };
         match outcome {
-            Ok(Ok(Some(name))) if !name.trim_matches(is_ecmascript_whitespace).is_empty() => {
-                Some(name)
-            }
-            Ok(Ok(Some(_) | None)) => None,
-            Ok(Err(error)) => {
+            Ok(Some(name)) if !name.trim_matches(is_ecmascript_whitespace).is_empty() => Some(name),
+            Ok(Some(_) | None) => None,
+            Err(error) => {
                 tracing::warn!(
                     error = &error as &(dyn Error + 'static),
                     session_id = session_id.text().as_str(),
@@ -400,18 +397,11 @@ impl SessionAutoTitle {
                 );
                 None
             }
-            Err(elapsed) => {
-                tracing::warn!(
-                    error = &elapsed as &(dyn Error + 'static),
-                    session_id = session_id.text().as_str(),
-                    "the session's naming pass ran past its bound; its first words name it"
-                );
-                None
-            }
         }
     }
 
-    // Marks a pass of `session_id` as under way, with a token cancelled by a rename or the stop;
+    // Marks a pass of `session_id` as under way, with a token cancelled by a rename to a name or
+    // the stop;
     // `None` when one already is, which then runs once more after its run.
     fn register_pass(&self, session_id: SessionId) -> Option<(u64, CancellationToken)> {
         let mut pending = self.lock_pending();
@@ -457,7 +447,7 @@ impl SessionAutoTitle {
         false
     }
 
-    // A rename landed: the session's pass under way ends and writes nothing.
+    // A rename to a name landed: the session's pass under way ends and writes nothing.
     fn cancel_pass(&self, session_id: SessionId) {
         let cancelled = self.lock_pending().by_session.remove(&session_id);
         if let Some(pass) = cancelled {
