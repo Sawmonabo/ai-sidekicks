@@ -702,8 +702,8 @@ mod tests {
     use crate::recovery::database_file::{WRITE_AHEAD_LOG_SUFFIX, sibling_path};
 
     // A stop folds the write-ahead log into the file and records the clean stop, and a start after
-    // it checks the file beside its writes and stops cleanly again. Killed by dropping
-    // `record_clean_stop` from the close: the record then reads `Unclean`.
+    // it, vouched for by that record, stops cleanly again. Killed by dropping `record_clean_stop`
+    // from the close: the record then reads `Unclean`.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_stop_folds_the_log_into_the_file_and_records_a_clean_stop() {
         let scratch = tempfile::tempdir().expect("a scratch folder");
