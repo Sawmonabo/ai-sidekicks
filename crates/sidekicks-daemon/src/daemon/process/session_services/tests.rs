@@ -19,6 +19,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::{Spawner, WallClockTimer};
 use tempfile::TempDir;
+use tokio_util::sync::CancellationToken;
 
 use super::{
     SessionServiceStart, SessionServices, build_session_services, start_session_attachments,
@@ -111,6 +112,7 @@ async fn fixture() -> Fixture {
         machine_id: machine.machine_id.clone(),
         scheduler,
         list_feed: Arc::clone(&list_feed),
+        stop: CancellationToken::new(),
     })
     .expect("the repository services build");
     let RepoServices {

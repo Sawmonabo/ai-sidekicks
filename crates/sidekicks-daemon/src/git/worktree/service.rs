@@ -228,7 +228,6 @@ pub(crate) struct WorktreeService {
 
 impl WorktreeService {
     /// A service over `deps`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(deps: WorktreeServiceDeps) -> Self {
         Self { deps }
     }

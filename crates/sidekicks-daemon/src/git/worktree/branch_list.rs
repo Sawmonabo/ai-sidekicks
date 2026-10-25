@@ -122,7 +122,6 @@ pub(crate) struct BranchListReader {
 
 impl BranchListReader {
     /// A reader running git through `git` and reading its rows on `reads`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(git: GitRunner, reads: Arc<DatabaseReadPool>) -> Self {
         Self { git, reads }
     }
