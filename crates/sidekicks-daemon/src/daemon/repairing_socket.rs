@@ -120,13 +120,28 @@ pub(crate) async fn repair_database_file_while_answering(
     )
     .await;
     gateway.stop().await;
+    // Read once the socket is gone, so no stop asked over it comes after.
+    repair_end(
+        repaired,
+        repair_stop.is_cancelled(),
+        asked_stop.get().copied(),
+    )
+}
+
+// How the repair ended, once its socket is gone: a stop asked over the socket at any point, after
+// the repair's last look at the stop included, ends the start unless the repair failed, and a
+// repair the system's stop cut short stops.
+fn repair_end(
+    repaired: Result<DatabaseFileRepair, DatabaseFileRepairError>,
+    is_stopped: bool,
+    asked_stop: Option<DaemonStopIntent>,
+) -> Result<DatabaseFileRepairEnd, RepairingSocketError> {
     // The system's stop request asks for no intent of its own; it stops.
-    let stopped =
-        || DatabaseFileRepairEnd::Stopped(*asked_stop.get_or_init(|| DaemonStopIntent::Stop));
+    let stopped = || DatabaseFileRepairEnd::Stopped(asked_stop.unwrap_or(DaemonStopIntent::Stop));
     let outcome = match repaired {
         Ok(outcome) => outcome,
         // A stop can cut short the removal of an earlier repair's files; it is still a stop.
-        Err(DatabaseFileRepairError::Leftover(leftovers)) if repair_stop.is_cancelled() => {
+        Err(DatabaseFileRepairError::Leftover(leftovers)) if is_stopped => {
             log_leftovers(std::slice::from_ref(leftovers.original()));
             log_leftover_failures(&leftovers);
             return Ok(stopped());
@@ -134,9 +149,13 @@ pub(crate) async fn repair_database_file_while_answering(
         Err(error) => return Err(error.into()),
     };
     Ok(match outcome {
+        // A repaired file stays in place, so the next start finds nothing to repair.
         DatabaseFileRepair::Repaired { leftovers, .. } => {
             log_leftovers(&leftovers);
-            DatabaseFileRepairEnd::Continued
+            asked_stop.map_or(
+                DatabaseFileRepairEnd::Continued,
+                DatabaseFileRepairEnd::Stopped,
+            )
         }
         DatabaseFileRepair::Unrepaired {
             aside_folder,
@@ -240,5 +259,35 @@ impl SupervisionHooks for RepairingSocketHooks {
 
     fn on_listener_error(&self, error: &(dyn Error + 'static)) {
         tracing::warn!(error, "the repairing socket's listener failed");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DatabaseFileRepairEnd, repair_end};
+    use crate::provider::driver::daemon_stop::DaemonStopIntent;
+    use crate::recovery::database_file::repair::DatabaseFileRepair;
+
+    // A stop asked over the socket after the repair's last look at the stop still ends the start
+    // once the file is repaired, and a repair with no stop asked goes on. Killed by answering
+    // `Continued` for a repaired file whatever was asked.
+    #[test]
+    fn a_stop_asked_as_the_repair_finishes_ends_the_start() {
+        let repaired = || {
+            Ok(DatabaseFileRepair::Repaired {
+                aside_folder: "aside".into(),
+                sessions_from_backup: 0,
+                leftovers: Vec::new(),
+            })
+        };
+
+        assert!(matches!(
+            repair_end(repaired(), true, Some(DaemonStopIntent::Stop)),
+            Ok(DatabaseFileRepairEnd::Stopped(DaemonStopIntent::Stop))
+        ));
+        assert!(matches!(
+            repair_end(repaired(), false, None),
+            Ok(DatabaseFileRepairEnd::Continued)
+        ));
     }
 }
