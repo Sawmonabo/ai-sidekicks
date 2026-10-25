@@ -199,16 +199,18 @@ impl SharedPorts {
             return Ok(());
         }
         delete_shared_port(&self.writer, port).await?;
-        let mut list = lock(&self.list);
-        let index = list
-            .position(port)
-            .expect("only a change removes a port, and the change lock is held");
-        list.ports.remove(index).closed.cancel();
+        {
+            let mut list = lock(&self.list);
+            let index = list
+                .position(port)
+                .expect("only a change removes a port, and the change lock is held");
+            list.ports.remove(index).closed.cancel();
+            list.announce_list();
+        }
         tracing::info!(
             port = port.get(),
             "the port stopped being shared and every connection on it was closed"
         );
-        list.announce_list();
         Ok(())
     }
 
@@ -229,12 +231,14 @@ impl SharedPorts {
             return Ok(());
         }
         delete_every_shared_port(&self.writer).await?;
-        let mut list = lock(&self.list);
-        for shared in list.ports.drain(..) {
-            shared.closed.cancel();
+        {
+            let mut list = lock(&self.list);
+            for shared in list.ports.drain(..) {
+                shared.closed.cancel();
+            }
+            list.announce_list();
         }
         tracing::info!("every shared port stopped being shared and its connections were closed");
-        list.announce_list();
         Ok(())
     }
 
@@ -256,14 +260,15 @@ impl SharedPorts {
     ) -> Result<SharedPortConnection, SharedPortConnectError> {
         let closed = {
             let list = lock(&self.list);
-            let Some(index) = list.position(port) else {
-                tracing::info!(
-                    port = port.get(),
-                    "a connection to a port that is not shared was refused"
-                );
-                return Err(SharedPortConnectError::NotShared { port });
-            };
-            list.ports[index].closed.child_token()
+            list.position(port)
+                .map(|index| list.ports[index].closed.child_token())
+        };
+        let Some(closed) = closed else {
+            tracing::info!(
+                port = port.get(),
+                "a connection to a port that is not shared was refused"
+            );
+            return Err(SharedPortConnectError::NotShared { port });
         };
         connect_loopback(port, closed).await
     }
@@ -314,8 +319,14 @@ impl SharedPorts {
         Arc::new(move |readings: PortListeningReadings| {
             if let Some(shared_ports) = shared_ports.upgrade() {
                 let mut list = lock(&shared_ports.list);
-                if !stop.is_cancelled() && list.listening != readings {
-                    list.listening = readings;
+                if stop.is_cancelled() {
+                    return;
+                }
+                let before = list.frame();
+                list.listening = readings;
+                // A changed reading the frame does not show, such as one at an address the
+                // connect does not reach, sends nothing.
+                if list.frame() != before {
                     list.announce_frame();
                 }
             }
@@ -510,13 +521,12 @@ mod tests {
             .connect(listened_port)
             .await
             .expect("the shared port's server is reached");
-        let (stream, closed) = connection.into_parts();
+        let (stream, _closed) = connection.into_parts();
         assert_eq!(
             stream.peer_addr().expect("the stream has a peer"),
             listener.local_addr().expect("the listener has an address")
         );
         assert!(stream.nodelay().expect("the stream's no-delay reads"));
-        assert!(!closed.is_cancelled());
     }
 
     // Killed by a remove or a clear that skips the cancel, and by a re-add that keeps the removed

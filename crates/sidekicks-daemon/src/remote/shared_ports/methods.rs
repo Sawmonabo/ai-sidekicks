@@ -22,6 +22,7 @@ use crate::ipc::registry::{
 };
 use crate::ipc::stream::feed::Feed;
 use crate::ipc::stream::latest_value::LatestValueFeed;
+use crate::remote::shared_ports::loopback::SharedPortConnectError;
 use crate::remote::shared_ports::{SharedPortAddError, SharedPorts};
 
 /// What the shared ports' methods need.
@@ -40,7 +41,7 @@ pub(crate) struct SharedPortMethodsDeps {
 )]
 pub(crate) fn port_not_shared(port: Port) -> DomainError {
     DomainError::new(
-        format!("port {} is not shared", port.get()),
+        SharedPortConnectError::NotShared { port }.to_string(),
         RefusalCode::PreviewPortNotShared,
     )
     .with_detail(PreviewPortRefusalDetails { port })
@@ -112,7 +113,7 @@ pub(crate) fn register_shared_port_methods(
 fn add_failure(error: SharedPortAddError) -> HandlerError {
     match error {
         SharedPortAddError::AlreadyShared { port } => DomainError::new(
-            format!("port {} is already shared", port.get()),
+            error.to_string(),
             RefusalCode::PreviewPortShareAlreadyExists,
         )
         .with_detail(PreviewPortRefusalDetails { port })
