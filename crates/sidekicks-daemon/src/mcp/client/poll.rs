@@ -2,7 +2,8 @@
 //! its own interval, which is held between 250 ms and 30 s. A poll that fails is polled again at
 //! the same cadence, the task left alone; once no poll was answered for 300 s the task's contact
 //! reads lost, and the next answered poll reads it reached again. A status notification only
-//! wakes the next poll early; the poll alone decides the task's state.
+//! wakes the next poll early, never sooner than 250 ms after the last one, so a server flooding
+//! notifications cannot drive polls back to back; the poll alone decides the task's state.
 
 use std::future::Future;
 use std::time::Duration;
@@ -45,7 +46,7 @@ pub(super) fn poll_interval(suggested_interval_ms: Option<u64>) -> Duration {
 }
 
 /// Polls with `poll` until it reads the end, waiting the held interval between polls, or less
-/// when `wake` is notified, and keeping `contact` to whether a poll was answered within 300 s. The
+/// when `wake` is notified but at least [`MIN_POLL_INTERVAL`] from the last poll, and keeping `contact` to whether a poll was answered within 300 s. The
 /// first poll runs at once.
 pub(super) async fn follow_task<End, Error, Poll, Polled>(
     wake: &Notify,
@@ -60,6 +61,7 @@ where
     let mut last_answered = Instant::now();
     let mut interval = DEFAULT_POLL_INTERVAL;
     loop {
+        let polled_at = Instant::now();
         match poll().await {
             Ok(PollStep::End(end)) => {
                 contact.send_if_modified(reach);
@@ -88,7 +90,9 @@ where
         }
         tokio::select! {
             () = tokio::time::sleep(interval) => {}
-            () = wake.notified() => {}
+            () = wake.notified() => {
+                tokio::time::sleep_until(polled_at + MIN_POLL_INTERVAL).await;
+            }
         }
     }
 }

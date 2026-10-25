@@ -471,4 +471,61 @@ mod tests {
             );
         }
     }
+
+    // Mutation: in `poll.rs`'s `follow_task`, poll at once when woken instead of waiting out
+    // `MIN_POLL_INTERVAL` from the last poll.
+    #[tokio::test(start_paused = true)]
+    async fn a_server_flooding_status_notifications_is_polled_no_more_often_than_250_ms() {
+        let (client, _card) = test_client();
+        let (connection, server) = open_test_server(
+            &client,
+            task_server(
+                |poll| match poll {
+                    1..=4 => status_reply("working"),
+                    _ => status_reply("completed"),
+                },
+                || Reply::Answer(json!({ "result": text_result("tracked") })),
+            ),
+        )
+        .await;
+        let sink = CountingSink::new(&server);
+        let contact = contact();
+        let status = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/tasks/status",
+            "params": { "taskId": "task-1", "status": "working" },
+        })
+        .to_string();
+        let flood = async {
+            loop {
+                if server.unasked.send(status.clone()).is_err() {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+
+        let call = timeout(
+            Duration::from_secs(60),
+            connection.call_tool(track_call(), &sink, &contact),
+        );
+        let end = tokio::select! {
+            end = call => end,
+            () = flood => panic!("the server stopped"),
+        };
+
+        assert!(matches!(
+            end.expect("the call ends").expect("the call ends"),
+            McpToolCallEnd::Answered { .. }
+        ));
+        let polls = server.requests("tasks/get");
+        assert_eq!(polls.len(), 5);
+        for pair in polls.windows(2) {
+            let gap = pair[1].0 - pair[0].0;
+            assert!(
+                gap >= Duration::from_millis(250) && gap < Duration::from_secs(5),
+                "a woken poll waits 250 ms from the last, not {gap:?}"
+            );
+        }
+    }
 }
