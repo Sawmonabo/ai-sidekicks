@@ -319,6 +319,11 @@ pub struct TerminalWatch {
 }
 
 impl TerminalWatch {
+    /// Reads no master, which a pseudo console has not. Always fails with `Unsupported`.
+    pub fn read_master(&self) -> io::Result<TerminalMasterReading> {
+        read_terminal_master(&self.pty, &Once::new())
+    }
+
     /// Makes the watch over `pty`, woken by `waker`, keeping `input_refusal` set while the
     /// terminal's input pipe refuses a waiting write; never fails on Windows.
     pub fn new(

@@ -44,8 +44,8 @@ pub struct InputWaitReading {
 }
 
 /// A Python reader the tests start, which prints `ready` and waits in `select` on the terminal.
-#[cfg(all(test, unix))]
-pub(crate) const SELECT_READER_SCRIPT: &str = "exec python3 -c \"import select, sys; \
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub const SELECT_READER_SCRIPT: &str = "exec python3 -c \"import select, sys; \
      print('ready', flush=True); select.select([sys.stdin], [], [])\"";
 
 /// The same reader holding a pipe open for reading, which its wait may be on instead.

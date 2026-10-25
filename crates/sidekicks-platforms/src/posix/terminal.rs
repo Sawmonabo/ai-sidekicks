@@ -263,6 +263,8 @@ pub struct TerminalWatch {
     events: Events,
     /// The interest the terminal is registered with.
     interest: Event,
+    /// Set once a master reading has logged that its program's side could not be opened.
+    peer_failure_noted: Once,
 }
 
 impl TerminalWatch {
@@ -310,7 +312,21 @@ impl TerminalWatch {
             input_refusal: input_refusal.clone(),
             events: Events::new(),
             interest,
+            peer_failure_noted: Once::new(),
         })
+    }
+
+    /// What the terminal's master shows of it now, as [`read_terminal_master`] reads it. Fails
+    /// with `NotFound` once the program is reaped and its PTY gone, and otherwise as that read
+    /// fails.
+    pub fn read_master(&self) -> io::Result<TerminalMasterReading> {
+        let pty = self.pty.as_ref().ok_or_else(|| {
+            io::Error::new(
+                ErrorKind::NotFound,
+                "the terminal's program has been reaped",
+            )
+        })?;
+        read_terminal_master(pty, &self.peer_failure_noted)
     }
 
     /// Waits until the terminal has output for `read_into`, takes some of `write_from`, the
@@ -676,7 +692,8 @@ fn signal_process_group(pid: u32, signal: TerminalSignal) -> io::Result<ProcessT
     })
 }
 
-fn posix_signal(signal: TerminalSignal) -> Signal {
+/// The POSIX signal `signal` names.
+pub(crate) fn posix_signal(signal: TerminalSignal) -> Signal {
     match signal {
         TerminalSignal::Interrupt => Signal::SIGINT,
         TerminalSignal::Terminate => Signal::SIGTERM,
