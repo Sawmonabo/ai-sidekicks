@@ -6,6 +6,7 @@ pub(crate) mod allocator;
 pub(crate) mod askpass;
 pub(crate) mod child_command;
 pub(crate) mod child_tree;
+pub(crate) mod command_wrapper;
 pub(crate) mod ctrl_c;
 pub(crate) mod disk;
 pub(crate) mod entry_identity;
@@ -55,24 +56,18 @@ mod tests {
         assert_eq!(refusal.kind(), ErrorKind::ArgumentListTooLong);
     }
 
-    // Fails when the path is read from anything but the open descriptor, or cut at its end.
+    // Fails when the path is read from anything but the open descriptor, or cut at its end, and
+    // when a descriptor that names no file, as a pipe's, reads back as a path, as Linux's name for
+    // it (`pipe:[<inode>]`) would.
     #[test]
-    fn descriptor_path_round_trips_an_open_file() {
+    fn a_descriptor_path_reads_an_open_file_and_refuses_a_pipe() {
         let folder = tempfile::tempdir().expect("a scratch folder");
         let path = folder.path().join("standard output");
         let file = File::create(&path).expect("the file is made");
-
         let read = read_descriptor_path(&file).expect("the path reads");
-
         assert_eq!(read, real_path(&path).expect("the file's real path"));
-    }
 
-    // Fails when a descriptor that names no file, as a pipe's, reads back as a path, as Linux's
-    // name for it (`pipe:[<inode>]`) would.
-    #[test]
-    fn a_pipe_s_descriptor_path_is_refused() {
         let (reader, _writer) = std::io::pipe().expect("a pipe is made");
-
         assert!(read_descriptor_path(&reader).is_err());
     }
 }

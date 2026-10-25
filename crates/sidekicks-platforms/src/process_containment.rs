@@ -26,6 +26,16 @@ pub fn contain_daemon_descendants() -> io::Result<()> {
     Ok(())
 }
 
+/// Makes this process take in the orphans below it, so a command's processes that outlive their
+/// parent stay where a walk down from it finds them: a child subreaper on Linux; nothing elsewhere,
+/// where no system offers one. Fails with the system's error.
+pub fn take_in_orphans() -> io::Result<()> {
+    #[cfg(target_os = "linux")]
+    return system::take_in_orphans();
+    #[cfg(not(target_os = "linux"))]
+    Ok(())
+}
+
 /// The folder the daemon works in for its whole life, set at its start before any child or
 /// terminal host starts, so a child that inherits it holds no folder a person may remove: `/` on
 /// macOS and Linux, the system folder on Windows.

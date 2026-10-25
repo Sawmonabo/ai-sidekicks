@@ -89,8 +89,9 @@ pub struct ConsoleReading {
 
 /// What a terminal's master shows of the terminal, read by whoever holds the master: its session
 /// and foreground process group, the input queued for its program, on Linux the output queued for
-/// the master, and its echo and line settings.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// the master, and its echo and line settings; it crosses from a command's wrapper, which holds the
+/// master, to the daemon as JSON.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TerminalMasterReading {
     /// The terminal's session, named by its leader's process id: the command the terminal started.
     pub session_leader: u32,
@@ -121,7 +122,7 @@ impl TerminalMasterReading {
 
 /// The device number of a terminal's program side, which tells a descriptor open on that terminal
 /// from every other, whatever path opened it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct TerminalDevice(pub u64);
 
 /// A terminal a command runs in as its own session's leader, the terminal its controlling one: the

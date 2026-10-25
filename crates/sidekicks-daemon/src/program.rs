@@ -1,10 +1,10 @@
 //! The `sidekicks-daemon` program's dispatch: what one run of the program is, read from the name it
-//! was started by and then from its arguments. A link named for the clone's askpass runs that;
-//! otherwise the first words choose a helper mode, `shell <daemon pid>`, `console <pid>`, `console
-//! input <pid>`, `environment <marker>`, `index`, `minidump <socket>`, `database copy`, `database
-//! restore <backup folder>` or `database shell`; with no words it is the service. The `hook`,
-//! `wsl` and `banners` modes and the `sidekicks-command-wrapper` and `sidekicks-command-askpass`
-//! links are their own features' to add here.
+//! was started by and then from its arguments. A link named for the clone's askpass, the command
+//! wrapper or the command askpass runs that, before any runtime starts; otherwise the first words
+//! choose a helper mode, `shell <daemon pid>`, `console <pid>`, `console input <pid>`, `environment
+//! <marker>`, `index`, `minidump <socket>`, `database copy`, `database restore <backup folder>` or
+//! `database shell`; with no words it is the service. The `hook`, `wsl` and `banners` modes are
+//! their own features' to add here.
 
 use std::ffi::{CString, OsString, c_int};
 use std::io;
@@ -14,6 +14,8 @@ use std::process::ExitCode;
 use crate::daemon::crash::monitor::{CRASH_MONITOR_MODE, run_crash_monitor};
 use crate::daemon::login_shell_environment::printing::{ENVIRONMENT_MODE, run_environment_mode};
 use crate::daemon::start::run_service;
+use crate::provider::command::askpass::{COMMAND_ASKPASS_PROGRAM_NAME, run_command_askpass};
+use crate::provider::command::wrapper::{COMMAND_WRAPPER_PROGRAM_NAME, run_command_wrapper};
 use crate::pty::console::{CONSOLE_MODE, run_console_mode};
 use crate::pty::shell::mode::{SHELL_MODE, run_shell_mode};
 use crate::recovery::database_file::copy::{DATABASE_COPY_MODE, run_database_copy};
@@ -33,11 +35,15 @@ pub type SqliteShell = fn(&[CString]) -> c_int;
 pub fn run_daemon_program(run_sqlite_shell: SqliteShell) -> ExitCode {
     let mut arguments = std::env::args_os();
     let program_name = arguments.next().unwrap_or_default();
-    if Path::new(&program_name)
-        .file_stem()
-        .is_some_and(|stem| stem == GIT_ASKPASS_PROGRAM_NAME)
-    {
+    let program_stem = Path::new(&program_name).file_stem();
+    if program_stem.is_some_and(|stem| stem == GIT_ASKPASS_PROGRAM_NAME) {
         return run_git_askpass();
+    }
+    if program_stem.is_some_and(|stem| stem == COMMAND_WRAPPER_PROGRAM_NAME) {
+        return run_command_wrapper();
+    }
+    if program_stem.is_some_and(|stem| stem == COMMAND_ASKPASS_PROGRAM_NAME) {
+        return run_command_askpass();
     }
     let arguments: Vec<OsString> = arguments.collect();
     let words: Vec<String> = arguments
