@@ -49,7 +49,8 @@ pub(crate) struct HandlerContext {
     /// The call's place among the mutating calls the daemon is running, which a flush or a stop
     /// waits behind; `None` for a call that is not recorded.
     pub(crate) recorded_call: Option<RecordedCallId>,
-    /// What the connection runs once the call's result is queued ahead of any close.
+    /// What the connection runs once the call's result is queued ahead of any close; an error
+    /// reply, a subscription or a closed connection drops it unrun.
     pub(crate) after_reply: AfterReply,
 }
 

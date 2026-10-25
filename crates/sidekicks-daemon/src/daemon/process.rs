@@ -554,7 +554,8 @@ impl DaemonProcess {
     }
 
     // An erase step that sends the command `command` makes to the task that owns the process and
-    // waits until it ran. A process already in its stop runs the step there instead.
+    // waits until it ran. Once the stop has begun, the stop closes these parts instead, and the
+    // erase's later steps race the runtime's end.
     fn command_step(&self, command: fn(oneshot::Sender<()>) -> DaemonCommand) -> EraseStep {
         let commands = self.command_sender.clone();
         Arc::new(move || {
@@ -562,7 +563,9 @@ impl DaemonProcess {
             async move {
                 let (reply, replied) = oneshot::channel();
                 if commands.send(command(reply)).await.is_err() || replied.await.is_err() {
-                    tracing::info!("the daemon's stop had begun, so it runs the erase's step");
+                    tracing::info!(
+                        "the daemon's stop had begun before the erase's step, so the stop closes those parts"
+                    );
                 }
             }
             .boxed()

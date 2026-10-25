@@ -39,7 +39,7 @@ pub(crate) fn record_start_failure(run_folder: &DaemonRunFolder, error: &DaemonS
     let cannot_start = if let DaemonStartError::SavedSessionsUnrepaired { aside_folder, .. } = error
     {
         let aside_folder = FilesystemPath::new(aside_folder.to_string_lossy().into_owned())
-            .expect("a folder's path is neither empty nor holds a NUL");
+            .expect("a folder's path is not empty, holds no NUL and fits the file path cap");
         Some(DaemonCannotStart::SavedSessionsUnrepaired { aside_folder })
     } else if let DaemonStartError::SavedSessionsFromAnotherVersion { .. } = error {
         Some(DaemonCannotStart::SavedSessionsFromAnotherVersion {})

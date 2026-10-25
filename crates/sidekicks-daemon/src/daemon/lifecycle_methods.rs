@@ -13,6 +13,7 @@ use sidekicks_contracts::method::Method;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::wire::BoolLiteral;
 
+use crate::ipc::in_flight_mutations::RecordedCallId;
 use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
@@ -21,8 +22,13 @@ use crate::provider::driver::daemon_stop::DaemonStopIntent;
 /// What the lifecycle verbs act on: the running daemon.
 #[derive(Clone)]
 pub(crate) struct LifecycleMethodsDeps {
-    /// Resolves once every write pending at the call is durable; stops nothing.
-    pub(crate) flush: Arc<dyn Fn() -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>,
+    /// Resolves once every write pending at the call is durable; stops nothing. It takes the
+    /// call's own in-flight record, so a wait on the pending mutations excludes the flush itself.
+    pub(crate) flush: Arc<
+        dyn Fn(Option<RecordedCallId>) -> BoxFuture<'static, Result<(), HandlerError>>
+            + Send
+            + Sync,
+    >,
     /// Starts the daemon's stop for the intent given; it runs once the call's reply is queued, so
     /// the reply is written before the stop closes the connection. The stop waits for the writes
     /// already under way within its drain bound.
@@ -37,8 +43,8 @@ pub(crate) fn register_lifecycle_methods(
     deps: &LifecycleMethodsDeps,
 ) -> Result<(), RegistrationError> {
     let flush = Arc::clone(&deps.flush);
-    registry.register::<DaemonFlush, _>(move |_: EmptyPayload, _context: HandlerContext| {
-        let flushed = flush();
+    registry.register::<DaemonFlush, _>(move |_: EmptyPayload, context: HandlerContext| {
+        let flushed = flush(context.recorded_call);
         async move {
             flushed.await?;
             Ok(DaemonFlushResponse {
@@ -135,7 +141,7 @@ mod tests {
         register_lifecycle_methods(
             &mut builder,
             &LifecycleMethodsDeps {
-                flush: Arc::new(move || {
+                flush: Arc::new(move |_caller| {
                     let (release, released) = oneshot::channel();
                     held.lock()
                         .unwrap_or_else(PoisonError::into_inner)
