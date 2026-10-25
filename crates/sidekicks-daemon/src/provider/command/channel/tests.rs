@@ -107,7 +107,7 @@ pub(super) fn open_channel(folder: &Path, provider: u32) -> CommandChannel {
     .expect("the channel opens")
 }
 
-fn names_in(folder: &Path) -> Vec<String> {
+pub(super) fn names_in(folder: &Path) -> Vec<String> {
     std::fs::read_dir(folder)
         .expect("the folder lists")
         .map(|entry| {
@@ -205,8 +205,8 @@ async fn a_party_outside_the_providers_process_is_refused_and_its_prompt_answere
     outsider.wait().expect("it is reaped");
 }
 
-// Fails when a party started under an admitted party speaks for a command: its start would pair
-// with a row and its exit settle that row. Mutation: drop the nested party's filter in
+// Fails when a party started under an admitted party speaks for a command: its exit would settle
+// a row, and its start not be told apart as nested. Mutation: drop the nested party's filter in
 // `AdmittedParty::open_record`.
 #[tokio::test]
 async fn a_party_under_an_admitted_party_speaks_only_its_prompt() {
@@ -238,7 +238,10 @@ async fn a_party_under_an_admitted_party_speaks_only_its_prompt() {
         outer_start.map(|received| received.record),
         Some(starting())
     );
-    assert!(open(&nested_keys, nested_id, 1, starting()).await.is_none());
+    let nested_start = open(&nested_keys, nested_id, 1, starting())
+        .await
+        .expect("a nested wrapper's start is taken");
+    assert!(nested_start.is_nested);
     assert!(open(&nested_keys, nested_id, 2, exited()).await.is_none());
     let asking = open(&nested_keys, nested_id, 3, PartyRecord::Asking {})
         .await

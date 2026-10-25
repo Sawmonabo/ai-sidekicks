@@ -2,8 +2,9 @@
 //! it with its row and is answered `go` at once, the file its command's standard output writes to
 //! is tailed as that row's output once it pairs, its terminal's readings feed the row's waiting
 //! checks, its exit settles the row's exit code, and an askpass's prompt opens on the row of the
-//! wrapper above it, answered empty at once where no wrapper is. A wrapper is let go at its exit,
-//! or at its process's end where it died before saying so.
+//! wrapper above it, answered empty at once where no wrapper is. A wrapper started under another is
+//! answered `go` and pairs with nothing. A wrapper is let go at its exit, or at its process's end
+//! where it died before saying so or is nested.
 
 use std::collections::HashMap;
 use std::io::{self, ErrorKind};
@@ -102,28 +103,20 @@ impl RecordFollower {
                 stdout_path,
                 process,
             } => {
-                let command =
-                    process.map_or(WrapperCommand::Line(command), WrapperCommand::Process);
-                let paired = self.set.wrapper_started(session_id, party, command);
+                // A wrapper under another runs part of that one's command: it pairs with no row and
+                // shows no output, and is followed only until its process ends.
+                let paired = (!received.is_nested).then(|| {
+                    let command =
+                        process.map_or(WrapperCommand::Line(command), WrapperCommand::Process);
+                    self.set.wrapper_started(session_id, party, command)
+                });
                 send_request(&self.channel, party, &DaemonRequest::Go {}).await;
                 let (exited, ended) = watch::channel(false);
-                let tail = stdout_path.map(|path| {
+                let tail = paired.zip(stdout_path).map(|(paired, path)| {
                     let set = Arc::clone(&self.set);
                     tokio::spawn(tail_output(path, set, session_id, party, paired, ended))
                 });
-                let process_end = self.channel.party_process(party).map(|process| {
-                    let process_ended = self.process_ended.clone();
-                    tokio::spawn(async move {
-                        match process.wait_for_end().await {
-                            Ok(()) => process_ended.send(party).unwrap_or_default(),
-                            Err(error) => tracing::warn!(
-                                party,
-                                error = &error as &(dyn std::error::Error + 'static),
-                                "a command wrapper's process end could not be watched"
-                            ),
-                        }
-                    })
-                });
+                let process_end = self.watch_process_end(party);
                 self.wrappers.insert(
                     party,
                     FollowedWrapper {
@@ -191,6 +184,22 @@ impl RecordFollower {
                 }
             }
         }
+    }
+
+    // Sends `party`'s id to the follower once its process, pinned at its admission, ends.
+    fn watch_process_end(&self, party: PartyId) -> Option<JoinHandle<()>> {
+        let process = self.channel.party_process(party)?;
+        let process_ended = self.process_ended.clone();
+        Some(tokio::spawn(async move {
+            match process.wait_for_end().await {
+                Ok(()) => process_ended.send(party).unwrap_or_default(),
+                Err(error) => tracing::warn!(
+                    party,
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a command party's process end could not be watched"
+                ),
+            }
+        }))
     }
 
     // Lets the wrapper `party` go: its output read to the end, its checks stopped, its row's

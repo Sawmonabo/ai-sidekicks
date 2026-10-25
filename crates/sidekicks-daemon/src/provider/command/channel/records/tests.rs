@@ -19,10 +19,10 @@ use tokio::sync::watch;
 use super::{follow_channel_records, tail_output};
 use crate::ipc::stream::feed::{CreditGate, Feed as _};
 use crate::provider::command::channel::tests::{
-    end_party, open_channel, party_command, ready_parties, sealed,
+    end_party, names_in, open_channel, party_command, ready_parties, sealed,
 };
 use crate::provider::command::channel::{
-    ChannelKem, PartyId, PartyRecord, record_name, write_record,
+    ChannelKem, PartyId, PartyRecord, REQUESTS_FOLDER, record_name, write_record,
 };
 use crate::provider::command::running_set::{
     CommandEndingAppender, RunningCommandFeed, RunningCommandSets, WrapperCommand,
@@ -219,4 +219,74 @@ async fn a_wrapper_killed_after_its_start_is_let_go() {
     .expect("the wrapper is let go");
     follower.abort();
     end_party(party);
+}
+
+// Fails when a wrapper started under another, as an agent's nested provider runs its own commands,
+// is not answered `go`, so it waits out its deadline, or is held past its end. Mutations: drop the
+// nested `starting` from `AdmittedParty::open_record`'s filter; skip `watch_process_end` for it.
+#[tokio::test]
+async fn a_nested_wrapper_is_answered_go_and_let_go_at_its_end() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let (outer_keys, nested_keys) = (ChannelKem::gen_keypair(), ChannelKem::gen_keypair());
+    let mut outer = party_command(&outer_keys, Some(&nested_keys))
+        .spawn()
+        .expect("the party starts");
+    let mut lines = BufReader::new(outer.stdout.take().expect("its output")).lines();
+    let ready = ready_parties(&mut lines, 2);
+    let outer_id = outer.id();
+    let nested_id = *ready
+        .iter()
+        .find(|id| **id != outer_id)
+        .expect("the nested party is ready");
+    let channel = Arc::new(open_channel(folder.path(), std::process::id()));
+    let sets = sets();
+    let follower = tokio::spawn(follow_channel_records(
+        session(),
+        Arc::clone(&channel),
+        Arc::clone(&sets),
+        Arc::new(NoTerminals),
+    ));
+    let starting = PartyRecord::Starting {
+        command: "npm test".to_owned(),
+        stdout_path: None,
+        process: None,
+    };
+    let write = |keys, party, sequence| {
+        let record = sealed(&channel, keys, party, sequence, &starting);
+        write_record(&channel.folder, &record_name(party, sequence), &record)
+            .expect("the record is written");
+    };
+    // The follower's watch may start after the record lands; the record is written until it is
+    // taken.
+    let mut sequence = 0;
+    while sets.unpaired_count(session()) == 0 {
+        sequence += 1;
+        write(&outer_keys, outer_id, sequence);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let outer_unpaired = sets.unpaired_count(session());
+    write(&nested_keys, nested_id, 1);
+    let requests = channel.folder.join(REQUESTS_FOLDER);
+    let go = record_name(nested_id, 1);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !names_in(&requests).contains(&go) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the nested wrapper is answered go");
+    assert_eq!(
+        sets.unpaired_count(session()),
+        outer_unpaired,
+        "the nested wrapper waits for a row"
+    );
+    end_party(outer);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while channel.party_process(nested_id).is_some() || names_in(&requests).contains(&go) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the nested wrapper is let go");
+    follower.abort();
 }

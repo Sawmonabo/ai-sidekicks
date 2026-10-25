@@ -232,8 +232,8 @@ struct AdmittedParty {
     next_request: u64,
     /// Whether the party is a wrapper that speaks for its command, as its `starting` record shows.
     is_wrapper: bool,
-    /// Whether the party sits under another admitted party, so it speaks for no command: only an
-    /// askpass's `asking` is taken from it.
+    /// Whether the party sits under another admitted party, so it speaks for no command: only its
+    /// `starting`, which is answered `go` alone, and an askpass's `asking` are taken from it.
     is_nested: bool,
     /// The first of the party's own arguments, which is an askpass's prompt.
     first_argument: Option<String>,
@@ -247,8 +247,8 @@ struct AdmittedParty {
 impl AdmittedParty {
     /// Opens the record `party` sealed under `sequence` to `daemon`; `None`, the record dropped,
     /// when it does not open under this party's context, its number is not past the last one
-    /// opened, or the party is nested and the record is no `asking`. A number past the next one
-    /// skips those between.
+    /// opened, or the party is nested and the record is neither `starting` nor `asking`. A number
+    /// past the next one skips those between.
     fn open_record(
         &mut self,
         daemon: &ChannelPrivateKey,
@@ -263,11 +263,17 @@ impl AdmittedParty {
         let plaintext = open(daemon, &self.public_key, &context, sealed)?;
         let record = serde_json::from_slice(&plaintext).ok()?;
         self.last_sequence = sequence;
-        if self.is_nested && !matches!(record, PartyRecord::Asking {}) {
+        if self.is_nested
+            && !matches!(
+                record,
+                PartyRecord::Starting { .. } | PartyRecord::Asking {}
+            )
+        {
             tracing::debug!(party, "a nested command party's record was dropped");
             return None;
         }
-        if matches!(record, PartyRecord::Starting { .. }) {
+        // A nested wrapper speaks for no command, so an askpass under it reaches the one above.
+        if !self.is_nested && matches!(record, PartyRecord::Starting { .. }) {
             self.is_wrapper = true;
         }
         Some(record)
@@ -281,12 +287,14 @@ enum Admission {
     Refused(Option<ChannelPublicKey>),
 }
 
-/// A record the daemon opened: its party, the wrapper an askpass sits under, the record, and the
-/// party's first own argument, an askpass's prompt.
+/// A record the daemon opened: its party, whether that party is nested, the wrapper an askpass sits
+/// under, the record, and the party's first own argument, an askpass's prompt.
 #[derive(Debug)]
 pub(crate) struct ReceivedRecord {
     /// The party that wrote it.
     pub(crate) party: PartyId,
+    /// Whether the party sits under another admitted party, so it speaks for no command.
+    pub(crate) is_nested: bool,
     /// The nearest admitted wrapper above the party, for an askpass.
     pub(crate) wrapper: Option<PartyId>,
     /// The record.
@@ -524,12 +532,13 @@ impl CommandChannel {
         let Some(admitted) = parties.get_mut(&party) else {
             return Ok(None);
         };
-        let wrapper = admitted.wrapper;
+        let (is_nested, wrapper) = (admitted.is_nested, admitted.wrapper);
         let first_argument = admitted.first_argument.clone();
         Ok(admitted
             .open_record(&self.keys.0, party, sequence, sealed)
             .map(|record| ReceivedRecord {
                 party,
+                is_nested,
                 wrapper,
                 record,
                 first_argument,
