@@ -280,7 +280,7 @@ mod tests {
     // reader of the watch holds the settings and hears the change. Killed by a watch the
     // change's announce does not reach.
     #[tokio::test]
-    async fn an_unparseable_file_is_repaired_and_the_repair_carried_until_the_next_write() {
+    async fn an_unparsable_file_is_repaired_and_the_repair_carried_until_the_next_write() {
         let folder = tempfile::tempdir().expect("a scratch folder is made");
         let file_path = folder.path().join(MACHINE_SETTINGS_FILE_NAME);
         std::fs::write(&file_path, "{ not json").expect("the broken file is written");

@@ -44,7 +44,7 @@ fn read_part(
 // is read whole for each part, so the same damage fails its later part. Killed by an ended reply
 // read whole for each part, and by a cut kept for a reply still taking pieces.
 #[test]
-fn an_ended_replys_later_part_reads_only_its_frames() {
+fn an_ended_replies_later_part_reads_only_its_frames() {
     for is_ended in [true, false] {
         let log = TranscriptTestLog::new();
         let block_cuts = BlockCuts::default();
