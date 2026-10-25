@@ -528,4 +528,48 @@ mod tests {
             );
         }
     }
+
+    // Mutations: in `TaskWatch`'s drop, forget the task without withdrawing its questions; or
+    // in `connection.rs`'s `create_elicitation`, ignore `context.ct`, or in `AwaitedQuestion`'s
+    // drop, withdraw nothing. Either way the question stays open on the card.
+    #[rstest::rstest]
+    #[case::the_call_is_dropped(false)]
+    #[case::the_server_cancels_its_request(true)]
+    #[tokio::test(start_paused = true)]
+    async fn a_task_question_nobody_waits_on_is_withdrawn_from_the_card(
+        #[case] is_canceled_by_the_server: bool,
+    ) {
+        let (client, card) = test_client();
+        let (connection, server) = open_test_server(&client, asking_task_server()).await;
+        let sink = CountingSink::new(&server);
+        let contact = contact();
+        let mut call = Box::pin(connection.call_tool(track_call(), &sink, &contact));
+
+        tokio::select! {
+            _ = &mut call => panic!("the call ended before its question was asked"),
+            () = card.wait_until_taken(1) => {}
+        }
+        if is_canceled_by_the_server {
+            let canceled = json!({
+                "jsonrpc": "2.0",
+                "method": "notifications/cancelled",
+                "params": { "requestId": "server-1" },
+            });
+            server
+                .unasked
+                .send(canceled.to_string())
+                .expect("the server is running");
+            tokio::select! {
+                _ = &mut call => {}
+                () = card.wait_until_none_open() => {}
+                () = tokio::time::sleep(Duration::from_secs(5)) => {}
+            }
+        } else {
+            drop(call);
+        }
+
+        timeout(Duration::from_secs(5), card.wait_until_none_open())
+            .await
+            .expect("the question is withdrawn");
+    }
 }

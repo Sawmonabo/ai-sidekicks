@@ -370,14 +370,21 @@ impl ClientHandler for McpClientHandler {
             .get(RELATED_TASK_META_KEY)
             .and_then(|related| related.get("taskId"))
             .and_then(Value::as_str);
-        let asked = match related_task {
-            Some(task_id) => {
-                self.scope
-                    .task_watches
-                    .ask_v1_task_question(&self.scope, task_id, params)
-                    .await
+        let ask = async {
+            match related_task {
+                Some(task_id) => {
+                    self.scope
+                        .task_watches
+                        .ask_v1_task_question(&self.scope, task_id, params)
+                        .await
+                }
+                None => self.calls.ask_newest_call(&self.scope, params).await,
             }
-            None => self.calls.ask_newest_call(&self.scope, params).await,
+        };
+        // A request the server canceled drops its question, which withdraws it from the card.
+        let asked = tokio::select! {
+            asked = ask => asked,
+            () = context.ct.cancelled() => Some(QuestionOutcome::Withdrawn),
         };
         Ok(match asked {
             Some(QuestionOutcome::Answered(content)) => {

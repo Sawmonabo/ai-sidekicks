@@ -1,7 +1,7 @@
 //! The tool calls in flight on one connection, each with the run that made it, so a question the
 //! server asks outside a task goes on the card under the run of the call it belongs to: the one in
 //! flight, or the newest when several are. A question a call asked and nobody answered is withdrawn
-//! when the call ends.
+//! when the call ends or is dropped, or when the server cancels the request that asked it.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -11,7 +11,7 @@ use sidekicks_contracts::run::id::RunId;
 
 use crate::mcp::client::connection::McpConnectionScope;
 use crate::mcp::client::tasks::{
-    ElicitationAnswer, McpToolCall, QuestionOutcome, TaskWatches, compose_question,
+    AwaitedQuestion, ElicitationAnswer, McpToolCall, QuestionOutcome, TaskWatches, compose_question,
 };
 
 /// The calls in flight on one connection.
@@ -28,16 +28,21 @@ struct CallInFlight {
     open_questions: Vec<String>,
 }
 
-/// One call while it is in flight; dropping it forgets the call, and [`Self::finish`] also
-/// withdraws its questions still open.
+/// One call while it is in flight; finished or dropped, it forgets the call and withdraws its
+/// questions still open.
 pub(super) struct TrackedCall<'calls> {
     calls: &'calls CallsInFlight,
+    scope: &'calls McpConnectionScope,
     number: u64,
 }
 
 impl CallsInFlight {
-    /// Tracks `call` until the returned value is finished or dropped.
-    pub(super) fn track(&self, call: &McpToolCall) -> TrackedCall<'_> {
+    /// Tracks `call` on `scope`'s connection until the returned value is finished or dropped.
+    pub(super) fn track<'calls>(
+        &'calls self,
+        call: &McpToolCall,
+        scope: &'calls McpConnectionScope,
+    ) -> TrackedCall<'calls> {
         let number = self.next_call.fetch_add(1, Ordering::Relaxed);
         self.lock().push(CallInFlight {
             number,
@@ -46,6 +51,7 @@ impl CallsInFlight {
         });
         TrackedCall {
             calls: self,
+            scope,
             number,
         }
     }
@@ -88,7 +94,9 @@ impl CallsInFlight {
                 .await;
             return QuestionOutcome::Withdrawn;
         }
-        answered.await
+        AwaitedQuestion::hold(watches, scope.session_id, request_id)
+            .answer(answered)
+            .await
     }
 
     fn run_of(&self, number: u64) -> Option<RunId> {
@@ -113,12 +121,12 @@ impl TrackedCall<'_> {
     }
 
     /// Stops tracking the call, withdrawing each of its questions still open on the card.
-    pub(super) async fn finish(self, scope: &McpConnectionScope) {
+    pub(super) async fn finish(self) {
         let open_questions = self.forget();
         if !open_questions.is_empty() {
-            scope
+            self.scope
                 .task_watches
-                .withdraw_questions(scope.session_id, open_questions)
+                .withdraw_questions(self.scope.session_id, open_questions)
                 .await;
         }
     }
@@ -134,7 +142,10 @@ impl TrackedCall<'_> {
 
 impl Drop for TrackedCall<'_> {
     fn drop(&mut self) {
-        self.forget();
+        let open_questions = self.forget();
+        self.scope
+            .task_watches
+            .withdraw_questions_later(self.scope.session_id, open_questions);
     }
 }
 

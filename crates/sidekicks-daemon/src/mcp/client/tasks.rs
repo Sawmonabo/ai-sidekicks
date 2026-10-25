@@ -7,6 +7,8 @@
 //!   rmcp's own types ([`v2`]).
 //! - A task's question is held under its own request id, and its answer goes back to the server
 //!   that asked, never to the run's driver.
+//! - A question nobody waits on any more is withdrawn from the card: one whose task or call is
+//!   dropped, or whose request the server canceled.
 //! - A task is watched by its session, its server's name and its id, so two sessions whose
 //!   servers mint the same id never share a watch.
 
@@ -186,7 +188,7 @@ impl McpServerConnection {
         sink: &dyn McpTaskHandleSink,
         contact: &watch::Sender<McpTaskContact>,
     ) -> Result<McpToolCallEnd, McpToolCallError> {
-        let in_flight = self.calls.track(&call);
+        let in_flight = self.calls.track(&call, &self.scope);
         let ended = if self.task_generation == Some(McpTaskGeneration::V1)
             && self.is_task_tool(&call.dispatch.tool_name).await?
         {
@@ -194,7 +196,7 @@ impl McpServerConnection {
         } else {
             v2::call_tool(self, &in_flight, call, sink, contact).await
         };
-        in_flight.finish(&self.scope).await;
+        in_flight.finish().await;
         ended
     }
 
@@ -274,8 +276,8 @@ struct WatchedTask {
     open_questions: Vec<String>,
 }
 
-/// One task while it is followed; dropping it stops following, and [`Self::finish`] also
-/// withdraws its questions still open.
+/// One task while it is followed; finished or dropped, it stops following and withdraws its
+/// questions still open.
 pub(super) struct TaskWatch<'watches> {
     watches: &'watches TaskWatches,
     key: WatchKey,
@@ -341,28 +343,32 @@ impl TaskWatches {
         params: Value,
     ) -> Option<QuestionOutcome> {
         let (answer, answered) = ElicitationAnswer::open(params.clone());
-        if !self.ask(scope, mcp_task_id, &params, answer).await? {
+        let Some(request_id) = self.ask(scope, mcp_task_id, &params, answer).await? else {
             return Some(QuestionOutcome::Withdrawn);
-        }
-        Some(answered.await)
+        };
+        Some(
+            AwaitedQuestion::hold(self, scope.session_id, request_id)
+                .answer(answered)
+                .await,
+        )
     }
 
     /// Hands the card one question of `scope`'s task `mcp_task_id`, answered through `answer`.
-    /// `None` when the task is not followed; `Some(false)` when the card did not take it, which is
-    /// logged, so a later poll can ask it again.
+    /// `None` when the task is not followed; `Some(None)` when the card did not take it, which is
+    /// logged, so a later poll can ask it again; else the question's request id.
     pub(super) async fn ask(
         &self,
         scope: &McpConnectionScope,
         mcp_task_id: &str,
         params: &Value,
         answer: Arc<dyn ToolServerQuestionAnswer>,
-    ) -> Option<bool> {
+    ) -> Option<Option<String>> {
         let key = watch_key(scope, mcp_task_id);
         let run_id = self.lock().get(&key)?.run_id;
         let request_id = self.mint_request_id(scope, mcp_task_id);
         let question = compose_question(scope, run_id, request_id.clone(), params);
         if !self.take_question(scope, question, answer).await {
-            return Some(false);
+            return Some(None);
         }
         let is_followed = self
             .lock()
@@ -371,10 +377,10 @@ impl TaskWatches {
             .is_some();
         // A task that ended while its question was taken leaves nothing to answer it.
         if !is_followed {
-            self.withdraw_questions(scope.session_id, vec![request_id])
+            self.withdraw_questions(scope.session_id, vec![request_id.clone()])
                 .await;
         }
-        Some(true)
+        Some(Some(request_id))
     }
 
     /// A request id for one question `scope`'s server asks under `owner`, a task's id or a call.
@@ -410,25 +416,92 @@ impl TaskWatches {
     /// Withdraws each of `request_ids` in `session_id` still open on the card, logging any the
     /// card could not settle.
     pub(super) async fn withdraw_questions(&self, session_id: SessionId, request_ids: Vec<String>) {
-        let Some(port) = self.questions.port() else {
+        if let Some(port) = self.questions.port() {
+            withdraw_questions(port.as_ref(), session_id, request_ids).await;
+        }
+    }
+
+    /// Withdraws `request_ids` as [`Self::withdraw_questions`] does, in a task of its own, for an
+    /// owner dropped where it cannot wait.
+    pub(super) fn withdraw_questions_later(&self, session_id: SessionId, request_ids: Vec<String>) {
+        if request_ids.is_empty() {
+            return;
+        }
+        let (Some(port), Ok(runtime)) = (
+            self.questions.port().cloned(),
+            tokio::runtime::Handle::try_current(),
+        ) else {
             return;
         };
-        for request_id in request_ids {
-            let withdrawal = ProviderQuestionWithdrawal {
-                session_id,
-                request_id,
-            };
-            if let Err(error) = port.withdraw_question(withdrawal).await {
-                tracing::warn!(
-                    error = &*error as &(dyn Error + 'static),
-                    "a tool server's question was not withdrawn"
-                );
-            }
-        }
+        runtime
+            .spawn(async move { withdraw_questions(port.as_ref(), session_id, request_ids).await });
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<WatchKey, WatchedTask>> {
         self.watched.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// Withdraws each of `request_ids` in `session_id` through `port`, logging any the card could not
+/// settle.
+async fn withdraw_questions(
+    port: &dyn QuestionPort,
+    session_id: SessionId,
+    request_ids: Vec<String>,
+) {
+    for request_id in request_ids {
+        let withdrawal = ProviderQuestionWithdrawal {
+            session_id,
+            request_id,
+        };
+        if let Err(error) = port.withdraw_question(withdrawal).await {
+            tracing::warn!(
+                error = &*error as &(dyn Error + 'static),
+                "a tool server's question was not withdrawn"
+            );
+        }
+    }
+}
+
+/// A question the card took whose answer a server's request waits on; dropped before the answer
+/// comes, as when the server canceled its request, it is withdrawn from the card.
+pub(super) struct AwaitedQuestion<'watches> {
+    watches: &'watches TaskWatches,
+    session_id: SessionId,
+    request_id: Option<String>,
+}
+
+impl<'watches> AwaitedQuestion<'watches> {
+    /// Holds question `request_id` of `session_id` until it is answered.
+    pub(super) fn hold(
+        watches: &'watches TaskWatches,
+        session_id: SessionId,
+        request_id: String,
+    ) -> Self {
+        Self {
+            watches,
+            session_id,
+            request_id: Some(request_id),
+        }
+    }
+
+    /// What `answered`, the question's outcome, comes to.
+    pub(super) async fn answer(
+        mut self,
+        answered: impl Future<Output = QuestionOutcome>,
+    ) -> QuestionOutcome {
+        let outcome = answered.await;
+        self.request_id = None;
+        outcome
+    }
+}
+
+impl Drop for AwaitedQuestion<'_> {
+    fn drop(&mut self) {
+        if let Some(request_id) = self.request_id.take() {
+            self.watches
+                .withdraw_questions_later(self.session_id, vec![request_id]);
+        }
     }
 }
 
@@ -472,7 +545,11 @@ impl TaskWatch<'_> {
 
 impl Drop for TaskWatch<'_> {
     fn drop(&mut self) {
-        self.watches.lock().remove(&self.key);
+        let removed = self.watches.lock().remove(&self.key);
+        if let Some(task) = removed {
+            self.watches
+                .withdraw_questions_later(self.key.0, task.open_questions);
+        }
     }
 }
 

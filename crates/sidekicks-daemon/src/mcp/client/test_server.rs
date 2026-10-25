@@ -249,6 +249,20 @@ impl QuestionCard {
         self.taken.lock().expect("never poisoned").clone()
     }
 
+    /// Waits until no question is open, as once every one was answered or withdrawn.
+    pub(super) async fn wait_until_none_open(&self) {
+        while !self.open.lock().expect("never poisoned").is_empty() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+
+    /// Waits until the card took `count` questions.
+    pub(super) async fn wait_until_taken(&self, count: usize) {
+        while self.taken().len() < count {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+
     /// Waits for an open question, answers the oldest with `answers` through its answerer and
     /// closes it.
     pub(super) async fn answer_open(&self, answers: Vec<QuestionAnswer>) -> ProviderQuestion {

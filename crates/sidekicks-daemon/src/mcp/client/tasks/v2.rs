@@ -280,7 +280,7 @@ async fn answer_input_request(
         .task_watches
         .ask(&connection.scope, mcp_task_id, &params, answer)
         .await
-        == Some(true)
+        .is_some_and(|taken| taken.is_some())
 }
 
 /// The `tasks/update` carrying `response` to task `mcp_task_id`'s input request `key`.
