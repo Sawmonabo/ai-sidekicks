@@ -3,28 +3,25 @@
 //! just joined gets its first one without the others getting anything for the joining. What comes
 //! while a list is being read makes one more read, never two at once.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::terminal::TerminalListUpdate;
 
-use crate::ipc::stream::latest_value::LatestValueOutlet;
+use crate::ipc::stream::latest_value::{
+    LatestValueOutlet, LatestValueOutletId, LatestValueOutlets,
+};
 
 /// Reads a session's whole shell list once every holder in it has settled.
 pub(crate) type ShellListRead =
     Arc<dyn Fn() -> BoxFuture<'static, TerminalListUpdate> + Send + Sync>;
 
-/// One follower's place among a session's followers, which its feed's detach gives back.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct ShellListFollowerId(u64);
-
 /// The followers and whether a read is due or running.
 struct Followers {
-    outlets: HashMap<ShellListFollowerId, LatestValueOutlet<TerminalListUpdate>>,
+    outlets: LatestValueOutlets<TerminalListUpdate>,
     /// Followers that joined since the list was last sent and have not had their first one.
-    awaiting_first: HashSet<ShellListFollowerId>,
-    next_id: u64,
+    awaiting_first: HashSet<LatestValueOutletId>,
     is_stale: bool,
     is_sending: bool,
 }
@@ -41,9 +38,8 @@ impl ShellListFollowers {
     pub(crate) fn new(read_list: ShellListRead) -> Self {
         Self {
             followers: Arc::new(Mutex::new(Followers {
-                outlets: HashMap::new(),
+                outlets: LatestValueOutlets::default(),
                 awaiting_first: HashSet::new(),
-                next_id: 0,
                 is_stale: false,
                 is_sending: false,
             })),
@@ -61,12 +57,10 @@ impl ShellListFollowers {
     pub(crate) fn follow(
         &self,
         outlet: LatestValueOutlet<TerminalListUpdate>,
-    ) -> ShellListFollowerId {
+    ) -> LatestValueOutletId {
         let id = {
             let mut followers = self.lock();
-            let id = ShellListFollowerId(followers.next_id);
-            followers.next_id += 1;
-            followers.outlets.insert(id, outlet);
+            let id = followers.outlets.attach(outlet);
             followers.awaiting_first.insert(id);
             id
         };
@@ -75,9 +69,9 @@ impl ShellListFollowers {
     }
 
     /// Stops sending to the follower `id`.
-    pub(crate) fn unfollow(&self, id: ShellListFollowerId) {
+    pub(crate) fn unfollow(&self, id: LatestValueOutletId) {
         let mut followers = self.lock();
-        followers.outlets.remove(&id);
+        followers.outlets.detach(id);
         followers.awaiting_first.remove(&id);
     }
 
@@ -113,16 +107,14 @@ impl ShellListFollowers {
             };
             let update = (self.read_list)().await;
             let mut followers = self.lock();
-            let recipients: Vec<ShellListFollowerId> = if is_changed {
-                followers.outlets.keys().copied().collect()
+            let recipients: Vec<LatestValueOutletId> = if is_changed {
+                followers.outlets.ids().collect()
             } else {
                 followers.awaiting_first.iter().copied().collect()
             };
             for id in recipients {
                 followers.awaiting_first.remove(&id);
-                if let Some(outlet) = followers.outlets.get(&id) {
-                    outlet.send(update.clone());
-                }
+                followers.outlets.send_to(id, &update);
             }
         }
     }
