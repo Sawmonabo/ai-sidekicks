@@ -254,6 +254,8 @@ pub use posix::child_command::{
 #[cfg(unix)]
 pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(unix)]
+pub use posix::current_user::current_user_id;
+#[cfg(unix)]
 pub use posix::disk::{
     flush_file, flush_folder, flush_open_file, is_on_network_file_system, read_exact_at,
     volume_free_bytes,
@@ -401,6 +403,8 @@ pub use windows::child_command::{
 pub use windows::command_argument_limit::read_command_argument_limit;
 #[cfg(target_os = "windows")]
 pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
+#[cfg(target_os = "windows")]
+pub use windows::current_user::current_user_id;
 #[cfg(target_os = "windows")]
 pub use windows::descriptor_path::read_descriptor_path;
 #[cfg(target_os = "windows")]

@@ -13,7 +13,7 @@ use sidekicks_contracts::machine::settings::{ProviderRowValue, ProviderSettingVa
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, ProviderValue};
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_platforms::{PathRules, Spawner};
+use sidekicks_platforms::{PathRules, Spawner, current_user_id};
 use tokio::task::JoinHandle;
 
 use crate::approvals::permission_asks::PermissionAsks;
@@ -260,6 +260,20 @@ pub(crate) struct DriverPortOwners {
     pub(crate) callback_tool_host: Arc<CallbackToolHost>,
     /// The pause and continue of runs.
     pub(crate) run_pauses: Arc<RunPauseControl>,
+}
+
+/// The places the daemon runs sessions in: this computer's own system alone, its login shell's
+/// environment `base_environment` and the current user's id.
+#[expect(
+    dead_code,
+    reason = "the daemon's start registers the session places through it"
+)]
+pub(crate) fn native_session_places(base_environment: &[(String, String)]) -> Arc<[SessionPlace]> {
+    Arc::from([SessionPlace {
+        place: None,
+        login_shell: base_environment.to_vec(),
+        user_id: current_user_id(),
+    }])
 }
 
 /// Registers each port whose owner is built, once, the run engine, its dispatch and the queue's
