@@ -29,10 +29,10 @@ use crate::daemon::process::stop::DaemonStopFailure;
 use crate::daemon::process::{DAEMON_STOP_DRAIN_BOUND, DaemonProcess, DaemonStartError};
 use crate::daemon::release_version::this_build_release_version;
 use crate::daemon::service_log::open_service_log;
+use crate::daemon::service_status::record_start_failure;
 use crate::error_description::describe_error;
 use crate::events::session::insert::monotonic_ns_now;
 use crate::ipc::caller_process::system_reader::ProcessTableReader;
-use crate::settle_all::SettleFailures;
 use crate::standard_error::write_error_line;
 
 // The runtime's worker threads.
@@ -83,15 +83,15 @@ enum ServiceStartError {
     /// The service's own process could not be read.
     #[error("the service's own process could not be read")]
     ProcessIdentity(#[source] io::Error),
+    /// The service's own program could not be found, which its crash monitor runs.
+    #[error("the service's own program could not be found")]
+    Program(#[source] io::Error),
     /// The desktop client's signature requirement could not be built.
     #[error("the desktop client's signature requirement could not be built")]
     CallerReader(#[source] CodeSignatureError),
     /// The daemon's start failed.
     #[error(transparent)]
     Start(#[from] CleanupFailures<DaemonStartError, DaemonStopFailure>),
-    /// The daemon's stop failed in a step.
-    #[error(transparent)]
-    Stop(#[from] SettleFailures<DaemonStopFailure>),
 }
 
 /// Runs the service: makes it its own responsible process, prepares the process, then runs the
@@ -131,26 +131,22 @@ fn start_and_run() -> Result<ExitCode, ServiceStartError> {
         .install()
         .map_err(ServiceStartError::Log)?;
     install_panic_hook(&data_folder, log.file_writer());
-    let exit_code = match run_daemon(home_folder, data_folder_lock) {
-        Ok(()) => {
-            tracing::info!("the background service stopped");
-            ExitCode::SUCCESS
-        }
-        Err(error) => {
-            report_start_failure(&error);
-            ExitCode::FAILURE
-        }
-    };
+    let exit_code = run_daemon(home_folder, data_folder_lock).unwrap_or_else(|error| {
+        report_start_failure(&error);
+        ExitCode::FAILURE
+    });
     drop(log);
     Ok(exit_code)
 }
 
 // Prepares the memory and the process hold, then runs the daemon on its runtime until its stop,
-// and ends the runtime within what is left of the stop's drain bound.
+// writes the service log's last lines, and ends the runtime within what is left of the stop's
+// drain bound. Fails with what went wrong before the daemon's start; from then on a failure is
+// logged and answers the failed exit.
 fn run_daemon(
     home_folder: PathBuf,
     data_folder_lock: DataFolderLock,
-) -> Result<(), ServiceStartError> {
+) -> Result<ExitCode, ServiceStartError> {
     if let Err(error) = turn_off_transparent_huge_pages() {
         tracing::warn!(
             error = &error as &(dyn Error + 'static),
@@ -175,12 +171,13 @@ fn run_daemon(
                 "the service's own process reads as ended",
             ))
         })?;
+    let daemon_program = std::env::current_exe().map_err(ServiceStartError::Program)?;
     let caller_process_reader =
         Arc::new(ProcessTableReader::for_this_program().map_err(ServiceStartError::CallerReader)?);
-    let (ran, drain_started) = runtime.block_on(async {
+    let (exit_code, drain_started) = runtime.block_on(async {
         let mut stop_request = match StopRequest::listen() {
             Ok(stop_request) => stop_request,
-            Err(error) => return (Err(ServiceStartError::Runtime(error)), Instant::now()),
+            Err(error) => return Err(ServiceStartError::Runtime(error)),
         };
         let stop = CancellationToken::new();
         // Held until the stop has run, which on Windows lets the session end only then.
@@ -195,7 +192,8 @@ fn run_daemon(
         let started = DaemonProcess::start(DaemonStartOptions {
             home_folder,
             data_folder_lock,
-            run_folder,
+            run_folder: run_folder.clone(),
+            daemon_program,
             process_identity,
             version: this_build_release_version(),
             caller_process_reader,
@@ -203,23 +201,36 @@ fn run_daemon(
             base_environment: ProviderBaseEnvironment::Capture,
         })
         .await;
-        let (ran, drain_started) = match started {
-            Ok(process) => {
+        let ran = match started {
+            Ok(mut process) => {
                 let intent = process.wait_for_stop().await;
                 let drain_started = Instant::now();
-                (
-                    process.stop(intent).await.map_err(Into::into),
-                    drain_started,
-                )
+                match process.stop(intent).await {
+                    Ok(()) => {
+                        tracing::info!("the background service stopped");
+                        (ExitCode::SUCCESS, drain_started)
+                    }
+                    Err(failure) => {
+                        tracing::error!(
+                            error = &failure as &(dyn Error + 'static),
+                            "the background service's stop failed"
+                        );
+                        (ExitCode::FAILURE, drain_started)
+                    }
+                }
             }
-            Err(failure) => (Err(failure.into()), Instant::now()),
+            Err(failure) => {
+                record_start_failure(&run_folder, failure.failures.original());
+                report_start_failure(&ServiceStartError::Start(failure.failures));
+                (ExitCode::FAILURE, failure.release_started)
+            }
         };
         signals.abort();
         drop(signals.await);
-        (ran, drain_started)
-    });
+        Ok(ran)
+    })?;
     runtime.shutdown_timeout(DAEMON_STOP_DRAIN_BOUND.saturating_sub(drain_started.elapsed()));
-    ran
+    Ok(exit_code)
 }
 
 // Says why the start failed: in the service log once it is installed, which also writes standard

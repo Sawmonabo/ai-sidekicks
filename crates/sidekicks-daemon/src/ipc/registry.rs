@@ -7,7 +7,8 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry as MapEntry;
 use std::error::Error;
-use std::sync::Arc;
+use std::fmt;
+use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use futures::FutureExt as _;
@@ -25,6 +26,7 @@ use uuid::Uuid;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::in_flight_mutations::RecordedCallId;
 use crate::ipc::stream::feed::{Feed, SendGate};
+use crate::mutex_lock::lock;
 
 /// The gateway's id for one connection, unique for the daemon's life.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -47,6 +49,38 @@ pub(crate) struct HandlerContext {
     /// The call's place among the mutating calls the daemon is running, which a flush or a stop
     /// waits behind; `None` for a call that is not recorded.
     pub(crate) recorded_call: Option<RecordedCallId>,
+    /// What the connection runs once the call's result is queued ahead of any close; an error
+    /// reply, a subscription or a closed connection drops it unrun.
+    pub(crate) after_reply: AfterReply,
+}
+
+/// An action a handler leaves for its connection, run once the call's result is queued on the
+/// connection, whose close still writes it: a stop the result announces starts only then.
+#[derive(Clone, Default)]
+pub(crate) struct AfterReply(Arc<Mutex<Option<ReplyAction>>>);
+
+// What a handler leaves to run after its reply.
+type ReplyAction = Box<dyn FnOnce() + Send>;
+
+impl AfterReply {
+    /// Leaves `action` to run after the reply, in place of any left before.
+    pub(crate) fn set(&self, action: impl FnOnce() + Send + 'static) {
+        *lock(&self.0) = Some(Box::new(action));
+    }
+
+    /// Runs the action left, if any, once.
+    pub(crate) fn run(&self) {
+        let action = lock(&self.0).take();
+        if let Some(action) = action {
+            action();
+        }
+    }
+}
+
+impl fmt::Debug for AfterReply {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("AfterReply")
+    }
 }
 
 impl HandlerContext {

@@ -16,8 +16,8 @@ use crate::wire::True;
 pub const DAEMON_STOP_TERMINAL_DRAIN_MS: u64 = 2_000;
 
 ts_constants! {
-    /// The words the service's ready line starts with, written once it answers on its socket;
-    /// whoever started the process waits for them.
+    /// The words the service's ready line carries, written once it answers on its socket;
+    /// whoever started the process waits for a line that holds them.
     pub const DAEMON_READY_LINE: &str = "The daemon is ready";
 
     /// The longest a stopping service's drain runs, in milliseconds: its terminals' drain and

@@ -181,7 +181,7 @@ async fn bind_repairing_socket(
         &mut builder,
         &LifecycleMethodsDeps {
             // Nothing is open to write while the file is repaired.
-            flush: Arc::new(|| async { Ok(()) }.boxed()),
+            flush: Arc::new(|_caller| async { Ok(()) }.boxed()),
             accept_stop: Arc::new(move |intent| {
                 // The first stop asked for wins; a later one only repeats the cancel.
                 asked_stop.get_or_init(|| intent);

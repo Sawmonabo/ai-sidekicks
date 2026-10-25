@@ -47,7 +47,9 @@ use super::{
 };
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::jsonrpc_error_mapping::{CallFailure, map_json_rpc_error};
-use crate::ipc::registry::{DispatchError, HandlerContext, Reply, Request, TransportId};
+use crate::ipc::registry::{
+    AfterReply, DispatchError, HandlerContext, Reply, Request, TransportId,
+};
 use crate::ipc::stream::subscriptions::subscription_limit_reached;
 
 /// The contract of `method` the gateway's gates read: the protocol's own subscription cancel, or
@@ -578,12 +580,14 @@ impl ConnectionReader {
         self.next_call += 1;
         self.cancel_table
             .insert(id.clone(), call, cancellation.clone());
+        let after_reply = AfterReply::default();
         let context = HandlerContext {
             transport_id: self.transport,
             device_id: self.services.device_id.clone(),
             caller_process: self.caller_process.clone(),
             cancellation,
             recorded_call: None,
+            after_reply: after_reply.clone(),
         };
         let answer = self.services.dispatch.dispatch(request, context);
         let pending = PendingCall {
@@ -598,6 +602,7 @@ impl ConnectionReader {
             connection_calls: self.calls.clone(),
             cancel_table: Arc::clone(&self.cancel_table),
             slotless_replies: Arc::clone(&self.slotless_replies),
+            after_reply,
         };
         tokio::spawn(pending.answer(answer));
     }
@@ -644,6 +649,8 @@ struct PendingCall {
     connection_calls: CancellationToken,
     cancel_table: Arc<CancelTable>,
     slotless_replies: Arc<Semaphore>,
+    /// What the handler left to run once its result is queued.
+    after_reply: AfterReply,
 }
 
 impl PendingCall {
@@ -670,7 +677,11 @@ impl PendingCall {
         }
         match outcome {
             Ok(Reply::Result(value)) => match encode_response(self.id, value) {
-                Ok(message) => self.outbox.push_reply(message, self.permit),
+                Ok(message) => {
+                    self.outbox.push_reply(message, self.permit);
+                    // Queued now, the reply is written before any close this action starts.
+                    self.after_reply.run();
+                }
                 Err(error) => self
                     .close
                     .fail(SupervisionDisconnectReason::ServerClose, &error),
