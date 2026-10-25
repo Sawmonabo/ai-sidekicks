@@ -20,6 +20,8 @@ pub(crate) struct DaemonStartOptions {
     pub(crate) data_folder_lock: DataFolderLock,
     /// The run folder the socket, the session token and the crash monitor's socket go in.
     pub(crate) run_folder: DaemonRunFolder,
+    /// The daemon's own program, which the crash monitor runs in its mode.
+    pub(crate) daemon_program: PathBuf,
     /// The daemon's own process as the system knows it.
     #[expect(dead_code, reason = "the status read reports it")]
     pub(crate) process_identity: ProcessIdentity,
@@ -40,9 +42,12 @@ pub(crate) enum ProviderBaseEnvironment {
     /// The login shell's environment, captured once at the start.
     Capture,
     /// These name-value pairs, as they are.
-    #[expect(
-        dead_code,
-        reason = "a test starts the daemon on a temporary home with it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "a test starts the daemon on a temporary home with it"
+        )
     )]
     Given(Arc<[(String, String)]>),
 }

@@ -1,5 +1,6 @@
-//! The daemon's stop in its two steps, which the erase takes one by one: the work ends within the
-//! drain bound, then everything that holds a file in the data folder closes.
+//! The daemon's stop in its two steps, which the erase also runs one by one: the work ends within
+//! the drain bound, then everything that holds a file in the data folder closes. Each step takes
+//! the parts it closes, so a step run again skips what is already closed.
 
 use std::io;
 use std::path::PathBuf;
@@ -22,7 +23,7 @@ pub(crate) enum CrashMonitorEndFailure {
     /// The monitor could not be killed.
     #[error("the crash monitor could not be ended")]
     Kill(#[source] io::Error),
-    /// The monitor did not end within what was left of the drain bound.
+    /// The monitor did not exit within its end's bound.
     #[error("the crash monitor did not end within {0:?}")]
     StillRunning(Duration),
     /// The monitor's socket stayed in the run folder.
@@ -59,22 +60,15 @@ pub(crate) async fn stop_work(
     Vec::new()
 }
 
-/// Closes everything that holds a file in the data folder, the data folder's lock last, then ends
-/// the crash monitor within `remaining` and removes its socket from the run folder. Answers each
-/// step's failure, every step having run.
-pub(crate) async fn close_data_folder(
-    process: DaemonProcess,
-    remaining: Duration,
-) -> Vec<DaemonStopFailure> {
-    let DaemonProcess {
-        data_folder_lock,
-        crash_monitor,
-        ..
-    } = process;
+/// Closes everything that holds a file in the data folder: ends the crash monitor, waiting for its
+/// exit, and removes its socket from the run folder, then lets the data folder's lock go last.
+/// Answers each step's failure, every step having run.
+pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<DaemonStopFailure> {
     let mut failures = Vec::new();
-    drop(data_folder_lock);
-    if let Some(crash_monitor) = crash_monitor {
-        failures.extend(crash_monitor.end(remaining).await);
+    // Before the lock goes, so a start that takes the lock next meets no monitor of this one.
+    if let Some(crash_monitor) = process.crash_monitor.take() {
+        failures.extend(crash_monitor.end().await);
     }
+    drop(process.data_folder_lock.take());
     failures
 }
