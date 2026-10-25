@@ -35,7 +35,7 @@ use crate::database::statement::{
 use crate::database::stored_column::{closed_word, text_column};
 use crate::database::writer::messages::WriteJobFailure;
 use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::events::session::append_lock::SESSION_APPEND_LOCK;
+use crate::events::session::append_lock::{SESSION_APPEND_LOCK, SessionAppendHold};
 use crate::events::session::read::{MalformedStoredEventError, SessionLogReadError};
 use crate::recovery::database_file::damage::DatabaseDamageWatch;
 use crate::session::service::{
@@ -198,16 +198,21 @@ pub(crate) enum ProjectionRebuildError {
     /// The read pool is closed, a connection did not open, or the read did not finish.
     #[error("the read pool did not run the rebuild's read")]
     Pool(#[from] DatabaseReadError),
+    /// The caller's hold is of another session than the one it asked to rebuild; nothing was read
+    /// or written.
+    #[error("a hold of session {held_session_id} cannot rebuild session {session_id}")]
+    HoldOfAnotherSession {
+        /// The session the hold is on.
+        held_session_id: SessionId,
+        /// The session the rebuild names.
+        session_id: SessionId,
+    },
 }
 
 /// A rebuild of one session: `is_forced` rebuilds it even when its projections are current,
 /// `before_sequence` folds only the events before that one, leaving the cursor stale, and `stop`
 /// ends it before its next page with the cursor left `rebuilding`.
 #[derive(Clone, Debug)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's recovery pass at start")
-)]
 pub(crate) struct ProjectionRebuildRequest {
     /// The session.
     pub(crate) session_id: SessionId,
@@ -315,7 +320,6 @@ impl ProjectionRebuildService {
     /// Every session but the service's own whose projections do not reflect its newest event: its
     /// cursor was left stale or mid-rebuild, or a repair marked it. Fails with
     /// [`ProjectionRebuildError::Database`] or [`ProjectionRebuildError::Pool`].
-    #[expect(dead_code, reason = "the daemon's recovery pass at start")]
     pub(crate) async fn list_sessions_to_rebuild(
         &self,
     ) -> Result<Vec<SessionId>, ProjectionRebuildError> {
@@ -361,24 +365,54 @@ impl ProjectionRebuildService {
             .filter(|last_sequence| *last_sequence >= 0))
     }
 
+    /// The session's newest event's sequence, `-1` for a log with none. Fails as
+    /// [`ProjectionRebuildService::list_sessions_to_rebuild`] does.
+    pub(crate) async fn read_head_sequence(
+        &self,
+        session_id: SessionId,
+    ) -> Result<i64, ProjectionRebuildError> {
+        let head = self
+            .pool
+            .read(
+                ReadLength::Short,
+                move |reader: &Connection| -> Result<_, ProjectionRebuildError> {
+                    Ok(read_head_sequence_before(reader, &session_id, None)?)
+                },
+            )
+            .await;
+        self.reported(head)
+    }
+
     /// Rebuilds the session's projections unless they are current and `is_forced` is not set,
-    /// holding the session's append lock throughout, so no event lands while it reads and writes.
-    /// Fails with [`ProjectionRebuildError::ProjectionFailure`] naming the first event it could not
-    /// fold, after marking the session's cursor stale, when the log cannot be folded into rows;
-    /// with [`ProjectionRebuildError::Stopped`] once `stop` is canceled; any other failure is the
+    /// holding the session's append lock throughout, so no event lands while it reads and writes:
+    /// `hold` where the caller holds the session already, else a hold the rebuild takes. Fails
+    /// with [`ProjectionRebuildError::HoldOfAnotherSession`] for a hold of another session; with
+    /// [`ProjectionRebuildError::ProjectionFailure`] naming the first event it could not fold,
+    /// after marking the session's cursor stale, when the log cannot be folded into rows; with
+    /// [`ProjectionRebuildError::Stopped`] once `stop` is canceled; any other failure is the
     /// store's own.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's recovery pass at start")
-    )]
     pub(crate) async fn rebuild(
         &self,
         request: ProjectionRebuildRequest,
+        hold: Option<&SessionAppendHold>,
     ) -> Result<ProjectionRebuildResponse, ProjectionRebuildError> {
-        let rebuilt = self.rebuild_held(request).await;
+        let rebuilt = match hold {
+            Some(hold) if *hold.key() != request.session_id => {
+                Err(ProjectionRebuildError::HoldOfAnotherSession {
+                    held_session_id: *hold.key(),
+                    session_id: request.session_id,
+                })
+            }
+            Some(_) => self.rebuild_held(request).await,
+            None => {
+                let _hold = SESSION_APPEND_LOCK.acquire(request.session_id).await;
+                self.rebuild_held(request).await
+            }
+        };
         self.reported(rebuilt)
     }
 
+    // The rebuild, run while the session's append lock is held.
     async fn rebuild_held(
         &self,
         request: ProjectionRebuildRequest,
@@ -389,7 +423,6 @@ impl ProjectionRebuildService {
             before_sequence,
             stop,
         } = request;
-        let _hold = SESSION_APPEND_LOCK.acquire(session_id).await;
         // Appends queued before the hold commit first, so the reads below see them.
         self.writer.flush().await;
         let (head_sequence, cursor) = self
@@ -397,16 +430,8 @@ impl ProjectionRebuildService {
             .read(
                 ReadLength::Short,
                 move |reader: &Connection| -> Result<_, ProjectionRebuildError> {
-                    let head: Option<i64> =
-                        reader.prepare_cached(SELECT_HEAD_SEQUENCE_SQL)?.query_row(
-                            named_params! {
-                                "@session_id": session_id.text().as_str(),
-                                "@before_sequence": before_sequence,
-                            },
-                            |row| row.get(0),
-                        )?;
                     Ok((
-                        head.unwrap_or(START_OF_LOG_POSITION),
+                        read_head_sequence_before(reader, &session_id, before_sequence)?,
                         read_cursor(reader, &session_id)?,
                     ))
                 },
@@ -581,10 +606,7 @@ impl ProjectionRebuildService {
     async fn mark_stale(&self, failure: ProjectionFailure) -> ProjectionRebuildError {
         let marked = self
             .writer
-            .write(vec![cursor_statement(
-                MARK_STALE_SQL.as_str(),
-                vec![session_binding(&failure.session_id)],
-            )])
+            .write(vec![mark_stale_statement(&failure.session_id)])
             .await;
         let cleanup_failures = match marked {
             Ok(_) => Vec::new(),
@@ -610,6 +632,23 @@ impl ProjectionRebuildService {
         }
         result
     }
+}
+
+// The session's newest sequence before `before_sequence`, of its whole log when that is `None`;
+// the start of the log when it holds none there.
+fn read_head_sequence_before(
+    reader: &Connection,
+    session_id: &SessionId,
+    before_sequence: Option<i64>,
+) -> rusqlite::Result<i64> {
+    let head: Option<i64> = reader.prepare_cached(SELECT_HEAD_SEQUENCE_SQL)?.query_row(
+        named_params! {
+            "@session_id": session_id.text().as_str(),
+            "@before_sequence": before_sequence,
+        },
+        |row| row.get(0),
+    )?;
+    Ok(head.unwrap_or(START_OF_LOG_POSITION))
 }
 
 fn read_cursor(reader: &Connection, session_id: &SessionId) -> rusqlite::Result<Option<CursorRow>> {
@@ -681,6 +720,12 @@ fn mark_rebuilding_statement(session_id: &SessionId) -> WriteStatement {
             session_binding(session_id),
         ],
     )
+}
+
+/// The write that marks `session_id`'s cursor stale, so the next restart lists the session again
+/// and the writer's count of live runs leaves its runs out.
+pub(crate) fn mark_stale_statement(session_id: &SessionId) -> WriteStatement {
+    cursor_statement(MARK_STALE_SQL.as_str(), vec![session_binding(session_id)])
 }
 
 fn advance_cursor_statement(

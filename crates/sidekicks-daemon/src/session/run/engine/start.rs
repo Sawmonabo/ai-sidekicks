@@ -116,6 +116,7 @@ impl RunEngine {
                     ..RunStateChange::new(run_id, RunStateEntry::Starting)
                 },
                 RunStateChangeCompanions::default(),
+                None,
             )
             .await?;
         let entry = Arc::new(StartingRun {
@@ -195,6 +196,7 @@ impl RunEngine {
                     statements: running_statements.map(|build| build()).unwrap_or_default(),
                     ..RunStateChangeCompanions::default()
                 },
+                None,
             )
             .await;
         match running {
@@ -333,6 +335,7 @@ impl RunEngine {
                 ..RunStateChange::new(run_id, RunStateEntry::Starting)
             },
             RunStateChangeCompanions::default(),
+            None,
         )
         .await?;
         self.change(
@@ -346,6 +349,7 @@ impl RunEngine {
                 )
             },
             RunStateChangeCompanions::default(),
+            None,
         )
         .await?;
         Ok(Some(run_id))
@@ -416,6 +420,7 @@ impl RunEngine {
                     )
                 },
                 RunStateChangeCompanions::default(),
+                None,
             )
             .await
         }
@@ -525,6 +530,7 @@ impl RunEngine {
                 },
             ),
             companions,
+            None,
         )
         .await
         .map_err(RunResumeError::Change)
@@ -562,6 +568,7 @@ impl RunEngine {
                     )
                 },
                 RunStateChangeCompanions::default(),
+                None,
             )
             .await;
         match continued {
@@ -588,7 +595,7 @@ impl RunEngine {
             )
         };
         match self
-            .change(failed, RunStateChangeCompanions::default())
+            .change(failed, RunStateChangeCompanions::default(), None)
             .await
         {
             Ok(_run) => setup_error,
@@ -663,7 +670,7 @@ impl RunEngine {
                 },
             )
         };
-        self.change(failed, RunStateChangeCompanions::default())
+        self.change(failed, RunStateChangeCompanions::default(), None)
             .await
             .map(drop)
     }
@@ -679,12 +686,15 @@ impl RunEngine {
             return Ok(());
         };
         self.gates
-            .release_for_terminal(&RunTerminalContext {
-                run_id,
-                session_id: run.session_id,
-                terminal_state: run.state,
-                run_version: run.version,
-            })
+            .release_for_terminal(
+                &RunTerminalContext {
+                    run_id,
+                    session_id: run.session_id,
+                    terminal_state: run.state,
+                    run_version: run.version,
+                },
+                None,
+            )
             .await?;
         Ok(())
     }

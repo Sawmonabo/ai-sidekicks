@@ -13,7 +13,8 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    BackupAnswer, BackupCopy, BackupLock, CopyOrder, LOCK_BOUND, ThreadServing, copy_database,
+    BackupAnswer, BackupCopy, BackupLock, CopyOrder, LOCK_BOUND, ThreadCommits, ThreadServing,
+    copy_database,
 };
 use crate::database::checkpoint::CheckpointMode;
 use crate::database::connection::writer_open::open_database;
@@ -70,14 +71,14 @@ fn start_copy(
             lock_bound,
         };
         let stop = ThreadStop::new();
-        let mut commit_count = 0;
+        let mut commits = ThreadCommits::new(None);
         let mut serving = ThreadServing {
             connection: &connection,
             encoder: &mut BodyEncoder::new(),
             requests: &mut requests,
             stop: &stop,
             runtime: &runtime,
-            commit_count: &mut commit_count,
+            commits: &mut commits,
         };
         answer
             .send(copy_database(&order, &mut serving))

@@ -15,6 +15,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::list::BoundedVec;
 
+use crate::events::session::append_lock::SessionAppendHold;
 use crate::file::real_location::resolve_real_path;
 use crate::session::run::setup_gates::{
     RunSetupContext, RunSetupGate, RunSetupGateError, RunTerminalContext,
@@ -222,6 +223,7 @@ impl RunSetupGate for ExecutionPostureService {
     fn on_run_terminal<'a>(
         &'a self,
         context: &'a RunTerminalContext,
+        _hold: Option<&'a SessionAppendHold>,
     ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
         self.resolved_postures().remove(&context.run_id);
         Box::pin(std::future::ready(Ok(())))

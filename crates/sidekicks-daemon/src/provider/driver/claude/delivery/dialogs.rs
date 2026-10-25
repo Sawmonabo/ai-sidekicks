@@ -23,8 +23,8 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{
     AgentRunRefusalChoiceRequestedPayload, AgentRunRefusalChoiceResolvedPayload,
     AgentRunUsageCreditsChoiceRequestedPayload, AgentRunUsageCreditsChoiceResolvedPayload,
-    RunRefusalChoice, RunRefusalChoiceCanceled, RunRefusalChoiceSettlement, RunUsageCreditsChoice,
-    RunUsageCreditsChoiceSettlement, RunUsageCreditsChoiceUnanswered,
+    RunRefusalChoice, RunRefusalChoiceSettlement, RunRefusalChoiceUnanswered,
+    RunUsageCreditsChoice, RunUsageCreditsChoiceSettlement, RunUsageCreditsChoiceUnanswered,
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
@@ -669,8 +669,8 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
                         AgentRunRefusalChoiceResolvedPayload {
                             session_id: held.session_id,
                             run_id,
-                            choice: RunRefusalChoiceSettlement::Canceled(
-                                RunRefusalChoiceCanceled::Value,
+                            choice: RunRefusalChoiceSettlement::Unanswered(
+                                RunRefusalChoiceUnanswered::Canceled,
                             ),
                             device_id: None,
                         },

@@ -13,6 +13,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::artifacts::manifest::ArtifactType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::plan::{PlanHoldEndedReason, PlanId};
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::JsonRecord;
 
 use crate::artifacts::manifest_write::{
@@ -171,9 +172,9 @@ impl PlansService {
         .await
     }
 
-    /// Reopens every plan still waiting on a held request, `runEnded`, since no held request
-    /// outlives the daemon; a plan that holds none stays waiting. Every plan is tried before the
-    /// failures return together.
+    /// Reopens every plan of `session_id` still waiting on a held request, `runEnded`, since no
+    /// held request outlives the daemon; a plan that holds none stays waiting. Every plan is tried
+    /// before the failures return together.
     #[cfg_attr(
         not(test),
         expect(
@@ -181,11 +182,14 @@ impl PlansService {
             reason = "the daemon's start, which sweeps the holds a restart lost"
         )
     )]
-    pub(crate) async fn end_holds_lost_at_restart(&self) -> Result<(), PlanError> {
+    pub(crate) async fn end_holds_lost_at_restart(
+        &self,
+        session_id: SessionId,
+    ) -> Result<(), PlanError> {
         let held = self
             .reads
-            .read(ReadLength::Short, |reader| {
-                Ok::<_, PlanError>(read_held_plans(reader)?)
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, PlanError>(read_held_plans(reader, Some(&session_id))?)
             })
             .await?;
         let mut outcomes = Vec::with_capacity(held.len());

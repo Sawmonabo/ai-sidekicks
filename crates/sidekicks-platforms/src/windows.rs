@@ -29,6 +29,7 @@ pub(crate) mod memory;
 pub(crate) mod null_device;
 pub(crate) mod os_text;
 pub(crate) mod pinned_process;
+pub(crate) mod power_source;
 pub(crate) mod private_folder;
 pub(crate) mod process_containment;
 pub(crate) mod process_start;

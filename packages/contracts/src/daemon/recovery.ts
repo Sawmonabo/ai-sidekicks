@@ -252,8 +252,13 @@ export interface RecoverySucceededPayload extends RecoveryEventBase {
   runsResumed: number;
   runsFailedDeterministically: number;
   runsHaltedForReconciliation: number;
-  /** The runs ended `interrupted`: under the person's pending interrupt, or a paused child. */
+  /**
+   * The runs ended `interrupted`: under the person's pending interrupt, a paused child, or at a
+   * step or spend limit their log still owed.
+   */
   runsInterrupted: number;
+  /** The runs ended `stopped` at a token limit their log still owed. */
+  runsStopped: number;
   /** Measured on a monotonic clock, in milliseconds. */
   durationMs: number;
   completedAt: string;
@@ -268,6 +273,7 @@ export const RecoverySucceededPayloadSchema: z.ZodType<RecoverySucceededPayload>
     runsFailedDeterministically: countSchema,
     runsHaltedForReconciliation: countSchema,
     runsInterrupted: countSchema,
+    runsStopped: countSchema,
     durationMs: countSchema,
     completedAt: isoDateTimeSchema,
   })

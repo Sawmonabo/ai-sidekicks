@@ -27,7 +27,6 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
-use crate::session::run::live_count::LiveRunCount;
 
 /// The service's backups over the test's `database` and `log`, under the home folder
 /// `home_folder`, the mirror keeping what `read_mirror_roots` lists.
@@ -273,7 +272,7 @@ async fn a_back_up_now_that_joins_a_daily_run_makes_it_copy() {
     let scheduler = Scheduler::start(
         Arc::new(WallClockTimer::new().expect("the test arms a wall clock")),
         None,
-        LiveRunCount::default().follow(),
+        tokio::sync::watch::channel(0).1,
     );
     // The daily run's turn, as its job takes it: no run was queued, so requests join this one.
     *backups

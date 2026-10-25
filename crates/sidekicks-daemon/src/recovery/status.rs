@@ -130,6 +130,17 @@ impl RecoveryStatusTracker {
         }
     }
 
+    /// Marks a damaged session the person continues from its last good point: it is no longer
+    /// damaged, takes the events its continue writes and refuses the calls that name it until the
+    /// continue has settled its runs.
+    pub(crate) fn mark_session_continuing(&self, session_id: &SessionId) {
+        let mut state = self.lock();
+        state.sessions.remove(session_id);
+        state
+            .rebuilding_sessions
+            .insert(*session_id, ListedSessionStage::Settling);
+    }
+
     /// Marks a session's projections current, or the session deleted, so it is no longer listed.
     pub(crate) fn mark_session_healthy(&self, session_id: &SessionId) {
         let mut state = self.lock();

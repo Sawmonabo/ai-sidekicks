@@ -176,6 +176,8 @@ pub use linux::memory::{
 pub use linux::pinned_process::this_process;
 #[cfg(target_os = "linux")]
 pub use linux::pinned_process::{PinnedProcess, pin_child_process, pin_running_process};
+#[cfg(target_os = "linux")]
+pub use linux::power_source::PowerSourceWatch;
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::process_footprint;
 #[cfg(target_os = "linux")]
@@ -465,6 +467,8 @@ pub use windows::os_text::os_text_bytes;
 pub use windows::pinned_process::this_process;
 #[cfg(target_os = "windows")]
 pub use windows::pinned_process::{PinnedProcess, pin_child_process, pin_running_process};
+#[cfg(target_os = "windows")]
+pub use windows::power_source::PowerSourceWatch;
 #[cfg(target_os = "windows")]
 pub use windows::private_folder::{
     create_missing_private_folders, create_new_private_folder, create_private_folder,

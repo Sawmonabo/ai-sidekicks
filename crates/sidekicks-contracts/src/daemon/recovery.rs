@@ -331,8 +331,11 @@ pub struct DaemonRecoverySucceededPayload {
     pub runs_failed_deterministically: SafeInt<0>,
     /// The runs halted for the person to reconcile.
     pub runs_halted_for_reconciliation: SafeInt<0>,
-    /// The runs ended `interrupted`: under the person's pending interrupt, or a paused child.
+    /// The runs ended `interrupted`: under the person's pending interrupt, a paused child, or at a
+    /// step or spend limit their log still owed.
     pub runs_interrupted: SafeInt<0>,
+    /// The runs ended `stopped` at a token limit their log still owed.
+    pub runs_stopped: SafeInt<0>,
     /// How long it took, on a monotonic clock, in milliseconds.
     pub duration_ms: SafeInt<0>,
     /// When it completed.

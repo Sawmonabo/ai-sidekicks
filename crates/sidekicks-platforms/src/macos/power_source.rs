@@ -67,7 +67,7 @@ impl PowerSourceState {
         if !self.is_failure_logged.swap(true, Ordering::Relaxed) {
             tracing::warn!(
                 error = error as &(dyn Error + 'static),
-                "The power source cannot be read, so this Mac reads as not on AC power"
+                "the power source cannot be read, so this mac reads as not on ac power"
             );
         }
     }
@@ -140,7 +140,7 @@ impl Drop for PowerSourceWatch {
             if status != NOTIFY_STATUS_OK {
                 tracing::warn!(
                     status,
-                    "The power-source registration could not be canceled"
+                    "the power-source registration could not be canceled"
                 );
             }
         }

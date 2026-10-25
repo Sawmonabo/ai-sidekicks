@@ -24,7 +24,8 @@ use windows_sys::Win32::System::SystemServices::{ACCESS_ALLOWED_ACE_TYPE, ACCESS
 use windows_sys::Win32::UI::Shell::FOLDERID_LocalAppData;
 
 use crate::run_folder::{
-    DaemonRunFolder, RUN_FOLDER_NAME, RunFolderRefused, SESSION_TOKEN_FILE_NAME,
+    DaemonRunFolder, RUN_FOLDER_NAME, RunFolderRefused, SERVICE_STATUS_FILE_NAME,
+    SESSION_TOKEN_FILE_NAME,
 };
 use crate::windows::known_folder::known_folder;
 use crate::windows::private_folder::create_private_folder;
@@ -62,6 +63,7 @@ pub(crate) fn resolve_daemon_run_folder(local_app_data: &Path, user_sid: &str) -
     DaemonRunFolder {
         socket_path: PathBuf::from(format!(r"\\.\pipe\{RUN_FOLDER_NAME}-{user_sid}")),
         token_path: folder_path.join(SESSION_TOKEN_FILE_NAME),
+        status_path: folder_path.join(SERVICE_STATUS_FILE_NAME),
         folder_path,
     }
 }
@@ -296,6 +298,10 @@ mod tests {
         assert_eq!(
             resolved.token_path,
             PathBuf::from(format!(r"{folder}\daemon.token"))
+        );
+        assert_eq!(
+            resolved.status_path,
+            PathBuf::from(format!(r"{folder}\service-status.json"))
         );
     }
 }
