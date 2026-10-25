@@ -76,6 +76,55 @@ impl<Emission> Drop for LatestValueOutlet<Emission> {
     }
 }
 
+/// One reader's place among a value's readers, which its detach removes it by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LatestValueOutletId(u64);
+
+/// The outlets of every reader of one value, each kept until its detach removes it by the id
+/// attaching it answered.
+pub(crate) struct LatestValueOutlets<Emission> {
+    next_id: u64,
+    outlets: Vec<(LatestValueOutletId, LatestValueOutlet<Emission>)>,
+}
+
+impl<Emission> Default for LatestValueOutlets<Emission> {
+    fn default() -> Self {
+        Self {
+            next_id: 0,
+            outlets: Vec::new(),
+        }
+    }
+}
+
+impl<Emission> LatestValueOutlets<Emission> {
+    /// Keeps `outlet` and answers the id its detach removes it by.
+    pub(crate) fn attach(&mut self, outlet: LatestValueOutlet<Emission>) -> LatestValueOutletId {
+        let id = LatestValueOutletId(self.next_id);
+        self.next_id += 1;
+        self.outlets.push((id, outlet));
+        id
+    }
+
+    /// Drops the outlet `id` names; an id already removed changes nothing.
+    pub(crate) fn detach(&mut self, id: LatestValueOutletId) {
+        self.outlets.retain(|(outlet_id, _)| *outlet_id != id);
+    }
+
+    /// Whether no reader is attached.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.outlets.is_empty()
+    }
+}
+
+impl<Emission: Clone> LatestValueOutlets<Emission> {
+    /// Sends `value` whole through every attached outlet.
+    pub(crate) fn send(&self, value: &Emission) {
+        for (_, outlet) in &self.outlets {
+            outlet.send(value.clone());
+        }
+    }
+}
+
 /// A subscription's newest-value feed: it reads only once its gate lets a frame through, and then
 /// the newest value sent, so the reader ends on the newest value; it finishes once the source
 /// dropped its outlet and nothing waits. Dropping it runs the source's detach.

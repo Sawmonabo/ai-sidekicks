@@ -19,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::ipc::stream::latest_value::LatestValueOutlet;
+use crate::ipc::stream::latest_value::{LatestValueOutlet, LatestValueOutlets};
 use crate::mutex_lock::lock;
 use crate::remote::shared_ports::listening::{
     PortListeningReadings, PortListeningSink, SharedPortListeningSource,
@@ -77,9 +77,8 @@ struct SharedPortList {
     listening: PortListeningReadings,
     /// The listed ports the listening source follows.
     listed: watch::Sender<Vec<Port>>,
-    /// Each reader's outlet, by the id its detach removes it with.
-    readers: Vec<(u64, LatestValueOutlet<PreviewPortShareListFrame>)>,
-    next_reader_id: u64,
+    /// Each reader's outlet.
+    readers: LatestValueOutlets<PreviewPortShareListFrame>,
     /// Stops the listening source's follow, held while any reader reads the list.
     listening_follow: Option<CancellationToken>,
 }
@@ -117,10 +116,7 @@ impl SharedPortList {
     }
 
     fn announce_frame(&self) {
-        let frame = self.frame();
-        for (_, reader) in &self.readers {
-            reader.send(frame.clone());
-        }
+        self.readers.send(&self.frame());
     }
 }
 
@@ -158,8 +154,7 @@ impl SharedPorts {
                 ports,
                 listening: PortListeningReadings::new(),
                 listed,
-                readers: Vec::new(),
-                next_reader_id: 0,
+                readers: LatestValueOutlets::default(),
                 listening_follow: None,
             }),
         }))
@@ -292,10 +287,7 @@ impl SharedPorts {
                 None
             };
             outlet.send(list.frame());
-            let id = list.next_reader_id;
-            list.next_reader_id += 1;
-            list.readers.push((id, outlet));
-            (id, listening_follow)
+            (list.readers.attach(outlet), listening_follow)
         };
         // Outside the lock, so a source that reads at once can hand its readings straight in.
         if let Some((listed, stop)) = listening_follow {
@@ -306,7 +298,7 @@ impl SharedPorts {
         move || {
             if let Some(shared_ports) = shared_ports.upgrade() {
                 let mut list = lock(&shared_ports.list);
-                list.readers.retain(|(reader_id, _)| *reader_id != id);
+                list.readers.detach(id);
                 if list.readers.is_empty()
                     && let Some(stop) = list.listening_follow.take()
                 {
