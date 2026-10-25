@@ -3,7 +3,7 @@
 //! task's `ttl` and `pollInterval`. On `input_required` the client calls `tasks/result` at once,
 //! whose stream carries the server's `elicitation/create` requests and ends with the result.
 
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use tokio::sync::watch;
 
 use crate::mcp::client::connection::McpServerConnection;
@@ -112,12 +112,13 @@ pub(super) async fn read_task(
             RequestWait::Ordinary,
         )
         .await?;
-    let status = reply
-        .get("status")
-        .and_then(Value::as_str)
-        .ok_or(McpRequestError::Malformed {
-            method: "tasks/get",
-        })?;
+    let status =
+        reply
+            .get("status")
+            .and_then(Value::as_str)
+            .ok_or_else(|| McpRequestError::Malformed {
+                method: "tasks/get".to_owned(),
+            })?;
     Ok(V1TaskReading {
         status: status.to_owned(),
         ttl_ms: reply.get("ttl").and_then(Value::as_u64),
@@ -138,12 +139,7 @@ async fn read_result(
         .await
     {
         Ok(result) => Ok(McpToolCallEnd::Answered { result }),
-        Err(McpRequestError::Refused { code, message }) => Ok(McpToolCallEnd::Failed {
-            error: Map::from_iter([
-                ("code".to_owned(), Value::from(code)),
-                ("message".to_owned(), Value::from(message)),
-            ]),
-        }),
+        Err(McpRequestError::Refused { error, .. }) => Ok(McpToolCallEnd::Failed { error }),
         Err(error) => Err(error),
     }
 }
@@ -574,5 +570,35 @@ mod tests {
         timeout(Duration::from_secs(5), card.wait_until_none_open())
             .await
             .expect("the question is withdrawn");
+    }
+
+    // Mutation: in `read_result`, rebuild the failure from the error's code and message alone,
+    // which drops its `data`.
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_2025_11_25_task_keeps_its_whole_error() {
+        let (client, _card) = test_client();
+        let error = json!({ "code": -32603, "message": "quota", "data": { "retryAfterMs": 500 } });
+        let reply = json!({ "error": error.clone() });
+        let (connection, server) = open_test_server(
+            &client,
+            task_server(
+                |_| status_reply("failed"),
+                move || Reply::Answer(reply.clone()),
+            ),
+        )
+        .await;
+        let sink = CountingSink::new(&server);
+
+        let end = connection
+            .call_tool(track_call(), &sink, &contact())
+            .await
+            .expect("the call ends");
+
+        assert_eq!(
+            end,
+            McpToolCallEnd::Failed {
+                error: error.as_object().expect("an object").clone(),
+            }
+        );
     }
 }

@@ -291,12 +291,11 @@ impl McpServerConnection {
                 .requests
                 .send_raw("tools/list", params, RequestWait::Ordinary)
                 .await?;
-            let tools =
-                page.get("tools")
-                    .and_then(Value::as_array)
-                    .ok_or(McpRequestError::Malformed {
-                        method: "tools/list",
-                    })?;
+            let tools = page.get("tools").and_then(Value::as_array).ok_or_else(|| {
+                McpRequestError::Malformed {
+                    method: "tools/list".to_owned(),
+                }
+            })?;
             task_tools.extend(tools.iter().filter_map(|tool| {
                 let support = tool.pointer("/execution/taskSupport")?.as_str()?;
                 matches!(support, "required" | "optional")

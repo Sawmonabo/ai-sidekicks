@@ -90,8 +90,8 @@ pub(crate) enum McpRequestError {
     Refused {
         /// The error's code.
         code: i64,
-        /// The error's own words.
-        message: String,
+        /// The whole error object as the server sent it: its code, message and any data.
+        error: Map<String, Value>,
     },
     /// The server's answer came back without its raw copy.
     #[error("the tool server's answer to {method} was not kept")]
@@ -99,11 +99,11 @@ pub(crate) enum McpRequestError {
         /// The request's method.
         method: String,
     },
-    /// The answer does not read as the result the request asks for.
+    /// The answer does not read as the result the request asks for, or as a JSON-RPC error.
     #[error("the tool server's answer to {method} does not read as its result")]
     Malformed {
         /// The request's method.
-        method: &'static str,
+        method: String,
     },
 }
 
@@ -300,7 +300,8 @@ fn read_task_ack(result: &ServerResult) -> Result<(), ServiceError> {
     }
 }
 
-/// The result of a kept reply, or the server's error.
+/// The result of a kept reply, or the server's error; an error object without an integer code is
+/// malformed.
 fn read_raw_result(method: &str, reply: Value) -> Result<Map<String, Value>, McpRequestError> {
     let Value::Object(mut reply) = reply else {
         return Err(McpRequestError::ReplyNotKept {
@@ -308,17 +309,13 @@ fn read_raw_result(method: &str, reply: Value) -> Result<Map<String, Value>, Mcp
         });
     };
     if let Some(error) = reply.remove("error") {
-        return Err(McpRequestError::Refused {
-            code: error
-                .get("code")
-                .and_then(Value::as_i64)
-                .unwrap_or_default(),
-            message: error
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned(),
-        });
+        let (Some(code), Value::Object(error)) = (error.get("code").and_then(Value::as_i64), error)
+        else {
+            return Err(McpRequestError::Malformed {
+                method: method.to_owned(),
+            });
+        };
+        return Err(McpRequestError::Refused { code, error });
     }
     match reply.remove("result") {
         Some(Value::Object(result)) => Ok(result),
