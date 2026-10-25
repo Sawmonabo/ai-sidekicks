@@ -69,9 +69,11 @@ const APPEND_REFUSER: &str = "EventLogService::append";
 
 /// Statements that keep a projection in step with the log, given each event as it will be stored;
 /// an `Err` refuses the append, so no event is stored without its projection's change.
-pub(crate) type ProjectionStatements = dyn Fn(&UnsequencedEventEnvelope) -> Result<Vec<WriteStatement>, Box<dyn Error + Send + Sync>>
-    + Send
-    + Sync;
+pub(crate) type ProjectionStatements =
+    dyn Fn(&UnsequencedEventEnvelope) -> Result<Vec<WriteStatement>, ProjectionError> + Send + Sync;
+
+/// Why a projection could not compose its change for an event.
+pub(crate) type ProjectionError = Box<dyn Error + Send + Sync>;
 
 /// Refuses an append to a session that takes no event of the given type, with the refusal the
 /// caller answers.
@@ -145,7 +147,7 @@ pub(crate) enum EventAppendError {
     OccurredAt(#[from] OccurredAtNormalizationRefusal),
     /// A projection could not compose its change for the event, so the event is not stored.
     #[error("a projection could not compose its change for the event")]
-    Projection(#[source] Box<dyn Error + Send + Sync>),
+    Projection(#[source] ProjectionError),
     /// A content body was given for a type that carries none.
     #[error(transparent)]
     ContentPartition(#[from] ContentPartitionRefusedError),

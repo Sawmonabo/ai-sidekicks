@@ -121,7 +121,8 @@ pub(crate) async fn schedule_jobs(
 const IDLE_COLLECT_DELAY: Duration = Duration::from_secs(10);
 
 /// Hands the memory the daemon freed back to the system once, when no run is live and no call is
-/// in flight for [`IDLE_COLLECT_DELAY`]; new work resets the wait, and the next quiet arms it again.
+/// in flight for [`IDLE_COLLECT_DELAY`]; new work resets the wait, and the next quiet arms it
+/// again.
 pub(crate) struct IdleMemoryCollect {
     calls: Arc<CallsInFlight>,
 }
