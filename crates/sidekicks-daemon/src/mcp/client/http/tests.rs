@@ -1,5 +1,5 @@
 //! The HTTP side: a server entry's reserved header, and against axum fakes on a loopback port an
-//! event past the size bound and a server that asks for a DPoP proof bound to its nonce.
+//! event past the size bound and a server that asks for a `DPoP` proof bound to its nonce.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -122,7 +122,7 @@ async fn an_event_past_the_bound_ends_the_stream_without_a_resume() {
     connection.close().await;
 }
 
-/// An authorizer that signs with a DPoP token and a proof naming the nonce it was handed, each
+/// An authorizer that signs with a `DPoP` token and a proof naming the nonce it was handed, each
 /// nonce kept in order.
 #[derive(Default)]
 struct DpopAuthorizer {

@@ -4,8 +4,8 @@
 //! provider sends is and keeps it in the raw copy before rmcp reads it, and holds every SSE event
 //! to the transport's size bound.
 //!
-//! - A server that wants a DPoP proof bound to its own nonce sends the nonce with any response; the
-//!   last one is handed to the authorizer with each request, and a 401 asking for it
+//! - A server that wants a `DPoP` proof bound to its own nonce sends the nonce with any response;
+//!   the last one is handed to the authorizer with each request, and a 401 asking for it
 //!   (`error="use_dpop_nonce"`) is sent again once with the new nonce.
 //! - rmcp ends a stream past the bound only on its own bound's error, which it keeps private, and
 //!   reconnects on any other; so a stream cut past the bound is marked, and rmcp's resume of it
@@ -62,7 +62,7 @@ const STREAM_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
 /// refuses them.
 const RESERVED_HEADERS: [&str; 3] = ["accept", HEADER_SESSION_ID, HEADER_LAST_EVENT_ID];
 
-/// The response header carrying the nonce a server wants its next DPoP proof bound to.
+/// The response header carrying the nonce a server wants its next `DPoP` proof bound to.
 const DPOP_NONCE: &str = "dpop-nonce";
 
 /// A stream cut past the bound: its session and the last event id before the cut, which a resume
@@ -134,7 +134,7 @@ pub(super) struct McpHttpClient {
     raw: RawReplyCopy,
     /// The streams cut past the size bound, whose resumes are refused.
     cut_streams: Arc<Mutex<HashSet<CutStream>>>,
-    /// The last DPoP nonce the server at the connection's one address sent.
+    /// The last `DPoP` nonce the server at the connection's one address sent.
     dpop_nonce: Arc<Mutex<Option<String>>>,
 }
 
@@ -191,7 +191,7 @@ impl McpServerConnection {
 
 impl McpHttpClient {
     /// Sends a request of `method` to `uri` with the transport's and the authorizer's headers,
-    /// `finish` adding its own; keeps the DPoP nonce the response carries, and sends the request
+    /// `finish` adding its own; keeps the `DPoP` nonce the response carries, and sends the request
     /// once more when the server answers it with a 401 asking for that nonce. Fails as the
     /// authorizer or the network fails.
     async fn send(
@@ -300,7 +300,8 @@ fn http_error(error: reqwest::Error) -> StreamableHttpError<McpHttpError> {
     StreamableHttpError::Client(McpHttpError::Http(error))
 }
 
-/// Whether `response` is a 401 asking for a DPoP proof bound to the server's nonce (RFC 9449 §8).
+/// Whether `response` is a 401 asking for a `DPoP` proof bound to the server's nonce, as RFC 9449
+/// §8 asks for it.
 fn asks_for_dpop_nonce(response: &reqwest::Response) -> bool {
     response.status() == StatusCode::UNAUTHORIZED
         && response

@@ -557,6 +557,9 @@ mod tests {
             .map(|number| (format!("r{number:02}"), json!({ "roots": [] })))
             .collect();
         assert_eq!(answered, expected, "r15, past the cap, is never answered");
-        assert!(card.taken().is_empty());
+        assert!(
+            card.taken().is_empty(),
+            "no roots or sampling request reaches the card"
+        );
     }
 }
