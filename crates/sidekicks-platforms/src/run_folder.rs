@@ -1,7 +1,8 @@
 //! The daemon's run folder: the person's own folder holding the session token the daemon writes at
-//! each start and every client presents, and on macOS and Linux the local socket the daemon binds
-//! and every client connects to; on Windows that socket is the person's own named pipe. Each
-//! platform resolves the folder and checks it is private before any bind or byte.
+//! each start and every client presents, the status file that records why a start failed, and on
+//! macOS and Linux the local socket the daemon binds and every client connects to; on Windows that
+//! socket is the person's own named pipe. Each platform resolves the folder and checks it is
+//! private before any bind or byte.
 
 use std::io;
 use std::path::PathBuf;
@@ -13,7 +14,10 @@ pub(crate) const RUN_FOLDER_NAME: &str = "ai-sidekicks";
 /// The session token file's name in the run folder.
 pub(crate) const SESSION_TOKEN_FILE_NAME: &str = "daemon.token";
 
-/// The run folder, the daemon's local socket and its token file.
+/// The service status file's name in the run folder.
+pub(crate) const SERVICE_STATUS_FILE_NAME: &str = "service-status.json";
+
+/// The run folder, the daemon's local socket, its token file and its status file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DaemonRunFolder {
     /// The folder itself.
@@ -23,6 +27,9 @@ pub struct DaemonRunFolder {
     pub socket_path: PathBuf,
     /// The session token file, rewritten with a new token at every daemon start.
     pub token_path: PathBuf,
+    /// The service status file, which records why the daemon's last start failed, for the clients
+    /// to read with no daemon to ask; a start that succeeds removes it.
+    pub status_path: PathBuf,
 }
 
 /// Why the run folder is not private to this account.
