@@ -25,7 +25,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{DEVICE_NOTIFY_CALLBACK, PBT_PO
 static ON_AC: LazyLock<watch::Sender<bool>> = LazyLock::new(|| watch::Sender::new(false));
 
 /// Whether this machine runs on AC power, heard from the system's power-source setting, whose
-/// registration reads it at once; a registration the system refuses reads as not on AC.
+/// registration reads it at once; a registration the system refuses reads as not on AC. One
+/// reading serves every watch in the process: a new watch starts from the last reading any watch
+/// published, and a refused registration publishes not on AC for every live watch.
 pub struct PowerSourceWatch {
     // `None` when the registration failed, so nothing is ended.
     registration: Option<HPOWERNOTIFY>,
@@ -41,9 +43,10 @@ unsafe impl Send for PowerSourceWatch {}
 unsafe impl Sync for PowerSourceWatch {}
 
 impl PowerSourceWatch {
-    /// Starts hearing the power source; the reading is not on AC until the system's first
-    /// callback, which follows the registration at once. Never fails: a registration the system
-    /// refuses is logged and the watch reads not on AC from then on.
+    /// Starts hearing the power source; the reading is the process's last one (not on AC when
+    /// none was ever published) until the system's first callback, which follows the registration
+    /// at once. Never fails: a registration the system refuses is logged and every watch in the
+    /// process reads not on AC from then on.
     pub fn start() -> Self {
         let subscription = Box::new(DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS {
             Callback: Some(on_power_source_change),
@@ -142,20 +145,30 @@ mod tests {
 
     use super::PowerSourceWatch;
 
-    // The status `GetSystemPowerStatus` gives a machine on AC power.
+    // `GetSystemPowerStatus`'s line status: offline, online, or unknown.
+    const AC_LINE_OFFLINE: u8 = 0;
     const AC_LINE_ONLINE: u8 = 1;
 
-    // Killed by the callback's reading inverted (`condition != PoAc`).
+    // The reading is seeded with the opposite of the system's answer, so only the callback can
+    // satisfy the wait. Killed by the callback's reading inverted (`condition != PoAc`).
     #[tokio::test]
     async fn a_new_watch_reads_the_power_source_the_system_reports() {
         let mut status = SYSTEM_POWER_STATUS::default();
         // SAFETY: the output is this frame's local.
         let is_read = unsafe { GetSystemPowerStatus(&raw mut status) } != 0;
         assert!(is_read, "the power status reads");
-        let is_on_ac = status.ACLineStatus == AC_LINE_ONLINE;
+        let is_on_ac = match status.ACLineStatus {
+            AC_LINE_OFFLINE => false,
+            AC_LINE_ONLINE => true,
+            // The system has no reading to compare the watch against.
+            _ => return,
+        };
+        super::ON_AC.send_replace(!is_on_ac);
 
         let watch = PowerSourceWatch::start();
         let mut receiver = watch.receiver();
+        // A ceiling over a callback the system documents as immediate after the registration, not
+        // a poll.
         tokio::time::timeout(
             Duration::from_secs(5),
             receiver.wait_for(|on_ac| *on_ac == is_on_ac),
