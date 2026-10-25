@@ -133,8 +133,8 @@ enum Check {
     not(test),
     expect(
         dead_code,
-        reason = "the daemon's start builds the secret items, hands each feature its keychain and \
-                  status its file, and the erase and the relink call them"
+        reason = "each feature takes its keychain and the status read its file, and the erase and \
+                  the relink call them"
     )
 )]
 impl SecretItems {
