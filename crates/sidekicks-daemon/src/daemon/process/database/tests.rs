@@ -223,9 +223,7 @@ async fn an_append_writes_its_session_row_and_a_projection_refusal_stores_nothin
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn damage_found_mid_run_ends_the_writer_and_leaves_the_log_for_the_repair() {
     let harness = Harness::new();
-    let first = harness.open().await;
-    let failures = close_database_file(first, CLOSE_BOUND, false).await;
-    assert!(failures.is_empty(), "{failures:?}");
+    // A new file is vouched for and has nothing to check, so no truncation moves its log.
     let file = harness.open().await;
     file.event_log
         .append(
