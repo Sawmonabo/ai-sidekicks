@@ -328,8 +328,8 @@ impl NotedLineReader {
                 stdout,
                 stderr,
             }) if stdout.is_empty() && !stderr.is_empty() => {
-                let restat = tokio::fs::symlink_metadata(contained_path).await;
-                lines_of_refused_diff(stdout, stderr, restat)
+                let metadata_after_refusal = tokio::fs::symlink_metadata(contained_path).await;
+                lines_of_refused_diff(stdout, stderr, metadata_after_refusal)
             }
             Err(GitError::Exited {
                 code: Some(DIFFERENCE_EXIT_CODE),
@@ -417,9 +417,9 @@ impl NotedLineReader {
 fn lines_of_refused_diff(
     stdout: Vec<u8>,
     stderr: String,
-    restat: io::Result<std::fs::Metadata>,
+    metadata_after_refusal: io::Result<std::fs::Metadata>,
 ) -> Result<Option<Vec<String>>, NotedLineError> {
-    match restat {
+    match metadata_after_refusal {
         Err(error) if is_gone(&error) => Ok(None),
         Ok(_) | Err(_) => Err(GitError::Exited {
             code: Some(DIFFERENCE_EXIT_CODE),
@@ -496,13 +496,13 @@ mod tests {
     #[case::present(false)]
     fn diff_line_reads_a_refused_diff_by_the_files_re_stat(#[case] is_file_gone: bool) {
         let folder = tempfile::tempdir().expect("the temporary folder is made");
-        let file_metadata = if is_file_gone {
+        let metadata_after_refusal = if is_file_gone {
             std::fs::symlink_metadata(folder.path().join("gone.txt"))
         } else {
             std::fs::symlink_metadata(folder.path())
         };
         let stderr = String::from("error: Could not access 'gone.txt'\n");
-        let answer = lines_of_refused_diff(Vec::new(), stderr.clone(), file_metadata);
+        let answer = lines_of_refused_diff(Vec::new(), stderr.clone(), metadata_after_refusal);
         if is_file_gone {
             assert!(
                 matches!(answer, Ok(None)),
