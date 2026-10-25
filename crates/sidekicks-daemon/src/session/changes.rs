@@ -156,14 +156,6 @@ pub(crate) struct SessionChanges {
 impl SessionChanges {
     /// The changes reading through `pool`, appending through `event_log` and reaching the
     /// session's providers through the drivers `providers` registered.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the session changes beside the other session \
-                      services"
-        )
-    )]
     pub(crate) fn new(
         pool: Arc<DatabaseReadPool>,
         event_log: Arc<EventLogService>,

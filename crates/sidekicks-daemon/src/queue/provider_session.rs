@@ -238,7 +238,6 @@ pub(crate) struct ProviderSessions {
 
 impl ProviderSessions {
     /// The provider sessions over `deps`, none open.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(deps: ProviderSessionsDeps) -> Self {
         Self {
             deps,

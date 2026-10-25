@@ -149,10 +149,6 @@ pub(crate) struct SessionAutoTitling {
 impl SessionAutoTitling {
     /// Stops hearing committed events, cancels every pass under way, which then writes nothing,
     /// and settles once every naming task has ended.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's stop ends the session self-naming")
-    )]
     pub(crate) async fn stop(self) {
         let Self {
             attachment,
@@ -168,13 +164,6 @@ impl SessionAutoTitling {
 impl SessionAutoTitle {
     /// The self-naming reading through `pool`, writing each name through `changes` and running
     /// each pass on the session's driver among `providers`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the session self-naming"
-        )
-    )]
     pub(crate) fn new(
         pool: Arc<DatabaseReadPool>,
         changes: Arc<SessionChanges>,
@@ -193,10 +182,6 @@ impl SessionAutoTitle {
     /// Follows every committed completion and rename of `followers`, then names, one at a time,
     /// each session whose first exchange completed while none was followed. Called inside the
     /// daemon's runtime, whose handle every naming task is spawned on.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start runs the session self-naming")
-    )]
     pub(crate) fn start(
         self: &Arc<Self>,
         followers: &Arc<SessionEventFollowers>,

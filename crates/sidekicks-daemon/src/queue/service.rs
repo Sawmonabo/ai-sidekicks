@@ -128,7 +128,6 @@ pub(crate) struct RunQueue {
 
 impl RunQueue {
     /// The queue over `deps`, following every session's committed events from now on.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(deps: RunQueueDeps) -> Arc<Self> {
         let RunQueueDeps {
             pool,

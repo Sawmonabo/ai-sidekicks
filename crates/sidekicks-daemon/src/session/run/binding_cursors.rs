@@ -83,13 +83,6 @@ pub(crate) struct RunBindingCursors {
 impl RunBindingCursors {
     /// Cursors over `epochs`, the ones the inbound dispatch attributes on, reading runs and
     /// bindings through `pool` and recording bindings through `store`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the one set of binding cursors"
-        )
-    )]
     pub(crate) fn new(
         pool: Arc<DatabaseReadPool>,
         store: Arc<RuntimeBindingStore>,

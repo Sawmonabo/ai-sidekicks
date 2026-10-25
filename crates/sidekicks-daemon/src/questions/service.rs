@@ -153,13 +153,6 @@ pub(crate) struct QuestionsService {
 impl QuestionsService {
     /// A service writing through `appender`, reading through `reads`, moving runs through
     /// `engine` and reaching each run's provider through its driver in `providers`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which registers the questions port"
-        )
-    )]
     pub(crate) fn new(
         appender: Arc<SessionEventAppender>,
         reads: Arc<DatabaseReadPool>,
