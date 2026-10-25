@@ -6,6 +6,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::future::join_all;
 use serde_json::{Map, Value};
@@ -14,7 +15,7 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, ProviderValue};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_platforms::{PathRules, Spawner, current_user_id};
-use tokio::task::JoinHandle;
+use tokio::task::{JoinError, JoinHandle};
 
 use crate::approvals::permission_asks::PermissionAsks;
 use crate::approvals::reviewer_denials::ReviewerDenials;
@@ -113,7 +114,7 @@ pub(crate) struct Providers {
     /// The names every provider sets on its processes, which no environment row may set, for the
     /// terminals' shells too.
     pub(crate) reserved_names: Arc<ReservedEnvironmentNames>,
-    /// The staged reviews' worktrees, whose leftovers the registration sweeps first.
+    /// The staged reviews' worktrees, whose leftovers the start sweeps before the socket binds.
     staged_changes: StagedChangesWorktrees,
 }
 
@@ -356,13 +357,91 @@ pub(crate) fn compose_session_inbox_addresses(
     )?)
 }
 
+/// Removes the staged reviews' worktrees a stopped daemon left, before any call can open one, each
+/// failure logged.
+#[expect(
+    dead_code,
+    reason = "the daemon's start sweeps the leftover worktrees through it before the socket binds"
+)]
+pub(crate) async fn sweep_left_staged_worktrees(providers: &Providers) {
+    for failure in providers.staged_changes.sweep_left_worktrees().await {
+        tracing::warn!(
+            error = &failure as &(dyn std::error::Error + 'static),
+            "a staged-review worktree a previous run left was not removed"
+        );
+    }
+}
+
+/// The providers' registration running on its own task, which the start waits for before the run
+/// queue's recovery and the stop ends before the drivers.
+pub(crate) struct ProvidersRegistration {
+    /// The task, until it is seen to end.
+    task: Option<JoinHandle<()>>,
+}
+
+/// Why the providers' registration did not end cleanly at the stop.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ProvidersRegistrationStopFailure {
+    /// It ran past what was left of the drain bound, so it was ended where it stood.
+    #[error("the providers' registration did not end within {0:?} and was ended")]
+    Aborted(Duration),
+    /// Its task panicked.
+    #[error("the providers' registration ended abnormally")]
+    Ended(#[source] JoinError),
+}
+
+impl ProvidersRegistration {
+    /// Waits until every driver's first read landed, failed or missed its deadline and every row
+    /// value was applied; at once when it ended already. Fails when its task panicked.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start waits for it before the run queue's recovery"
+        )
+    )]
+    pub(crate) async fn finished(&mut self) -> Result<(), JoinError> {
+        let Some(task) = self.task.as_mut() else {
+            return Ok(());
+        };
+        let ended = task.await;
+        self.task = None;
+        ended
+    }
+
+    /// Lets the registration end within `remaining`, else ends it where it stands, so no read it
+    /// started outlives the stop; called after the capability refresh stopped and before the
+    /// drivers shut down. Fails as [`ProvidersRegistrationStopFailure`] says.
+    #[expect(
+        dead_code,
+        reason = "the daemon's stop ends the registration through it before the drivers"
+    )]
+    pub(crate) async fn stop(
+        mut self,
+        remaining: Duration,
+    ) -> Result<(), ProvidersRegistrationStopFailure> {
+        let Some(mut task) = self.task.take() else {
+            return Ok(());
+        };
+        if let Ok(ended) = tokio::time::timeout(remaining, &mut task).await {
+            return ended.map_err(ProvidersRegistrationStopFailure::Ended);
+        }
+        task.abort();
+        match task.await {
+            Err(error) if error.is_cancelled() => {
+                Err(ProvidersRegistrationStopFailure::Aborted(remaining))
+            }
+            ended => ended.map_err(ProvidersRegistrationStopFailure::Ended),
+        }
+    }
+}
+
 /// Starts the providers' registration on its own task, not awaited: once `index_opened` settles,
-/// the staged reviews' worktrees a stopped daemon left are swept, then every driver's capabilities
-/// are read, declared and recorded at once, a provider with a lasting service connecting to it in
-/// its read, then each driver's Settings rows take their values, each one `settings_file` stores
-/// over the driver's default. The handle ends once every read landed, failed or missed its
-/// deadline and every value was applied; a failure is logged, never returned. A value changed
-/// later is applied by the provider settings' update, through the same driver call.
+/// every driver's capabilities are read, declared and recorded at once, a provider with a lasting
+/// service connecting to it in its read, then each driver's Settings rows take their values, each
+/// one `settings_file` stores over the driver's default. It ends once every read landed, failed or
+/// missed its deadline and every value was applied; a failure is logged, never returned. A value
+/// changed later is applied by the provider settings' update, through the same driver call.
 #[cfg_attr(
     not(test),
     expect(
@@ -374,18 +453,11 @@ pub(crate) fn register_providers(
     providers: &Providers,
     index_opened: impl Future<Output = ()> + Send + 'static,
     settings_file: Arc<MachineSettingsFile>,
-) -> JoinHandle<()> {
+) -> ProvidersRegistration {
     let refresher = Arc::clone(&providers.refresher);
     let registry = Arc::clone(&providers.registry);
-    let staged_changes = providers.staged_changes.clone();
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         index_opened.await;
-        for failure in staged_changes.sweep_left_worktrees().await {
-            tracing::warn!(
-                error = &failure as &(dyn std::error::Error + 'static),
-                "a staged-review worktree a previous run left was not removed"
-            );
-        }
         if !refresher.refresh_now().await {
             tracing::warn!("the capability refresh ended before the providers' first reads");
         }
@@ -396,7 +468,8 @@ pub(crate) fn register_providers(
                 "the providers' stored settings could not be read, so none was applied"
             ),
         }
-    })
+    });
+    ProvidersRegistration { task: Some(task) }
 }
 
 // Applies to every driver its rows' values, all drivers at once: each value `stored` holds for a
@@ -751,6 +824,7 @@ mod tests {
             async {},
             Arc::new(MachineSettingsFile::new(settings_path)),
         )
+        .finished()
         .await
         .expect("the registration ends");
 
