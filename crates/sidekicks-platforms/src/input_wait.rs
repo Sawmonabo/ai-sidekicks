@@ -35,11 +35,12 @@ pub struct InputWaitReading {
     pub is_waiting_in_select: bool,
     /// Whether a process of the terminal's foreground group holds the terminal open for reading.
     pub accepts_input: bool,
-    /// Whether the terminal's echo is off, the echo setting alone: a full-screen program turns it
-    /// off as a password prompt does, so masking what is typed keys on `is_password_prompt`.
+    /// Whether the terminal's echo is off, the echo setting alone, which is what masks what is
+    /// typed: a prompt in raw mode, as a Node or Inquirer password prompt reads, clears the line
+    /// setting with the echo, so a full-screen program with echo off is masked too.
     pub is_echo_off: bool,
-    /// Whether the terminal is set as a password prompt: a line at a time with echo off, so what is
-    /// typed is masked.
+    /// Whether the terminal is set as a classic password prompt, a line at a time with echo off;
+    /// the input-wait reads take it as a prompt's evidence, and nothing masks by it.
     pub is_password_prompt: bool,
 }
 
@@ -288,7 +289,7 @@ mod tests {
             .collect::<std::io::Result<Vec<_>>>()
             .expect("the wait reads");
         if is_marked {
-            assert_eq!(readings.last(), Some(&expected), "{script}");
+            assert_eq!(readings.last(), Some(&expected), "{script}: {readings:?}");
         } else {
             assert!(
                 readings.iter().all(|reading| *reading == expected),
