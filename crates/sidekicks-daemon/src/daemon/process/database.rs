@@ -7,8 +7,10 @@
 //! damages the file and the writer's checkpoints flush it; a file something else changed since the
 //! last run, or with no record of one, holds every write until the check finds it sound. A check
 //! that cannot run leaves the daemon taking writes, reading as degraded, and the file unvouched, so
-//! the next start checks it before it writes again. Damage the check or any read or write meets is
-//! recorded beside the file at the stop, so the next start repairs it before anything opens it.
+//! the next start checks it before it writes again. Damage the check or any read or write meets
+//! marks the store failed and ends the writer at once, so no later write reaches the file and the
+//! writer's close skips the checkpoint that would fold the log into it; the daemon then stops,
+//! recording the damage beside the file, and its next start repairs it before anything opens it.
 
 use std::error::Error;
 use std::path::PathBuf;
@@ -21,6 +23,7 @@ use sidekicks_platforms::DaemonRunFolder;
 use tokio::sync::{oneshot, watch};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::AbortOnDropHandle;
 
 use crate::approvals::reviewer_denials::REVIEWER_DENIALS_STATEMENT_CAPACITY;
 use crate::approvals::rules::APPROVAL_RULES_STATEMENT_CAPACITY;
@@ -292,6 +295,8 @@ pub(crate) struct DatabaseFile {
     /// The count of live runs, read after each commit.
     pub(crate) live_runs: watch::Receiver<u32>,
     check: CheckFollower,
+    // Ends the writer once damage is found; aborted with the file.
+    damage_follower: AbortOnDropHandle<()>,
     // Whether the last run's record or a sound check vouches for the file, so a clean stop may
     // be recorded.
     is_vouched: Arc<AtomicBool>,
@@ -409,6 +414,11 @@ pub(crate) async fn open_database_file(
         READ_POOL_STATEMENT_CAPACITY,
     ));
     let status = Arc::new(RecoveryStatusTracker::new());
+    let damage_follower = AbortOnDropHandle::new(tokio::spawn(follow_damage(
+        Arc::clone(&damage),
+        Arc::clone(&status),
+        Arc::clone(&writer),
+    )));
     let followers = Arc::new(SessionEventFollowers::default());
     let event_log = Arc::new(EventLogService::new(EventLogServiceDependencies {
         writer: Arc::clone(&writer),
@@ -434,14 +444,16 @@ pub(crate) async fn open_database_file(
         followers,
         live_runs,
         check,
+        damage_follower,
         is_vouched,
     })
 }
 
 /// Closes the database file once the work that reads and writes it has ended: the check first,
-/// then the damage found recorded; then the read pool before the writer, so the writer is the last
-/// to close the file and folds the write-ahead log into it, except an ended writer, which is
-/// joined first and skips that checkpoint, so a damaged file's log stays for the repair. The
+/// then the damage found recorded, its writer ended if the damage's follower has not yet; then the
+/// read pool before the writer, so the writer is the last to close the file and folds the
+/// write-ahead log into it, except an ended writer, which is joined first and skips that
+/// checkpoint, so a damaged file's log stays for the repair. The
 /// writer drains within `remaining`. The clean stop is recorded only for a file vouched for, with
 /// no damage found, no write left unfinished, no failure here and `is_stop_failed` false. Answers
 /// each step's failure, every step having run.
@@ -460,20 +472,24 @@ pub(crate) async fn close_database_file(
         writer,
         pool,
         damage,
+        status,
         check,
+        damage_follower,
         is_vouched,
         ..
     } = file;
+    drop(damage_follower);
     let mut failures = Vec::new();
     // The check's connection closes first, so the writer is the last to close the file.
     if let Err(failure) = check.stop().await {
         failures.push(DatabaseFileCloseFailure::Check(failure));
     }
-    if damage.is_found()
-        && let Err(failure) =
-            record_database_damage(&database_path, damage.when_found().await).await
-    {
-        failures.push(DatabaseFileCloseFailure::DamageRecord(failure));
+    if damage.is_found() {
+        let found = damage.when_found().await;
+        stop_writes_for_damage(found, &status, &writer);
+        if let Err(failure) = record_database_damage(&database_path, found).await {
+            failures.push(DatabaseFileCloseFailure::DamageRecord(failure));
+        }
     }
     let was_ended = writer.is_ended();
     let drain_within = remaining.saturating_sub(closing_started.elapsed());
@@ -537,6 +553,34 @@ fn session_projection_statements(
     let mut statements = directory_statements_for(&DirectoryEvent::from(envelope))?;
     statements.extend(question_projection_statements(envelope));
     Ok(statements)
+}
+
+/// Why the writer ended: the database file is damaged, so it takes no write.
+#[derive(Debug, thiserror::Error)]
+#[error("the database file is damaged, so no write is taken: {0}")]
+struct DatabaseFileDamaged(String);
+
+// Waits for damage to be found, then stops the writes to the file and logs that the daemon stops
+// for the repair.
+async fn follow_damage(
+    damage: Arc<DatabaseDamageWatch>,
+    status: Arc<RecoveryStatusTracker>,
+    writer: Arc<DatabaseWriter>,
+) {
+    let found = damage.when_found().await;
+    stop_writes_for_damage(found, &status, &writer);
+    tracing::error!(
+        damage = found,
+        "the database file is damaged; the service stops and its next start repairs the file"
+    );
+}
+
+// Marks the store failed and ends the writer, so no later write reaches the damaged file and its
+// close skips the checkpoint, leaving the files as they were found; a writer already ended stays
+// as it is.
+fn stop_writes_for_damage(found: &str, status: &RecoveryStatusTracker, writer: &DatabaseWriter) {
+    status.mark_store_failed();
+    writer.end(Arc::new(DatabaseFileDamaged(found.to_owned())));
 }
 
 // Tells `damage` of each failure SQLite raised for a write; the watch holds no writer, so the

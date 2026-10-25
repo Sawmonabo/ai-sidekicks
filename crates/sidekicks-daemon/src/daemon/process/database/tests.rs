@@ -22,6 +22,7 @@ use crate::events::log_service::{
 use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::ipc::caller_process::system_reader::ProcessTableReader;
 use crate::recovery::database_file::copy::DatabaseFileCopier;
+use crate::recovery::database_file::damage::read_database_damage;
 use crate::recovery::database_file::last_run::{LastRunEnd, read_last_run_end};
 use crate::recovery::database_file::sqlite_shell::SqliteShell;
 use crate::recovery::database_file::{WRITE_AHEAD_LOG_SUFFIX, sibling_path};
@@ -209,4 +210,59 @@ async fn an_append_writes_its_session_row_and_a_projection_refusal_stores_nothin
     drop(connection);
     let failures = close_database_file(file, CLOSE_BOUND, false).await;
     assert!(failures.is_empty(), "{failures:?}");
+}
+
+// Damage found while a vouched file is open ends the writer at once and marks the store failed, and
+// the stop then leaves the write-ahead log as it was for the repair, records the damage and records
+// no clean stop. Killed by dropping the follower's end (the writer is not ended before the close),
+// and, with the follower's end dropped too, by dropping the close's (the close folds the log).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn damage_found_mid_run_ends_the_writer_and_leaves_the_log_for_the_repair() {
+    let harness = Harness::new();
+    let first = harness.open().await;
+    let failures = close_database_file(first, CLOSE_BOUND, false).await;
+    assert!(failures.is_empty(), "{failures:?}");
+    let file = harness.open().await;
+    file.event_log
+        .append(
+            session_created(test_session_id()),
+            EventLogAppendOptions::default(),
+        )
+        .await
+        .expect("the creation is stored");
+
+    file.damage.find("page 3 is damaged".to_owned());
+    tokio::time::timeout(
+        CLOSE_BOUND,
+        file.writer.when_failed().wait_for(Option::is_some),
+    )
+    .await
+    .expect("the writer ends within the bound")
+    .expect("the writer's failure is told");
+    assert!(
+        file.status.read_daemon_write_refusal(true).is_some(),
+        "the store reads failed"
+    );
+    let log_length = std::fs::metadata(harness.log_path())
+        .expect("the run's writes are in the log")
+        .len();
+    assert!(log_length > 0, "the run's writes are in the log");
+    let failures = close_database_file(file, CLOSE_BOUND, false).await;
+
+    assert!(failures.is_empty(), "{failures:?}");
+    assert_eq!(
+        std::fs::metadata(harness.log_path())
+            .expect("the log stays")
+            .len(),
+        log_length,
+        "the close folds nothing into the damaged file"
+    );
+    assert_eq!(
+        read_database_damage(&harness.database_path)
+            .await
+            .expect("the damage record reads")
+            .as_deref(),
+        Some("page 3 is damaged")
+    );
+    assert_ne!(harness.last_run().await, LastRunEnd::Clean);
 }
