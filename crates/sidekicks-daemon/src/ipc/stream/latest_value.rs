@@ -77,7 +77,7 @@ impl<Emission> Drop for LatestValueOutlet<Emission> {
 }
 
 /// One reader's place among a value's readers, which its detach removes it by.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct LatestValueOutletId(u64);
 
 /// The outlets of every reader of one value, each kept until its detach removes it by the id
@@ -114,12 +114,29 @@ impl<Emission> LatestValueOutlets<Emission> {
     pub(crate) fn is_empty(&self) -> bool {
         self.outlets.is_empty()
     }
+
+    /// How many readers are attached.
+    pub(crate) fn len(&self) -> usize {
+        self.outlets.len()
+    }
+
+    /// The ids of every attached outlet.
+    pub(crate) fn ids(&self) -> impl Iterator<Item = LatestValueOutletId> + '_ {
+        self.outlets.iter().map(|(id, _)| *id)
+    }
 }
 
 impl<Emission: Clone> LatestValueOutlets<Emission> {
     /// Sends `value` whole through every attached outlet.
     pub(crate) fn send(&self, value: &Emission) {
         for (_, outlet) in &self.outlets {
+            outlet.send(value.clone());
+        }
+    }
+
+    /// Sends `value` whole through the outlet `id` names; an id not attached sends nothing.
+    pub(crate) fn send_to(&self, id: LatestValueOutletId, value: &Emission) {
+        if let Some((_, outlet)) = self.outlets.iter().find(|(outlet_id, _)| *outlet_id == id) {
             outlet.send(value.clone());
         }
     }
