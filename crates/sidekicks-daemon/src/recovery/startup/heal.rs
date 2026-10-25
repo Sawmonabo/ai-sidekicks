@@ -79,7 +79,7 @@ impl StartupRecovery {
         let point = self
             .deps
             .damaged_history
-            .rebuild_through_last_good_point(failures.original())
+            .rebuild_through_last_good_point(failures.original(), stop)
             .await?;
         if let Some(folder) = &this_pass_copy {
             record_session_in_aside_copy(folder, &session_id, head_sequence).await?;

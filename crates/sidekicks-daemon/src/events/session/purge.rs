@@ -14,7 +14,8 @@
 //!   append the lock let go before its commit can land after the range is read; the range is
 //!   then read again once, since the hold keeps any new append out. The writer's connection runs
 //!   with `secure_delete` on, so a freed page is overwritten.
-//! - After the commit the project's other sessions are handed their rules again, the live list
+//! - After the commit the recovery state forgets the session's damage, the session reads let go of
+//!   its block cuts, the project's other sessions are handed their rules again, the live list
 //!   loses the session, and each stored payload no surviving manifest names is unlinked. Once
 //!   every session is done the sessions they were linked to are scored again, and the
 //!   write-ahead log is truncated, tried again until it succeeds, even when nothing was deleted.
@@ -68,8 +69,10 @@ use crate::ipc::registry::HandlerError;
 use crate::keyed_lock::KeyedLock;
 use crate::provider::conversation_purge::{ConversationPurge, ConversationPurgeError};
 use crate::pty::shell::table::ShellTable;
+use crate::recovery::status::RecoveryStatusTracker;
 use crate::session::directory::list_feed::SessionListFeed;
 use crate::session::related::ranking::SessionRelatedRanking;
+use crate::session::service::SessionService;
 use crate::workspace::managed::service::{ManagedWorkspaceError, ManagedWorkspaceService};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -198,6 +201,10 @@ pub(crate) struct SessionPurgeDeps {
     pub(crate) payloads: Arc<PayloadStore>,
     /// The write-ahead log's truncation.
     pub(crate) truncation: Arc<WriteAheadLogTruncation>,
+    /// The recovery state, which forgets a purged session's damage.
+    pub(crate) recovery: Arc<RecoveryStatusTracker>,
+    /// The session reads, which let go of the block cuts they kept for a purged session.
+    pub(crate) sessions: Arc<SessionService>,
 }
 
 /// Deletes whole sessions.
@@ -331,6 +338,8 @@ impl SessionPurge {
         let linked_session_ids = self
             .delete_rows(session_id, &targets.workflow_run_ids, operation_id)
             .await?;
+        deps.recovery.mark_session_healthy(&session_id);
+        deps.sessions.forget_session_block_cuts(&session_id);
         deps.list_feed.refresh([session_id]);
         let hand_out_failure = deps
             .project_rules

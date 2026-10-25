@@ -47,11 +47,13 @@ use crate::provider::driver::registry::{ProviderRegistry, test_provider};
 use crate::provider::driver::test_registry::test_driver_services;
 use crate::provider::driver::{PROVIDERS, ProviderRegistration};
 use crate::pty::shell::test_table::{TableFixture, table_fixture};
+use crate::recovery::status::RecoveryStatusTracker;
 use crate::session::directory::list_feed::SessionListFeed;
 use crate::session::directory::test_rows::insert_session_row;
 use crate::session::related::ranking::SessionRelatedRanking;
 use crate::session::run::engine::tests::insert_running_run;
 use crate::session::run::live_count::tests::counted_log;
+use crate::session::service::SessionService;
 use crate::workflow::test_rows::{
     TEST_SESSION_ID, TestStep, insert_run, insert_step, insert_workflow_version,
 };
@@ -76,6 +78,8 @@ pub(crate) struct PurgeFixture {
     pub(crate) truncation: Arc<WriteAheadLogTruncation>,
     /// The writer's count of live runs.
     pub(crate) live_runs: watch::Receiver<u32>,
+    /// The recovery state the purge clears a removed session from.
+    pub(crate) recovery: Arc<RecoveryStatusTracker>,
     pub(crate) _shells: TableFixture,
     pub(crate) _home: TempDir,
 }
@@ -84,6 +88,40 @@ pub(crate) struct PurgeFixture {
 pub(crate) async fn purge_fixture() -> PurgeFixture {
     let database = TestDatabase::new();
     let (log, live_runs) = counted_log(&database).await;
+    let recovery = Arc::new(RecoveryStatusTracker::new());
+    let TestPurge {
+        purge,
+        truncation,
+        shells,
+        home,
+    } = test_purge(&database, &log, Arc::clone(&recovery)).await;
+    PurgeFixture {
+        database,
+        log,
+        purge,
+        truncation,
+        live_runs,
+        recovery,
+        _shells: shells,
+        _home: home,
+    }
+}
+
+/// A purge, the truncation it starts, and the shell table and home folder it works in.
+pub(crate) struct TestPurge {
+    pub(crate) purge: SessionPurge,
+    pub(crate) truncation: Arc<WriteAheadLogTruncation>,
+    pub(crate) shells: TableFixture,
+    pub(crate) home: TempDir,
+}
+
+/// A purge on `database` through `log`, clearing removed sessions from `recovery`; a provider
+/// driver it calls fails the test.
+pub(crate) async fn test_purge(
+    database: &TestDatabase,
+    log: &TestLog,
+    recovery: Arc<RecoveryStatusTracker>,
+) -> TestPurge {
     let reads = Arc::new(DatabaseReadPool::new(
         database.path(),
         EVENT_LOG_STATEMENT_CAPACITY
@@ -113,7 +151,7 @@ pub(crate) async fn purge_fixture() -> PurgeFixture {
         Arc::new(ProviderRegistry::register_from(&table, &services)),
     ));
 
-    let list_feed = SessionListFeed::for_test(&database, &log.followers);
+    let list_feed = SessionListFeed::for_test(database, &log.followers);
     let repo_mounts = Arc::new(RepoMountService::new(
         Arc::clone(&log.writer),
         Arc::clone(&reads),
@@ -157,20 +195,22 @@ pub(crate) async fn purge_fixture() -> PurgeFixture {
         )),
         project_rules,
         list_feed,
-        ranking: Arc::new(SessionRelatedRanking::new(reads, Arc::clone(&log.writer))),
+        ranking: Arc::new(SessionRelatedRanking::new(
+            Arc::clone(&reads),
+            Arc::clone(&log.writer),
+        )),
         payloads: Arc::new(
             PayloadStore::new(home.path().join("objects")).expect("the payload store opens"),
         ),
         truncation: Arc::clone(&truncation),
+        recovery,
+        sessions: Arc::new(SessionService::new(reads, Arc::new(|_: &SessionId| None))),
     });
-    PurgeFixture {
-        database,
-        log,
+    TestPurge {
         purge,
         truncation,
-        live_runs,
-        _shells: shells,
-        _home: home,
+        shells,
+        home,
     }
 }
 
@@ -443,7 +483,9 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
     );
 }
 
-// Kills: a caller's from-states widened or narrowed, and a refused mark that changes the row.
+// Each session is damaged, so a removed one must leave the recovery state too. Kills: a caller's
+// from-states widened or narrowed, a refused mark that changes the row, and the recovery state not
+// cleared after the rows went.
 #[rstest]
 #[case::retention_of_an_archived_session(PurgeCaller::Retention, SessionState::Archived, true)]
 #[case::retention_of_an_active_session(PurgeCaller::Retention, SessionState::Active, false)]
@@ -468,6 +510,7 @@ async fn a_purge_marks_a_session_only_from_its_callers_states(
     let session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
     store_session(&reader, session_id, state);
     append_event(&fixture.log, session_id, "Read").await;
+    fixture.recovery.mark_session_unreadable(&session_id);
 
     let outcome = only_outcome(
         fixture
@@ -483,6 +526,7 @@ async fn a_purge_marks_a_session_only_from_its_callers_states(
         );
         assert_eq!(state_of(&reader, session_id), None);
         assert_eq!(event_count(&reader, session_id), 0);
+        assert_eq!(fixture.recovery.read().sessions, Vec::new());
     } else {
         let SessionPurgeOutcome::Refused(SessionPurgeError::NotMarkable { state: refused }) =
             outcome
@@ -495,6 +539,12 @@ async fn a_purge_marks_a_session_only_from_its_callers_states(
             Some(<&'static str>::from(state))
         );
         assert_eq!(event_count(&reader, session_id), 1);
+        assert!(
+            fixture
+                .recovery
+                .read_session_write_refusal(&session_id)
+                .is_some()
+        );
     }
 }
 

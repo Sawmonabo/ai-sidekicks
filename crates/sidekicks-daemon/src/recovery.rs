@@ -8,4 +8,6 @@ pub(crate) mod restart_settle;
 pub(crate) mod session_write_refusal;
 pub(crate) mod startup;
 pub(crate) mod status;
+#[cfg(test)]
+pub(crate) mod test_pass;
 pub(crate) mod write_gate;

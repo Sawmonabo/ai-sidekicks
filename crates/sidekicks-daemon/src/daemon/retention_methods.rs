@@ -42,7 +42,6 @@ use crate::ipc::registry::{
 };
 use crate::ipc::stream::feed::Feed;
 use crate::ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
-use crate::session::service::SessionService;
 use crate::workflow::runs::record::{StoredInstantBound, stored_instant_bound};
 
 /// The statements the methods' reads prepare, counted into the read pool's statement capacity.
@@ -107,8 +106,6 @@ pub(crate) struct RetentionMethodsDeps {
     /// The backups, one of which runs after a purge that removed something while `Back up
     /// automatically` is on.
     pub(crate) backups: Arc<Backups>,
-    /// The session reads, which let go of what they kept for a purged session.
-    pub(crate) sessions: Arc<SessionService>,
 }
 
 /// Why the selection could not be read.
@@ -254,7 +251,6 @@ async fn purge_old_data(
         match outcome {
             SessionPurgeOutcome::Removed { hand_out_failure } => {
                 deleted += 1;
-                deps.sessions.forget_session_block_cuts(session_id);
                 if let Some(failure) = hand_out_failure {
                     tracing::warn!(
                         %session_id,
@@ -400,7 +396,6 @@ mod tests {
     };
     use crate::ipc::stream::feed::CreditGate;
     use crate::pty::shell::test_table::TableFixture;
-    use crate::session::service::SessionService;
     use sidekicks_contracts::wire::instant::WireInstant;
 
     const WAIT: Duration = Duration::from_secs(10);
@@ -430,6 +425,7 @@ mod tests {
             purge,
             truncation,
             live_runs: _,
+            recovery: _,
             _shells: shells,
             _home: home,
         } = fixture;
@@ -447,10 +443,6 @@ mod tests {
             Arc::new(WallClockTimer::new().expect("the test arms a wall clock")),
             None,
             live_runs.subscribe(),
-        ));
-        let sessions = Arc::new(SessionService::new(
-            Arc::clone(&reads),
-            Arc::new(|_: &SessionId| None),
         ));
         let mut builder = MethodRegistryBuilder::new();
         register_retention_methods(
@@ -473,7 +465,6 @@ mod tests {
                     home.path().to_path_buf(),
                     Arc::new(|| async { Ok(Vec::new()) }.boxed()),
                 ),
-                sessions,
             },
         )
         .expect("the retention methods register");
