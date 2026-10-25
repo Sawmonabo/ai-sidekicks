@@ -119,13 +119,6 @@ pub(crate) fn end_hold_statement(plan_id: &PlanId) -> WriteStatement {
 
 /// A verdict that settled `plan_id` in `state`, from `device_id` at `resolved_at`, naming the
 /// session it was handed off to when it was; refused unless the plan waits.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the plan verdicts' writes, and the rebuild the daemon's start registers"
-    )
-)]
 pub(crate) fn settle_verdict_statement(
     plan_id: &PlanId,
     state: PlanState,
