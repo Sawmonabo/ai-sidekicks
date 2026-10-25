@@ -257,9 +257,10 @@ pub use posix::child_command::{
 #[cfg(unix)]
 pub use posix::command_wrapper::{
     RawStandardInput, blocking_terminal_master, end_as_child_ended, end_by_stop_signal,
-    end_terminal_session, exec_command, exec_with_secret, name_program, pass_on_stop_signals,
-    read_standard_input_window_size, signal_command_group, signal_foreground_group,
-    start_in_own_group, stop_signal_number, take_inherited_secret, wait_for_terminal_command,
+    end_terminal_session, exec_command, exec_with_secret, has_unread_output, name_program,
+    pass_on_stop_signals, read_standard_input_window_size, signal_command_group,
+    signal_foreground_group, start_in_own_group, stop_signal_number, take_inherited_secret,
+    wait_for_terminal_command,
 };
 #[cfg(unix)]
 pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
@@ -412,9 +413,10 @@ pub use windows::command_argument_limit::read_command_argument_limit;
 #[cfg(target_os = "windows")]
 pub use windows::command_wrapper::{
     RawStandardInput, blocking_terminal_master, end_as_child_ended, end_by_stop_signal,
-    end_terminal_session, exec_command, exec_with_secret, name_program, pass_on_stop_signals,
-    read_standard_input_window_size, signal_command_group, signal_foreground_group,
-    start_in_own_group, stop_signal_number, take_inherited_secret, wait_for_terminal_command,
+    end_terminal_session, exec_command, exec_with_secret, has_unread_output, name_program,
+    pass_on_stop_signals, read_standard_input_window_size, signal_command_group,
+    signal_foreground_group, start_in_own_group, stop_signal_number, take_inherited_secret,
+    wait_for_terminal_command,
 };
 #[cfg(target_os = "windows")]
 pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};

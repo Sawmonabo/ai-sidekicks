@@ -310,6 +310,47 @@ async fn a_terminal_command_takes_ctrl_c_the_interrupt_and_a_stop_past_an_ignore
     assert_eq!(ended_by(&mut child).as_deref(), Some("SIGKILL"));
 }
 
+// Fails when a terminal command's last output is cut off because the wrapper stops waiting while
+// the copier still writes to a slow provider terminal or the master still holds bytes. Mutation:
+// in `wait_for_last_output`, stop at the first quiet look whatever `is_output_copied` answers.
+#[test]
+fn a_terminal_command_s_last_output_all_reaches_a_slow_provider_terminal() {
+    const OUTPUT_BYTES: usize = 1024 * 1024;
+    let folder = tempfile::tempdir().expect("a folder");
+    let stand_in = write_stand_in(folder.path());
+    let mut child = wrapper(
+        &[
+            "--conversation",
+            "conversation",
+            "--process",
+            "process-1",
+            "--tty",
+            "--",
+            "/bin/sh",
+            "-c",
+            &format!("head -c {OUTPUT_BYTES} /dev/zero | tr '\\0' z"),
+        ],
+        Some(&stand_in),
+    )
+    .spawn()
+    .expect("the wrapper starts");
+    let mut output = child.stdout.take().expect("its output");
+    // The provider's terminal reads late, then slowly, so the copier waits on each write.
+    std::thread::sleep(Duration::from_millis(50));
+    let mut copied = 0;
+    let mut piece = [0_u8; 16 * 1024];
+    loop {
+        let count = output.read(&mut piece).expect("the output reads");
+        if count == 0 {
+            break;
+        }
+        copied += piece[..count].iter().filter(|byte| **byte == b'z').count();
+        std::thread::sleep(Duration::from_millis(15));
+    }
+    assert!(child.wait().expect("the wrapper ends").success());
+    assert_eq!(copied, OUTPUT_BYTES);
+}
+
 // Fails when a channel the wrapper cannot join leaves its command running uncovered with nothing
 // said, as the wrapper keeps no log. Mutation: drop the standard-error line in `join_channel`.
 #[test]

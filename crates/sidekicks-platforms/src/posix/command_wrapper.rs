@@ -248,6 +248,23 @@ pub fn blocking_terminal_master(pty: &Pty) -> io::Result<File> {
     Ok(File::from(master))
 }
 
+/// Whether the master of `pty` holds output its terminal's program wrote that no read has taken
+/// yet, asked with no wait; a terminal whose program side all closed reads as holding some, since
+/// a read of it then answers at once. Fails with the system's error.
+pub fn has_unread_output(pty: &Pty) -> io::Result<bool> {
+    let mut watched = libc::pollfd {
+        fd: pty.file().as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    // SAFETY: `watched` is one live, writable `pollfd` on the master `pty` keeps open.
+    let ready = unsafe { libc::poll(&raw mut watched, 1, 0) };
+    if ready < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(ready > 0)
+}
+
 /// Waits for the command `pty` started to exit and answers its status; the PTY's own drop then
 /// finds it reaped. Blocks; fails with the system's error.
 pub fn wait_for_terminal_command(pty: &Pty) -> io::Result<ExitStatus> {
