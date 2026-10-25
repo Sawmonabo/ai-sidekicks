@@ -58,6 +58,7 @@ use crate::provider::port::session_inbox_address::SessionInboxAddresser;
 mod attachments;
 mod capabilities;
 mod capability_probe;
+mod command_shape;
 mod compaction;
 mod delivery;
 mod event_normalizer;
@@ -225,6 +226,7 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         &["feedback", "drafts"],
         &["usage-data"],
     ],
+    shell_prefix_command: Some(command_shape::CLAUDE_SHELL_PREFIX_COMMAND),
 };
 
 /// Builds the Claude Code driver over the shared services; it stores handles and does no I/O.

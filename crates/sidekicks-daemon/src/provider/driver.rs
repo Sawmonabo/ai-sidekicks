@@ -128,6 +128,34 @@ pub(crate) struct ProviderDescriptor {
     /// diagnosis and never reads back for a session; `Keep diagnostic logs for` deletes their files
     /// by age in each account home the app manages.
     pub(crate) account_home_diagnostic_folders: &'static [&'static [&'static str]],
+    /// How the provider runs every shell command through the command wrapper's link, as one line
+    /// handed over as the link's one argument; `None` where the provider starts its commands
+    /// through the daemon's relay instead.
+    pub(crate) shell_prefix_command: Option<ShellPrefixCommand>,
+}
+
+/// A provider's contract with the command wrapper's link when it prefixes every shell command it
+/// runs with it: the variable it reads the link's path from, and how a line it hands the link
+/// tells an agent's command from its hooks', status line's and tool servers' starts.
+pub(crate) struct ShellPrefixCommand {
+    /// The variable the provider reads the link's absolute path from.
+    #[expect(
+        dead_code,
+        reason = "the provider's process environment sets the link's path in this variable"
+    )]
+    pub(crate) variable: &'static str,
+    /// The command an agent ran that `line` runs, as the provider's tool call named it; `None` for
+    /// a line that is no agent's command, which the wrapper runs as it is at once.
+    pub(crate) read_agent_command: fn(&str) -> Option<String>,
+}
+
+/// The shell prefix contract of the provider whose id is `provider_id`; `None` for an unknown id or
+/// a provider that prefixes no command.
+pub(crate) fn shell_prefix_command_of(provider_id: &str) -> Option<&'static ShellPrefixCommand> {
+    PROVIDERS
+        .iter()
+        .find(|descriptor| descriptor.id == provider_id)
+        .and_then(|descriptor| descriptor.shell_prefix_command.as_ref())
 }
 
 impl ProviderDescriptor {

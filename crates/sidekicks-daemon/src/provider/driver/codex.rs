@@ -212,6 +212,7 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // Codex's log folder; the rows its service logs into the home's database the driver's own
     // expiry deletes.
     account_home_diagnostic_folders: &[&["log"]],
+    shell_prefix_command: None,
 };
 
 /// Builds the Codex driver over the shared services; it stores handles and does no I/O.
