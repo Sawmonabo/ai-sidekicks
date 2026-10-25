@@ -50,6 +50,7 @@ fn run_folder(folder_path: &Path, socket_folder: &Path) -> DaemonRunFolder {
         folder_path: folder_path.to_path_buf(),
         socket_path: socket_folder.join("daemon.sock"),
         token_path: socket_folder.join("token"),
+        status_path: socket_folder.join("service-status.json"),
     }
 }
 
