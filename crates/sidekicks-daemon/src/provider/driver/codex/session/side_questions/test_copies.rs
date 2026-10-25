@@ -170,7 +170,7 @@ pub(crate) async fn serve_copy(listener: Listener, profile: String) -> Map<Strin
     fork
 }
 
-//// Serves the copy's connection as Codex through its turn's start and never ends the turn, and
+/// Serves the copy's connection as Codex through its turn's start and never ends the turn, and
 /// answers each later request, the let-go of the conversation among them, so a stop does not wait
 /// out its bound; answers the interrupt the daemon sent once it let the connection go.
 pub(crate) async fn serve_unended_copy(listener: Listener, profile: String) -> Value {
