@@ -9,6 +9,10 @@ Writeable = "Writeable"
 # `windows-sys`' spelling of the Windows error a too-long command line gives.
 ERROR_FILENAME_EXCED_RANGE = "ERROR_FILENAME_EXCED_RANGE"
 
+# A git quoted-path test spells "café" as the octal bytes git writes, `caf\303\251`.
+[default.extend-words]
+caf = "caf"
+
 [files]
 extend-exclude = [
   "*.md",

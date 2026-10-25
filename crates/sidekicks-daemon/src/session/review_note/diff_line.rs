@@ -496,13 +496,13 @@ mod tests {
     #[case::present(false)]
     fn diff_line_reads_a_refused_diff_by_the_files_re_stat(#[case] is_file_gone: bool) {
         let folder = tempfile::tempdir().expect("the temporary folder is made");
-        let restat = if is_file_gone {
+        let file_metadata = if is_file_gone {
             std::fs::symlink_metadata(folder.path().join("gone.txt"))
         } else {
             std::fs::symlink_metadata(folder.path())
         };
         let stderr = String::from("error: Could not access 'gone.txt'\n");
-        let answer = lines_of_refused_diff(Vec::new(), stderr.clone(), restat);
+        let answer = lines_of_refused_diff(Vec::new(), stderr.clone(), file_metadata);
         if is_file_gone {
             assert!(
                 matches!(answer, Ok(None)),
