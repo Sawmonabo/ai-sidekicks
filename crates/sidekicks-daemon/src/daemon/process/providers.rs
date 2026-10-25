@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use serde_json::{Map, Value};
 use sidekicks_platforms::{PathRules, Spawner};
 use tokio::task::JoinHandle;
 
@@ -14,6 +15,7 @@ use crate::approvals::reviewer_denials::ReviewerDenials;
 use crate::approvals::rules::ApprovalRules;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::DatabaseWriter;
+use crate::error_description::describe_error;
 use crate::git::process::GitRunner;
 use crate::git::worktree::naming::worktrees_folder;
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
@@ -26,9 +28,14 @@ use crate::provider::capability::refresh::{CapabilityRefresher, CapabilityRefres
 use crate::provider::command_search::ProviderCommandSearch;
 use crate::provider::compaction_wait::PendingCompactionRegistry;
 use crate::provider::driver::attachments::AttachmentResolver;
-use crate::provider::driver::capabilities::writer::DriverCapabilitiesWriter;
+use crate::provider::driver::capabilities::writer::{
+    CapabilityHydration, DriverCapabilitiesWriter,
+};
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::provider::driver::diagnostics::{
+    DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
+};
 use crate::provider::driver::ports::{DriverPorts, ProcessGoneListener, SessionPlace};
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::{DriverServices, ProviderDescriptor, ProviderRegistration};
@@ -81,6 +88,8 @@ pub(crate) struct Providers {
     pub(crate) ports: Arc<DriverPorts>,
     /// Reads every driver's capabilities again when asked.
     pub(crate) refresher: Arc<CapabilityRefresher>,
+    /// Stores each provider's capability reading and rebuilds the stored one at the start.
+    pub(crate) capabilities: Arc<DriverCapabilitiesWriter>,
     /// The refresh's pass task, which the stop ends.
     pub(crate) refreshing: CapabilityRefreshing,
     /// The processes serving the provider services the daemon holds a connection to, which the
@@ -153,14 +162,14 @@ pub(crate) fn build_providers(
         ports: Arc::clone(&ports),
     };
     let registry = Arc::new(ProviderRegistry::register_from(registrations, &services));
-    let (refresher, refreshing) = CapabilityRefresher::start(
-        Arc::clone(&registry),
-        Arc::new(DriverCapabilitiesWriter::new(start.reads, start.writer)),
-    );
+    let capabilities = Arc::new(DriverCapabilitiesWriter::new(start.reads, start.writer));
+    let (refresher, refreshing) =
+        CapabilityRefresher::start(Arc::clone(&registry), Arc::clone(&capabilities));
     Providers {
         registry,
         ports,
         refresher: Arc::new(refresher),
+        capabilities,
         refreshing,
         provider_services,
         execution_postures,
@@ -168,6 +177,48 @@ pub(crate) fn build_providers(
         processes,
         reserved_names,
         staged_changes,
+    }
+}
+
+/// Records on the registry each provider's last stored capability reading, without asking its
+/// driver, so a gated call is answered from it before the first refresh lands; a provider never
+/// read, or read with no version, stays refused until then. A stored reading that cannot be
+/// rebuilt is reported as a driver diagnostic and its provider's gate stays closed.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start seeds the capability gate through it before the socket binds"
+    )
+)]
+pub(crate) async fn hydrate_capabilities(providers: &Providers) {
+    for (provider, _) in providers.registry.drivers() {
+        let descriptor = providers
+            .registry
+            .descriptor(provider)
+            .expect("a provider the registry lists has a descriptor");
+        match providers.capabilities.hydrate(provider, descriptor).await {
+            Ok(CapabilityHydration::Hit { result }) => providers
+                .registry
+                .record_capabilities(provider, result.capabilities)
+                .expect("a provider the registry lists has an entry"),
+            Ok(
+                CapabilityHydration::NeverWritten {} | CapabilityHydration::CliVersionMissing {},
+            ) => {}
+            Err(error) => emit_driver_diagnostic(&DriverDiagnosticRecord {
+                provider: provider.clone(),
+                provider_account_id: None,
+                kind: DriverDiagnosticKind::StoredCapabilitiesUnreadable,
+                raw_wire_type: None,
+                disposition_reason: "stored capability reading could not be rebuilt; gated calls \
+                                     wait for the first refresh"
+                    .to_owned(),
+                details: Map::from_iter([(
+                    "message".to_owned(),
+                    Value::from(describe_error(&error)),
+                )]),
+            }),
+        }
     }
 }
 
@@ -338,19 +389,26 @@ pub(crate) async fn shut_down_drivers(
 mod tests {
     use std::sync::{Arc, LazyLock};
 
+    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_platforms::Spawner;
     use tempfile::TempDir;
     use tokio::runtime::Handle;
 
-    use super::{ProviderStart, Providers, build_providers};
+    use super::{ProviderStart, Providers, build_providers, hydrate_capabilities};
     use crate::database::connection::read_pool::DatabaseReadPool;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::events::log_service::tests::open_log;
     use crate::git::process::{GitLimits, GitRunner};
     use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-    use crate::provider::driver::contract::MockProviderDriver;
-    use crate::provider::driver::test_registry::NothingServed;
+    use crate::provider::driver::capabilities::{
+        DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
+    };
+    use crate::provider::driver::contract::{
+        DriverCliVersionReport, GetCapabilitiesResult, MockProviderDriver,
+    };
+    use crate::provider::driver::test_registry::{NothingServed, registrations_of_first_providers};
     use crate::provider::driver::{PROVIDERS, ProviderRegistration};
     use crate::queue::delivery::{ProviderProcessIdentity, ProviderProcessIds};
 
@@ -435,6 +493,56 @@ mod tests {
         assert_eq!(
             queue_reads.process_identity(&SPAWNED_SESSION),
             Some(SPAWNED)
+        );
+    }
+
+    // A gated call the stored reading allows passes at a cold start, before any refresh pass has
+    // read the driver. Killed by leaving the gate unseeded, which refuses it until a pass lands.
+    #[tokio::test]
+    async fn a_cold_start_answers_a_gated_call_from_the_stored_reading() {
+        let start = TestStart::new();
+        let providers = start
+            .build(&registrations_of_first_providers(vec![Arc::new(
+                MockProviderDriver::new(),
+            )]))
+            .await;
+        let provider = ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id");
+        let stored = GetCapabilitiesResult {
+            capabilities: DriverCapabilities {
+                flags: DriverCapabilityFlags::from_fn(|flag| {
+                    flag == DriverCapabilityFlag::ContextCompaction
+                }),
+                contract_version: FreeFormText::new("1.0.0".to_owned()).expect("a version"),
+            },
+            tools: Vec::new(),
+            cli_version: DriverCliVersionReport {
+                raw_version: "2.0.0".to_owned(),
+                parsed_version: Some("2.0.0".to_owned()),
+            },
+            detection_source: None,
+            output_speed_levels: None,
+        };
+        providers
+            .capabilities
+            .declare(&provider, &stored)
+            .await
+            .expect("an earlier run stored the reading");
+        let before_seed = providers
+            .registry
+            .check_capability(&provider, DriverCapabilityFlag::ContextCompaction);
+
+        hydrate_capabilities(&providers).await;
+
+        assert!(before_seed.is_err());
+        providers
+            .registry
+            .check_capability(&provider, DriverCapabilityFlag::ContextCompaction)
+            .expect("the stored reading allows the call");
+        assert!(
+            providers
+                .registry
+                .check_capability(&provider, DriverCapabilityFlag::Steer)
+                .is_err()
         );
     }
 }

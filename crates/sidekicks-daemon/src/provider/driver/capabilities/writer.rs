@@ -287,14 +287,6 @@ impl DriverCapabilitiesWriter {
     /// snapshot, its fixed output-speed levels from `descriptor`. Fails with
     /// [`DriverCapabilitiesWriterError::FlagSetMismatch`] when the stored flag rows are not exactly
     /// the flag set, and when the read fails or a stored value does not read as its type.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start seeds each provider's capabilities from the stored \
-                      reading through it"
-        )
-    )]
     pub(crate) async fn hydrate(
         &self,
         provider: &ProviderId,
