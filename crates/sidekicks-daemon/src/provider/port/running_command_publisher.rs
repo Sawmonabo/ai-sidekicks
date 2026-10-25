@@ -107,6 +107,10 @@ pub(crate) trait RunningCommandPublisher: Send + Sync {
 /// The running command one of the person's acts addresses: its session, the binding the session
 /// runs on now and the provider's own id for the command.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "each member is an id, named for what it identifies"
+)]
 pub(crate) struct RunningCommandParams {
     /// The session.
     pub(crate) session_id: SessionId,

@@ -18,9 +18,13 @@ const PROMPT: &str = "Password for 'https://ana@example.com': ";
 
 #[test]
 #[ignore = "run only as the askpass process another test starts"]
+#[expect(
+    clippy::exit,
+    reason = "the askpass's own exit status is what git reads, where the harness would exit with its \
+              own"
+)]
 fn an_askpass_process_asks_its_prompt() {
-    let code = run_command_askpass();
-    std::process::exit(if code == ExitCode::SUCCESS { 0 } else { 1 });
+    std::process::exit(i32::from(run_command_askpass() != ExitCode::SUCCESS));
 }
 
 /// The files and folders under `folder`, by their paths inside it.

@@ -249,7 +249,7 @@ async fn a_terminal_command_takes_ctrl_c_the_interrupt_and_a_stop_past_an_ignore
         ]
     };
 
-    // Ctrl+C typed into Codex's terminal reaches the command as its terminal's interrupt.
+    // Ctrl+C typed into the provider's terminal reaches the command as its terminal's interrupt.
     let mut child = wrapper(&relayed("echo ready; exec sleep 30"), Some(&stand_in))
         .spawn()
         .expect("the wrapper starts");
@@ -259,7 +259,7 @@ async fn a_terminal_command_takes_ctrl_c_the_interrupt_and_a_stop_past_an_ignore
     input.flush().expect("it is sent");
     assert_eq!(ended_by(&mut child).as_deref(), Some("SIGINT"));
 
-    // Codex's interrupt, the signal it sends the wrapper, reaches the command too.
+    // The relay's interrupt, the signal it sends the wrapper, reaches the command too.
     let mut child = wrapper(&relayed("echo ready; exec sleep 30"), Some(&stand_in))
         .spawn()
         .expect("the wrapper starts");
