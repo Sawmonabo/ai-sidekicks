@@ -1,5 +1,6 @@
-//! The serving socket's watch: a connection that ends or fails drops its handshake and ends its
-//! subscriptions, and a listener that fails marks the daemon degraded in its status read.
+//! The serving socket's watch: a connection that fails is logged, its handshake and subscriptions
+//! dropped by the connection's own close, and a listener that fails marks the daemon degraded in
+//! its status read.
 
 use std::error::Error;
 use std::sync::{Arc, Mutex};
@@ -7,9 +8,7 @@ use std::sync::{Arc, Mutex};
 use sidekicks_contracts::daemon::status::DaemonProcessState;
 
 use crate::ipc::local_gateway::{SupervisionDisconnectReason, SupervisionHooks};
-use crate::ipc::protocol_negotiation::ProtocolNegotiator;
 use crate::ipc::registry::TransportId;
-use crate::ipc::stream::subscriptions::Subscriptions;
 use crate::mutex_lock::lock;
 
 /// Where the daemon is in its own life: starting until it is ready, then running, degraded once
@@ -57,26 +56,12 @@ impl ProcessStateTracker {
 
 /// The serving socket's hooks.
 pub(crate) struct ServingSocketHooks {
-    /// The handshakes, dropped per connection as it ends.
-    pub(crate) negotiator: Arc<ProtocolNegotiator>,
-    /// The open subscriptions, ended per connection as it ends.
-    pub(crate) subscriptions: Arc<Subscriptions>,
     /// The daemon's place in its life, degraded on a listener failure.
-    pub(crate) process_state: Arc<ProcessStateTracker>,
-}
-
-impl ServingSocketHooks {
-    // Drops what the connection `transport` held.
-    fn clean_up(&self, transport: TransportId) {
-        self.negotiator.cleanup_transport(transport);
-        self.subscriptions.cleanup_transport(transport);
-    }
+    pub(super) process_state: Arc<ProcessStateTracker>,
 }
 
 impl SupervisionHooks for ServingSocketHooks {
-    fn on_disconnect(&self, transport: TransportId, _reason: SupervisionDisconnectReason) {
-        self.clean_up(transport);
-    }
+    fn on_disconnect(&self, _transport: TransportId, _reason: SupervisionDisconnectReason) {}
 
     fn on_error(&self, transport: TransportId, error: &(dyn Error + 'static)) {
         tracing::warn!(
@@ -84,7 +69,6 @@ impl SupervisionHooks for ServingSocketHooks {
             error,
             "a connection to the daemon failed"
         );
-        self.clean_up(transport);
     }
 
     fn on_listener_error(&self, error: &(dyn Error + 'static)) {

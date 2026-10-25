@@ -13,18 +13,26 @@ use sidekicks_contracts::method::Method;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::wire::BoolLiteral;
 
+use crate::ipc::in_flight_mutations::RecordedCallId;
 use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 
+/// Resolves once every write pending at the call is durable; stops nothing. It takes the call's
+/// own in-flight record, so a wait on the pending mutations excludes the flush itself.
+pub(crate) type FlushWrites = Arc<
+    dyn Fn(Option<RecordedCallId>) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync,
+>;
+
 /// What the lifecycle verbs act on: the running daemon.
 #[derive(Clone)]
 pub(crate) struct LifecycleMethodsDeps {
-    /// Resolves once every write pending at the call is durable; stops nothing.
-    pub(crate) flush: Arc<dyn Fn() -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>,
-    /// Starts the daemon's stop for the intent given once the current reply is written; the stop
-    /// waits for the writes already under way within its drain bound.
+    /// The flush of the pending writes.
+    pub(crate) flush: FlushWrites,
+    /// Starts the daemon's stop for the intent given; it runs once the call's reply is queued, so
+    /// the reply is written before the stop closes the connection. The stop waits for the writes
+    /// already under way within its drain bound.
     pub(crate) accept_stop: Arc<dyn Fn(DaemonStopIntent) + Send + Sync>,
 }
 
@@ -36,8 +44,8 @@ pub(crate) fn register_lifecycle_methods(
     deps: &LifecycleMethodsDeps,
 ) -> Result<(), RegistrationError> {
     let flush = Arc::clone(&deps.flush);
-    registry.register::<DaemonFlush, _>(move |_: EmptyPayload, _context: HandlerContext| {
-        let flushed = flush();
+    registry.register::<DaemonFlush, _>(move |_: EmptyPayload, context: HandlerContext| {
+        let flushed = flush(context.recorded_call);
         async move {
             flushed.await?;
             Ok(DaemonFlushResponse {
@@ -64,8 +72,9 @@ where
     M: Method<Params = EmptyPayload, Result = DaemonLifecycleAccepted> + 'static,
 {
     let accept_stop = Arc::clone(&deps.accept_stop);
-    registry.register::<M, _>(move |_: EmptyPayload, _context: HandlerContext| {
-        accept_stop(intent);
+    registry.register::<M, _>(move |_: EmptyPayload, context: HandlerContext| {
+        let accept_stop = Arc::clone(&accept_stop);
+        context.after_reply.set(move || accept_stop(intent));
         async {
             Ok(DaemonLifecycleAccepted {
                 accepted: BoolLiteral,
@@ -77,7 +86,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex, PoisonError};
+    use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+    use std::time::Duration;
 
     use futures::FutureExt as _;
     use serde_json::{Value, json};
@@ -90,8 +100,9 @@ mod tests {
 
     use super::{LifecycleMethodsDeps, register_lifecycle_methods};
     use crate::ipc::call_fixtures::{Named, Nothing, context, request};
+    use crate::ipc::in_flight_mutations::InFlightMutations;
     use crate::ipc::registry::{
-        Dispatch as _, DispatchError, HandlerContext, MethodRegistry, MethodRegistryBuilder, Reply,
+        Dispatch, DispatchError, HandlerContext, MethodRegistry, MethodRegistryBuilder, Reply,
     };
     use crate::provider::driver::daemon_stop::DaemonStopIntent;
 
@@ -133,7 +144,7 @@ mod tests {
         register_lifecycle_methods(
             &mut builder,
             &LifecycleMethodsDeps {
-                flush: Arc::new(move || {
+                flush: Arc::new(move |_caller| {
                     let (release, released) = oneshot::channel();
                     held.lock()
                         .unwrap_or_else(PoisonError::into_inner)
@@ -177,14 +188,22 @@ mod tests {
         serde_json::from_slice(&answer.json).expect("the answer is JSON")
     }
 
-    // `daemon.stop` and `daemon.restart` are mutations that each accept one stop, the restart's
-    // carrying its intent so a lasting provider service outlives it; `daemon.start` is no method,
-    // since a cold start is the command line's spawn. Killed by a lifecycle verb registered as a
-    // query, by a stop that is not accepted, and by `lifecycle_methods.rs`'s restart registered
-    // with `DaemonStopIntent::Stop`.
+    // `daemon.stop` and `daemon.restart` are mutations that each accept one stop once their reply
+    // is queued, the restart's carrying its intent so a lasting provider service outlives it;
+    // `daemon.start` is no method, since a cold start is the command line's spawn. Killed by a
+    // lifecycle verb registered as a query, by a stop that is not accepted, by a stop accepted
+    // before its reply is queued, and by `lifecycle_methods.rs`'s restart registered with
+    // `DaemonStopIntent::Stop`.
     #[tokio::test]
-    async fn stop_and_restart_are_mutations_that_accept_a_stop_and_start_is_no_method() {
+    async fn stop_and_restart_accept_a_stop_after_their_reply_and_start_is_no_method() {
         let lifecycle = lifecycle();
+        let stops = || {
+            lifecycle
+                .stops
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone()
+        };
         let mut accepted = Vec::new();
         for (method, intent) in [
             (DaemonStop::DESCRIPTOR.method, DaemonStopIntent::Stop),
@@ -196,19 +215,17 @@ mod tests {
                 .expect("the verb is registered");
             assert_eq!(descriptor.procedure_type, ProcedureType::Mutation);
             assert!(descriptor.is_mutating, "{method} is a mutating call");
+            let context = context(1);
+            let after_reply = context.after_reply.clone();
             let reply = lifecycle
                 .registry
-                .dispatch(request(method, Some(&json!({}))), context(1))
+                .dispatch(request(method, Some(&json!({}))), context)
                 .await;
             assert_eq!(answer(reply), json!({ "accepted": true }));
+            assert_eq!(stops(), accepted, "{method} waits for its reply");
+            after_reply.run();
             accepted.push(intent);
-            assert_eq!(
-                *lifecycle
-                    .stops
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner),
-                accepted
-            );
+            assert_eq!(stops(), accepted);
         }
         assert!(matches!(
             lifecycle
@@ -255,5 +272,49 @@ mod tests {
                 .is_empty(),
             "a flush stops nothing"
         );
+    }
+
+    // The flush waits only for the writes recorded before it: dispatched through the in-flight
+    // record, which records it as a mutation itself, a flush alone answers at once. Killed by a
+    // handler that waits with `None` in place of its own call id, which waits on its own record.
+    #[tokio::test]
+    async fn a_flush_alone_never_waits_on_its_own_record() {
+        let gate: Arc<OnceLock<Arc<InFlightMutations>>> = Arc::default();
+        let handler_gate = Arc::clone(&gate);
+        let mut builder = MethodRegistryBuilder::new();
+        register_lifecycle_methods(
+            &mut builder,
+            &LifecycleMethodsDeps {
+                flush: Arc::new(move |caller| {
+                    let in_flight = Arc::clone(handler_gate.get().expect("the gate is built"));
+                    async move {
+                        in_flight.wait_for_pending(caller).await;
+                        Ok(())
+                    }
+                    .boxed()
+                }),
+                accept_stop: Arc::new(|_intent| {}),
+            },
+        )
+        .expect("the lifecycle verbs register");
+        let registry = Arc::new(builder.freeze());
+        let in_flight = Arc::new(InFlightMutations::new(
+            Arc::clone(&registry) as Arc<dyn Dispatch>,
+            registry,
+        ));
+        assert!(
+            gate.set(Arc::clone(&in_flight)).is_ok(),
+            "the gate is set once"
+        );
+        let flushed = tokio::time::timeout(
+            Duration::from_secs(1),
+            in_flight.dispatch(
+                request(DaemonFlush::DESCRIPTOR.method, Some(&json!({}))),
+                context(1),
+            ),
+        )
+        .await
+        .expect("a flush alone answers");
+        assert_eq!(answer(flushed), json!({ "flushed": true }));
     }
 }

@@ -26,6 +26,7 @@ pub(crate) mod retention_methods;
 pub(crate) mod run_folder;
 pub mod scheduler;
 pub mod service_log;
+pub(crate) mod service_status;
 pub(crate) mod start;
 pub(crate) mod start_stopped_error;
 pub(crate) mod status_methods;

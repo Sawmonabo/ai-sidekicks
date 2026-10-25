@@ -5,20 +5,26 @@
 pub(crate) mod start_options;
 pub(crate) mod stop;
 pub(crate) mod supervision;
+#[cfg(test)]
+mod tests;
 
-use std::path::PathBuf;
+use std::error::Error;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crash_handler::CrashHandler;
+use futures::FutureExt as _;
+use jiff::Timestamp;
 use sidekicks_contracts::daemon::lifecycle::{DAEMON_READY_LINE, DAEMON_STOP_DRAIN_BOUND_MS};
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
 use sidekicks_platforms::{
-    DaemonRunFolder, Spawner, read_command_argument_limit, secret_store_offer,
+    DaemonRunFolder, SocketPathRefused, Spawner, check_socket_path, read_command_argument_limit,
+    secret_store_offer,
 };
 use tokio::process::{Child, Command};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::bootstrap::secure_defaults::{
@@ -29,7 +35,7 @@ use crate::credential_store::items::{SecretItems, SecretItemsStart};
 use crate::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, SystemCredentialStore};
 use crate::daemon::crash::monitor::{
     CRASH_MONITOR_MODE, CrashMonitorError, attach_crash_handler, connect_crash_monitor,
-    crash_monitor_socket_path,
+    crash_monitor_socket_path, remove_dead_monitor_sockets,
 };
 use crate::daemon::data_folder::data_folder;
 use crate::daemon::data_folder_lock::DataFolderLock;
@@ -43,7 +49,9 @@ use crate::daemon::process::supervision::{ProcessStateTracker, ServingSocketHook
 use crate::daemon::run_folder::{
     RunFolderError, bind_socket, mint_session_token, prepare_run_folder,
 };
+use crate::daemon::service_status::remove_service_status;
 use crate::daemon::start_stopped_error::DaemonStartStoppedError;
+use crate::data_acts::erase::EraseStep;
 use crate::git::process::find_git_executable;
 use crate::helper_mode::child::start_helper_mode_child;
 use crate::ipc::caller_process::contract::CallerProcessReader;
@@ -65,9 +73,23 @@ use crate::settle_all::{SettleFailures, settle_all};
 pub(crate) const DAEMON_STOP_DRAIN_BOUND: Duration =
     Duration::from_millis(DAEMON_STOP_DRAIN_BOUND_MS);
 
+// The longest the crash monitor's end waits for the killed monitor to exit, apart from the drain,
+// since a kill is sent before the wait begins.
+const CRASH_MONITOR_END_BOUND: Duration = Duration::from_secs(1);
+
 /// Why the daemon could not start, naming the step that failed.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DaemonStartError {
+    /// A socket's path in the run folder is no socket address, past the system's bound among the
+    /// reasons; nothing was made or started.
+    #[error("the socket path {} cannot be bound", path.display())]
+    SocketPathRefused {
+        /// The socket's path.
+        path: PathBuf,
+        /// Why, with the system's bound when the path is past it.
+        #[source]
+        source: SocketPathRefused,
+    },
     /// The thread every child starts on could not start.
     #[error("the start's spawner could not start")]
     Spawner(#[source] std::io::Error),
@@ -78,9 +100,6 @@ pub(crate) enum DaemonStartError {
     /// The session token could not be minted.
     #[error("the session token could not be minted")]
     SessionToken(#[source] getrandom::Error),
-    /// The daemon's own program could not be found to start the crash monitor.
-    #[error("the daemon's own program could not be found for its crash monitor")]
-    CrashMonitorProgram(#[source] std::io::Error),
     /// The crash monitor could not start.
     #[error("the crash monitor could not start")]
     CrashMonitorStart(#[source] std::io::Error),
@@ -114,6 +133,9 @@ pub(crate) enum DaemonStartError {
     /// The socket's path cannot name a local socket.
     #[error(transparent)]
     SocketPath(#[from] SecureDefaultsError),
+    /// An earlier start's status file stayed, so a client would still read that start's failure.
+    #[error("the service status file of an earlier start could not be removed")]
+    ServiceStatus(#[source] std::io::Error),
     /// A stop came before the daemon was ready.
     #[error(transparent)]
     Stopped(#[from] DaemonStartStoppedError),
@@ -140,6 +162,16 @@ pub(crate) enum DaemonStartError {
     },
 }
 
+/// A start that failed: its error beside every failure of its release, and when the release
+/// began, from which what is left of the drain bound is counted.
+#[derive(Debug)]
+pub(crate) struct DaemonStartFailure {
+    /// The step's error and the release's failures.
+    pub(crate) failures: CleanupFailures<DaemonStartError, DaemonStopFailure>,
+    /// When the release began.
+    pub(crate) release_started: Instant,
+}
+
 /// What the start read and loaded before it builds the services, each handed to the services that
 /// take it.
 #[expect(
@@ -159,23 +191,23 @@ struct ServiceInputs {
     secret_items: Arc<SecretItems>,
 }
 
-/// The crash monitor: the `minidump` child and the handler that asks it for a dump on a crash.
+/// The crash monitor: the `minidump` child and, once it is reached, the handler that asks it for a
+/// dump on a crash.
 pub(crate) struct CrashMonitor {
     child: Child,
-    handler: CrashHandler,
+    handler: Option<CrashHandler>,
     socket_path: PathBuf,
 }
 
 impl CrashMonitor {
-    /// Starts the monitor on `spawner` at its socket in `run_folder`, connects to it within its
-    /// bound, attaches the crash handler and sends later panics to it. Fails naming the step.
-    async fn start(
+    /// Starts the monitor through `program` on `spawner`, serving `socket_path`. Fails when the
+    /// child cannot start.
+    async fn spawn(
         spawner: &Spawner,
-        run_folder: &DaemonRunFolder,
+        program: &Path,
+        socket_path: PathBuf,
     ) -> Result<Self, DaemonStartError> {
-        let socket_path = crash_monitor_socket_path(&run_folder.folder_path, std::process::id());
-        let mut command =
-            Command::new(std::env::current_exe().map_err(DaemonStartError::CrashMonitorProgram)?);
+        let mut command = Command::new(program);
         command
             .arg(CRASH_MONITOR_MODE)
             .arg(&socket_path)
@@ -184,31 +216,40 @@ impl CrashMonitor {
         let child = start_helper_mode_child(spawner, command)
             .await
             .map_err(DaemonStartError::CrashMonitorStart)?;
-        let connect_path = socket_path.clone();
+        Ok(Self {
+            child,
+            handler: None,
+            socket_path,
+        })
+    }
+
+    /// Connects to the monitor within its bound, attaches the crash handler and sends later panics
+    /// to it. Fails naming the step.
+    async fn connect(&mut self) -> Result<(), DaemonStartError> {
+        let connect_path = self.socket_path.clone();
         let client = Arc::new(
             tokio::task::spawn_blocking(move || connect_crash_monitor(&connect_path))
                 .await
                 .map_err(DaemonStartError::CrashMonitorConnectEnded)??,
         );
-        let handler =
-            attach_crash_handler(Arc::clone(&client)).map_err(DaemonStartError::CrashHandler)?;
+        self.handler = Some(
+            attach_crash_handler(Arc::clone(&client)).map_err(DaemonStartError::CrashHandler)?,
+        );
         send_panics_to_monitor(client);
-        Ok(Self {
-            child,
-            handler,
-            socket_path,
-        })
+        Ok(())
     }
 
-    /// Detaches the crash handler, ends the monitor within `bound` and removes its socket from the
-    /// run folder. Answers each step's failure.
-    async fn end(mut self, bound: Duration) -> Vec<DaemonStopFailure> {
-        drop(self.handler);
+    /// Detaches the crash handler, ends the monitor, waiting at most its own bound for its exit,
+    /// and removes its socket from the run folder. Answers each step's failure.
+    async fn end(mut self) -> Vec<DaemonStopFailure> {
+        drop(self.handler.take());
         let mut failures = Vec::new();
-        match tokio::time::timeout(bound, self.child.kill()).await {
+        match tokio::time::timeout(CRASH_MONITOR_END_BOUND, self.child.kill()).await {
             Ok(Ok(())) => {}
             Ok(Err(error)) => failures.push(CrashMonitorEndFailure::Kill(error).into()),
-            Err(_elapsed) => failures.push(CrashMonitorEndFailure::StillRunning(bound).into()),
+            Err(_elapsed) => {
+                failures.push(CrashMonitorEndFailure::StillRunning(CRASH_MONITOR_END_BOUND).into());
+            }
         }
         match tokio::fs::remove_file(&self.socket_path).await {
             Ok(()) => {}
@@ -225,12 +266,29 @@ impl CrashMonitor {
     }
 }
 
-/// The running daemon: every service it started, held in the order its stop ends them.
+/// A step of the erase the process runs on the task that owns it, answering once the step ran.
+enum DaemonCommand {
+    /// Ends the daemon's work as the stop does.
+    StopWork(oneshot::Sender<()>),
+    /// Closes everything that holds a file in the data folder.
+    CloseDataFolder(oneshot::Sender<()>),
+}
+
+/// The running daemon: every service it started, held in the order its stop ends them, each part
+/// a step closes taken as it closes, so a later stop skips it.
 pub(crate) struct DaemonProcess {
+    /// When the start began.
+    #[expect(dead_code, reason = "the status read reports it")]
+    pub(crate) started_at: Timestamp,
     /// The system's stop request.
     system_stop: CancellationToken,
     /// The first stop asked for over the socket, with why.
     stop_asked: watch::Sender<Option<DaemonStopIntent>>,
+    /// The erase's steps, sent to the task that owns the process.
+    commands: mpsc::Receiver<DaemonCommand>,
+    /// Where the erase's steps are sent; held here, so the receiver never ends while the process
+    /// lives.
+    command_sender: mpsc::Sender<DaemonCommand>,
     /// Canceled at the stop, so the work under way ends.
     pub(crate) work_stop: CancellationToken,
     /// Where the daemon is in its own life.
@@ -244,10 +302,10 @@ pub(crate) struct DaemonProcess {
     pub(crate) gateway: Option<LocalGateway>,
     /// The record of every terminal child, closed once the terminals have drained.
     pub(crate) orphan_guard: Option<OrphanGuard>,
-    /// The hold on the data folder, let go last.
-    pub(crate) data_folder_lock: DataFolderLock,
-    /// The crash monitor, ended once the data folder is closed.
+    /// The crash monitor, ended before the data folder's lock goes.
     pub(crate) crash_monitor: Option<CrashMonitor>,
+    /// The hold on the data folder, let go last.
+    pub(crate) data_folder_lock: Option<DataFolderLock>,
 }
 
 // What a failed start's release is called in its error.
@@ -258,13 +316,13 @@ impl DaemonProcess {
     /// what the start took, in the stop's order, and fails with the step's error beside every
     /// failure of that release; a stop asked for before the daemon is ready fails it with
     /// [`DaemonStartError::Stopped`].
-    pub(crate) async fn start(
-        options: DaemonStartOptions,
-    ) -> Result<Self, CleanupFailures<DaemonStartError, DaemonStopFailure>> {
+    pub(crate) async fn start(options: DaemonStartOptions) -> Result<Self, DaemonStartFailure> {
+        let started_at = Timestamp::now();
         let DaemonStartOptions {
             home_folder,
             data_folder_lock,
             run_folder,
+            daemon_program,
             process_identity: _,
             version: _,
             caller_process_reader,
@@ -274,29 +332,37 @@ impl DaemonProcess {
         let spawner = match Spawner::new(tokio::runtime::Handle::current()) {
             Ok(spawner) => spawner,
             Err(error) => {
-                return Err(CleanupFailures::new(
-                    DaemonStartError::Spawner(error),
-                    Vec::new(),
-                    START_OPERATION,
-                ));
+                return Err(DaemonStartFailure {
+                    failures: CleanupFailures::new(
+                        DaemonStartError::Spawner(error),
+                        Vec::new(),
+                        START_OPERATION,
+                    ),
+                    release_started: Instant::now(),
+                });
             }
         };
+        let (command_sender, commands) = mpsc::channel(1);
         let mut process = Self {
+            started_at,
             work_stop: stop.child_token(),
             system_stop: stop,
             stop_asked: watch::Sender::new(None),
+            commands,
+            command_sender,
             process_state: ProcessStateTracker::new(),
             spawner,
             service_inputs: None,
             gateway: None,
             orphan_guard: None,
-            data_folder_lock,
             crash_monitor: None,
+            data_folder_lock: Some(data_folder_lock),
         };
         let started = process
             .run_start(
                 &home_folder,
                 &run_folder,
+                &daemon_program,
                 caller_process_reader,
                 base_environment,
             )
@@ -310,15 +376,28 @@ impl DaemonProcess {
     // The start's steps, each part kept in the process as it is taken, so a failure releases it.
     async fn run_start(
         &mut self,
-        home_folder: &std::path::Path,
+        home_folder: &Path,
         run_folder: &DaemonRunFolder,
+        daemon_program: &Path,
         caller_process_reader: Arc<dyn CallerProcessReader>,
         base_environment: ProviderBaseEnvironment,
     ) -> Result<(), DaemonStartError> {
+        let monitor_socket_path =
+            crash_monitor_socket_path(&run_folder.folder_path, std::process::id());
+        for path in [&run_folder.socket_path, &monitor_socket_path] {
+            check_socket_path(path).map_err(|source| DaemonStartError::SocketPathRefused {
+                path: path.clone(),
+                source,
+            })?;
+        }
         let data_folder = data_folder(home_folder);
         prepare_run_folder(run_folder).await?;
+        remove_dead_monitor_sockets(&run_folder.folder_path).await;
         let session_token = mint_session_token().map_err(DaemonStartError::SessionToken)?;
-        self.crash_monitor = Some(CrashMonitor::start(&self.spawner, run_folder).await?);
+        self.crash_monitor
+            .insert(CrashMonitor::spawn(&self.spawner, daemon_program, monitor_socket_path).await?)
+            .connect()
+            .await?;
         let shell_lines = Arc::new(ShellLineReadingBound::new(
             read_command_argument_limit().map_err(DaemonStartError::CommandArgumentLimit)?,
         ));
@@ -336,12 +415,7 @@ impl DaemonProcess {
             tokio::join!(capture, open_orphan_guard(&data_folder));
         self.orphan_guard = Some(orphan_guard.map_err(DaemonStartError::OrphanGuard)?);
         let base_environment = base_environment.map_err(DaemonStartError::BaseEnvironment)?;
-        if self.work_stop.is_cancelled() {
-            return Err(DaemonStartStoppedError {
-                step: "capturing the providers' base environment",
-            }
-            .into());
-        }
+        self.check_stop("capturing the providers' base environment")?;
         let git_executable = find_git_executable(&base_environment);
         let authorizer = Arc::new(Authorizer::load_built_in()?);
         let secret_items = SecretItems::new(SecretItemsStart {
@@ -365,12 +439,26 @@ impl DaemonProcess {
             self.bind_serving_socket(run_folder, caller_process_reader, session_token)
                 .await?,
         );
+        let status_run_folder = run_folder.clone();
+        tokio::task::spawn_blocking(move || remove_service_status(&status_run_folder))
+            .await
+            .map_err(|ended| DaemonStartError::ServiceStatus(std::io::Error::other(ended)))?
+            .map_err(DaemonStartError::ServiceStatus)?;
+        self.check_stop("binding the socket")?;
         self.process_state.mark_ready();
         tracing::info!(
             process_id = std::process::id(),
             protocol = CURRENT_PROTOCOL_VERSION,
             "{DAEMON_READY_LINE}"
         );
+        Ok(())
+    }
+
+    // Fails with [`DaemonStartError::Stopped`] once a stop has come, naming the `step` just done.
+    fn check_stop(&self, step: &'static str) -> Result<(), DaemonStartError> {
+        if self.work_stop.is_cancelled() {
+            return Err(DaemonStartStoppedError { step }.into());
+        }
         Ok(())
     }
 
@@ -401,11 +489,9 @@ impl DaemonProcess {
                 Arc::clone(&registry),
             )),
             registry,
-            negotiator: Arc::clone(&negotiator),
-            subscriptions: Arc::clone(&subscriptions),
+            negotiator,
+            subscriptions,
             hooks: Arc::new(ServingSocketHooks {
-                negotiator,
-                subscriptions,
                 process_state: Arc::clone(&self.process_state),
             }),
         };
@@ -421,27 +507,27 @@ impl DaemonProcess {
     }
 
     // Releases what a failed start took, in the stop's order, keeping each failure beside `error`.
-    async fn release(
-        mut self,
-        error: DaemonStartError,
-    ) -> CleanupFailures<DaemonStartError, DaemonStopFailure> {
+    async fn release(mut self, error: DaemonStartError) -> DaemonStartFailure {
         let release_started = Instant::now();
         let mut failures =
             stop_work(&mut self, DaemonStopIntent::Stop, DAEMON_STOP_DRAIN_BOUND).await;
-        failures.extend(
-            close_data_folder(
-                self,
-                DAEMON_STOP_DRAIN_BOUND.saturating_sub(release_started.elapsed()),
-            )
-            .await,
-        );
-        CleanupFailures::new(error, failures, START_OPERATION)
+        failures.extend(close_data_folder(&mut self).await);
+        DaemonStartFailure {
+            failures: CleanupFailures::new(error, failures, START_OPERATION),
+            release_started,
+        }
     }
 
     /// The stop asked for over the socket: the lifecycle methods' stop asks with
-    /// [`DaemonStopIntent::Stop`], their restart with [`DaemonStopIntent::Restart`]; the first ask
-    /// wins.
-    #[expect(dead_code, reason = "the lifecycle methods' stop and restart call it")]
+    /// [`DaemonStopIntent::Stop`], their restart with [`DaemonStopIntent::Restart`], and the
+    /// erase's end with [`DaemonStopIntent::Stop`]; the first ask wins.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the lifecycle methods' stop and restart and the erase's end call it"
+        )
+    )]
     pub(crate) fn accept_stop(&self) -> Arc<dyn Fn(DaemonStopIntent) + Send + Sync> {
         let stop_asked = self.stop_asked.clone();
         Arc::new(move |intent| {
@@ -455,35 +541,84 @@ impl DaemonProcess {
         })
     }
 
-    /// Waits for the first stop asked for: the system's stop request, which stops, or a stop or
-    /// restart over the socket.
-    pub(crate) async fn wait_for_stop(&self) -> DaemonStopIntent {
+    /// The erase's step that ends the daemon's work as the stop does.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the erase takes it"))]
+    pub(crate) fn stop_work_step(&self) -> EraseStep {
+        self.command_step(DaemonCommand::StopWork)
+    }
+
+    /// The erase's step that closes everything that holds a file in the data folder.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the erase takes it"))]
+    pub(crate) fn close_data_folder_step(&self) -> EraseStep {
+        self.command_step(DaemonCommand::CloseDataFolder)
+    }
+
+    // An erase step that sends the command `command` makes to the task that owns the process and
+    // waits until it ran. Once the stop has begun, the stop closes these parts instead, and the
+    // erase's later steps race the runtime's end.
+    fn command_step(&self, command: fn(oneshot::Sender<()>) -> DaemonCommand) -> EraseStep {
+        let commands = self.command_sender.clone();
+        Arc::new(move || {
+            let commands = commands.clone();
+            async move {
+                let (reply, replied) = oneshot::channel();
+                if commands.send(command(reply)).await.is_err() || replied.await.is_err() {
+                    tracing::info!(
+                        "the daemon's stop had begun before the erase's step, so the stop closes those parts"
+                    );
+                }
+            }
+            .boxed()
+        })
+    }
+
+    /// Runs the erase's steps as they come, until the first stop asked for: the system's stop
+    /// request, which stops, or a stop or restart over the socket, which the erase's end asks for.
+    pub(crate) async fn wait_for_stop(&mut self) -> DaemonStopIntent {
         let mut stop_asked = self.stop_asked.subscribe();
-        tokio::select! {
-            () = self.system_stop.cancelled() => DaemonStopIntent::Stop,
-            asked = stop_asked.wait_for(Option::is_some) => match asked.as_deref() {
-                Ok(Some(intent)) => *intent,
-                // The process holds the sender, so the wait ends only with an ask.
-                Ok(None) | Err(_) => DaemonStopIntent::Stop,
-            },
+        loop {
+            let command = tokio::select! {
+                () = self.system_stop.cancelled() => return DaemonStopIntent::Stop,
+                asked = stop_asked.wait_for(Option::is_some) => return match asked.as_deref() {
+                    Ok(Some(intent)) => *intent,
+                    // The process holds the sender, so the wait ends only with an ask.
+                    Ok(None) | Err(_) => DaemonStopIntent::Stop,
+                },
+                Some(command) = self.commands.recv() => command,
+            };
+            self.run_command(command).await;
         }
     }
 
-    /// Stops the daemon for `intent`: its work within the drain bound, then its data folder in
-    /// what is left of it. Fails with every step's failure, each step having run.
+    // Runs one of the erase's steps, logging each failure, and answers that it ran.
+    async fn run_command(&mut self, command: DaemonCommand) {
+        let (failures, reply) = match command {
+            DaemonCommand::StopWork(reply) => (
+                stop_work(self, DaemonStopIntent::Stop, DAEMON_STOP_DRAIN_BOUND).await,
+                reply,
+            ),
+            DaemonCommand::CloseDataFolder(reply) => (close_data_folder(self).await, reply),
+        };
+        for failure in &failures {
+            tracing::error!(
+                error = failure as &(dyn Error + 'static),
+                "a step of the erase's stop failed"
+            );
+        }
+        if reply.send(()).is_err() {
+            tracing::debug!("the erase ended before its step answered");
+        }
+    }
+
+    /// Stops the daemon for `intent`: its work within the drain bound, then its data folder; a
+    /// part the erase already closed is skipped. Fails with every step's failure, each step having
+    /// run.
     pub(crate) async fn stop(
         mut self,
         intent: DaemonStopIntent,
     ) -> Result<(), SettleFailures<DaemonStopFailure>> {
-        let stop_started = Instant::now();
         let mut failures = stop_work(&mut self, intent, DAEMON_STOP_DRAIN_BOUND).await;
-        failures.extend(
-            close_data_folder(
-                self,
-                DAEMON_STOP_DRAIN_BOUND.saturating_sub(stop_started.elapsed()),
-            )
-            .await,
-        );
+        failures.extend(close_data_folder(&mut self).await);
         settle_all(
             failures
                 .into_iter()
