@@ -9,11 +9,23 @@ Writeable = "Writeable"
 # `windows-sys`' spelling of the Windows error a too-long command line gives.
 ERROR_FILENAME_EXCED_RANGE = "ERROR_FILENAME_EXCED_RANGE"
 
+# A git quoted-path test spells "café" as the octal bytes git writes, `caf\303\251`.
+[default.extend-words]
+caf = "caf"
+# COSE, the CBOR Object Signing and Encryption standard WebAuthn keys use.
+cose = "cose"
+# PowerShell's `-noe` (NoExit) switch.
+noe = "noe"
+# A search test's cut-off word.
+thr = "thr"
+
 [files]
 extend-exclude = [
   "*.md",
   # Third-party sources kept byte for byte from their releases.
   "crates/*/vendor/**",
+  # Fuzz corpora are bytes, not words.
+  "crates/*/fuzz/corpus/**",
   # The colorer's fixtures: source text kept as it was colored, with its own spellings.
   "crates/sidekicks-daemon/tests/fixtures/highlight/",
 ]
