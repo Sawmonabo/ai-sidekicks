@@ -66,7 +66,7 @@ const TEST_SHELL_LINE_LIMIT: usize = 1 << 20;
 struct NotServedInTest(&'static str);
 
 /// An attachment resolver and binding rebinder that serve nothing.
-struct NothingServed;
+pub(crate) struct NothingServed;
 
 impl RuntimeBindingRebinder for NothingServed {
     fn rebind(
@@ -153,16 +153,24 @@ pub(crate) fn registry_of_first_provider(driver: Arc<dyn ProviderDriver>) -> Pro
 pub(crate) fn registry_of_first_providers(
     drivers: Vec<Arc<dyn ProviderDriver>>,
 ) -> ProviderRegistry {
-    let table: Vec<ProviderRegistration> = PROVIDERS[..drivers.len()]
+    let services = test_driver_services();
+    ProviderRegistry::register_from(&registrations_of_first_providers(drivers), &services)
+}
+
+/// The table's first providers in its order, one for each of `drivers`, each built as its driver;
+/// the registry is built from it next, on the same thread.
+pub(crate) fn registrations_of_first_providers(
+    drivers: Vec<Arc<dyn ProviderDriver>>,
+) -> Vec<ProviderRegistration> {
+    let table = PROVIDERS[..drivers.len()]
         .iter()
         .map(|descriptor| ProviderRegistration {
             descriptor,
             build: take_next_driver,
         })
         .collect();
-    let services = test_driver_services();
     NEXT_DRIVERS.with_borrow_mut(|next| *next = drivers.into());
-    ProviderRegistry::register_from(&table, &services)
+    table
 }
 
 /// Binds `run_id` in `database` to the table's first provider, as a live runtime binding does, so a
