@@ -2,9 +2,10 @@
 //! that hands the party its own key pair, its records sealed to the daemon and the daemon's requests
 //! read back, each from a thread of its own with no runtime.
 
+use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io::{self, ErrorKind};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use hpke::{Deserializable, Kem as _, Serializable};
@@ -40,13 +41,15 @@ pub(crate) struct PartyRecords {
 }
 
 /// The daemon's requests to one party, waited on by the party's thread: its private key, the
-/// daemon's key, the last sequence number opened and the watch on the `requests` folder.
+/// daemon's key, the last sequence number opened, the watch on the `requests` folder and the
+/// arrivals of its last listing not read yet.
 pub(crate) struct PartyRequests {
     party: PartyId,
     private_key: ChannelPrivateKey,
     daemon_key: ChannelPublicKey,
     last_sequence: u64,
     watch: FolderArrivalWait,
+    pending: VecDeque<PathBuf>,
 }
 
 /// How a party program goes on: run without a channel, or joined to one.
@@ -101,6 +104,7 @@ impl ChannelParty {
                 daemon_key,
                 last_sequence: 0,
                 watch,
+                pending: VecDeque::new(),
             },
         })))
     }
@@ -140,41 +144,45 @@ impl PartyRecords {
 
 impl PartyRequests {
     /// The daemon's next request to this party, waiting on this thread until one comes or
-    /// `deadline` passes, `None` then; each request read is removed, and one that does not open or
-    /// comes out of order is dropped. Fails with the watch's or a read's error.
+    /// `deadline` passes, `None` then; the requests of one listing are handed out in order before
+    /// the next listing. Each request read is removed, and one that cannot be read, does not open
+    /// or comes out of order is dropped. Fails with the watch's error.
     pub(crate) fn next_request(
         &mut self,
         deadline: Option<Instant>,
     ) -> io::Result<Option<DaemonRequest>> {
         loop {
+            while let Some(path) = self.pending.pop_front() {
+                if let Some(request) = self.read_request(&path) {
+                    return Ok(Some(request));
+                }
+            }
             let arrivals = self.watch.next_arrivals(deadline)?;
             if arrivals.is_empty() {
                 return Ok(None);
             }
-            for path in arrivals {
-                let Some((party, sequence)) = parse_record_name(&path) else {
-                    continue;
-                };
-                if party != self.party {
-                    continue;
-                }
-                let sealed = std::fs::read(&path)?;
-                std::fs::remove_file(&path)?;
-                if sequence <= self.last_sequence {
-                    continue;
-                }
-                let context = record_context(Direction::ToParty, party, sequence);
-                let Some(plaintext) = open(&self.private_key, &self.daemon_key, &context, &sealed)
-                else {
-                    continue;
-                };
-                let Ok(request) = serde_json::from_slice(&plaintext) else {
-                    continue;
-                };
-                self.last_sequence = sequence;
-                return Ok(Some(request));
-            }
+            self.pending.extend(arrivals);
         }
+    }
+
+    // The request at `path`, removed once read; `None` for a file that is not this party's
+    // request, is gone, cannot be read, does not open or comes out of order.
+    fn read_request(&mut self, path: &Path) -> Option<DaemonRequest> {
+        let (party, sequence) = parse_record_name(path)?;
+        if party != self.party {
+            return None;
+        }
+        let sealed = std::fs::read(path).ok()?;
+        // A request left behind is removed with the party's others once the daemon forgets it.
+        std::fs::remove_file(path).unwrap_or_default();
+        if sequence <= self.last_sequence {
+            return None;
+        }
+        let context = record_context(Direction::ToParty, party, sequence);
+        let plaintext = open(&self.private_key, &self.daemon_key, &context, &sealed)?;
+        let request = serde_json::from_slice(&plaintext).ok()?;
+        self.last_sequence = sequence;
+        Some(request)
     }
 }
 
@@ -201,3 +209,6 @@ fn restart_with_key(process_arguments: &[OsString]) -> io::Error {
     let secret = Zeroizing::new(private_key.to_bytes().to_vec());
     exec_with_secret(&mut command, PARTY_SECRET_VARIABLE, &secret)
 }
+
+#[cfg(test)]
+mod tests;
