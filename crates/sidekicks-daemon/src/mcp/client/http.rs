@@ -4,6 +4,9 @@
 //! provider sends is and keeps it in the raw copy before rmcp reads it, and holds every SSE event
 //! to the transport's size bound.
 //!
+//! - A server that wants a DPoP proof bound to its own nonce sends the nonce with any response; the
+//!   last one is handed to the authorizer with each request, and a 401 asking for it
+//!   (`error="use_dpop_nonce"`) is sent again once with the new nonce.
 //! - rmcp ends a stream past the bound only on its own bound's error, which it keeps private, and
 //!   reconnects on any other; so a stream cut past the bound is marked, and rmcp's resume of it
 //!   is refused here rather than fetching the same event again, within a bounded retry.
@@ -20,7 +23,9 @@ use bytes::Bytes;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use futures::{Stream, StreamExt as _, TryStreamExt as _};
-use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderName, HeaderValue, WWW_AUTHENTICATE};
+use reqwest::header::{
+    ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderName, HeaderValue, WWW_AUTHENTICATE,
+};
 use reqwest::{Method, StatusCode};
 use rmcp::model::{ClientJsonRpcMessage, ClientRequest, ErrorData, ServerJsonRpcMessage};
 use rmcp::transport::StreamableHttpClientTransport;
@@ -29,14 +34,15 @@ use rmcp::transport::common::http_header::{
     EVENT_STREAM_MIME_TYPE, HEADER_LAST_EVENT_ID, HEADER_SESSION_ID, JSON_MIME_TYPE,
 };
 use rmcp::transport::streamable_http_client::{
-    AuthRequiredError, SseError, StreamableHttpClient, StreamableHttpClientTransportConfig,
-    StreamableHttpError, StreamableHttpPostResponse,
+    AuthRequiredError, InsufficientScopeError, SseError, StreamableHttpClient,
+    StreamableHttpClientTransportConfig, StreamableHttpError, StreamableHttpPostResponse,
 };
 
 use crate::mcp::client::connection::{
     McpConnectionError, McpConnectionScope, McpConnectionStart, McpServerConnection,
 };
 use crate::mcp::client::raw_copy::RawReplyCopy;
+use crate::mutex_lock::lock;
 use crate::provider::inbound_json::decode_inbound_json;
 
 /// The idle connections kept per server: the standing event stream's and one request's.
@@ -55,19 +61,29 @@ const STREAM_RETRY_BASE: Duration = Duration::from_secs(1);
 /// The longest wait before a stream is reconnected.
 const STREAM_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
 
+/// The response header carrying the nonce a server wants its next DPoP proof bound to.
+const DPOP_NONCE: &str = "dpop-nonce";
+
 /// A stream cut past the bound: its session and the last event id before the cut, which a resume
 /// of it names.
 type CutStream = (Option<String>, Option<String>);
 
 /// The headers that authorize one request, or why they could not be made.
-type AuthorizationResult = Result<Vec<(HeaderName, HeaderValue)>, Box<dyn Error + Send + Sync>>;
+pub(crate) type AuthorizationResult =
+    Result<Vec<(HeaderName, HeaderValue)>, Box<dyn Error + Send + Sync>>;
 
 /// What signs one request to a tool server: the headers it adds to a request of `method` to
-/// `uri`, asked for each request so a proof bound to the request can be made.
+/// `uri`, asked for each request so a proof bound to the request, and to `dpop_nonce`, the last
+/// nonce the server sent, can be made. An `Authorization` header it sets is the request's only one.
 pub(crate) trait McpRequestAuthorizer: Send + Sync {
     /// The headers authorizing the request. An error when they cannot be made, which fails the
     /// request.
-    fn authorize(&self, method: &Method, uri: &str) -> BoxFuture<'_, AuthorizationResult>;
+    fn authorize(
+        &self,
+        method: &Method,
+        uri: &str,
+        dpop_nonce: Option<&str>,
+    ) -> BoxFuture<'_, AuthorizationResult>;
 }
 
 /// The authorizer of a server that takes requests without one: it adds no header.
@@ -82,7 +98,12 @@ pub(crate) trait McpRequestAuthorizer: Send + Sync {
 pub(crate) struct NoAuthorization;
 
 impl McpRequestAuthorizer for NoAuthorization {
-    fn authorize(&self, _method: &Method, _uri: &str) -> BoxFuture<'_, AuthorizationResult> {
+    fn authorize(
+        &self,
+        _method: &Method,
+        _uri: &str,
+        _dpop_nonce: Option<&str>,
+    ) -> BoxFuture<'_, AuthorizationResult> {
         Box::pin(async { Ok(Vec::new()) })
     }
 }
@@ -112,6 +133,8 @@ pub(super) struct McpHttpClient {
     raw: RawReplyCopy,
     /// The streams cut past the size bound, whose resumes are refused.
     cut_streams: Arc<Mutex<HashSet<CutStream>>>,
+    /// The last DPoP nonce the server at the connection's one address sent.
+    dpop_nonce: Arc<Mutex<Option<String>>>,
 }
 
 impl McpServerConnection {
@@ -147,6 +170,7 @@ impl McpServerConnection {
             authorizer,
             raw: raw.clone(),
             cut_streams: Arc::default(),
+            dpop_nonce: Arc::default(),
         };
         let mut config = StreamableHttpClientTransportConfig::with_uri(uri);
         config.custom_headers = headers;
@@ -161,27 +185,47 @@ impl McpServerConnection {
 }
 
 impl McpHttpClient {
-    /// A request of `method` to `uri` with the transport's and the authorizer's headers.
-    async fn request(
+    /// Sends a request of `method` to `uri` with the transport's and the authorizer's headers,
+    /// `finish` adding its own; keeps the DPoP nonce the response carries, and sends the request
+    /// once more when the server answers it with a 401 asking for that nonce. Fails as the
+    /// authorizer or the network fails.
+    async fn send(
         &self,
         method: Method,
         uri: &str,
         auth_header: Option<String>,
         custom_headers: HashMap<HeaderName, HeaderValue>,
-    ) -> Result<reqwest::RequestBuilder, StreamableHttpError<McpHttpError>> {
-        let authorized = self
-            .authorizer
-            .authorize(&method, uri)
-            .await
-            .map_err(|error| StreamableHttpError::Client(McpHttpError::Authorize(error)))?;
-        let mut builder = self.http.request(method, uri);
-        if let Some(token) = auth_header {
-            builder = builder.bearer_auth(token);
+        finish: impl Fn(reqwest::RequestBuilder) -> reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, StreamableHttpError<McpHttpError>> {
+        let mut is_resent = false;
+        loop {
+            let dpop_nonce = lock(&self.dpop_nonce).clone();
+            let authorized = self
+                .authorizer
+                .authorize(&method, uri, dpop_nonce.as_deref())
+                .await
+                .map_err(|error| StreamableHttpError::Client(McpHttpError::Authorize(error)))?;
+            let mut builder = self.http.request(method.clone(), uri);
+            let is_authorized = authorized.iter().any(|(name, _)| *name == AUTHORIZATION);
+            if let Some(token) = auth_header.clone().filter(|_| !is_authorized) {
+                builder = builder.bearer_auth(token);
+            }
+            for (name, value) in custom_headers.clone().into_iter().chain(authorized) {
+                builder = builder.header(name, value);
+            }
+            let response = finish(builder).send().await.map_err(http_error)?;
+            if let Some(nonce) = response
+                .headers()
+                .get(DPOP_NONCE)
+                .and_then(|nonce| nonce.to_str().ok())
+            {
+                *lock(&self.dpop_nonce) = Some(nonce.to_owned());
+            }
+            if is_resent || !asks_for_dpop_nonce(&response) {
+                return Ok(response);
+            }
+            is_resent = true;
         }
-        for (name, value) in custom_headers.into_iter().chain(authorized) {
-            builder = builder.header(name, value);
-        }
-        Ok(builder)
     }
 
     /// The SSE events of `response` on `session_id`'s stream, each held to `max_event_size`, its
@@ -257,15 +301,46 @@ fn http_error(error: reqwest::Error) -> StreamableHttpError<McpHttpError> {
     StreamableHttpError::Client(McpHttpError::Http(error))
 }
 
-/// The challenge of a 401 the server sent with one, which starts a sign-in.
-fn auth_required(response: &reqwest::Response) -> Option<StreamableHttpError<McpHttpError>> {
-    if response.status() != StatusCode::UNAUTHORIZED {
+/// Whether `response` is a 401 asking for a DPoP proof bound to the server's nonce (RFC 9449 §8).
+fn asks_for_dpop_nonce(response: &reqwest::Response) -> bool {
+    response.status() == StatusCode::UNAUTHORIZED
+        && response
+            .headers()
+            .get_all(WWW_AUTHENTICATE)
+            .iter()
+            .filter_map(|challenge| challenge.to_str().ok())
+            .any(|challenge| challenge.contains("error=\"use_dpop_nonce\""))
+}
+
+/// The challenge of a 401 or 403 the server sent with one, as rmcp's own client reads it: a 401
+/// starts a sign-in, a 403 asks for a wider scope.
+fn auth_challenge(response: &reqwest::Response) -> Option<StreamableHttpError<McpHttpError>> {
+    let status = response.status();
+    if !matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
         return None;
     }
     let challenge = response.headers().get(WWW_AUTHENTICATE)?.to_str().ok()?;
-    Some(StreamableHttpError::AuthRequired(AuthRequiredError::new(
-        challenge.to_owned(),
-    )))
+    Some(if status == StatusCode::UNAUTHORIZED {
+        StreamableHttpError::AuthRequired(AuthRequiredError::new(challenge.to_owned()))
+    } else {
+        StreamableHttpError::InsufficientScope(InsufficientScopeError::new(
+            challenge.to_owned(),
+            required_scope(challenge),
+        ))
+    })
+}
+
+/// The `scope` a challenge names, quoted or bare, as rmcp's own client reads it.
+fn required_scope(challenge: &str) -> Option<String> {
+    let start = challenge.to_ascii_lowercase().find("scope=")? + "scope=".len();
+    let value = &challenge[start..];
+    if let Some(quoted) = value.strip_prefix('"') {
+        return quoted.find('"').map(|end| quoted[..end].to_owned());
+    }
+    let end = value
+        .find(|character: char| character == ',' || character == ';' || character.is_whitespace())
+        .unwrap_or(value.len());
+    (end > 0).then(|| value[..end].to_owned())
 }
 
 impl StreamableHttpClient for McpHttpClient {
@@ -299,20 +374,23 @@ impl StreamableHttpClient for McpHttpClient {
         custom_headers: HashMap<HeaderName, HeaderValue>,
         max_sse_event_size: usize,
     ) -> Result<StreamableHttpPostResponse, StreamableHttpError<Self::Error>> {
-        let mut builder = self
-            .request(Method::POST, &uri, auth_header, custom_headers)
-            .await?
-            .header(
-                ACCEPT,
-                format!("{EVENT_STREAM_MIME_TYPE}, {JSON_MIME_TYPE}"),
-            );
         let is_session_attached = session_id.is_some();
         let session_id_sent = session_id.clone();
-        if let Some(session_id) = session_id {
-            builder = builder.header(HEADER_SESSION_ID, session_id.as_ref());
-        }
-        let response = builder.json(&message).send().await.map_err(http_error)?;
-        if let Some(challenge) = auth_required(&response) {
+        let response = self
+            .send(Method::POST, &uri, auth_header, custom_headers, |builder| {
+                let builder = builder
+                    .header(
+                        ACCEPT,
+                        format!("{EVENT_STREAM_MIME_TYPE}, {JSON_MIME_TYPE}"),
+                    )
+                    .json(&message);
+                match &session_id {
+                    Some(session_id) => builder.header(HEADER_SESSION_ID, session_id.as_ref()),
+                    None => builder,
+                }
+            })
+            .await?;
+        if let Some(challenge) = auth_challenge(&response) {
             return Err(challenge);
         }
         let status = response.status();
@@ -393,12 +471,14 @@ impl StreamableHttpClient for McpHttpClient {
         custom_headers: HashMap<HeaderName, HeaderValue>,
     ) -> Result<(), StreamableHttpError<Self::Error>> {
         let response = self
-            .request(Method::DELETE, &uri, auth_header, custom_headers)
-            .await?
-            .header(HEADER_SESSION_ID, session_id.as_ref())
-            .send()
-            .await
-            .map_err(http_error)?;
+            .send(
+                Method::DELETE,
+                &uri,
+                auth_header,
+                custom_headers,
+                |builder| builder.header(HEADER_SESSION_ID, session_id.as_ref()),
+            )
+            .await?;
         if response.status() == StatusCode::METHOD_NOT_ALLOWED {
             return Ok(());
         }
@@ -441,26 +521,25 @@ impl StreamableHttpClient for McpHttpClient {
                 max_event_size: max_sse_event_size,
             }));
         }
-        let resumed_after = last_event_id.clone();
-        let stream_session_id = session_id.clone();
-        let mut builder = self
-            .request(Method::GET, &uri, auth_header, custom_headers)
-            .await?
-            .header(
-                ACCEPT,
-                format!("{EVENT_STREAM_MIME_TYPE}, {JSON_MIME_TYPE}"),
-            );
-        if let Some(session_id) = session_id {
-            builder = builder.header(HEADER_SESSION_ID, session_id.as_ref());
-        }
-        if let Some(last_event_id) = last_event_id {
-            builder = builder.header(HEADER_LAST_EVENT_ID, last_event_id);
-        }
-        let response = builder.send().await.map_err(http_error)?;
+        let response = self
+            .send(Method::GET, &uri, auth_header, custom_headers, |builder| {
+                let mut builder = builder.header(
+                    ACCEPT,
+                    format!("{EVENT_STREAM_MIME_TYPE}, {JSON_MIME_TYPE}"),
+                );
+                if let Some(session_id) = &session_id {
+                    builder = builder.header(HEADER_SESSION_ID, session_id.as_ref());
+                }
+                if let Some(last_event_id) = &last_event_id {
+                    builder = builder.header(HEADER_LAST_EVENT_ID, last_event_id);
+                }
+                builder
+            })
+            .await?;
         if response.status() == StatusCode::METHOD_NOT_ALLOWED {
             return Err(StreamableHttpError::ServerDoesNotSupportSse);
         }
-        if let Some(challenge) = auth_required(&response) {
+        if let Some(challenge) = auth_challenge(&response) {
             return Err(challenge);
         }
         let response = response.error_for_status().map_err(http_error)?;
@@ -474,12 +553,7 @@ impl StreamableHttpClient for McpHttpClient {
         {
             return Err(StreamableHttpError::UnexpectedContentType(content_type));
         }
-        Ok(self.events(
-            response,
-            max_sse_event_size,
-            stream_session_id,
-            resumed_after,
-        ))
+        Ok(self.events(response, max_sse_event_size, session_id, last_event_id))
     }
 }
 
@@ -656,119 +730,4 @@ impl Stream for BoundedEventBytes {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::Duration;
-
-    use axum::Router;
-    use axum::body::Body;
-    use axum::http::{HeaderMap, StatusCode, header};
-    use axum::response::{IntoResponse as _, Response};
-    use axum::routing::post;
-    use serde_json::{Value, json};
-
-    use super::{DEFAULT_MAX_SSE_EVENT_SIZE, McpRequestAuthorizer, NoAuthorization};
-    use crate::mcp::client::connection::McpServerConnection;
-    use crate::mcp::client::test_server::{test_client, test_scope};
-
-    /// A 2025-11-25 server at an address whose event stream sends one small event with an id,
-    /// then one past the bound; the stream requests it received are counted.
-    async fn serve_oversized_event(stream_requests: Arc<AtomicUsize>) -> String {
-        let oversized = format!(
-            "id: e1\ndata: {{}}\n\ndata: {}\n\n",
-            "x".repeat(DEFAULT_MAX_SSE_EVENT_SIZE + 1)
-        );
-        let router = Router::new().route(
-            "/mcp",
-            post(|body: String| async move { answer_post(&body) }).get(
-                move |headers: HeaderMap| async move {
-                    stream_requests.fetch_add(1, Ordering::SeqCst);
-                    let resumed = headers.contains_key("last-event-id");
-                    let body = if resumed {
-                        "id: e2\ndata: {}\n\n".to_owned()
-                    } else {
-                        oversized
-                    };
-                    Response::builder()
-                        .header(header::CONTENT_TYPE, "text/event-stream")
-                        .body(Body::from(body))
-                        .expect("a stream response")
-                },
-            ),
-        );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("a local port");
-        let address = listener.local_addr().expect("the port's address");
-        tokio::spawn(async move { axum::serve(listener, router).await });
-        format!("http://{address}/mcp")
-    }
-
-    fn answer_post(body: &str) -> Response {
-        let message: Value = serde_json::from_str(body).expect("the client posts JSON");
-        let Some(id) = message.get("id").cloned() else {
-            return StatusCode::ACCEPTED.into_response();
-        };
-        let reply = |status: StatusCode, member: Value| {
-            let mut reply = json!({ "jsonrpc": "2.0", "id": id });
-            reply
-                .as_object_mut()
-                .expect("an object")
-                .extend(member.as_object().expect("an object").clone());
-            Response::builder()
-                .status(status)
-                .header(header::CONTENT_TYPE, "application/json")
-                .header("mcp-session-id", "session-1")
-                .body(Body::from(reply.to_string()))
-                .expect("a reply")
-        };
-        match message["method"].as_str() {
-            Some("initialize") => reply(
-                StatusCode::OK,
-                json!({ "result": {
-                    "protocolVersion": "2025-11-25",
-                    "capabilities": { "tools": {} },
-                    "serverInfo": { "name": "tracker", "version": "1.0.0" },
-                } }),
-            ),
-            Some("server/discover") => reply(
-                StatusCode::BAD_REQUEST,
-                json!({ "error": { "code": -32601, "message": "Method not found" } }),
-            ),
-            _ => reply(
-                StatusCode::OK,
-                json!({ "error": { "code": -32601, "message": "Method not found" } }),
-            ),
-        }
-    }
-
-    // Mutation: in `McpHttpClient::events`, leave out the mark of a stream cut past the bound;
-    // rmcp then resumes the stream after `e1` and the server is asked for it again.
-    #[tokio::test]
-    async fn an_event_past_the_bound_ends_the_stream_without_a_resume() {
-        let (client, _card) = test_client();
-        let stream_requests = Arc::new(AtomicUsize::new(0));
-        let uri = serve_oversized_event(Arc::clone(&stream_requests)).await;
-        let authorizer: Arc<dyn McpRequestAuthorizer> = Arc::new(NoAuthorization);
-
-        let connection = McpServerConnection::connect_http(
-            &uri,
-            HashMap::new(),
-            authorizer,
-            None,
-            test_scope(&client),
-        )
-        .await
-        .expect("the connection opens");
-        while stream_requests.load(Ordering::SeqCst) == 0 {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        // rmcp's first two reconnects wait 1 s and 2 s.
-        tokio::time::sleep(Duration::from_millis(3_500)).await;
-
-        assert_eq!(stream_requests.load(Ordering::SeqCst), 1);
-        connection.close().await;
-    }
-}
+mod tests;
