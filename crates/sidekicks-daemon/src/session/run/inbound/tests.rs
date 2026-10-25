@@ -53,6 +53,18 @@ impl Harness {
     async fn new(state: RunState) -> Self {
         let database = TestDatabase::new();
         let home = tempfile::tempdir().expect("the test makes a home folder");
+        // Opening the writer creates the file with the daemon's schema.
+        let TestRunPorts {
+            engine,
+            dispatch,
+            epochs,
+            ..
+        } = TestRunPorts::open(
+            &database,
+            home.path(),
+            ExecutionEpochs::new(NonZeroUsize::new(2).expect("the cap is not zero")),
+        )
+        .await;
         let run_id = new_run_id();
         insert_running_run(&database, test_session_id(), run_id);
         database
@@ -64,8 +76,9 @@ impl Harness {
             .expect("the test sets the run's state");
         let binding_id =
             RuntimeBindingId::new(mint_uuid_v7().to_string()).expect("a UUID is a binding id");
-        let mut epochs = ExecutionEpochs::new(NonZeroUsize::new(2).expect("the cap is not zero"));
         epochs
+            .lock()
+            .expect("no test thread panics holding the cursors")
             .open_binding(
                 EpochBinding {
                     id: binding_id.clone(),
@@ -76,12 +89,6 @@ impl Harness {
                 RUN_START_POSITION,
             )
             .expect("the binding has no cursor yet");
-        let TestRunPorts {
-            engine,
-            dispatch,
-            epochs,
-            ..
-        } = TestRunPorts::open(&database, home.path(), epochs).await;
         Self {
             database,
             _home: home,
