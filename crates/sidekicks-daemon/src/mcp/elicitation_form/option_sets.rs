@@ -1,6 +1,6 @@
-//! Reads the options an elicitation form field offers into one set for the input-ask card. The
-//! reading is derived, since `params` still travels verbatim, and an unreadable set is dropped
-//! whole because the free-text answer still reaches the provider.
+//! Reads the options an elicitation form field offers into one set for the questions card. The
+//! reading is derived, since the form still travels verbatim, and an unreadable set is dropped
+//! whole because the free-text answer still reaches the asking server.
 
 use serde_json::Value;
 use sidekicks_contracts::provider::driver::length_limits::{
@@ -23,7 +23,7 @@ pub(crate) struct ProviderAskOption {
 /// What one ask's payload yielded when read for a choice set. `Absent` (no choices) differs from
 /// `Dropped` (choices this driver refused to carry), so only the latter earns a diagnostic.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum CodexAskOptionSetReading {
+pub(crate) enum AskOptionSetReading {
     /// The ask offers no choices.
     Absent,
     /// The choices, in the provider's order.
@@ -48,22 +48,22 @@ struct AskOptionCandidate<'params> {
 
 /// The choices one elicitation form field offers, read and bounded as a set: its own titled or
 /// plain enum, or, for a field that takes several answers, its `items`' one.
-pub(crate) fn read_codex_elicitation_field_option_set(
+pub(crate) fn read_elicitation_field_option_set(
     property: &Value,
     takes_several_answers: bool,
-) -> CodexAskOptionSetReading {
+) -> AskOptionSetReading {
     let source = match property.as_object() {
         Some(property) if takes_several_answers => property.get("items"),
         _ => Some(property),
     };
-    match source.and_then(read_codex_elicitation_enum_arm) {
-        Some(candidates) => read_codex_ask_option_candidates(candidates),
-        None => CodexAskOptionSetReading::Absent,
+    match source.and_then(read_elicitation_enum_arm) {
+        Some(candidates) => read_ask_option_candidates(candidates),
+        None => AskOptionSetReading::Absent,
     }
 }
 
 /// The candidates one elicitation property declares, or `None` when it declares no choices.
-fn read_codex_elicitation_enum_arm(property: &Value) -> Option<Vec<AskOptionCandidate<'_>>> {
+fn read_elicitation_enum_arm(property: &Value) -> Option<Vec<AskOptionCandidate<'_>>> {
     let property = property.as_object()?;
     // A single pick titles its values in `oneOf`, a field of several picks in its items' `anyOf`.
     let titled =
@@ -114,11 +114,9 @@ fn read_codex_elicitation_enum_arm(property: &Value) -> Option<Vec<AskOptionCand
 
 /// Reads one candidate set whole, or says why it was refused. All or nothing: a partial set would
 /// hide a choice the provider offered, whereas the free-text answer can express any choice.
-fn read_codex_ask_option_candidates(
-    candidates: Vec<AskOptionCandidate<'_>>,
-) -> CodexAskOptionSetReading {
+fn read_ask_option_candidates(candidates: Vec<AskOptionCandidate<'_>>) -> AskOptionSetReading {
     if candidates.is_empty() {
-        return CodexAskOptionSetReading::Absent;
+        return AskOptionSetReading::Absent;
     }
     let declared_count = candidates.len();
     let options: Option<Vec<ProviderAskOption>> = candidates
@@ -131,8 +129,8 @@ fn read_codex_ask_option_candidates(
         })
         .collect();
     match options {
-        Some(options) => CodexAskOptionSetReading::Read { options },
-        None => CodexAskOptionSetReading::Dropped {
+        Some(options) => AskOptionSetReading::Read { options },
+        None => AskOptionSetReading::Dropped {
             reason: "at least one declared option carried an unreadable or out-of-bounds value \
                      or label, and a partial set would hide a choice the provider is waiting for",
             declared_count,

@@ -5,7 +5,7 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::question::{QuestionOption, QuestionPrompt};
 use sidekicks_contracts::wire::text::NonEmptyText;
 
-use crate::provider::driver::codex::delivery::elicitation_form::read_codex_elicitation_questions;
+use crate::mcp::elicitation_form::read_elicitation_questions;
 use crate::provider::driver::codex::server_requests::CodexRoutedMethod;
 use crate::provider::record_readers::read_non_empty_string;
 
@@ -16,7 +16,11 @@ pub(crate) fn read_codex_question_prompts(
     params: &Value,
 ) -> Vec<QuestionPrompt> {
     if method == CodexRoutedMethod::ElicitationRequest {
-        return read_codex_elicitation_questions(params);
+        let server_name = params
+            .as_object()
+            .and_then(|payload| read_non_empty_string(payload, "serverName"))
+            .and_then(|name| NonEmptyText::new(name.to_owned()));
+        return read_elicitation_questions(params, server_name);
     }
     let Some(questions) = params.get("questions").and_then(Value::as_array) else {
         return Vec::new();

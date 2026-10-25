@@ -11,8 +11,8 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
 
+use crate::mcp::elicitation_form::compose_elicitation_content;
 use crate::provider::driver::codex::app_server_protocol::SERVER_REQUEST_METHODS;
-use crate::provider::driver::codex::delivery::elicitation_form::compose_codex_elicitation_content;
 use crate::provider::driver::codex::delivery::question_answers::compose_codex_user_input_answers;
 use crate::provider::driver::codex::event_normalizer::is_codex_tool_call_approval_elicitation;
 use crate::provider::driver::contract::DriverError;
@@ -257,7 +257,7 @@ impl CodexRoutedMethod {
                 let params = read_params_value(params)?;
                 Some(json!({
                     "action": "accept",
-                    "content": compose_codex_elicitation_content(&params, answers),
+                    "content": compose_elicitation_content(&params, answers),
                 }))
             }
             Self::ToolCall
