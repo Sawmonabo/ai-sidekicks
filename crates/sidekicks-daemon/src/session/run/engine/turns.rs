@@ -26,6 +26,7 @@ use crate::database::connection::read_pool::ReadLength;
 use crate::database::sql_list::sql_list_of;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::database::stored_column::safe_int_column;
+use crate::events::session::append_lock::SessionAppendHold;
 use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 use crate::interventions::store::run_at_version_statement;
 use crate::session::run::engine::limits::LimitStop;
@@ -290,7 +291,10 @@ impl RunEngine {
                 run_at_version_statement(&run_id, run.version),
                 no_turn_start_from_statement(&run_id, turn_number),
             ];
-            match self.append(draft, transactional_prelude, Vec::new()).await {
+            match self
+                .append(draft, transactional_prelude, Vec::new(), None)
+                .await
+            {
                 Ok(receipt) => {
                     break StartedTurn {
                         turn_number,
@@ -390,7 +394,7 @@ impl RunEngine {
             self.provider_turn_end(&run_id, turn_end)
         };
         let is_written = self
-            .record_turn_end_alone(run_id, &run, turn_end, false)
+            .record_turn_end_alone(run_id, &run, turn_end, false, None)
             .await?;
         if is_written && is_live_turn_uninterrupted {
             self.settle_after_uninterrupted_turn_end(run_id).await?;
@@ -492,8 +496,13 @@ impl RunEngine {
 
     /// Ends every turn in `open_turns`, oldest first, as [`RunEngine::daemon_turn_end`] reports it
     /// with `turn_cuts` and `uncut_end`: each older one written on its own, held to the run's
-    /// version where `is_run_version_held`, and the newest returned for the caller to write. Fails
-    /// with the first write that fails, the ends before it kept.
+    /// version where `is_run_version_held` and under `hold` where the caller holds the session, and
+    /// the newest returned for the caller to write. Fails with the first write that fails, the
+    /// ends before it kept.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the turns, their cuts, the uncut end and both holds are each the caller's own"
+    )]
     pub(super) async fn end_open_turns(
         &self,
         run_id: RunId,
@@ -502,13 +511,14 @@ impl RunEngine {
         turn_cuts: &[TurnCut],
         uncut_end: TurnOutcome,
         is_run_version_held: bool,
+        hold: Option<&SessionAppendHold>,
     ) -> Result<Option<TurnEnd>, RunEngineError> {
         let Some((&newest_turn, older_turns)) = open_turns.split_last() else {
             return Ok(None);
         };
         for &turn_number in older_turns {
             let turn_end = self.daemon_turn_end(&run_id, turn_number, turn_cuts, uncut_end);
-            self.record_turn_end_alone(run_id, run, turn_end, is_run_version_held)
+            self.record_turn_end_alone(run_id, run, turn_end, is_run_version_held, hold)
                 .await?;
         }
         Ok(Some(self.daemon_turn_end(
@@ -520,22 +530,23 @@ impl RunEngine {
     }
 
     /// Writes `turn_end` on its own, guarded on the turn holding no end and, where
-    /// `is_run_version_held`, on the run still at the version `run` read, and returns whether it
-    /// was written; a duplicate is dropped. Fails with the append's failure, a run moved since
-    /// among them.
+    /// `is_run_version_held`, on the run still at the version `run` read, under `hold` where the
+    /// caller holds the session, and returns whether it was written; a duplicate is dropped. Fails
+    /// with the append's failure, a run moved since among them.
     pub(super) async fn record_turn_end_alone(
         &self,
         run_id: RunId,
         run: &RunRead,
         turn_end: TurnEnd,
         is_run_version_held: bool,
+        hold: Option<&SessionAppendHold>,
     ) -> Result<bool, RunEngineError> {
         let mut guards = vec![no_turn_end_statement(&run_id, turn_end.turn_number)];
         if is_run_version_held {
             guards.push(run_at_version_statement(&run_id, run.version));
         }
         let appended = self
-            .append(turn_end.draft(run_id, run)?, guards, Vec::new())
+            .append(turn_end.draft(run_id, run)?, guards, Vec::new(), hold)
             .await;
         let is_written = match appended {
             Ok(_receipt) => true,
@@ -551,17 +562,19 @@ impl RunEngine {
     /// Writes `change` with `companions` and, where it ends a turn, that turn's end as the event
     /// before the change's own, guarded on the turn holding no end. A turn that already holds its
     /// end drops this one and the change is written alone; a change the run refuses still ends
-    /// its turn, written on its own before the refusal returns. Fails as [`RunEngine::transition`]
-    /// does, a refusing companion numbered among `companions` alone.
+    /// its turn, written on its own before the refusal returns. Every write goes under `hold` where
+    /// the caller holds the session. Fails as [`RunEngine::transition`] does, a refusing companion
+    /// numbered among `companions` alone.
     pub(super) async fn change_with_turn_end(
         &self,
         change: RunStateChange,
         companions: RunStateChangeCompanions,
         run: &RunRead,
         turn_end: Option<TurnEnd>,
+        hold: Option<&SessionAppendHold>,
     ) -> Result<RunRead, RunEngineError> {
         let Some(turn_end) = turn_end else {
-            return self.change(change, companions).await;
+            return self.change(change, companions, hold).await;
         };
         let run_id = change.run_id;
         let mut with_end = companions.clone();
@@ -574,7 +587,7 @@ impl RunEngine {
         with_end.leading_event = Some(Arc::new(move |attempted: &RunRead| {
             turn_end.draft(run_id, attempted)
         }));
-        match self.change(change.clone(), with_end).await {
+        match self.change(change.clone(), with_end, hold).await {
             Ok(changed) => {
                 self.forget_turn(&run_id, turn_end.turn_number);
                 Ok(changed)
@@ -586,7 +599,7 @@ impl RunEngine {
                 // The turn holds its end already, so this one is a duplicate: the run's change
                 // goes on alone.
                 self.forget_turn(&run_id, turn_end.turn_number);
-                self.change(change, companions).await
+                self.change(change, companions, hold).await
             }
             // One of the caller's own companions refused, numbered as the caller placed it: each
             // from the turn end's guard's place on sits one later in the write.
@@ -602,7 +615,7 @@ impl RunEngine {
             )),
             Err(refused @ RunEngineError::Refused(_)) => {
                 match self
-                    .record_turn_end_alone(run_id, run, turn_end, false)
+                    .record_turn_end_alone(run_id, run, turn_end, false, hold)
                     .await
                 {
                     Ok(_is_written) => Err(refused),

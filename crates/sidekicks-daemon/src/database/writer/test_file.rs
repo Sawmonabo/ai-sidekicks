@@ -14,7 +14,7 @@ use {
     serde_json::json,
     sidekicks_contracts::{
         agent::definition::AgentId, event::envelope::EventOccurredAt, event::session::SessionEvent,
-        session::id::SessionId, wire::instant::WireInstant, wire::integer::SafeInt,
+        run::id::RunId, session::id::SessionId, wire::instant::WireInstant, wire::integer::SafeInt,
     },
 };
 
@@ -106,6 +106,12 @@ pub(crate) fn insert_lead(
         )
         .expect("the test creates the session's lead");
     AgentId::new(&agent_id).expect("a minted UUID is an agent id")
+}
+
+/// A fresh run's id.
+#[cfg(test)]
+pub(crate) fn test_run_id() -> RunId {
+    RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
 }
 
 /// The envelope of `event` on `session_id`'s log, occurring now, with no linkage.

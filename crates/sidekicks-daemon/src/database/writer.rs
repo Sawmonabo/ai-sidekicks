@@ -78,6 +78,11 @@ pub(crate) type EndReason = Arc<dyn Error + Send + Sync + 'static>;
 /// It runs only for a write that committed, whether or not its caller still waits.
 pub(crate) type CommitHook = Box<dyn FnOnce(&[SafeInt<0>]) + Send>;
 
+/// Run on the writer's thread, on its connection, right after each batch that committed a write and
+/// before any caller of the batch hears, so what it reads follows the commits in their order. Its
+/// failure is told to the [`WriteFailureListener`] and fails no write.
+pub(crate) type CommitRead = Box<dyn FnMut(&Connection) -> rusqlite::Result<()> + Send>;
+
 /// Told of each failure SQLite raised for a write, a batch or a checkpoint, before its caller. It
 /// runs on the write queue's task, so it does only quick work, and one that ends the writer holds
 /// it through a `Weak`: an `Arc` would keep the writer open once every other handle dropped.
@@ -96,6 +101,8 @@ pub struct DatabaseWriterOptions {
     pub(crate) writes_held_until: Option<oneshot::Receiver<Result<(), WritesHeldError>>>,
     /// Told of each failure SQLite raised for a write, a batch or a checkpoint, before its caller.
     pub(crate) on_write_failed: Option<WriteFailureListener>,
+    /// Read on the writer's connection after each batch that committed a write.
+    pub(crate) after_commit: Option<CommitRead>,
 }
 
 /// A committed write: what each statement did and each event row's sequence, in the write's order.
@@ -275,11 +282,12 @@ impl DatabaseWriter {
     /// thread ends on its own.
     pub async fn open<OpenError>(
         open: impl FnOnce() -> Result<Connection, OpenError> + Send + 'static,
-        options: DatabaseWriterOptions,
+        mut options: DatabaseWriterOptions,
     ) -> Result<Self, DatabaseWriterOpenError<OpenError>>
     where
         OpenError: Error + Send + Sync + 'static,
     {
+        let after_commit = options.after_commit.take();
         // A copy and the one request it serves beside it.
         let (requests, thread_requests) = mpsc::channel(2);
         let (opened, has_opened) = oneshot::channel();
@@ -291,7 +299,16 @@ impl DatabaseWriter {
             std::thread::Builder::new()
                 .name(WRITER_THREAD_NAME.to_owned())
                 .spawn(move || {
-                    thread::run(open, opened, thread_requests, &thread_stop, exit, &runtime);
+                    let commits = thread::ThreadCommits::new(after_commit);
+                    thread::run(
+                        open,
+                        opened,
+                        thread_requests,
+                        &thread_stop,
+                        exit,
+                        &runtime,
+                        commits,
+                    );
                 })
                 .map_err(DatabaseWriterOpenError::Spawn)?,
         ));

@@ -93,7 +93,7 @@ impl Fixture {
             scheduler: Arc::new(Scheduler::start(
                 Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
                 None,
-                crate::session::run::live_count::LiveRunCount::default().follow(),
+                tokio::sync::watch::channel(0).1,
             )),
         });
         Self {

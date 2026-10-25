@@ -39,7 +39,6 @@ use crate::session::run::engine::live::lock;
 use crate::session::run::engine::turns::{ProviderTurnEnd, StepCount, TurnOutcome};
 use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
 use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
-use crate::session::run::live_count::LiveRunCount;
 use crate::session::run::start_request::{DriverStep, RunContinueRequest, RunTurnStart};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -71,7 +70,6 @@ pub(crate) fn test_engine(
             home.join("session-token"),
         )),
         providers: Arc::new(ProviderRegistry::register_from(&[], &services)),
-        live_runs: Arc::new(LiveRunCount::default()),
     }))
 }
 
@@ -213,6 +211,7 @@ pub(crate) async fn append(engine: &RunEngine, session_id: SessionId, event: &Se
             SessionEventDraft::of_session(session_id, event).expect("the event passes its checks"),
             Vec::new(),
             Vec::new(),
+            None,
         )
         .await
         .expect("the test's event is appended");

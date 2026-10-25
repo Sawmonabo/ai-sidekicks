@@ -61,6 +61,7 @@ async fn open_writer(
     let options = DatabaseWriterOptions {
         writes_held_until,
         on_write_failed,
+        ..DatabaseWriterOptions::default()
     };
     DatabaseWriter::open(database.opener(), options)
         .await
@@ -236,6 +237,7 @@ fn commit_each(
         .send(Ok(CommittedBatch {
             outcomes,
             commit_count,
+            after_commit_failure: None,
         }))
         .expect("the writer waits on the batch");
 }
@@ -280,7 +282,7 @@ async fn no_checkpoint_runs_while_the_writer_holds_its_writes() {
     let (release, writes_held_until) = oneshot::channel();
     let (writer, mut thread_requests, _exit) = stand_in_writer(DatabaseWriterOptions {
         writes_held_until: Some(writes_held_until),
-        on_write_failed: None,
+        ..DatabaseWriterOptions::default()
     });
     let mut truncating = Box::pin(writer.checkpoint(CheckpointMode::Truncate));
     assert!(futures::poll!(&mut truncating).is_pending());

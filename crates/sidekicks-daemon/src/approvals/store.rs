@@ -20,16 +20,18 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
 use crate::approvals::request_create::ApprovalResourceDescriptor;
+use crate::database::session_scope::SessionScopedSql;
 use crate::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use crate::database::stored_column::{closed_word, optional_text_column, text_column};
 use crate::session::directory::lookups::ENDED_SESSION_STATES_SQL;
+use crate::session::run::read::{SessionRun, session_run_of_row};
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 /// The distinct statements [`ApprovalRequestReader`] prepares, for the reading connection's
 /// statement cache.
-pub(crate) const APPROVAL_REQUEST_READER_STATEMENT_CAPACITY: usize = 7;
+pub(crate) const APPROVAL_REQUEST_READER_STATEMENT_CAPACITY: usize = 9;
 
 /// An ask as its rows hold it, with the answers its card may offer and its answer once it has one.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -358,6 +360,22 @@ static SELECT_ENDED_SESSIONS_WITH_PENDING_SQL: LazyLock<String> = LazyLock::new(
     )
 });
 
+// Every ended run holding an ask still pending, with its session.
+static SELECT_ENDED_RUNS_WITH_PENDING_SQL: LazyLock<SessionScopedSql> = LazyLock::new(|| {
+    SessionScopedSql::new("request.session_id", |session_condition| {
+        format!(
+            "SELECT DISTINCT request.run_id, request.session_id
+  FROM approval_requests AS request
+  JOIN runs ON runs.run_id = request.run_id
+  WHERE request.state = '{}'
+    AND runs.state IN ({})
+    {session_condition}",
+            pending(),
+            *RUN_TERMINAL_STATES_SQL
+        )
+    })
+});
+
 static SELECT_SESSION_ENDED_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT 1 FROM sessions
@@ -655,6 +673,16 @@ impl<'connection> ApprovalRequestReader<'connection> {
             .prepare_cached(&SELECT_ENDED_SESSIONS_WITH_PENDING_SQL)?
             .query_map([], |row| text_column(row, 0, |text| SessionId::new(&text)))?
             .collect()
+    }
+
+    /// The runs of `session_id`, or of every session when it is `None`, that have ended while an
+    /// ask of theirs is still pending: what a daemon that went down between a run's end and the
+    /// cancel of its asks left.
+    pub(crate) fn list_ended_runs_with_pending(
+        &self,
+        session_id: Option<&SessionId>,
+    ) -> rusqlite::Result<Vec<SessionRun>> {
+        SELECT_ENDED_RUNS_WITH_PENDING_SQL.query(self.reader, session_id, session_run_of_row)
     }
 
     /// Whether the session is closed or being deleted.

@@ -683,6 +683,7 @@ impl InterventionService {
                         preceding_events: vec![event.clone()],
                         leading_event: None,
                         settled_interventions: vec![target.intervention_id],
+                        settled_choices: Vec::new(),
                     },
                 })
                 .await

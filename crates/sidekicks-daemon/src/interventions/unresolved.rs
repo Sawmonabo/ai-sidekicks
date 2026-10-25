@@ -18,6 +18,7 @@ use sidekicks_contracts::run::intervention::{
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::database::session_scope::SessionScopedSql;
 use crate::database::statement::WriteStatement;
 use crate::database::stored_column::{closed_word, optional_text_column, text_column};
 use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
@@ -29,6 +30,7 @@ use crate::interventions::store::{
     unresolved_state_of,
 };
 use crate::provider::driver::run_control::InterruptPendingChoice;
+use crate::session::run::read::{SessionRun, session_run_of_row};
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 // The run's interventions with no outcome yet, with its session, oldest first.
@@ -46,16 +48,19 @@ static SELECT_UNRESOLVED_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // Every ended run that still holds an intervention with no outcome.
-static SELECT_ENDED_RUNS_WITH_UNRESOLVED_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT DISTINCT runs.run_id
+static SELECT_ENDED_RUNS_WITH_UNRESOLVED_SQL: LazyLock<SessionScopedSql> = LazyLock::new(|| {
+    SessionScopedSql::new("runs.session_id", |session_condition| {
+        format!(
+            "SELECT DISTINCT runs.run_id, runs.session_id
   FROM interventions JOIN runs ON runs.run_id = interventions.target_run_id
   WHERE interventions.state IN ('{}', '{}')
-    AND runs.state IN ({})",
-        <&'static str>::from(InterventionState::Requested),
-        <&'static str>::from(InterventionState::Accepted),
-        *RUN_TERMINAL_STATES_SQL
-    )
+    AND runs.state IN ({})
+    {session_condition}",
+            <&'static str>::from(InterventionState::Requested),
+            <&'static str>::from(InterventionState::Accepted),
+            *RUN_TERMINAL_STATES_SQL
+        )
+    })
 });
 
 /// An intervention on a run with no outcome yet, as its row records it.
@@ -128,14 +133,14 @@ pub(crate) fn read_unresolved_interventions(
         .collect()
 }
 
-/// Every ended run that still holds an intervention with no outcome, read on `reader`: what a
-/// daemon that went down between a run's end and its settle left. Fails when the read fails or a
-/// stored run id is not one.
-pub(crate) fn read_ended_runs_with_unresolved(reader: &Connection) -> rusqlite::Result<Vec<RunId>> {
-    reader
-        .prepare_cached(&SELECT_ENDED_RUNS_WITH_UNRESOLVED_SQL)?
-        .query_map([], |row| text_column(row, 0, |text| RunId::new(&text)))?
-        .collect()
+/// Every ended run of `session_id`, or of every session when it is `None`, that still holds an
+/// intervention with no outcome, read on `reader`: what a daemon that went down between a run's
+/// end and its settle left. Fails when the read fails or a stored id is not one.
+pub(crate) fn read_ended_runs_with_unresolved(
+    reader: &Connection,
+    session_id: Option<&SessionId>,
+) -> rusqlite::Result<Vec<SessionRun>> {
+    SELECT_ENDED_RUNS_WITH_UNRESOLVED_SQL.query(reader, session_id, session_run_of_row)
 }
 
 /// The settle `moment` gives `unresolved`, less each row `settled_by_writer` names, which the

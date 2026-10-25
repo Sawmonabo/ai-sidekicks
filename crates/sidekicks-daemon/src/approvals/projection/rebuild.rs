@@ -640,12 +640,15 @@ mod tests {
         );
 
         service
-            .rebuild(ProjectionRebuildRequest {
-                session_id,
-                is_forced: true,
-                before_sequence: None,
-                stop: None,
-            })
+            .rebuild(
+                ProjectionRebuildRequest {
+                    session_id,
+                    is_forced: true,
+                    before_sequence: None,
+                    stop: None,
+                },
+                None,
+            )
             .await
             .expect("the session's approvals are rebuilt");
 

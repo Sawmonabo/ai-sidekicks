@@ -174,7 +174,7 @@ impl SessionListFeed {
         let scheduler = Arc::new(Scheduler::start(
             Arc::new(sidekicks_platforms::WallClockTimer::new().expect("the timer is made")),
             None,
-            crate::session::run::live_count::LiveRunCount::default().follow(),
+            tokio::sync::watch::channel(0).1,
         ));
         Arc::new(Self::new(reads, followers, scheduler))
     }

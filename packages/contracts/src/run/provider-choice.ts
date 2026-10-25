@@ -87,13 +87,15 @@ export const RunRefusalChoiceRequestedPayloadSchema: z.ZodType<RunRefusalChoiceR
 /**
  * The payload of `run.refusal_choice_resolved`: the answer that settled the choice, and the
  * device that sent a person's answer. `canceled` is the answer the daemon sends for an interrupt
- * or a message sent while the choice waits; the driver maps Claude Code's own `cancelled` answer,
- * recorded when it settles the choice itself, to `canceled` at the boundary.
+ * or a message sent while the choice waits, and records when its run ends interrupted; the driver
+ * maps Claude Code's own `cancelled` answer, recorded when it settles the choice itself, to
+ * `canceled` at the boundary. `runEnded` is any other end of its run, a restart of the background
+ * service among them.
  */
 export interface RunRefusalChoiceResolvedPayload {
   sessionId: SessionId;
   runId: RunId;
-  choice: RunRefusalChoice | "canceled";
+  choice: RunRefusalChoice | "canceled" | "runEnded";
   deviceId?: DeviceId | undefined;
 }
 /** Parses a {@link RunRefusalChoiceResolvedPayload}. */
@@ -101,7 +103,7 @@ export const RunRefusalChoiceResolvedPayloadSchema: z.ZodType<RunRefusalChoiceRe
   .object({
     sessionId: SessionIdSchema,
     runId: RunIdSchema,
-    choice: z.union([RunRefusalChoiceSchema, z.literal("canceled")]),
+    choice: z.union([RunRefusalChoiceSchema, z.literal("canceled"), z.literal("runEnded")]),
     deviceId: DeviceIdSchema.optional(),
   })
   .strict();
@@ -170,13 +172,14 @@ export const RunUsageCreditsChoiceRequestedPayloadSchema: z.ZodType<RunUsageCred
 /**
  * The payload of `run.usage_credits_choice_resolved`: how the choice settled, and the device that
  * sent a person's answer. `interrupted` is an interrupt or an undo while it waits, which ends the
- * turn on Fable and answers nothing; `unanswered` is Claude Code settling it when a message is
- * sent while it waits.
+ * turn on Fable and answers nothing, or its run's interrupted end; `unanswered` is Claude Code
+ * settling it when a message is sent while it waits; `runEnded` is any other end of its run, a
+ * restart of the background service among them.
  */
 export interface RunUsageCreditsChoiceResolvedPayload {
   sessionId: SessionId;
   runId: RunId;
-  choice: RunUsageCreditsChoice | "interrupted" | "unanswered";
+  choice: RunUsageCreditsChoice | "interrupted" | "unanswered" | "runEnded";
   deviceId?: DeviceId | undefined;
 }
 /** Parses a {@link RunUsageCreditsChoiceResolvedPayload}. */
@@ -189,6 +192,7 @@ export const RunUsageCreditsChoiceResolvedPayloadSchema: z.ZodType<RunUsageCredi
         RunUsageCreditsChoiceSchema,
         z.literal("interrupted"),
         z.literal("unanswered"),
+        z.literal("runEnded"),
       ]),
       deviceId: DeviceIdSchema.optional(),
     })

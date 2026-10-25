@@ -551,6 +551,7 @@ async fn a_held_question_ends_canceled_with_its_runs_reason(
                         reached_by: None,
                     },
                     "not resumed",
+                    None,
                 )
                 .await
                 .expect("the restart ends the run");
@@ -728,12 +729,15 @@ async fn queued_answers_settle_a_question_its_agent_does_not_wait_for_and_rebuil
         Arc::new(DatabaseDamageWatch::new()),
         vec![Box::new(QuestionsProjection)],
     )
-    .rebuild(ProjectionRebuildRequest {
-        session_id: fixture.session_id,
-        is_forced: true,
-        before_sequence: None,
-        stop: None,
-    })
+    .rebuild(
+        ProjectionRebuildRequest {
+            session_id: fixture.session_id,
+            is_forced: true,
+            before_sequence: None,
+            stop: None,
+        },
+        None,
+    )
     .await
     .expect("the session's questions are rebuilt");
 

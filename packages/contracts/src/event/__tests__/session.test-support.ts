@@ -491,6 +491,7 @@ export const SESSION_EVENT_PAYLOAD_SAMPLES: ReadonlyMap<
       runsFailedDeterministically: 0,
       runsHaltedForReconciliation: 0,
       runsInterrupted: 0,
+      runsStopped: 0,
       durationMs: 40,
       completedAt: OCCURRED_AT,
     },
