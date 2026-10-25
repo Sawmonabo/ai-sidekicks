@@ -335,3 +335,285 @@ fn added_after(newest: Option<Timestamp>) -> WireInstant {
     WireInstant::from_timestamp(after_newest.map_or(now, |after_newest| after_newest.max(now)))
         .expect("the clock reads after year 0000")
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+    use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use rstest::rstest;
+    use serde_json::json;
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::preview::port::{PreviewPortShareListFrame, PreviewSharedPort};
+    use sidekicks_contracts::wire::integer::Port;
+    use tokio::sync::watch;
+    use tokio_util::sync::CancellationToken;
+
+    use super::listening::{PortListeningSink, SharedPortListeningSource};
+    use super::loopback::SharedPortConnectError;
+    use super::methods::port_not_shared;
+    use super::store::SHARED_PORTS_STATEMENT_CAPACITY;
+    use super::{SharedPortAddError, SharedPorts};
+    use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::writer::test_file::TestDatabase;
+    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+    use crate::ipc::domain_error::refusal_fields;
+    use crate::ipc::stream::feed::{CreditGate, Feed as _};
+    use crate::ipc::stream::latest_value::LatestValueFeed;
+
+    const WAIT: Duration = Duration::from_secs(10);
+
+    // How long a reader waits to be sure no list was sent.
+    const QUIET: Duration = Duration::from_millis(200);
+
+    /// A listening source that never reads anything, so every port reads as not listening.
+    struct NothingListens;
+
+    impl SharedPortListeningSource for NothingListens {
+        fn follow(
+            &self,
+            _listed: watch::Receiver<Vec<Port>>,
+            _sink: PortListeningSink,
+            _stop: CancellationToken,
+        ) {
+        }
+    }
+
+    async fn open_writer(database: &TestDatabase) -> Arc<DatabaseWriter> {
+        Arc::new(
+            DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+                .await
+                .expect("the writer opens its database"),
+        )
+    }
+
+    async fn open_shared_ports(
+        database: &TestDatabase,
+        writer: Arc<DatabaseWriter>,
+    ) -> Arc<SharedPorts> {
+        let reads = DatabaseReadPool::new(database.path(), SHARED_PORTS_STATEMENT_CAPACITY);
+        SharedPorts::open(&reads, writer, Arc::new(NothingListens))
+            .await
+            .expect("the shared ports read")
+    }
+
+    fn port(number: u16) -> Port {
+        Port::new(number).expect("the test names a port number")
+    }
+
+    // A listener on an ephemeral port of `address`, which nothing dials unless the test does.
+    fn listener_on(address: SocketAddr) -> (TcpListener, Port) {
+        let listener = TcpListener::bind(address).expect("the test binds a loopback listener");
+        listener
+            .set_nonblocking(true)
+            .expect("the listener stops blocking");
+        let bound = listener.local_addr().expect("the listener has an address");
+        (listener, port(bound.port()))
+    }
+
+    // Killed by the membership check removed from `connect` (the dial reaches the listener), and by
+    // memory taking a port before its write commits (the failed add's port would read shared).
+    #[rstest]
+    #[case::never_added(false)]
+    #[case::added_while_the_writer_had_ended(true)]
+    #[tokio::test]
+    async fn an_unlisted_port_is_never_dialed(#[case] is_add_attempted: bool) {
+        let database = TestDatabase::new();
+        let writer = open_writer(&database).await;
+        let shared_ports = open_shared_ports(&database, Arc::clone(&writer)).await;
+        let (listener, listened_port) = listener_on((Ipv4Addr::LOCALHOST, 0).into());
+        if is_add_attempted {
+            writer.end(Arc::new(io::Error::other("the test ended the writer")));
+            let added = shared_ports.add(listened_port).await;
+            assert!(matches!(added, Err(SharedPortAddError::Write(_))));
+        }
+
+        let Err(SharedPortConnectError::NotShared { port: refused_port }) =
+            shared_ports.connect(listened_port).await
+        else {
+            panic!("an unlisted port is refused");
+        };
+        let refusal = port_not_shared(refused_port);
+        assert_eq!(refusal.code, RefusalCode::PreviewPortNotShared);
+        assert_eq!(
+            refusal.detail,
+            Some(refusal_fields(json!({ "port": listened_port.get() })))
+        );
+        let accepted = listener.accept();
+        assert!(
+            matches!(&accepted, Err(error) if error.kind() == io::ErrorKind::WouldBlock),
+            "nothing reached the listener: {accepted:?}"
+        );
+    }
+
+    // A failed `[::1]` bind fails the IPv6 case: every machine the tests run on keeps `::1` on its
+    // loopback. Killed by a dial of one family only, and by giving up after the first family fails.
+    #[rstest]
+    #[case::ipv4_only(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))]
+    #[case::ipv6_only(SocketAddr::from((Ipv6Addr::LOCALHOST, 0)))]
+    #[tokio::test]
+    async fn a_shared_port_is_reached_on_either_loopback_family(#[case] address: SocketAddr) {
+        let database = TestDatabase::new();
+        let shared_ports = open_shared_ports(&database, open_writer(&database).await).await;
+        let (listener, listened_port) = listener_on(address);
+        shared_ports
+            .add(listened_port)
+            .await
+            .expect("the port is shared");
+
+        let connection = shared_ports
+            .connect(listened_port)
+            .await
+            .expect("the shared port's server is reached");
+        let (stream, closed) = connection.into_parts();
+        assert_eq!(
+            stream.peer_addr().expect("the stream has a peer"),
+            listener.local_addr().expect("the listener has an address")
+        );
+        assert!(stream.nodelay().expect("the stream's no-delay reads"));
+        assert!(!closed.is_cancelled());
+    }
+
+    // Killed by a remove or a clear that skips the cancel, and by a re-add that keeps the removed
+    // port's signal (its new connection would be born closed).
+    #[tokio::test]
+    async fn stop_sharing_closes_every_connection_open_on_the_port() {
+        let database = TestDatabase::new();
+        let shared_ports = open_shared_ports(&database, open_writer(&database).await).await;
+        let (_first_listener, first_port) = listener_on((Ipv4Addr::LOCALHOST, 0).into());
+        let (_second_listener, second_port) = listener_on((Ipv4Addr::LOCALHOST, 0).into());
+        let connect = async |port: Port| {
+            let connection = shared_ports
+                .connect(port)
+                .await
+                .expect("the shared port's server is reached");
+            connection.into_parts()
+        };
+        shared_ports
+            .add(first_port)
+            .await
+            .expect("the port is shared");
+        let (_first_stream, first_closed) = connect(first_port).await;
+        let (_second_stream, second_closed) = connect(first_port).await;
+
+        shared_ports
+            .remove(first_port)
+            .await
+            .expect("the port stops being shared");
+        for closed in [&first_closed, &second_closed] {
+            tokio::time::timeout(WAIT, closed.cancelled())
+                .await
+                .expect("each connection on the removed port is closed");
+        }
+
+        shared_ports
+            .add(first_port)
+            .await
+            .expect("the port is shared again");
+        shared_ports
+            .add(second_port)
+            .await
+            .expect("a second port is shared");
+        let (_readded_stream, readded_closed) = connect(first_port).await;
+        let (_other_stream, other_closed) = connect(second_port).await;
+        assert!(
+            !readded_closed.is_cancelled(),
+            "a re-added port has a fresh signal"
+        );
+
+        shared_ports
+            .clear()
+            .await
+            .expect("every port stops being shared");
+        assert!(readded_closed.is_cancelled());
+        assert!(other_closed.is_cancelled());
+        assert!(matches!(
+            shared_ports.connect(second_port).await,
+            Err(SharedPortConnectError::NotShared { .. })
+        ));
+    }
+
+    // Killed by an add whose insert is dropped (the reopened list is empty), by a list read in port
+    // order (the ports are added high first), and by a list sent for a refused, unchanged or failed
+    // call, an announce placed before the write among them.
+    #[tokio::test]
+    async fn the_list_keeps_the_order_added_across_a_restart_and_announces_only_changes() {
+        let database = TestDatabase::new();
+        let (first, second, never_added) = (port(5174), port(5173), port(3000));
+        let writer = open_writer(&database).await;
+        let shared_ports = open_shared_ports(&database, Arc::clone(&writer)).await;
+        let gate = CreditGate::with_credit(1);
+        let mut feed = LatestValueFeed::open(|outlet| {
+            let shared_ports = Arc::clone(&shared_ports);
+            async move { Ok(shared_ports.follow(outlet)) }
+        })
+        .await
+        .expect("the list is followed");
+        let mut next_list = async || -> Vec<PreviewSharedPort> {
+            let frame: PreviewPortShareListFrame = tokio::time::timeout(WAIT, feed.next(&gate))
+                .await
+                .expect("a list comes")
+                .expect("the list reads")
+                .expect("the stream goes on");
+            frame.ports
+        };
+        assert_eq!(next_list().await, Vec::new());
+
+        let first_added_at = shared_ports.add(first).await.expect("the port is shared");
+        let after_first = next_list().await;
+        assert_eq!(after_first.len(), 1);
+        assert_eq!(after_first[0].port, first);
+        assert_eq!(after_first[0].added_at, first_added_at);
+        assert!(!after_first[0].listening);
+        assert_eq!(after_first[0].framework, None);
+        let second_added_at = shared_ports.add(second).await.expect("the port is shared");
+        assert!(second_added_at.as_str() > first_added_at.as_str());
+        let after_second = next_list().await;
+
+        let Err(SharedPortAddError::AlreadyShared { port: refused }) =
+            shared_ports.add(first).await
+        else {
+            panic!("a port shared already is refused");
+        };
+        assert_eq!(refused, first);
+        shared_ports
+            .remove(never_added)
+            .await
+            .expect("removing a port that is not shared answers the same");
+        writer.end(Arc::new(io::Error::other("the test ended the writer")));
+        assert!(matches!(
+            shared_ports.add(never_added).await,
+            Err(SharedPortAddError::Write(_))
+        ));
+        assert!(
+            tokio::time::timeout(QUIET, feed.next(&gate)).await.is_err(),
+            "no list is sent for a call that changed nothing"
+        );
+        drop(feed);
+        drop(shared_ports);
+        drop(writer);
+
+        let reopened = open_shared_ports(&database, open_writer(&database).await).await;
+        let mut reopened_feed =
+            LatestValueFeed::open(|outlet| async move { Ok(reopened.follow(outlet)) })
+                .await
+                .expect("the list is followed");
+        let reopened_list: PreviewPortShareListFrame =
+            tokio::time::timeout(WAIT, reopened_feed.next(&gate))
+                .await
+                .expect("a list comes")
+                .expect("the list reads")
+                .expect("the stream goes on");
+        assert_eq!(reopened_list.ports, after_second);
+        assert_eq!(
+            reopened_list
+                .ports
+                .iter()
+                .map(|shared| (shared.port, shared.added_at.clone()))
+                .collect::<Vec<_>>(),
+            vec![(first, first_added_at), (second, second_added_at)]
+        );
+    }
+}
