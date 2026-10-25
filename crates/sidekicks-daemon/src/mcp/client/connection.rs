@@ -59,6 +59,12 @@ pub(crate) enum McpConnectionError {
     /// The HTTP client for the server's address could not be built.
     #[error("the HTTP client for the tool server could not be built")]
     HttpClient(#[source] reqwest::Error),
+    /// The server's entry sets a header the client sets itself.
+    #[error("the tool server's entry sets the {name} header, which the client sets itself")]
+    ReservedHeader {
+        /// The header's name.
+        name: String,
+    },
     /// The server's process environment could not be built.
     #[error("the tool server's environment could not be built")]
     Environment(#[from] SpawnEnvironmentError),

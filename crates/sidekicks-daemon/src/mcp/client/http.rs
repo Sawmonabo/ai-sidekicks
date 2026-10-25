@@ -61,6 +61,10 @@ const STREAM_RETRY_BASE: Duration = Duration::from_secs(1);
 /// The longest wait before a stream is reconnected.
 const STREAM_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
 
+/// The headers the transport sets itself, which a server's entry may not set, as rmcp's own client
+/// refuses them.
+const RESERVED_HEADERS: [&str; 3] = ["accept", HEADER_SESSION_ID, HEADER_LAST_EVENT_ID];
+
 /// The response header carrying the nonce a server wants its next DPoP proof bound to.
 const DPOP_NONCE: &str = "dpop-nonce";
 
@@ -140,8 +144,9 @@ pub(super) struct McpHttpClient {
 impl McpServerConnection {
     /// Opens a connection to the server at `uri`, sending `headers` with every request and the
     /// headers `authorizer` makes for each, its start held to `startup_timeout` or the 30 s
-    /// default. Fails when the HTTP client cannot be built or the server does not complete its
-    /// start in time.
+    /// default. Refused when `headers` names `Accept`, `Mcp-Session-Id` or `Last-Event-Id`, which
+    /// the transport sets itself; fails when the HTTP client cannot be built or the server does not
+    /// complete its start in time.
     #[cfg_attr(
         not(test),
         expect(
@@ -157,6 +162,15 @@ impl McpServerConnection {
         startup_timeout: Option<Duration>,
         scope: McpConnectionScope,
     ) -> Result<Self, McpConnectionError> {
+        if let Some(name) = headers.keys().find(|name| {
+            RESERVED_HEADERS
+                .iter()
+                .any(|reserved| name.as_str().eq_ignore_ascii_case(reserved))
+        }) {
+            return Err(McpConnectionError::ReservedHeader {
+                name: name.as_str().to_owned(),
+            });
+        }
         let start = McpConnectionStart::http(startup_timeout);
         // No `timeout` or `read_timeout`: either would cut a quiet event stream; each request's
         // bound is rmcp's.

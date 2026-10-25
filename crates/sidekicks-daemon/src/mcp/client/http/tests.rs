@@ -1,5 +1,5 @@
-//! The HTTP side against axum fakes on a loopback port: an event past the size bound, and a
-//! server that asks for a DPoP proof bound to its nonce.
+//! The HTTP side: a server entry's reserved header, and against axum fakes on a loopback port an
+//! event past the size bound and a server that asks for a DPoP proof bound to its nonce.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -14,9 +14,10 @@ use axum::routing::post;
 use futures::future::BoxFuture;
 use reqwest::Method;
 use reqwest::header::{AUTHORIZATION, HeaderName, HeaderValue};
+use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::mcp::client::connection::McpServerConnection;
+use crate::mcp::client::connection::{McpConnectionError, McpServerConnection};
 use crate::mcp::client::http::{
     AuthorizationResult, DEFAULT_MAX_SSE_EVENT_SIZE, McpRequestAuthorizer, NoAuthorization,
 };
@@ -210,4 +211,33 @@ async fn a_server_asking_for_a_dpop_nonce_gets_the_request_again_bound_to_it() {
             .all(|nonce| nonce.as_deref() == Some("n1"))
     );
     connection.close().await;
+}
+
+// Mutation: in `connect_http`, leave out the reserved-header check, or compare names with case.
+#[rstest]
+#[case::accept("Accept")]
+#[case::session_id("Mcp-Session-Id")]
+#[case::last_event_id("LAST-EVENT-ID")]
+#[tokio::test]
+async fn a_server_entry_setting_a_header_the_transport_sets_is_refused(#[case] name: &str) {
+    let (client, _card) = test_client();
+    let headers = HashMap::from([(
+        HeaderName::from_bytes(name.as_bytes()).expect("a header name"),
+        HeaderValue::from_static("x"),
+    )]);
+
+    let opened = McpServerConnection::connect_http(
+        "http://127.0.0.1:9/mcp",
+        headers,
+        Arc::new(NoAuthorization),
+        None,
+        test_scope(&client),
+    )
+    .await;
+
+    assert!(matches!(
+        opened,
+        Err(McpConnectionError::ReservedHeader { name: refused })
+            if refused.eq_ignore_ascii_case(name)
+    ));
 }
