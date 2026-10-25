@@ -55,6 +55,9 @@ use crate::provider::driver::{
     CommandSandboxNeeds, DriverServices, InstallFolder, InstallFolderBase, ProviderCommand,
     ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
 };
+use crate::provider::port::running_command_publisher::{
+    RunningCommandParams, WriteCommandInputParams, command_act_unsupported,
+};
 use crate::provider::port::session_inbox_address::SessionInboxAddresser;
 
 mod account_home_logs;
@@ -452,6 +455,27 @@ impl ProviderDriver for CodexDriver {
         params: ListProviderCommandsParams,
     ) -> BoxFuture<'_, Result<ProviderCommandBindingGroup, DriverError>> {
         self.list_provider_commands(params).boxed()
+    }
+
+    fn stop_command(&self, params: RunningCommandParams) -> BoxFuture<'_, Result<(), DriverError>> {
+        std::future::ready(Err(command_act_unsupported(&params.command_id).into())).boxed()
+    }
+
+    fn move_command_to_background(
+        &self,
+        params: RunningCommandParams,
+    ) -> BoxFuture<'_, Result<bool, DriverError>> {
+        std::future::ready(Err(command_act_unsupported(&params.command_id).into())).boxed()
+    }
+
+    fn write_command_input(
+        &self,
+        params: WriteCommandInputParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        std::future::ready(Err(
+            command_act_unsupported(&params.command.command_id).into()
+        ))
+        .boxed()
     }
 
     fn observed_output_speed_for(

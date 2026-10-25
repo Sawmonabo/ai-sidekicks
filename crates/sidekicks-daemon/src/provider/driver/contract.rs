@@ -68,6 +68,9 @@ use crate::provider::driver::session_control::{
     UpdateSessionModeParams,
 };
 use crate::provider::port::permission_ask::{ProviderPermissionAnswer, ProviderRuleNotKeptError};
+use crate::provider::port::running_command_publisher::{
+    RunningCommandParams, WriteCommandInputParams,
+};
 use crate::provider::port::session_inbox_address::SessionInboxAddresser;
 use crate::provider::runtime_binding::store::RuntimeBindingStoreError;
 use crate::text_cut::cut_to_code_points;
@@ -437,6 +440,25 @@ pub(crate) trait ProviderDriver: Send + Sync {
         &self,
         params: ListProviderCommandsParams,
     ) -> BoxFuture<'_, Result<ProviderCommandBindingGroup, DriverError>>;
+
+    /// Stops the agent's running command `params` names, answering once the provider acknowledged
+    /// the stop; refused `provider.capability.unsupported` where the provider relays no stop.
+    fn stop_command(&self, params: RunningCommandParams) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// Moves the agent's running command to the background, answering whether the provider moved
+    /// it, `false` when the agent no longer waited on it; refused `provider.capability.unsupported`
+    /// where the provider moves none.
+    fn move_command_to_background(
+        &self,
+        params: RunningCommandParams,
+    ) -> BoxFuture<'_, Result<bool, DriverError>>;
+
+    /// Writes the person's input to the agent's running command, then ends its input where asked;
+    /// refused `provider.capability.unsupported` where the provider takes none.
+    fn write_command_input(
+        &self,
+        params: WriteCommandInputParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// The output-speed state the provider last declared for the session's live binding, as sent;
     /// `None` with no live binding or no declaration yet, which means unread, never off. A read of

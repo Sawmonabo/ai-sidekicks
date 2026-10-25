@@ -22,9 +22,9 @@ use super::{
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::ipc::stream::feed::{CreditGate, Feed as _};
-use crate::provider::driver::contract::DriverError;
+use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::port::running_command_publisher::{
-    CommandActs, CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandPublisher as _,
+    CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandPublisher as _,
 };
 
 const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
@@ -50,72 +50,56 @@ impl CommandEndingAppender for SentEndings {
     }
 }
 
-/// A provider whose stop and move answer as set, noting each act asked of it.
-struct ScriptedActs {
-    stop: Mutex<Option<DriverError>>,
-    moved: bool,
-    acts: Mutex<Vec<&'static str>>,
+/// What a scripted driver was asked, in order, and the refusal its next stop answers.
+#[derive(Default)]
+struct DriverScript {
+    asked: Mutex<Vec<&'static str>>,
+    stop_refusal: Mutex<Option<DriverError>>,
 }
 
-impl ScriptedActs {
-    fn answering(moved: bool) -> Arc<Self> {
-        Arc::new(Self {
-            stop: Mutex::new(None),
-            moved,
-            acts: Mutex::new(Vec::new()),
-        })
-    }
-
+impl DriverScript {
     fn note(&self, act: &'static str) {
-        self.acts
+        self.asked
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(act);
     }
 
     fn asked(&self) -> Vec<&'static str> {
-        self.acts
+        self.asked
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
 }
 
-impl CommandActs for ScriptedActs {
-    fn stop(
-        &self,
-        _session_id: SessionId,
-        _command_id: CommandId,
-    ) -> BoxFuture<'_, Result<(), DriverError>> {
-        self.note("stop");
-        let refusal = self
-            .stop
+/// A driver whose command acts note themselves in `script`, its stop answering the refusal the
+/// script holds and its move answering `moved`.
+fn scripted_driver(script: &Arc<DriverScript>, moved: bool) -> MockProviderDriver {
+    let mut driver = MockProviderDriver::new();
+    let stopping = Arc::clone(script);
+    driver.expect_stop_command().returning(move |_| {
+        stopping.note("stop");
+        let refusal = stopping
+            .stop_refusal
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take();
         async move { refusal.map_or(Ok(()), Err) }.boxed()
-    }
-
-    fn move_to_background(
-        &self,
-        _session_id: SessionId,
-        _command_id: CommandId,
-    ) -> BoxFuture<'_, Result<bool, DriverError>> {
-        self.note("background");
-        let moved = self.moved;
-        async move { Ok(moved) }.boxed()
-    }
-
-    fn write_input(
-        &self,
-        _session_id: SessionId,
-        _command_id: CommandId,
-        _text: Option<String>,
-        _is_end_of_input: bool,
-    ) -> BoxFuture<'_, Result<(), DriverError>> {
-        self.note("write");
+    });
+    let moving = Arc::clone(script);
+    driver
+        .expect_move_command_to_background()
+        .returning(move |_| {
+            moving.note("background");
+            async move { Ok(moved) }.boxed()
+        });
+    let writing = Arc::clone(script);
+    driver.expect_write_command_input().returning(move |_| {
+        writing.note("write");
         async { Ok(()) }.boxed()
-    }
+    });
+    driver
 }
 
 struct Fixture {
@@ -157,8 +141,8 @@ fn exit_code(code: i64) -> Option<ExitCode> {
     SafeSignedInt::new(code)
 }
 
-/// A command `id` running `name`, through `acts`.
-fn start(id: &str, name: &str, acts: &Arc<ScriptedActs>) -> CommandStart {
+/// A command `id` running `name`.
+fn start(id: &str, name: &str) -> CommandStart {
     CommandStart {
         session_id: session(),
         command_id: command(id),
@@ -169,7 +153,6 @@ fn start(id: &str, name: &str, acts: &Arc<ScriptedActs>) -> CommandStart {
         is_backgrounded: false,
         can_move_to_background: true,
         accepts_input: false,
-        acts: Arc::clone(acts) as Arc<dyn CommandActs>,
     }
 }
 
@@ -222,7 +205,8 @@ fn end(code: Option<i64>, summary: Option<&str>) -> ProviderCommandEnd {
 #[tokio::test]
 async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     let mut fixture = fixture();
-    let acts = ScriptedActs::answering(true);
+    let acts = Arc::new(DriverScript::default());
+    let driver = scripted_driver(&acts, true);
     let mut feed = fixture.sets.subscribe(session());
     assert_eq!(next_set(&mut feed).await, Vec::new());
 
@@ -232,12 +216,12 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
         .publish_output(session(), command("absent"), "lost".to_owned());
     fixture
         .sets
-        .stop(session(), &command("absent"))
+        .stop(&driver, session(), &command("absent"))
         .await
         .expect("a command not running is stopped");
     let refused = fixture
         .sets
-        .move_to_background(session(), &command("absent"))
+        .move_to_background(&driver, session(), &command("absent"))
         .await;
     assert_eq!(
         refusal_code(refused.expect_err("refused")),
@@ -249,7 +233,7 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     };
     let refused = fixture
         .sets
-        .write(session(), &command("absent"), input.clone())
+        .write(&driver, session(), &command("absent"), input.clone())
         .await;
     assert_eq!(
         refusal_code(refused.expect_err("refused")),
@@ -259,18 +243,14 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
 
     // Start: added in the foreground; the same id again is ignored. A start in the background and
     // a move whose start was missed both add a background row.
-    fixture
-        .sets
-        .command_started(start("stop-me", "sleep 1", &acts));
-    fixture
-        .sets
-        .command_started(start("stop-me", "sleep 2", &acts));
+    fixture.sets.command_started(start("stop-me", "sleep 1"));
+    fixture.sets.command_started(start("stop-me", "sleep 2"));
     let set = next_set(&mut feed).await;
     assert_eq!(set.len(), 1);
     assert!(set[0].waiting_in_foreground && set[0].can_move_to_background);
     fixture
         .sets
-        .command_moved_to_background(start("missed", "make", &acts));
+        .command_moved_to_background(start("missed", "make"));
     let set = next_set(&mut feed).await;
     assert!(!set[1].waiting_in_foreground && !set[1].can_move_to_background);
 
@@ -291,12 +271,12 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     // and the provider's end then ends it by the person, no summary kept.
     fixture
         .sets
-        .stop(session(), &command("stop-me"))
+        .stop(&driver, session(), &command("stop-me"))
         .await
         .expect("stopped");
     fixture
         .sets
-        .stop(session(), &command("stop-me"))
+        .stop(&driver, session(), &command("stop-me"))
         .await
         .expect("stopped again");
     assert_eq!(acts.asked(), ["stop"]);
@@ -312,13 +292,18 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     );
 
     // A refused stop puts the row back as it was.
-    fixture
+    fixture.sets.command_started(start("refuse-stop", "top"));
+    *acts
+        .stop_refusal
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = Some(DriverError::Refused(DomainError::new(
+        "gone",
+        RefusalCode::ProviderUnavailable,
+    )));
+    let refused = fixture
         .sets
-        .command_started(start("refuse-stop", "top", &acts));
-    *acts.stop.lock().unwrap_or_else(PoisonError::into_inner) = Some(DriverError::Refused(
-        DomainError::new("gone", RefusalCode::ProviderUnavailable),
-    ));
-    let refused = fixture.sets.stop(session(), &command("refuse-stop")).await;
+        .stop(&driver, session(), &command("refuse-stop"))
+        .await;
     assert_eq!(
         refusal_code(refused.expect_err("refused")),
         RefusalCode::ProviderUnavailable
@@ -331,7 +316,7 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
 
     // The provider's own end: exit 0 finishes with no summary; a provider's stop with its summary
     // fails with the summary as the body.
-    fixture.sets.command_started(start("finish", "ls", &acts));
+    fixture.sets.command_started(start("finish", "ls"));
     fixture
         .sets
         .command_ended(session(), command("finish"), end(Some(0), Some("ok")));
@@ -342,7 +327,7 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     );
     fixture
         .sets
-        .command_started(start("time-limit", "sleep 9999", &acts));
+        .command_started(start("time-limit", "sleep 9999"));
     let summary = "Stopped after 30 minutes";
     fixture
         .sets
@@ -358,24 +343,22 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     // background, where a second move is refused without asking the provider.
     let unmovable = CommandStart {
         can_move_to_background: false,
-        ..start("unmovable", "cargo build", &acts)
+        ..start("unmovable", "cargo build")
     };
     fixture.sets.command_started(unmovable);
     let refused = fixture
         .sets
-        .move_to_background(session(), &command("unmovable"))
+        .move_to_background(&driver, session(), &command("unmovable"))
         .await;
     assert_eq!(
         refusal_code(refused.expect_err("refused")),
         RefusalCode::ProviderCapabilityUnsupported
     );
-    let unmoved_acts = ScriptedActs::answering(false);
-    fixture
-        .sets
-        .command_started(start("unmoved", "npm test", &unmoved_acts));
+    let unmoved_driver = scripted_driver(&Arc::new(DriverScript::default()), false);
+    fixture.sets.command_started(start("unmoved", "npm test"));
     let refused = fixture
         .sets
-        .move_to_background(session(), &command("unmoved"))
+        .move_to_background(&unmoved_driver, session(), &command("unmoved"))
         .await;
     assert_eq!(
         refusal_code(refused.expect_err("refused")),
@@ -383,15 +366,15 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     );
     fixture
         .sets
-        .command_started(start("move-me", "npm run dev", &acts));
+        .command_started(start("move-me", "npm run dev"));
     fixture
         .sets
-        .move_to_background(session(), &command("move-me"))
+        .move_to_background(&driver, session(), &command("move-me"))
         .await
         .expect("moved");
     let refused = fixture
         .sets
-        .move_to_background(session(), &command("move-me"))
+        .move_to_background(&driver, session(), &command("move-me"))
         .await;
     assert_eq!(
         refusal_code(refused.expect_err("refused")),
@@ -403,7 +386,7 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     // does, and an open prompt's answer, masked by its kind, the end of input answering it empty.
     let refused = fixture
         .sets
-        .write(session(), &command("move-me"), input.clone())
+        .write(&driver, session(), &command("move-me"), input.clone())
         .await;
     assert_eq!(
         refusal_code(refused.expect_err("refused")),
@@ -411,21 +394,19 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     );
     let typed = CommandStart {
         accepts_input: true,
-        ..start("typed", "python3", &acts)
+        ..start("typed", "python3")
     };
     fixture.sets.command_started(typed);
     fixture
         .sets
-        .write(session(), &command("typed"), input.clone())
+        .write(&driver, session(), &command("typed"), input.clone())
         .await
         .expect("written");
     assert_eq!(acts.asked().last(), Some(&"write"));
     fixture
         .sets
         .wrapper_started(session(), 7, WrapperCommand::Line("git push".to_owned()));
-    fixture
-        .sets
-        .command_started(start("asking", "git push", &acts));
+    fixture.sets.command_started(start("asking", "git push"));
     let answered = Arc::new(Mutex::new(None));
     let answer = Arc::clone(&answered);
     fixture.sets.prompt_opened(
@@ -452,7 +433,7 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     };
     fixture
         .sets
-        .write(session(), &command("asking"), end_of_input)
+        .write(&driver, session(), &command("asking"), end_of_input)
         .await
         .expect("answered");
     assert_eq!(
@@ -469,7 +450,7 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     fixture.sets.commands_listed(
         session(),
         ReseedScope::BackgroundCommands,
-        vec![start("listed", "tail -f log", &acts)],
+        vec![start("listed", "tail -f log")],
     );
     let mut ended = Vec::new();
     for _ in 0..2 {
@@ -489,7 +470,7 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     // its exit by that code.
     fixture
         .sets
-        .stop(session(), &command("listed"))
+        .stop(&driver, session(), &command("listed"))
         .await
         .expect("stopped");
     fixture.sets.wrapper_exited(session(), 7, exit_code(128));
@@ -520,13 +501,8 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
 #[tokio::test]
 async fn two_runs_of_one_command_each_settle_their_own_row() {
     let mut fixture = fixture();
-    let acts = ScriptedActs::answering(true);
-    fixture
-        .sets
-        .command_started(start("first", "npm test", &acts));
-    fixture
-        .sets
-        .command_started(start("second", "npm test", &acts));
+    fixture.sets.command_started(start("first", "npm test"));
+    fixture.sets.command_started(start("second", "npm test"));
     let mut feed = fixture.sets.subscribe(session());
     next_set(&mut feed).await;
     for party in [11, 12] {
@@ -567,10 +543,7 @@ async fn two_runs_of_one_command_each_settle_their_own_row() {
 #[tokio::test]
 async fn a_command_running_across_a_fork_move_reaches_the_new_binding() {
     let mut fixture = fixture();
-    let acts = ScriptedActs::answering(true);
-    fixture
-        .sets
-        .command_started(start("long", "cargo test", &acts));
+    fixture.sets.command_started(start("long", "cargo test"));
     let mut feed = fixture.sets.subscribe(session());
     next_set(&mut feed).await;
     *fixture

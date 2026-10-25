@@ -1,18 +1,19 @@
 //! Where a driver reports the shell commands its agent runs, to the session's running set: each
 //! start, move to the background, end and reseed the provider sends, and a command's output as it
-//! prints, and the acts the set asks of the driver for a command. Output is never stored: the
-//! command's whole output lands as its tool call's result.
+//! prints; and what the set hands the driver's command acts. Output is never stored: the command's
+//! whole output lands as its tool call's result.
 
-use std::sync::Arc;
-
-use futures::future::BoxFuture;
+use serde_json::json;
 use sidekicks_contracts::command::{CommandId, ExitCode};
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
-use crate::provider::driver::contract::DriverError;
+use crate::ipc::domain_error::DomainError;
+use crate::provider::driver::contract::PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE;
 
 /// A command the provider reports running, from its start or from a list that names it.
 #[derive(Clone)]
@@ -35,8 +36,6 @@ pub(crate) struct CommandStart {
     pub(crate) can_move_to_background: bool,
     /// Whether it takes typed input for its whole run.
     pub(crate) accepts_input: bool,
-    /// The provider's acts on the command.
-    pub(crate) acts: Arc<dyn CommandActs>,
 }
 
 /// How the provider reports a command ended: its exit code where it gave one, and its summary of
@@ -96,30 +95,36 @@ pub(crate) trait RunningCommandPublisher: Send + Sync {
     fn provider_exited(&self, session_id: SessionId);
 }
 
-/// What the person asks of a command, carried out by the provider that runs it. Each act fails
-/// with the provider's refusal, or with no answer in time.
-pub(crate) trait CommandActs: Send + Sync {
-    /// Stops the command; answers once the provider acknowledged the stop.
-    fn stop(
-        &self,
-        session_id: SessionId,
-        command_id: CommandId,
-    ) -> BoxFuture<'_, Result<(), DriverError>>;
+/// The running command one of the person's acts addresses: its session, the binding the session
+/// runs on now and the provider's own id for the command.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RunningCommandParams {
+    /// The session.
+    pub(crate) session_id: SessionId,
+    /// The binding.
+    pub(crate) binding_id: RuntimeBindingId,
+    /// The provider's own id for the command.
+    pub(crate) command_id: CommandId,
+}
 
-    /// Moves the command to the background; answers whether the provider moved it, `false` when
-    /// it no longer waited on it.
-    fn move_to_background(
-        &self,
-        session_id: SessionId,
-        command_id: CommandId,
-    ) -> BoxFuture<'_, Result<bool, DriverError>>;
+/// Params of the person's write to a running command: the command, the typed text and whether the
+/// command's input then ends.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct WriteCommandInputParams {
+    /// The command.
+    pub(crate) command: RunningCommandParams,
+    /// The typed text.
+    pub(crate) text: Option<String>,
+    /// Whether the input ends after the text.
+    pub(crate) is_end_of_input: bool,
+}
 
-    /// Writes `text` to the command's input, then ends its input when `is_end_of_input`.
-    fn write_input(
-        &self,
-        session_id: SessionId,
-        command_id: CommandId,
-        text: Option<String>,
-        is_end_of_input: bool,
-    ) -> BoxFuture<'_, Result<(), DriverError>>;
+/// The refusal of an act on `command_id` the provider cannot carry out
+/// (`provider.capability.unsupported`).
+pub(crate) fn command_act_unsupported(command_id: &CommandId) -> DomainError {
+    DomainError::new(
+        PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE,
+        RefusalCode::ProviderCapabilityUnsupported,
+    )
+    .with_detail(json!({ "commandId": command_id }))
 }

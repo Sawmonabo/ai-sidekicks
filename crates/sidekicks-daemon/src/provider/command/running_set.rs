@@ -28,9 +28,10 @@ use crate::ipc::registry::HandlerError;
 use crate::ipc::stream::feed::{Feed, SendGate};
 use crate::provider::command::channel::PartyId;
 use crate::provider::command::waiting_checks::WaitingState;
-use crate::provider::driver::contract::PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE;
+use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::port::running_command_publisher::{
-    CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandPublisher,
+    CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandParams, RunningCommandPublisher,
+    WriteCommandInputParams, command_act_unsupported,
 };
 use crate::session::run::inbound::rows::LateAppendableRow;
 use crate::session::run::inbound::{DeliveryBinding, InboundDelivery, RunInboundDispatch};
@@ -206,15 +207,16 @@ impl RunningCommandSets {
         RunningCommandFeed { place }
     }
 
-    /// The person's stop: answered once the provider acknowledged it, or at once for a command
-    /// that is not running or whose stop was already sent. Fails with the provider's refusal, the
-    /// row then drawn as it was.
+    /// The person's stop, carried out by the session's `driver`: answered once the provider
+    /// acknowledged it, or at once for a command that is not running or whose stop was already
+    /// sent. Fails with the provider's refusal, the row then drawn as it was.
     pub(crate) async fn stop(
         &self,
+        driver: &dyn ProviderDriver,
         session_id: SessionId,
         command_id: &CommandId,
     ) -> Result<(), HandlerError> {
-        let acts = {
+        let was_foreground = {
             let mut sessions = self.lock();
             let Some(commands) = sessions.get_mut(&session_id) else {
                 return Ok(());
@@ -228,12 +230,16 @@ impl RunningCommandSets {
                 RowState::Background => false,
             };
             row.state = RowState::Stopping { was_foreground };
-            let acts = Arc::clone(&row.start.acts);
             commands.publish_commands(session_id);
-            (acts, was_foreground)
+            was_foreground
         };
-        let (acts, was_foreground) = acts;
-        let stopped = acts.stop(session_id, command_id.clone()).await;
+        let stopped = match self.command_params(session_id, command_id) {
+            Ok(params) => driver
+                .stop_command(params)
+                .await
+                .map_err(HandlerError::from),
+            Err(refusal) => Err(refusal.into()),
+        };
         if let Err(error) = stopped {
             self.update_row(session_id, command_id, |row| {
                 if matches!(row.state, RowState::Stopping { .. }) {
@@ -244,20 +250,22 @@ impl RunningCommandSets {
                     };
                 }
             });
-            return Err(error.into());
+            return Err(error);
         }
         Ok(())
     }
 
-    /// The person's move to the background, for a command the agent waits on. Refused with
-    /// `agent.command.notInForeground` for any other, with `provider.capability.unsupported` where
-    /// the provider cannot move it, and with the provider's refusal.
+    /// The person's move to the background, carried out by the session's `driver`, for a command
+    /// the agent waits on. Refused with `agent.command.notInForeground` for any other, with
+    /// `provider.capability.unsupported` where the provider cannot move it, and with the
+    /// provider's refusal.
     pub(crate) async fn move_to_background(
         &self,
+        driver: &dyn ProviderDriver,
         session_id: SessionId,
         command_id: &CommandId,
     ) -> Result<(), HandlerError> {
-        let acts = {
+        {
             let sessions = self.lock();
             let row = sessions
                 .get(&session_id)
@@ -265,19 +273,11 @@ impl RunningCommandSets {
                 .filter(|row| row.state == RowState::Foreground)
                 .ok_or_else(|| not_in_foreground(command_id))?;
             if !row.start.can_move_to_background {
-                return Err(DomainError::new(
-                    PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE,
-                    RefusalCode::ProviderCapabilityUnsupported,
-                )
-                .with_detail(json!({ "commandId": command_id }))
-                .into());
+                return Err(command_act_unsupported(command_id).into());
             }
-            Arc::clone(&row.start.acts)
-        };
-        if !acts
-            .move_to_background(session_id, command_id.clone())
-            .await?
-        {
+        }
+        let params = self.command_params(session_id, command_id)?;
+        if !driver.move_command_to_background(params).await? {
             return Err(not_in_foreground(command_id).into());
         }
         self.update_row(session_id, command_id, |row| {
@@ -289,15 +289,17 @@ impl RunningCommandSets {
     }
 
     /// The person's input: an open askpass prompt takes it as its answer, the end of input alone
-    /// answering it empty; otherwise it goes to a command that takes input. Refused with
-    /// `agent.command.takesNoInput` for any other command, and with the provider's refusal.
+    /// answering it empty; otherwise the session's `driver` writes it to a command that takes
+    /// input. Refused with `agent.command.takesNoInput` for any other command, and with the
+    /// provider's refusal.
     pub(crate) async fn write(
         &self,
+        driver: &dyn ProviderDriver,
         session_id: SessionId,
         command_id: &CommandId,
         input: CommandInput,
     ) -> Result<(), HandlerError> {
-        let acts = {
+        {
             let mut sessions = self.lock();
             let Some(commands) = sessions.get_mut(&session_id) else {
                 return Err(takes_no_input(command_id).into());
@@ -313,16 +315,37 @@ impl RunningCommandSets {
             if !row.start.accepts_input {
                 return Err(takes_no_input(command_id).into());
             }
-            Arc::clone(&row.start.acts)
-        };
-        acts.write_input(
-            session_id,
-            command_id.clone(),
-            input.text,
-            input.is_end_of_input,
-        )
-        .await?;
+        }
+        let command = self.command_params(session_id, command_id)?;
+        driver
+            .write_command_input(WriteCommandInputParams {
+                command,
+                text: input.text,
+                is_end_of_input: input.is_end_of_input,
+            })
+            .await?;
         Ok(())
+    }
+
+    // What an act on `command_id` hands the driver: the session's binding now. Refused
+    // `provider.unavailable` for a session bound to no provider now.
+    fn command_params(
+        &self,
+        session_id: SessionId,
+        command_id: &CommandId,
+    ) -> Result<RunningCommandParams, DomainError> {
+        let binding_id = (self.binding_of)(&session_id).ok_or_else(|| {
+            DomainError::new(
+                "The session runs on no provider now.",
+                RefusalCode::ProviderUnavailable,
+            )
+            .with_detail(json!({ "commandId": command_id }))
+        })?;
+        Ok(RunningCommandParams {
+            session_id,
+            binding_id,
+            command_id: command_id.clone(),
+        })
     }
 
     /// Pairs the wrapper `party` with its command's row: a line with the oldest unpaired row whose
