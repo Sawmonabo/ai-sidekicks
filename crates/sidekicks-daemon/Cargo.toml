@@ -36,7 +36,6 @@ ignored = [
   "hmac",
   "standardwebhooks",
   # Sealing a push notice to a linked device's push key.
-  "hpke",
   "web-push-native",
   "x-wing",
   # A machine's certificate and the forward to its shared ports.

@@ -1,8 +1,9 @@
-//! Providers: the drivers that run each provider's process, their capabilities, hand-over and the
-//! searches a provider needs.
+//! Providers: the drivers that run each provider's process, their capabilities, hand-over, the
+//! shell commands their agents run, and the searches a provider needs.
 
 pub(crate) mod callback_tools;
 pub(crate) mod capability;
+pub(crate) mod command;
 pub(crate) mod command_search;
 pub(crate) mod compaction_wait;
 pub(crate) mod conversation_purge;
