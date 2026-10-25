@@ -116,8 +116,9 @@ pub(crate) struct RepoServices {
     pub(crate) scheduler: Arc<Scheduler>,
     /// The daemon's stop, which also ends the re-probe's triggers.
     pub(crate) stop: CancellationToken,
-    /// The chats' writes the managed workspaces' watch reports, for a chat's file versions.
-    pub(crate) workspace_writes: mpsc::Receiver<ManagedWorkspaceWrite>,
+    /// The chats' writes the managed workspaces' watch reports, for a chat's file versions; the
+    /// start takes it for the session services before the repository attachments start.
+    pub(crate) workspace_writes: Option<mpsc::Receiver<ManagedWorkspaceWrite>>,
 }
 
 /// Why the repository services could not be built.
@@ -232,7 +233,7 @@ pub(crate) fn build_repo_services(
         mount_health,
         scheduler,
         stop,
-        workspace_writes,
+        workspace_writes: Some(workspace_writes),
     })
 }
 
