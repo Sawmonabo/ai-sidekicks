@@ -65,3 +65,6 @@ fn ask_daemon(process_arguments: &[OsString]) -> io::Result<Option<String>> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
