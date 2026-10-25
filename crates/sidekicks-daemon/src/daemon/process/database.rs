@@ -1,0 +1,775 @@
+//! The database file as a start opens it and a stop closes it. A file a run found damaged is
+//! repaired first, while the run folder's socket answers that the daemon is repairing; one the
+//! repair cannot heal fails the start, naming why and where its copy aside is, and a stop during
+//! the repair ends the start, the file left for the next. The writer then opens the file, and its
+//! structural check runs beside the daemon at every start but the first. After any end of the last
+//! run, clean or not, writes go at once, since nothing but a checkpoint the storage did not flush
+//! damages the file and the writer's checkpoints flush it; a file something else changed since the
+//! last run, or with no record of one, holds every write until the check finds it sound. A check
+//! that cannot run leaves the daemon taking writes, reading as degraded, and the file unvouched, so
+//! the next start checks it before it writes again. Damage the check or any read or write meets is
+//! recorded beside the file at the stop, so the next start repairs it before anything opens it.
+
+use std::error::Error;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+
+use jiff::Timestamp;
+use sidekicks_platforms::DaemonRunFolder;
+use tokio::sync::{oneshot, watch};
+use tokio::task::{JoinError, JoinHandle};
+use tokio_util::sync::CancellationToken;
+
+use crate::approvals::reviewer_denials::REVIEWER_DENIALS_STATEMENT_CAPACITY;
+use crate::approvals::rules::APPROVAL_RULES_STATEMENT_CAPACITY;
+use crate::approvals::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
+use crate::artifacts::schema::ARTIFACT_STATEMENT_CAPACITY;
+use crate::bootstrap::secure_defaults::SecureDefaults;
+use crate::cleanup_failures::CleanupFailures;
+use crate::daemon::backup::run::BACKUP_STATEMENT_CAPACITY;
+use crate::daemon::configuration::DAEMON_CONFIGURATION_STATEMENT_CAPACITY;
+use crate::daemon::machine::registry::MACHINE_REGISTRY_STATEMENT_CAPACITY;
+use crate::daemon::process::supervision::ProcessStateTracker;
+use crate::daemon::repairing_socket::{
+    DatabaseFileRepairEnd, RepairingSocketDeps, RepairingSocketError,
+    repair_database_file_while_answering,
+};
+use crate::daemon::retention_methods::RETENTION_STATEMENT_CAPACITY;
+use crate::database::connection::read_pool::{DatabaseReadPool, DatabaseReadPoolCloseError};
+use crate::database::connection::writer_open::{DatabaseOpenError, open_database};
+use crate::database::writer::{
+    DatabaseWriter, DatabaseWriterOpenError, DatabaseWriterOptions, ThreadJoinError,
+    WriteFailureListener, WriterCloseError, WritesHeldError,
+};
+use crate::error_description::describe_error;
+use crate::events::log_service::{
+    EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
+};
+use crate::events::session::followers::SessionEventFollowers;
+use crate::events::session::purge::rows::SESSION_PURGE_STATEMENT_CAPACITY;
+use crate::file::atomic_write::AtomicWriteError;
+use crate::git::turn_snapshot::service::TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY;
+use crate::git::worktree::occupancy::MOUNT_OCCUPANCY_STATEMENT_CAPACITY;
+use crate::git::worktree::unfinished_discards::UNFINISHED_DISCARD_STATEMENT_CAPACITY;
+use crate::interventions::service::INTERVENTION_SERVICE_STATEMENT_CAPACITY;
+use crate::ipc::caller_process::contract::CallerProcessReader;
+use crate::ipc::handlers::approval::APPROVAL_METHODS_STATEMENT_CAPACITY;
+use crate::ipc::handlers::driver::methods::DRIVER_METHODS_STATEMENT_CAPACITY;
+use crate::plans::service::PLANS_STATEMENT_CAPACITY;
+use crate::provider::conversation_purge::CONVERSATION_PURGE_STATEMENT_CAPACITY;
+use crate::provider::driver::capabilities::writer::DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY;
+use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::provider::runtime_binding::live_runs::LIVE_RUN_BINDINGS_STATEMENT_CAPACITY;
+use crate::provider::runtime_binding::store::RUNTIME_BINDING_STORE_STATEMENT_CAPACITY;
+use crate::questions::projection::question_projection_statements;
+use crate::questions::service::QUESTION_STATEMENT_CAPACITY;
+use crate::queue::provider_session::PROVIDER_SESSIONS_STATEMENT_CAPACITY;
+use crate::recovery::damaged_history::DAMAGED_HISTORY_STATEMENT_CAPACITY;
+use crate::recovery::database_file::check::{DatabaseFileCheck, DatabaseFileCheckAnswer};
+use crate::recovery::database_file::copy::DatabaseFileCopier;
+use crate::recovery::database_file::damage::{
+    DatabaseDamageWatch, is_database_damage_error, record_database_damage,
+};
+use crate::recovery::database_file::last_run::{
+    LastRunEnd, LastRunError, forget_last_run, read_last_run_end, record_clean_stop,
+    record_run_start,
+};
+use crate::recovery::database_file::repair::{
+    DatabaseFileRepairFailure, DatabaseFileRepairOptions,
+};
+use crate::recovery::database_file::sqlite_shell::SqliteShell;
+use crate::recovery::projection_rebuild::PROJECTION_REBUILD_STATEMENT_CAPACITY;
+use crate::recovery::restart_settle::RESTART_SETTLE_STATEMENT_CAPACITY;
+use crate::recovery::session_write_refusal::refuse_session_event;
+use crate::recovery::startup::STARTUP_RECOVERY_STATEMENT_CAPACITY;
+use crate::recovery::status::RecoveryStatusTracker;
+use crate::session::auto_title::SESSION_AUTO_TITLE_STATEMENT_CAPACITY;
+use crate::session::changes::SESSION_CHANGES_STATEMENT_CAPACITY;
+use crate::session::directory::list_feed::rows::SESSION_LIST_ROWS_STATEMENT_CAPACITY;
+use crate::session::draft_store::SESSION_DRAFT_STORE_STATEMENT_CAPACITY;
+use crate::session::links::service::SESSION_LINK_SERVICE_STATEMENT_CAPACITY;
+use crate::session::related::ranking::RELATED_RANKING_STATEMENT_CAPACITY;
+use crate::session::review_note::store::REVIEW_NOTE_STORE_STATEMENT_CAPACITY;
+use crate::session::run::binding_cursors::RUN_BINDING_CURSORS_STATEMENT_CAPACITY;
+use crate::session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
+use crate::session::run::live_count::count_live_runs_after_commits;
+use crate::session::run::pause::RUN_PAUSE_STATEMENT_CAPACITY;
+use crate::session::run::provider_choice::PROVIDER_CHOICE_STATEMENT_CAPACITY;
+use crate::session::search::files::service::FILE_SEARCH_STATEMENT_CAPACITY;
+use crate::session::search::index::outbox::OUTBOX_STATEMENT_CAPACITY;
+use crate::session::service::SESSION_SERVICE_STATEMENT_CAPACITY;
+use crate::session::tags::SESSION_TAG_SERVICE_STATEMENT_CAPACITY;
+use crate::workflow::definitions::drafts::WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY;
+use crate::workflow::definitions::kept_values::WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY;
+use crate::workflow::definitions::library::WORKFLOW_LIBRARY_STATEMENT_CAPACITY;
+use crate::workflow::definitions::store::WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY;
+use crate::workflow::definitions::versions::history::WORKFLOW_VERSIONS_STATEMENT_CAPACITY;
+use crate::workflow::runs::attention::WORKFLOW_RUN_ATTENTION_STATEMENT_CAPACITY;
+use crate::workflow::runs::deletion::WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY;
+use crate::workflow::runs::step_payload::WORKFLOW_STEP_PAYLOAD_STATEMENT_CAPACITY;
+use crate::workflow::runs::store::WORKFLOW_RUN_STORE_STATEMENT_CAPACITY;
+use crate::workspace::repo::mount::health::REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY;
+use crate::workspace::repo::mount::service::REPO_MOUNT_SERVICE_STATEMENT_CAPACITY;
+
+/// The statements each read connection keeps prepared: every reading service's set, summed, so a
+/// statement stays prepared on whichever connection a read borrows. A service whose set holds
+/// another's counts it inside its own.
+pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMENT_CAPACITY
+    + APPROVAL_REQUEST_READER_STATEMENT_CAPACITY
+    + APPROVAL_RULES_STATEMENT_CAPACITY
+    + ARTIFACT_STATEMENT_CAPACITY
+    + BACKUP_STATEMENT_CAPACITY
+    + CONVERSATION_PURGE_STATEMENT_CAPACITY
+    + DAEMON_CONFIGURATION_STATEMENT_CAPACITY
+    + DAMAGED_HISTORY_STATEMENT_CAPACITY
+    + DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY
+    + DRIVER_METHODS_STATEMENT_CAPACITY
+    + EVENT_LOG_STATEMENT_CAPACITY
+    + FILE_SEARCH_STATEMENT_CAPACITY
+    + INTERVENTION_SERVICE_STATEMENT_CAPACITY
+    + LIVE_RUN_BINDINGS_STATEMENT_CAPACITY
+    + MACHINE_REGISTRY_STATEMENT_CAPACITY
+    + MOUNT_OCCUPANCY_STATEMENT_CAPACITY
+    + OUTBOX_STATEMENT_CAPACITY
+    + PLANS_STATEMENT_CAPACITY
+    + PROJECTION_REBUILD_STATEMENT_CAPACITY
+    + PROVIDER_CHOICE_STATEMENT_CAPACITY
+    + PROVIDER_SESSIONS_STATEMENT_CAPACITY
+    + QUESTION_STATEMENT_CAPACITY
+    + RELATED_RANKING_STATEMENT_CAPACITY
+    + REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY
+    + REPO_MOUNT_SERVICE_STATEMENT_CAPACITY
+    + RESTART_SETTLE_STATEMENT_CAPACITY
+    + RETENTION_STATEMENT_CAPACITY
+    + REVIEW_NOTE_STORE_STATEMENT_CAPACITY
+    // The reviewer denials' set and the run engine's each hold the run agent reader's.
+    + REVIEWER_DENIALS_STATEMENT_CAPACITY
+    + RUN_BINDING_CURSORS_STATEMENT_CAPACITY
+    + RUN_ENGINE_STATEMENT_CAPACITY
+    + RUN_PAUSE_STATEMENT_CAPACITY
+    + RUNTIME_BINDING_STORE_STATEMENT_CAPACITY
+    + SESSION_AUTO_TITLE_STATEMENT_CAPACITY
+    + SESSION_CHANGES_STATEMENT_CAPACITY
+    + SESSION_DRAFT_STORE_STATEMENT_CAPACITY
+    + SESSION_LINK_SERVICE_STATEMENT_CAPACITY
+    + SESSION_LIST_ROWS_STATEMENT_CAPACITY
+    + SESSION_PURGE_STATEMENT_CAPACITY
+    + SESSION_SERVICE_STATEMENT_CAPACITY
+    + SESSION_TAG_SERVICE_STATEMENT_CAPACITY
+    + STARTUP_RECOVERY_STATEMENT_CAPACITY
+    + TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY
+    + UNFINISHED_DISCARD_STATEMENT_CAPACITY
+    + WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY
+    + WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY
+    + WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY
+    + WORKFLOW_LIBRARY_STATEMENT_CAPACITY
+    + WORKFLOW_RUN_ATTENTION_STATEMENT_CAPACITY
+    + WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY
+    + WORKFLOW_RUN_STORE_STATEMENT_CAPACITY
+    + WORKFLOW_STEP_PAYLOAD_STATEMENT_CAPACITY
+    + WORKFLOW_VERSIONS_STATEMENT_CAPACITY;
+
+/// How the writer's open fails, as [`DatabaseWriter::open`] reports the schema's opener.
+type WriterOpenFailure =
+    DatabaseWriterOpenError<CleanupFailures<DatabaseOpenError, rusqlite::Error>>;
+
+/// What a start needs to open the database file.
+pub(crate) struct DatabaseFileStart<'a> {
+    /// The database file.
+    pub(crate) database_path: PathBuf,
+    /// The data folder, which the repair's copies aside go into.
+    pub(crate) data_folder: PathBuf,
+    /// The search index's folder, which a replaced file drops.
+    pub(crate) index_folder_path: PathBuf,
+    /// The daemon's SQLite shell, which a repair recovers the file with.
+    pub(crate) shell: &'a SqliteShell,
+    /// The `database copy` mode every copy of the repair runs in.
+    pub(crate) copier: &'a DatabaseFileCopier,
+    /// The time a new copy aside is named for.
+    pub(crate) now: Timestamp,
+    /// Where the person keeps backups, which a repair reads the newest of.
+    pub(crate) backup_folder: Option<PathBuf>,
+    /// The run folder the repairing socket binds in.
+    pub(crate) run_folder: &'a DaemonRunFolder,
+    /// The checked socket path the repairing socket binds.
+    pub(crate) secure_defaults: &'a SecureDefaults,
+    /// Reads which process is at the client's end of each connection the repair answers on.
+    pub(crate) caller_process_reader: Arc<dyn CallerProcessReader>,
+    /// Where the daemon is in its own life, marked degraded when the file cannot be checked.
+    pub(crate) process_state: Arc<ProcessStateTracker>,
+    /// The system's stop request, which ends a repair under way.
+    pub(crate) stop: &'a CancellationToken,
+}
+
+/// Why the database file did not open; the file is left as it was found.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum DatabaseFileOpenError {
+    /// The repair could not run, or its socket could not be bound.
+    #[error("the database file's repair could not run")]
+    Repair(#[source] RepairingSocketError),
+    /// The file is damaged and its repair could not heal it; it is left as it was.
+    #[error(
+        "The database file is damaged and could not be repaired: {failure}. Its files are copied \
+         aside in {}.",
+        aside_folder.display()
+    )]
+    SavedSessionsUnrepaired {
+        /// The folder the damaged files are copied aside in.
+        aside_folder: PathBuf,
+        /// Why the repair failed.
+        #[source]
+        failure: DatabaseFileRepairFailure,
+    },
+    /// The file holds another build's schema, which this build never migrates.
+    #[error("the database at {} holds the schema of another build", path.display())]
+    SavedSessionsFromAnotherVersion {
+        /// The database file.
+        path: PathBuf,
+    },
+    /// A stop came while the file was repaired.
+    #[error("a stop came while the database file was repaired")]
+    Stopped(DaemonStopIntent),
+    /// The last run's record could not be read or written.
+    #[error(transparent)]
+    LastRun(#[from] LastRunError),
+    /// The file is too damaged to open; its damage is recorded, beside the record's own failure
+    /// when that failed, so the next start repairs it.
+    #[error("the database file is damaged; the next start repairs it")]
+    Damaged(#[source] CleanupFailures<WriterOpenFailure, AtomicWriteError>),
+    /// The writer could not open the file.
+    #[error(transparent)]
+    Writer(WriterOpenFailure),
+}
+
+/// Why a step of the database file's close failed; every other step still ran.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum DatabaseFileCloseFailure {
+    /// The task that acts on the check's answer ended before it finished.
+    #[error("the database file's check ended before its answer was acted on")]
+    Check(#[source] JoinError),
+    /// The damage found could not be recorded, so the next start's check must find it again.
+    #[error(
+        "recording the damage to the database file failed, so the next start's check must find \
+         it again"
+    )]
+    DamageRecord(#[source] AtomicWriteError),
+    /// A read connection did not close cleanly.
+    #[error(transparent)]
+    ReadPool(DatabaseReadPoolCloseError),
+    /// The writer's connection or thread did not end cleanly.
+    #[error(transparent)]
+    Writer(Arc<CleanupFailures<WriterCloseError, ThreadJoinError>>),
+    /// The clean stop could not be recorded, so the next start checks the file before it writes.
+    #[error("the database file's clean stop could not be recorded")]
+    CleanStop(#[source] LastRunError),
+}
+
+/// The open database file and everything that reads or writes it.
+#[expect(
+    dead_code,
+    reason = "the daemon's start, which hands each part to the services that read or write the file"
+)]
+pub(crate) struct DatabaseFile {
+    /// The database file.
+    pub(crate) database_path: PathBuf,
+    /// The one writer.
+    pub(crate) writer: Arc<DatabaseWriter>,
+    /// The one read pool every reading service shares.
+    pub(crate) pool: Arc<DatabaseReadPool>,
+    /// Learns of damage the check or any read or write meets.
+    pub(crate) damage: Arc<DatabaseDamageWatch>,
+    /// Where the daemon stands in its recovery from the last restart.
+    pub(crate) status: Arc<RecoveryStatusTracker>,
+    /// The sole append path for every session's events.
+    pub(crate) event_log: Arc<EventLogService>,
+    /// The followers every committed event is published to.
+    pub(crate) followers: Arc<SessionEventFollowers>,
+    /// The count of live runs, read after each commit.
+    pub(crate) live_runs: watch::Receiver<u32>,
+    check: CheckFollower,
+    // Whether the last run's record or a sound check vouches for the file, so a clean stop may
+    // be recorded.
+    is_vouched: Arc<AtomicBool>,
+}
+
+/// Repairs the file when a run recorded damage to it, opens it and starts its check. Fails with
+/// [`DatabaseFileOpenError::SavedSessionsUnrepaired`] when the file is damaged and its repair
+/// could not heal it, with [`DatabaseFileOpenError::SavedSessionsFromAnotherVersion`] when it holds
+/// another build's schema, with [`DatabaseFileOpenError::Damaged`] when it is too damaged to open,
+/// which is recorded so the next start repairs it, and with [`DatabaseFileOpenError::Stopped`]
+/// when a stop ended the repair.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start, which opens the database file"
+    )
+)]
+pub(crate) async fn open_database_file(
+    start: DatabaseFileStart<'_>,
+) -> Result<DatabaseFile, DatabaseFileOpenError> {
+    let DatabaseFileStart {
+        database_path,
+        data_folder,
+        index_folder_path,
+        shell,
+        copier,
+        now,
+        backup_folder,
+        run_folder,
+        secure_defaults,
+        caller_process_reader,
+        process_state,
+        stop,
+    } = start;
+    // Before anything opens the file, so a repaired file replaces it whole.
+    let repaired = repair_database_file_while_answering(RepairingSocketDeps {
+        options: &DatabaseFileRepairOptions {
+            database_path: &database_path,
+            data_folder: &data_folder,
+            index_folder_path: &index_folder_path,
+            shell,
+            copier,
+            now,
+        },
+        backup_folder: backup_folder.as_deref(),
+        run_folder,
+        secure_defaults,
+        caller_process_reader,
+        stop,
+    })
+    .await
+    .map_err(DatabaseFileOpenError::Repair)?;
+    match repaired {
+        DatabaseFileRepairEnd::Continued => {}
+        DatabaseFileRepairEnd::Unrepaired {
+            aside_folder,
+            failure,
+        } => {
+            return Err(DatabaseFileOpenError::SavedSessionsUnrepaired {
+                aside_folder,
+                failure,
+            });
+        }
+        DatabaseFileRepairEnd::Stopped(intent) => {
+            return Err(DatabaseFileOpenError::Stopped(intent));
+        }
+    }
+    let last_run = read_last_run_end(&database_path).await?;
+    // A run that ends uncleanly leaves its record, which vouches for the file at the next start;
+    // an unvouched file keeps the last run's record until its check finds it sound.
+    let is_vouched = if last_run == LastRunEnd::Unknown {
+        tracing::info!(
+            "the database file changed since the service's last run, or holds no record of one; \
+             writes wait for the file's check"
+        );
+        false
+    } else {
+        record_run_start(&database_path).await?;
+        true
+    };
+    let (writes_release, writes_held_until) = if is_vouched {
+        (None, None)
+    } else {
+        let (release, held_until) = oneshot::channel();
+        (Some(release), Some(held_until))
+    };
+    let damage = Arc::new(DatabaseDamageWatch::new());
+    let (after_commit, live_runs) = count_live_runs_after_commits();
+    let writer = open_writer(
+        &database_path,
+        DatabaseWriterOptions {
+            writes_held_until,
+            on_write_failed: Some(report_write_damage(Arc::clone(&damage))),
+            after_commit: Some(after_commit),
+        },
+    )
+    .await?;
+    let is_vouched = Arc::new(AtomicBool::new(is_vouched));
+    // A new file has nothing to check. The check starts after the writer's open, which rebuilds a
+    // crashed run's log index under locks the check's own open would be refused by.
+    let check = if last_run == LastRunEnd::NewFile {
+        CheckFollower::none()
+    } else {
+        CheckFollower::start(CheckActs {
+            database_path: database_path.clone(),
+            writes_release,
+            damage: Arc::clone(&damage),
+            process_state,
+            is_vouched: Arc::clone(&is_vouched),
+        })
+    };
+    let pool = Arc::new(DatabaseReadPool::new(
+        database_path.clone(),
+        READ_POOL_STATEMENT_CAPACITY,
+    ));
+    let status = Arc::new(RecoveryStatusTracker::new());
+    let followers = Arc::new(SessionEventFollowers::default());
+    let event_log = Arc::new(EventLogService::new(EventLogServiceDependencies {
+        writer: Arc::clone(&writer),
+        pool: Arc::clone(&pool),
+        followers: Arc::clone(&followers),
+        projection_statements: Some(Box::new(question_projection_statements)),
+        refuse_session_write: Some(Box::new({
+            let status = Arc::clone(&status);
+            move |session_id, event_type| refuse_session_event(&status, session_id, event_type)
+        })),
+        read_damaged_from_sequence: Some(Arc::new({
+            let status = Arc::clone(&status);
+            move |session_id| status.read_damaged_from_sequence(session_id)
+        })),
+    }));
+    Ok(DatabaseFile {
+        database_path,
+        writer,
+        pool,
+        damage,
+        status,
+        event_log,
+        followers,
+        live_runs,
+        check,
+        is_vouched,
+    })
+}
+
+/// Closes the database file once the work that reads and writes it has ended: the check first,
+/// then the damage found recorded; then the read pool before the writer, so the writer is the last
+/// to close the file and folds the write-ahead log into it, except an ended writer, which is
+/// joined first and skips that checkpoint, so a damaged file's log stays for the repair. The
+/// writer drains within `remaining`. The clean stop is recorded only for a file vouched for, with
+/// no damage found, no write left unfinished, no failure here and `is_stop_failed` false. Answers
+/// each step's failure, every step having run.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's stop, which closes the data folder")
+)]
+pub(crate) async fn close_database_file(
+    file: DatabaseFile,
+    remaining: Duration,
+    is_stop_failed: bool,
+) -> Vec<DatabaseFileCloseFailure> {
+    let closing_started = Instant::now();
+    let DatabaseFile {
+        database_path,
+        writer,
+        pool,
+        damage,
+        check,
+        is_vouched,
+        ..
+    } = file;
+    let mut failures = Vec::new();
+    // The check's connection closes first, so the writer is the last to close the file.
+    if let Err(failure) = check.stop().await {
+        failures.push(DatabaseFileCloseFailure::Check(failure));
+    }
+    if damage.is_found()
+        && let Err(failure) =
+            record_database_damage(&database_path, damage.when_found().await).await
+    {
+        failures.push(DatabaseFileCloseFailure::DamageRecord(failure));
+    }
+    let was_ended = writer.is_ended();
+    let drain_within = remaining.saturating_sub(closing_started.elapsed());
+    let unfinished = if was_ended {
+        let unfinished = close_writer(&writer, drain_within, &mut failures).await;
+        close_pool(&pool, &mut failures).await;
+        unfinished
+    } else {
+        close_pool(&pool, &mut failures).await;
+        close_writer(&writer, drain_within, &mut failures).await
+    };
+    let is_clean = is_vouched.load(Ordering::Acquire)
+        && !damage.is_found()
+        && !was_ended
+        && unfinished == 0
+        && failures.is_empty()
+        && !is_stop_failed;
+    if is_clean && let Err(failure) = record_clean_stop(&database_path).await {
+        failures.push(DatabaseFileCloseFailure::CleanStop(failure));
+    }
+    failures
+}
+
+// Opens the writer on the file at `database_path`. A file holding another build's schema fails as
+// that; one too damaged to open has its damage recorded, so the next start repairs it.
+async fn open_writer(
+    database_path: &std::path::Path,
+    options: DatabaseWriterOptions,
+) -> Result<Arc<DatabaseWriter>, DatabaseFileOpenError> {
+    let opened_path = database_path.to_path_buf();
+    let failure = match DatabaseWriter::open(move || open_database(&opened_path), options).await {
+        Ok(writer) => return Ok(Arc::new(writer)),
+        Err(failure) => failure,
+    };
+    if let DatabaseWriterOpenError::Open(open_failure) = &failure
+        && let DatabaseOpenError::SchemaFromAnotherBuild { path } =
+            open_failure.original().original()
+    {
+        return Err(DatabaseFileOpenError::SavedSessionsFromAnotherVersion { path: path.clone() });
+    }
+    if !is_database_damage_error(&failure) {
+        return Err(DatabaseFileOpenError::Writer(failure));
+    }
+    let record_failures = record_database_damage(database_path, &describe_error(&failure))
+        .await
+        .err()
+        .into_iter()
+        .collect();
+    Err(DatabaseFileOpenError::Damaged(CleanupFailures::new(
+        failure,
+        record_failures,
+        "recording the damage to the database file",
+    )))
+}
+
+// Tells `damage` of each failure SQLite raised for a write; the watch holds no writer, so the
+// listener holds it whole.
+fn report_write_damage(damage: Arc<DatabaseDamageWatch>) -> WriteFailureListener {
+    Box::new(move |failure| damage.report(failure))
+}
+
+// Closes the read pool, keeping its failure.
+async fn close_pool(pool: &DatabaseReadPool, failures: &mut Vec<DatabaseFileCloseFailure>) {
+    if let Err(failure) = pool.close().await {
+        failures.push(DatabaseFileCloseFailure::ReadPool(failure));
+    }
+}
+
+// Closes the writer within `drain_within`, keeping its failure; answers the writes it left
+// unfinished.
+async fn close_writer(
+    writer: &DatabaseWriter,
+    drain_within: Duration,
+    failures: &mut Vec<DatabaseFileCloseFailure>,
+) -> usize {
+    match writer.close(Some(drain_within)).await {
+        Ok(0) => 0,
+        Ok(unfinished) => {
+            tracing::warn!(
+                unfinished,
+                "the stop's drain bound passed; writes never committed"
+            );
+            unfinished
+        }
+        Err(failure) => {
+            failures.push(DatabaseFileCloseFailure::Writer(failure));
+            0
+        }
+    }
+}
+
+/// The task that acts on the check's answer, and the stop that ends the check.
+struct CheckFollower {
+    stop: CancellationToken,
+    task: Option<JoinHandle<()>>,
+}
+
+/// What the check's answer acts on.
+struct CheckActs {
+    database_path: PathBuf,
+    /// Lets the held writes go; `None` when the file was vouched for and nothing is held.
+    writes_release: Option<oneshot::Sender<Result<(), WritesHeldError>>>,
+    damage: Arc<DatabaseDamageWatch>,
+    process_state: Arc<ProcessStateTracker>,
+    is_vouched: Arc<AtomicBool>,
+}
+
+impl CheckFollower {
+    // A new file's: there is nothing to check.
+    fn none() -> Self {
+        Self {
+            stop: CancellationToken::new(),
+            task: None,
+        }
+    }
+
+    // Starts the check of the file and the task acting on its answer.
+    fn start(acts: CheckActs) -> Self {
+        let check = DatabaseFileCheck::start(acts.database_path.clone());
+        let stop = CancellationToken::new();
+        let task = tokio::spawn(follow_check(check, stop.clone(), acts));
+        Self {
+            stop,
+            task: Some(task),
+        }
+    }
+
+    // Ends the check if it still runs, which stops its walk within one page, and waits for its
+    // answer to have been acted on.
+    async fn stop(self) -> Result<(), JoinError> {
+        self.stop.cancel();
+        match self.task {
+            Some(task) => task.await,
+            None => Ok(()),
+        }
+    }
+}
+
+// Waits for the check's answer, or for the stop, which drops the check and so ends its walk, then
+// acts on the answer: a sound file vouched for and its writes let go, damage told to the watch, and
+// a check that could not run leaving the daemon degraded, its writes let go and the file
+// unvouched.
+async fn follow_check(check: DatabaseFileCheck, stop: CancellationToken, acts: CheckActs) {
+    let check_started = Instant::now();
+    let answer = tokio::select! {
+        biased;
+        answer = check.answer() => answer,
+        () = stop.cancelled() => return,
+    };
+    let CheckActs {
+        database_path,
+        writes_release,
+        damage,
+        process_state,
+        is_vouched,
+    } = acts;
+    match answer {
+        Ok(DatabaseFileCheckAnswer::Sound) => {
+            tracing::info!(
+                check_ms = check_started.elapsed().as_millis(),
+                "the database file's check found it sound"
+            );
+            if !is_vouched.load(Ordering::Acquire) {
+                match record_run_start(&database_path).await {
+                    Ok(()) => is_vouched.store(true, Ordering::Release),
+                    Err(failure) => tracing::warn!(
+                        error = &failure as &(dyn Error + 'static),
+                        "recording that the database file was found sound failed, so the next \
+                         start checks it before it writes again"
+                    ),
+                }
+            }
+            release_writes(writes_release);
+        }
+        // The held writes never reach a damaged file: the hold's sender drops with this task,
+        // which ends the writer.
+        Ok(DatabaseFileCheckAnswer::Damaged(found)) => {
+            tracing::warn!(damage = %found, "the database file's check found it damaged");
+            damage.find(found);
+        }
+        Ok(DatabaseFileCheckAnswer::Stopped) => {}
+        Err(failure) => {
+            tracing::warn!(
+                error = &failure as &(dyn Error + 'static),
+                "the database file could not be checked, so the service takes writes unchecked \
+                 and its next start checks the file again"
+            );
+            process_state.mark_degraded();
+            release_writes(writes_release);
+            // A file the last run vouched for is vouched for no longer.
+            if is_vouched.swap(false, Ordering::AcqRel)
+                && let Err(failure) = forget_last_run(&database_path).await
+            {
+                tracing::warn!(
+                    error = &failure as &(dyn Error + 'static),
+                    "removing the record of the last run failed, so the next start may write \
+                     before its check answers"
+                );
+            }
+        }
+    }
+}
+
+// Lets the held writes go, when any are held.
+fn release_writes(writes_release: Option<oneshot::Sender<Result<(), WritesHeldError>>>) {
+    if let Some(release) = writes_release
+        && release.send(Ok(())).is_err()
+    {
+        tracing::debug!("the database writer had closed before its held writes were let go");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use sidekicks_platforms::{DaemonRunFolder, Spawner};
+    use tokio_util::sync::CancellationToken;
+
+    use super::{DatabaseFileStart, close_database_file, open_database_file};
+    use crate::bootstrap::secure_defaults::{SecureDefaults, SecureDefaultsConfig};
+    use crate::daemon::process::supervision::ProcessStateTracker;
+    use crate::database::connection::writer_open::DAEMON_DATABASE_FILE_NAME;
+    use crate::ipc::caller_process::system_reader::ProcessTableReader;
+    use crate::recovery::database_file::copy::DatabaseFileCopier;
+    use crate::recovery::database_file::last_run::{LastRunEnd, read_last_run_end};
+    use crate::recovery::database_file::sqlite_shell::SqliteShell;
+    use crate::recovery::database_file::{WRITE_AHEAD_LOG_SUFFIX, sibling_path};
+
+    // A stop folds the write-ahead log into the file and records the clean stop, and a start after
+    // it checks the file beside its writes and stops cleanly again. Killed by dropping
+    // `record_clean_stop` from the close: the record then reads `Unclean`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_stop_folds_the_log_into_the_file_and_records_a_clean_stop() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let data_folder = scratch.path().join("data");
+        std::fs::create_dir(&data_folder).expect("the data folder is made");
+        let run_path = scratch.path().join("run");
+        let run_folder = DaemonRunFolder {
+            socket_path: run_path.join("daemon.sock"),
+            token_path: run_path.join("daemon.token"),
+            status_path: run_path.join("service-status.json"),
+            folder_path: run_path,
+        };
+        let database_path = data_folder.join(DAEMON_DATABASE_FILE_NAME);
+        let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
+        let program = std::env::current_exe().expect("the test program names itself");
+        let shell = SqliteShell::new(program.clone(), spawner.clone());
+        let copier = DatabaseFileCopier::new(program, spawner);
+        let secure_defaults = SecureDefaults::load(SecureDefaultsConfig {
+            local_ipc_path: run_folder.socket_path.clone(),
+        })
+        .expect("the socket's path is short enough");
+        let stop = CancellationToken::new();
+        let open = || {
+            open_database_file(DatabaseFileStart {
+                database_path: database_path.clone(),
+                data_folder: data_folder.clone(),
+                index_folder_path: data_folder.join("search-index"),
+                shell: &shell,
+                copier: &copier,
+                now: jiff::Timestamp::now(),
+                backup_folder: None,
+                run_folder: &run_folder,
+                secure_defaults: &secure_defaults,
+                caller_process_reader: Arc::new(
+                    ProcessTableReader::for_this_program().expect("the reader builds"),
+                ),
+                process_state: ProcessStateTracker::new(),
+                stop: &stop,
+            })
+        };
+
+        let first = open().await.expect("a new file opens");
+        let failures = close_database_file(first, Duration::from_secs(4), false).await;
+        assert!(failures.is_empty(), "{failures:?}");
+        let log = sibling_path(&database_path, WRITE_AHEAD_LOG_SUFFIX);
+        assert!(
+            std::fs::metadata(&log).map_or(true, |log| log.len() == 0),
+            "the stop leaves no log to replay"
+        );
+        assert_eq!(
+            read_last_run_end(&database_path)
+                .await
+                .expect("the record reads"),
+            LastRunEnd::Clean
+        );
+
+        // The clean stop vouches for the file, so the next start's writes go at once.
+        let second = open().await.expect("the file opens again");
+        second.writer.flush().await;
+        let failures = close_database_file(second, Duration::from_secs(4), false).await;
+        assert!(failures.is_empty(), "{failures:?}");
+        assert_eq!(
+            read_last_run_end(&database_path)
+                .await
+                .expect("the record reads"),
+            LastRunEnd::Clean
+        );
+    }
+}

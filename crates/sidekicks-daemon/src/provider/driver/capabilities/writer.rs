@@ -37,10 +37,6 @@ use crate::provider::output_validation::{ProviderOutputValidationError, check_co
 
 /// The statements a [`DriverCapabilitiesWriter`] prepares on a read connection: the contract row,
 /// the flag rows and the tool rows.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start sizes read caches with it")
-)]
 pub(crate) const DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY: usize = 3;
 
 // The pair comes from the parent row itself, so a row with no version stays apart from no row.

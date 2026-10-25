@@ -72,10 +72,6 @@ use crate::text_cut::cut_to_code_points;
 pub(crate) const BACKUP_LOCK_FILE_NAME: &str = "backup.lock";
 
 /// The statements the last run's read prepares, counted into the read pool's capacity.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start, sizing its read connections")
-)]
 pub(crate) const BACKUP_STATEMENT_CAPACITY: usize = 1;
 
 /// A run's processor budget, and a repack's, since a `VACUUM` copies the store too: one second

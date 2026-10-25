@@ -51,7 +51,6 @@ impl DatabaseDamageWatch {
     }
 
     /// Resolves with what the first damage found was; never resolves while none is.
-    #[expect(dead_code, reason = "the daemon's start")]
     pub(crate) async fn when_found(&self) -> &str {
         self.found.wait().await
     }
@@ -93,7 +92,6 @@ impl DatabaseDamageWatch {
 
 /// Records the damage beside the database file, durably, so the next start repairs the file.
 /// Fails with the crash-safe write's failure.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) async fn record_database_damage(
     database_path: &Path,
     damage: &str,

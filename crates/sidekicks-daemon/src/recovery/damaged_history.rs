@@ -50,7 +50,6 @@ use crate::session::service::{
 
 /// The statements damaged history's own reads run: the last event before a damaged one, and
 /// whether a session has a row.
-#[expect(dead_code, reason = "the daemon's start")]
 pub(crate) const DAMAGED_HISTORY_STATEMENT_CAPACITY: usize = 2;
 
 // The last event the session opens at: the newest one before the first damaged event that no

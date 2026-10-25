@@ -61,13 +61,6 @@ const QUESTION_EVENT_TYPES: [SessionEventType; 6] = [
 
 /// The statements that keep the queued answers of every question in step with an append, run in
 /// the append's own write for each event it stores.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which hands the event log its projection statements"
-    )
-)]
 pub(crate) fn question_projection_statements(
     envelope: &UnsequencedEventEnvelope,
 ) -> Vec<WriteStatement> {
