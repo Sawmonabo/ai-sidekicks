@@ -14,7 +14,9 @@ use crate::jsonrpc::refusal::RefusalCode;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::list::BoundedVec;
 use crate::wire::text::NonEmptyText;
-use crate::workflow::definition::document::{WorkflowEdge, WorkflowNode, WorkflowNodeId};
+use crate::workflow::definition::document::{
+    WorkflowEdge, WorkflowNode, WorkflowNodeId, WorkflowTriggerNode,
+};
 use crate::workflow::definition::handle::{
     WorkflowHandle, WorkflowHandleMode, WorkflowHandleType, parse_workflow_handle,
 };
@@ -120,12 +122,8 @@ const LOOP_KIND: &str = "flow.loopItems";
 /// One node's category and the handles it has. For a kind whose outputs derive from its params,
 /// `outputs` is what this node's params give; a node that routes failures to an error output lists
 /// that output too.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    feature = "wasm",
-    derive(Deserialize),
-    serde(rename_all = "camelCase", deny_unknown_fields)
-)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowNodeHandles {
     /// The kind's category.
     pub category: WorkflowNodeKindCategory,
@@ -133,6 +131,42 @@ pub struct WorkflowNodeHandles {
     pub inputs: Vec<WorkflowInputHandleSpec>,
     /// The node's output handles.
     pub outputs: Vec<WorkflowOutputHandleSpec>,
+}
+
+/// The graph check's arguments as the builder sends them: the document's trigger, its other nodes
+/// and edges, and each node's handles by node id, built from the kinds table.
+#[derive(Clone, Debug, PartialEq, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkflowGraphCheckInput {
+    /// The trigger node, once placed.
+    #[serde(default, deserialize_with = "crate::wire::present")]
+    #[schemars(with = "WorkflowTriggerNode")]
+    pub trigger: Option<WorkflowTriggerNode>,
+    /// The other nodes.
+    pub nodes: Vec<WorkflowNode>,
+    /// The edges.
+    pub edges: Vec<WorkflowEdge>,
+    /// Each node's handles by node id.
+    pub node_handles: HashMap<WorkflowNodeId, WorkflowNodeHandles>,
+}
+
+/// The connection check's arguments as the builder sends them: the document's trigger, its other
+/// nodes and edges, each node's handles, and the one connection being drawn.
+#[derive(Clone, Debug, PartialEq, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkflowConnectionCheckInput {
+    /// The trigger node, once placed.
+    #[serde(default, deserialize_with = "crate::wire::present")]
+    #[schemars(with = "WorkflowTriggerNode")]
+    pub trigger: Option<WorkflowTriggerNode>,
+    /// The other nodes.
+    pub nodes: Vec<WorkflowNode>,
+    /// The document's edges; on a reconnect, without the edge being moved.
+    pub edges: Vec<WorkflowEdge>,
+    /// The connection being drawn, with the id the page will store it under.
+    pub edge: WorkflowEdge,
+    /// Each node's handles by node id.
+    pub node_handles: HashMap<WorkflowNodeId, WorkflowNodeHandles>,
 }
 
 /// The findings for the rules that need only a document's trigger, as a node, its nodes and edges
@@ -710,13 +744,17 @@ fn strongly_connected_components<'a>(
     components
 }
 
-/// The TypeScript module of the definition refusal.
+/// The TypeScript module of the definition refusal and the graph checks' arguments.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/definition/refusals",
-    doc: "The refusal a save answers with when a document breaks a rule.",
+    doc: "The refusal a save answers with when a document breaks a rule, and the arguments of the \
+          graph and connection checks.",
     definitions: &[
         Definition::read::<WorkflowDefinitionFinding>().checked(),
         Definition::read::<WorkflowDefinitionRefusedDetails>().checked(),
+        Definition::read::<WorkflowNodeHandles>(),
+        Definition::read::<WorkflowGraphCheckInput>(),
+        Definition::read::<WorkflowConnectionCheckInput>(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],
