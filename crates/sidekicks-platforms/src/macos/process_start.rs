@@ -66,17 +66,6 @@ pub fn read_process_start(process_id: u32) -> io::Result<Option<ProcessStart>> {
     })
 }
 
-/// The environment process `process_id` started with, one `NAME=value` entry each, bytes that are
-/// not UTF-8 read lossily; `None` when the system refuses the process (it ended, or another user
-/// runs it) or shows no environment, as it shows none for its own programs. Blocks on the read;
-/// fails with the system's error on any other refusal, and with `InvalidData` when the answer is
-/// cut short before its last argument.
-pub fn read_process_environment(process_id: u32) -> io::Result<Option<Vec<String>>> {
-    Ok(read_process_start(process_id)?
-        .map(|start| start.environment)
-        .filter(|environment| !environment.is_empty()))
-}
-
 // `KERN_ARGMAX`: the most bytes a process's arguments and environment take together.
 fn read_argument_bytes() -> io::Result<usize> {
     let mut argument_bytes: libc::c_int = 0;

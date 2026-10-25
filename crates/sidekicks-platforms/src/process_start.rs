@@ -16,7 +16,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use crate::{list_user_process_ids, read_process_environment, read_process_start};
+    use crate::{list_user_process_ids, read_process_start};
 
     // The marker the child carries, and the value it carries it with.
     const PROBE_NAME: &str = "SIDEKICKS_PROBE";
@@ -51,7 +51,6 @@ mod tests {
         let child_id = child.id();
 
         let start = read_process_start(child_id);
-        let environment = read_process_environment(child_id);
         let user_processes = list_user_process_ids();
         child.kill().expect("the child is killed");
         child.wait().expect("the child is reaped");
@@ -63,12 +62,6 @@ mod tests {
         expected_arguments.extend(arguments);
         assert_eq!(start.arguments, expected_arguments);
         assert!(start.environment.iter().any(|entry| entry == PROBE_ENTRY));
-        assert_eq!(
-            environment
-                .expect("the environment reads")
-                .expect("the child shows an environment"),
-            start.environment
-        );
         assert!(
             user_processes
                 .expect("the user's processes list")

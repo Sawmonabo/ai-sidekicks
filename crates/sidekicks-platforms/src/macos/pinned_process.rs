@@ -18,7 +18,7 @@ use tokio::io::Interest;
 use tokio::io::unix::AsyncFd;
 
 use crate::child_command::ChildEnd;
-use crate::macos::process_start::read_process_environment;
+use crate::macos::process_start::read_process_start;
 use crate::macos::processes::{list_child_process_ids, list_group_process_ids};
 use crate::pinned_process::ProcessRecord;
 use crate::posix::process::group::signal_group;
@@ -399,8 +399,12 @@ fn end_survivor(
         Err(Errno::ESRCH) => return Ok(false),
         Err(errno) => return Err(io::Error::from(errno)),
     };
-    let carries_entry = read_process_environment(member_id)?
-        .is_some_and(|environment| environment.iter().any(|entry| entry == environment_entry));
+    let carries_entry = read_process_start(member_id)?.is_some_and(|start| {
+        start
+            .environment
+            .iter()
+            .any(|entry| entry == environment_entry)
+    });
     if !is_running(&member)?
         || u32::try_from(session.as_raw()).ok() != Some(record.id)
         || !carries_entry

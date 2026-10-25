@@ -12,11 +12,3 @@ pub fn read_process_start(_process_id: u32) -> io::Result<Option<ProcessStart>> 
         "Windows reads no other process's start here",
     ))
 }
-
-/// Reads no environment. Always fails with `Unsupported`.
-pub fn read_process_environment(_process_id: u32) -> io::Result<Option<Vec<String>>> {
-    Err(io::Error::new(
-        ErrorKind::Unsupported,
-        "Windows reads no other process's environment here",
-    ))
-}

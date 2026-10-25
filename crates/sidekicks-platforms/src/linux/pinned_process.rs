@@ -14,7 +14,7 @@ use tokio::io::Interest;
 use tokio::io::unix::AsyncFd;
 
 use crate::child_command::ChildEnd;
-use crate::linux::process_start::read_process_environment;
+use crate::linux::process_start::read_process_start;
 use crate::linux::{read_process_file, read_process_stat_fields};
 use crate::pinned_process::ProcessRecord;
 use crate::posix::process::group::signal_group;
@@ -286,8 +286,12 @@ fn end_survivor(record: &ProcessRecord, id: u32, environment_entry: &str) -> io:
     if !is_pinned_member(&member)? {
         return Ok(false);
     }
-    let carries_entry = read_process_environment(id)?
-        .is_some_and(|environment| environment.iter().any(|entry| entry == environment_entry));
+    let carries_entry = read_process_start(id)?.is_some_and(|start| {
+        start
+            .environment
+            .iter()
+            .any(|entry| entry == environment_entry)
+    });
     if !carries_entry || !is_pinned_member(&member)? {
         return Ok(false);
     }

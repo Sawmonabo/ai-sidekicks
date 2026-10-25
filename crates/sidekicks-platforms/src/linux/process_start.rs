@@ -22,13 +22,6 @@ pub fn read_process_start(process_id: u32) -> io::Result<Option<ProcessStart>> {
     }))
 }
 
-/// The environment process `process_id` started with, one `NAME=value` entry each, bytes that are
-/// not UTF-8 read lossily; `None` when the system refuses the read because the process ended or
-/// another user runs it. Blocks on the read; fails with the system's error on any other refusal.
-pub fn read_process_environment(process_id: u32) -> io::Result<Option<Vec<String>>> {
-    read_entries(process_id, "environ")
-}
-
 // The zero-ended entries of `/proc/<process_id>/<file>`; `None` when the process ended or another
 // user runs it.
 fn read_entries(process_id: u32, file: &str) -> io::Result<Option<Vec<String>>> {
