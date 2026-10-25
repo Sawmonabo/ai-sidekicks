@@ -139,13 +139,6 @@ pub(crate) enum PanicRecordSendError {
 }
 
 /// The socket a service with process id `daemon_pid` reaches its monitor at, in its run folder.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start starts its crash monitor at it"
-    )
-)]
 pub(crate) fn crash_monitor_socket_path(run_folder: &Path, daemon_pid: u32) -> PathBuf {
     run_folder.join(format!("crash-monitor-{daemon_pid}.sock"))
 }
@@ -201,10 +194,6 @@ pub(crate) fn serve_crash_monitor(
 
 /// Connects the service to its monitor at `socket_path`, trying for up to ten seconds while the
 /// monitor starts. Blocking. Fails when the path cannot be used or no monitor answers in time.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start connects to its crash monitor")
-)]
 pub(crate) fn connect_crash_monitor(socket_path: &Path) -> Result<Client, CrashMonitorError> {
     let name = socket_name(socket_path)?;
     let give_up_at = Instant::now() + CONNECT_BOUND;
@@ -221,10 +210,6 @@ pub(crate) fn connect_crash_monitor(socket_path: &Path) -> Result<Client, CrashM
 
 /// Attaches the crash handler, which asks the monitor `client` reaches for a dump when the process
 /// crashes or aborts, as a panic does. Fails when the system refuses the handler.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start attaches its crash handler")
-)]
 #[expect(
     unsafe_code,
     reason = "the crash handler's event is built through its library's one unsafe constructor"

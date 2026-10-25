@@ -16,15 +16,16 @@ use sidekicks_contracts::wire::BoolLiteral;
 use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
+use crate::provider::driver::daemon_stop::DaemonStopIntent;
 
 /// What the lifecycle verbs act on: the running daemon.
 #[derive(Clone)]
 pub(crate) struct LifecycleMethodsDeps {
     /// Resolves once every write pending at the call is durable; stops nothing.
     pub(crate) flush: Arc<dyn Fn() -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>,
-    /// Starts the daemon's stop once the current reply is written; the stop waits for the writes
-    /// already under way within its drain bound.
-    pub(crate) accept_stop: Arc<dyn Fn() + Send + Sync>,
+    /// Starts the daemon's stop for the intent given once the current reply is written; the stop
+    /// waits for the writes already under way within its drain bound.
+    pub(crate) accept_stop: Arc<dyn Fn(DaemonStopIntent) + Send + Sync>,
 }
 
 /// Registers `daemon.flush`, `daemon.stop`, `daemon.restart` and `daemon.ping`. A stop goes ahead
@@ -45,25 +46,26 @@ pub(crate) fn register_lifecycle_methods(
         }
         .boxed()
     })?;
-    register_stop::<DaemonStop>(registry, deps)?;
-    register_stop::<DaemonRestart>(registry, deps)?;
+    register_stop::<DaemonStop>(registry, deps, DaemonStopIntent::Stop)?;
+    register_stop::<DaemonRestart>(registry, deps, DaemonStopIntent::Restart)?;
     // The answer arriving is the whole of it.
     registry.register::<DaemonPing, _>(|_: EmptyPayload, _context: HandlerContext| {
         async { Ok(EmptyPayload {}) }.boxed()
     })
 }
 
-// Registers a verb that accepts the daemon's stop.
+// Registers a verb that accepts the daemon's stop for `intent`.
 fn register_stop<M>(
     registry: &mut MethodRegistryBuilder,
     deps: &LifecycleMethodsDeps,
+    intent: DaemonStopIntent,
 ) -> Result<(), RegistrationError>
 where
     M: Method<Params = EmptyPayload, Result = DaemonLifecycleAccepted> + 'static,
 {
     let accept_stop = Arc::clone(&deps.accept_stop);
     registry.register::<M, _>(move |_: EmptyPayload, _context: HandlerContext| {
-        accept_stop();
+        accept_stop(intent);
         async {
             Ok(DaemonLifecycleAccepted {
                 accepted: BoolLiteral,
@@ -75,7 +77,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex, PoisonError};
 
     use futures::FutureExt as _;
@@ -92,6 +93,7 @@ mod tests {
     use crate::ipc::registry::{
         Dispatch as _, DispatchError, HandlerContext, MethodRegistry, MethodRegistryBuilder, Reply,
     };
+    use crate::provider::driver::daemon_stop::DaemonStopIntent;
 
     /// A method of another namespace sharing the flush's last segment.
     struct SessionFlush;
@@ -119,12 +121,12 @@ mod tests {
     struct Lifecycle {
         registry: MethodRegistry,
         flushes: Arc<Mutex<Vec<oneshot::Sender<()>>>>,
-        stops: Arc<AtomicUsize>,
+        stops: Arc<Mutex<Vec<DaemonStopIntent>>>,
     }
 
     fn lifecycle() -> Lifecycle {
         let flushes = Arc::new(Mutex::new(Vec::new()));
-        let stops = Arc::new(AtomicUsize::new(0));
+        let stops = Arc::new(Mutex::new(Vec::new()));
         let held = Arc::clone(&flushes);
         let counted = Arc::clone(&stops);
         let mut builder = MethodRegistryBuilder::new();
@@ -142,8 +144,11 @@ mod tests {
                     }
                     .boxed()
                 }),
-                accept_stop: Arc::new(move || {
-                    counted.fetch_add(1, Ordering::SeqCst);
+                accept_stop: Arc::new(move |intent| {
+                    counted
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .push(intent);
                 }),
             },
         )
@@ -172,19 +177,19 @@ mod tests {
         serde_json::from_slice(&answer.json).expect("the answer is JSON")
     }
 
-    // `daemon.stop` and `daemon.restart` are mutations that each accept one stop; `daemon.start`
-    // is no method, since a cold start is the command line's spawn. Killed by a lifecycle verb
-    // registered as a query, and by a stop that is not accepted.
+    // `daemon.stop` and `daemon.restart` are mutations that each accept one stop, the restart's
+    // carrying its intent so a lasting provider service outlives it; `daemon.start` is no method,
+    // since a cold start is the command line's spawn. Killed by a lifecycle verb registered as a
+    // query, by a stop that is not accepted, and by `lifecycle_methods.rs`'s restart registered
+    // with `DaemonStopIntent::Stop`.
     #[tokio::test]
     async fn stop_and_restart_are_mutations_that_accept_a_stop_and_start_is_no_method() {
         let lifecycle = lifecycle();
-        for (count, method) in [
-            DaemonStop::DESCRIPTOR.method,
-            DaemonRestart::DESCRIPTOR.method,
-        ]
-        .into_iter()
-        .enumerate()
-        {
+        let mut accepted = Vec::new();
+        for (method, intent) in [
+            (DaemonStop::DESCRIPTOR.method, DaemonStopIntent::Stop),
+            (DaemonRestart::DESCRIPTOR.method, DaemonStopIntent::Restart),
+        ] {
             let descriptor = lifecycle
                 .registry
                 .descriptor(method)
@@ -196,7 +201,14 @@ mod tests {
                 .dispatch(request(method, Some(&json!({}))), context(1))
                 .await;
             assert_eq!(answer(reply), json!({ "accepted": true }));
-            assert_eq!(lifecycle.stops.load(Ordering::SeqCst), count + 1);
+            accepted.push(intent);
+            assert_eq!(
+                *lifecycle
+                    .stops
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner),
+                accepted
+            );
         }
         assert!(matches!(
             lifecycle
@@ -235,9 +247,12 @@ mod tests {
             .expect("the flush asked for its writes");
         release.send(()).expect("the flush still waits");
         assert_eq!(answer(flushed.await), json!({ "flushed": true }));
-        assert_eq!(
-            lifecycle.stops.load(Ordering::SeqCst),
-            0,
+        assert!(
+            lifecycle
+                .stops
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .is_empty(),
             "a flush stops nothing"
         );
     }

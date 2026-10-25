@@ -620,13 +620,6 @@ impl GitRunner {
 /// shell's on macOS and Linux); a relative entry is passed over, since it would name the daemon's
 /// working folder. `None` when there is none. Reads the file system, so it runs on the spawner's
 /// thread or in `spawn_blocking`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start finds git along the person's search path through it"
-    )
-)]
 pub(crate) fn find_git_executable(environment: &[(String, String)]) -> Option<PathBuf> {
     find_executables("git", environment, Path::new(""), &[])
         .find(|candidate| candidate.is_absolute())
