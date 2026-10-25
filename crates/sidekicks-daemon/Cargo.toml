@@ -9,9 +9,6 @@ publish.workspace = true
 
 [package.metadata.cargo-shear]
 ignored = [
-  # The loopback listener for the agents' tool servers, the telemetry receiver and a machine's
-  # shared ports.
-  "axum",
   # The linking digits of a device link.
   "hkdf",
   # The browser tools and Preview's pages over DevTools.
