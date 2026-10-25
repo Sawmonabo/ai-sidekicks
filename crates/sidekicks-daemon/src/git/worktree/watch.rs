@@ -52,7 +52,7 @@ mod tests;
 
 /// How often a folder too large to watch is checked, and the mount-health re-probe's own tick:
 /// what it shows is minutes old at most, while git runs a few times an hour.
-#[expect(dead_code, reason = "the daemon's start")]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) const SLOW_TICK_INTERVAL: Duration = Duration::from_secs(180);
 
 // Repository changes a receiver may fall behind before it reads a lag, which it answers by
@@ -376,7 +376,7 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
 
     /// Stops every folder's watches and drops every subscription, then waits for the folders'
     /// tasks to end; a later hold or subscription fails with [`WorkingFolderError::Stopped`].
-    #[expect(dead_code, reason = "the daemon's stop")]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's stop"))]
     pub(crate) async fn stop(&self) {
         let (folders, subscriptions) = {
             let mut state = self.shared.lock_state();

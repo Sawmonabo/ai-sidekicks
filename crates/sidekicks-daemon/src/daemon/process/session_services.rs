@@ -25,7 +25,7 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::DatabaseWriter;
 use crate::events::log_service::EventLogService;
 use crate::events::session::appender::SessionEventAppender;
-use crate::events::session::followers::SessionEventFollowers;
+use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use crate::events::session::read::DamagedFromSequenceReader;
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::git::worktree::watch::WorkingFolderWatcher;
@@ -140,6 +140,9 @@ pub(crate) struct SessionServices {
     pub(crate) pauses: Arc<RunPauseControl>,
     /// Answers the choices a provider holds runs on.
     pub(crate) choices: Arc<ProviderChoiceResolver>,
+    /// Each run's binding cursors, which follow the log so a run's end and a session's close
+    /// drop them.
+    pub(crate) binding_cursors: Arc<RunBindingCursors>,
     /// Starts, continues and ends runs.
     pub(crate) engine: Arc<RunEngine>,
     /// The approval side.
@@ -181,7 +184,10 @@ pub(crate) enum SessionServiceStartError {
 /// approval side's run holds reach it, then the services that close its cycles before any run can
 /// end. Fails when the console helper cannot be named or the highlighter cannot start. Runs inside
 /// the daemon's runtime.
-#[expect(dead_code, reason = "the daemon's start, which the composition wires")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's start, which the composition wires")
+)]
 pub(crate) fn build_session_services(
     start: SessionServiceStart,
 ) -> Result<SessionServices, SessionServiceStartError> {
@@ -250,15 +256,16 @@ pub(crate) fn build_session_services(
         Arc::clone(&engine),
         Arc::clone(&providers),
     ));
+    let binding_cursors = Arc::new(RunBindingCursors::new(
+        Arc::clone(&reads),
+        Arc::clone(&runtime_bindings),
+        epochs,
+    ));
     let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
         pool: Arc::clone(&reads),
         writer: Arc::clone(&writer),
-        runtime_bindings: Arc::clone(&runtime_bindings),
-        binding_cursors: Arc::new(RunBindingCursors::new(
-            Arc::clone(&reads),
-            runtime_bindings,
-            epochs,
-        )),
+        runtime_bindings,
+        binding_cursors: Arc::clone(&binding_cursors),
         providers: Arc::clone(&providers),
         compose_opening,
     }));
@@ -331,6 +338,7 @@ pub(crate) fn build_session_services(
         interventions,
         pauses,
         choices,
+        binding_cursors,
         sessions: Arc::new(SessionService::new(
             Arc::clone(&reads),
             read_damaged_from_sequence,
@@ -388,20 +396,29 @@ fn console_helper() -> Result<CommandLine, SessionServiceStartError> {
 
 /// The session services' follows of the log, held for the stop.
 pub(crate) struct SessionAttachments {
+    // Ends by drop, after the follows below have stopped.
+    binding_cursors: FollowerAttachment,
     approvals: ApprovalAttachments,
     related_rescoring: RelatedRescoring,
     auto_titling: SessionAutoTitling,
 }
 
-/// Starts the session services' follows of `followers`: the approval side's, the related
-/// sessions' rescoring and the self-naming. Called once the start's recovery pass has settled the
+/// Starts the session services' follows of `followers`: the binding cursors', the approval side's,
+/// the related sessions' rescoring and the self-naming. Called once the start's recovery pass has settled the
 /// runs, inside the daemon's runtime.
-#[expect(dead_code, reason = "the daemon's start, which the composition wires")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's start, which the composition wires")
+)]
 pub(crate) fn start_session_attachments(
     services: &SessionServices,
     followers: &Arc<SessionEventFollowers>,
 ) -> SessionAttachments {
+    let binding_cursors = Arc::clone(&services.binding_cursors);
     SessionAttachments {
+        // Runs on the writer's pump.
+        binding_cursors: followers
+            .follow_all(move |event| binding_cursors.observe(event).map_err(Into::into)),
         approvals: start_approval_attachments(&services.approvals, followers),
         related_rescoring: services.related_ranking.start(followers),
         auto_titling: services.auto_title.start(followers),
@@ -411,9 +428,13 @@ pub(crate) fn start_session_attachments(
 impl SessionAttachments {
     /// Stops every follow and waits for the work under way; answers each follower whose task
     /// ended abnormally, every one having stopped.
-    #[expect(dead_code, reason = "the daemon's stop, which the composition wires")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the daemon's stop, which the composition wires")
+    )]
     pub(crate) async fn stop(self, services: &SessionServices) -> Vec<FollowerStopFailure> {
         let Self {
+            binding_cursors,
             approvals,
             related_rescoring,
             auto_titling,
@@ -429,6 +450,10 @@ impl SessionAttachments {
                 error,
             });
         }
+        drop(binding_cursors);
         failures
     }
 }
+
+#[cfg(test)]
+mod tests;

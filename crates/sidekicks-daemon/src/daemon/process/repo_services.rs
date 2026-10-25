@@ -94,7 +94,10 @@ pub(crate) enum RepoServiceStartError {
 /// Builds the repository services from `start`. Fails when the askpass broker cannot start for
 /// any reason but a system with no private askpass socket, which leaves it unstarted. Runs inside
 /// the daemon's runtime.
-#[expect(dead_code, reason = "the daemon's start, which the composition wires")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the daemon's start, which the composition wires")
+)]
 pub(crate) fn build_repo_services(
     start: RepoServiceStart,
 ) -> Result<RepoServices, RepoServiceStartError> {

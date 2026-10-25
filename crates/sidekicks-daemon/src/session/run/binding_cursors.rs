@@ -176,13 +176,6 @@ impl RunBindingCursors {
     /// Takes a committed session event, on the writer's pump: a run's end marks its cursors to
     /// drop and its continue unmarks them; a close drops all. Fails when a run state change's
     /// payload does not read as its type's, changing nothing.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start follows every session's committed events with it"
-        )
-    )]
     pub(crate) fn observe(&self, event: &CommittedEvent) -> Result<(), SessionEventReadError> {
         let envelope = &event.envelope;
         let mut sessions = self.lock_sessions();
