@@ -23,8 +23,8 @@ use crate::session::run::read::RunStateReader;
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 /// Adds to `companions`, the write of `change`, a run's end, the settle of every held question,
-/// holding plan and unsettled choice of the run, each guarded on the state it was read in. Fails
-/// as the read fails or an event cannot be drafted.
+/// holding plan and unsettled choice of the run but the choices the companions settle, each
+/// guarded on the state it was read in. Fails as the read fails or an event cannot be drafted.
 pub(crate) async fn settle_held_requests_at_run_end(
     pool: &DatabaseReadPool,
     change: &RunStateChange,
@@ -33,10 +33,17 @@ pub(crate) async fn settle_held_requests_at_run_end(
     let run_id = change.run_id;
     let end = RunState::from(change.entry.state());
     let is_interrupted = end == RunState::Interrupted;
+    let settled_choices = companions.settled_choices.clone();
     let (questions, plans, choices) = pool
         .read(ReadLength::Short, move |reader| {
             let choices = match RunStateReader::new(reader).read_run(&run_id)? {
-                Some(run) => read_open_choice_settlements(reader, run.session_id, run_id, end)?,
+                Some(run) => read_open_choice_settlements(
+                    reader,
+                    run.session_id,
+                    run_id,
+                    end,
+                    &settled_choices,
+                )?,
                 None => Vec::new(),
             };
             Ok::<_, RunEngineError>((

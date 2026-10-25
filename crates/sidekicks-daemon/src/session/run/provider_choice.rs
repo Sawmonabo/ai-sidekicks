@@ -196,10 +196,12 @@ impl From<ProviderChoiceError> for HandlerError {
     }
 }
 
-// The kinds of choice a provider holds a run on, each with the events that ask and settle it.
-#[derive(Clone, Copy)]
-enum ChoiceDialog {
+/// The kinds of choice a provider holds a run on, each with the events that ask and settle it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ChoiceDialog {
+    /// Retry a refused turn on a fallback model, or edit it.
     Refusal,
+    /// Switch off the model that needs usage credits, or spend them.
     UsageCredits,
 }
 
@@ -570,6 +572,7 @@ impl ProviderChoiceResolver {
         let companions = RunStateChangeCompanions {
             statements: vec![settlement_guard(session_id, run_id, dialog, pending)],
             preceding_events: vec![SessionEventDraft::of_session(session_id, settlement)?],
+            settled_choices: vec![dialog],
             ..RunStateChangeCompanions::default()
         };
         match self.engine.transition(change, companions).await {
@@ -610,17 +613,22 @@ pub(crate) struct OpenChoiceSettlement {
 }
 
 /// The settle of each choice of `run_id`, a run of `session_id`, still unsettled when the run ends
-/// in `end`, read on `reader`: `canceled` and `interrupted` for an interrupted end, `runEnded` for
-/// any other. Fails when the read fails or an event breaks a check of its type.
+/// in `end`, read on `reader`, but those in `settled`, which the end's own write settles:
+/// `canceled` and `interrupted` for an interrupted end, `runEnded` for any other. Fails when the
+/// read fails or an event breaks a check of its type.
 pub(crate) fn read_open_choice_settlements(
     reader: &Connection,
     session_id: SessionId,
     run_id: RunId,
     end: RunState,
+    settled: &[ChoiceDialog],
 ) -> Result<Vec<OpenChoiceSettlement>, RunEngineError> {
     let is_interrupted = end == RunState::Interrupted;
     let mut settlements = Vec::new();
     for dialog in [ChoiceDialog::Refusal, ChoiceDialog::UsageCredits] {
+        if settled.contains(&dialog) {
+            continue;
+        }
         let Some(pending) = latest_request(reader, session_id, run_id, dialog)? else {
             continue;
         };
@@ -680,7 +688,7 @@ pub(crate) async fn settle_open_choices_of_ended_run(
                 else {
                     return Ok::<_, RunEngineError>(Vec::new());
                 };
-                read_open_choice_settlements(reader, run.session_id, run_id, run.state)
+                read_open_choice_settlements(reader, run.session_id, run_id, run.state, &[])
             })
             .await?;
         let (guards, mut events): (Vec<_>, Vec<_>) = settlements

@@ -40,6 +40,7 @@ use crate::events::session::appender::{
     SessionEventLinkage,
 };
 use crate::session::run::projection::{RunStateSwap, swap_run_state_statement};
+use crate::session::run::provider_choice::ChoiceDialog;
 use crate::session::run::read::{RunRead, read_run_through, safe_run_version};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::transitions::{RUN_TERMINAL_EVENT_TYPES_SQL, is_transition_allowed};
@@ -319,6 +320,9 @@ pub(crate) struct RunStateChangeCompanions {
     /// The interventions whose rows `statements` move to an outcome, which a run's end leaves to
     /// them rather than settling as left with none.
     pub(crate) settled_interventions: Vec<InterventionId>,
+    /// The choices whose settlements `preceding_events` carry, which a run's end leaves to them
+    /// rather than settling as left with no answer.
+    pub(crate) settled_choices: Vec<ChoiceDialog>,
 }
 
 /// Why a run state change was not written; nothing of it is kept.
@@ -451,6 +455,7 @@ impl RunStateChangeWriter {
             mut preceding_events,
             leading_event,
             settled_interventions: _,
+            settled_choices: _,
         } = companions;
         if let Some(draft) = leading_event {
             preceding_events.insert(0, draft(&run)?);

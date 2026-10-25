@@ -1,7 +1,7 @@
-//! Answers to a provider's choice over a test database holding one run waiting on its
-//! switch-or-credits choice, bound to the table's first provider, whose driver is a stand-in: an
-//! answer the provider got with no reply back, settled by the provider's word, and the order an
-//! answer is refused in.
+//! Answers to a provider's choice over a test database holding one run waiting on a choice, bound
+//! to the table's first provider, whose driver is a stand-in: an answer the provider got with no
+//! reply back, settled by the provider's word, the order an answer is refused in, and the one
+//! settlement of each choice a run's end lets go or an answer ends the run with.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -14,8 +14,8 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{
-    AgentRunUsageCreditsChoiceRequestedPayload, AgentRunUsageCreditsChoiceResolveRequest,
-    RunUsageCreditsChoice,
+    AgentRunRefusalChoiceResolveRequest, AgentRunUsageCreditsChoiceRequestedPayload,
+    AgentRunUsageCreditsChoiceResolveRequest, RunRefusalChoice, RunUsageCreditsChoice,
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
@@ -81,6 +81,42 @@ impl Fixture {
             )
             .await
             .map(|answered| answered.new_state)
+    }
+
+    /// Appends the provider's ask of the retry-or-edit choice on the run.
+    async fn ask_refusal_choice(&self) {
+        let requested: SessionEvent = serde_json::from_value(json!({
+            "type": "agent.run.refusalChoice.requested",
+            "payload": {
+                "sessionId": self.session_id,
+                "runId": self.run_id,
+                "refusedModel": "a model",
+                "fallbackModel": "another model",
+            },
+        }))
+        .expect("the test writes a refusal choice's request");
+        append(&self.engine, self.session_id, &requested).await;
+    }
+
+    /// The `choice` of each settlement of the retry-or-edit choice in the log, oldest first.
+    fn refusal_settlements(&self) -> Vec<String> {
+        self.database
+            .reader()
+            .prepare(
+                "SELECT json_extract(payload, '$.choice') FROM session_events
+                  WHERE session_id = ?1 AND type = ?2 ORDER BY sequence",
+            )
+            .expect("the test reads the log")
+            .query_map(
+                params![
+                    self.session_id.text().as_str(),
+                    SessionEventType::AgentRunRefusalChoiceResolved.as_str()
+                ],
+                |row| row.get(0),
+            )
+            .expect("the log reads")
+            .collect::<Result<_, _>>()
+            .expect("each settlement reads")
     }
 
     /// The run's state as stored.
@@ -321,17 +357,7 @@ async fn an_answer_is_refused_by_the_run_then_its_choice_then_its_driver(#[case]
 #[tokio::test]
 async fn a_process_exit_settles_each_open_choice_in_the_runs_end() {
     let fixture = fixture(MockProviderDriver::new(), WAITING_ON_THE_CHOICE).await;
-    let refusal_requested: SessionEvent = serde_json::from_value(json!({
-        "type": "agent.run.refusalChoice.requested",
-        "payload": {
-            "sessionId": fixture.session_id,
-            "runId": fixture.run_id,
-            "refusedModel": "a model",
-            "fallbackModel": "another model",
-        },
-    }))
-    .expect("the test writes a refusal choice's request");
-    append(&fixture.engine, fixture.session_id, &refusal_requested).await;
+    fixture.ask_refusal_choice().await;
 
     fixture
         .engine
@@ -371,5 +397,44 @@ async fn a_process_exit_settles_each_open_choice_in_the_runs_end() {
             ),
         ]
     );
+    assert_eq!(fixture.state(), "failed");
+}
+
+// `editPrompt` on a waiting retry-or-edit choice ends the run `failed`, and the person's answer is
+// the one settlement of the choice: the run's end, in the same write, leaves the choice its
+// companions settle. Killed by dropping that skip (`provider_choice.rs`, the `settled.contains`
+// check in `read_open_choice_settlements`), which adds `runEnded` beside `editPrompt`.
+#[tokio::test]
+async fn an_edit_prompt_answer_is_its_choices_one_settlement() {
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_answer_provider_choice()
+        .returning(|_| async { Ok(AnswerProviderChoiceResult::Answered {}) }.boxed());
+    let fixture = fixture(
+        driver,
+        ChoiceRun {
+            is_asked: false,
+            ..WAITING_ON_THE_CHOICE
+        },
+    )
+    .await;
+    fixture.ask_refusal_choice().await;
+
+    let answered = fixture
+        .resolver
+        .resolve_refusal_choice(
+            &AgentRunRefusalChoiceResolveRequest {
+                run_id: fixture.run_id,
+                choice: RunRefusalChoice::EditPrompt,
+            },
+            ProviderChoiceAnswerOrigin {
+                device_id: DeviceId::new("device".to_owned()).expect("a device id"),
+            },
+        )
+        .await
+        .expect("the answer settles the choice");
+
+    assert_eq!(answered.new_state, RunState::Failed);
+    assert_eq!(fixture.refusal_settlements(), ["editPrompt"]);
     assert_eq!(fixture.state(), "failed");
 }
