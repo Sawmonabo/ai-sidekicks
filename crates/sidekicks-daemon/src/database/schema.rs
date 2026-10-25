@@ -10,6 +10,7 @@ use crate::artifacts::schema::ARTIFACT_SCHEMA_SQL;
 use crate::git::worktree::schema::WORKTREE_SCHEMA_SQL;
 use crate::plans::schema::PLAN_SCHEMA_SQL;
 use crate::questions::schema::QUESTION_SCHEMA_SQL;
+use crate::remote::shared_ports::schema::SHARED_PORTS_SCHEMA_SQL;
 use crate::session::search::index::schema::SEARCH_INDEX_SCHEMA_SQL;
 use crate::workflow::schema::WORKFLOW_SCHEMA_SQL;
 use crate::workspace::schema::WORKSPACE_SCHEMA_SQL;
@@ -47,6 +48,7 @@ pub static DAEMON_SCHEMA_SQL: LazyLock<String> = LazyLock::new(|| {
         &ARTIFACT_SCHEMA_SQL,
         &PLAN_SCHEMA_SQL,
         &QUESTION_SCHEMA_SQL,
+        SHARED_PORTS_SCHEMA_SQL,
     ]
     .concat()
 });
