@@ -180,7 +180,7 @@ async fn poll_once(
     match reply.task.payload {
         TaskPayload::Completed { result } => Ok(PollStep::End(McpToolCallEnd::Answered { result })),
         TaskPayload::Failed { error } => Ok(PollStep::End(McpToolCallEnd::Failed { error })),
-        TaskPayload::Cancelled => Ok(PollStep::End(McpToolCallEnd::Canceled {})),
+        TaskPayload::Cancelled => Ok(PollStep::End(McpToolCallEnd::Canceled)),
         TaskPayload::InputRequired { input_requests } => {
             if input_requests.len() > MAX_TASK_INPUT_REQUESTS {
                 tracing::warn!(
@@ -541,7 +541,7 @@ mod tests {
         .await
         .expect("the canceled task ends");
 
-        assert_eq!(end.expect("the call ends"), McpToolCallEnd::Canceled {});
+        assert_eq!(end.expect("the call ends"), McpToolCallEnd::Canceled);
         assert_eq!(server.requests("tasks/cancel").len(), 1);
         let mut answered: Vec<(String, Value)> = updates(&server)
             .iter()

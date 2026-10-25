@@ -131,7 +131,7 @@ pub(crate) enum McpToolCallEnd {
         error: Map<String, Value>,
     },
     /// The task was canceled.
-    Canceled {},
+    Canceled,
 }
 
 /// Whether a followed task's server still answers its polls: `Lost` once no poll was answered for

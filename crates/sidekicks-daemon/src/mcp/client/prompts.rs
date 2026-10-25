@@ -4,6 +4,7 @@
 //! its own cached list on that notification too).
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
@@ -27,7 +28,7 @@ type PromptListener = Arc<dyn Fn() + Send + Sync>;
 #[derive(Default)]
 pub(crate) struct PromptWatchers {
     listeners: Mutex<HashMap<SessionId, Vec<(u64, PromptListener)>>>,
-    next_listener: Mutex<u64>,
+    next_listener: AtomicU64,
 }
 
 impl PromptWatchers {
@@ -48,11 +49,7 @@ impl PromptWatchers {
     }
 
     fn add(self: &Arc<Self>, session_id: SessionId, on_change: PromptListener) -> u64 {
-        let number = {
-            let mut next = lock(&self.next_listener);
-            *next += 1;
-            *next
-        };
+        let number = self.next_listener.fetch_add(1, Ordering::Relaxed);
         lock(&self.listeners)
             .entry(session_id)
             .or_default()

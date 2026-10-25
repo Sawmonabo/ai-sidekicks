@@ -84,7 +84,7 @@ async fn poll_once(
         "a tool server task was polled"
     );
     match reading.status.as_str() {
-        "cancelled" => Ok(PollStep::End(McpToolCallEnd::Canceled {})),
+        "cancelled" => Ok(PollStep::End(McpToolCallEnd::Canceled)),
         // The result of a task waiting on input is held until the person answers.
         "input_required" => read_result(connection, mcp_task_id, RequestWait::ToolCall)
             .await
@@ -376,7 +376,7 @@ mod tests {
         };
         let (end, ()) = tokio::join!(connection.call_tool(track_call(), &sink, &contact), cancel);
 
-        assert_eq!(end.expect("the call ends"), McpToolCallEnd::Canceled {});
+        assert_eq!(end.expect("the call ends"), McpToolCallEnd::Canceled);
         let cancels = server.requests("tasks/cancel");
         assert_eq!(cancels.len(), 1);
         assert_eq!(cancels[0].1["params"]["taskId"], "task-1");

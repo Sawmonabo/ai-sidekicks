@@ -84,7 +84,7 @@ pub(super) struct HeldRequest {
 
 /// Who sends a held question's answer to whoever asked it.
 #[derive(Clone)]
-pub(crate) enum HeldRequestAnswerer {
+pub(super) enum HeldRequestAnswerer {
     /// The run's driver, to its provider.
     Driver,
     /// The tool-server client, to the server whose task asked.
@@ -200,7 +200,7 @@ impl QuestionsService {
     /// its run from `running` to `waitingForInput`, keeping its request for the answer, which
     /// `answered_by` sends on; else in a write of its own, the run unmoved. Fails as the draft,
     /// the move or the write fails.
-    pub(crate) async fn take_question(
+    pub(super) async fn take_question(
         &self,
         question: ProviderQuestion,
         answered_by: HeldRequestAnswerer,

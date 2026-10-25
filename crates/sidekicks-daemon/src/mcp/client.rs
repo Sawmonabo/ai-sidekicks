@@ -18,6 +18,7 @@ mod test_server;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::mcp::client::connection::McpServerConnection;
@@ -122,7 +123,7 @@ impl McpClient {
     pub(crate) fn connection_scope(
         &self,
         session_id: SessionId,
-        server_name: sidekicks_contracts::mcp::server::McpServerName,
+        server_name: McpServerName,
     ) -> connection::McpConnectionScope {
         connection::McpConnectionScope {
             session_id,
