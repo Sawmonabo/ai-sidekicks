@@ -3,8 +3,8 @@
 //! flight, or the newest when several are. A question a call asked and nobody answered is withdrawn
 //! when the call ends or is dropped, or when the server cancels the request that asked it.
 
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use serde_json::Value;
 use sidekicks_contracts::run::id::RunId;
@@ -13,6 +13,7 @@ use crate::mcp::client::connection::McpConnectionScope;
 use crate::mcp::client::tasks::{
     AwaitedQuestion, ElicitationAnswer, McpToolCall, QuestionOutcome, TaskWatches, compose_question,
 };
+use crate::mutex_lock::lock;
 
 /// The calls in flight on one connection.
 #[derive(Default)]
@@ -44,7 +45,7 @@ impl CallsInFlight {
         scope: &'calls McpConnectionScope,
     ) -> TrackedCall<'calls> {
         let number = self.next_call.fetch_add(1, Ordering::Relaxed);
-        self.lock().push(CallInFlight {
+        lock(&self.calls).push(CallInFlight {
             number,
             run_id: call.run_id,
             open_questions: Vec::new(),
@@ -64,7 +65,7 @@ impl CallsInFlight {
         scope: &McpConnectionScope,
         params: Value,
     ) -> Option<QuestionOutcome> {
-        let number = self.lock().last()?.number;
+        let number = lock(&self.calls).last()?.number;
         Some(self.ask(scope, number, params).await)
     }
 
@@ -81,8 +82,7 @@ impl CallsInFlight {
         if !watches.take_question(scope, question, answer).await {
             return QuestionOutcome::Withdrawn;
         }
-        let is_in_flight = self
-            .lock()
+        let is_in_flight = lock(&self.calls)
             .iter_mut()
             .find(|call| call.number == number)
             .map(|call| call.open_questions.push(request_id.clone()))
@@ -100,16 +100,10 @@ impl CallsInFlight {
     }
 
     fn run_of(&self, number: u64) -> Option<RunId> {
-        self.lock()
+        lock(&self.calls)
             .iter()
             .find(|call| call.number == number)
             .map(|call| call.run_id)
-    }
-
-    // No holder awaits or panics while it changes the list, so a poisoned lock still guards a
-    // whole list.
-    fn lock(&self) -> MutexGuard<'_, Vec<CallInFlight>> {
-        self.calls.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -132,7 +126,7 @@ impl TrackedCall<'_> {
     }
 
     fn forget(&self) -> Vec<String> {
-        let mut calls = self.calls.lock();
+        let mut calls = lock(&self.calls.calls);
         let Some(place) = calls.iter().position(|call| call.number == self.number) else {
             return Vec::new();
         };

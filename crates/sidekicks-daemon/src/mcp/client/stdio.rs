@@ -12,7 +12,7 @@ use std::error::Error;
 use std::io;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use process_wrap::tokio::ChildWrapper;
@@ -31,6 +31,7 @@ use crate::mcp::client::connection::{
     McpConnectionError, McpConnectionScope, McpConnectionStart, McpServerConnection,
 };
 use crate::mcp::client::raw_copy::{RawLineTee, RawReplyCopy};
+use crate::mutex_lock::lock;
 use crate::process_exit::{OutputTail, compose_process_exit};
 use crate::provider::spawn_environment::{
     ProviderEnvironmentRequest, SpawnEnvironmentError, build_conversation_command_environment,
@@ -275,10 +276,7 @@ async fn supervise_child(
         // What the process started may hold the output open; what it wrote by now is kept.
         reader.abort();
     }
-    let tail = std::mem::replace(
-        &mut *tail.lock().unwrap_or_else(PoisonError::into_inner),
-        ErrorOutputTail::new(),
-    );
+    let tail = std::mem::replace(&mut *lock(&tail), ErrorOutputTail::new());
     published.send_replace(Some(compose_end(status, asked_end, tail)));
 }
 
@@ -316,9 +314,7 @@ async fn read_error_output(
                 break;
             }
         };
-        tail.lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(&chunk[..read]);
+        lock(&tail).push(&chunk[..read]);
         for piece in chunk[..read].split_inclusive(|byte| *byte == b'\n') {
             let (body, is_line_end) = match piece.split_last() {
                 Some((b'\n', body)) => (body, true),

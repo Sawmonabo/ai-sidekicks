@@ -13,7 +13,7 @@
 use std::collections::HashSet;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rmcp::model::{
@@ -38,6 +38,7 @@ use crate::mcp::client::raw_copy::{INITIALIZE_METHOD, RawCopyTransport, RawReply
 use crate::mcp::client::requests::{McpRequestError, PageCursors, RequestWait, ServerRequests};
 use crate::mcp::client::stdio::StdioProcess;
 use crate::mcp::client::tasks::{McpTaskGeneration, QuestionOutcome, TaskWatches};
+use crate::mutex_lock::lock;
 use crate::provider::spawn_environment::SpawnEnvironmentError;
 
 /// The notification a 2025-11-25 server sends when a task's status changes.
@@ -438,12 +439,6 @@ impl ClientHandler for McpClientHandler {
         }
         std::future::ready(())
     }
-}
-
-// No holder awaits or panics while it changes the set, so a poisoned lock still guards a whole
-// set.
-fn lock(task_tools: &Mutex<HashSet<String>>) -> MutexGuard<'_, HashSet<String>> {
-    task_tools.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 #[cfg(test)]

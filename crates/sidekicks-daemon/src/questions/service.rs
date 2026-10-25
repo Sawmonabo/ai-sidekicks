@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::LazyLock;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -31,6 +31,7 @@ use crate::events::session::appender::{
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::handlers::driver::resolution::LiveRunDriverError;
 use crate::keyed_lock::KeyedLock;
+use crate::mutex_lock::lock;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::port::question::{
@@ -253,7 +254,7 @@ impl QuestionsService {
                 },
             )
             .await?;
-        lock_held(&self.held_requests).insert(
+        lock(&self.held_requests).insert(
             question_id,
             HeldRequest {
                 session_id,
@@ -273,7 +274,7 @@ impl QuestionsService {
         &self,
         withdrawal: ProviderQuestionWithdrawal,
     ) -> Result<(), QuestionError> {
-        let Some(question_id) = lock_held(&self.held_requests)
+        let Some(question_id) = lock(&self.held_requests)
             .iter()
             .find(|(_, held)| {
                 held.session_id == withdrawal.session_id && held.request_id == withdrawal.request_id
@@ -341,7 +342,7 @@ impl QuestionsService {
     // Lets go every held request whose question a run's end settled with no word from its driver,
     // so the map holds only open questions. A request taken after the read is kept.
     async fn forget_settled_requests(&self) -> Result<(), QuestionError> {
-        let held: Vec<QuestionId> = lock_held(&self.held_requests).keys().copied().collect();
+        let held: Vec<QuestionId> = lock(&self.held_requests).keys().copied().collect();
         if held.is_empty() {
             return Ok(());
         }
@@ -352,19 +353,19 @@ impl QuestionsService {
                 Ok::<_, QuestionError>(read_open_among(reader, &read_ids)?)
             })
             .await?;
-        lock_held(&self.held_requests)
+        lock(&self.held_requests)
             .retain(|question_id, _| !held.contains(question_id) || open.contains(question_id));
         Ok(())
     }
 
     /// The request `question_id`'s answer goes back under, while it is held.
     pub(super) fn held_request(&self, question_id: &QuestionId) -> Option<HeldRequest> {
-        lock_held(&self.held_requests).get(question_id).cloned()
+        lock(&self.held_requests).get(question_id).cloned()
     }
 
     /// Lets go the request `question_id` was held under, once the question is settled.
     pub(super) fn forget_held_request(&self, question_id: &QuestionId) {
-        lock_held(&self.held_requests).remove(question_id);
+        lock(&self.held_requests).remove(question_id);
     }
 
     /// The state `question_id`'s row holds, or `None` when no row holds it.
@@ -420,12 +421,4 @@ pub(crate) fn has_interrupt(reader: &Connection, run_id: &RunId) -> rusqlite::Re
         .query_row(named_params! { "@runId": run_id.text().as_str() }, |row| {
             row.get(0)
         })
-}
-
-// The held requests. No holder awaits or panics while it changes the map, so a poisoned lock still
-// guards a whole map.
-fn lock_held(
-    held_requests: &Mutex<HashMap<QuestionId, HeldRequest>>,
-) -> MutexGuard<'_, HashMap<QuestionId, HeldRequest>> {
-    held_requests.lock().unwrap_or_else(PoisonError::into_inner)
 }

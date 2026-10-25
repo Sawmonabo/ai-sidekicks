@@ -4,7 +4,7 @@
 //! its own cached list on that notification too).
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -17,6 +17,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::mcp::client::McpClient;
+use crate::mutex_lock::lock;
 use crate::provider::port::server_prompts::ServerPromptPort;
 
 /// A listener of one session's prompts.
@@ -32,8 +33,7 @@ pub(crate) struct PromptWatchers {
 impl PromptWatchers {
     /// Tells every listener of `session_id` that a server's prompts changed.
     pub(super) fn notify(&self, session_id: SessionId) {
-        let listeners: Vec<PromptListener> = self
-            .lock()
+        let listeners: Vec<PromptListener> = lock(&self.listeners)
             .get(&session_id)
             .map(|listeners| {
                 listeners
@@ -49,14 +49,11 @@ impl PromptWatchers {
 
     fn add(self: &Arc<Self>, session_id: SessionId, on_change: PromptListener) -> u64 {
         let number = {
-            let mut next = self
-                .next_listener
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
+            let mut next = lock(&self.next_listener);
             *next += 1;
             *next
         };
-        self.lock()
+        lock(&self.listeners)
             .entry(session_id)
             .or_default()
             .push((number, on_change));
@@ -64,21 +61,13 @@ impl PromptWatchers {
     }
 
     fn remove(&self, session_id: SessionId, number: u64) {
-        let mut listeners = self.lock();
+        let mut listeners = lock(&self.listeners);
         if let Some(session) = listeners.get_mut(&session_id) {
             session.retain(|(kept, _)| *kept != number);
             if session.is_empty() {
                 listeners.remove(&session_id);
             }
         }
-    }
-
-    // No holder awaits or panics while it changes the map, so a poisoned lock still guards a
-    // whole map.
-    fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, Vec<(u64, PromptListener)>>> {
-        self.listeners
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
     }
 }
 

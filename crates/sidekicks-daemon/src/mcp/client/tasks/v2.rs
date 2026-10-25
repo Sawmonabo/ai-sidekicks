@@ -12,7 +12,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::error::Error;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -35,6 +35,7 @@ use crate::mcp::client::tasks::{
     McpToolCallError, QuestionOutcome, observe_mcp_task_acceptance,
 };
 use crate::mcp::elicitation_form::compose_elicitation_content;
+use crate::mutex_lock::lock;
 use crate::provider::port::question::ToolServerQuestionAnswer;
 
 /// The most input requests of one task the client answers; the rest are ignored.
@@ -189,17 +190,11 @@ async fn poll_once(
                 );
             }
             for (key, request) in input_requests.into_iter().take(MAX_TASK_INPUT_REQUESTS) {
-                let is_asked = asked
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .contains(&key);
+                let is_asked = lock(asked).contains(&key);
                 // A request the card refused, as a run already waiting on a question refuses
                 // one, is asked again on a later poll.
                 if !is_asked && answer_input_request(connection, mcp_task_id, &key, request).await {
-                    asked
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .insert(key);
+                    lock(asked).insert(key);
                 }
             }
             Ok(PollStep::Wait {

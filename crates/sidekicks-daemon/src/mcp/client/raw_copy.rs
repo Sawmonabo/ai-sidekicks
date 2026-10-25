@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, ready};
 
 use rmcp::RoleClient;
@@ -22,6 +22,7 @@ use rmcp::transport::async_rw::DEFAULT_MAX_LINE_LENGTH;
 use serde_json::Value;
 use tokio::io::{AsyncRead, ReadBuf};
 
+use crate::mutex_lock::lock;
 use crate::provider::inbound_json::decode_inbound_json;
 
 /// The method of the one request rmcp sends itself whose reply the client reads raw.
@@ -55,7 +56,7 @@ impl RawReplyCopy {
         } else {
             return;
         };
-        self.lock()
+        lock(&self.replies)
             .awaited
             .insert(request.id.clone(), method.to_owned());
     }
@@ -63,7 +64,7 @@ impl RawReplyCopy {
     /// Keeps the reply the repaired `text` holds when its request is awaited; any other text is
     /// passed over.
     pub(super) fn keep_text(&self, text: &str) {
-        if self.lock().awaited.is_empty() {
+        if lock(&self.replies).awaited.is_empty() {
             return;
         }
         if let Ok(message) = serde_json::from_str::<Value>(text) {
@@ -81,7 +82,7 @@ impl RawReplyCopy {
         else {
             return;
         };
-        let mut replies = self.lock();
+        let mut replies = lock(&self.replies);
         if let Some(method) = replies.awaited.remove(&id) {
             replies.kept.insert(id, (method, message));
         }
@@ -89,14 +90,14 @@ impl RawReplyCopy {
 
     /// The kept reply to request `id`, taken out of the copy; `None` when none came.
     pub(super) fn take(&self, id: &RequestId) -> Option<Value> {
-        let mut replies = self.lock();
+        let mut replies = lock(&self.replies);
         replies.awaited.remove(id);
         replies.kept.remove(id).map(|(_, message)| message)
     }
 
     /// The kept reply to the one request sent under `method`, taken out of the copy.
     pub(super) fn take_reply_to(&self, method: &str) -> Option<Value> {
-        let mut replies = self.lock();
+        let mut replies = lock(&self.replies);
         let id = replies
             .kept
             .iter()
@@ -108,14 +109,8 @@ impl RawReplyCopy {
     /// Whether the copy holds no reply and awaits none.
     #[cfg(test)]
     pub(super) fn is_empty(&self) -> bool {
-        let replies = self.lock();
+        let replies = lock(&self.replies);
         replies.awaited.is_empty() && replies.kept.is_empty()
-    }
-
-    // No holder awaits or panics while it changes the maps, so a poisoned lock still guards whole
-    // maps.
-    fn lock(&self) -> MutexGuard<'_, RawReplies> {
-        self.replies.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 

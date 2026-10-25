@@ -19,7 +19,7 @@ mod v2;
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -35,6 +35,7 @@ use tokio::sync::{Notify, oneshot, watch};
 use crate::mcp::client::connection::{McpConnectionScope, McpServerConnection};
 use crate::mcp::client::requests::{McpRequestError, RequestWait};
 use crate::mcp::elicitation_form::{compose_elicitation_content, read_elicitation_questions};
+use crate::mutex_lock::lock;
 use crate::provider::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, ToolServerQuestionAnswer,
 };
@@ -311,7 +312,7 @@ impl TaskWatches {
     ) -> TaskWatch<'_> {
         let key = watch_key(scope, mcp_task_id);
         let wake = Arc::new(Notify::new());
-        self.lock().insert(
+        lock(&self.watched).insert(
             key.clone(),
             WatchedTask {
                 wake: Arc::clone(&wake),
@@ -329,7 +330,7 @@ impl TaskWatches {
     /// Wakes the poll of `scope`'s task `mcp_task_id` early, as a status notification asks; the
     /// poll still decides the task's state.
     pub(super) fn wake(&self, scope: &McpConnectionScope, mcp_task_id: &str) {
-        if let Some(watched) = self.lock().get(&watch_key(scope, mcp_task_id)) {
+        if let Some(watched) = lock(&self.watched).get(&watch_key(scope, mcp_task_id)) {
             watched.wake.notify_one();
         }
     }
@@ -364,14 +365,13 @@ impl TaskWatches {
         answer: Arc<dyn ToolServerQuestionAnswer>,
     ) -> Option<Option<String>> {
         let key = watch_key(scope, mcp_task_id);
-        let run_id = self.lock().get(&key)?.run_id;
+        let run_id = lock(&self.watched).get(&key)?.run_id;
         let request_id = self.mint_request_id(scope, mcp_task_id);
         let question = compose_question(scope, run_id, request_id.clone(), params);
         if !self.take_question(scope, question, answer).await {
             return Some(None);
         }
-        let is_followed = self
-            .lock()
+        let is_followed = lock(&self.watched)
             .get_mut(&key)
             .map(|task| task.open_questions.push(request_id.clone()))
             .is_some();
@@ -435,10 +435,6 @@ impl TaskWatches {
         };
         runtime
             .spawn(async move { withdraw_questions(port.as_ref(), session_id, request_ids).await });
-    }
-
-    fn lock(&self) -> MutexGuard<'_, HashMap<WatchKey, WatchedTask>> {
-        self.watched.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -534,7 +530,7 @@ fn watch_key(scope: &McpConnectionScope, mcp_task_id: &str) -> WatchKey {
 impl TaskWatch<'_> {
     /// Stops following the task, withdrawing each of its questions still open on the card.
     pub(super) async fn finish(self) {
-        let removed = self.watches.lock().remove(&self.key);
+        let removed = lock(&self.watches.watched).remove(&self.key);
         if let Some(task) = removed {
             self.watches
                 .withdraw_questions(self.key.0, task.open_questions)
@@ -545,7 +541,7 @@ impl TaskWatch<'_> {
 
 impl Drop for TaskWatch<'_> {
     fn drop(&mut self) {
-        let removed = self.watches.lock().remove(&self.key);
+        let removed = lock(&self.watches.watched).remove(&self.key);
         if let Some(task) = removed {
             self.watches
                 .withdraw_questions_later(self.key.0, task.open_questions);
@@ -590,11 +586,7 @@ impl ToolServerQuestionAnswer for ElicitationAnswer {
         answers: Vec<QuestionAnswer>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         let content = compose_elicitation_content(&self.params, &answers);
-        let sender = self
-            .sender
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let sender = lock(&self.sender).take();
         let sent = match sender {
             Some(sender) => sender
                 .send(content)

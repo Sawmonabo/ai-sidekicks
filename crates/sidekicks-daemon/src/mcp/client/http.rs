@@ -15,7 +15,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -266,10 +266,7 @@ impl McpHttpClient {
                 }
                 Err(error) => {
                     if is_cut_past_bound(&error) {
-                        cut_streams
-                            .lock()
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .insert((session_id.clone(), last_event_id.clone()));
+                        lock(&cut_streams).insert((session_id.clone(), last_event_id.clone()));
                     }
                     Err(SseError::Body(Box::new(error)))
                 }
@@ -283,10 +280,7 @@ impl McpHttpClient {
             session_id.map(|session_id| session_id.as_ref().to_owned()),
             last_event_id.cloned(),
         );
-        self.cut_streams
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .contains(&key)
+        lock(&self.cut_streams).contains(&key)
     }
 }
 

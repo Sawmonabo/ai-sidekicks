@@ -16,13 +16,14 @@ pub(crate) mod tasks;
 mod test_server;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::mcp::client::connection::McpServerConnection;
 use crate::mcp::client::prompts::PromptWatchers;
 use crate::mcp::client::tasks::TaskWatches;
+use crate::mutex_lock::lock;
 use crate::provider::port::question::QuestionPort;
 use crate::provider::port::registration::PortRegistration;
 
@@ -88,7 +89,7 @@ impl McpClient {
         connection: McpServerConnection,
     ) -> Arc<McpServerConnection> {
         let connection = Arc::new(connection);
-        self.lock()
+        lock(&self.connections)
             .entry(connection.scope.session_id)
             .or_default()
             .push(Arc::clone(&connection));
@@ -103,7 +104,9 @@ impl McpClient {
                   with the session through it"
     )]
     pub(crate) async fn close_session(&self, session_id: SessionId) {
-        let connections = self.lock().remove(&session_id).unwrap_or_default();
+        let connections = lock(&self.connections)
+            .remove(&session_id)
+            .unwrap_or_default();
         futures::future::join_all(connections.iter().map(|connection| connection.close())).await;
     }
 
@@ -132,14 +135,9 @@ impl McpClient {
 
     /// The open connections of `session_id`.
     fn session_connections(&self, session_id: SessionId) -> Vec<Arc<McpServerConnection>> {
-        self.lock().get(&session_id).cloned().unwrap_or_default()
-    }
-
-    // No holder awaits or panics while it changes the map, so a poisoned lock still guards a whole
-    // map.
-    fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, Vec<Arc<McpServerConnection>>>> {
-        self.connections
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.connections)
+            .get(&session_id)
+            .cloned()
+            .unwrap_or_default()
     }
 }
