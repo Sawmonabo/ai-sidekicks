@@ -4,6 +4,7 @@
 pub mod admission;
 pub mod approvals;
 pub mod artifacts;
+pub(crate) mod askpass_prompt;
 pub mod attention;
 pub mod bootstrap;
 pub mod bounded_wait;
