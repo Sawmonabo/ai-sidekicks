@@ -2,7 +2,7 @@
 //! registry and a temporary home: their follows of the log once started.
 
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 use serde_json::json;
 use sidekicks_contracts::event::registry::SessionEventType;
@@ -86,6 +86,7 @@ async fn fixture() -> Fixture {
     let database = TestDatabase::new();
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
+    std::fs::create_dir(home.path().join("run")).expect("the test makes the run folder");
     let reads = Arc::new(DatabaseReadPool::new(
         database.path(),
         READ_STATEMENT_CAPACITY,
@@ -282,6 +283,8 @@ async fn the_started_follows_drop_an_ended_runs_cursor_and_a_closed_sessions() {
         !fixture.is_open(&live_binding),
         "the session's close drops every cursor it held"
     );
+    // The workspaces' watch ends with the stop, which closes the writes' channel.
+    fixture.writes = None;
     assert!(
         attachments
             .stop(&mut fixture.session, &fixture.workspaces)
@@ -339,5 +342,27 @@ async fn the_stop_records_every_write_sent_before_it() {
         )
         .expect("the test counts the versions");
     assert_eq!(recorded, i64::try_from(WRITES).expect("a small count"));
+    fixture.folder_watch.stop().await;
+}
+
+// Killed by deleting either cycle's close from the build: the engine then still takes a run queue
+// or an interventions service, and a run's end or a limit finds none.
+#[tokio::test]
+async fn the_build_closes_the_engines_cycles_before_it_returns() {
+    let fixture = fixture().await;
+    let engine = &fixture.session.engine;
+
+    assert!(
+        engine
+            .set_interrupt_queue(Arc::downgrade(&fixture.session.queue) as Weak<_>)
+            .is_err(),
+        "the engine already holds the run queue"
+    );
+    assert!(
+        engine
+            .set_limit_interrupter(Arc::downgrade(&fixture.session.interventions) as Weak<_>)
+            .is_err(),
+        "the engine already holds the interventions service"
+    );
     fixture.folder_watch.stop().await;
 }

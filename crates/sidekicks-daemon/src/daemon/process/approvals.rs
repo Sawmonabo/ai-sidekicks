@@ -108,7 +108,11 @@ pub(crate) fn build_approvals(engine: Weak<RunEngine>, deps: &ApprovalStart) -> 
         Arc::clone(&deps.reads),
         Arc::clone(&deps.events),
         deps.machine.machine_id.clone(),
-        revoke_at_session_provider(deps),
+        revoke_at_session_provider(
+            Arc::clone(&deps.reads),
+            Arc::clone(&deps.providers),
+            Arc::clone(&deps.read_damaged_from_sequence),
+        ),
         Arc::clone(&deps.shell_lines),
     ));
     let machines = Arc::new(MachineRegistry::new(
@@ -165,12 +169,14 @@ enum SessionDriverReadError {
     Database(#[from] rusqlite::Error),
 }
 
-// Takes a revoked rule out of force at the provider the session's lead runs on, through its
-// driver; a refusal of the read is the driver's refusal, any other failure its own.
-fn revoke_at_session_provider(deps: &ApprovalStart) -> RevokeAtProvider {
-    let reads = Arc::clone(&deps.reads);
-    let providers = Arc::clone(&deps.providers);
-    let read_damaged_from_sequence = Arc::clone(&deps.read_damaged_from_sequence);
+// Takes a revoked rule out of force at the provider the session's lead runs on, read through
+// `reads` and found in `providers`, through its driver; a refusal of the read is the driver's
+// refusal, any other failure its own.
+fn revoke_at_session_provider(
+    reads: Arc<DatabaseReadPool>,
+    providers: Arc<ProviderRegistry>,
+    read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+) -> RevokeAtProvider {
     Box::new(move |params| {
         let reads = Arc::clone(&reads);
         let providers = Arc::clone(&providers);
@@ -248,5 +254,61 @@ impl ApprovalAttachments {
         .into_iter()
         .filter_map(|(task, stopped)| stopped.err().map(|error| TaskStopFailure { task, error }))
         .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::session::id::SessionId;
+
+    use super::revoke_at_session_provider;
+    use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::writer::test_file::{TestDatabase, test_session_id};
+    use crate::events::log_service::tests::open_log;
+    use crate::events::session::read::DamagedFromSequenceReader;
+    use crate::provider::driver::contract::{DriverError, MockProviderDriver};
+    use crate::provider::driver::session_control::RevokeRuleParams;
+    use crate::provider::driver::test_registry::registry_of_first_provider;
+    use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
+
+    // Killed by mapping the read's refusal to an internal failure, which the person would read as
+    // a fault instead of the session being gone.
+    #[tokio::test]
+    async fn a_revoke_for_a_session_with_no_lead_is_refused_session_not_found() {
+        let database = TestDatabase::new();
+        let _log = open_log(&database, None).await;
+        let read_damaged_from_sequence: Arc<DamagedFromSequenceReader> =
+            Arc::new(|_: &SessionId| None::<i64>);
+        let revoke = revoke_at_session_provider(
+            Arc::new(DatabaseReadPool::new(database.path(), 8)),
+            Arc::new(registry_of_first_provider(Arc::new(
+                MockProviderDriver::new(),
+            ))),
+            read_damaged_from_sequence,
+        );
+
+        let revoked = revoke(RevokeRuleParams {
+            session_id: test_session_id(),
+            rule: ProviderAskRule {
+                kind: RememberedScopeKind::Project,
+                sense: RememberedRuleSense::Allow,
+                action: ProviderAskActionKind::Command,
+                subject: "git status".to_owned(),
+            },
+            project_folder: None,
+        })
+        .await;
+
+        assert!(
+            matches!(
+                &revoked,
+                Err(DriverError::Refused(refusal)) if refusal.code == RefusalCode::SessionNotFound
+            ),
+            "{revoked:?}"
+        );
     }
 }
