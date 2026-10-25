@@ -11,7 +11,6 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use futures::future::BoxFuture;
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::commands::{
@@ -35,28 +34,10 @@ use crate::provider::driver::diagnostics::{
 use crate::provider::driver::run_control::PickedSkill;
 use crate::provider::driver::session_control::ProviderCommandsListener;
 use crate::provider::port::registration::PortRegistration;
+use crate::provider::port::server_prompts::ServerPromptPort;
 
 /// The provider's live skill listing.
 const CODEX_SKILLS_LIST_METHOD: &str = "skills/list";
-
-/// The daemon's tool-server client's side of the `/` list: each working server's prompts for a
-/// session, registered by that client once it runs.
-pub(crate) trait CodexServerPromptPort: Send + Sync {
-    /// Each working tool server's prompts for the session, as prompt entries naming a server.
-    fn read_prompts(
-        &self,
-        session_id: SessionId,
-        binding: ProviderCommandBinding,
-    ) -> BoxFuture<'_, Vec<ProviderCommandEntry>>;
-
-    /// Calls `on_change` when a server's prompts for the session change, until the returned
-    /// call stops the watch.
-    fn watch_prompts(
-        &self,
-        session_id: SessionId,
-        on_change: Arc<dyn Fn() + Send + Sync>,
-    ) -> Box<dyn FnOnce() + Send>;
-}
 
 /// What one live session's list is read from: its service, the account it runs on, its own folder
 /// and the run whose list it is.
@@ -90,7 +71,7 @@ pub(crate) struct CodexSkillListing {
 
 /// Holds each session's listing and composes the reply from it, for every session of one driver.
 pub(crate) struct CodexProviderCommandCache {
-    server_prompts: Arc<PortRegistration<Arc<dyn CodexServerPromptPort>>>,
+    server_prompts: Arc<PortRegistration<Arc<dyn ServerPromptPort>>>,
     source_for: CodexCommandSourceLookup,
     /// The generation a held listing must be read under, counted for the whole cache and never
     /// reset, so a reused session id never matches an earlier read's.
@@ -129,7 +110,7 @@ impl CodexProviderCommandCache {
         )
     )]
     pub(crate) fn new(
-        server_prompts: Arc<PortRegistration<Arc<dyn CodexServerPromptPort>>>,
+        server_prompts: Arc<PortRegistration<Arc<dyn ServerPromptPort>>>,
         source_for: CodexCommandSourceLookup,
     ) -> Arc<Self> {
         Arc::new(Self {
