@@ -43,6 +43,9 @@ const UNDO_JOB_SAVEPOINT_SQL: &str = "ROLLBACK TO write_job; RELEASE write_job";
 
 const BATCH_OPERATION: &str = "running a write batch";
 const CHECKPOINT_OPERATION: &str = "running a WAL checkpoint";
+
+// The operation an optimize's failure names.
+const OPTIMIZE_OPERATION: &str = "running PRAGMA optimize";
 const CLOSE_OPERATION: &str = "closing the writer's connection";
 
 /// The batches that committed a write: the thread's count of them, and the read run after each.
@@ -249,6 +252,22 @@ pub(super) fn serve_request(
             .is_ok(),
         ThreadRequest::Checkpoint { mode, reply } => {
             reply.send(checkpoint_measured(connection, mode)).is_ok()
+        }
+        ThreadRequest::Optimize { reply } => {
+            let mut processor_time = ThreadProcessorTime::default();
+            let optimized = processor_time.measure(|| connection.execute_batch("PRAGMA optimize"));
+            reply
+                .send(
+                    optimized
+                        .map(|()| Measured {
+                            report: (),
+                            processor_time,
+                        })
+                        .map_err(|failure| {
+                            CleanupFailures::new(failure, Vec::new(), OPTIMIZE_OPERATION)
+                        }),
+                )
+                .is_ok()
         }
         ThreadRequest::Repack { cancel, reply } => {
             let mut processor_time = ThreadProcessorTime::default();

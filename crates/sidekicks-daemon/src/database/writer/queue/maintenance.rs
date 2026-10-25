@@ -1,10 +1,10 @@
-//! The write queue's maintenance: the checkpoints, repacks and copies its callers ask for, sent to
-//! the thread between batches and never while the writer holds its writes, and settled from the
-//! thread's answers. A checkpoint or a repack holds the thread, so nothing else goes until it
-//! answers; a copy serves the requests that come while it lives, so writes go on beside it, and
-//! a repack waits until no copy lives, so a `VACUUM` never runs beside one. A repack canceled
-//! while it runs is interrupted, which only the queue may do, since only it knows the repack and
-//! nothing else holds the thread.
+//! The write queue's maintenance: the checkpoints, optimizes, repacks and copies its callers ask
+//! for, sent to the thread between batches and never while the writer holds its writes, and settled
+//! from the thread's answers. A checkpoint, an optimize or a repack holds the thread, so nothing
+//! else goes until it answers; a copy serves the requests that come while it lives, so writes go on
+//! beside it, and a repack waits until no copy lives, so a `VACUUM` never runs beside one. A repack
+//! canceled while it runs is interrupted, which only the queue may do, since only it knows the
+//! repack and nothing else holds the thread.
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -55,9 +55,11 @@ struct InFlightRepack {
 #[derive(Default)]
 pub(super) struct MaintenanceSlots {
     checkpoint: Option<InFlight<Measured<CheckpointReport>>>,
+    optimize: Option<InFlight<Measured<()>>>,
     repack: Option<InFlightRepack>,
     backup: Option<InFlight<Measured<BackupCopy>>>,
     checkpoints: VecDeque<PendingCheckpoint>,
+    optimizes: VecDeque<MaintenanceReply<Measured<()>>>,
     repacks: VecDeque<CancelableWork<RepackEnd>>,
     backups: VecDeque<(PathBuf, CancelableWork<BackupCopy>)>,
 }
@@ -65,6 +67,7 @@ pub(super) struct MaintenanceSlots {
 /// The thread's answer to the maintenance in flight.
 pub(super) enum MaintenanceAnswered {
     Checkpoint(Result<MaintenanceAnswer<Measured<CheckpointReport>>, RecvError>),
+    Optimize(Result<MaintenanceAnswer<Measured<()>>, RecvError>),
     Repack(Result<MaintenanceAnswer<Measured<RepackEnd>>, RecvError>),
     Backup(Result<MaintenanceAnswer<Measured<BackupCopy>>, RecvError>),
 }
@@ -76,6 +79,9 @@ impl MaintenanceSlots {
             answer = output_of(self.checkpoint.as_mut().map(|flight| &mut flight.answer)) => {
                 MaintenanceAnswered::Checkpoint(answer)
             }
+            answer = output_of(self.optimize.as_mut().map(|flight| &mut flight.answer)) => {
+                MaintenanceAnswered::Optimize(answer)
+            }
             answer = output_of(self.repack.as_mut().map(|repack| &mut repack.flight.answer)) => {
                 MaintenanceAnswered::Repack(answer)
             }
@@ -85,9 +91,9 @@ impl MaintenanceSlots {
         }
     }
 
-    /// Whether a checkpoint or a repack holds the thread.
+    /// Whether a checkpoint, an optimize or a repack holds the thread.
     pub(super) fn holds_thread(&self) -> bool {
-        self.checkpoint.is_some() || self.repack.is_some()
+        self.checkpoint.is_some() || self.optimize.is_some() || self.repack.is_some()
     }
 
     /// Whether the thread runs any maintenance, a copy included.
@@ -122,6 +128,11 @@ impl MaintenanceSlots {
             .push_back(PendingCheckpoint { mode, reply });
     }
 
+    /// Queues an optimize.
+    pub(super) fn take_optimize(&mut self, reply: MaintenanceReply<Measured<()>>) {
+        self.optimizes.push_back(reply);
+    }
+
     /// Queues a repack.
     pub(super) fn take_repack(&mut self, repack: CancelableWork<RepackEnd>) {
         self.repacks.push_back(repack);
@@ -144,10 +155,13 @@ impl MaintenanceSlots {
         }
     }
 
-    /// Fails every checkpoint, repack and copy not yet sent with `error`.
+    /// Fails every checkpoint, optimize, repack and copy not yet sent with `error`.
     pub(super) fn fail_unsent(&mut self, error: impl Fn() -> MaintenanceError) {
         for checkpoint in self.checkpoints.drain(..) {
             send_answer(checkpoint.reply, Err(error()));
+        }
+        for optimize in self.optimizes.drain(..) {
+            send_answer(optimize, Err(error()));
         }
         for repack in self.repacks.drain(..) {
             send_answer(repack.reply, Err(error()));
@@ -157,8 +171,8 @@ impl MaintenanceSlots {
         }
     }
 
-    /// Sends the next queued work through `send`: a checkpoint, then a repack while no copy runs,
-    /// then a copy while none runs. Answers whether it sent one.
+    /// Sends the next queued work through `send`: a checkpoint, then an optimize, then a repack
+    /// while no copy runs, then a copy while none runs. Answers whether it sent one.
     pub(super) fn send_next(&mut self, send: impl FnOnce(ThreadRequest)) -> bool {
         if let Some(checkpoint) = self.checkpoints.pop_front() {
             let (reply, answer) = oneshot::channel();
@@ -170,6 +184,14 @@ impl MaintenanceSlots {
                 reply: checkpoint.reply,
                 answer,
             });
+            return true;
+        }
+        if let Some(reply) = self.optimizes.pop_front() {
+            let (thread_reply, answer) = oneshot::channel();
+            send(ThreadRequest::Optimize {
+                reply: thread_reply,
+            });
+            self.optimize = Some(InFlight { reply, answer });
             return true;
         }
         if self.backup.is_none()
@@ -219,6 +241,14 @@ impl WriteQueue {
                     .checkpoint
                     .take()
                     .expect("a checkpoint is answered only while it is in flight");
+                self.settle_maintenance(flight.reply, answer);
+            }
+            MaintenanceAnswered::Optimize(answer) => {
+                let flight = self
+                    .maintenance
+                    .optimize
+                    .take()
+                    .expect("an optimize is answered only while it is in flight");
                 self.settle_maintenance(flight.reply, answer);
             }
             MaintenanceAnswered::Repack(answer) => {
