@@ -126,6 +126,8 @@ impl CodexDriver {
         } else {
             let context = self
                 .spawn_contexts
+                .require_port()
+                .map_err(|error| DriverError::Internal(Box::new(error)))?
                 .resolve_spawn_context(session_id, provider_account_id.clone())
                 .await
                 .map_err(DriverError::Internal)?;

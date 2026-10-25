@@ -42,14 +42,6 @@ pub(crate) struct CodexConfigForks {
 impl CodexConfigForks {
     /// The config forks, claiming each session's slot through `slots` and running a fork no
     /// caller waits on as a task of `tasks`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start registers the driver, which builds the config forks \
-                      its sessions share"
-        )
-    )]
     pub(crate) fn new(slots: Arc<CodexSessionSlots>, tasks: TaskTracker) -> Self {
         Self {
             slots,

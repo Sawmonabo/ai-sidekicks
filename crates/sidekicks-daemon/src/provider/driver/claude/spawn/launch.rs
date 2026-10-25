@@ -113,14 +113,6 @@ struct LiveProcesses {
     is_stopped: bool,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver the daemon's start registers starts and stops every \
-                  process through it"
-    )
-)]
 impl ClaudeProcessLauncher {
     /// A launcher spawning on `spawner`'s thread, counting each spawn in `processes`, whose
     /// processes that keep nothing run in a folder under `data_folder`.

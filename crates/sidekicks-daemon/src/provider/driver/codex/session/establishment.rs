@@ -93,7 +93,7 @@ pub(crate) struct CodexSessionEstablishmentDependencies {
     /// The services, one per credential home.
     pub(crate) services: Arc<CodexServiceRegistry>,
     /// Where each session runs, resolved at every start and resume.
-    pub(crate) spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
+    pub(crate) spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
     /// Resolves each posture's curated credential list.
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
     /// The login shell's environment captured at the daemon's start.
@@ -591,6 +591,11 @@ impl CodexSessionEstablishment {
         let dependencies = &self.dependencies;
         let context = dependencies
             .spawn_contexts
+            .require_port()
+            .map_err(|error| CodexError::PortFailed {
+                port: SPAWN_CONTEXT_PORT,
+                cause: Box::new(error),
+            })?
             .resolve_spawn_context(request.session_id, request.provider_account_id.cloned())
             .await
             .map_err(|cause| CodexError::PortFailed {

@@ -232,7 +232,10 @@ impl ClaudeDriver {
             Some(session_id) => {
                 let context = self
                     .sources
+                    .ports
                     .spawn_contexts
+                    .require_port()
+                    .map_err(internal)?
                     .resolve_spawn_context(session_id, params.provider_account_id.clone())
                     .await
                     .map_err(DriverError::Internal)?;
@@ -475,7 +478,7 @@ async fn compose_resting_side_question_copy(
     resume: ResumeSessionParams,
 ) -> Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>> {
     let context = resolve_claude_spawn_context(
-        &*sources.spawn_contexts,
+        &sources.ports.spawn_contexts,
         &sources.pool,
         resume.session_id,
         resume.provider_account_id.clone(),

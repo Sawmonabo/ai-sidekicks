@@ -228,10 +228,6 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
 };
 
 /// Builds the Claude Code driver over the shared services; it stores handles and does no I/O.
-#[expect(
-    dead_code,
-    reason = "the daemon's start registers the driver through it"
-)]
 pub(super) fn build(services: &DriverServices) -> Arc<dyn ProviderDriver> {
     Arc::new(ClaudeDriver::new(services))
 }

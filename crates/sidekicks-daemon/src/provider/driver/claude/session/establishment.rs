@@ -43,7 +43,6 @@ use crate::policy::execution_posture_service::{
     CredentialPolicyResolveError, ExecutionPostureService,
 };
 use crate::provider::callback_tools::spawn_binding::CallbackToolSpawnBinding;
-use crate::provider::driver::SessionSpawnContextResolver;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::delivery::stream::{
     ClaudeSessionStream, ClaudeSessionStreams,
@@ -199,8 +198,6 @@ impl From<ClaudeEstablishmentError> for DriverError {
 pub(crate) struct ClaudeSpawnSources {
     /// The one thread every child is spawned from, which also checks the command sandbox.
     pub(crate) spawner: Spawner,
-    /// Where each session's process runs.
-    pub(crate) spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
     /// Points the session's binding at the conversation it moved onto.
     #[expect(
         dead_code,
@@ -478,7 +475,7 @@ impl ClaudeSessionEstablishment {
     ) -> Result<ClaudeSessionStart, ClaudeEstablishmentError> {
         let sources = &self.sources;
         let context = context::resolve_claude_spawn_context(
-            &*sources.spawn_contexts,
+            &sources.ports.spawn_contexts,
             &sources.pool,
             request.session_id,
             request.provider_account_id.clone(),

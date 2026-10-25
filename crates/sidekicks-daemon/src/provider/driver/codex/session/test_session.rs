@@ -346,7 +346,7 @@ impl TestCodexSession {
     pub(crate) fn establishment(&self, folder: &Path) -> CodexSessionEstablishment {
         CodexSessionEstablishment::new(CodexSessionEstablishmentDependencies {
             services: CodexServiceRegistry::holding(&self.scripted),
-            spawn_contexts: Arc::new(OneFolder(folder.join("work"))),
+            spawn_contexts: one_folder_spawn_contexts(folder.join("work")),
             execution_postures: Arc::new(ExecutionPostureService::new(
                 folder,
                 folder.join("session-token"),
@@ -364,6 +364,17 @@ impl TestCodexSession {
             processes: Arc::clone(&self.processes),
         })
     }
+}
+
+/// The spawn-context port with [`OneFolder`] over `folder` registered on it.
+pub(crate) fn one_folder_spawn_contexts(
+    folder: PathBuf,
+) -> Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>> {
+    let spawn_contexts = Arc::new(PortRegistration::new("spawn contexts"));
+    spawn_contexts
+        .register(Arc::new(OneFolder(folder)) as Arc<dyn SessionSpawnContextResolver>)
+        .expect("a fresh port registers");
+    spawn_contexts
 }
 
 /// Every session runs in one folder on the person's own sign-in, whose generation is never read.

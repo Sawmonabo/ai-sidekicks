@@ -371,7 +371,11 @@ async fn driver_holding(
     )
     .await;
     let mut services = test_driver_services();
-    services.spawn_contexts = Arc::new(OneFolder(folder.join("work")));
+    services
+        .ports
+        .spawn_contexts
+        .register(Arc::new(OneFolder(folder.join("work"))))
+        .expect("the spawn contexts register once");
     services.execution_postures = Arc::new(ExecutionPostureService::new(
         folder,
         folder.join("session-token"),

@@ -382,6 +382,24 @@ const _: () = assert!(
 );
 const _: () = assert!(has_unique_ids(PROVIDERS), "two providers share an id");
 
+/// Every provider's registration, in [`PROVIDERS`]' order, which the daemon's start builds the
+/// registry from once.
+pub(crate) const PROVIDER_REGISTRATIONS: &[ProviderRegistration] = &[
+    ProviderRegistration {
+        descriptor: &claude::DESCRIPTOR,
+        build: claude::build,
+    },
+    ProviderRegistration {
+        descriptor: &codex::DESCRIPTOR,
+        build: codex::build,
+    },
+];
+
+const _: () = assert!(
+    is_registered_in_order(PROVIDER_REGISTRATIONS, PROVIDERS),
+    "the registrations and the providers differ"
+);
+
 /// The shared services every driver's build takes, one bundle, so adding a provider never edits the
 /// daemon's start. Each field is a handle a driver reads, every one provider-neutral: a provider's
 /// own folders and settings stay in its driver, and what the daemon builds after the drivers is a
@@ -415,8 +433,6 @@ pub(crate) struct DriverServices {
     /// The processes serving the provider services the daemon holds a connection to, which each
     /// driver's dial holds and the daemon's caller check reads.
     pub(crate) provider_services: Arc<ProviderServiceProcesses>,
-    /// Where each session's provider process runs, resolved at every spawn.
-    pub(crate) spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
     /// Points a session's binding at the conversation a driver moved it onto.
     pub(crate) runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
     /// The daemon-wide bound on the shell-line bytes an ask's checks parse at once.
@@ -453,8 +469,8 @@ pub(crate) struct ProviderAccountFolders {
 }
 
 /// Resolves where a session's provider process runs, and reads the accounts a provider runs on:
-/// an account's folders before any session runs on it, and its credential generation. Wired by
-/// the daemon.
+/// an account's folders before any session runs on it, and its credential generation. The daemon
+/// registers it on [`DriverPorts::spawn_contexts`].
 pub(crate) trait SessionSpawnContextResolver: Send + Sync {
     /// The context `session_id` runs in on `provider_account_id`'s account, or on the person's own
     /// sign-in when `None`. Fails when the session or its folders cannot be read.
@@ -483,13 +499,6 @@ pub(crate) trait SessionSpawnContextResolver: Send + Sync {
 
 /// One registered provider: its descriptor and the function that builds its driver from the shared
 /// services, storing its handles without I/O.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start registers each provider's driver through it"
-    )
-)]
 pub(crate) struct ProviderRegistration {
     /// The provider's fixed facts.
     pub(crate) descriptor: &'static ProviderDescriptor,
@@ -502,6 +511,24 @@ const fn has_valid_ids(table: &[&ProviderDescriptor]) -> bool {
     let mut i = 0;
     while i < table.len() {
         if !is_provider_id(table[i].id) {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// Whether `registrations` holds `providers`' descriptors, one each, in their order.
+const fn is_registered_in_order(
+    registrations: &[ProviderRegistration],
+    providers: &[&ProviderDescriptor],
+) -> bool {
+    if registrations.len() != providers.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < providers.len() {
+        if !is_same_text(registrations[i].descriptor.id, providers[i].id) {
             return false;
         }
         i += 1;
