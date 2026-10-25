@@ -29,7 +29,7 @@ use crate::provider::driver::attachments::AttachmentResolver;
 use crate::provider::driver::capabilities::writer::DriverCapabilitiesWriter;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::driver::ports::{DriverPorts, SessionPlace};
+use crate::provider::driver::ports::{DriverPorts, ProcessGoneListener, SessionPlace};
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::{DriverServices, ProviderDescriptor, ProviderRegistration};
 use crate::provider::port::registration::PortRegistrationError;
@@ -181,7 +181,9 @@ pub(crate) struct DriverPortOwners {
     pub(crate) queue_admission: Arc<QueueAdmission>,
     /// The run queue's delivery, which hears of each message a provider took, refused or gave
     /// back, and holds the messages waiting for paused runs.
-    pub(crate) queue_delivery: Arc<QueueDelivery>,
+    pub(crate) queue_delivery: QueueDelivery,
+    /// The run queue's intake of a session's provider process that ended.
+    pub(crate) process_gone: Arc<dyn ProcessGoneListener>,
     /// The approval pipeline's permission asks.
     pub(crate) permission_asks: Arc<PermissionAsks>,
     /// The questions card's service.
@@ -218,16 +220,18 @@ pub(crate) fn register_driver_ports(
     ports
         .daemon_turn_bindings
         .register(owners.queue_admission)?;
+    let queue_delivery = Arc::new(owners.queue_delivery);
     ports
         .message_taken
-        .register(Arc::clone(&owners.queue_delivery) as _)?;
+        .register(Arc::clone(&queue_delivery) as _)?;
     ports
         .message_refused
-        .register(Arc::clone(&owners.queue_delivery) as _)?;
+        .register(Arc::clone(&queue_delivery) as _)?;
     ports
         .message_given_back
-        .register(Arc::clone(&owners.queue_delivery) as _)?;
-    ports.continued_messages.register(owners.queue_delivery)?;
+        .register(Arc::clone(&queue_delivery) as _)?;
+    ports.continued_messages.register(queue_delivery)?;
+    ports.process_gone.register(owners.process_gone)?;
     ports.permission_asks.register(owners.permission_asks)?;
     ports.questions.register(owners.questions)?;
     ports.plans.register(owners.plans)?;
