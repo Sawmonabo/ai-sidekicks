@@ -1,15 +1,125 @@
-//! Where a driver sends a running command's output as it prints, to the subscribers of the
-//! session's running-commands stream. Nothing here is stored: the command's whole output lands as
-//! its tool call's result.
+//! Where a driver reports the shell commands its agent runs, to the session's running set: each
+//! start, move to the background, end and reseed the provider sends, and a command's output as it
+//! prints, and the acts the set asks of the driver for a command. Output is never stored: the
+//! command's whole output lands as its tool call's result.
 
-use sidekicks_contracts::command::CommandId;
+use std::sync::Arc;
+
+use futures::future::BoxFuture;
+use sidekicks_contracts::command::{CommandId, ExitCode};
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::text::NonEmptyText;
 
-/// The running-commands stream's live output intake, registered through a `PortRegistration`. It
-/// never blocks or fails back into the provider's stream; output with no subscriber, or arriving
-/// before the publisher is registered, is dropped, never stored.
-pub(crate) trait CommandOutputPublisher: Send + Sync {
+use crate::provider::driver::contract::DriverError;
+
+/// A command the provider reports running, from its start or from a list that names it.
+#[derive(Clone)]
+pub(crate) struct CommandStart {
+    /// The session.
+    pub(crate) session_id: SessionId,
+    /// The provider's own id for the command.
+    pub(crate) command_id: CommandId,
+    /// The run that started it.
+    pub(crate) run_id: RunId,
+    /// The command as the agent ran it.
+    pub(crate) name: NonEmptyText,
+    /// When it started.
+    pub(crate) started_at: WireInstant,
+    /// The process the provider's executor names it by, where the provider runs it through one.
+    pub(crate) process_id: Option<String>,
+    /// Whether it runs in the background from its start.
+    pub(crate) is_backgrounded: bool,
+    /// Whether the provider can move it to the background while the agent waits on it.
+    pub(crate) can_move_to_background: bool,
+    /// Whether it takes typed input for its whole run.
+    pub(crate) accepts_input: bool,
+    /// The provider's acts on the command.
+    pub(crate) acts: Arc<dyn CommandActs>,
+}
+
+/// How the provider reports a command ended: its exit code where it gave one, and its summary of
+/// a command it stopped itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProviderCommandEnd {
+    /// The process's exit code.
+    pub(crate) exit_code: Option<ExitCode>,
+    /// The provider's summary of a command it stopped itself, stored as the ending's body.
+    pub(crate) summary: Option<String>,
+}
+
+/// Which commands a provider's list of its running commands covers: a command it covers and does
+/// not list has ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[expect(
+    dead_code,
+    reason = "each driver names what its list of running commands covers"
+)]
+pub(crate) enum ReseedScope {
+    /// Only the commands running in the background.
+    BackgroundCommands,
+    /// Every command.
+    EveryCommand,
+}
+
+/// The running-commands intake, registered through a `PortRegistration`. It never blocks or fails
+/// back into the provider's stream; a fact about a command the set holds no row for is dropped,
+/// except where it adds the row.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "each driver reports its commands' starts, moves, ends and lists here"
+    )
+)]
+pub(crate) trait RunningCommandPublisher: Send + Sync {
     /// Publishes `data`, a piece of `command_id`'s output in `session_id` as it printed, as the
     /// stream's output frame.
     fn publish_output(&self, session_id: SessionId, command_id: CommandId, data: String);
+
+    /// Adds the command `start` names; a command the set already holds is left as it is.
+    fn command_started(&self, start: CommandStart);
+
+    /// Moves the command `start` names to the background, adding it there when its start was
+    /// missed.
+    fn command_moved_to_background(&self, start: CommandStart);
+
+    /// Ends `command_id` as the provider reported it, appending its ending once.
+    fn command_ended(&self, session_id: SessionId, command_id: CommandId, end: ProviderCommandEnd);
+
+    /// Takes the provider's whole list of `session_id`'s running commands over `scope`: a listed
+    /// command the set lacks is added in the background, and one held in scope but not listed ends.
+    fn commands_listed(&self, session_id: SessionId, scope: ReseedScope, listed: Vec<CommandStart>);
+
+    /// Ends every command of `session_id`: its provider's process exited.
+    fn provider_exited(&self, session_id: SessionId);
+}
+
+/// What the person asks of a command, carried out by the provider that runs it. Each act fails
+/// with the provider's refusal, or with no answer in time.
+pub(crate) trait CommandActs: Send + Sync {
+    /// Stops the command; answers once the provider acknowledged the stop.
+    fn stop(
+        &self,
+        session_id: SessionId,
+        command_id: CommandId,
+    ) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// Moves the command to the background; answers whether the provider moved it, `false` when
+    /// it no longer waited on it.
+    fn move_to_background(
+        &self,
+        session_id: SessionId,
+        command_id: CommandId,
+    ) -> BoxFuture<'_, Result<bool, DriverError>>;
+
+    /// Writes `text` to the command's input, then ends its input when `is_end_of_input`.
+    fn write_input(
+        &self,
+        session_id: SessionId,
+        command_id: CommandId,
+        text: Option<String>,
+        is_end_of_input: bool,
+    ) -> BoxFuture<'_, Result<(), DriverError>>;
 }
