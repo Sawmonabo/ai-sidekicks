@@ -19,8 +19,9 @@ const WAL_SWITCH_RETRY_WAIT: Duration = Duration::from_millis(10);
 
 /// The optimize the writer runs at open and daily after: its mask has SQLite weigh every table,
 /// not only those this connection's own statements planned, since the reads plan on the read
-/// pool's connections.
-pub(crate) const OPTIMIZE_SQL: &str = "PRAGMA optimize = 0x10002";
+/// pool's connections, and analyze each under SQLite's temporary limit of 2000 rows, so no run
+/// scans a whole table while the writer waits on it.
+pub(crate) const OPTIMIZE_SQL: &str = "PRAGMA optimize = 0x10012";
 
 // Whether the file holds the schema; it is created whole, so its event log stands for every table.
 const HAS_SCHEMA_SQL: &str =

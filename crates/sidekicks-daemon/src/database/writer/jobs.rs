@@ -31,7 +31,9 @@ const PASSIVE_CHECKPOINT_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
 pub(crate) const OPTIMIZE_INTERVAL: Duration = Duration::from_hours(24);
 
 /// The optimize's processor budget: 100 ms a run. It is usually a no-op, and where it analyzes a
-/// table its temporary analysis limit bounds the scan, so a run's cost does not grow with the file.
+/// table its temporary analysis limit bounds the scan, so a run's cost does not grow with the file:
+/// SQLite's own comment on that limit puts the worst run on a 100 MB file under 100 ms. The daemon
+/// sets no connection `analysis_limit`, since one below the optimize's would replace it.
 const OPTIMIZE_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
     figure: Duration::from_millis(100),
     per: 1,
