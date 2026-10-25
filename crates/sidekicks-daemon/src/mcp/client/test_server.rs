@@ -224,7 +224,10 @@ pub(super) fn test_client() -> (McpClient, Arc<QuestionCard>) {
     questions
         .register(port)
         .expect("a new registration takes its port");
-    (McpClient::new(Arc::new(questions)), card)
+    (
+        McpClient::new(Arc::new(questions)).expect("the client builds"),
+        card,
+    )
 }
 
 /// A questions card that holds one open question per run, as a run waiting on one refuses a

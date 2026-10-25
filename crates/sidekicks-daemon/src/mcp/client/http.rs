@@ -45,9 +45,6 @@ use crate::mcp::client::raw_copy::RawReplyCopy;
 use crate::mutex_lock::lock;
 use crate::provider::inbound_json::decode_inbound_json;
 
-/// The idle connections kept per server: the standing event stream's and one request's.
-const IDLE_CONNECTIONS_PER_HOST: usize = 2;
-
 /// The bound rmcp's own HTTP client holds an SSE event to when the transport passes none, rmcp's
 /// `DEFAULT_MAX_SSE_EVENT_SIZE`, which it does not export.
 const DEFAULT_MAX_SSE_EVENT_SIZE: usize = 16 * 1024 * 1024;
@@ -142,11 +139,11 @@ pub(super) struct McpHttpClient {
 }
 
 impl McpServerConnection {
-    /// Opens a connection to the server at `uri`, sending `headers` with every request and the
-    /// headers `authorizer` makes for each, its start held to `startup_timeout` or the 30 s
+    /// Opens a connection to the server at `uri` over the client's one HTTP client, sending
+    /// `headers` with every request and the headers `authorizer` makes for each, its start held to
+    /// `startup_timeout` or the 30 s
     /// default. Refused when `headers` names `Accept`, `Mcp-Session-Id` or `Last-Event-Id`, which
-    /// the transport sets itself; fails when the HTTP client cannot be built or the server does not
-    /// complete its start in time.
+    /// the transport sets itself; fails when the server does not complete its start in time.
     #[cfg_attr(
         not(test),
         expect(
@@ -172,15 +169,9 @@ impl McpServerConnection {
             });
         }
         let start = McpConnectionStart::http(startup_timeout);
-        // No `timeout` or `read_timeout`: either would cut a quiet event stream; each request's
-        // bound is rmcp's.
-        let http = reqwest::Client::builder()
-            .pool_max_idle_per_host(IDLE_CONNECTIONS_PER_HOST)
-            .build()
-            .map_err(McpConnectionError::HttpClient)?;
         let raw = RawReplyCopy::default();
         let client = McpHttpClient {
-            http,
+            http: scope.http.clone(),
             authorizer,
             raw: raw.clone(),
             cut_streams: Arc::default(),

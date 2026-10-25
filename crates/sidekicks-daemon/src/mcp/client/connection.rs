@@ -56,9 +56,6 @@ pub(crate) enum McpConnectionError {
     /// The server's process could not start, or its standard streams were not piped.
     #[error("the tool server's process could not start")]
     Start(#[source] io::Error),
-    /// The HTTP client for the server's address could not be built.
-    #[error("the HTTP client for the tool server could not be built")]
-    HttpClient(#[source] reqwest::Error),
     /// The server's entry sets a header the client sets itself.
     #[error("the tool server's entry sets the {name} header, which the client sets itself")]
     ReservedHeader {
@@ -92,13 +89,16 @@ pub(crate) enum McpConnectionError {
     },
 }
 
-/// What a connection is: its session, its server's name and the shared watches its handler feeds.
+/// What a connection is: its session, its server's name, the client's shared HTTP client and the
+/// shared watches its handler feeds.
 #[derive(Clone)]
 pub(crate) struct McpConnectionScope {
     /// The session the connection serves.
     pub(crate) session_id: SessionId,
     /// The server's name.
     pub(crate) server_name: McpServerName,
+    /// The client's one HTTP client, which a server at an address is reached through.
+    pub(crate) http: reqwest::Client,
     /// The listeners of each session's prompts.
     pub(crate) prompt_watchers: Arc<PromptWatchers>,
     /// The tasks the connection follows.

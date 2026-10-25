@@ -26,17 +26,32 @@ use crate::mcp::client::tasks::TaskWatches;
 use crate::provider::port::question::QuestionPort;
 use crate::provider::port::registration::PortRegistration;
 
-/// The client: each session's open tool-server connections, the listeners of their prompts and
-/// the tasks they follow.
+/// The idle connections the HTTP client keeps per host: a server's standing event stream and one
+/// request.
+const IDLE_CONNECTIONS_PER_HOST: usize = 2;
+
+/// Why the client could not be made.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum McpClientError {
+    /// The HTTP client every server at an address is reached through could not be built.
+    #[error("the HTTP client for the tool servers could not be built")]
+    HttpClient(#[source] reqwest::Error),
+}
+
+/// The client: each session's open tool-server connections, the listeners of their prompts, the
+/// tasks they follow, and the one HTTP client every server at an address is reached through.
 pub(crate) struct McpClient {
     connections: Mutex<HashMap<SessionId, Vec<Arc<McpServerConnection>>>>,
+    /// One connection pool for every HTTP tool server of the daemon: at most two idle sockets per
+    /// host, each closed by reqwest's 90 s idle timeout.
+    http: reqwest::Client,
     prompt_watchers: Arc<PromptWatchers>,
     task_watches: Arc<TaskWatches>,
 }
 
 impl McpClient {
     /// A client asking its tasks' questions through `questions`, the drivers' questions card
-    /// intake.
+    /// intake. Fails when its HTTP client cannot be built.
     #[cfg_attr(
         not(test),
         expect(
@@ -45,12 +60,21 @@ impl McpClient {
                       connections, which the tool-server units open, share"
         )
     )]
-    pub(crate) fn new(questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>) -> Self {
-        Self {
+    pub(crate) fn new(
+        questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
+    ) -> Result<Self, McpClientError> {
+        // No `timeout` or `read_timeout`: either would cut a quiet event stream; each request's
+        // bound is rmcp's.
+        let http = reqwest::Client::builder()
+            .pool_max_idle_per_host(IDLE_CONNECTIONS_PER_HOST)
+            .build()
+            .map_err(McpClientError::HttpClient)?;
+        Ok(Self {
             connections: Mutex::new(HashMap::new()),
+            http,
             prompt_watchers: Arc::new(PromptWatchers::default()),
             task_watches: Arc::new(TaskWatches::new(questions)),
-        }
+        })
     }
 
     /// Keeps `connection` open for its session until the session's connections close.
@@ -100,6 +124,7 @@ impl McpClient {
         connection::McpConnectionScope {
             session_id,
             server_name,
+            http: self.http.clone(),
             prompt_watchers: Arc::clone(&self.prompt_watchers),
             task_watches: Arc::clone(&self.task_watches),
         }
