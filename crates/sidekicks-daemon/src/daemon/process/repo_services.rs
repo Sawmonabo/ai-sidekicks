@@ -58,6 +58,8 @@ pub(crate) struct RepoServiceStart {
     pub(crate) home_folder: PathBuf,
     /// The run folder, private to this account, where the askpass broker's socket goes.
     pub(crate) run_folder: PathBuf,
+    /// The daemon's own program, which git's askpass program sits beside.
+    pub(crate) daemon_program: PathBuf,
     /// The thread every git child starts on.
     pub(crate) spawner: Spawner,
     /// Git along the person's search path, when the start found it.
@@ -83,7 +85,7 @@ pub(crate) struct RepoServiceStart {
 /// The repository services, each built once for the daemon's life.
 #[expect(
     dead_code,
-    reason = "the daemon's start, its method tables and its stop, which the composition wires"
+    reason = "the daemon's start, its method tables and its stop"
 )]
 pub(crate) struct RepoServices {
     /// The daemon's git; the stop waits for the trees its failed calls left ending.
@@ -118,9 +120,6 @@ pub(crate) struct RepoServices {
 /// Why the repository services could not be built.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RepoServiceStartError {
-    /// The daemon's own program could not be found for git's askpass program beside it.
-    #[error("the daemon's own program could not be found for git's askpass program")]
-    AskpassProgram(#[source] io::Error),
     /// The askpass broker could not start.
     #[error(transparent)]
     Askpass(AskpassBrokerError),
@@ -132,16 +131,14 @@ pub(crate) enum RepoServiceStartError {
 /// Builds the repository services from `start`. Fails when the askpass broker cannot start for
 /// any reason but a system with no private askpass socket, which leaves it unstarted. Runs inside
 /// the daemon's runtime.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start, which the composition wires")
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) fn build_repo_services(
     start: RepoServiceStart,
 ) -> Result<RepoServices, RepoServiceStartError> {
     let RepoServiceStart {
         home_folder,
         run_folder,
+        daemon_program,
         spawner,
         git_executable,
         base_environment,
@@ -172,9 +169,10 @@ pub(crate) fn build_repo_services(
         writes,
         list_feed,
     ));
-    let program_path = git_askpass_program_path().map_err(RepoServiceStartError::AskpassProgram)?;
-    let askpass =
-        askpass_or_unavailable(AskpassBroker::start(&run_folder, program_path), &run_folder)?;
+    let askpass = askpass_or_unavailable(
+        AskpassBroker::start(&run_folder, git_askpass_program_path(&daemon_program)),
+        &run_folder,
+    )?;
     let occupancy = MountOccupancyReader::new(Arc::clone(&reads));
     let worktree_events = Arc::new(WorktreeEventEmitter::new(event_log));
     let folder_watch = Arc::new(WorkingFolderWatcher::new(WorkingFolderWatcherDeps {

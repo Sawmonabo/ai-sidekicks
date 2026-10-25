@@ -91,6 +91,7 @@ async fn fixture() -> Fixture {
         database.path(),
         READ_STATEMENT_CAPACITY,
     ));
+    let daemon_program = std::env::current_exe().expect("the test's program is named");
     let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
     let clock = Arc::new(WallClockTimer::new().expect("the test arms a wall clock"));
     let scheduler = Arc::new(Scheduler::start(
@@ -111,6 +112,7 @@ async fn fixture() -> Fixture {
     let repo = build_repo_services(RepoServiceStart {
         home_folder: home.path().to_path_buf(),
         run_folder: home.path().join("run"),
+        daemon_program: daemon_program.clone(),
         spawner: spawner.clone(),
         git_executable: None,
         base_environment: Arc::from([]),
@@ -191,6 +193,7 @@ async fn fixture() -> Fixture {
         workspace_writes,
         clock,
         spawner,
+        daemon_program,
     })
     .expect("the session services build");
     Fixture {

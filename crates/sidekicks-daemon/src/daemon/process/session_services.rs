@@ -120,12 +120,14 @@ pub(crate) struct SessionServiceStart {
     pub(crate) clock: Arc<dyn WallClock>,
     /// The thread every terminal child starts on.
     pub(crate) spawner: Spawner,
+    /// The daemon's own program, whose `console` mode the terminals hand each console call to.
+    pub(crate) daemon_program: PathBuf,
 }
 
-/// The session services, each built once for the daemon's life, in the order the stop ends them.
+/// The session services, each built once for the daemon's life.
 #[expect(
     dead_code,
-    reason = "the daemon's driver ports, method tables and stop, which the composition wires"
+    reason = "the daemon's driver ports, method tables and stop"
 )]
 pub(crate) struct SessionServices {
     /// The terminals; the stop drains them.
@@ -185,9 +187,12 @@ pub(crate) struct SessionServices {
 /// Why the session services could not be built.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum SessionServiceStartError {
-    /// The daemon's own program could not be named for the terminals' console helper.
-    #[error("the daemon's own program could not be named for the terminals' console helper")]
-    ConsoleHelperProgram(#[source] std::io::Error),
+    /// The daemon's own program's path is not UTF-8, so the terminals cannot name it.
+    #[error("the daemon's program path {} is not UTF-8", path.display())]
+    ConsoleHelperProgram {
+        /// The program's path.
+        path: PathBuf,
+    },
     /// The code highlighter's thread could not start.
     #[error("the code highlighter could not start")]
     Highlighter(#[source] std::io::Error),
@@ -197,10 +202,7 @@ pub(crate) enum SessionServiceStartError {
 /// approval side's run holds reach it, then the services that close its cycles before any run can
 /// end. Fails when the console helper cannot be named or the highlighter cannot start. Runs inside
 /// the daemon's runtime.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start, which the composition wires")
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) fn build_session_services(
     start: SessionServiceStart,
 ) -> Result<SessionServices, SessionServiceStartError> {
@@ -231,7 +233,14 @@ pub(crate) fn build_session_services(
         workspace_writes,
         clock,
         spawner,
+        daemon_program,
     } = start;
+    // The fallible steps first, so a failure leaves no follow or task begun.
+    let terminals = Arc::new(Terminals::new(spawner, console_helper(daemon_program)?));
+    let highlighter = Arc::new(
+        CodeHighlighter::start(CodeHighlighterOptions::for_this_machine())
+            .map_err(SessionServiceStartError::Highlighter)?,
+    );
     let appender = Arc::new(SessionEventAppender::new(
         Arc::clone(&event_log),
         SESSION_EVENT_VERSION.clone(),
@@ -347,11 +356,8 @@ pub(crate) fn build_session_services(
         })
     };
     Ok(SessionServices {
-        terminals: Arc::new(Terminals::new(spawner, console_helper()?)),
-        highlighter: Arc::new(
-            CodeHighlighter::start(CodeHighlighterOptions::for_this_machine())
-                .map_err(SessionServiceStartError::Highlighter)?,
-        ),
+        terminals,
+        highlighter,
         chat_version_recording: Some(chat_version_recording),
         chat_versions,
         queue,
@@ -400,18 +406,13 @@ pub(crate) fn build_session_services(
     })
 }
 
-// The daemon's own `console` mode, which the terminals hand each console call to.
-fn console_helper() -> Result<CommandLine, SessionServiceStartError> {
-    let program = std::env::current_exe()
-        .map_err(SessionServiceStartError::ConsoleHelperProgram)?
+// The daemon's own `console` mode of `daemon_program`, which the terminals hand each console call
+// to.
+fn console_helper(daemon_program: PathBuf) -> Result<CommandLine, SessionServiceStartError> {
+    let program = daemon_program
         .into_os_string()
         .into_string()
-        .map_err(|program| {
-            SessionServiceStartError::ConsoleHelperProgram(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("the program's path is not UTF-8: {}", program.display()),
-            ))
-        })?;
+        .map_err(|path| SessionServiceStartError::ConsoleHelperProgram { path: path.into() })?;
     Ok(CommandLine {
         program,
         arguments: vec![CONSOLE_MODE.to_owned()],
@@ -430,10 +431,7 @@ pub(crate) struct SessionAttachments {
 /// Starts the session services' follows of `followers`: the binding cursors', the approval side's,
 /// the related sessions' rescoring and the self-naming. Called once the start's recovery pass has settled the
 /// runs, inside the daemon's runtime.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start, which the composition wires")
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) fn start_session_attachments(
     services: &SessionServices,
     followers: &Arc<SessionEventFollowers>,
@@ -453,10 +451,7 @@ impl SessionAttachments {
     /// Stops every follow and waits for the work under way, the file search's listings among it,
     /// and ends `workspaces`' watch, then waits for every write it already sent to be recorded;
     /// answers each task that ended abnormally, every one having stopped.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's stop, which the composition wires")
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's stop"))]
     pub(crate) async fn stop(
         self,
         services: &mut SessionServices,
