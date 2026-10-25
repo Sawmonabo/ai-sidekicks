@@ -154,6 +154,7 @@ mod tests {
 
         let result = prepare_run_folder(&DaemonRunFolder {
             token_path: folder_path.join("daemon.token"),
+            status_path: folder_path.join("service-status.json"),
             folder_path,
             socket_path: socket_path.clone(),
         })

@@ -15,7 +15,8 @@ use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
 
 use crate::posix::private_folder::create_private_folder;
 use crate::run_folder::{
-    DaemonRunFolder, RUN_FOLDER_NAME, RunFolderRefused, SESSION_TOKEN_FILE_NAME,
+    DaemonRunFolder, RUN_FOLDER_NAME, RunFolderRefused, SERVICE_STATUS_FILE_NAME,
+    SESSION_TOKEN_FILE_NAME,
 };
 
 // The local socket's file name in the run folder.
@@ -109,6 +110,7 @@ pub(crate) fn resolve_daemon_run_folder(
     DaemonRunFolder {
         socket_path: folder_path.join(SOCKET_FILE_NAME),
         token_path: folder_path.join(SESSION_TOKEN_FILE_NAME),
+        status_path: folder_path.join(SERVICE_STATUS_FILE_NAME),
         folder_path,
     }
 }
@@ -179,6 +181,10 @@ mod tests {
         assert_eq!(
             resolved.token_path,
             Path::new(expected).join("daemon.token")
+        );
+        assert_eq!(
+            resolved.status_path,
+            Path::new(expected).join("service-status.json")
         );
     }
 
