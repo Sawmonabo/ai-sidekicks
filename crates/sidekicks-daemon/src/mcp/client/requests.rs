@@ -4,6 +4,7 @@
 //! the server the request is canceled; a request whose caller stops waiting tells it the same, and
 //! its raw reply, should one still come, is dropped.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use rmcp::model::{
@@ -31,6 +32,42 @@ pub(super) const HTTP_TOOL_CALL_IDLE_TIMEOUT: Duration = Duration::from_mins(5);
 /// The longest a tool call may run however often it reports progress, 100,000,000 ms, Claude
 /// Code's own bound, so no call Claude Code allows fails here.
 const TOOL_CALL_MAX_TOTAL_TIMEOUT: Duration = Duration::from_secs(100_000);
+
+/// The most pages one list is read to, the cap on a server whose list never ends: past it, the
+/// list is what the pages read so far hold. rmcp's own list helpers have no such bound.
+pub(super) const MAX_LIST_PAGES: usize = 100;
+
+/// The cursors one paged list was read at: a list stops at its last page, at a cursor it was
+/// already read at, or at [`MAX_LIST_PAGES`].
+#[derive(Default)]
+pub(super) struct PageCursors {
+    seen: HashSet<String>,
+    pages: usize,
+}
+
+impl PageCursors {
+    /// The cursor to read the page after one whose `nextCursor` is `next` at; `None` once the
+    /// list ends, repeats a cursor or reaches the page cap, the last two logged.
+    pub(super) fn follow(&mut self, method: &str, next: Option<String>) -> Option<String> {
+        self.pages += 1;
+        let cursor = next?;
+        if self.pages >= MAX_LIST_PAGES {
+            tracing::warn!(
+                method,
+                "a tool server's list ran past the page cap; read so far kept"
+            );
+            return None;
+        }
+        if !self.seen.insert(cursor.clone()) {
+            tracing::warn!(
+                method,
+                "a tool server's list repeated a cursor; read so far kept"
+            );
+            return None;
+        }
+        Some(cursor)
+    }
+}
 
 /// How long a request may wait for its answer.
 #[derive(Clone, Copy, Debug)]
@@ -227,9 +264,11 @@ impl ServerRequests {
         read_task_ack(&self.send_request(request, RequestWait::Ordinary).await?)
     }
 
-    /// Every prompt the server lists, page by page. Fails as a page's request fails.
+    /// Every prompt the server lists, page by page, as [`PageCursors`] bounds the pages. Fails as a
+    /// page's request fails.
     pub(super) async fn list_all_prompts(&self) -> Result<Vec<Prompt>, ServiceError> {
         let mut prompts = Vec::new();
+        let mut cursors = PageCursors::default();
         let mut cursor = None;
         loop {
             let request = ClientRequest::ListPromptsRequest(ListPromptsRequest::with_param(
@@ -241,7 +280,7 @@ impl ServerRequests {
                 return Err(ServiceError::UnexpectedResponse);
             };
             prompts.extend(page.prompts);
-            cursor = page.next_cursor;
+            cursor = cursors.follow("prompts/list", page.next_cursor);
             if cursor.is_none() {
                 return Ok(prompts);
             }
@@ -291,13 +330,64 @@ fn read_raw_result(method: &str, reply: Value) -> Result<Map<String, Value>, Mcp
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use rstest::rstest;
     use serde_json::json;
     use tokio::time::{Duration, timeout};
 
-    use super::RequestWait;
+    use super::{MAX_LIST_PAGES, RequestWait};
     use crate::mcp::client::test_server::{
         Reply, method_not_found, open_test_server, test_client, v1_initialize_result,
     };
+
+    // Mutations: in `PageCursors::follow`, leave out the repeated-cursor stop or the page cap;
+    // either list then never ends and the test times out.
+    #[rstest]
+    #[case::a_repeated_cursor(false, 2)]
+    #[case::a_list_that_never_ends(true, MAX_LIST_PAGES)]
+    #[tokio::test(start_paused = true)]
+    async fn a_paged_list_stops_at_a_repeated_cursor_or_the_page_cap(
+        #[case] is_endless: bool,
+        #[case] expected_pages: usize,
+    ) {
+        let (client, _card) = test_client();
+        let mut pages: HashMap<String, usize> = HashMap::new();
+        let (connection, server) = open_test_server(
+            &client,
+            Box::new(move |method, _params| {
+                let page = pages.entry(method.to_owned()).or_default();
+                *page += 1;
+                let next_cursor = if is_endless {
+                    format!("c{page}")
+                } else {
+                    "c".to_owned()
+                };
+                match method {
+                    "initialize" => Reply::Answer(json!({ "result": v1_initialize_result() })),
+                    "tools/list" => Reply::Answer(
+                        json!({ "result": { "tools": [], "nextCursor": next_cursor } }),
+                    ),
+                    "prompts/list" => Reply::Answer(
+                        json!({ "result": { "prompts": [], "nextCursor": next_cursor } }),
+                    ),
+                    _ => method_not_found(),
+                }
+            }),
+        )
+        .await;
+
+        timeout(
+            Duration::from_secs(60),
+            connection.requests.list_all_prompts(),
+        )
+        .await
+        .expect("the prompts list ends")
+        .expect("the prompts read");
+
+        assert_eq!(server.requests("tools/list").len(), expected_pages);
+        assert_eq!(server.requests("prompts/list").len(), expected_pages);
+    }
 
     // Mutation: in `PendingRequest::drop`, leave out `raw.take`; the request then stays awaited
     // and its late reply is kept with nobody to take it.

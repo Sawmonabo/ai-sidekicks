@@ -35,7 +35,7 @@ use tokio::time::Instant;
 use crate::mcp::client::calls::CallsInFlight;
 use crate::mcp::client::prompts::PromptWatchers;
 use crate::mcp::client::raw_copy::{INITIALIZE_METHOD, RawCopyTransport, RawReplyCopy};
-use crate::mcp::client::requests::{McpRequestError, RequestWait, ServerRequests};
+use crate::mcp::client::requests::{McpRequestError, PageCursors, RequestWait, ServerRequests};
 use crate::mcp::client::stdio::StdioProcess;
 use crate::mcp::client::tasks::{McpTaskGeneration, QuestionOutcome, TaskWatches};
 use crate::provider::spawn_environment::SpawnEnvironmentError;
@@ -271,10 +271,12 @@ impl McpServerConnection {
         Ok(lock(&self.task_tools).contains(tool_name))
     }
 
-    /// Re-reads, page by page from the raw `tools/list` replies, which tools take a task: those
-    /// whose `execution.taskSupport` is `required` or `optional`. Fails as a page's request fails.
+    /// Re-reads, page by page from the raw `tools/list` replies as [`PageCursors`] bounds them,
+    /// which tools take a task: those whose `execution.taskSupport` is `required` or `optional`.
+    /// Fails as a page's request fails.
     pub(super) async fn read_task_tools(&self) -> Result<(), McpRequestError> {
         let mut task_tools = HashSet::new();
+        let mut cursors = PageCursors::default();
         let mut cursor: Option<String> = None;
         loop {
             let params = cursor.map(|cursor| json!({ "cursor": cursor }));
@@ -293,10 +295,11 @@ impl McpServerConnection {
                 matches!(support, "required" | "optional")
                     .then(|| tool.get("name")?.as_str().map(str::to_owned))?
             }));
-            cursor = page
+            let next = page
                 .get("nextCursor")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
+            cursor = cursors.follow("tools/list", next);
             if cursor.is_none() {
                 break;
             }
