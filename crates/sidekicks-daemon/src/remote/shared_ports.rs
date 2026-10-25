@@ -73,7 +73,7 @@ struct SharedPort {
 struct SharedPortList {
     /// The shared ports, in the order they were added.
     ports: Vec<SharedPort>,
-    /// What the listening source last read, cleared while nobody reads the list.
+    /// What the listening source last read, cleared when a new follow starts.
     listening: PortListeningReadings,
     /// The listed ports the listening source follows.
     listed: watch::Sender<Vec<Port>>,
@@ -168,7 +168,9 @@ impl SharedPorts {
     /// Shares `port` and answers when it was shared: strictly later than every port already on
     /// the list, so the list's order is the order added even when the clock steps back. Fails with
     /// [`SharedPortAddError::AlreadyShared`] for a listed port, and with
-    /// [`SharedPortAddError::Write`] when the row was not stored; either way nothing changes.
+    /// [`SharedPortAddError::Write`] when the row was not stored; either way nothing changes. The
+    /// call runs to its answer: a caller never drops its future, which would leave memory behind
+    /// the table.
     pub(crate) async fn add(&self, port: Port) -> Result<WireInstant, SharedPortAddError> {
         let _change = self.changes.lock().await;
         let newest = {
@@ -194,7 +196,8 @@ impl SharedPorts {
 
     /// Stops sharing `port` and closes every connection open on it; a port that is not shared
     /// changes nothing. Fails with [`WriteError`] when the row was not removed, with the port
-    /// still shared and its connections open.
+    /// still shared and its connections open. The call runs to its answer: a caller never drops
+    /// its future, which would leave memory behind the table.
     pub(crate) async fn remove(&self, port: Port) -> Result<(), WriteError> {
         let _change = self.changes.lock().await;
         if lock(&self.list).position(port).is_none() {
@@ -216,7 +219,8 @@ impl SharedPorts {
 
     /// Stops sharing every port and closes every connection open on them, as removing this
     /// machine does. Fails with [`WriteError`] when the rows were not removed, with nothing
-    /// changed.
+    /// changed. The call runs to its answer: a caller never drops its future, which would leave
+    /// memory behind the table.
     #[cfg_attr(
         not(test),
         expect(

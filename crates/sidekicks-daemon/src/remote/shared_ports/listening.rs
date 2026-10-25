@@ -30,8 +30,14 @@ pub(crate) type PortListeningSink = Arc<dyn Fn(PortListeningReadings) + Send + S
 pub(crate) trait SharedPortListeningSource: Send + Sync {
     /// Follows the listeners on the ports `listed` holds, the list changing as ports are shared
     /// and removed: sends `sink` every listed port's reading once it has them and again whenever
-    /// one changes, until `stop` is canceled. It reads nothing while `listed` is empty, and
-    /// nothing at all when `stop` is canceled already, as a reader that left at once leaves it.
+    /// one changes, until `stop` is canceled. Readings it holds already go to `sink` inside this
+    /// call, so a first reader's first list is right whenever the source has read. For a port
+    /// with several listeners it reports one that
+    /// [`is_reached_by_loopback_connect`](super::loopback::is_reached_by_loopback_connect) accepts,
+    /// where there is one. At most one follow is live: a new one starts only once the last one's
+    /// `stop` is canceled, so a source may replace its follow. It reads nothing while `listed` is
+    /// empty, and nothing at all when `stop` is canceled already, as a reader that left at once
+    /// leaves it.
     fn follow(
         &self,
         listed: watch::Receiver<Vec<Port>>,
