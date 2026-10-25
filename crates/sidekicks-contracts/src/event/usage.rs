@@ -320,7 +320,8 @@ fn window_dependent_required() -> Value {
 }
 
 /// The `usage.rateLimit.updated` payload: a snapshot of one of an account's quotas, keyed by the
-/// account and `limitId`. It names no session and no run; the envelope binds it to the machine's
+/// account, `limitId` and `windowMins`. It names no session and no run; the envelope binds it to
+/// the machine's
 /// sentinel session. A display reading only, never an input to a security or admission decision.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

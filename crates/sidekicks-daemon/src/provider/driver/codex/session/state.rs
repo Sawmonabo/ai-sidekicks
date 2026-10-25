@@ -15,6 +15,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
+use tokio::sync::oneshot;
 
 use crate::provider::driver::attachments::ProviderAttachment;
 use crate::provider::driver::codex::delivery::frames::CodexPromptHookRun;
@@ -23,6 +24,7 @@ use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::session::inbound::CodexSessionInboundSender;
 use crate::provider::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
 use crate::provider::driver::codex::thread::settings::CodexThreadSettings;
+use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::run_control::{PickedSkill, ResumeRunParams};
 use crate::provider::thread_frame_router::ThreadFrameRouterConfig;
 
@@ -191,8 +193,9 @@ pub(crate) struct CodexSessionRecord {
     /// Runs whose turn was interrupted to pause them, by that turn's id: its interrupted end is
     /// the pause taking effect, never the run's end.
     pub(crate) paused_run_id_by_interrupted_turn_id: HashMap<String, RunId>,
-    /// Continues asked for while a pause's interrupt was on its way, by the run.
-    pub(crate) continues_awaiting_pause: HashMap<RunId, ResumeRunParams>,
+    /// Continues asked for while a pause's interrupt was on its way, by the run, each with the
+    /// resume it answers once its turn started or the run ended.
+    pub(crate) continues_awaiting_pause: HashMap<RunId, CodexWaitingContinue>,
     /// What each live turn was sent with, by turn id; each leaves with its turn's end.
     pub(crate) turn_input_by_turn_id: HashMap<String, CodexTurnInput>,
     /// What the session's deliveries remember between frames.
@@ -395,4 +398,15 @@ fn find_run(turns: &[(String, RunId)], turn_id: &str) -> Option<RunId> {
         .iter()
         .find(|(kept, _)| kept == turn_id)
         .map(|(_, run_id)| *run_id)
+}
+
+/// A continue that waits on a pause's interrupt: its resume's params, and the reply its resume
+/// waits on, answered `Ok` once the continue's turn started and with a refusal when the pause's
+/// turn ended with no turn to start, so the queue admits the messages only once they were sent.
+pub(crate) struct CodexWaitingContinue {
+    /// The continue.
+    pub(crate) params: ResumeRunParams,
+    /// Answered when the continue's place resolves; dropped with the record, which its resume
+    /// reads as the conversation let go.
+    pub(crate) started: oneshot::Sender<Result<(), DriverError>>,
 }

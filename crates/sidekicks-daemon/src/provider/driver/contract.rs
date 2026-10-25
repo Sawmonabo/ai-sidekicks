@@ -88,7 +88,7 @@ pub(crate) enum DriverError {
     /// The request went out and no answer came, so the provider may still act on it.
     #[error(transparent)]
     Unanswered(RequestUnanswered),
-    /// The turn a steer was handed for ended before it was sent.
+    /// The turn a steer or a waiting continue was handed for ended before the message was sent.
     #[error(transparent)]
     SteerTurnEnded(#[from] SteerTurnEndedError),
     /// The driver refused a run's start before its provider saw it; the run fails as that refusal.

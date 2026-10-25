@@ -23,7 +23,7 @@ use super::{
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::provider::driver::diagnostics::RecordedEvents;
 use crate::provider::driver::registry::test_provider;
-use crate::provider::driver::test_registry::TestRunPorts;
+use crate::provider::driver::test_registry::{TestRunPorts, new_run_id};
 use crate::session::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, append, continue_request, held_driver, insert_running_run,
     stored_run_state, turn_completed_at, turn_started_at,
@@ -53,7 +53,7 @@ impl Harness {
     async fn new(state: RunState) -> Self {
         let database = TestDatabase::new();
         let home = tempfile::tempdir().expect("the test makes a home folder");
-        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        let run_id = new_run_id();
         insert_running_run(&database, test_session_id(), run_id);
         database
             .reader()
@@ -476,7 +476,7 @@ async fn inbound_appends_a_piece_of_a_run_being_continued_after_its_running_writ
 #[tokio::test]
 async fn inbound_fails_a_piece_of_a_run_with_no_row() {
     let harness = Harness::new(RunState::Running).await;
-    let unknown = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    let unknown = new_run_id();
     let mut payload = harness.piece_payload("m1");
     payload.run_id = unknown;
 

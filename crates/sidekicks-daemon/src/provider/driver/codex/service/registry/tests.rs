@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use rstest::rstest;
 use serde_json::json;
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::CAN_LINK_A_SOCKET;
 use tokio::task::JoinHandle;
 
@@ -12,7 +11,7 @@ use crate::provider::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service, start_scripted_terminal_service,
 };
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use crate::provider::driver::test_registry::new_session_id;
 
 const THREAD: &str = "thread-1";
 
@@ -25,7 +24,7 @@ const QUIET_WAIT: Duration = Duration::from_millis(300);
 // Holds `THREAD` on the scripted service for a session, answering the first list read with one
 // running command.
 async fn hold_with_a_running_command(scripted: &mut ScriptedCodexService) {
-    let session_id = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+    let session_id = new_session_id();
     let release = Arc::clone(&scripted.dependencies.release);
     let service = Arc::clone(&scripted.service);
     let held = tokio::spawn(async move {

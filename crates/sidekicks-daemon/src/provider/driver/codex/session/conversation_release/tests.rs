@@ -21,7 +21,7 @@ use crate::provider::driver::codex::session::inbound::{
 use crate::provider::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::provider::driver::contract::DriverError;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use crate::provider::driver::test_registry::new_session_id;
 
 const THREAD: &str = "thread-1";
 
@@ -73,7 +73,7 @@ impl CodexSessionInboundHandler for SessionFrames {
 async fn hold_with_a_running_command(
     scripted: &mut ScriptedCodexService,
 ) -> (SessionId, CodexSessionInboundReceiver) {
-    let session_id = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+    let session_id = new_session_id();
     let (queue, received) = codex_session_inbound(session_id);
     scripted.service.attach_session(queue);
     let release = Arc::clone(&scripted.dependencies.release);

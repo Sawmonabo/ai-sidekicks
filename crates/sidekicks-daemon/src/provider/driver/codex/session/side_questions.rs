@@ -8,6 +8,7 @@
 //! session closed.
 
 use std::collections::HashMap;
+use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use serde::Deserialize;
@@ -367,12 +368,13 @@ impl CodexSideQuestions {
             &copy.thread_id,
             stop,
         );
-        question.turn_id = Some(turn_id);
+        question.turn_id = Some(turn_id.clone());
         self.tasks.spawn(answer_at_rest(
             Arc::clone(&self.dispatch),
             usage,
             question,
             copy,
+            turn_id,
             Arc::clone(&self.copy_stops),
         ));
         Ok(())
@@ -416,17 +418,19 @@ impl CodexSideQuestions {
                 }
                 is_kept
             });
-        for (thread_id, question) in
-            self.take_live_copies(|question| question.session_id == session_id)
-        {
-            let_go_live_copy(thread_id, question).await;
-        }
+        // Together, so a wedged service holds the close one let-go's bound, not one per copy.
+        let let_go = self
+            .take_live_copies(|question| question.session_id == session_id)
+            .into_iter()
+            .map(|(thread_id, question)| let_go_live_copy(thread_id, question));
+        futures::future::join_all(let_go).await;
     }
 
-    /// Stops every copy, as the driver shuts down, and every copy asked for after it: a live one's
-    /// turn and a resting one's are stopped and let go before this answers, since their services
-    /// may outlive the daemon, and nothing is delivered; one still forking or starting its turn is
-    /// let go by its ask, so no copy holds the driver's tasks open or runs on with no reader.
+    /// Stops every copy, as the driver shuts down, and every copy asked for after it, since their
+    /// services may outlive the daemon, and nothing is delivered: a live one whose turn started
+    /// has it stopped and is let go before this answers; a resting one's turn is stopped by its
+    /// own task; one still forking or starting its turn is let go by its ask, which stops the turn
+    /// once started while its service still has a connection, and logs the turn it cannot stop.
     pub(crate) async fn stop_every_copy(&self) {
         {
             let mut copy_stops = lock_copy_stops(&self.copy_stops);
@@ -613,6 +617,7 @@ async fn answer_at_rest(
     usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
     mut question: CodexSideQuestion,
     mut copy: CodexRestingCopy,
+    turn_id: String,
     copy_stops: Arc<Mutex<CodexCopyStops>>,
 ) {
     let stop = question.stop.clone();
@@ -625,9 +630,6 @@ async fn answer_at_rest(
     if let Some(turn) = read {
         deliver_answer(&dispatch, question, turn).await;
     } else {
-        let turn_id = question
-            .turn_id
-            .expect("a resting copy is answered once its turn started");
         stop_detached_turn(&copy.connection, &copy.thread_id, async { Ok(turn_id) }).await;
     }
 }
@@ -666,11 +668,19 @@ fn lock_copy_stops(copy_stops: &Mutex<CodexCopyStops>) -> MutexGuard<'_, CodexCo
 async fn let_go_live_copy(thread_id: String, question: CodexSideQuestion) {
     // The copy's frames, its stopped turn's end among them, reach no session.
     question.service.release_thread(&thread_id);
-    // A service with no connection runs no turn of the copy's.
-    if let Some(turn_id) = question.turn_id
-        && let Ok(connection) = question.service.connection()
-    {
-        stop_detached_turn(&connection, &thread_id, async { Ok(turn_id) }).await;
+    if let Some(turn_id) = question.turn_id {
+        match question.service.connection() {
+            Ok(connection) => {
+                stop_detached_turn(&connection, &thread_id, async { Ok(turn_id) }).await;
+            }
+            // A service the daemon stopped runs no turn of the copy's; a lasting one may.
+            Err(error) => tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                thread_id,
+                turn_id,
+                "a side question's copy has no connection left to stop its turn on"
+            ),
+        }
     }
     let_go_codex_thread(&question.service, &thread_id).await;
 }
@@ -738,4 +748,6 @@ async fn deliver_answer(
 }
 
 #[cfg(test)]
-pub(crate) mod tests;
+pub(crate) mod test_copies;
+#[cfg(test)]
+mod tests;

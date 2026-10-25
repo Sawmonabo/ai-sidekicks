@@ -183,14 +183,19 @@ impl CodexDriver {
         };
         let session_id = params.session_id;
         parts.provider_commands.forget_session(session_id);
-        parts.side_questions.forget_session(session_id).await;
         parts.hand_off.forget_session(session_id);
         // Before the claim, which refuses run control while it holds the slot; a transition in
-        // flight runs no turn.
-        let mut runs = match parts.slots.require_live(session_id) {
-            Ok(inbound) => stop_closing_turns(parts, &inbound).await,
-            Err(_no_record) => Vec::new(),
-        };
+        // flight runs no turn. The side questions' copies are let go beside the session's own
+        // interrupts, so a wedged service holds neither behind the other.
+        let (mut runs, ()) = futures::join!(
+            async {
+                match parts.slots.require_live(session_id) {
+                    Ok(inbound) => stop_closing_turns(parts, &inbound).await,
+                    Err(_no_record) => Vec::new(),
+                }
+            },
+            parts.side_questions.forget_session(session_id),
+        );
         let claim = parts.slots.claim_closing(session_id).await;
         if let Some(inbound) = claim.live() {
             // A task that let its record go first holds no run. A run whose interrupted turn
@@ -227,8 +232,9 @@ impl CodexDriver {
     /// for each transition in flight and lets each live record go, so its session's task ends, and
     /// waits for the driver's tasks to end. A record let go once its service stopped sends
     /// nothing, no interrupt among it; a later daemon resumes the conversation by its handle.
-    /// Every side question's copy, a live session's or a resting one's, has its turn stopped and
-    /// is let go first, since its service may outlive the daemon.
+    /// Every side question's copy is stopped first, since its service may outlive the daemon: a
+    /// live session's copy whose turn started is let go here, a resting session's by its own
+    /// task, and one still starting its turn by its ask.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent) {
         self.tasks.close();
         self.slots.refuse_establishing();

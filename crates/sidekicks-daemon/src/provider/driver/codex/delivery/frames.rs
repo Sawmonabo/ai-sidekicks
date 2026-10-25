@@ -21,7 +21,6 @@ use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -134,9 +133,6 @@ pub(crate) struct CodexTurnMove {
     /// The end the run engine records for a turn whose end moves no run: a paused or retried
     /// turn's; `None` for an end the run's own move or its interrupt records.
     pub(crate) turn_end: Option<ProviderTurnEnd>,
-    /// The messages of a continue that waited on the turn's pause, which the turn's own end leaves
-    /// no turn to take; given back to the queue, where they keep their places.
-    pub(crate) given_back: Vec<QueueItemId>,
 }
 
 /// What one frame told the rest of the driver.
@@ -433,7 +429,8 @@ pub(crate) fn find_turn_run_id(
 // its `turn/completed` reports. The daemon marks a turn before its interrupt goes, so a marked
 // turn that ends `interrupted` is the daemon's stop, never Codex's own: paused under a pause's
 // mark, else interrupted. A pause-marked turn that failed by itself ends as a live turn does, so
-// its failure surfaces; one that completed by itself is the step that landed, so it reads paused.
+// its failure surfaces, and so does one ending with a status Codex does not send; one that
+// completed by itself is the step that landed, so it reads paused.
 fn read_turn_ending(
     record: &CodexSessionRecord,
     turn_id: &str,
@@ -441,7 +438,7 @@ fn read_turn_ending(
     status: Option<CodexTurnStatus>,
 ) -> CodexTurnEnding {
     match (ending, status) {
-        (CodexTurnEnding::Paused, Some(CodexTurnStatus::Failed)) => CodexTurnEnding::Live,
+        (CodexTurnEnding::Paused, Some(CodexTurnStatus::Failed) | None) => CodexTurnEnding::Live,
         (CodexTurnEnding::Live, Some(CodexTurnStatus::Interrupted))
             if record.interrupting_turn_ids.contains(turn_id) =>
         {

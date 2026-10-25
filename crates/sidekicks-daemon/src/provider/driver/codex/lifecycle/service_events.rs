@@ -49,12 +49,20 @@ impl CodexDriverServiceEvents {
 impl CodexServiceEvents for CodexDriverServiceEvents {
     fn process_exited(&self, service: &Arc<CodexService>, exit: Option<&ProcessExit>) {
         let exit = exit.cloned();
+        // Remembered here, in the service's own event order, so a restart's recovery spawned
+        // earlier cannot forget an exit that came after it.
+        if let (Some(parts), Some(exit)) = (self.link.parts(), &exit) {
+            parts.recovery.remember_exit(service, exit.clone());
+        }
         self.spawn(service, "process exited", |parts, service| async move {
             parts.recovery.end_turns_on_exit(&service, exit).await;
         });
     }
 
     fn recovered(&self, service: &Arc<CodexService>, cause: CodexServiceRecoveryCause) {
+        if let Some(parts) = self.link.parts() {
+            parts.recovery.forget_exit(service);
+        }
         self.spawn(service, "recovered", move |parts, service| async move {
             parts.recovery.recover(&service, cause).await;
         });

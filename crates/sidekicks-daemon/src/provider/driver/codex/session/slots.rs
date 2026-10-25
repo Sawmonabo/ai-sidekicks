@@ -340,19 +340,16 @@ pub(crate) async fn let_go_codex_thread(service: &CodexService, thread_id: &str)
 mod tests {
     use std::sync::Arc;
 
-    use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
-
     use super::CodexSessionSlots;
     use crate::provider::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
     use crate::provider::driver::codex::session::inbound::codex_session_inbound;
+    use crate::provider::driver::test_registry::new_session_id;
 
     // Killed by removing the free check a create makes, and by removing the check an
     // establishment makes once it got the slot after a close.
     #[tokio::test(start_paused = true)]
     async fn a_live_slot_refuses_a_second_create_and_a_resume_behind_a_close_answers_closed() {
-        let session_id =
-            SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+        let session_id = new_session_id();
         let slots = Arc::new(CodexSessionSlots::new());
         let (sender, _receiver) = codex_session_inbound(session_id);
         let created = slots

@@ -145,10 +145,10 @@ pub(crate) struct ApplyInterventionResponse {
     pub(crate) cancelled: Vec<QueueItemId>,
 }
 
-/// A driver's steer that was not sent because the turn it was handed for had ended first: nothing
-/// reached the provider, and the message is left for the run's next turn.
+/// A driver's steer, or a continue that waited on a pause, not sent because the turn it was handed
+/// for ended first: nothing reached the provider, and the message is left for the run's next turn.
 #[derive(Debug, thiserror::Error)]
-#[error("the turn of run {run_id} ended before the steer was sent")]
+#[error("the turn of run {run_id} ended before the message was sent")]
 pub(crate) struct SteerTurnEndedError {
     /// The run whose turn ended.
     pub(crate) run_id: RunId,

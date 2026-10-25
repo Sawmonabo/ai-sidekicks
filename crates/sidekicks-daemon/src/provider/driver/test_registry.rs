@@ -266,7 +266,7 @@ impl TestRunPorts {
 }
 
 /// A run-state stream no one reads.
-pub(crate) struct UnreadRunStates;
+struct UnreadRunStates;
 
 impl RunStatePublisher for UnreadRunStates {
     fn publish(&self, _hold: RunSafetyBufferingUpdatedPayload) {}

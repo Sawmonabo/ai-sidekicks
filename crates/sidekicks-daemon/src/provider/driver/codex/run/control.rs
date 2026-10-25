@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
@@ -63,9 +64,6 @@ use crate::provider::port::registration::PortRegistration;
 use crate::session::run::inbound::{DeliveryBinding, InboundDelivery, RunInboundDispatch};
 use crate::session::run::pause::{ContinuedMessages, RunPauseControl};
 use crate::session::run::state_change::{RunStateChange, RunStateEntry};
-
-/// The words a continue that could not start fails its run with.
-const CONTINUE_FAILED: &str = "Failed to continue the run";
 
 /// What run control acts through.
 pub(crate) struct CodexRunControlDependencies {
@@ -190,7 +188,17 @@ impl CodexRunControl {
             CodexContinuePlace::SteerInto { turn_id, params } => {
                 self.steer_waiting(&inbound, &turn_id, params).await
             }
-            CodexContinuePlace::AwaitsPause => Ok(()),
+            CodexContinuePlace::AwaitsPause { resolved } => {
+                resolved.await.unwrap_or_else(|_let_go| {
+                    Err(CodexError::Transport {
+                        detail:
+                            "The session's conversation was let go before the continue could start."
+                                .to_owned(),
+                        cause: None,
+                    }
+                    .into())
+                })
+            }
             CodexContinuePlace::StartTurn(params) => {
                 Ok(self.continue_run(&inbound, params).await?)
             }
@@ -244,8 +252,9 @@ impl CodexRunControl {
 
     /// Acts on the end of the turn `turn_id`, on the session's task: a pause waiting for a step
     /// that never came is dropped, and a pause's interrupted turn reports its run paused, or
-    /// starts the continue asked for meanwhile off the task. A continue that cannot start fails
-    /// its run, which no turn would end.
+    /// starts the continue asked for meanwhile off the task and answers its resume. A continue
+    /// that cannot start is answered its failure, so its resume leaves the messages waiting, and
+    /// the run reads paused.
     pub(crate) async fn observe_turn_ended(
         self: &Arc<Self>,
         record: &mut CodexSessionRecord,
@@ -255,25 +264,30 @@ impl CodexRunControl {
         let Some(run_id) = record.paused_run_id_by_interrupted_turn_id.remove(turn_id) else {
             return;
         };
-        if let Some(params) = record.continues_awaiting_pause.remove(&run_id) {
+        let provider_account_id = record.provider_account_id.clone();
+        if let Some(waiting) = record.continues_awaiting_pause.remove(&run_id) {
             let control = Arc::clone(self);
             let inbound = record.inbound.clone();
             self.dependencies.tasks.spawn(async move {
-                if let Err(error) = control.continue_run(&inbound, params).await
-                    && let Some(binding) = control.dependencies.run_routes.binding_for(run_id)
-                {
-                    fail_codex_run(
-                        &control.dependencies.dispatch,
-                        run_id,
-                        binding.binding_id,
-                        CONTINUE_FAILED,
-                        &error,
-                    )
-                    .await;
+                let started = control.continue_run(&inbound, waiting.params).await;
+                let is_started = started.is_ok();
+                let _unheard = waiting.started.send(started.map_err(DriverError::from));
+                if !is_started {
+                    control.report_run_paused(run_id, provider_account_id).await;
                 }
             });
             return;
         }
+        self.report_run_paused(run_id, provider_account_id).await;
+    }
+
+    // Reports the run `run_id` paused, its pause's interrupted turn ended; a run with no binding
+    // left is already ended.
+    async fn report_run_paused(
+        &self,
+        run_id: RunId,
+        provider_account_id: Option<ProviderAccountId>,
+    ) {
         let Some(binding) = self.dependencies.run_routes.binding_for(run_id) else {
             return;
         };
@@ -285,7 +299,7 @@ impl CodexRunControl {
             &self.dependencies.dispatch,
             DeliveryOrigin {
                 provider: DESCRIPTOR.provider_id(),
-                provider_account_id: record.provider_account_id.clone(),
+                provider_account_id,
                 raw_wire_type: Some("turn/completed"),
             },
             InboundDelivery::RunLifecycle {

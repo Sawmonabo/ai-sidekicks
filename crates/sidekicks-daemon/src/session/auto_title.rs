@@ -113,7 +113,8 @@ struct NamingInput {
 struct PendingPass {
     generation: u64,
     cancel: CancellationToken,
-    /// A completion's pass was refused while this one ran, so it names the session once more.
+    /// A completion's or a clear's pass was refused while this one ran, so it names the session
+    /// once more.
     is_rerun_wanted: bool,
 }
 
@@ -399,7 +400,8 @@ impl SessionAutoTitle {
         }
     }
 
-    // Marks a pass of `session_id` as under way, with a token cancelled by a rename or the stop;
+    // Marks a pass of `session_id` as under way, with a token cancelled by a rename to a name or
+    // the stop;
     // `None` when one already is, which then runs once more after its run.
     fn register_pass(&self, session_id: SessionId) -> Option<(u64, CancellationToken)> {
         let mut pending = self.lock_pending();
@@ -445,7 +447,7 @@ impl SessionAutoTitle {
         false
     }
 
-    // A rename landed: the session's pass under way ends and writes nothing.
+    // A rename to a name landed: the session's pass under way ends and writes nothing.
     fn cancel_pass(&self, session_id: SessionId) {
         let cancelled = self.lock_pending().by_session.remove(&session_id);
         if let Some(pass) = cancelled {

@@ -19,7 +19,6 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::{
     ExistingSocket, LeftoverSweep, bind_socket_listener, replace_file_atomically,
 };
@@ -45,6 +44,7 @@ use crate::provider::driver::codex::session::test_session::{
     TEST_THREAD, TestDaemonTurnBindings, open_test_record, turn_completed,
 };
 use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
+use crate::provider::driver::test_registry::new_session_id;
 use crate::provider::driver::test_registry::{
     RecordedQueue, TestRunPorts, new_run_id, test_driver_services,
 };
@@ -108,8 +108,7 @@ impl LiveCodexSession {
         )
         .await;
         let epochs = Arc::clone(&run_ports.epochs);
-        let session_id =
-            SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+        let session_id = new_session_id();
         let agent_id = insert_lead(&database, session_id, DESCRIPTOR.id);
         let mut services = test_driver_services();
         services.pool = Arc::new(DatabaseReadPool::new(

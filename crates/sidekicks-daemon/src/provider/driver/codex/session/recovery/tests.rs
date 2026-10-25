@@ -244,14 +244,21 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
 
         session
             .task
-            .drive(recovery.recover(&service, CodexServiceRecoveryCause::Crash))
+            .drive(async {
+                recovery.forget_exit(&service);
+                recovery
+                    .recover(&service, CodexServiceRecoveryCause::Crash)
+                    .await;
+            })
             .await;
         assert_eq!(notices(&session.database), Vec::new());
 
+        // Each exit is remembered and forgotten as the service's own events do it.
         session
             .task
             .drive(async {
                 for code in [1, 137] {
+                    recovery.remember_exit(&service, exit_code(code));
                     recovery
                         .end_turns_on_exit(&service, Some(exit_code(code)))
                         .await;
@@ -260,6 +267,7 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
                 recovery
                     .crash_loop(&service, Some(&restart_failure()))
                     .await;
+                recovery.forget_exit(&service);
                 recovery
                     .recover(&service, CodexServiceRecoveryCause::PersonRestart)
                     .await;
@@ -296,9 +304,11 @@ async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failur
         session
             .task
             .drive(async {
+                recovery.remember_exit(&service, exit_code(1));
                 recovery
                     .end_turns_on_exit(&service, Some(exit_code(1)))
                     .await;
+                recovery.forget_exit(&service);
                 recovery
                     .recover(&service, CodexServiceRecoveryCause::Crash)
                     .await;

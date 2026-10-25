@@ -63,7 +63,7 @@ impl TerminalEmissionGate {
         self.is_intended_close_signaled = true;
     }
 
-    /// Whether the daemon asked to close the session, after which nothing new starts on it.
+    /// Whether the daemon asked to close the session.
     pub(crate) fn is_intended_close_signaled(&self) -> bool {
         self.is_intended_close_signaled
     }

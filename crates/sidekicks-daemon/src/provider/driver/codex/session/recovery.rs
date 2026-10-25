@@ -169,6 +169,18 @@ impl CodexServiceRecovery {
         }
     }
 
+    /// Remembers `exit` as the service's last, for a crash loop's notice to name; called in the
+    /// service's own event order, ahead of the exit's other work.
+    pub(crate) fn remember_exit(&self, service: &CodexService, exit: ProcessExit) {
+        self.lock().last_exit.insert(service.id(), exit);
+    }
+
+    /// Forgets the service's remembered exit once it runs again, so a later crash loop names only
+    /// its own; called in the service's own event order.
+    pub(crate) fn forget_exit(&self, service: &CodexService) {
+        self.lock().last_exit.remove(&service.id());
+    }
+
     /// Ends every turn the service's sessions held with its process, in the order a kept message
     /// needs: the sessions taken out of the daemon's provider processes, each run's turns ended,
     /// then the turns' safety holds, then the held presses of `Allow once` released, and only then
@@ -180,9 +192,6 @@ impl CodexServiceRecovery {
         service: &Arc<CodexService>,
         exit: Option<ProcessExit>,
     ) {
-        if let Some(exit) = &exit {
-            self.lock().last_exit.insert(service.id(), exit.clone());
-        }
         self.dependencies
             .establishment
             .forget_service_process(service);
@@ -218,14 +227,12 @@ impl CodexServiceRecovery {
     /// Resumes every conversation of a service that runs again: after a crash, a reconnect or the
     /// person's restart of a crash loop. After a reconnect the conversations held for their running
     /// commands are subscribed to again first. Only the person's restart writes a notice: one
-    /// `ProviderRestarted` on each session its crash loop held that the restart brought back. The
-    /// service's remembered exit is forgotten, so a later crash loop names only its own.
+    /// `ProviderRestarted` on each session its crash loop held that the restart brought back.
     pub(crate) async fn recover(
         &self,
         service: &Arc<CodexService>,
         cause: CodexServiceRecoveryCause,
     ) {
-        self.lock().last_exit.remove(&service.id());
         if cause == CodexServiceRecoveryCause::Reconnect {
             self.dependencies.release.resubscribe_service(service).await;
         }

@@ -8,7 +8,6 @@ use rstest::rstest;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::{ExistingSocket, bind_socket_listener};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
@@ -22,6 +21,7 @@ use crate::provider::driver::codex::service::home::{
 };
 use crate::provider::driver::codex::session::inbound::codex_session_inbound;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::provider::driver::test_registry::new_session_id;
 
 // Fails when a status Codex did not name as ready, or one this daemon does not know, reads as
 // ready, which would offer a sandbox that cannot run a command.
@@ -175,9 +175,7 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
         .recv()
         .await
         .expect("the start read what is loaded");
-    let sessions: Vec<SessionId> = (0..2)
-        .map(|_| SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id"))
-        .collect();
+    let sessions: Vec<SessionId> = (0..2).map(|_| new_session_id()).collect();
     for session_id in &sessions {
         service.attach_session(codex_session_inbound(*session_id).0);
     }

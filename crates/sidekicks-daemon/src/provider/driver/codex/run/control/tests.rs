@@ -8,7 +8,6 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::CodexRunControl;
 use crate::mutex_lock::lock;
@@ -19,7 +18,7 @@ use crate::provider::driver::codex::session::test_session::{
     TEST_THREAD, TestCodexSession, turn_completed,
 };
 use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::test_registry::new_run_id;
+use crate::provider::driver::test_registry::{new_message_id, new_run_id};
 
 /// How long a test waits before it counts a hold on the session's task as a deadlock.
 const DEADLOCK_BOUND: Duration = Duration::from_secs(10);
@@ -46,10 +45,6 @@ async fn live_run(session: &mut TestCodexSession) -> (Arc<CodexRunControl>, RunI
         .add_active_turn("turn-1".to_owned(), run_id);
     run_routes.bind_run(run_id, session_id);
     (Arc::clone(&session.task.run_control), run_id)
-}
-
-fn message_id() -> QueueItemId {
-    QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id")
 }
 
 fn steer(run_id: RunId, message_id: QueueItemId) -> CodexSteerRunRequest {
@@ -90,8 +85,12 @@ fn echo(message_id: QueueItemId) -> Value {
 async fn an_interrupt_cancels_only_the_steers_codex_dropped_unechoed() {
     let mut session = TestCodexSession::start().await;
     let (control, run_id) = live_run(&mut session).await;
-    let [echoed_first, dropped, echoed_after_interrupt, late] =
-        [message_id(), message_id(), message_id(), message_id()];
+    let [echoed_first, dropped, echoed_after_interrupt, late] = [
+        new_message_id(),
+        new_message_id(),
+        new_message_id(),
+        new_message_id(),
+    ];
     let task = &mut session.task;
     let script = &mut session.scripted.script;
     let (interrupt_sent, interrupt_seen) = tokio::sync::oneshot::channel::<()>();

@@ -34,6 +34,7 @@ use crate::provider::driver::codex::transport::diagnostics::{
 use crate::provider::driver::codex::turn_evidence::{
     CodexTurnStatus, CodexTurnTerminalInput, compose_codex_turn_terminal,
 };
+use crate::provider::driver::run_control::SteerTurnEndedError;
 use crate::provider::record_readers::read_non_empty_string;
 use crate::provider::terminal_emission_gate::TerminalEmissionGate;
 use crate::provider::thread_frame_router::ThreadFrameRoute;
@@ -231,31 +232,22 @@ impl CodexFrameDelivery {
                     }
                     CodexTurnEnding::Live | CodexTurnEnding::Interrupted => None,
                 };
-                // A pause's turn that failed by itself leaves nothing to pause; the continue that
-                // waited on the pause goes back to the queue.
-                let given_back = match turn_run.ending {
-                    CodexTurnEnding::Live => record
-                        .paused_run_id_by_interrupted_turn_id
-                        .remove(&turn_id)
-                        .and_then(|run_id| record.continues_awaiting_pause.remove(&run_id))
-                        .map(|params| {
-                            params
-                                .messages
-                                .into_iter()
-                                .map(|message| message.id)
-                                .collect()
-                        })
-                        .unwrap_or_default(),
-                    CodexTurnEnding::Interrupted
-                    | CodexTurnEnding::Paused
-                    | CodexTurnEnding::Retried => Vec::new(),
-                };
+                // A pause's turn that failed by itself leaves nothing to pause; a continue that
+                // waited on the pause is refused, so its resume leaves the messages waiting.
+                if turn_run.ending == CodexTurnEnding::Live
+                    && let Some(run_id) =
+                        record.paused_run_id_by_interrupted_turn_id.remove(&turn_id)
+                    && let Some(waiting) = record.continues_awaiting_pause.remove(&run_id)
+                {
+                    let _unheard = waiting
+                        .started
+                        .send(Err(SteerTurnEndedError { run_id }.into()));
+                }
                 dispatch.turns_ended.push(CodexTurnMove {
                     turn_id: turn_id.clone(),
                     run_id: turn_run.run_id,
                     ending: turn_run.ending,
                     turn_end,
-                    given_back,
                 });
             }
         }

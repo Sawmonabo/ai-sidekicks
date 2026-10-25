@@ -11,11 +11,15 @@ use sidekicks_contracts::run::queue::{MessageContent, QueueItemNotDeliveredReaso
 
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
 use crate::mutex_lock::lock;
+use crate::provider::driver::codex::run::control::record::{
+    CodexContinuePlace, CodexRunControlCall,
+};
 use crate::provider::driver::codex::session::calls::call_codex_session;
 use crate::provider::driver::codex::session::inbound::CodexSessionCall;
 use crate::provider::driver::codex::session::test_session::{
     TEST_THREAD, fork_reply, no_turns, test_thread_settings, turn_completed, turn_reply,
 };
+use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::run_control::{
     FasterModelRetryOutcome, FasterModelRetryParams, PauseRunParams, ResumeRunParams,
     WaitingMessage,
@@ -141,25 +145,31 @@ enum PauseEnd {
     CompletedByItself,
     /// It failed by itself first, so Codex refuses the interrupt as of no active turn.
     FailedByItself,
+    /// It ended by itself first with a status Codex does not send, so Codex refuses the interrupt
+    /// as of no active turn.
+    UnknownStatusByItself,
 }
 
 // Real time under a timeout, as above. A pause's turn reads by its own end, whichever of its end
 // and the interrupt's answer the session takes first: one the interrupt stopped reads paused and
 // gives its unechoed steer back to the queue, never refused; one that completed by itself is the
-// step that landed and reads paused too; one that failed by itself ends its run failed, its
-// failure surfacing, and the continue that waited on the pause goes back to the queue. Each ends
-// with its turn's route retired and no second end once every answer landed. Killed by reading a
-// pause-marked turn paused whatever its status (the failed run reads paused), by settling an
-// already-ended answer as a stop (the settle-first by-itself run's route is retired before its
-// end), by reading a live turn ahead of the pause's mark in `find_turn_run_id` (the end-first
-// stopped run reads interrupted), by dropping the `message_given_back` call from the session
-// task's turn end, and by dropping the waiting continue with the failed turn's mark.
+// step that landed and reads paused too; one that failed by itself, or ended with a status Codex
+// does not send, ends its run failed, its failure surfacing, and the continue that waited on the
+// pause is refused, so its resume leaves the messages waiting. Each ends with its turn's route
+// retired and no second end once every answer landed. Killed by reading a pause-marked turn paused
+// whatever its status (the failed run reads paused), by settling an already-ended answer as a stop
+// (the settle-first by-itself run's route is retired before its end), by reading a live turn ahead
+// of the pause's mark in `find_turn_run_id` (the end-first stopped run reads interrupted), by
+// dropping the `message_given_back` call from the session task's turn end, and by dropping the
+// waiting continue with the failed turn's mark (its resume never answers).
 #[rstest]
 #[case::end_first(PauseOrder::EndFirst, PauseEnd::Stopped)]
 #[case::settle_first(PauseOrder::SettleFirst, PauseEnd::Stopped)]
 #[case::end_first_completed_by_itself(PauseOrder::EndFirst, PauseEnd::CompletedByItself)]
 #[case::settle_first_completed_by_itself(PauseOrder::SettleFirst, PauseEnd::CompletedByItself)]
 #[case::end_first_failed_by_itself(PauseOrder::EndFirst, PauseEnd::FailedByItself)]
+#[case::settle_first_failed_by_itself(PauseOrder::SettleFirst, PauseEnd::FailedByItself)]
+#[case::end_first_unknown_status_by_itself(PauseOrder::EndFirst, PauseEnd::UnknownStatusByItself)]
 #[tokio::test]
 async fn a_pause_marked_turn_reads_by_its_own_end(
     #[case] order: PauseOrder,
@@ -167,7 +177,9 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
 ) {
     let steers = match end {
         PauseEnd::Stopped => vec![new_message_id()],
-        PauseEnd::CompletedByItself | PauseEnd::FailedByItself => Vec::new(),
+        PauseEnd::CompletedByItself
+        | PauseEnd::FailedByItself
+        | PauseEnd::UnknownStatusByItself => Vec::new(),
     };
     let mut session = LiveCodexSession::start(&steers).await;
     let parts = Arc::clone(session.driver.parts().expect("the driver composes"));
@@ -202,28 +214,37 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
         .await
         .expect("the step's end interrupts the turn");
     assert_eq!(interrupt["method"], "turn/interrupt");
-    // A continue asked for while the pause's interrupt is out waits on the pause.
-    let continued = match end {
+    // A continue asked for while the pause's interrupt is out waits on the pause: its resume is
+    // answered once its turn starts, or refused when the run ends first.
+    let awaiting = match end {
         PauseEnd::FailedByItself => {
-            let message = new_message_id();
-            parts
-                .run_control
-                .resume_run(ResumeRunParams {
-                    session_id: session.session_id,
-                    run_id: session.run_id,
-                    messages: vec![WaitingMessage {
-                        id: message,
-                        content: MessageContent::new("carry on".to_owned())
-                            .expect("the words are a message"),
-                        attachments: Vec::new(),
-                        skills: Vec::new(),
-                    }],
-                })
-                .await
-                .expect("the continue waits on the pause");
-            vec![message]
+            let inbound = parts
+                .slots
+                .require_live(session.session_id)
+                .expect("the session is live");
+            let params = ResumeRunParams {
+                session_id: session.session_id,
+                run_id: session.run_id,
+                messages: vec![WaitingMessage {
+                    id: new_message_id(),
+                    content: MessageContent::new("carry on".to_owned())
+                        .expect("the words are a message"),
+                    attachments: Vec::new(),
+                    skills: Vec::new(),
+                }],
+            };
+            let place = call_codex_session(&inbound, |reply| {
+                CodexSessionCall::RunControl(CodexRunControlCall::PlaceContinue { params, reply })
+            })
+            .await
+            .expect("the continue is placed");
+            let resolved = match place {
+                CodexContinuePlace::AwaitsPause { resolved } => Some(resolved),
+                CodexContinuePlace::SteerInto { .. } | CodexContinuePlace::StartTurn(_) => None,
+            };
+            Some(resolved.expect("the continue waits on the pause"))
         }
-        PauseEnd::Stopped | PauseEnd::CompletedByItself => Vec::new(),
+        PauseEnd::Stopped | PauseEnd::CompletedByItself | PauseEnd::UnknownStatusByItself => None,
     };
     let (ended, answer, expected_state) = match end {
         PauseEnd::Stopped => (
@@ -241,6 +262,11 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
             failed["params"]["turn"]["error"] = json!({"message": "The model is overloaded."});
             (failed, no_active_turn_refusal(&interrupt), "failed")
         }
+        PauseEnd::UnknownStatusByItself => (
+            turn_completed(TEST_THREAD, TEST_TURN, "wandered"),
+            no_active_turn_refusal(&interrupt),
+            "failed",
+        ),
     };
     match order {
         PauseOrder::EndFirst => {
@@ -255,7 +281,9 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
             // for that end to retire.
             let kept_live: &[RunId] = match end {
                 PauseEnd::Stopped => &[],
-                PauseEnd::CompletedByItself | PauseEnd::FailedByItself => &[session.run_id],
+                PauseEnd::CompletedByItself
+                | PauseEnd::FailedByItself
+                | PauseEnd::UnknownStatusByItself => &[session.run_id],
             };
             assert_eq!(live_turn_runs, kept_live);
             session.scripted.script.send(&ended);
@@ -268,15 +296,22 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
             .expect("the session's task reports the run's end")
             .expect("the followers stay open");
     }
-    let given_back: Vec<String> = steers
-        .iter()
-        .chain(&continued)
-        .map(ToString::to_string)
-        .collect();
-    while lock(&session.queue.given_back).len() < given_back.len() {
-        tokio::time::timeout(Duration::from_secs(10), session.queue.changed.notified())
+    if end == PauseEnd::Stopped {
+        while lock(&session.queue.given_back).is_empty() {
+            tokio::time::timeout(Duration::from_secs(10), session.queue.changed.notified())
+                .await
+                .expect("the session's task gives the steer back");
+        }
+    }
+    if let Some(resolved) = awaiting {
+        let answer = tokio::time::timeout(Duration::from_secs(10), resolved)
             .await
-            .expect("the session's task gives the waiting messages back");
+            .expect("the failed end answers the waiting continue")
+            .expect("the record keeps the continue's reply");
+        assert!(
+            matches!(answer, Err(DriverError::SteerTurnEnded(_))),
+            "the continue is refused, so its resume leaves the messages waiting"
+        );
     }
     // The interrupt's answer, read off the socket after the end here, has landed too.
     let live_turn_runs = live_turn_runs_once_settled(&mut session).await;
@@ -291,8 +326,11 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
         PauseEnd::Stopped | PauseEnd::CompletedByItself => {
             assert_eq!(terminal_types, Vec::<String>::new());
         }
-        PauseEnd::FailedByItself => assert_eq!(terminal_types, ["agent.run.failed"]),
+        PauseEnd::FailedByItself | PauseEnd::UnknownStatusByItself => {
+            assert_eq!(terminal_types, ["agent.run.failed"]);
+        }
     }
+    let given_back: Vec<String> = steers.iter().map(ToString::to_string).collect();
     assert_eq!(*lock(&session.queue.given_back), given_back);
     assert!(lock(&session.queue.refused).is_empty());
 }

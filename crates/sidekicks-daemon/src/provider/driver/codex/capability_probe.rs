@@ -20,6 +20,7 @@ use crate::provider::driver::capabilities::DriverCapabilityFlag;
 use crate::provider::driver::codex::capabilities::read_codex_capabilities;
 use crate::provider::driver::codex::service::supervisor::{CodexService, DetachedConnectionEvents};
 use crate::provider::driver::codex::session::errors::CodexError;
+use crate::provider::driver::codex::thread::view::TURN_START_METHOD;
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult};
 
@@ -34,7 +35,7 @@ pub(super) const CAPABILITY_PROBE_RULES: CapabilityProbeRules = CapabilityProbeR
     detection: detection_of,
     negative_control: "zzq/nonexistent_method",
     // Each starts a turn or a thread.
-    prohibited_names: &["turn/start", "thread/start"],
+    prohibited_names: &[TURN_START_METHOD, "thread/start"],
     classify_reply,
 };
 

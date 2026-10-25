@@ -4,14 +4,13 @@
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::queue::QueueItemId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::{steer_codex_run, take_blocked_codex_steers};
 use crate::provider::driver::codex::delivery::frames::CodexTurnEnding;
 use crate::provider::driver::codex::session::state::CodexUnechoedSteers;
 use crate::provider::driver::codex::session::test_session::{TEST_THREAD, TestCodexSession};
 use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::test_registry::new_run_id;
+use crate::provider::driver::test_registry::{new_message_id, new_run_id};
 
 /// How the turn holding an unechoed steer came to its end.
 #[derive(Clone, Copy, Debug)]
@@ -141,10 +140,6 @@ async fn a_steer_whose_answer_never_came_keeps_its_place_among_the_turns_steers(
         .map(|(message_id, words)| (message_id, words.as_str().to_owned()))
         .collect();
     assert_eq!(refused, [(blocked, "keys stay home".to_owned())]);
-}
-
-fn new_message_id() -> QueueItemId {
-    QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id")
 }
 
 // One run of the person's one `userPromptSubmit` hook handler on a prompt of `turn-1`, ending

@@ -91,6 +91,7 @@ use crate::provider::driver::ports::DriverPorts;
 use crate::provider::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, RunToolBoundary,
 };
+use crate::provider::driver::test_registry::new_session_id;
 use crate::provider::driver::test_registry::{RecordedQueue, TestRunPorts};
 use crate::provider::driver::{
     PROVIDERS, ProviderAccountFolders, SessionSpawnContext, SessionSpawnContextResolver,
@@ -104,7 +105,6 @@ use crate::provider::spawn_environment::ReservedEnvironmentNames;
 use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine};
 use crate::session::run::epochs::{EpochBinding, ExecutionEpochs};
 use crate::session::run::inbound::RunInboundDispatch;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The conversation a test session starts on.
 pub(crate) const TEST_THREAD: &str = "thread-1";
@@ -193,8 +193,7 @@ impl TestCodexSession {
             pending_compactions: pending_compactions.clone(),
             effects: Arc::new(NoEffects),
         }));
-        let session_id =
-            SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+        let session_id = new_session_id();
         let lead_agent_id = insert_lead(&database, session_id, DESCRIPTOR.id);
         let (inbound, receiver) = codex_session_inbound(session_id);
         let slots = Arc::new(CodexSessionSlots::new());

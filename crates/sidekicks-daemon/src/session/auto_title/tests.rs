@@ -475,6 +475,79 @@ async fn auto_title_names_a_session_whose_lead_completion_landed_during_another_
     );
 }
 
+// Killed by a clear that lands during a pass under way marking nothing: the pass, a subagent
+// completion's, names nothing by itself, and only the rerun the clear marked names the session.
+// The writer runs its followers before a write answers, so the mark lands before the pass runs.
+#[tokio::test]
+async fn auto_title_names_a_cleared_session_through_the_pass_under_way() {
+    static PUSHED: Notify = Notify::const_new();
+    fn build(_services: &DriverServices) -> Arc<dyn ProviderDriver> {
+        let mut driver = MockProviderDriver::new();
+        driver
+            .expect_name_session()
+            .times(1)
+            .returning(|_| async { Ok(Some("Fix the login bug".to_owned())) }.boxed());
+        driver
+            .expect_tell_session_name()
+            .times(1)
+            .withf(|_, name| name == "Fix the login bug")
+            .returning(|_, _| {
+                PUSHED.notify_one();
+                async { Ok(()) }.boxed()
+            });
+        Arc::new(driver)
+    }
+    let harness = harness(build).await;
+    let session_id = test_session_id();
+    insert_completed_session(&harness.database, session_id, "the login page throws");
+    harness
+        .database
+        .reader()
+        .execute(
+            "UPDATE sessions SET name = 'Mine' WHERE id = ?1",
+            [session_id.text().as_str()],
+        )
+        .expect("the person's name is stored");
+    let subagent_completion = SafeInt::new(1).expect("a sequence");
+    let (generation, cancel) = harness
+        .auto_title
+        .register_pass(session_id)
+        .expect("the subagent completion's pass is the first");
+
+    let titling = harness.auto_title.start(&harness.followers);
+    harness
+        .changes
+        .rename(SessionRenameRequest {
+            session_id,
+            name: None,
+        })
+        .await
+        .expect("the person's clear is kept");
+    tokio::time::timeout(
+        WAIT,
+        harness.auto_title.name_and_release(
+            session_id,
+            Some(subagent_completion),
+            generation,
+            &cancel,
+        ),
+    )
+    .await
+    .expect("the pass and the clear's rerun end");
+    tokio::time::timeout(WAIT, PUSHED.notified())
+        .await
+        .expect("the fresh name is told to the provider");
+    titling.stop().await;
+
+    assert_eq!(
+        stored_renames(&harness.database, session_id),
+        [
+            (Value::Null, Value::from("user")),
+            (Value::from("Fix the login bug"), Value::from("auto")),
+        ]
+    );
+}
+
 // Killed by splitting at Unicode whitespace instead of ECMAScript's, by counting bytes instead
 // of code points, by passing the bound, and by dropping a first word longer than it.
 #[rstest]

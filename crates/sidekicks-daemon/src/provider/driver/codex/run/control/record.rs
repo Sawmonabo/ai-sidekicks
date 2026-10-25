@@ -13,9 +13,10 @@ use tokio::sync::oneshot;
 use crate::provider::driver::codex::run::start::record::CodexRunCallDependencies;
 use crate::provider::driver::codex::run::turn_interrupt::CodexTurnInterrupt;
 use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
+use crate::provider::driver::codex::session::state::{CodexSessionRecord, CodexWaitingContinue};
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::run_control::ResumeRunParams;
 
 /// One call of run control on a session's record.
@@ -94,8 +95,12 @@ pub(crate) enum CodexContinuePlace {
         /// The continue.
         params: ResumeRunParams,
     },
-    /// The pause's interrupt is on its way; the continue starts once its turn ends.
-    AwaitsPause,
+    /// The pause's interrupt is on its way; the continue starts once its turn ends, and
+    /// `resolved` answers once it started, or with a refusal when the run ended first.
+    AwaitsPause {
+        /// The resume's answer.
+        resolved: oneshot::Receiver<Result<(), DriverError>>,
+    },
     /// The run is paused: its next turn starts with the messages.
     StartTurn(ResumeRunParams),
 }
@@ -240,10 +245,11 @@ fn place_continue(record: &mut CodexSessionRecord, params: ResumeRunParams) -> C
         .values()
         .any(|run_id| *run_id == params.run_id);
     if is_pause_on_its_way {
+        let (started, resolved) = oneshot::channel();
         record
             .continues_awaiting_pause
-            .insert(params.run_id, params);
-        return CodexContinuePlace::AwaitsPause;
+            .insert(params.run_id, CodexWaitingContinue { params, started });
+        return CodexContinuePlace::AwaitsPause { resolved };
     }
     CodexContinuePlace::StartTurn(params)
 }

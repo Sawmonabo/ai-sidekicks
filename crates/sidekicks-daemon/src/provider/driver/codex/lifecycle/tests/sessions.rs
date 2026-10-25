@@ -24,7 +24,7 @@ use crate::provider::driver::codex::service::supervisor::test_service::{
 };
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::inbound::codex_session_inbound;
-use crate::provider::driver::codex::session::side_questions::tests::{
+use crate::provider::driver::codex::session::side_questions::test_copies::{
     COPY_THREAD, COPY_TURN, read_only_profile, resting_question, serve_unended_copy,
 };
 use crate::provider::driver::codex::session::slots::closing_session_refusal;
