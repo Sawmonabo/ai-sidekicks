@@ -349,7 +349,7 @@ pub use process_start::ProcessStart;
 pub use program_install_folders::{ProgramFolder, program_install_folders};
 pub use program_start::{ProgramStart, program_start};
 pub use recreate_link::recreate_link;
-pub use run_folder::{DaemonRunFolder, RunFolderRefused};
+pub use run_folder::{DaemonRunFolder, RunFolderRefused, askpass_socket_path};
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_folder_start::ShellFolderProbe;

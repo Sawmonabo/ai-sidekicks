@@ -11,11 +11,12 @@ use std::sync::Arc;
 
 use futures::FutureExt as _;
 use sidekicks_contracts::machine::id::MachineId;
-use sidekicks_platforms::{Spawner, inotify_watch_ceiling};
+use sidekicks_platforms::{Spawner, askpass_socket_path, inotify_watch_ceiling};
 use tokio::sync::{Notify, broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use crate::daemon::already_running_error::{DaemonAlreadyRunningError, HeldPlace};
 use crate::daemon::process::approvals::FollowerStopFailure;
 use crate::daemon::scheduler::{
     JobCondition, ScheduleError, ScheduledJobHandle, Scheduler, WakeSignal,
@@ -123,6 +124,9 @@ pub(crate) enum RepoServiceStartError {
     /// The askpass broker could not start.
     #[error(transparent)]
     Askpass(AskpassBrokerError),
+    /// Another daemon binds the askpass program's socket in the run folder.
+    #[error(transparent)]
+    AlreadyRunning(#[from] DaemonAlreadyRunningError),
 }
 
 /// Builds the repository services from `start`. Fails when the askpass broker cannot start for
@@ -168,7 +172,9 @@ pub(crate) fn build_repo_services(
         writes,
         list_feed,
     ));
-    let askpass = start_askpass_broker(&run_folder)?;
+    let program_path = git_askpass_program_path().map_err(RepoServiceStartError::AskpassProgram)?;
+    let askpass =
+        askpass_or_unavailable(AskpassBroker::start(&run_folder, program_path), &run_folder)?;
     let occupancy = MountOccupancyReader::new(Arc::clone(&reads));
     let worktree_events = Arc::new(WorktreeEventEmitter::new(event_log));
     let folder_watch = Arc::new(WorkingFolderWatcher::new(WorkingFolderWatcherDeps {
@@ -350,12 +356,22 @@ fn log_reprobe_failure(probed: Result<(), ReprobeError>) {
     }
 }
 
-// Starts the askpass broker in `run_folder`, or answers `None`, logging why, where the system has
-// no private askpass socket; every clone call is then refused `project.clone.unavailable`.
-fn start_askpass_broker(run_folder: &Path) -> Result<Option<AskpassBroker>, RepoServiceStartError> {
-    let program_path = git_askpass_program_path().map_err(RepoServiceStartError::AskpassProgram)?;
-    match AskpassBroker::start(run_folder, program_path) {
+// The askpass broker `started` in `run_folder`, or `None`, logging why, where the system has no
+// private askpass socket; every clone call is then refused `project.clone.unavailable`. A socket
+// another daemon binds there fails the start as the daemon's own socket does.
+fn askpass_or_unavailable(
+    started: Result<AskpassBroker, AskpassBrokerError>,
+    run_folder: &Path,
+) -> Result<Option<AskpassBroker>, RepoServiceStartError> {
+    match started {
         Ok(broker) => Ok(Some(broker)),
+        Err(AskpassBrokerError::Listen(error)) if error.kind() == io::ErrorKind::AddrInUse => {
+            Err(DaemonAlreadyRunningError {
+                held_place: HeldPlace::Socket(askpass_socket_path(run_folder)),
+                source: Some(Box::new(error)),
+            }
+            .into())
+        }
         Err(AskpassBrokerError::Listen(error)) if error.kind() == io::ErrorKind::Unsupported => {
             tracing::warn!(
                 error = &error as &(dyn std::error::Error + 'static),
@@ -365,5 +381,47 @@ fn start_askpass_broker(run_folder: &Path) -> Result<Option<AskpassBroker>, Repo
             Ok(None)
         }
         Err(error) => Err(RepoServiceStartError::Askpass(error)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+    use std::path::{Path, PathBuf};
+
+    use super::{RepoServiceStartError, askpass_or_unavailable};
+    use crate::workspace::clone::askpass::broker::{AskpassBroker, AskpassBrokerError};
+
+    // The first case is killed by the `Unsupported` guard widened to every listen error, which
+    // answers `None` for a run folder whose socket path is past the system's bound; the second by
+    // the `Unsupported` arm deleted, which fails the start where the system has no askpass socket.
+    #[tokio::test]
+    async fn only_a_system_with_no_askpass_socket_leaves_the_broker_unstarted() {
+        let run_folder = PathBuf::from("/").join("a".repeat(200));
+        let past_the_bound = askpass_or_unavailable(
+            AskpassBroker::start(&run_folder, PathBuf::from("askpass-program")),
+            &run_folder,
+        );
+        assert!(
+            matches!(
+                past_the_bound,
+                Err(RepoServiceStartError::Askpass(AskpassBrokerError::Listen(ref error)))
+                    if error.kind() == io::ErrorKind::InvalidInput
+            ),
+            "{:?}",
+            past_the_bound.as_ref().map(Option::is_some)
+        );
+
+        let unsupported = askpass_or_unavailable(
+            Err(AskpassBrokerError::Listen(io::Error::from(
+                io::ErrorKind::Unsupported,
+            ))),
+            Path::new("/run"),
+        );
+        assert!(
+            matches!(unsupported, Ok(None)),
+            "{:?}",
+            unsupported.map(|broker| broker.is_some())
+        );
     }
 }
