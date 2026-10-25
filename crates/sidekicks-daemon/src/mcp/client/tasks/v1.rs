@@ -312,11 +312,13 @@ mod tests {
         let call = connection.call_tool(track_call(), &sink, &contact);
         tokio::pin!(call);
 
+        // Bounded so a mutant that never reads lost fails here, not at the runner's kill.
         tokio::select! {
             _ = &mut call => panic!("the call ended while its server was silent"),
             changed = seen.wait_for(|state| *state == McpTaskContact::Lost) => {
                 changed.expect("the state is kept");
             }
+            () = tokio::time::sleep(Duration::from_secs(400)) => panic!("never lost"),
         }
         let lost_at = started.elapsed();
         assert!(
@@ -333,6 +335,7 @@ mod tests {
             changed = seen.wait_for(|state| *state == McpTaskContact::Reached) => {
                 changed.expect("the state is kept");
             }
+            () = tokio::time::sleep(Duration::from_secs(60)) => panic!("never reached"),
         }
         assert_eq!(server.requests("tasks/get").len(), 9);
         let end = timeout(Duration::from_secs(60), call)

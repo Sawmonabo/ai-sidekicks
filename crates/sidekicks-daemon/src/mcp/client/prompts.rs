@@ -153,6 +153,7 @@ fn prompt_entry(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::Duration;
 
     use serde_json::json;
     use sidekicks_contracts::session::id::SessionId;
@@ -199,7 +200,10 @@ mod tests {
             )
             .expect("the server is running");
 
-        assert_eq!(changes.recv().await, Some("own"));
+        let change = tokio::time::timeout(Duration::from_secs(1), changes.recv())
+            .await
+            .expect("the change arrives");
+        assert_eq!(change, Some("own"));
         assert!(changes.try_recv().is_err());
     }
 }
