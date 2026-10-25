@@ -22,7 +22,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::ipc::registry::{
-    DispatchError, EncodedFeed, EncodedValue, HandlerContext, Request, TransportId,
+    AfterReply, DispatchError, EncodedFeed, EncodedValue, HandlerContext, Request, TransportId,
 };
 use crate::ipc::stream::feed::SendGate;
 
@@ -52,6 +52,7 @@ pub(crate) fn context(transport: u64) -> HandlerContext {
         caller_process: None,
         cancellation: CancellationToken::new(),
         recorded_call: None,
+        after_reply: AfterReply::default(),
     }
 }
 
