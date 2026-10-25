@@ -384,8 +384,9 @@ impl TaskWatches {
     }
 
     /// Hands the card `question`, answered through `answer`; false when the card did not take it,
-    /// which is logged. Until the card's intake is registered, the question stays pending at the
-    /// server, and this reads as taken.
+    /// which is logged. Until the card's intake is registered this reads as taken while nobody
+    /// holds `answer`: a 2025-11-25 question is then answered `cancel`, and a 2026-07-28 one is
+    /// never asked again.
     pub(super) async fn take_question(
         &self,
         scope: &McpConnectionScope,

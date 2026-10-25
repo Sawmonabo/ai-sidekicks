@@ -10,32 +10,33 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::provider::record_readers::read_present_member;
 
-/// One selectable answer of a provider ask: `value` is what a chooser sends back, `label` what a
-/// person reads. The label takes the wider bound because a titled MCP option's `title` is prose.
+/// One selectable answer of an elicitation form field: `value` is what a chooser sends back,
+/// `label` what a person reads. The label takes the wider bound because a titled option's `title`
+/// is prose.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderAskOption {
+pub(crate) struct ElicitationOption {
     /// What a chooser sends back.
     pub(crate) value: FreeFormText<PROVIDER_DECLARED_TOKEN_MAX_LEN>,
     /// What a person reads.
     pub(crate) label: FreeFormText<PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>,
 }
 
-/// What one ask's payload yielded when read for a choice set. `Absent` (no choices) differs from
-/// `Dropped` (choices this driver refused to carry), so only the latter earns a diagnostic.
+/// What one field yielded when read for a choice set. `Absent` (no choices) differs from
+/// `Dropped` (choices the card cannot carry), so only the latter earns a diagnostic.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AskOptionSetReading {
     /// The ask offers no choices.
     Absent,
-    /// The choices, in the provider's order.
+    /// The choices, in the server's order.
     Read {
         /// The options.
-        options: Vec<ProviderAskOption>,
+        options: Vec<ElicitationOption>,
     },
-    /// Choices the driver refused to carry.
+    /// Choices the card cannot carry.
     Dropped {
         /// Why the set was refused.
         reason: &'static str,
-        /// How many questions, properties or options the provider declared.
+        /// How many options the server declared.
         declared_count: usize,
     },
 }
@@ -113,16 +114,16 @@ fn read_elicitation_enum_arm(property: &Value) -> Option<Vec<AskOptionCandidate<
 }
 
 /// Reads one candidate set whole, or says why it was refused. All or nothing: a partial set would
-/// hide a choice the provider offered, whereas the free-text answer can express any choice.
+/// hide a choice the server offered, whereas the free-text answer can express any choice.
 fn read_ask_option_candidates(candidates: Vec<AskOptionCandidate<'_>>) -> AskOptionSetReading {
     if candidates.is_empty() {
         return AskOptionSetReading::Absent;
     }
     let declared_count = candidates.len();
-    let options: Option<Vec<ProviderAskOption>> = candidates
+    let options: Option<Vec<ElicitationOption>> = candidates
         .into_iter()
         .map(|candidate| {
-            Some(ProviderAskOption {
+            Some(ElicitationOption {
                 value: read_bounded_text(candidate.value)?,
                 label: read_bounded_text(candidate.label)?,
             })
@@ -132,7 +133,7 @@ fn read_ask_option_candidates(candidates: Vec<AskOptionCandidate<'_>>) -> AskOpt
         Some(options) => AskOptionSetReading::Read { options },
         None => AskOptionSetReading::Dropped {
             reason: "at least one declared option carried an unreadable or out-of-bounds value \
-                     or label, and a partial set would hide a choice the provider is waiting for",
+                     or label, and a partial set would hide a choice the server is waiting for",
             declared_count,
         },
     }

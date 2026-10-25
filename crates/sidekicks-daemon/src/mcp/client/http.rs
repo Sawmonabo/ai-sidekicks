@@ -234,8 +234,8 @@ impl McpHttpClient {
     }
 
     /// The SSE events of `response` on `session_id`'s stream, each held to `max_event_size`, its
-    /// data repaired and kept in the raw copy. A stream cut past the bound is marked, by its session
-    /// and the last event id before the cut, so its resume is refused.
+    /// data repaired and kept in the raw copy. A stream cut past the bound is marked, by its
+    /// session and the last event id before the cut, so its resume is refused.
     fn events(
         &self,
         response: reqwest::Response,

@@ -460,10 +460,10 @@ mod tests {
         .await
         .expect("the start ends");
 
-        assert!(matches!(
-            opened,
-            Err(McpConnectionError::StartupTimedOut { timeout }) if timeout == DEFAULT_STARTUP_TIMEOUT
-        ));
+        let Err(McpConnectionError::StartupTimedOut { timeout }) = opened else {
+            panic!("the start times out");
+        };
+        assert_eq!(timeout, DEFAULT_STARTUP_TIMEOUT);
         assert_eq!(started.elapsed(), Duration::from_secs(30));
     }
 }

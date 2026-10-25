@@ -144,13 +144,16 @@ pub(super) async fn start_test_server(
             let written = tokio::select! {
                 line = lines.next_line() => {
                     let Ok(Some(line)) = line else { return };
-                    let message: Value = serde_json::from_str(&line).expect("the client writes JSON");
+                    let message: Value =
+                        serde_json::from_str(&line).expect("the client writes JSON");
                     kept.lock().expect("never poisoned").push((Instant::now(), message.clone()));
                     let Some(id) = message.get("id").cloned() else { continue };
                     let Some(method) = message.get("method").and_then(Value::as_str) else {
                         // The client's answer to the server's own request releases the held reply.
-                        if let Some((client_id, then)) = id.as_str().and_then(|id| held.remove(id)) {
-                            write_lines(&mut server_write, vec![reply_line(then, &client_id)]).await;
+                        let released = id.as_str().and_then(|id| held.remove(id));
+                        if let Some((client_id, then)) = released {
+                            let reply = reply_line(then, &client_id);
+                            write_lines(&mut server_write, vec![reply]).await;
                         }
                         continue;
                     };

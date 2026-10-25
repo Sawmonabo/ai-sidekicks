@@ -391,8 +391,11 @@ mod tests {
             program: "/bin/sh".into(),
             arguments: vec![
                 "-c".to_owned(),
-                r#"echo "missing API key token=$TRACKER_TOKEN function=${EXPORTED_FUNCTION-unset}" >&2; exit 1"#
-                    .to_owned(),
+                concat!(
+                    r#"echo "missing API key token=$TRACKER_TOKEN "#,
+                    r#"function=${EXPORTED_FUNCTION-unset}" >&2; exit 1"#,
+                )
+                .to_owned(),
             ],
             environment: vec![("TRACKER_TOKEN".to_owned(), "from-the-entry".to_owned())],
             working_folder: None,

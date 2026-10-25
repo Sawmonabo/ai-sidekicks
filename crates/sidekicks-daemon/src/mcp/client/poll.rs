@@ -46,8 +46,8 @@ pub(super) fn poll_interval(suggested_interval_ms: Option<u64>) -> Duration {
 }
 
 /// Polls with `poll` until it reads the end, waiting the held interval between polls, or less
-/// when `wake` is notified but at least [`MIN_POLL_INTERVAL`] from the last poll, and keeping `contact` to whether a poll was answered within 300 s. The
-/// first poll runs at once.
+/// when `wake` is notified but at least [`MIN_POLL_INTERVAL`] from the last poll, and keeping
+/// `contact` to whether a poll was answered within 300 s. The first poll runs at once.
 pub(super) async fn follow_task<End, Error, Poll, Polled>(
     wake: &Notify,
     contact: &watch::Sender<McpTaskContact>,

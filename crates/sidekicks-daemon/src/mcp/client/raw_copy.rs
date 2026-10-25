@@ -276,8 +276,11 @@ mod tests {
                 "initialize" => Reply::Answer(json!({ "result": v1_initialize_result() })),
                 "tools/list" => Reply::Answer(json!({ "result": { "tools": [] } })),
                 "tasks/get" => Reply::Raw(
-                    r#"{"jsonrpc":"2.0","id":{id},"result":{"status":"working","statusMessage":"\ud800 queued"}}"#
-                        .to_owned(),
+                    concat!(
+                        r#"{"jsonrpc":"2.0","id":{id},"#,
+                        r#""result":{"status":"working","statusMessage":"\ud800 queued"}}"#,
+                    )
+                    .to_owned(),
                 ),
                 _ => method_not_found(),
             }),

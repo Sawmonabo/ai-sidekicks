@@ -1,7 +1,7 @@
 //! A tool server's elicitation form as the questions card asks it: each field the form names is one
-//! question, in the order the form's schema lists its fields, carrying whether the form requires it,
-//! the answer it starts from and a number field's bounds; the answers go back keyed by field, each
-//! as the type the field declares.
+//! question, in the order the form's schema lists its fields, carrying whether the form requires
+//! it, the answer it starts from and a number field's bounds; the answers go back keyed by field,
+//! each as the type the field declares.
 
 pub(crate) mod option_sets;
 
@@ -17,7 +17,7 @@ use sidekicks_contracts::wire::number::Number;
 use sidekicks_contracts::wire::text::{NonEmptyText, is_ecmascript_whitespace};
 
 use crate::mcp::elicitation_form::option_sets::{
-    AskOptionSetReading, ProviderAskOption, read_elicitation_field_option_set,
+    AskOptionSetReading, ElicitationOption, read_elicitation_field_option_set,
 };
 use crate::provider::driver::question_answers::read_question_answer_texts;
 use crate::provider::record_readers::read_non_empty_string;
@@ -231,7 +231,7 @@ fn read_starting_answer(
 }
 
 // The label of the option whose value is `value`, or `None` when no option has it.
-fn read_option_label(options: &[ProviderAskOption], value: &Value) -> Option<NonEmptyText> {
+fn read_option_label(options: &[ElicitationOption], value: &Value) -> Option<NonEmptyText> {
     options
         .iter()
         .find(|option| value.as_str() == Some(option.value.as_str()))

@@ -1,8 +1,9 @@
 //! `question.resolve`: the person's answers to every question of one record, checked against its
 //! pages before anything goes out. A question its run waits on gets its answers through the run's
-//! driver first, or through the tool-server client when a tool server's task asked it; only then does one write settle the record `answered`, append the person's turn
-//! and move the run back to `running`, guarded so a second answer that raced the first, or the
-//! run's end, is refused whole and reads the state back. A question a workflow wait holds gets its
+//! driver first, or through the tool-server client when a tool server asked it; only then does
+//! one write settle the record `answered`, append the person's turn and move the run back to
+//! `running`, guarded so a second answer that raced the first, or the run's end, is refused whole
+//! and reads the state back. A question a workflow wait holds gets its
 //! answers through the wait. A settled record answers its state and sends nothing.
 //!
 //! One window stays open on a provider that drops its own pending requests when its turn ends and
@@ -93,10 +94,11 @@ impl QuestionsService {
         Ok(QuestionResolveResponse { question_id, state })
     }
 
-    // The answers to the run's driver, then the settle, the person's turn and the run's move in
-    // one write. A write refused after the driver took the answers, as when a second answer raced
-    // it or the run ended meanwhile, reads the state back: the run's end settled it `canceled`.
-    // The request is let go either way, since the driver has answered it.
+    // The answers to whoever asked, the run's driver or the tool server through the tool-server
+    // client, then the settle, the person's turn and the run's move in one write. A write refused
+    // after the answers went out, as when a second answer raced them or the run ended meanwhile,
+    // reads the state back: the run's end settled it `canceled`. The request is let go either way,
+    // since it has been answered.
     async fn answer_held(
         &self,
         question_id: QuestionId,

@@ -193,8 +193,8 @@ impl ServerRequests {
     }
 
     /// Sends `method` as the client's own request within `wait`'s bound and reads its result from
-    /// the raw copy, never from rmcp's typed result. Fails when it does not reach the server or come
-    /// back in time, when the server answers an error, or when the answer was not kept.
+    /// the raw copy, never from rmcp's typed result. Fails when it does not reach the server or
+    /// come back in time, when the server answers an error, or when the answer was not kept.
     pub(super) async fn send_raw(
         &self,
         method: &str,
