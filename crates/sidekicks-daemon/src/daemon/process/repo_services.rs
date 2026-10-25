@@ -1,7 +1,7 @@
 //! The repository services the daemon's start builds once: its git, the repository mounts, the
 //! chats' managed workspaces, the broker git's questions reach the person through, the watch over
 //! each working folder, the live sessions' folders and their projects' fetches, the branch lists,
-//! the worktrees and the mounts' health re-probe. Their background work begins once the start's
+//! the worktrees, the turn snapshots and the mounts' health re-probe. Their background work begins once the start's
 //! recovery pass has settled the runs.
 
 use std::error::Error;
@@ -26,6 +26,7 @@ use crate::database::writer::DatabaseWriter;
 use crate::events::log_service::EventLogService;
 use crate::events::session::followers::SessionEventFollowers;
 use crate::git::process::{GitLimits, GitRunner};
+use crate::git::turn_snapshot::service::TurnSnapshotService;
 use crate::git::worktree::branch_list::BranchListReader;
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::fetch::{BackgroundFetch, BackgroundFetchDeps};
@@ -107,6 +108,8 @@ pub(crate) struct RepoServices {
     pub(crate) branches: Arc<BranchListReader>,
     /// Every worktree transition and worktree-scoped git call.
     pub(crate) worktrees: Arc<WorktreeService>,
+    /// Each turn's checkout snapshot and the prune of a run's snapshot refs.
+    pub(crate) snapshots: Arc<TurnSnapshotService>,
     /// The mounts' health, re-probed on the slow tick, a wake and a repository's change.
     pub(crate) mount_health: Arc<RepoMountHealthReprobe>,
     /// The daemon's one scheduler, which runs the re-probe's tick.
@@ -195,13 +198,19 @@ pub(crate) fn build_repo_services(
         watcher: Arc::clone(&folder_watch),
         fetch: Arc::clone(&fetch),
     }));
+    let execution_roots_folder = worktrees_folder(&home_folder);
+    let snapshots = Arc::new(TurnSnapshotService::new(
+        git.clone(),
+        Arc::clone(&reads),
+        &execution_roots_folder,
+    ));
     let worktrees = Arc::new(WorktreeService::new(WorktreeServiceDeps {
         git: git.clone(),
         reads: Arc::clone(&reads),
         writer,
         events: worktree_events,
         occupancy,
-        worktrees_folder: worktrees_folder(&home_folder),
+        worktrees_folder: execution_roots_folder,
     }));
     let mount_health = Arc::new(RepoMountHealthReprobe::new(
         Arc::clone(&reads),
@@ -219,6 +228,7 @@ pub(crate) fn build_repo_services(
         fetch,
         live_folders,
         worktrees,
+        snapshots,
         mount_health,
         scheduler,
         stop,
