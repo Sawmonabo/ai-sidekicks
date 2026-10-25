@@ -331,7 +331,8 @@ mod tests {
             changed = seen.wait_for(|state| *state == McpTaskContact::Reached) => {
                 changed.expect("the state is kept");
             }
-            () = tokio::time::sleep(Duration::from_secs(60)) => panic!("never reached"),
+            // The silent polls left, each waiting out its 60 s, come before the answered one.
+            () = tokio::time::sleep(Duration::from_secs(600)) => panic!("never reached"),
         }
         assert_eq!(server.requests("tasks/get").len(), 9);
         let end = timeout(Duration::from_secs(60), call)
