@@ -299,13 +299,6 @@ pub(crate) struct GitLimits {
 
 impl GitLimits {
     /// The daemon's bounds: [`GIT_COMMAND_TIMEOUT`] and [`GIT_OUTPUT_MAX_BYTES`].
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start makes its git runner with these bounds"
-        )
-    )]
     pub(crate) const DAEMON: Self = Self {
         timeout: GIT_COMMAND_TIMEOUT,
         output_bytes: GIT_OUTPUT_MAX_BYTES,
@@ -333,13 +326,6 @@ impl GitRunner {
     /// The runner for the git at `executable`, an absolute path, or for none found, when every
     /// call fails with [`GitError::NotFound`] where git is first needed rather than at start; each
     /// call's environment starts from `login_environment`, the login shell's captured at start.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start makes its git runner through it"
-        )
-    )]
     pub(crate) fn new(
         spawner: Spawner,
         executable: Option<PathBuf>,

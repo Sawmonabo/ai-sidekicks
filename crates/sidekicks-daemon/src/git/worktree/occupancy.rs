@@ -106,7 +106,6 @@ struct OccupancyRows {
 
 impl MountOccupancyReader {
     /// A reader on the daemon's read pool.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(reads: Arc<DatabaseReadPool>) -> Self {
         Self { reads }
     }

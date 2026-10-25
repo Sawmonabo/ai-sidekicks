@@ -241,7 +241,6 @@ impl Drop for WatchSubscription {
 
 impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
     /// A watcher running with `deps`, watching nothing until a hold or a subscription.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(deps: WorkingFolderWatcherDeps) -> Self {
         Self {
             shared: Arc::new(WatcherShared {
