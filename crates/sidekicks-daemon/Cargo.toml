@@ -12,10 +12,8 @@ ignored = [
   # The loopback listener for the agents' tool servers, the telemetry receiver and a machine's
   # shared ports.
   "axum",
-  # The command channel the daemon shares with its command wrapper and askpass modes.
-  "chacha20poly1305",
+  # The linking digits of a device link.
   "hkdf",
-  "x25519-dalek",
   # The browser tools and Preview's pages over DevTools.
   "chromiumoxide_cdp",
   "psl",
@@ -93,7 +91,6 @@ base64.workspace = true
 blake3.workspace = true
 bytes.workspace = true
 cedar-policy.workspace = true
-chacha20poly1305.workspace = true
 chromiumoxide_cdp.workspace = true
 console.workspace = true
 crash-handler.workspace = true
@@ -201,7 +198,6 @@ vte = { workspace = true, features = ["ansi"] }
 walkdir.workspace = true
 web-push-native.workspace = true
 webp.workspace = true
-x25519-dalek.workspace = true
 yaml-edit.workspace = true
 zeroize.workspace = true
 zip.workspace = true
