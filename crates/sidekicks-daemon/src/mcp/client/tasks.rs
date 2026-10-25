@@ -390,19 +390,42 @@ impl TaskWatches {
     }
 
     /// Hands the card `question`, answered through `answer`; false when the card did not take it,
-    /// which is logged. Until the card's intake is registered this reads as taken while nobody
-    /// holds `answer`: a 2025-11-25 question is then answered `cancel`, and a 2026-07-28 one is
-    /// never asked again.
+    /// which is logged. The take runs in a task of its own, so one whose asker stops waiting still
+    /// completes and its question is withdrawn, never left open with nobody to answer it. Until
+    /// the card's intake is registered this reads as taken while nobody holds `answer`: a
+    /// 2025-11-25 question is then answered `cancel`, and a 2026-07-28 one is never asked again.
     pub(super) async fn take_question(
         &self,
         scope: &McpConnectionScope,
         question: ProviderQuestion,
         answer: Arc<dyn ToolServerQuestionAnswer>,
     ) -> bool {
-        let Some(port) = self.questions.port() else {
+        let Some(port) = self.questions.port().cloned() else {
             return true;
         };
-        if let Err(error) = port.take_tool_server_question(question, answer).await {
+        let (session_id, request_id) = (question.session_id, question.request_id.clone());
+        let (sender, taken) = oneshot::channel();
+        tokio::spawn({
+            let request_id = request_id.clone();
+            async move {
+                let took = port.take_tool_server_question(question, answer).await;
+                // The asker stopped waiting while the card took the question.
+                if let Err(Ok(())) = sender.send(took) {
+                    withdraw_questions(port.as_ref(), session_id, vec![request_id]).await;
+                }
+            }
+        });
+        let mut pending = PendingTake {
+            watches: self,
+            session_id,
+            request_id,
+            taken,
+        };
+        let took = match (&mut pending.taken).await {
+            Ok(took) => took,
+            Err(_ended) => Err("the take ended without an outcome".into()),
+        };
+        if let Err(error) = took {
             tracing::warn!(
                 error = &*error as &(dyn Error + 'static),
                 server = scope.server_name.as_str(),
@@ -455,6 +478,27 @@ async fn withdraw_questions(
                 error = &*error as &(dyn Error + 'static),
                 "a tool server's question was not withdrawn"
             );
+        }
+    }
+}
+
+/// What a take running in its own task came to; dropped before it was read, it withdraws a
+/// question the card took after all, so a take whose asker stopped waiting leaves nothing open.
+struct PendingTake<'watches> {
+    watches: &'watches TaskWatches,
+    session_id: SessionId,
+    request_id: String,
+    taken: oneshot::Receiver<Result<(), Box<dyn Error + Send + Sync>>>,
+}
+
+impl Drop for PendingTake<'_> {
+    fn drop(&mut self) {
+        // Closed first, so the take's own task withdraws any outcome that comes after.
+        self.taken.close();
+        if let Ok(Ok(())) = self.taken.try_recv() {
+            let request_id = std::mem::take(&mut self.request_id);
+            self.watches
+                .withdraw_questions_later(self.session_id, vec![request_id]);
         }
     }
 }

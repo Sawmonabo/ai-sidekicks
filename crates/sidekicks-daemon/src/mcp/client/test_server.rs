@@ -2,7 +2,7 @@
 //! answer in the 2025-11-25 shapes rmcp's own server no longer writes, stay silent, write a line
 //! `serde_json` would not, or send a request of its own before it replies; each message it
 //! receives is kept with the instant it arrived. Beside it, a questions card that takes one open
-//! question at a time, as a run waiting on one does.
+//! question at a time, as a run waiting on one does, and can hold its takes' outcomes back.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -241,6 +241,7 @@ pub(super) struct QuestionCard {
     taken: Mutex<Vec<ProviderQuestion>>,
     open: Mutex<Vec<(ProviderQuestion, Arc<dyn ToolServerQuestionAnswer>)>>,
     asked: Notify,
+    take_gate: Mutex<Option<Arc<Notify>>>,
 }
 
 impl QuestionCard {
@@ -261,6 +262,14 @@ impl QuestionCard {
         while self.taken().len() < count {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
+    }
+
+    /// Holds back the outcome of each later take until the returned gate is notified, the question
+    /// already on the card, as a take whose write is enqueued before it answers.
+    pub(super) fn hold_takes(&self) -> Arc<Notify> {
+        let gate = Arc::new(Notify::new());
+        *self.take_gate.lock().expect("never poisoned") = Some(Arc::clone(&gate));
+        gate
     }
 
     /// Waits for an open question, answers the oldest with `answers` through its answerer and
@@ -308,7 +317,14 @@ impl QuestionPort for QuestionCard {
                 Ok(())
             }
         };
-        async move { taken }.boxed()
+        let gate = self.take_gate.lock().expect("never poisoned").clone();
+        async move {
+            if let Some(gate) = gate {
+                gate.notified().await;
+            }
+            taken
+        }
+        .boxed()
     }
 
     fn withdraw_question(

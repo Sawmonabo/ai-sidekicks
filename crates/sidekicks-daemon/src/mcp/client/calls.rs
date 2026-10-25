@@ -147,6 +147,7 @@ impl Drop for TrackedCall<'_> {
 mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
+    use tokio::time::{Duration, timeout};
 
     use crate::mcp::client::tasks::McpToolCallEnd;
     use crate::mcp::client::test_server::{
@@ -246,5 +247,48 @@ mod tests {
         );
         assert_eq!(server_answer(&server), board_accepted());
         assert!(sink.recorded().is_empty(), "a plain call records no task");
+    }
+
+    // Mutation: in `TaskWatches::take_question`, await the card's take inline instead of in a
+    // task of its own; the server's cancel then drops the take after the card wrote it, and the
+    // question stays open with nobody to answer it.
+    #[tokio::test(start_paused = true)]
+    async fn a_question_whose_request_is_canceled_while_the_card_takes_it_is_withdrawn() {
+        let (client, card) = test_client();
+        let gate = card.hold_takes();
+        let (connection, server) = open_test_server(&client, eliciting_v1_server()).await;
+        let sink = CountingSink::new(&server);
+        let contact = contact();
+        let call = connection.call_tool(track_call(), &sink, &contact);
+        tokio::pin!(call);
+
+        tokio::select! {
+            _ = &mut call => panic!("the call ended before its question was taken"),
+            () = card.wait_until_taken(1) => {}
+        }
+        let canceled = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/cancelled",
+            "params": { "requestId": "server-1" },
+        });
+        server
+            .unasked
+            .send(canceled.to_string())
+            .expect("the server is running");
+        // The cancel is read before the clock moves, and drops the question being asked.
+        tokio::select! {
+            _ = &mut call => panic!("the call ended while its server waited on its question"),
+            () = tokio::time::sleep(Duration::from_secs(1)) => {}
+        }
+        gate.notify_one();
+
+        tokio::select! {
+            _ = &mut call => panic!("the call ended while its server waited on its question"),
+            withdrawn = timeout(Duration::from_secs(60), card.wait_until_none_open()) => {
+                withdrawn.expect("the question the card took after its request was canceled \
+                                  is withdrawn");
+            }
+        }
+        assert_eq!(card.taken().len(), 1);
     }
 }
