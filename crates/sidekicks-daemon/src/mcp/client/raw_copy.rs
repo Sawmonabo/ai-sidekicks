@@ -7,12 +7,13 @@
 //!   `CustomRequest`) and `initialize`, each noted as it is sent, so a reply nobody takes is never
 //!   held.
 //! - The stdio tee and the HTTP client both feed it, before rmcp sees the reply, so a reply is
-//!   kept before the call waiting on it resolves.
+//!   kept before the call waiting on it resolves; both hand rmcp the same repaired text they keep,
+//!   so a lone surrogate escape a server writes never fails rmcp's own read of the message.
 
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, ready};
 
 use rmcp::RoleClient;
 use rmcp::model::{ClientJsonRpcMessage, ClientRequest, RequestId};
@@ -59,18 +60,19 @@ impl RawReplyCopy {
             .insert(request.id.clone(), method.to_owned());
     }
 
-    /// Keeps the reply `line` holds when its request is awaited; any other line is passed over.
-    pub(super) fn keep_line(&self, line: &[u8]) {
+    /// Keeps the reply the repaired `text` holds when its request is awaited; any other text is
+    /// passed over.
+    pub(super) fn keep_text(&self, text: &str) {
         if self.lock().awaited.is_empty() {
             return;
         }
-        if let Ok(message) = serde_json::from_str::<Value>(&decode_inbound_json(line)) {
+        if let Ok(message) = serde_json::from_str::<Value>(text) {
             self.keep_message(message);
         }
     }
 
     /// Keeps `message` when it is the reply to an awaited request.
-    pub(super) fn keep_message(&self, message: Value) {
+    fn keep_message(&self, message: Value) {
         let is_reply = message.get("result").is_some() || message.get("error").is_some();
         let Some(id) = message
             .get("id")
@@ -101,6 +103,13 @@ impl RawReplyCopy {
             .find(|(_, (kept_method, _))| kept_method == method)
             .map(|(id, _)| id.clone())?;
         replies.kept.remove(&id).map(|(_, message)| message)
+    }
+
+    /// Whether the copy holds no reply and awaits none.
+    #[cfg(test)]
+    pub(super) fn is_empty(&self) -> bool {
+        let replies = self.lock();
+        replies.awaited.is_empty() && replies.kept.is_empty()
     }
 
     // No holder awaits or panics while it changes the maps, so a poisoned lock still guards whole
@@ -139,13 +148,23 @@ impl<T: Transport<RoleClient>> Transport<RoleClient> for RawCopyTransport<T> {
     }
 }
 
-/// A stdio server's standard output read through to rmcp unchanged, each line also offered to the
-/// raw copy. A line past rmcp's own line bound is not offered, since rmcp drops it too.
+/// The byte order mark rmcp strips from the start of a line before it reads it.
+const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
+
+/// A stdio server's standard output as rmcp reads it, one whole line at a time: each line repaired
+/// as text a provider sends is, kept in the raw copy, and handed on with its newline. A line past
+/// rmcp's own line bound, its newline counted as rmcp counts it, is dropped, since rmcp drops it
+/// too.
 pub(super) struct RawLineTee<R> {
     inner: R,
     raw: RawReplyCopy,
+    /// The line read so far.
     line: Vec<u8>,
     is_discarding: bool,
+    /// Repaired lines not yet handed on, from `handed_on`.
+    pending: Vec<u8>,
+    handed_on: usize,
+    is_ended: bool,
 }
 
 impl<R> RawLineTee<R> {
@@ -156,6 +175,9 @@ impl<R> RawLineTee<R> {
             raw,
             line: Vec::new(),
             is_discarding: false,
+            pending: Vec::new(),
+            handed_on: 0,
+            is_ended: false,
         }
     }
 
@@ -166,7 +188,8 @@ impl<R> RawLineTee<R> {
                 _ => (piece, false),
             };
             if !self.is_discarding {
-                if self.line.len() + body.len() > DEFAULT_MAX_LINE_LENGTH {
+                if self.line.len() + piece.len() > DEFAULT_MAX_LINE_LENGTH {
+                    tracing::warn!("a tool server wrote a line past the client's bound; dropped");
                     self.line.clear();
                     self.is_discarding = true;
                 } else {
@@ -175,11 +198,22 @@ impl<R> RawLineTee<R> {
             }
             if is_line_end {
                 if !self.is_discarding {
-                    self.raw.keep_line(&self.line);
+                    self.hand_on_line(true);
                 }
                 self.line.clear();
                 self.is_discarding = false;
             }
+        }
+    }
+
+    // Repairs the line read so far, keeps it in the raw copy and queues it for rmcp.
+    fn hand_on_line(&mut self, is_line_end: bool) {
+        let line = self.line.strip_prefix(UTF8_BOM).unwrap_or(&self.line);
+        let text = decode_inbound_json(line);
+        self.raw.keep_text(&text);
+        self.pending.extend_from_slice(text.as_bytes());
+        if is_line_end {
+            self.pending.push(b'\n');
         }
     }
 }
@@ -191,12 +225,75 @@ impl<R: AsyncRead + Unpin> AsyncRead for RawLineTee<R> {
         buffer: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
         let tee = self.get_mut();
-        let before = buffer.filled().len();
-        let read = Pin::new(&mut tee.inner).poll_read(context, buffer);
-        if let Poll::Ready(Ok(())) = read {
-            let filled = buffer.filled()[before..].to_vec();
-            tee.offer(&filled);
+        loop {
+            if tee.handed_on < tee.pending.len() {
+                let waiting = &tee.pending[tee.handed_on..];
+                let count = waiting.len().min(buffer.remaining());
+                buffer.put_slice(&waiting[..count]);
+                tee.handed_on += count;
+                if tee.handed_on == tee.pending.len() {
+                    tee.pending.clear();
+                    tee.handed_on = 0;
+                }
+                return Poll::Ready(Ok(()));
+            }
+            if tee.is_ended {
+                return Poll::Ready(Ok(()));
+            }
+            let mut chunk = [0_u8; 8192];
+            let mut read = ReadBuf::new(&mut chunk);
+            ready!(Pin::new(&mut tee.inner).poll_read(context, &mut read))?;
+            if read.filled().is_empty() {
+                // The output ended: a last line without its newline is handed on as it stands.
+                if !tee.is_discarding && !tee.line.is_empty() {
+                    tee.hand_on_line(false);
+                }
+                tee.is_ended = true;
+            } else {
+                tee.offer(read.filled());
+            }
         }
-        read
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::mcp::client::requests::RequestWait;
+    use crate::mcp::client::test_server::{
+        Reply, method_not_found, open_test_server, test_client, v1_initialize_result,
+    };
+
+    // Mutation: in `RawLineTee::hand_on_line`, hand rmcp the line without `decode_inbound_json`;
+    // rmcp then fails to read the reply and the request times out.
+    #[tokio::test(start_paused = true)]
+    async fn a_reply_holding_a_lone_surrogate_escape_reaches_its_request() {
+        let (client, _card) = test_client();
+        let (connection, _server) = open_test_server(
+            &client,
+            Box::new(|method, _params| match method {
+                "initialize" => Reply::Answer(json!({ "result": v1_initialize_result() })),
+                "tools/list" => Reply::Answer(json!({ "result": { "tools": [] } })),
+                "tasks/get" => Reply::Raw(
+                    r#"{"jsonrpc":"2.0","id":{id},"result":{"status":"working","statusMessage":"\ud800 queued"}}"#
+                        .to_owned(),
+                ),
+                _ => method_not_found(),
+            }),
+        )
+        .await;
+
+        let result = connection
+            .requests
+            .send_raw(
+                "tasks/get",
+                Some(json!({ "taskId": "task-1" })),
+                RequestWait::Ordinary,
+            )
+            .await
+            .expect("the reply reads");
+
+        assert_eq!(result["statusMessage"], "\u{fffd} queued");
     }
 }

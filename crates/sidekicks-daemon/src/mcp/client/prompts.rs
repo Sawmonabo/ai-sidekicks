@@ -91,7 +91,7 @@ impl ServerPromptPort for McpClient {
             let mut entries = Vec::new();
             for connection in self.session_connections(session_id) {
                 let server = connection.scope.server_name.clone();
-                match connection.peer().list_all_prompts().await {
+                match connection.requests.list_all_prompts().await {
                     Ok(prompts) => entries.extend(
                         prompts
                             .into_iter()
@@ -160,19 +160,22 @@ mod tests {
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use tokio::sync::mpsc;
 
-    use crate::mcp::client::test_server::{open_test_server, test_client, v1_initialize_result};
+    use crate::mcp::client::test_server::{
+        Reply, method_not_found, open_test_server, test_client, v1_initialize_result,
+    };
     use crate::provider::port::server_prompts::ServerPromptPort as _;
 
     // Mutation: in `connection.rs`, empty `on_prompt_list_changed`, or notify another session
     // there; or in `PromptWatchers::notify`, skip the listeners.
     #[tokio::test]
     async fn a_prompt_list_change_reaches_only_its_sessions_listeners() {
-        let client = test_client();
+        let (client, _card) = test_client();
         let (_connection, server) = open_test_server(
             &client,
             Box::new(|method, _params| match method {
-                "initialize" => json!({ "result": v1_initialize_result() }),
-                _ => json!({ "result": { "tools": [] } }),
+                "initialize" => Reply::Answer(json!({ "result": v1_initialize_result() })),
+                "tools/list" => Reply::Answer(json!({ "result": { "tools": [] } })),
+                _ => method_not_found(),
             }),
         )
         .await;
@@ -191,7 +194,10 @@ mod tests {
 
         server
             .unasked
-            .send(json!({ "jsonrpc": "2.0", "method": "notifications/prompts/list_changed" }))
+            .send(
+                json!({ "jsonrpc": "2.0", "method": "notifications/prompts/list_changed" })
+                    .to_string(),
+            )
             .expect("the server is running");
 
         assert_eq!(changes.recv().await, Some("own"));

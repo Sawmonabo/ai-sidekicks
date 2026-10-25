@@ -1,12 +1,16 @@
 //! The cadence a task is polled at: one `tasks/get` at a time, 2 s apart unless the server suggests
-//! its own interval, which is held between 250 ms and 30 s, and a halt after 5 failed polls in a
-//! row, the task's handle kept for recovery. A status notification only wakes the next poll early;
-//! the poll alone decides the task's state.
+//! its own interval, which is held between 250 ms and 30 s. A poll that fails is polled again at
+//! the same cadence, the task left alone; once no poll was answered for 300 s the task's contact
+//! reads lost, and the next answered poll reads it reached again. A status notification only
+//! wakes the next poll early; the poll alone decides the task's state.
 
 use std::future::Future;
 use std::time::Duration;
 
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
+use tokio::time::Instant;
+
+use crate::mcp::client::tasks::McpTaskContact;
 
 /// The interval between polls when the server suggests none.
 pub(super) const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -17,8 +21,8 @@ pub(super) const MIN_POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// The longest interval a server's suggestion is held to.
 pub(super) const MAX_POLL_INTERVAL: Duration = Duration::from_secs(30);
 
-/// How many polls in a row may fail before the task is halted.
-pub(super) const MAX_FAILED_POLLS: u32 = 5;
+/// How long no poll may be answered before the task's contact reads lost.
+pub(super) const CONTACT_LOST_AFTER: Duration = Duration::from_secs(300);
 
 /// What one poll read: wait for the next one, at the interval the server suggested in
 /// milliseconds where it did, or the call's end.
@@ -32,14 +36,6 @@ pub(super) enum PollStep<End> {
     End(End),
 }
 
-/// How a followed task stopped being polled.
-pub(super) enum PollOutcome<End> {
-    /// A poll read the call's end.
-    Ended(End),
-    /// Five polls in a row failed; the handle stays recorded.
-    Halted,
-}
-
 /// The wait before the next poll: the server's suggestion held between the bounds, else the
 /// default.
 pub(super) fn poll_interval(suggested_interval_ms: Option<u64>) -> Duration {
@@ -48,37 +44,45 @@ pub(super) fn poll_interval(suggested_interval_ms: Option<u64>) -> Duration {
     })
 }
 
-/// Polls with `poll` until it reads the end or fails five times in a row, waiting the held
-/// interval between polls, or less when `wake` is notified. The first poll runs at once.
+/// Polls with `poll` until it reads the end, waiting the held interval between polls, or less
+/// when `wake` is notified, and keeping `contact` to whether a poll was answered within 300 s. The
+/// first poll runs at once.
 pub(super) async fn follow_task<End, Error, Poll, Polled>(
     wake: &Notify,
+    contact: &watch::Sender<McpTaskContact>,
     mut poll: Poll,
-) -> PollOutcome<End>
+) -> End
 where
     Error: std::error::Error + 'static,
     Poll: FnMut() -> Polled,
     Polled: Future<Output = Result<PollStep<End>, Error>>,
 {
-    let mut failed_polls = 0;
+    let mut last_answered = Instant::now();
     let mut interval = DEFAULT_POLL_INTERVAL;
     loop {
         match poll().await {
-            Ok(PollStep::End(end)) => return PollOutcome::Ended(end),
+            Ok(PollStep::End(end)) => {
+                contact.send_if_modified(reach);
+                return end;
+            }
             Ok(PollStep::Wait {
                 suggested_interval_ms,
             }) => {
-                failed_polls = 0;
+                last_answered = Instant::now();
+                contact.send_if_modified(reach);
                 interval = poll_interval(suggested_interval_ms);
             }
             Err(error) => {
-                failed_polls += 1;
                 tracing::warn!(
                     error = &error as &(dyn std::error::Error + 'static),
-                    failed_polls,
                     "a tool server task poll failed"
                 );
-                if failed_polls >= MAX_FAILED_POLLS {
-                    return PollOutcome::Halted;
+                if last_answered.elapsed() >= CONTACT_LOST_AFTER {
+                    contact.send_if_modified(|state| {
+                        let is_new = *state != McpTaskContact::Lost;
+                        *state = McpTaskContact::Lost;
+                        is_new
+                    });
                 }
             }
         }
@@ -87,6 +91,13 @@ where
             () = wake.notified() => {}
         }
     }
+}
+
+// Marks the task's server reached; true when that changed the state.
+fn reach(state: &mut McpTaskContact) -> bool {
+    let is_new = *state != McpTaskContact::Reached;
+    *state = McpTaskContact::Reached;
+    is_new
 }
 
 #[cfg(test)]

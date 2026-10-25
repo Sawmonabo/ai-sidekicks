@@ -3,11 +3,14 @@
 //! 2025-11-25); the `/` list's prompts read over those same connections; and the questions a
 //! server's task asks, on the session's questions card.
 
+mod calls;
 mod connection;
 mod http;
 mod poll;
 mod prompts;
 mod raw_copy;
+mod requests;
+mod stdio;
 pub(crate) mod tasks;
 #[cfg(test)]
 mod test_server;
@@ -68,15 +71,16 @@ impl McpClient {
         connection
     }
 
-    /// Closes every connection of `session_id`; a stdio server's process ends with its last
-    /// holder.
+    /// Closes every connection of `session_id` at once, each as [`McpServerConnection::close`]
+    /// says, and waits for them all. Never fails.
     #[expect(
         dead_code,
         reason = "the session's tool-server connections, which the tool-server units open, close \
                   with the session through it"
     )]
-    pub(crate) fn close_session(&self, session_id: SessionId) {
-        self.lock().remove(&session_id);
+    pub(crate) async fn close_session(&self, session_id: SessionId) {
+        let connections = self.lock().remove(&session_id).unwrap_or_default();
+        futures::future::join_all(connections.iter().map(|connection| connection.close())).await;
     }
 
     /// The scope a new connection of `session_id` to `server_name` is opened in.

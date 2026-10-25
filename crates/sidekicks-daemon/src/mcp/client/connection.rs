@@ -1,58 +1,54 @@
 //! One running connection to a tool server: rmcp's client over a stdio or HTTP transport, the raw
-//! copy of the replies the client reads raw, which Tasks protocol the server speaks, and the
-//! handler that takes the server's own requests and notifications.
+//! copy of the replies the client reads raw, which Tasks protocol the server speaks, the calls in
+//! flight on it, and the handler that takes the server's own requests and notifications.
 //!
 //! - The lifecycle probes `server/discover` and falls back to `initialize`, so a 2026-07-28 server
 //!   and a 2025-11-25 one both connect; a 2026-07-28 server declares the Tasks extension in its
 //!   typed capabilities, a 2025-11-25 one `capabilities.tasks.requests.tools.call` in its raw
-//!   `initialize` reply.
-//! - A stdio server's process starts on the daemon's spawner thread, armed to end with the daemon
-//!   and killed when the connection drops.
+//!   `initialize` reply. The whole start is held to the server's start-up timeout.
+//! - Every question the server asks goes on the questions card: one carrying a followed task's
+//!   id under that task's run, any other under the run of the call in flight on the connection,
+//!   and with none in flight it is answered `cancel`, since nobody saw it.
 
 use std::collections::HashSet;
 use std::io;
-use std::path::PathBuf;
-use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
-use process_wrap::tokio::ChildWrapper;
 use rmcp::model::{
-    ClientCapabilities, ClientRequest, CustomNotification, CustomRequest, ElicitRequestParams,
-    ElicitResult, ElicitationAction, ErrorData, Implementation, InitializeRequestParams,
-    ProtocolVersion, RequestId, TaskStatusNotificationParams,
+    ClientCapabilities, CustomNotification, ElicitRequestParams, ElicitResult, ElicitationAction,
+    ErrorData, Implementation, InitializeRequestParams, ProtocolVersion,
+    TaskStatusNotificationParams,
 };
 use rmcp::service::{
     ClientInitializeError, ClientLifecycleMode, MaybeSendFuture, NotificationContext,
-    PeerRequestOptions, RequestContext, RunningService, ServiceError, serve_client_with_lifecycle,
+    RequestContext, RunningService, serve_client_with_lifecycle,
 };
-use rmcp::transport::async_rw::AsyncRwTransport;
-use rmcp::{ClientHandler, Peer, RoleClient};
-use serde_json::{Map, Value, json};
+use rmcp::{ClientHandler, RoleClient};
+use serde_json::{Value, json};
 use sidekicks_contracts::mcp::server::McpServerName;
+use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_platforms::{Spawner, wrap_child_command};
-use tokio::process::Command;
+use tokio::time::Instant;
 
+use crate::mcp::client::calls::CallsInFlight;
 use crate::mcp::client::prompts::PromptWatchers;
-use crate::mcp::client::raw_copy::{INITIALIZE_METHOD, RawCopyTransport, RawLineTee, RawReplyCopy};
-use crate::mcp::client::tasks::{McpTaskGeneration, TaskQuestionAnswer, TaskWatches};
+use crate::mcp::client::raw_copy::{INITIALIZE_METHOD, RawCopyTransport, RawReplyCopy};
+use crate::mcp::client::requests::{McpRequestError, RequestWait, ServerRequests};
+use crate::mcp::client::stdio::StdioProcess;
+use crate::mcp::client::tasks::{McpTaskGeneration, QuestionOutcome, TaskWatches};
+use crate::provider::spawn_environment::SpawnEnvironmentError;
 
 /// The notification a 2025-11-25 server sends when a task's status changes.
 const V1_TASK_STATUS_METHOD: &str = "notifications/tasks/status";
 
-/// A tool server the daemon starts as a child and talks to over its standard input and output.
-#[derive(Clone, Debug)]
-pub(crate) struct McpStdioServer {
-    /// The program.
-    pub(crate) program: PathBuf,
-    /// Its arguments.
-    pub(crate) arguments: Vec<String>,
-    /// The environment values its declaration holds, set over the daemon's own.
-    pub(crate) environment: Vec<(String, String)>,
-    /// The folder it starts in, where the declaration names one.
-    pub(crate) working_folder: Option<PathBuf>,
-}
+/// The `_meta` key naming the task a 2025-11-25 server's request belongs to.
+const RELATED_TASK_META_KEY: &str = "io.modelcontextprotocol/related-task";
+
+/// How long a server may take to start when its entry names no start-up timeout (Claude Code's
+/// and Codex's own default).
+pub(super) const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Why a connection to a tool server could not be opened.
 #[derive(Debug, thiserror::Error)]
@@ -60,39 +56,33 @@ pub(crate) enum McpConnectionError {
     /// The server's process could not start, or its standard streams were not piped.
     #[error("the tool server's process could not start")]
     Start(#[source] io::Error),
+    /// The HTTP client for the server's address could not be built.
+    #[error("the HTTP client for the tool server could not be built")]
+    HttpClient(#[source] reqwest::Error),
+    /// The server's process environment could not be built.
+    #[error("the tool server's environment could not be built")]
+    Environment(#[from] SpawnEnvironmentError),
     /// The server did not complete the lifecycle's start.
     #[error("the tool server did not complete its start")]
     Initialize(#[source] Box<ClientInitializeError>),
+    /// The server did not complete its start within its start-up timeout.
+    #[error("the tool server did not start within {timeout:?}")]
+    StartupTimedOut {
+        /// The start-up timeout.
+        timeout: Duration,
+    },
     /// The first read of its tools failed.
     #[error("the tool server's tools could not be read")]
     Tools(#[source] McpRequestError),
-}
-
-/// Why a request the client reads raw has no result.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum McpRequestError {
-    /// The request did not reach the server, or no answer came back.
-    #[error("the request did not reach the tool server, or it did not answer")]
-    Service(#[source] ServiceError),
-    /// The server answered with a JSON-RPC error.
-    #[error("the tool server refused the request with code {code}")]
-    Refused {
-        /// The error's code.
-        code: i64,
-        /// The error's own words.
-        message: String,
-    },
-    /// The server's answer came back without its raw copy.
-    #[error("the tool server's answer to {method} was not kept")]
-    ReplyNotKept {
-        /// The request's method.
-        method: String,
-    },
-    /// The answer does not read as the result the request asks for.
-    #[error("the tool server's answer to {method} does not read as its result")]
-    Malformed {
-        /// The request's method.
-        method: &'static str,
+    /// A stdio server's start failed, and its process was ended; its exit carries the tail of
+    /// what it wrote to its error output.
+    #[error("the tool server's process failed its start")]
+    ProcessFailedStart {
+        /// Why the start failed.
+        #[source]
+        cause: Box<McpConnectionError>,
+        /// How the process ended, with its error output's tail.
+        exit: Box<ProcessExit>,
     },
 }
 
@@ -109,81 +99,98 @@ pub(crate) struct McpConnectionScope {
     pub(crate) task_watches: Arc<TaskWatches>,
 }
 
+/// How a connection starts: the deadline its start is held to, its tool calls' idle window, and
+/// the stdio server's process it holds, if any.
+pub(super) struct McpConnectionStart {
+    startup_timeout: Duration,
+    startup_deadline: Instant,
+    tool_call_idle_timeout: Duration,
+    process: Option<StdioProcess>,
+}
+
+impl McpConnectionStart {
+    /// A stdio server's start, from now, within `startup_timeout` or the default.
+    pub(super) fn stdio(startup_timeout: Option<Duration>, process: Option<StdioProcess>) -> Self {
+        Self::new(
+            startup_timeout,
+            crate::mcp::client::requests::STDIO_TOOL_CALL_IDLE_TIMEOUT,
+            process,
+        )
+    }
+
+    /// A start at an address, from now, within `startup_timeout` or the default.
+    pub(super) fn http(startup_timeout: Option<Duration>) -> Self {
+        Self::new(
+            startup_timeout,
+            crate::mcp::client::requests::HTTP_TOOL_CALL_IDLE_TIMEOUT,
+            None,
+        )
+    }
+
+    fn new(
+        startup_timeout: Option<Duration>,
+        tool_call_idle_timeout: Duration,
+        process: Option<StdioProcess>,
+    ) -> Self {
+        let startup_timeout = startup_timeout.unwrap_or(DEFAULT_STARTUP_TIMEOUT);
+        Self {
+            startup_timeout,
+            startup_deadline: Instant::now() + startup_timeout,
+            tool_call_idle_timeout,
+            process,
+        }
+    }
+
+    /// Holds `process` for the connection's life.
+    pub(super) fn hold(&mut self, process: StdioProcess) {
+        self.process = Some(process);
+    }
+}
+
 /// One open connection to a tool server.
 pub(crate) struct McpServerConnection {
     pub(super) scope: McpConnectionScope,
     pub(super) service: RunningService<RoleClient, McpClientHandler>,
-    pub(super) raw: RawReplyCopy,
+    pub(super) requests: ServerRequests,
     /// The Tasks protocol the server speaks, `None` when it offers no tasks.
     pub(super) task_generation: Option<McpTaskGeneration>,
+    /// The tool calls in flight, with their runs.
+    pub(super) calls: Arc<CallsInFlight>,
     /// On a 2025-11-25 server, each tool whose `execution.taskSupport` takes a task.
     task_tools: Mutex<HashSet<String>>,
     /// Set when the server says its tools changed, so the next task call reads them again.
     are_tools_stale: Arc<AtomicBool>,
-    /// The server's process, for a stdio server; killed when the connection drops.
-    _child: Option<Box<dyn ChildWrapper>>,
+    /// A stdio server's process, ended when the connection closes or drops.
+    pub(super) process: Option<StdioProcess>,
 }
 
 impl McpServerConnection {
-    /// Starts `server` on `spawner`'s thread and opens a connection over its standard streams,
-    /// its output teed into the raw copy. Fails when the process cannot start or the server does
-    /// not complete its start or its first tools read.
-    #[expect(
-        dead_code,
-        reason = "the session's tool-server connections, which the tool-server units open, start \
-                  a stdio server through it"
-    )]
-    pub(crate) async fn start_stdio(
-        spawner: &Spawner,
-        server: McpStdioServer,
-        scope: McpConnectionScope,
-    ) -> Result<Self, McpConnectionError> {
-        let mut command = Command::new(&server.program);
-        command
-            .args(&server.arguments)
-            .envs(server.environment)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-        if let Some(working_folder) = &server.working_folder {
-            command.current_dir(working_folder);
-        }
-        let daemon_pid = std::process::id();
-        let mut child = spawner
-            .run(move || wrap_child_command(command, daemon_pid).spawn())
-            .await
-            .and_then(|spawned| spawned)
-            .map_err(McpConnectionError::Start)?;
-        let (Some(output), Some(input)) = (
-            child.inner_mut().stdout().take(),
-            child.inner_mut().stdin().take(),
-        ) else {
-            return Err(McpConnectionError::Start(io::Error::other(
-                "the tool server's standard streams were not piped",
-            )));
-        };
-        let raw = RawReplyCopy::default();
-        let transport = AsyncRwTransport::new_client(RawLineTee::new(output, raw.clone()), input);
-        Self::open(transport, raw, scope, Some(child)).await
-    }
-
-    /// Opens a connection over `transport`, whose replies already feed `raw`, holding `child`
-    /// for its life. Fails as [`Self::start_stdio`] says.
+    /// Opens a connection over `transport`, whose replies already feed `raw`, as `start` says.
+    /// Fails when the server does not complete its start within its start-up timeout or its first
+    /// tools read; a stdio server's process is then ended and its exit carried by the error.
     pub(super) async fn open<T>(
         transport: T,
         raw: RawReplyCopy,
         scope: McpConnectionScope,
-        child: Option<Box<dyn ChildWrapper>>,
+        start: McpConnectionStart,
     ) -> Result<Self, McpConnectionError>
     where
         T: rmcp::transport::Transport<RoleClient> + 'static,
     {
+        let McpConnectionStart {
+            startup_timeout,
+            startup_deadline,
+            tool_call_idle_timeout,
+            process,
+        } = start;
         let are_tools_stale = Arc::new(AtomicBool::new(false));
+        let calls = Arc::new(CallsInFlight::default());
         let handler = McpClientHandler {
             scope: scope.clone(),
             are_tools_stale: Arc::clone(&are_tools_stale),
+            calls: Arc::clone(&calls),
         };
-        let service = serve_client_with_lifecycle(
+        let lifecycle = serve_client_with_lifecycle(
             handler,
             RawCopyTransport {
                 inner: transport,
@@ -193,9 +200,18 @@ impl McpServerConnection {
                 preferred_versions: vec![ProtocolVersion::V_2026_07_28],
                 legacy_version: Some(ProtocolVersion::V_2025_11_25),
             },
-        )
-        .await
-        .map_err(|error| McpConnectionError::Initialize(Box::new(error)))?;
+        );
+        let started = match tokio::time::timeout_at(startup_deadline, lifecycle).await {
+            Ok(Ok(service)) => Ok(service),
+            Ok(Err(error)) => Err(McpConnectionError::Initialize(Box::new(error))),
+            Err(_elapsed) => Err(McpConnectionError::StartupTimedOut {
+                timeout: startup_timeout,
+            }),
+        };
+        let service = match started {
+            Ok(service) => service,
+            Err(error) => return Err(end_failed_start(error, process).await),
+        };
         let initialize = raw.take_reply_to(INITIALIZE_METHOD);
         let declares_v1_tasks = initialize
             .as_ref()
@@ -212,27 +228,38 @@ impl McpServerConnection {
         } else {
             None
         };
-        let connection = Self {
+        let mut connection = Self {
+            requests: ServerRequests {
+                peer: service.peer().clone(),
+                raw,
+                tool_call_idle_timeout,
+            },
             scope,
             service,
-            raw,
             task_generation,
+            calls,
             task_tools: Mutex::new(HashSet::new()),
             are_tools_stale,
-            _child: child,
+            process: None,
         };
-        if task_generation == Some(McpTaskGeneration::V1) {
-            connection
-                .read_task_tools()
-                .await
-                .map_err(McpConnectionError::Tools)?;
+        if task_generation == Some(McpTaskGeneration::V1)
+            && let Err(error) = connection.read_task_tools().await
+        {
+            connection.service.cancellation_token().cancel();
+            return Err(end_failed_start(McpConnectionError::Tools(error), process).await);
         }
+        connection.process = process;
         Ok(connection)
     }
 
-    /// The peer the connection's typed requests go through.
-    pub(super) fn peer(&self) -> &Peer<RoleClient> {
-        self.service.peer()
+    /// Closes the connection: its transport first, which closes a stdio server's input, the
+    /// primary way to ask it to stop; then, for a stdio server, its process is ended as
+    /// [`StdioProcess::close`] says. Never fails.
+    pub(crate) async fn close(&self) {
+        self.service.cancellation_token().cancel();
+        if let Some(process) = &self.process {
+            process.close().await;
+        }
     }
 
     /// Whether `tool_name` takes a task on this 2025-11-25 server, its tools read again first
@@ -251,7 +278,10 @@ impl McpServerConnection {
         let mut cursor: Option<String> = None;
         loop {
             let params = cursor.map(|cursor| json!({ "cursor": cursor }));
-            let page = self.send_raw("tools/list", params).await?;
+            let page = self
+                .requests
+                .send_raw("tools/list", params, RequestWait::Ordinary)
+                .await?;
             let tools =
                 page.get("tools")
                     .and_then(Value::as_array)
@@ -274,61 +304,28 @@ impl McpServerConnection {
         *lock(&self.task_tools) = task_tools;
         Ok(())
     }
-
-    /// Sends `method` as the client's own request and reads its result from the raw copy, never
-    /// from rmcp's typed result. Fails when it does not reach the server or come back, when the
-    /// server answers an error, or when the answer was not kept.
-    pub(super) async fn send_raw(
-        &self,
-        method: &str,
-        params: Option<Value>,
-    ) -> Result<Map<String, Value>, McpRequestError> {
-        let handle = self
-            .peer()
-            .send_request_with_option(
-                ClientRequest::CustomRequest(CustomRequest::new(method, params)),
-                PeerRequestOptions::no_options(),
-            )
-            .await
-            .map_err(McpRequestError::Service)?;
-        let id: RequestId = handle.id.clone();
-        let answered = handle.await_response().await;
-        let kept = self.raw.take(&id);
-        match (answered, kept) {
-            (Err(ServiceError::McpError(_)) | Ok(_), Some(reply)) => read_raw_result(method, reply),
-            (Err(error), _) => Err(McpRequestError::Service(error)),
-            (Ok(_), None) => Err(McpRequestError::ReplyNotKept {
-                method: method.to_owned(),
-            }),
-        }
-    }
 }
 
-/// The result of a kept reply, or the server's error.
-fn read_raw_result(method: &str, reply: Value) -> Result<Map<String, Value>, McpRequestError> {
-    let Value::Object(mut reply) = reply else {
-        return Err(McpRequestError::ReplyNotKept {
-            method: method.to_owned(),
-        });
+/// `error`, with the stdio server's exit beside it once its process was ended.
+async fn end_failed_start(
+    error: McpConnectionError,
+    process: Option<StdioProcess>,
+) -> McpConnectionError {
+    let Some(process) = process else {
+        return error;
     };
-    if let Some(error) = reply.remove("error") {
-        return Err(McpRequestError::Refused {
-            code: error
-                .get("code")
-                .and_then(Value::as_i64)
-                .unwrap_or_default(),
-            message: error
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned(),
-        });
-    }
-    match reply.remove("result") {
-        Some(Value::Object(result)) => Ok(result),
-        Some(_) | None => Err(McpRequestError::ReplyNotKept {
-            method: method.to_owned(),
-        }),
+    match process.kill().await {
+        Ok(exit) => McpConnectionError::ProcessFailedStart {
+            cause: Box::new(error),
+            exit: Box::new(exit),
+        },
+        Err(wait_error) => {
+            tracing::warn!(
+                error = &*wait_error as &(dyn std::error::Error + 'static),
+                "a tool server's process that failed its start could not be waited for"
+            );
+            error
+        }
     }
 }
 
@@ -337,6 +334,7 @@ fn read_raw_result(method: &str, reply: Value) -> Result<Map<String, Value>, Mcp
 pub(crate) struct McpClientHandler {
     scope: McpConnectionScope,
     are_tools_stale: Arc<AtomicBool>,
+    calls: Arc<CallsInFlight>,
 }
 
 impl ClientHandler for McpClientHandler {
@@ -353,39 +351,38 @@ impl ClientHandler for McpClientHandler {
     async fn create_elicitation(
         &self,
         request: ElicitRequestParams,
-        _context: RequestContext<RoleClient>,
+        context: RequestContext<RoleClient>,
     ) -> Result<ElicitResult, ErrorData> {
         let params = serde_json::to_value(&request)
             .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
-        let related_task = params
-            .pointer("/_meta/io.modelcontextprotocol~1related-task/taskId")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
-        let Some(task_id) = related_task else {
-            tracing::warn!(
-                server = self.scope.server_name.as_str(),
-                "a tool server asked for input outside a task the client follows; declined"
-            );
-            return Ok(ElicitResult::new(ElicitationAction::Decline));
+        // rmcp moves the request's `_meta` out of its params into the context.
+        let related_task = context
+            .meta
+            .get(RELATED_TASK_META_KEY)
+            .and_then(|related| related.get("taskId"))
+            .and_then(Value::as_str);
+        let asked = match related_task {
+            Some(task_id) => {
+                self.scope
+                    .task_watches
+                    .ask_v1_task_question(&self.scope, task_id, params)
+                    .await
+            }
+            None => self.calls.ask_newest_call(&self.scope, params).await,
         };
-        let asked = self
-            .scope
-            .task_watches
-            .ask_v1_task_question(&self.scope, &task_id, params)
-            .await;
         Ok(match asked {
-            Some(TaskQuestionAnswer::Answered(content)) => {
+            Some(QuestionOutcome::Answered(content)) => {
                 let mut answer = ElicitResult::new(ElicitationAction::Accept);
                 answer.content = Some(Value::Object(content));
                 answer
             }
-            Some(TaskQuestionAnswer::Withdrawn) => ElicitResult::new(ElicitationAction::Cancel),
+            Some(QuestionOutcome::Withdrawn) => ElicitResult::new(ElicitationAction::Cancel),
             None => {
                 tracing::warn!(
                     server = self.scope.server_name.as_str(),
-                    "a tool server asked for input for a task the client does not follow; declined"
+                    "a tool server asked for input no call or task of the client waits on"
                 );
-                ElicitResult::new(ElicitationAction::Decline)
+                ElicitResult::new(ElicitationAction::Cancel)
             }
         })
     }
@@ -403,7 +400,9 @@ impl ClientHandler for McpClientHandler {
         params: TaskStatusNotificationParams,
         _context: NotificationContext<RoleClient>,
     ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
-        self.scope.task_watches.wake(&params.task.task.task_id);
+        self.scope
+            .task_watches
+            .wake(&self.scope, &params.task.task.task_id);
         std::future::ready(())
     }
 
@@ -419,7 +418,7 @@ impl ClientHandler for McpClientHandler {
                 .and_then(|params| params.get("taskId"))
                 .and_then(Value::as_str)
         {
-            self.scope.task_watches.wake(task_id);
+            self.scope.task_watches.wake(&self.scope, task_id);
         }
         std::future::ready(())
     }
@@ -429,4 +428,33 @@ impl ClientHandler for McpClientHandler {
 // set.
 fn lock(task_tools: &Mutex<HashSet<String>>) -> MutexGuard<'_, HashSet<String>> {
     task_tools.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::time::{Duration, Instant, timeout};
+
+    use super::{DEFAULT_STARTUP_TIMEOUT, McpConnectionError};
+    use crate::mcp::client::test_server::{Reply, start_test_server, test_client, test_scope};
+
+    // Mutation: in `McpServerConnection::open`, await the lifecycle without `timeout_at`, or
+    // measure the deadline from a later instant.
+    #[tokio::test(start_paused = true)]
+    async fn a_server_that_never_answers_its_start_fails_it_at_30_s() {
+        let (client, _card) = test_client();
+        let started = Instant::now();
+
+        let (opened, _server) = timeout(
+            Duration::from_secs(120),
+            start_test_server(test_scope(&client), Box::new(|_, _| Reply::Silent), None),
+        )
+        .await
+        .expect("the start ends");
+
+        assert!(matches!(
+            opened,
+            Err(McpConnectionError::StartupTimedOut { timeout }) if timeout == DEFAULT_STARTUP_TIMEOUT
+        ));
+        assert_eq!(started.elapsed(), Duration::from_secs(30));
+    }
 }
