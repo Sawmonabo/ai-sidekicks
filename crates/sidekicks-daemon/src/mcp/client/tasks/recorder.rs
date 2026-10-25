@@ -21,7 +21,7 @@ use strum::IntoStaticStr;
 
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::database::writer::{DatabaseWriter, WriteError, sqlite_error_code};
-use crate::mcp::tool_calls::{McpTaskHandleObservation, McpTaskHandleSink};
+use crate::mcp::client::tasks::{McpTaskHandleObservation, McpTaskHandleSink};
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -125,6 +125,11 @@ pub(crate) struct McpTaskHandleRecorder {
 
 impl McpTaskHandleRecorder {
     /// A recorder writing through `writer` for `provider`'s binding.
+    #[expect(
+        dead_code,
+        reason = "the session's tool-server connections, which the tool-server units open, hand \
+                  each task handle to it"
+    )]
     pub(crate) fn new(writer: Arc<DatabaseWriter>, provider: ProviderId) -> Self {
         Self { writer, provider }
     }

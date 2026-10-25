@@ -11,8 +11,8 @@ use sidekicks_contracts::run::state::RunState;
 
 use crate::command_receipts::{CommandAcceptance, CommandOutcome};
 use crate::database::sql_list::{sql_list_of, sql_list_of_every};
-use crate::mcp::task_handle_recorder::MCP_TASK_ID_MAX_LENGTH;
-use crate::mcp::tool_calls::McpTaskGeneration;
+use crate::mcp::client::tasks::McpTaskGeneration;
+use crate::mcp::client::tasks::recorder::MCP_TASK_ID_MAX_LENGTH;
 use crate::provider::driver::run_control::InterruptPendingChoice;
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
