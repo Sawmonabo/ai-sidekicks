@@ -9,8 +9,8 @@ publish.workspace = true
 
 [package.metadata.cargo-shear]
 ignored = [
-  # The loopback listener for the agents' tool servers, the telemetry receiver and a machine's
-  # shared ports.
+  # The loopback listener for the agents' tool servers, the telemetry receiver and the cookie
+  # check in front of a machine's shared ports.
   "axum",
   # The linking digits of a device link.
   "hkdf",
@@ -39,7 +39,7 @@ ignored = [
   "hpke",
   "web-push-native",
   "x-wing",
-  # A machine's certificate and the forward to its shared ports.
+  # A machine's certificate and the HTTP forward to its shared ports.
   "hyper-util",
   "instant-acme",
   "tokio-rustls",

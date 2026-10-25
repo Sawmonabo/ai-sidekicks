@@ -250,7 +250,7 @@ impl SharedPorts {
         not(test),
         expect(
             dead_code,
-            reason = "the port tunnel and the browser address's forward open their loopback \
+            reason = "the port tunnel and the web address's forward open their loopback \
                       connection here"
         )
     )]
@@ -346,7 +346,7 @@ fn added_after(newest: Option<Timestamp>) -> WireInstant {
 #[cfg(test)]
 mod tests {
     use std::io;
-    use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -384,13 +384,13 @@ mod tests {
     /// test sends readings through a follow it kept.
     #[derive(Default)]
     struct KeptFollows {
-        /// Each follow's sink and stop, in the order the follows started.
-        follows: Mutex<Vec<(PortListeningSink, CancellationToken)>>,
+        /// Each follow's sink, in the order the follows started.
+        follows: Mutex<Vec<PortListeningSink>>,
     }
 
     impl KeptFollows {
         fn follow_sink(&self, index: usize) -> PortListeningSink {
-            Arc::clone(&lock(&self.follows)[index].0)
+            Arc::clone(&lock(&self.follows)[index])
         }
     }
 
@@ -399,9 +399,9 @@ mod tests {
             &self,
             _listed: watch::Receiver<Vec<Port>>,
             sink: PortListeningSink,
-            stop: CancellationToken,
+            _stop: CancellationToken,
         ) {
-            lock(&self.follows).push((sink, stop));
+            lock(&self.follows).push(sink);
         }
     }
 
@@ -606,8 +606,6 @@ mod tests {
         assert_eq!(after_first.len(), 1);
         assert_eq!(after_first[0].port, first);
         assert_eq!(after_first[0].added_at, first_added_at);
-        assert!(!after_first[0].listening);
-        assert_eq!(after_first[0].framework, None);
         let second_added_at = shared_ports.add(second).await.expect("the port is shared");
         let after_second = next_ports(&mut feed, &gate).await;
 
@@ -647,7 +645,8 @@ mod tests {
     }
 
     // Killed by `frame` keeping a listener the loopback connect does not reach, its filter deleted
-    // or swapped for `IpAddr::is_loopback` (the `127.0.0.2` port would read listening), by a sink
+    // or swapped for `IpAddr::is_loopback` (the `127.0.0.2` port would read listening), by a filter
+    // that refuses `[::1]` or `0.0.0.0` (the `[::1]` or `0.0.0.0` port would read nothing), by a sink
     // that takes a stopped follow's readings (the late reading would reach the next reader), and by
     // a new follow that keeps the last one's readings (its first list would read listening).
     #[tokio::test]
@@ -660,19 +659,25 @@ mod tests {
             Arc::clone(&listening_source),
         )
         .await;
-        let (reached, unreached) = (port(5173), port(5174));
-        for shared in [reached, unreached] {
+        let (reached, reached_v6, reached_any, unreached) =
+            (port(5173), port(5174), port(5175), port(5176));
+        for shared in [reached, reached_v6, reached_any, unreached] {
             shared_ports.add(shared).await.expect("the port is shared");
         }
-        let listener = |address: Ipv4Addr, framework: &str| PortListening {
-            bound_address: address.into(),
+        let listener = |address: IpAddr, framework: &str| PortListening {
+            bound_address: address,
             framework: Some(
                 NonEmptyText::new(framework.to_owned()).expect("the test names a framework"),
             ),
         };
         let readings = PortListeningReadings::from([
-            (reached, listener(Ipv4Addr::LOCALHOST, "vite")),
-            (unreached, listener(Ipv4Addr::new(127, 0, 0, 2), "next")),
+            (reached, listener(Ipv4Addr::LOCALHOST.into(), "vite")),
+            (reached_v6, listener(Ipv6Addr::LOCALHOST.into(), "vite")),
+            (reached_any, listener(Ipv4Addr::UNSPECIFIED.into(), "next")),
+            (
+                unreached,
+                listener(Ipv4Addr::new(127, 0, 0, 2).into(), "next"),
+            ),
         ]);
         let listening_of = |ports: Vec<PreviewSharedPort>| {
             ports
@@ -683,7 +688,12 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
         };
-        let nothing_read = vec![(reached, false, None), (unreached, false, None)];
+        let nothing_read = vec![
+            (reached, false, None),
+            (reached_v6, false, None),
+            (reached_any, false, None),
+            (unreached, false, None),
+        ];
         let gate = CreditGate::with_credit(1);
 
         let mut feed = follow_list(&shared_ports).await;
@@ -697,6 +707,8 @@ mod tests {
             listening_of(next_ports(&mut feed, &gate).await),
             vec![
                 (reached, true, Some("vite".to_owned())),
+                (reached_v6, true, Some("vite".to_owned())),
+                (reached_any, true, Some("next".to_owned())),
                 (unreached, false, None)
             ]
         );

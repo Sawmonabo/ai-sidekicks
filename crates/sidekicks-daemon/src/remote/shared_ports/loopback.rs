@@ -30,7 +30,7 @@ impl SharedPortConnection {
         not(test),
         expect(
             dead_code,
-            reason = "the port tunnel and the browser address's forward pump the stream"
+            reason = "the port tunnel and the web address's forward pump the stream"
         )
     )]
     pub(crate) fn into_parts(self) -> (TcpStream, CancellationToken) {
@@ -81,7 +81,7 @@ pub(crate) fn is_reached_by_loopback_connect(address: IpAddr) -> bool {
 /// A dev server binds `localhost`, which lists `::1` first on macOS and Linux, and a refused
 /// family answers in under a millisecond, so racing the two buys nothing. The one case it loses:
 /// on Linux a `[::1]` listener whose backlog is full holds the whole limit, so a second server on
-/// the same port on `127.0.0.1` alone is never tried. Fails with [`SharedPortConnectError`].
+/// the same port on `127.0.0.1` alone is never tried. Fails with `Unreachable` or `TimedOut`.
 pub(super) async fn connect_loopback(
     port: Port,
     closed: CancellationToken,
