@@ -1,0 +1,212 @@
+//! The database file's open and close as the daemon's start and stop run them.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
+use serde_json::json;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_platforms::{DaemonRunFolder, Spawner};
+use tempfile::TempDir;
+use tokio_util::sync::CancellationToken;
+
+use super::{DatabaseFile, DatabaseFileStart, close_database_file, open_database_file};
+use crate::bootstrap::secure_defaults::{SecureDefaults, SecureDefaultsConfig};
+use crate::daemon::process::supervision::ProcessStateTracker;
+use crate::database::connection::writer_open::DAEMON_DATABASE_FILE_NAME;
+use crate::database::writer::test_file::{test_envelope, test_session_id};
+use crate::events::log_service::{
+    EventAppendError, EventLogAppendOptions, EventReadAfterCursorRequest,
+};
+use crate::events::session::appender::UnsequencedEventEnvelope;
+use crate::ipc::caller_process::system_reader::ProcessTableReader;
+use crate::recovery::database_file::copy::DatabaseFileCopier;
+use crate::recovery::database_file::last_run::{LastRunEnd, read_last_run_end};
+use crate::recovery::database_file::sqlite_shell::SqliteShell;
+use crate::recovery::database_file::{WRITE_AHEAD_LOG_SUFFIX, sibling_path};
+
+/// The longest a close the tests run may drain.
+const CLOSE_BOUND: Duration = Duration::from_secs(4);
+
+/// A data folder and run folder on a scratch home, and what a start opens the file there with.
+struct Harness {
+    _scratch: TempDir,
+    data_folder: PathBuf,
+    database_path: PathBuf,
+    run_folder: DaemonRunFolder,
+    shell: SqliteShell,
+    copier: DatabaseFileCopier,
+    secure_defaults: SecureDefaults,
+    stop: CancellationToken,
+}
+
+impl Harness {
+    fn new() -> Self {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let data_folder = scratch.path().join("data");
+        std::fs::create_dir(&data_folder).expect("the data folder is made");
+        let run_path = scratch.path().join("run");
+        let run_folder = DaemonRunFolder {
+            socket_path: run_path.join("daemon.sock"),
+            token_path: run_path.join("daemon.token"),
+            status_path: run_path.join("service-status.json"),
+            folder_path: run_path,
+        };
+        let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
+        let program = std::env::current_exe().expect("the test program names itself");
+        let secure_defaults = SecureDefaults::load(SecureDefaultsConfig {
+            local_ipc_path: run_folder.socket_path.clone(),
+        })
+        .expect("the socket's path is short enough");
+        Self {
+            database_path: data_folder.join(DAEMON_DATABASE_FILE_NAME),
+            data_folder,
+            run_folder,
+            shell: SqliteShell::new(program.clone(), spawner.clone()),
+            copier: DatabaseFileCopier::new(program, spawner),
+            secure_defaults,
+            stop: CancellationToken::new(),
+            _scratch: scratch,
+        }
+    }
+
+    async fn open(&self) -> DatabaseFile {
+        open_database_file(DatabaseFileStart {
+            database_path: self.database_path.clone(),
+            data_folder: self.data_folder.clone(),
+            index_folder_path: self.data_folder.join("search-index"),
+            shell: &self.shell,
+            copier: &self.copier,
+            now: jiff::Timestamp::now(),
+            backup_folder: None,
+            run_folder: &self.run_folder,
+            secure_defaults: &self.secure_defaults,
+            caller_process_reader: Arc::new(
+                ProcessTableReader::for_this_program().expect("the reader builds"),
+            ),
+            process_state: ProcessStateTracker::new(),
+            stop: &self.stop,
+        })
+        .await
+        .expect("the file opens")
+    }
+
+    fn log_path(&self) -> PathBuf {
+        sibling_path(&self.database_path, WRITE_AHEAD_LOG_SUFFIX)
+    }
+
+    async fn last_run(&self) -> LastRunEnd {
+        read_last_run_end(&self.database_path)
+            .await
+            .expect("the record reads")
+    }
+}
+
+/// `session_id`'s `session.created`, its lead bound to a test provider.
+fn session_created(session_id: SessionId) -> UnsequencedEventEnvelope {
+    let event = serde_json::from_value(json!({
+        "type": "session.created",
+        "payload": {
+            "sessionId": session_id,
+            "shape": "chat",
+            "mainAgent": {
+                "agentId": mint_uuid_v7().to_string(),
+                "name": "lead",
+                "binding": {
+                    "providerName": "test-provider",
+                    "modelId": "test-model",
+                    "providerAccountId": null,
+                    "effort": null,
+                },
+                "ancestry": [],
+                "createdAt": "2026-10-25T09:00:00.000Z",
+            },
+        },
+    }))
+    .expect("the test writes a session.created event");
+    test_envelope(session_id, &event)
+}
+
+// A stop folds the write-ahead log into the file and records the clean stop, and a start after
+// it, vouched for by that record, stops cleanly again. Killed by dropping `record_clean_stop`
+// from the close: the record then reads `Unclean`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stop_folds_the_log_into_the_file_and_records_a_clean_stop() {
+    let harness = Harness::new();
+
+    let first = harness.open().await;
+    let failures = close_database_file(first, CLOSE_BOUND, false).await;
+    assert!(failures.is_empty(), "{failures:?}");
+    assert!(
+        std::fs::metadata(harness.log_path()).map_or(true, |log| log.len() == 0),
+        "the stop leaves no log to replay"
+    );
+    assert_eq!(harness.last_run().await, LastRunEnd::Clean);
+
+    // The clean stop vouches for the file, so the next start's writes go at once.
+    let second = harness.open().await;
+    second.writer.flush().await;
+    let failures = close_database_file(second, CLOSE_BOUND, false).await;
+    assert!(failures.is_empty(), "{failures:?}");
+    assert_eq!(harness.last_run().await, LastRunEnd::Clean);
+}
+
+// The event log the start builds writes a session's directory row in the event's own write, and
+// refuses, storing nothing, an event whose projection cannot compose its change: a pin whose time
+// folds to before year 0000. Killed by dropping the directory's statements from the chain (no row
+// is read) and by mapping the producer's `Err` to no statements (the pin is stored).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_append_writes_its_session_row_and_a_projection_refusal_stores_nothing() {
+    let harness = Harness::new();
+    let file = harness.open().await;
+    let session_id = test_session_id();
+
+    file.event_log
+        .append(
+            session_created(session_id),
+            EventLogAppendOptions::default(),
+        )
+        .await
+        .expect("the creation is stored");
+    let pinned = serde_json::from_value(json!({
+        "type": "session.pinned",
+        "payload": { "sessionId": session_id, "at": "0000-01-01T00:00:00.000+01:00" },
+    }))
+    .expect("the test writes a session.pinned event");
+    let refused = file
+        .event_log
+        .append(
+            test_envelope(session_id, &pinned),
+            EventLogAppendOptions::default(),
+        )
+        .await;
+
+    assert!(
+        matches!(refused, Err(EventAppendError::Projection(_))),
+        "{refused:?}"
+    );
+    let stored = file
+        .event_log
+        .read_after_cursor(EventReadAfterCursorRequest {
+            session_id,
+            after_cursor: None,
+            limit: None,
+        })
+        .await
+        .expect("the log reads");
+    assert_eq!(stored.events.len(), 1, "only the creation is stored");
+    let connection =
+        rusqlite::Connection::open(&harness.database_path).expect("the file opens to read");
+    let state: String = connection
+        .query_row(
+            "SELECT state FROM sessions WHERE id = ?",
+            [session_id.to_string()],
+            |row| row.get(0),
+        )
+        .expect("the creation wrote the session's row");
+    assert_eq!(state, "provisioning");
+    drop(connection);
+    let failures = close_database_file(file, CLOSE_BOUND, false).await;
+    assert!(failures.is_empty(), "{failures:?}");
+}

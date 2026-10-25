@@ -12,14 +12,15 @@
 //! - Dual-write: the transactional prelude is committed in the same write just before the rows,
 //!   then each row's projection statements. A guarded statement carries the row count it expects,
 //!   so a moved state refuses the write and consumes no sequence.
-//! - Refusal: a session that takes no writes, and an event that would not store faithfully, are
-//!   refused before anything is queued.
+//! - Refusal: a session that takes no writes, an event that would not store faithfully, and one
+//!   whose projection cannot compose its change are refused before anything is queued.
 //! - One copy: each event is held once, shared by the row the writer binds and the commit hook,
 //!   beside its payload text, serialized on the appending task.
 //! - Publication: each committed write's events go to the followers from the writer's commit hook,
 //!   on the writer's queue task, in commit order, whether or not the append's caller still waits.
 //! - Reads: each borrows a connection from the daemon's read pool on a blocking thread.
 
+use std::error::Error;
 use std::sync::Arc;
 
 use rusqlite::Connection;
@@ -66,9 +67,11 @@ pub(crate) const EVENT_LOG_STATEMENT_CAPACITY: usize = 7;
 /// How the append path names itself in a refusal.
 const APPEND_REFUSER: &str = "EventLogService::append";
 
-/// Statements that keep a projection in step with the log, given each event as it will be stored.
-pub(crate) type ProjectionStatements =
-    dyn Fn(&UnsequencedEventEnvelope) -> Vec<WriteStatement> + Send + Sync;
+/// Statements that keep a projection in step with the log, given each event as it will be stored;
+/// an `Err` refuses the append, so no event is stored without its projection's change.
+pub(crate) type ProjectionStatements = dyn Fn(&UnsequencedEventEnvelope) -> Result<Vec<WriteStatement>, Box<dyn Error + Send + Sync>>
+    + Send
+    + Sync;
 
 /// Refuses an append to a session that takes no event of the given type, with the refusal the
 /// caller answers.
@@ -140,6 +143,9 @@ pub(crate) enum EventAppendError {
     /// The event's `occurredAt` cannot take the stored form.
     #[error("the event's occurredAt cannot be stored")]
     OccurredAt(#[from] OccurredAtNormalizationRefusal),
+    /// A projection could not compose its change for the event, so the event is not stored.
+    #[error("a projection could not compose its change for the event")]
+    Projection(#[source] Box<dyn Error + Send + Sync>),
     /// A content body was given for a type that carries none.
     #[error(transparent)]
     ContentPartition(#[from] ContentPartitionRefusedError),
@@ -329,9 +335,10 @@ impl EventLogService {
     /// Appends `envelope`, after any preceding events, holding its session's append lock while
     /// the write is queued, and returns once it committed, with its sequence. Refuses, before
     /// anything is queued, an event of a session that takes no writes, a preceding event of
-    /// another session, a seeded content description, a content body on a type that carries none
-    /// and an `occurredAt` that cannot be stored; then fails as the writer does,
-    /// [`WriteError::Refused`] among it. An event is never refused for its size. Dropping the
+    /// another session, a seeded content description, a content body on a type that carries none,
+    /// an `occurredAt` that cannot be stored and an event a projection cannot take
+    /// ([`EventAppendError::Projection`]); then fails as the writer does, [`WriteError::Refused`]
+    /// among it. An event is never refused for its size. Dropping the
     /// future once its write is queued neither withdraws the write nor its publication.
     pub(crate) async fn append(
         &self,
@@ -597,7 +604,9 @@ impl EventLogService {
                 .iter()
                 .filter(|row| row.envelope.patch_part().is_none())
             {
-                statements.extend(projection_statements(&row.envelope));
+                statements.extend(
+                    projection_statements(&row.envelope).map_err(EventAppendError::Projection)?,
+                );
             }
         }
         let stored_envelopes = rows.iter().map(|row| Arc::clone(&row.envelope)).collect();

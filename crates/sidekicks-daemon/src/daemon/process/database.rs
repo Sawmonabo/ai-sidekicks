@@ -39,6 +39,7 @@ use crate::daemon::repairing_socket::{
 use crate::daemon::retention_methods::RETENTION_STATEMENT_CAPACITY;
 use crate::database::connection::read_pool::{DatabaseReadPool, DatabaseReadPoolCloseError};
 use crate::database::connection::writer_open::{DatabaseOpenError, open_database};
+use crate::database::statement::WriteStatement;
 use crate::database::writer::{
     DatabaseWriter, DatabaseWriterOpenError, DatabaseWriterOptions, ThreadJoinError,
     WriteFailureListener, WriterCloseError, WritesHeldError,
@@ -47,6 +48,7 @@ use crate::error_description::describe_error;
 use crate::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
 };
+use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::events::session::followers::SessionEventFollowers;
 use crate::events::session::purge::rows::SESSION_PURGE_STATEMENT_CAPACITY;
 use crate::file::atomic_write::AtomicWriteError;
@@ -88,6 +90,7 @@ use crate::recovery::status::RecoveryStatusTracker;
 use crate::session::auto_title::SESSION_AUTO_TITLE_STATEMENT_CAPACITY;
 use crate::session::changes::SESSION_CHANGES_STATEMENT_CAPACITY;
 use crate::session::directory::list_feed::rows::SESSION_LIST_ROWS_STATEMENT_CAPACITY;
+use crate::session::directory::row::{DirectoryEvent, directory_statements_for};
 use crate::session::draft_store::SESSION_DRAFT_STORE_STATEMENT_CAPACITY;
 use crate::session::links::service::SESSION_LINK_SERVICE_STATEMENT_CAPACITY;
 use crate::session::related::ranking::RELATED_RANKING_STATEMENT_CAPACITY;
@@ -411,7 +414,7 @@ pub(crate) async fn open_database_file(
         writer: Arc::clone(&writer),
         pool: Arc::clone(&pool),
         followers: Arc::clone(&followers),
-        projection_statements: Some(Box::new(question_projection_statements)),
+        projection_statements: Some(Box::new(session_projection_statements)),
         refuse_session_write: Some(Box::new({
             let status = Arc::clone(&status);
             move |session_id, event_type| refuse_session_event(&status, session_id, event_type)
@@ -524,6 +527,16 @@ async fn open_writer(
         record_failures,
         "recording the damage to the database file",
     )))
+}
+
+// The statements the projections kept in each event's own write take for `envelope`: the session's
+// directory row first, which the others' rows refer to, then the questions' queued answers.
+fn session_projection_statements(
+    envelope: &UnsequencedEventEnvelope,
+) -> Result<Vec<WriteStatement>, Box<dyn Error + Send + Sync>> {
+    let mut statements = directory_statements_for(&DirectoryEvent::from(envelope))?;
+    statements.extend(question_projection_statements(envelope));
+    Ok(statements)
 }
 
 // Tells `damage` of each failure SQLite raised for a write; the watch holds no writer, so the
@@ -684,92 +697,4 @@ fn release_writes(writes_release: Option<oneshot::Sender<Result<(), WritesHeldEr
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    use sidekicks_platforms::{DaemonRunFolder, Spawner};
-    use tokio_util::sync::CancellationToken;
-
-    use super::{DatabaseFileStart, close_database_file, open_database_file};
-    use crate::bootstrap::secure_defaults::{SecureDefaults, SecureDefaultsConfig};
-    use crate::daemon::process::supervision::ProcessStateTracker;
-    use crate::database::connection::writer_open::DAEMON_DATABASE_FILE_NAME;
-    use crate::ipc::caller_process::system_reader::ProcessTableReader;
-    use crate::recovery::database_file::copy::DatabaseFileCopier;
-    use crate::recovery::database_file::last_run::{LastRunEnd, read_last_run_end};
-    use crate::recovery::database_file::sqlite_shell::SqliteShell;
-    use crate::recovery::database_file::{WRITE_AHEAD_LOG_SUFFIX, sibling_path};
-
-    // A stop folds the write-ahead log into the file and records the clean stop, and a start after
-    // it, vouched for by that record, stops cleanly again. Killed by dropping `record_clean_stop`
-    // from the close: the record then reads `Unclean`.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_stop_folds_the_log_into_the_file_and_records_a_clean_stop() {
-        let scratch = tempfile::tempdir().expect("a scratch folder");
-        let data_folder = scratch.path().join("data");
-        std::fs::create_dir(&data_folder).expect("the data folder is made");
-        let run_path = scratch.path().join("run");
-        let run_folder = DaemonRunFolder {
-            socket_path: run_path.join("daemon.sock"),
-            token_path: run_path.join("daemon.token"),
-            status_path: run_path.join("service-status.json"),
-            folder_path: run_path,
-        };
-        let database_path = data_folder.join(DAEMON_DATABASE_FILE_NAME);
-        let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
-        let program = std::env::current_exe().expect("the test program names itself");
-        let shell = SqliteShell::new(program.clone(), spawner.clone());
-        let copier = DatabaseFileCopier::new(program, spawner);
-        let secure_defaults = SecureDefaults::load(SecureDefaultsConfig {
-            local_ipc_path: run_folder.socket_path.clone(),
-        })
-        .expect("the socket's path is short enough");
-        let stop = CancellationToken::new();
-        let open = || {
-            open_database_file(DatabaseFileStart {
-                database_path: database_path.clone(),
-                data_folder: data_folder.clone(),
-                index_folder_path: data_folder.join("search-index"),
-                shell: &shell,
-                copier: &copier,
-                now: jiff::Timestamp::now(),
-                backup_folder: None,
-                run_folder: &run_folder,
-                secure_defaults: &secure_defaults,
-                caller_process_reader: Arc::new(
-                    ProcessTableReader::for_this_program().expect("the reader builds"),
-                ),
-                process_state: ProcessStateTracker::new(),
-                stop: &stop,
-            })
-        };
-
-        let first = open().await.expect("a new file opens");
-        let failures = close_database_file(first, Duration::from_secs(4), false).await;
-        assert!(failures.is_empty(), "{failures:?}");
-        let log = sibling_path(&database_path, WRITE_AHEAD_LOG_SUFFIX);
-        assert!(
-            std::fs::metadata(&log).map_or(true, |log| log.len() == 0),
-            "the stop leaves no log to replay"
-        );
-        assert_eq!(
-            read_last_run_end(&database_path)
-                .await
-                .expect("the record reads"),
-            LastRunEnd::Clean
-        );
-
-        // The clean stop vouches for the file, so the next start's writes go at once.
-        let second = open().await.expect("the file opens again");
-        second.writer.flush().await;
-        let failures = close_database_file(second, Duration::from_secs(4), false).await;
-        assert!(failures.is_empty(), "{failures:?}");
-        assert_eq!(
-            read_last_run_end(&database_path)
-                .await
-                .expect("the record reads"),
-            LastRunEnd::Clean
-        );
-    }
-}
+mod tests;
