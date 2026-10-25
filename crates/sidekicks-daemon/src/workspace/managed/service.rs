@@ -24,6 +24,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::remove_tree;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot::{self, error::TryRecvError};
+use tokio::task::JoinError;
 use tokio_util::task::AbortOnDropHandle;
 
 use crate::cleanup_failures::CleanupFailures;
@@ -96,16 +97,18 @@ pub(crate) struct ManagedWorkspaceService {
     place: Option<Place>,
     repo_mounts: Arc<RepoMountService>,
     git: GitRunner,
-    writes: mpsc::Sender<ManagedWorkspaceWrite>,
     changed_folders: Arc<PendingSessions>,
-    write_watch: Mutex<WriteWatch>,
-    _document_counting: AbortOnDropHandle<()>,
+    // `None` once stopped, so no watch starts again.
+    write_watch: Mutex<Option<WriteWatch>>,
+    document_counting: Mutex<Option<AbortOnDropHandle<()>>>,
 }
 
-// The watch over every chat's workspace, and the channel it answers on when it ends.
+// The watch over every chat's workspace, the channel it answers on when it ends, and the sender
+// a watch started again reports on.
 struct WriteWatch {
     watcher: ManagedWorkspaceWriteWatcher,
     failure: oneshot::Receiver<SystemTime>,
+    writes: mpsc::Sender<ManagedWorkspaceWrite>,
 }
 
 impl WriteWatch {
@@ -118,11 +121,15 @@ impl WriteWatch {
     ) -> Self {
         let (watcher, failure) = ManagedWorkspaceWriteWatcher::start(
             workspaces_folder,
-            writes,
+            writes.clone(),
             changed_folders,
             missed_since,
         );
-        Self { watcher, failure }
+        Self {
+            watcher,
+            failure,
+            writes,
+        }
     }
 
     // The instant since which writes may be unreported once the watch has ended, its failure
@@ -157,7 +164,7 @@ impl ManagedWorkspaceService {
         // A create right after this may write before the watch is ready, so it catches up from now.
         let write_watch = WriteWatch::start(
             workspaces_folder.clone(),
-            writes.clone(),
+            writes,
             Arc::clone(&changed_folders),
             SystemTime::now(),
         );
@@ -172,10 +179,35 @@ impl ManagedWorkspaceService {
             place,
             repo_mounts,
             git,
-            writes,
             changed_folders,
-            write_watch: Mutex::new(write_watch),
-            _document_counting: document_counting,
+            write_watch: Mutex::new(Some(write_watch)),
+            document_counting: Mutex::new(Some(document_counting)),
+        }
+    }
+
+    /// Ends the watch of the chats' writes, which drops the last sender of `writes` once its task
+    /// is gone, so their reader ends after the writes already sent, and ends the recount of the
+    /// chats' files, waiting for it. A create after it starts no watch. Fails only when the
+    /// recount's task panicked.
+    pub(crate) async fn stop(&self) -> Result<(), JoinError> {
+        drop(
+            self.write_watch
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take(),
+        );
+        let counting = self
+            .document_counting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        let Some(counting) = counting else {
+            return Ok(());
+        };
+        counting.abort();
+        match counting.await {
+            Err(error) if error.is_panic() => Err(error),
+            Ok(()) | Err(_) => Ok(()),
         }
     }
 
@@ -250,6 +282,9 @@ impl ManagedWorkspaceService {
             .write_watch
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
+        let Some(write_watch) = write_watch.as_mut() else {
+            return;
+        };
         let missed_since = if had_folder {
             match write_watch.writes_missed_since() {
                 Some(missed_since) => missed_since,
@@ -260,7 +295,7 @@ impl ManagedWorkspaceService {
         };
         *write_watch = WriteWatch::start(
             self.workspaces_folder.clone(),
-            self.writes.clone(),
+            write_watch.writes.clone(),
             Arc::clone(&self.changed_folders),
             missed_since,
         );

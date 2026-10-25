@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, Weak};
 use sidekicks_platforms::{Spawner, WallClock};
 use sidekicks_terminal::{CommandLine, Terminals};
 use tokio::sync::mpsc;
-use tokio_util::task::AbortOnDropHandle;
+use tokio::task::JoinHandle;
 
 use crate::admission::memory_gate::MemoryGate;
 use crate::artifacts::chat_file_versions::ChatFileVersions;
@@ -63,6 +63,7 @@ use crate::session::run::setup_gates::RunSetupGate;
 use crate::session::search::files::service::FileSearchService;
 use crate::session::service::SessionService;
 use crate::session::tags::SessionTagService;
+use crate::workspace::managed::service::ManagedWorkspaceService;
 use crate::workspace::managed::write_watcher::ManagedWorkspaceWrite;
 
 /// What the session services are built from.
@@ -131,9 +132,9 @@ pub(crate) struct SessionServices {
     pub(crate) terminals: Arc<Terminals>,
     /// The code highlighter; the stop stops it.
     pub(crate) highlighter: Arc<CodeHighlighter>,
-    /// Records a chat's writes as versions until the workspaces' watch is gone; dropping it ends
-    /// the recording.
-    pub(crate) chat_version_recording: AbortOnDropHandle<()>,
+    /// Records a chat's writes as versions until the workspaces' watch is gone; the stop takes it
+    /// and waits for it.
+    pub(crate) chat_version_recording: Option<JoinHandle<()>>,
     /// A chat's file versions.
     pub(crate) chat_versions: Arc<ChatFileVersions>,
     /// The queue; the stop waits for its work.
@@ -341,9 +342,9 @@ pub(crate) fn build_session_services(
     ));
     let chat_version_recording = {
         let chat_versions = Arc::clone(&chat_versions);
-        AbortOnDropHandle::new(tokio::spawn(async move {
+        tokio::spawn(async move {
             chat_versions.record_reported_writes(workspace_writes).await;
-        }))
+        })
     };
     Ok(SessionServices {
         terminals: Arc::new(Terminals::new(spawner, console_helper()?)),
@@ -351,7 +352,7 @@ pub(crate) fn build_session_services(
             CodeHighlighter::start(CodeHighlighterOptions::for_this_machine())
                 .map_err(SessionServiceStartError::Highlighter)?,
         ),
-        chat_version_recording,
+        chat_version_recording: Some(chat_version_recording),
         chat_versions,
         queue,
         signals,
@@ -449,30 +450,49 @@ pub(crate) fn start_session_attachments(
 }
 
 impl SessionAttachments {
-    /// Stops every follow and waits for the work under way, the file search's listings among it;
-    /// answers each follower whose task ended abnormally, every one having stopped.
+    /// Stops every follow and waits for the work under way, the file search's listings among it,
+    /// and ends `workspaces`' watch, then waits for every write it already sent to be recorded;
+    /// answers each task that ended abnormally, every one having stopped.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the daemon's stop, which the composition wires")
     )]
-    pub(crate) async fn stop(self, services: &SessionServices) -> Vec<FollowerStopFailure> {
+    pub(crate) async fn stop(
+        self,
+        services: &mut SessionServices,
+        workspaces: &ManagedWorkspaceService,
+    ) -> Vec<FollowerStopFailure> {
         let Self {
             binding_cursors,
             approvals,
             related_rescoring,
             auto_titling,
         } = self;
-        let (mut failures, rescoring, (), ()) = tokio::join!(
+        let recording = services.chat_version_recording.take();
+        let chat_versions = async {
+            let recount = workspaces.stop().await;
+            // The watch's end closes the writes' channel, so the recording ends on its own.
+            let recorded = match recording {
+                Some(recording) => recording.await,
+                None => Ok(()),
+            };
+            (recount, recorded)
+        };
+        let (mut failures, rescoring, (), (), (recount, recorded)) = tokio::join!(
             approvals.stop(&services.approvals),
             related_rescoring.stop(),
             auto_titling.stop(),
             services.file_search.stop(),
+            chat_versions,
         );
-        if let Err(error) = rescoring {
-            failures.push(FollowerStopFailure {
-                follower: "related sessions' rescoring",
-                error,
-            });
+        for (follower, stopped) in [
+            ("related sessions' rescoring", rescoring),
+            ("chats' file recount", recount),
+            ("chat version recording", recorded),
+        ] {
+            if let Err(error) = stopped {
+                failures.push(FollowerStopFailure { follower, error });
+            }
         }
         drop(binding_cursors);
         failures
