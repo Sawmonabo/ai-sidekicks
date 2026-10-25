@@ -320,7 +320,7 @@ impl CodexDriver {
     }
 
     /// Terminal reach on in the computer's own place, where the app stored no value.
-    pub(crate) fn row_defaults(&self) -> ProviderRowValues {
+    pub(crate) fn row_defaults() -> ProviderRowValues {
         let switches = ProviderPlaceSwitches::new(vec![ProviderPlaceSwitch {
             place: None,
             enabled: true,

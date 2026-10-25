@@ -464,7 +464,7 @@ impl ProviderDriver for CodexDriver {
     }
 
     fn row_defaults(&self) -> ProviderRowValues {
-        self.row_defaults()
+        CodexDriver::row_defaults()
     }
 
     fn apply_row_value(
