@@ -1,8 +1,8 @@
-//! Whether this machine runs on AC power on Linux: UPower's `OnBattery` property on the system bus,
-//! read once as the watch starts and then followed through UPower's `PropertiesChanged` signal,
-//! never polled; a UPower that is installed but not running is started by the first read, as the
-//! bus does for any activatable name. When UPower leaves the bus the machine reads as not on AC
-//! power until it is back, and then the property is read afresh. A system bus or UPower that
+//! Whether this machine runs on AC power on Linux: `UPower`'s `OnBattery` property on the system bus,
+//! read once as the watch starts and then followed through `UPower`'s `PropertiesChanged` signal,
+//! never polled; a `UPower` that is installed but not running is started by the first read, as the
+//! bus does for any activatable name. When `UPower` leaves the bus the machine reads as not on AC
+//! power until it is back, and then the property is read afresh. A system bus or `UPower` that
 //! cannot be reached reads as not on AC power.
 
 use std::error::Error;
@@ -20,8 +20,8 @@ const UPOWER_OBJECT: &str = "/org/freedesktop/UPower";
 const UPOWER_INTERFACE: &str = "org.freedesktop.UPower";
 const ON_BATTERY_PROPERTY: &str = "OnBattery";
 
-/// Whether this machine runs on AC power, read from UPower once at start and followed through its
-/// property changes; a system bus or UPower that cannot be reached reads as not on AC.
+/// Whether this machine runs on AC power, read from `UPower` once at start and followed through its
+/// property changes; a system bus or `UPower` that cannot be reached reads as not on AC.
 pub struct PowerSourceWatch {
     // Kept, so receivers stay open while the watch lives.
     on_ac: Arc<watch::Sender<bool>>,
@@ -31,8 +31,8 @@ pub struct PowerSourceWatch {
 
 impl PowerSourceWatch {
     /// Starts hearing the power source on the running Tokio runtime, and panics outside one. Never
-    /// fails: the reading is not on AC until UPower's first answer, and stays so when the system
-    /// bus or UPower cannot be reached, which is logged once.
+    /// fails: the reading is not on AC until `UPower`'s first answer, and stays so when the system
+    /// bus or `UPower` cannot be reached, which is logged once.
     pub fn start() -> Self {
         let on_ac = Arc::new(watch::Sender::new(false));
         let follow = tokio::spawn(follow_power_source(Arc::clone(&on_ac)));
