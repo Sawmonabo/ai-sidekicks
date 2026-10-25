@@ -394,13 +394,7 @@ impl StartupRecovery {
         failure: PassFailure,
         stop: &CancellationToken,
     ) {
-        let is_stopped = stop.is_cancelled()
-            || matches!(
-                failure,
-                PassFailure::Stopped
-                    | PassFailure::Rebuild(ProjectionRebuildError::Stopped)
-                    | PassFailure::Settle(RestartSettleError::Stopped)
-            );
+        let is_stopped = stop.is_cancelled();
         if is_stopped {
             tracing::info!(
                 error = &failure as &(dyn Error + 'static),

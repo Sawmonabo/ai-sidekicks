@@ -503,7 +503,7 @@ impl WriteQueue {
         if let Some(failure) = &after_commit_failure {
             tracing::warn!(
                 error = failure as &(dyn Error + 'static),
-                "the read after a commit failed; its watch keeps the value of the last that read"
+                "the read after a commit failed; its watch keeps the last value it read"
             );
             self.report_failure(failure);
         }

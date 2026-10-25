@@ -669,7 +669,7 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
                         AgentRunRefusalChoiceResolvedPayload {
                             session_id: held.session_id,
                             run_id,
-                            choice: RunRefusalChoiceSettlement::Canceled(
+                            choice: RunRefusalChoiceSettlement::Unanswered(
                                 RunRefusalChoiceUnanswered::Canceled,
                             ),
                             device_id: None,

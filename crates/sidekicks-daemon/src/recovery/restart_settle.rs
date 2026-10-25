@@ -36,10 +36,12 @@ use crate::settle_all::SettleFailures;
 pub(crate) const RESTART_FAILURE_DETAIL: &str =
     "The service restarted and no provider session was restored";
 
-/// The statements the settle's own reads run, each of one session: its live runs, its pending
-/// retries, and its ended runs with an open turn, with a pending ask and with an open choice.
+/// The statements the settle's own reads run: the one-session listings of its live runs, its
+/// pending retries, and its ended runs with an open turn, with a pending ask and with an open
+/// choice, and an ended run's choice settle (its row, the newest request of each dialog and whether
+/// it was settled since).
 #[expect(dead_code, reason = "the daemon's start")]
-pub(crate) const RESTART_SETTLE_STATEMENT_CAPACITY: usize = 5;
+pub(crate) const RESTART_SETTLE_STATEMENT_CAPACITY: usize = 8;
 
 /// What the restart settle reads and writes through.
 pub(crate) struct RestartSettleDeps {

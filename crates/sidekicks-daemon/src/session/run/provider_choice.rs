@@ -640,7 +640,7 @@ pub(crate) fn read_open_choice_settlements(
                 SessionEvent::AgentRunRefusalChoiceResolved(AgentRunRefusalChoiceResolvedPayload {
                     session_id,
                     run_id,
-                    choice: RunRefusalChoiceSettlement::Canceled(if is_interrupted {
+                    choice: RunRefusalChoiceSettlement::Unanswered(if is_interrupted {
                         RunRefusalChoiceUnanswered::Canceled
                     } else {
                         RunRefusalChoiceUnanswered::RunEnded

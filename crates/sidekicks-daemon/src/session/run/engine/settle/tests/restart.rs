@@ -624,6 +624,8 @@ async fn a_restart_settle_is_refused_by_an_interrupt_asked_for_after_its_read() 
     assert!(stored_events(&database, &run_id).is_empty());
 }
 
+// Killed by dropping the `from_state != run.run.state` guard on the settle's refusal arm, which
+// answers a run the table refused to move as settled.
 #[tokio::test]
 async fn a_restart_settle_the_table_refuses_from_the_state_read_is_an_error() {
     let database = TestDatabase::new();

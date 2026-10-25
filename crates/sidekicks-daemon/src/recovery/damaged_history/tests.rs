@@ -23,11 +23,12 @@ use crate::session::service::{
 
 // A pass leaves a session damaged mid-log beside a healthy one; `Continue from here` then skips
 // the damaged events through the head under the hold it took, settles the session's run, its
-// pending ask canceled by the run's end, and opens it to writes, reads skip the range, and the
+// pending ask canceled under that hold, and opens it to writes, reads skip the range, and the
 // writer counts no live run. Killed by the continue's settle taking the session's append lock
 // again, and by the run-end gate's cancel doing so (`approvals/run_blocking.rs`, `hold` passed to
-// `cancel_pending_for_run` as `None`), either of which never ends the continue; and by the count's
-// cursor clause deleted (it reads 1 after the pass).
+// `cancel_pending_for_run` as `None`), either of which never ends the continue (the gate's
+// absence it cannot tell apart from the sweep that would cancel the ask later); and by the
+// count's cursor clause deleted (it reads 1 after the pass).
 #[tokio::test]
 async fn continuing_a_damaged_session_skips_its_damage_and_settles_its_runs() {
     let fixture = PassFixture::new().await;
@@ -69,21 +70,23 @@ async fn continuing_a_damaged_session_skips_its_damage_and_settles_its_runs() {
     );
     assert!(refuse_call_naming_session(&fixture.status, &damaged, "session.pin").is_ok());
     assert_eq!(fixture.status.read_session_write_refusal(&damaged), None);
+    let pinned_before = fixture
+        .payloads(&damaged, SessionEventType::SessionPinned)
+        .len();
     fixture
         .append(
             damaged,
             json!({
-                "type": "agent.run.refusalChoice.requested",
-                "payload": {"sessionId": damaged, "runId": damaged_run,
-                            "refusedModel": "model-a", "fallbackModel": "model-b"},
+                "type": "session.pinned",
+                "payload": {"sessionId": damaged, "at": "2026-01-01T00:00:00.000Z"},
             }),
         )
         .await;
     assert_eq!(
         fixture
-            .payloads(&damaged, SessionEventType::AgentRunRefusalChoiceRequested)
+            .payloads(&damaged, SessionEventType::SessionPinned)
             .len(),
-        1
+        pinned_before + 1
     );
     let reads = Arc::new(DatabaseReadPool::new(
         fixture.store.database.path(),

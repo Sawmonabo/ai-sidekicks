@@ -102,7 +102,7 @@ pub enum RunRefusalChoiceSettlement {
     /// The person's answer.
     Answered(RunRefusalChoice),
     /// An end with no answer.
-    Canceled(RunRefusalChoiceUnanswered),
+    Unanswered(RunRefusalChoiceUnanswered),
 }
 
 /// The payload of `agent.run.refusalChoice.resolved`: the answer that settled the choice, and the
