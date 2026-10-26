@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::list::BoundedVec;
+use crate::wire::record::Record;
 use crate::wire::text::NonEmptyText;
 use crate::workflow::definition::document::{
     WorkflowEdge, WorkflowNode, WorkflowNodeId, WorkflowTriggerNode,
@@ -147,7 +148,7 @@ pub struct WorkflowGraphCheckInput {
     /// The edges.
     pub edges: Vec<WorkflowEdge>,
     /// Each node's handles by node id.
-    pub node_handles: HashMap<WorkflowNodeId, WorkflowNodeHandles>,
+    pub node_handles: Record<WorkflowNodeId, WorkflowNodeHandles>,
 }
 
 /// The connection check's arguments as the builder sends them: the document's trigger, its other
@@ -166,7 +167,7 @@ pub struct WorkflowConnectionCheckInput {
     /// The connection being drawn, with the id the page will store it under.
     pub edge: WorkflowEdge,
     /// Each node's handles by node id.
-    pub node_handles: HashMap<WorkflowNodeId, WorkflowNodeHandles>,
+    pub node_handles: Record<WorkflowNodeId, WorkflowNodeHandles>,
 }
 
 /// The findings for the rules that need only a document's trigger, as a node, its nodes and edges

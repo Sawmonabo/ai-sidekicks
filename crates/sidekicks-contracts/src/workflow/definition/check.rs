@@ -4,6 +4,8 @@
 //! Each takes its arguments as one JSON text, each node's handles among them as data, and answers
 //! JSON text; a text that does not read throws.
 
+use std::collections::HashMap;
+
 use wasm_bindgen::JsError;
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -22,12 +24,9 @@ use crate::workflow::definition::refusals::{
 pub fn check_workflow_graph_json(input: &str) -> Result<String, JsError> {
     let input: WorkflowGraphCheckInput = serde_json::from_str(input)?;
     let trigger = input.trigger.as_ref().map(WorkflowNode::from);
-    let findings = check_workflow_graph(
-        trigger.as_ref(),
-        &input.nodes,
-        &input.edges,
-        &input.node_handles,
-    );
+    let node_handles: HashMap<_, _> = input.node_handles.into_map().into_iter().collect();
+    let findings =
+        check_workflow_graph(trigger.as_ref(), &input.nodes, &input.edges, &node_handles);
     Ok(serde_json::to_string(&findings)?)
 }
 
@@ -39,12 +38,13 @@ pub fn check_workflow_graph_json(input: &str) -> Result<String, JsError> {
 pub fn check_workflow_connection_json(input: &str) -> Result<String, JsError> {
     let input: WorkflowConnectionCheckInput = serde_json::from_str(input)?;
     let trigger = input.trigger.as_ref().map(WorkflowNode::from);
+    let node_handles: HashMap<_, _> = input.node_handles.into_map().into_iter().collect();
     let findings = check_workflow_connection(
         trigger.as_ref(),
         &input.nodes,
         &input.edges,
         &input.edge,
-        &input.node_handles,
+        &node_handles,
     );
     Ok(serde_json::to_string(&findings)?)
 }
