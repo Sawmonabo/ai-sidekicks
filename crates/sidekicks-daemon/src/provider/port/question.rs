@@ -5,13 +5,19 @@
 
 use std::error::Error;
 use std::pin::{Pin, pin};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::question::{QuestionAnswer, QuestionPrompt};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+
+use crate::keyed_lock::{KeyHold, KeyWait, KeyedLock};
+
+// Each run's line of questions taken in its turn, which every driver's and every tool server's
+// question joins, so they open in the order they came.
+static RUN_QUESTION_LINE: LazyLock<KeyedLock<RunId>> = LazyLock::new(KeyedLock::new);
 
 /// The questions one provider request asks, in its order, with the provider's own request id the
 /// answer goes back under, and whether the agent waits for the answer.
@@ -82,6 +88,18 @@ pub(crate) enum QuestionTurnEnd {
     AskerLeft,
 }
 
+/// A question's place in its run's line, taken where the question arrives, before any await, and
+/// handed to [`take_question_in_turn`].
+pub(crate) struct QuestionTurn(Result<KeyHold<'static, RunId>, KeyWait<'static, RunId>>);
+
+impl QuestionTurn {
+    /// Takes the place of a question `run_id` asks now, behind every question of the run that
+    /// came before it and has not yet opened.
+    pub(crate) fn line_up(run_id: RunId) -> Self {
+        Self(RUN_QUESTION_LINE.try_acquire(run_id))
+    }
+}
+
 /// The questions card's intake, registered through a `PortRegistration`. Until it is registered, a
 /// question stays pending at the provider: nothing answers it.
 pub(crate) trait QuestionPort: Send + Sync {
@@ -127,17 +145,17 @@ pub(crate) trait QuestionPort: Send + Sync {
 }
 
 /// Takes `question` through `port` in its run's turn, answered through `answer`, or the run's
-/// driver when `None`. It is recorded at once: open when nothing queued in `queue` is ahead of it
-/// and its run reads running, else waiting for its run, then taken in `queue`'s first-in, first-out
-/// order once the run reads running, never refused for asking while the run waits on something
-/// else. A `None` queue takes turns with no order. When `asker_left` resolves before its turn, or
+/// driver when `None`. It is recorded at once: open when no question is ahead of `turn`, its place
+/// in its run's line, and its run reads running, else waiting for its run, then taken in the
+/// line's order once the run reads running, never refused for asking while the run waits on
+/// something else. When `asker_left` resolves before its turn, or
 /// by the time it opened, it is withdrawn in this same task, after its record's write, so no
 /// record lands after its withdrawal. An error when a write or the run's read fails.
 pub(crate) async fn take_question_in_turn(
     port: &dyn QuestionPort,
     question: ProviderQuestion,
     answer: Option<Arc<dyn ToolServerQuestionAnswer>>,
-    queue: Option<Arc<tokio::sync::Mutex<()>>>,
+    turn: QuestionTurn,
     asker_left: impl Future<Output = ()>,
 ) -> Result<QuestionTurnEnd, Box<dyn Error + Send + Sync>> {
     let mut asker_left = pin!(asker_left);
@@ -145,7 +163,7 @@ pub(crate) async fn take_question_in_turn(
         session_id: question.session_id,
         request_id: question.request_id.clone(),
     };
-    let ended = match take_in_turn(port, question, answer, queue, asker_left.as_mut()).await? {
+    let ended = match take_in_turn(port, question, answer, turn, asker_left.as_mut()).await? {
         QuestionTurnEnd::Taken if asker_left.as_mut().now_or_never().is_some() => {
             QuestionTurnEnd::AskerLeft
         }
@@ -163,30 +181,25 @@ async fn take_in_turn(
     port: &dyn QuestionPort,
     question: ProviderQuestion,
     answer: Option<Arc<dyn ToolServerQuestionAnswer>>,
-    queue: Option<Arc<tokio::sync::Mutex<()>>>,
+    QuestionTurn(place): QuestionTurn,
     mut asker_left: Pin<&mut impl Future<Output = ()>>,
 ) -> Result<QuestionTurnEnd, Box<dyn Error + Send + Sync>> {
     let (session_id, run_id) = (question.session_id, question.run_id);
     let request_id = question.request_id.clone();
-    let first_in_line = queue
-        .as_ref()
-        .and_then(|queue| Arc::clone(queue).try_lock_owned().ok());
-    let may_open = queue.is_none() || first_in_line.is_some();
     if port
-        .record_question_in_turn(question, answer, may_open)
+        .record_question_in_turn(question, answer, place.is_ok())
         .await?
         == QuestionTaking::Open
     {
         return Ok(QuestionTurnEnd::Taken);
     }
     // Held across every wait and the opening, so the questions behind it wait their turn.
-    let _turn = match (first_in_line, queue) {
-        (Some(turn), _) => Some(turn),
-        (None, Some(queue)) => tokio::select! {
-            turn = queue.lock_owned() => Some(turn),
+    let _turn = match place {
+        Ok(hold) => hold,
+        Err(wait) => tokio::select! {
+            hold = wait => hold,
             () = &mut asker_left => return Ok(QuestionTurnEnd::AskerLeft),
         },
-        (None, None) => None,
     };
     loop {
         match port

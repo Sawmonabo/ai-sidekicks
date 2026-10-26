@@ -41,7 +41,7 @@ use crate::mcp::client::requests::{McpRequestError, RequestWait};
 use crate::mcp::elicitation_form::{compose_elicitation_content, read_elicitation_questions};
 use crate::mutex_lock::lock;
 use crate::provider::port::question::{
-    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, QuestionTurnEnd,
+    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, QuestionTurn, QuestionTurnEnd,
     ToolServerQuestionAnswer, take_question_in_turn,
 };
 use crate::provider::port::registration::PortRegistration;
@@ -267,16 +267,13 @@ impl McpServerConnection {
 type WatchKey = (SessionId, String, String);
 
 /// The tasks a client follows, across its connections, each one's early-poll wake and the run its
-/// questions are asked in; the questions card every tool-server question goes to; and each run's
-/// queue of questions taken in its turn. It holds one entry per followed task, each until the
-/// task's poll ends, and in it each of the task's questions still open: a 2025-11-25 one until it
-/// settles, a 2026-07-28 one, at most 16 a poll, until the task ends; and one queue per run while
-/// a question of the run waits its turn.
+/// questions are asked in; and the questions card every tool-server question goes to. It holds one
+/// entry per followed task, each until the task's poll ends, and in it each of the task's
+/// questions still open: a 2025-11-25 one until it settles, a 2026-07-28 one, at most 16 a poll,
+/// until the task ends.
 pub(crate) struct TaskWatches {
     questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
     watched: Mutex<HashMap<WatchKey, WatchedTask>>,
-    /// Each run's questions waiting their turn, first in, first out.
-    run_queues: Mutex<HashMap<RunId, Arc<tokio::sync::Mutex<()>>>>,
     /// Numbers each question a server asks, so its request id is never another's.
     next_question: AtomicU64,
 }
@@ -322,7 +319,6 @@ impl TaskWatches {
         Self {
             questions,
             watched: Mutex::new(HashMap::new()),
-            run_queues: Mutex::new(HashMap::new()),
             next_question: AtomicU64::new(1),
         }
     }
@@ -449,23 +445,23 @@ impl TaskWatches {
         };
         let (session_id, request_id) = (question.session_id, question.request_id.clone());
         let (mut sender, taken) = oneshot::channel();
-        let queue = (take == QuestionTake::InRunTurn)
-            .then(|| RunQueue::join(Arc::clone(&scope.task_watches), question.run_id));
+        // Its place in its run's line is taken as it arrives, before the take's own task runs.
+        let turn =
+            (take == QuestionTake::InRunTurn).then(|| QuestionTurn::line_up(question.run_id));
         tokio::spawn({
             let request_id = request_id.clone();
             async move {
-                let took = match queue {
+                let took = match turn {
                     None => port.take_tool_server_question(question, answer).await,
-                    Some(queue) => {
+                    Some(turn) => {
                         let ended = take_question_in_turn(
                             port.as_ref(),
                             question,
                             Some(answer),
-                            Some(Arc::clone(&queue.queue)),
+                            turn,
                             sender.closed(),
                         )
                         .await;
-                        drop(queue);
                         match ended {
                             Ok(QuestionTurnEnd::Taken) => Ok(()),
                             Ok(QuestionTurnEnd::Settled) => {
@@ -558,36 +554,6 @@ async fn withdraw_questions(
                 error = &*error as &(dyn Error + 'static),
                 "a tool server's question was not withdrawn"
             );
-        }
-    }
-}
-
-/// One take's share of its run's queue; the last share to leave takes the run's queue out of the
-/// map, so the map holds only runs with a question waiting its turn.
-struct RunQueue {
-    watches: Arc<TaskWatches>,
-    run_id: RunId,
-    queue: Arc<tokio::sync::Mutex<()>>,
-}
-
-impl RunQueue {
-    // Joins `run_id`'s queue in `watches`, made when it has none.
-    fn join(watches: Arc<TaskWatches>, run_id: RunId) -> Self {
-        let queue = Arc::clone(lock(&watches.run_queues).entry(run_id).or_default());
-        Self {
-            watches,
-            run_id,
-            queue,
-        }
-    }
-}
-
-impl Drop for RunQueue {
-    fn drop(&mut self) {
-        let mut queues = lock(&self.watches.run_queues);
-        // The map's own share and this one are the last; every share is taken under the lock.
-        if Arc::strong_count(&self.queue) == 2 {
-            queues.remove(&self.run_id);
         }
     }
 }

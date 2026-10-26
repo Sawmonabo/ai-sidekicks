@@ -73,7 +73,7 @@ use crate::provider::port::permission_ask::{
 };
 use crate::provider::port::plan::{PlanPort, ProviderPlan};
 use crate::provider::port::question::{
-    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, take_question_in_turn,
+    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, QuestionTurn, take_question_in_turn,
 };
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::record_readers::read_non_empty_string;
@@ -596,11 +596,13 @@ impl ClaudeInboundRequests {
             questions,
             is_agent_waiting: true,
         };
-        // Taken in its run's turn: asked while the run waits on something else, it waits on the
-        // card for the run; withdrawn or ended with its run meanwhile, it is never taken.
+        // Taken in its run's turn, its place in the run's line taken before its task runs: asked
+        // while the run waits on something else, it waits on the card for the run; withdrawn or
+        // ended with its run meanwhile, it is never taken.
+        let turn = QuestionTurn::line_up(question.run_id);
         tokio::spawn(async move {
             let taken =
-                take_question_in_turn(port.as_ref(), question, None, None, std::future::pending())
+                take_question_in_turn(port.as_ref(), question, None, turn, std::future::pending())
                     .await;
             if let Err(error) = taken {
                 record_hand_off_failure(session_id, admitted, error.as_ref());

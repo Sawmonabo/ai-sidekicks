@@ -61,7 +61,7 @@ use crate::provider::port::permission_ask::{
     ProviderPermissionAsk, ProviderPermissionAskWithdrawal, ProviderRuleNotKeptError,
 };
 use crate::provider::port::question::{
-    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, take_question_in_turn,
+    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, QuestionTurn, take_question_in_turn,
 };
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::project_rule_folders::write_into_project_folders;
@@ -488,12 +488,14 @@ impl CodexAskHandOff {
         // Asked while the run waits on something else, the question waits on the card for the
         // run; replaced meanwhile, it is withdrawn.
         let take_question = move || {
+            // Its place in its run's line is taken before its task runs.
+            let turn = QuestionTurn::line_up(question.run_id);
             tasks.spawn(async move {
                 let taken = take_question_in_turn(
                     port.as_ref(),
                     question,
                     None,
-                    None,
+                    turn,
                     replaced_by_later.cancelled_owned(),
                 )
                 .await;
