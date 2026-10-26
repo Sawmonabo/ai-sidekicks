@@ -165,7 +165,7 @@ struct CommandRow {
     start: CommandStart,
     started: Instant,
     state: RowState,
-    wrapper: Option<PartyId>,
+    wrapper: RowWrapper,
     facts: WrapperFacts,
     output: OutputRing,
     // The person's stop under way or answered, which a later stop answers as.
@@ -174,6 +174,15 @@ struct CommandRow {
 
 /// How the provider answered the person's stop: done, or refused with its code and words.
 type StopAnswer = Result<(), (RefusalCode, String)>;
+
+// The wrapper that runs a row's command: none yet, this one, or one that has ended, after which
+// no other pairs with the row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RowWrapper {
+    Waiting,
+    Paired(PartyId),
+    Ended,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RowState {
@@ -455,10 +464,10 @@ impl RunningCommandSets {
         let found = commands
             .rows
             .iter_mut()
-            .find(|row| row.wrapper.is_none() && row_runs(row, &command));
+            .find(|row| row.wrapper == RowWrapper::Waiting && row_runs(row, &command));
         let (paired, is_paired) = watch::channel(found.is_some());
         match found {
-            Some(row) => row.wrapper = Some(party),
+            Some(row) => row.wrapper = RowWrapper::Paired(party),
             None => commands.unpaired.push(UnpairedWrapper {
                 party,
                 command,
@@ -479,7 +488,7 @@ impl RunningCommandSets {
         if let Some(index) = commands
             .rows
             .iter()
-            .position(|row| row.wrapper == Some(party))
+            .position(|row| row.wrapper == RowWrapper::Paired(party))
         {
             commands.publish_output(index, data);
         }
@@ -537,11 +546,17 @@ impl RunningCommandSets {
             .map_or(0, |commands| commands.unpaired.len())
     }
 
-    /// Forgets the wrapper `party`, whose command ended or whose process did.
+    /// Forgets the wrapper `party`, whose command ended or whose process did, so a later process
+    /// that reuses its id reaches no row of its.
     pub(crate) fn wrapper_ended(&self, session_id: SessionId, party: PartyId) {
         let mut sessions = self.lock();
         if let Some(commands) = sessions.get_mut(&session_id) {
             commands.unpaired.retain(|unpaired| unpaired.party != party);
+            for row in &mut commands.rows {
+                if row.wrapper == RowWrapper::Paired(party) {
+                    row.wrapper = RowWrapper::Ended;
+                }
+            }
         }
     }
 
@@ -560,7 +575,7 @@ impl RunningCommandSets {
         if let Some(row) = commands
             .rows
             .iter_mut()
-            .find(|row| row.wrapper == Some(party))
+            .find(|row| row.wrapper == RowWrapper::Paired(party))
         {
             if change(&mut row.facts) {
                 commands.publish_commands();
@@ -592,7 +607,7 @@ impl RunningCommandSets {
             start,
             started: Instant::now(),
             state,
-            wrapper: None,
+            wrapper: RowWrapper::Waiting,
             facts: WrapperFacts::default(),
             output: OutputRing::default(),
             stop_answer: None,
@@ -603,7 +618,7 @@ impl RunningCommandSets {
             .position(|unpaired| row_runs(&row, &unpaired.command))
         {
             let unpaired = commands.unpaired.remove(index);
-            row.wrapper = Some(unpaired.party);
+            row.wrapper = RowWrapper::Paired(unpaired.party);
             row.facts = unpaired.facts;
             unpaired.paired.send_replace(true);
         }

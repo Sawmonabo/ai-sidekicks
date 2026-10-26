@@ -39,7 +39,13 @@ struct FollowedWrapper {
     last_output_tail: String,
     /// Waits for the wrapper's process to end, which lets the wrapper go where it said nothing.
     process_end: Option<JoinHandle<()>>,
+    /// Which following of its id this is, so the end of a process whose id it reused is told
+    /// apart.
+    following: u64,
 }
+
+/// A followed party whose process ended: its id and which following of that id it was.
+type EndedParty = (PartyId, u64);
 
 /// Follows `channel`'s records, which `watch` made before the provider started reports, into
 /// `session_id`'s rows in `set`, the waiting checks reading through `waits`, until the watch fails,
@@ -63,6 +69,7 @@ pub(crate) async fn follow_channel_records(
         waits,
         wrappers: HashMap::new(),
         process_ended,
+        followings: 0,
     };
     loop {
         tokio::select! {
@@ -71,12 +78,19 @@ pub(crate) async fn follow_channel_records(
                     follower.take_record(received).await;
                 }
             }
-            Some(party) = ended_parties.recv() => {
+            Some((party, following)) = ended_parties.recv() => {
                 // The records it wrote before its end are in the folder by now: they go first.
                 for received in follower.channel.take_records(watch.arrivals_now().await?).await {
                     follower.take_record(received).await;
                 }
-                follower.release(party).await;
+                // A party its `Exited` let go is no longer followed, and its id may be another's.
+                if follower
+                    .wrappers
+                    .get(&party)
+                    .is_some_and(|wrapper| wrapper.following == following)
+                {
+                    follower.release(party).await;
+                }
             }
         }
     }
@@ -89,8 +103,10 @@ struct RecordFollower {
     set: Arc<RunningCommandSets>,
     waits: Arc<dyn InputWaitReader>,
     wrappers: HashMap<PartyId, FollowedWrapper>,
-    /// Takes the id of a wrapper whose process ended.
-    process_ended: mpsc::UnboundedSender<PartyId>,
+    /// Takes each followed party whose process ended, at most one entry per party followed.
+    process_ended: mpsc::UnboundedSender<EndedParty>,
+    /// How many parties were followed so far, which numbers each following.
+    followings: u64,
 }
 
 impl RecordFollower {
@@ -117,7 +133,7 @@ impl RecordFollower {
                     let set = Arc::clone(&self.set);
                     tokio::spawn(tail_output(path, set, session_id, party, paired, ended))
                 });
-                let process_end = self.watch_process_end(party);
+                let (following, process_end) = self.watch_process_end(party);
                 self.wrappers.insert(
                     party,
                     FollowedWrapper {
@@ -126,6 +142,7 @@ impl RecordFollower {
                         checks: None,
                         last_output_tail: String::new(),
                         process_end,
+                        following,
                     },
                 );
             }
@@ -187,20 +204,26 @@ impl RecordFollower {
         }
     }
 
-    // Sends `party`'s id to the follower once its process, pinned at its admission, ends.
-    fn watch_process_end(&self, party: PartyId) -> Option<JoinHandle<()>> {
-        let process = self.channel.party_process(party)?;
+    // Numbers a new following of `party` and sends its id with that number to the follower once
+    // its process, pinned at its admission, ends.
+    fn watch_process_end(&mut self, party: PartyId) -> (u64, Option<JoinHandle<()>>) {
+        self.followings += 1;
+        let following = self.followings;
+        let Some(process) = self.channel.party_process(party) else {
+            return (following, None);
+        };
         let process_ended = self.process_ended.clone();
-        Some(tokio::spawn(async move {
+        let process_end = tokio::spawn(async move {
             match process.wait_for_end().await {
-                Ok(()) => process_ended.send(party).unwrap_or_default(),
+                Ok(()) => process_ended.send((party, following)).unwrap_or_default(),
                 Err(error) => tracing::warn!(
                     party,
                     error = &error as &(dyn std::error::Error + 'static),
                     "a command party's process end could not be watched"
                 ),
             }
-        }))
+        });
+        (following, Some(process_end))
     }
 
     // Lets the wrapper `party` go: its output read to the end, its checks stopped, its row's
