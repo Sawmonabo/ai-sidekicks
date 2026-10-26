@@ -110,54 +110,54 @@ impl QuestionCard {
         open.iter().any(|(held, _)| held.run_id == run_id)
     }
 
-    /// Waits until no question is open, as once every one was answered or withdrawn; fails the
-    /// test past 60 s.
-    pub(crate) async fn wait_until_none_open(&self) {
-        let none_open = async {
-            while !self.open.lock().expect("never poisoned").is_empty() {
+    // Waits until `condition` holds, read every 10 ms; fails the test with `message` past 60 s.
+    async fn wait_until(&self, condition: impl Fn(&Self) -> bool, message: &str) {
+        let holds = async {
+            while !condition(self) {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         };
-        timeout(Duration::from_secs(60), none_open)
+        timeout(Duration::from_secs(60), holds)
             .await
-            .expect("every question is answered or withdrawn");
+            .expect(message);
+    }
+
+    /// Waits until no question is open, as once every one was answered or withdrawn; fails the
+    /// test past 60 s.
+    pub(crate) async fn wait_until_none_open(&self) {
+        self.wait_until(
+            |card| card.open.lock().expect("never poisoned").is_empty(),
+            "every question is answered or withdrawn",
+        )
+        .await;
     }
 
     /// Waits until the card took `count` questions; fails the test past 60 s.
     pub(crate) async fn wait_until_taken(&self, count: usize) {
-        let taken = async {
-            while self.taken().len() < count {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        };
-        timeout(Duration::from_secs(60), taken)
-            .await
-            .expect("the card takes the questions");
+        self.wait_until(
+            |card| card.taken().len() >= count,
+            "the card takes the questions",
+        )
+        .await;
     }
 
     /// Waits until `count` questions wait for their run on the card; fails the test past 60 s.
     pub(crate) async fn wait_until_waiting(&self, count: usize) {
-        let waiting = async {
-            while self.waiting().len() < count {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        };
-        timeout(Duration::from_secs(60), waiting)
-            .await
-            .expect("the card holds the questions waiting for their run");
+        self.wait_until(
+            |card| card.waiting().len() >= count,
+            "the card holds the questions waiting for their run",
+        )
+        .await;
     }
 
     /// Waits until no question waits for its run on the card, as once each was opened or
     /// withdrawn; fails the test past 60 s.
     pub(crate) async fn wait_until_none_waiting(&self) {
-        let none_waiting = async {
-            while !self.waiting().is_empty() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        };
-        timeout(Duration::from_secs(60), none_waiting)
-            .await
-            .expect("no question waits for its run");
+        self.wait_until(
+            |card| card.waiting().is_empty(),
+            "no question waits for its run",
+        )
+        .await;
     }
 
     /// Holds back the outcome of each later take until the returned gate is notified, the question
@@ -189,27 +189,21 @@ impl QuestionCard {
     /// Waits until `count` record writes wait at the gate of [`Self::hold_records`]; fails the
     /// test past 60 s.
     pub(crate) async fn wait_until_records_held(&self, count: usize) {
-        let held = async {
-            while *self.held_records.lock().expect("never poisoned") < count {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        };
-        timeout(Duration::from_secs(60), held)
-            .await
-            .expect("the record writes wait at the gate");
+        self.wait_until(
+            |card| *card.held_records.lock().expect("never poisoned") >= count,
+            "the record writes wait at the gate",
+        )
+        .await;
     }
 
     /// Waits until the card took `count` withdrawals, of questions it held or not; fails the test
     /// past 60 s.
     pub(crate) async fn wait_until_withdrawals(&self, count: usize) {
-        let withdrawn = async {
-            while self.withdrawals.lock().expect("never poisoned").len() < count {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        };
-        timeout(Duration::from_secs(60), withdrawn)
-            .await
-            .expect("the card takes the withdrawals");
+        self.wait_until(
+            |card| card.withdrawals.lock().expect("never poisoned").len() >= count,
+            "the card takes the withdrawals",
+        )
+        .await;
     }
 
     /// Holds back each later withdrawal until the returned gate is notified, the question still
