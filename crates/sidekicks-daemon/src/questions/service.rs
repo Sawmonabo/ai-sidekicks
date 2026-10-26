@@ -324,10 +324,19 @@ impl QuestionsService {
                 .cancel_waiting_question(question_id, held.session_id, reason)
                 .await;
             // One its run's end canceled meanwhile stays as that end settled it.
-            if let Err(failure) = canceled
-                && self.read_state(question_id).await? == Some(QuestionState::WaitingForRun)
-            {
-                return Err(failure);
+            if let Err(failure) = canceled {
+                match self.read_state(question_id).await {
+                    Ok(Some(QuestionState::WaitingForRun)) => return Err(failure),
+                    Ok(_settled) => {}
+                    // The cancel's failure is the one the caller acts on; the read's is logged.
+                    Err(read) => {
+                        tracing::warn!(
+                            error = &read as &(dyn Error + 'static),
+                            "a waiting question's state was not read after its cancel failed"
+                        );
+                        return Err(failure);
+                    }
+                }
             }
             self.forget_held_request(&question_id);
             // Its take, waiting for the run, reads it settled and lets the run's line move on.
