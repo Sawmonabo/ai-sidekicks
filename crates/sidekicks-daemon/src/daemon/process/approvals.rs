@@ -16,6 +16,7 @@ use crate::approvals::rules::{ApprovalRules, RevokeAtProvider};
 use crate::approvals::run_blocking::{ApprovalRunEnd, ApprovalRunHolds, RunHoldFollowing};
 use crate::approvals::service::ApprovalService;
 use crate::approvals::service::session_sweep::ApprovalSweep;
+use crate::daemon::data_folder::agent_memory_folder;
 use crate::daemon::machine::local::LocalMachine;
 use crate::daemon::machine::registry::MachineRegistry;
 use crate::daemon::process::stop::TaskStopFailure;
@@ -34,9 +35,6 @@ use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::session::run::engine::RunEngine;
-
-// The one all-projects agent-memory folder's name in the data folder.
-const AGENT_MEMORY_FOLDER_NAME: &str = "agent-memory";
 
 /// What the approval side is built from.
 pub(crate) struct ApprovalStart {
@@ -122,7 +120,7 @@ pub(crate) fn build_approvals(engine: Weak<RunEngine>, deps: &ApprovalStart) -> 
         postures: Arc::clone(&deps.postures),
         machine: Arc::clone(&machines),
         authorizer: Arc::clone(&deps.authorizer),
-        agent_memory_folder: deps.data_folder.join(AGENT_MEMORY_FOLDER_NAME),
+        agent_memory_folder: agent_memory_folder(&deps.data_folder),
     }));
     let asks = Arc::new(PermissionAsks::new(PermissionAsksDeps {
         reads: Arc::clone(&deps.reads),
