@@ -103,11 +103,12 @@ pub fn start_in_own_group(command: &mut Command) {
     command.process_group(0);
 }
 
-/// Sends `signal` to every process of the group `group` leads; a group already gone is no failure.
-/// Fails with `InvalidInput` for a group of 0 or past `i32::MAX`, and with the system's error when
-/// the send is refused.
+/// Sends `signal` to every process of the group `group` leads, a kill on macOS again until no
+/// member is left, so a child forked as it is killed ends too; a group already gone is no failure.
+/// Fails with `InvalidInput` for a group of 0 or past `i32::MAX`, with `TimedOut` when a macOS kill
+/// leaves members past its bound, and with the system's error when the send is refused.
 pub fn signal_command_group(group: u32, signal: TerminalSignal) -> io::Result<()> {
-    signal_group_once(group, posix_signal(signal))?;
+    signal_group(group, posix_signal(signal))?;
     Ok(())
 }
 
