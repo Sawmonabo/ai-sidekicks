@@ -4,9 +4,10 @@
 //! back through the client.
 
 use std::error::Error;
-use std::pin::pin;
+use std::pin::{Pin, pin};
 use std::sync::Arc;
 
+use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::question::{QuestionAnswer, QuestionPrompt};
 use sidekicks_contracts::run::id::RunId;
@@ -77,7 +78,7 @@ pub(crate) enum QuestionTurnEnd {
     Taken,
     /// It was settled before its turn came: withdrawn, or canceled with its run's end.
     Settled,
-    /// Its asker stopped waiting before its turn came; its record still waits for its run.
+    /// Its asker stopped waiting before its turn came, or as it opened; it was withdrawn.
     AskerLeft,
 }
 
@@ -129,8 +130,9 @@ pub(crate) trait QuestionPort: Send + Sync {
 /// driver when `None`. It is recorded at once: open when nothing queued in `queue` is ahead of it
 /// and its run reads running, else waiting for its run, then taken in `queue`'s first-in, first-out
 /// order once the run reads running, never refused for asking while the run waits on something
-/// else. A `None` queue takes turns with no order. Waiting ends early when `asker_left` resolves.
-/// An error when a write or the run's read fails.
+/// else. A `None` queue takes turns with no order. When `asker_left` resolves before its turn, or
+/// by the time it opened, it is withdrawn in this same task, after its record's write, so no
+/// record lands after its withdrawal. An error when a write or the run's read fails.
 pub(crate) async fn take_question_in_turn(
     port: &dyn QuestionPort,
     question: ProviderQuestion,
@@ -139,6 +141,31 @@ pub(crate) async fn take_question_in_turn(
     asker_left: impl Future<Output = ()>,
 ) -> Result<QuestionTurnEnd, Box<dyn Error + Send + Sync>> {
     let mut asker_left = pin!(asker_left);
+    let withdrawal = ProviderQuestionWithdrawal {
+        session_id: question.session_id,
+        request_id: question.request_id.clone(),
+    };
+    let ended = match take_in_turn(port, question, answer, queue, asker_left.as_mut()).await? {
+        QuestionTurnEnd::Taken if asker_left.as_mut().now_or_never().is_some() => {
+            QuestionTurnEnd::AskerLeft
+        }
+        ended => ended,
+    };
+    if ended == QuestionTurnEnd::AskerLeft {
+        port.withdraw_question(withdrawal).await?;
+    }
+    Ok(ended)
+}
+
+// Records `question` and takes it in its run's turn, as [`take_question_in_turn`] says, short of
+// the withdrawal its asker's leaving asks for.
+async fn take_in_turn(
+    port: &dyn QuestionPort,
+    question: ProviderQuestion,
+    answer: Option<Arc<dyn ToolServerQuestionAnswer>>,
+    queue: Option<Arc<tokio::sync::Mutex<()>>>,
+    mut asker_left: Pin<&mut impl Future<Output = ()>>,
+) -> Result<QuestionTurnEnd, Box<dyn Error + Send + Sync>> {
     let (session_id, run_id) = (question.session_id, question.run_id);
     let request_id = question.request_id.clone();
     let first_in_line = queue

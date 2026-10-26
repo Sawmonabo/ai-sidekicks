@@ -30,6 +30,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::mutex_lock::lock;
@@ -128,8 +129,15 @@ struct CodexAskState {
     /// approved on, taken by Codex's next ask for it in the same turn and dropped when the turn
     /// ends.
     corrections: HashMap<SessionId, HashMap<String, HashMap<String, ApprovalRequestId>>>,
-    /// The question pending on each turn, by session then turn, as its request id.
-    pending_questions: HashMap<SessionId, HashMap<String, String>>,
+    /// The question pending on each turn, by session then turn.
+    pending_questions: HashMap<SessionId, HashMap<String, PendingQuestion>>,
+}
+
+/// A question pending on its turn: its request id, and the replacement that ends its take.
+struct PendingQuestion {
+    request_id: String,
+    /// Canceled once a later question of the turn replaces it.
+    replaced: CancellationToken,
 }
 
 /// Hands Codex's approvals and questions to the run engine, then to their owner, and carries the
@@ -430,7 +438,8 @@ impl CodexAskHandOff {
 
     // Holds a question for the questions card, taken in its run's turn. Codex keeps one question
     // pending per turn and a second replaces the first, so the first's card is taken back and its
-    // ask let go, before the second is taken.
+    // ask let go: its own take withdraws it once its record is written, and its card is withdrawn
+    // here for a take that already ended.
     fn hand_question(
         &self,
         record: &CodexSessionRecord,
@@ -439,23 +448,32 @@ impl CodexAskHandOff {
         params: &Map<String, Value>,
     ) -> CodexServerRequestDecision {
         let session_id = record.session_id;
-        let replaced = if request.method == CodexRoutedMethod::UserInputRequest
+        let provider_account_id = record.provider_account_id.clone();
+        let replaced_by_later = CancellationToken::new();
+        if request.method == CodexRoutedMethod::UserInputRequest
             && let Some(turn_id) = read_non_empty_string(params, "turnId")
         {
+            let pending = PendingQuestion {
+                request_id: request.request_id.clone(),
+                replaced: replaced_by_later.clone(),
+            };
             let replaced = lock(&self.state)
                 .pending_questions
                 .entry(session_id)
                 .or_default()
-                .insert(turn_id.to_owned(), request.request_id.clone());
-            if let Some(replaced) = &replaced
-                && let Ok(connection) = record.service.connection()
-            {
-                connection.forget_held_request(replaced);
+                .insert(turn_id.to_owned(), pending);
+            if let Some(replaced) = replaced {
+                replaced.replaced.cancel();
+                if let Ok(connection) = record.service.connection() {
+                    connection.forget_held_request(&replaced.request_id);
+                }
+                self.withdraw_question_card(
+                    session_id,
+                    provider_account_id.clone(),
+                    replaced.request_id,
+                );
             }
-            replaced
-        } else {
-            None
-        };
+        }
         let Some(port) = self.dependencies.owners.questions.port().cloned() else {
             return CodexServerRequestDecision::Held { on_held: None };
         };
@@ -466,33 +484,17 @@ impl CodexAskHandOff {
             questions: read_codex_question_prompts(request.method, &Value::Object(params.clone())),
             is_agent_waiting: true,
         };
-        let provider_account_id = record.provider_account_id.clone();
         let tasks = self.dependencies.tasks.clone();
-        // The replaced question's card is withdrawn before this one is taken, so the take never
-        // finds the run still waiting on it; asked while the run waits on something else, the
-        // question waits on the card for the run.
+        // Asked while the run waits on something else, the question waits on the card for the
+        // run; replaced meanwhile, it is withdrawn.
         let take_question = move || {
             tasks.spawn(async move {
-                if let Some(request_id) = replaced {
-                    let withdrawal = ProviderQuestionWithdrawal {
-                        session_id,
-                        request_id,
-                    };
-                    if let Err(error) = port.withdraw_question(withdrawal).await {
-                        report_owner_failure(
-                            provider_account_id.clone(),
-                            CodexDeliveryPort::Question,
-                            session_id,
-                            error,
-                        );
-                    }
-                }
                 let taken = take_question_in_turn(
                     port.as_ref(),
                     question,
                     None,
                     None,
-                    std::future::pending(),
+                    replaced_by_later.cancelled_owned(),
                 )
                 .await;
                 if let Err(error) = taken {
@@ -573,7 +575,7 @@ impl CodexAskHandOff {
         let Some(by_turn) = state.pending_questions.get_mut(&session_id) else {
             return;
         };
-        by_turn.retain(|_, pending| pending != request_id);
+        by_turn.retain(|_, pending| pending.request_id != request_id);
         if by_turn.is_empty() {
             state.pending_questions.remove(&session_id);
         }

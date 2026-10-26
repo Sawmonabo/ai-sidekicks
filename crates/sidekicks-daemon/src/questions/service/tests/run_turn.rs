@@ -4,6 +4,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::question::QuestionId;
 
@@ -121,4 +122,47 @@ async fn a_question_asked_while_its_run_waits_opens_once_the_first_answer_moves_
     assert_eq!(third_end.expect("the turn ends"), QuestionTurnEnd::Settled);
     assert_eq!(fixture.state(asked_id(&fixture, 2)), "canceled");
     assert_eq!(fixture.state(waiting), "canceled");
+}
+
+// A question whose asker left by the time it was recorded is withdrawn after its record's write,
+// whether it was recorded waiting for its run or opened at once, so no record lands after its
+// withdrawal: `withdrawn`, the run as it was before. Killed by leaving out the withdrawal on an
+// asker that left, or by reading the asker only while the question waits.
+#[rstest]
+#[case::recorded_waiting(true, "waitingForInput")]
+#[case::opened_at_once(false, "running")]
+#[tokio::test]
+async fn a_question_whose_asker_left_is_withdrawn_after_its_record(
+    #[case] is_run_waiting: bool,
+    #[case] run_state: &str,
+) {
+    let fixture = Fixture::new().await;
+    let sent = HandedAnswers::default();
+    if is_run_waiting {
+        fixture
+            .ask_answered_by(
+                "request-1",
+                json!([choice_page()]),
+                true,
+                HeldRequestAnswerer::ToolServerTask(task_answer(&sent)),
+            )
+            .await;
+    }
+
+    let ended = take_question_in_turn(
+        &fixture.questions,
+        fixture.question("request-2", json!([choice_page()]), true),
+        Some(task_answer(&sent)),
+        None,
+        std::future::ready(()),
+    )
+    .await;
+
+    assert_eq!(ended.expect("the turn ends"), QuestionTurnEnd::AskerLeft);
+    let left = asked_id(&fixture, usize::from(is_run_waiting));
+    assert_eq!(fixture.state(left), "canceled");
+    let canceled = fixture.payloads("question.canceled");
+    assert_eq!(canceled.len(), 1);
+    assert_eq!(canceled[0]["reason"], "withdrawn");
+    assert_eq!(fixture.run_state(), run_state);
 }

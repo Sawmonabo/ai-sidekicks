@@ -471,12 +471,8 @@ impl TaskWatches {
                             Ok(QuestionTurnEnd::Settled) => {
                                 Err("the question was settled before its run's turn came".into())
                             }
-                            // Its record still waits for the run, with nobody to answer it.
-                            Ok(QuestionTurnEnd::AskerLeft) => {
-                                withdraw_questions(port.as_ref(), session_id, vec![request_id])
-                                    .await;
-                                return;
-                            }
+                            // Withdrawn already, its asker gone.
+                            Ok(QuestionTurnEnd::AskerLeft) => return,
                             Err(error) => {
                                 withdraw_questions(
                                     port.as_ref(),
