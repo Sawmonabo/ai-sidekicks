@@ -2,6 +2,9 @@
 //! stop, in the reverse order, carrying why it stops. A start that fails releases what it took,
 //! in the stop's order, and names the step that failed.
 
+pub(crate) mod database;
+mod jobs;
+mod projections;
 pub(crate) mod start_options;
 pub(crate) mod stop;
 pub(crate) mod supervision;
@@ -41,6 +44,8 @@ use crate::daemon::data_folder::data_folder;
 use crate::daemon::data_folder_lock::DataFolderLock;
 use crate::daemon::login_shell_environment::capture_provider_base_environment;
 use crate::daemon::panic_hook::send_panics_to_monitor;
+use crate::daemon::process::database::{DatabaseFile, DatabaseFileOpenError};
+use crate::daemon::process::jobs::IdleMemoryCollect;
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
 use crate::daemon::process::stop::{
     CrashMonitorEndFailure, DaemonStopFailure, close_data_folder, stop_work,
@@ -66,7 +71,6 @@ use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::pty::orphan::guard::{OrphanGuard, OrphanGuardError, open_orphan_guard};
 use crate::recovery::database_file::damage::DatabaseDamageWatch;
-use crate::recovery::database_file::repair::DatabaseFileRepairFailure;
 use crate::settle_all::{SettleFailures, settle_all};
 
 /// The longest the stop's drain runs, the work ending and the data folder closing together.
@@ -139,27 +143,10 @@ pub(crate) enum DaemonStartError {
     /// A stop came before the daemon was ready.
     #[error(transparent)]
     Stopped(#[from] DaemonStartStoppedError),
-    /// The database file is damaged and its repair could not heal it; it is left as it was.
-    #[expect(dead_code, reason = "the database file's open raises it")]
-    #[error(
-        "The database file is damaged and could not be repaired: {failure}. Its files are copied \
-         aside in {}.",
-        aside_folder.display()
-    )]
-    SavedSessionsUnrepaired {
-        /// The folder the damaged files are copied aside in.
-        aside_folder: PathBuf,
-        /// Why the repair failed.
-        #[source]
-        failure: DatabaseFileRepairFailure,
-    },
-    /// The database file holds another build's schema, which this build never migrates.
-    #[expect(dead_code, reason = "the database file's open raises it")]
-    #[error("the database at {} holds the schema of another build", path.display())]
-    SavedSessionsFromAnotherVersion {
-        /// The database file.
-        path: PathBuf,
-    },
+    /// The database file could not be opened, damaged past repair or from another build among
+    /// the reasons.
+    #[error(transparent)]
+    DatabaseFile(#[from] DatabaseFileOpenError),
 }
 
 /// A start that failed: its error beside every failure of its release, and when the release
@@ -306,6 +293,18 @@ pub(crate) struct DaemonProcess {
     pub(crate) crash_monitor: Option<CrashMonitor>,
     /// The hold on the data folder, let go last.
     pub(crate) data_folder_lock: Option<DataFolderLock>,
+    /// The database file, closed first as the data folder closes.
+    pub(crate) database: Option<DatabaseFile>,
+    /// When the stop began, from which what is left of the drain bound is counted.
+    pub(crate) stop_started: Option<Instant>,
+    /// Whether a step of the stop failed, so no clean stop is recorded.
+    pub(crate) has_stop_failed: bool,
+    /// Hands freed memory back once the work goes quiet; ends with the work.
+    #[expect(
+        dead_code,
+        reason = "the dispatch chain, which holds a call in flight for each call it serves"
+    )]
+    idle_memory: Option<Arc<IdleMemoryCollect>>,
 }
 
 // What a failed start's release is called in its error.
@@ -357,6 +356,10 @@ impl DaemonProcess {
             orphan_guard: None,
             crash_monitor: None,
             data_folder_lock: Some(data_folder_lock),
+            database: None,
+            stop_started: None,
+            has_stop_failed: false,
+            idle_memory: None,
         };
         let started = process
             .run_start(

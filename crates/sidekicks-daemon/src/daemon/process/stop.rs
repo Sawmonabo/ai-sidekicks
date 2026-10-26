@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::daemon::process::DaemonProcess;
+use crate::daemon::process::database::DatabaseFileCloseFailure;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 
 /// Why a step of the stop failed; every other step still ran.
@@ -15,6 +16,9 @@ pub(crate) enum DaemonStopFailure {
     /// The crash monitor could not be ended, or its socket stayed.
     #[error(transparent)]
     CrashMonitor(#[from] CrashMonitorEndFailure),
+    /// A step of the database file's close failed.
+    #[error(transparent)]
+    DatabaseFile(#[from] DatabaseFileCloseFailure),
 }
 
 /// Why the crash monitor's end failed.

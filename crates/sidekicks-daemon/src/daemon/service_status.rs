@@ -9,6 +9,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_platforms::{DaemonRunFolder, RUN_FOLDER_FILE_MODE};
 
 use crate::daemon::process::DaemonStartError;
+use crate::daemon::process::database::DatabaseFileOpenError;
 use crate::file::atomic_write::{AtomicWriteError, write_and_flush};
 
 /// Writes `status` to the run folder's status file, replacing it whole, readable by the person
@@ -36,16 +37,23 @@ pub(crate) fn remove_service_status(run_folder: &DaemonRunFolder) -> io::Result<
 /// no client refuses a restart over a reason that no longer holds. Blocking. A failed write or
 /// removal is logged beside the start's own error, which it never replaces.
 pub(crate) fn record_start_failure(run_folder: &DaemonRunFolder, error: &DaemonStartError) {
-    let cannot_start = if let DaemonStartError::SavedSessionsUnrepaired { aside_folder, .. } = error
-    {
-        let aside_folder = FilesystemPath::new(aside_folder.to_string_lossy().into_owned())
-            .expect("a folder's path is not empty, holds no NUL and fits the file path cap");
-        Some(DaemonCannotStart::SavedSessionsUnrepaired { aside_folder })
-    } else if let DaemonStartError::SavedSessionsFromAnotherVersion { .. } = error {
-        Some(DaemonCannotStart::SavedSessionsFromAnotherVersion {})
-    } else {
-        None
-    };
+    let cannot_start =
+        if let DaemonStartError::DatabaseFile(DatabaseFileOpenError::SavedSessionsUnrepaired {
+            aside_folder,
+            ..
+        }) = error
+        {
+            let aside_folder = FilesystemPath::new(aside_folder.to_string_lossy().into_owned())
+                .expect("a folder's path is not empty, holds no NUL and fits the file path cap");
+            Some(DaemonCannotStart::SavedSessionsUnrepaired { aside_folder })
+        } else if let DaemonStartError::DatabaseFile(
+            DatabaseFileOpenError::SavedSessionsFromAnotherVersion { .. },
+        ) = error
+        {
+            Some(DaemonCannotStart::SavedSessionsFromAnotherVersion {})
+        } else {
+            None
+        };
     let path = &run_folder.status_path;
     match cannot_start {
         Some(cannot_start) => {
