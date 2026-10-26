@@ -512,9 +512,8 @@ pub(crate) async fn close_database_file(
             None
         }
     };
-    let was_found_before_drain = damage.is_found();
-    if was_found_before_drain {
-        let found = damage.when_found().await;
+    let found_before_drain = damage.found();
+    if let Some(found) = found_before_drain {
         stop_writes_for_damage(found, &status, &writer);
         record_damage(&database_path, found, &mut failures).await;
     }
@@ -538,8 +537,9 @@ pub(crate) async fn close_database_file(
     // Kept through the close, so damage a read meets during the drain still ends the writer.
     drop(damage_follower);
     // Damage the drain met, which the listener has already ended the writer for.
-    if !was_found_before_drain && damage.is_found() {
-        let found = damage.when_found().await;
+    if found_before_drain.is_none()
+        && let Some(found) = damage.found()
+    {
         record_damage(&database_path, found, &mut failures).await;
     }
     let is_clean = is_vouched.load(Ordering::Acquire)
