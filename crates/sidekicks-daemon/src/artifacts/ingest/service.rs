@@ -37,7 +37,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::AnyValue;
-use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::wire::text::{BoundedText, NonEmptyText};
@@ -70,7 +70,6 @@ use crate::mutex_lock::lock;
 #[cfg(test)]
 use crate::pause_point::PausePoint;
 use crate::settle_all::{SettleFailures, settle_all};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // The mode of a spool file: its owner's alone.
 const SPOOL_FILE_MODE: u32 = 0o600;

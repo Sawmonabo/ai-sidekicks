@@ -12,11 +12,12 @@ use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::TaskTracker;
 
+use super::CodexSideQuestions;
 use super::test_copies::{
     ANSWER, COPY_THREAD, COPY_TURN, STORED_THREAD, accept_copy, read_only_profile,
     resting_question, serve_copy, serve_unended_copy,
 };
-use super::{CodexSideQuestions, lock_copy_stops};
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::permission_level::compose_codex_profile_name;
 use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::service::supervisor::test_service::{
@@ -296,11 +297,7 @@ async fn a_resting_copy_whose_session_closes_while_it_opens_leaves_no_turn_runni
         .expect("no copy's task is left");
 
     assert_eq!(Value::from(later), sent_after);
-    assert!(
-        lock_copy_stops(&side_questions.copy_stops)
-            .copies
-            .is_empty()
-    );
+    assert!(lock(&side_questions.copy_stops).copies.is_empty());
 }
 
 // Killed by entering the live copy only once its fork answered: the close would miss it, and the
@@ -347,11 +344,7 @@ async fn a_live_copy_whose_session_closes_during_its_fork_starts_no_turn() {
         side_questions.lock().is_empty(),
         "the copy was never entered"
     );
-    assert!(
-        lock_copy_stops(&side_questions.copy_stops)
-            .copies
-            .is_empty()
-    );
+    assert!(lock(&side_questions.copy_stops).copies.is_empty());
     assert!(
         script.sent.try_recv().is_err(),
         "the daemon sent nothing more"
@@ -521,9 +514,5 @@ async fn a_side_question_asked_after_the_driver_stopped_every_copy_forks_nothing
         session.scripted.script.sent.try_recv().is_err(),
         "the live copy was never forked"
     );
-    assert!(
-        lock_copy_stops(&side_questions.copy_stops)
-            .copies
-            .is_empty()
-    );
+    assert!(lock(&side_questions.copy_stops).copies.is_empty());
 }

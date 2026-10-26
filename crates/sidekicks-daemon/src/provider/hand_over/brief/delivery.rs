@@ -223,6 +223,7 @@ mod tests {
     use futures::FutureExt as _;
     use futures::future::BoxFuture;
     use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use super::{
         BriefDeliveryCoordinator, BriefDeliveryDisposition, BriefSendError, BriefTargetGateway,
@@ -231,7 +232,6 @@ mod tests {
     use crate::database::writer::test_file::test_session_id;
     use crate::provider::hand_over::brief::projection::{BriefBudgetPolicy, BriefProjection};
     use crate::provider::hand_over::canonical_transcript::CanonicalTranscriptProjection;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     /// A target whose every send fails after counting it.
     struct FailingGateway {

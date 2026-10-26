@@ -722,18 +722,19 @@ mod tests {
         ReviewNoteId, SessionReviewNoteAddRequest, SessionReviewNoteDeleteRequest,
     };
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use super::{
         REVIEW_NOTE_STORE_STATEMENT_CAPACITY, ReviewNoteFolderError, ReviewNoteFolders,
         SessionReviewNoteStore, WorkingFolderDetach,
     };
     use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::schema::session_directory::insert_session_row;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use crate::ipc::registry::HandlerError;
-    use crate::session::directory::test_rows::insert_session_row;
+    use crate::questions::schema::schema_parts;
     use crate::session::review_note::diff_line::NotedLineReader;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     /// A session that works in no repository's folder.
     struct NoWorkingFolder;
@@ -767,7 +768,7 @@ mod tests {
     #[case::a_note_of_a_session_that_is_gone(false)]
     #[tokio::test]
     async fn review_note_delete_answers_only_the_notes_it_discarded(#[case] is_live: bool) {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         // Opening the writer creates the file with the daemon's schema.
         let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await

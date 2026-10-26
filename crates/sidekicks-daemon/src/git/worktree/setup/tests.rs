@@ -3,7 +3,7 @@ use std::fs::{self, File};
 use std::io::{self, BufRead as _, BufReader, Read as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -36,6 +36,7 @@ use crate::events::log_service::tests::{TestLog, open_log};
 use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
+use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
 use crate::mutex_lock::lock;
 
@@ -109,7 +110,7 @@ struct SetupFixture {
 
 impl SetupFixture {
     async fn new(setup: ProjectSetup) -> Self {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
         let reads = Arc::new(DatabaseReadPool::new(
             database.path(),
@@ -427,10 +428,54 @@ async fn a_command_past_its_time_limit_is_ended_with_every_process_it_started() 
     );
 }
 
-// Kills the wait for the output left unbounded after the command exits, which a process it left
-// running holds open, and that process left running once the step ends, whether it holds the
-// output or closed it. The process would run past the runner's limit, so the step ending at all
-// shows the wait is bounded.
+// The longest a command step may take once its command exited: twice its one-second linger, once
+// for the output and once after what the command left running is ended.
+const TWICE_THE_LINGER: Duration = Duration::from_secs(2);
+
+// How far the test moves a paused clock at a time, and how long it waits in real time between two
+// moves, so the step sees each move before the next.
+const CLOCK_TICK: Duration = Duration::from_millis(1);
+
+// Moves the paused clock a tick at a time until every process holding the named pipe `reader`
+// reads has closed it, and answers what was read meanwhile. Fails once it has moved the clock
+// twice the linger. The read runs on a thread of its own, outside the runtime, so it never holds
+// the clock still and never waits on a tick.
+async fn move_clock_until_closed(mut reader: BufReader<File>) -> String {
+    let (read_sender, read) = tokio::sync::oneshot::channel();
+    std::thread::spawn(move || {
+        let mut rest = String::new();
+        let read = reader.read_to_string(&mut rest).map(|_| rest);
+        // The test may have failed and dropped the receiver; nothing then waits for the read.
+        let _unread = read_sender.send(read);
+    });
+    tokio::pin!(read);
+    let mut moved = Duration::ZERO;
+    loop {
+        tokio::select! {
+            biased;
+            rest = &mut read => {
+                return rest
+                    .expect("the read's thread answers")
+                    .expect("the named pipe reads");
+            }
+            paced = tokio::task::spawn_blocking(|| std::thread::sleep(CLOCK_TICK)) => {
+                paced.expect("the pause finishes");
+                assert!(
+                    moved < TWICE_THE_LINGER,
+                    "the step waited past twice the linger for the output"
+                );
+                tokio::time::advance(CLOCK_TICK).await;
+                moved += CLOCK_TICK;
+            }
+        }
+    }
+}
+
+// Kills the wait for the output left unbounded or longer than the linger after the command exits,
+// which a process it left running holds open, and that process left running once the step ends,
+// whether it holds the output or closed it. The clock is paused and held still for the whole
+// setup, so it moves only as the test moves it once the command has started its process: the
+// step's time is then the linger's alone, and the git status after the step never times out.
 #[rstest]
 #[case::holding_the_output("exec 3>held; sleep 300 & echo started >&3")]
 #[case::output_closed("exec 3>held; sleep 300 > /dev/null 2>&1 & echo started >&3")]
@@ -438,16 +483,56 @@ async fn a_command_past_its_time_limit_is_ended_with_every_process_it_started() 
 async fn a_command_that_leaves_a_process_running_succeeds_within_the_linger(#[case] line: &str) {
     let fixture = SetupFixture::new(setup_of(&[], &[line], None)).await;
     let held = make_named_pipe(&fixture, "held");
+    tokio::time::pause();
+    // A blocking wait alive stops the paused clock from jumping to the next timer on its own.
+    let (end_hold, hold_ended) = mpsc::channel::<()>();
+    let hold = tokio::task::spawn_blocking(move || hold_ended.recv());
 
-    let ((_, succeeded), (started, held)) = tokio::join!(fixture.make(), read_first_line(held));
+    let ((_, succeeded), (started, rest)) = tokio::join!(
+        async {
+            let made = fixture.make().await;
+            end_hold.send(()).expect("the clock's hold waits");
+            made
+        },
+        async {
+            let (started, held) = read_first_line(held).await;
+            (started, move_clock_until_closed(held).await)
+        }
+    );
 
+    hold.await
+        .expect("the hold finishes")
+        .expect("the hold is ended");
     assert_eq!(started, "started\n");
     assert_eq!(succeeded.state, WorktreeSetupState::Succeeded);
-    assert_eq!(
-        read_until_closed(held).await,
-        "",
-        "the process the command left running was ended"
-    );
+    assert_eq!(rest, "", "the process the command left running was ended");
+}
+
+// Lets the process that left the tree write to the output it still holds, then answers the status
+// that write ended with, which its last line prints into `wrote`.
+fn let_escaped_process_write(go: &Path, wrote: &Path) -> io::Result<String> {
+    fs::write(go, "go\n")?;
+    let mut status = String::new();
+    BufReader::new(File::open(wrote)?).read_line(&mut status)?;
+    Ok(status)
+}
+
+// Lets the process that left the tree run to its end when the test fails before letting it, so it
+// never stays waiting on `go` for good: it lives outside the command's group, so nothing else ends
+// it.
+struct EscapedProcessRelease {
+    // `go` and `wrote`, until the test lets the process write.
+    pipes: Option<(PathBuf, PathBuf)>,
+}
+
+impl Drop for EscapedProcessRelease {
+    fn drop(&mut self) {
+        if let Some((go, wrote)) = self.pipes.take() {
+            // The test is already failing; this only frees the process, so its status is no
+            // longer read.
+            let _status = let_escaped_process_write(&go, &wrote);
+        }
+    }
 }
 
 // Kills the output read on a thread that stays waiting on the pipe after the step ends: a process
@@ -468,13 +553,18 @@ async fn a_process_that_left_the_tree_cannot_write_to_the_output_after_the_step(
     let wrote = make_named_pipe(&fixture, "wrote");
 
     let (_, succeeded) = fixture.make().await;
+    // Armed once the step has ended, by which time the process has left the tree and waits on
+    // `go`; before, it may not exist, and the release would wait on `go` for good.
+    let mut release = EscapedProcessRelease {
+        pipes: Some((go, wrote)),
+    };
 
     assert_eq!(succeeded.state, WorktreeSetupState::Succeeded);
-    tokio::task::spawn_blocking(move || fs::write(go, "go\n"))
+    let (go, wrote) = release.pipes.take().expect("the process is not let go yet");
+    let status = tokio::task::spawn_blocking(move || let_escaped_process_write(&go, &wrote))
         .await
         .expect("the write finishes")
-        .expect("the named pipe is written");
-    let (status, _) = read_first_line(wrote).await;
+        .expect("the process is let write and its status read");
     assert_ne!(
         status.trim(),
         "0",

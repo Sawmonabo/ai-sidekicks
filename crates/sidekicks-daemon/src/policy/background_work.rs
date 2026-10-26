@@ -40,9 +40,9 @@ impl BackgroundWorkForms {
 }
 
 /// The reason the agent reads when the line `reading` holds starts background work of one of
-/// `forms`' providers, or `None` when it starts none. The `-c` and `eval` strings its shells run are reread on
-/// `reader` and judged only when read whole; a line not read whole refuses nothing, since what the
-/// parser could not read is no ground for a refusal.
+/// `forms`' providers, or `None` when it starts none. The `-c` and `eval` strings its shells run
+/// are reread on `reader` and judged only when read whole; a line not read whole refuses nothing,
+/// since what the parser could not read is no ground for a refusal.
 pub(crate) fn refuse_background_work(
     forms: &BackgroundWorkForms,
     reader: &mut ShellLineReader,

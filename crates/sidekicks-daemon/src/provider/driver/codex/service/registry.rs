@@ -224,7 +224,7 @@ impl CodexServiceRegistry {
                     "whether the codex terminal service is free could not be read; it keeps \
                      running"
                 );
-                let mut held = lock_services(&services);
+                let mut held = lock(&services);
                 let registered = &mut *held;
                 if let Entry::Vacant(slot) =
                     registered.by_home.entry(service.home().codex_home.clone())
@@ -409,7 +409,7 @@ impl CodexServiceRegistry {
     }
 
     fn lock(&self) -> MutexGuard<'_, RegisteredServices> {
-        lock_services(&self.services)
+        lock(&self.services)
     }
 }
 
@@ -477,13 +477,9 @@ async fn may_take_socket_link(
 // Stops `service`, which left its home, and forgets it among `services`.
 async fn retire_service(services: &Mutex<RegisteredServices>, service: &Arc<CodexService>) {
     service.stop().await;
-    lock_services(services)
+    lock(services)
         .replaced
         .retain(|replaced| !Arc::ptr_eq(replaced, service));
-}
-
-fn lock_services(services: &Mutex<RegisteredServices>) -> MutexGuard<'_, RegisteredServices> {
-    lock(services)
 }
 
 // Whether `home` is the person's own folder with terminal reach on, which the terminal service

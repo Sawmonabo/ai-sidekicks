@@ -177,6 +177,7 @@ impl EventHandler for ChangeFeed {
 /// One watch over a set of roots, read by its owner one notice at a time; dropping it ends the
 /// system's watch, any walk under way and any retry after the ceiling.
 pub(crate) struct FileWatch<W = RecommendedWatcher> {
+    // A watcher whose holder panicked is still whole, since each call on it stands alone.
     watcher: Arc<Mutex<RootWatchers<W>>>,
     roots: Vec<PathBuf>,
     // The roots on a network file system, polled rather than watched by the system.

@@ -587,7 +587,7 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
                     "A removed worktree's setup command could not be ended"
                 );
             }
-            lock_state(&state).ending.remove(&ending_id);
+            lock(&state).ending.remove(&ending_id);
         });
     }
 
@@ -628,7 +628,7 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
 
 impl<W: Watcher + Send + 'static> RunnerShared<W> {
     fn lock(&self) -> MutexGuard<'_, RunnerState> {
-        lock_state(&self.state)
+        lock(&self.state)
     }
 
     // Starts running the card's steps from `first_index`, each later step pending; the run ends
@@ -838,14 +838,10 @@ impl Drop for WorktreeSetupSubscription {
         let Some(state) = attached.state.upgrade() else {
             return;
         };
-        if let Some(card) = lock_state(&state).held_card(&attached.worktree_id, attached.card_id) {
+        if let Some(card) = lock(&state).held_card(&attached.worktree_id, attached.card_id) {
             card.listeners.remove(&attached.listener_id);
         }
     }
-}
-
-fn lock_state(state: &Mutex<RunnerState>) -> MutexGuard<'_, RunnerState> {
-    lock(state)
 }
 
 fn not_found(worktree_id: WorktreeId) -> WorktreeSetupError {

@@ -8,7 +8,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, named_params};
@@ -253,7 +253,8 @@ pub(crate) struct ProviderChoiceResolver {
     providers: Arc<ProviderRegistry>,
     run_lock: KeyedLock<RunId>,
     // Each run's answer the provider got with no reply back, until its settle; never locked
-    // across an await.
+    // across an await. No holder panics while it changes the map, so a poisoned lock still guards
+    // a whole map.
     held_answers: Mutex<HashMap<RunId, HeldAnswer>>,
 }
 
@@ -525,9 +526,7 @@ impl ProviderChoiceResolver {
             Err(unanswered @ DriverError::Unanswered(_)) => {
                 // The first answer held stays held: the provider may have taken it, and its word
                 // settles whichever it took.
-                lock_held(&self.held_answers)
-                    .entry(run_id)
-                    .or_insert(answer);
+                lock(&self.held_answers).entry(run_id).or_insert(answer);
                 Err(ProviderChoiceError::Driver(unanswered))
             }
             Err(failed) => Err(ProviderChoiceError::Driver(failed)),
@@ -536,7 +535,7 @@ impl ProviderChoiceResolver {
 
     // The answer held on `run_id`, taken out.
     fn take_held(&self, run_id: RunId) -> Option<HeldAnswer> {
-        lock_held(&self.held_answers).remove(&run_id)
+        lock(&self.held_answers).remove(&run_id)
     }
 
     // Writes the settlement `held` carries.
@@ -592,14 +591,6 @@ impl ProviderChoiceResolver {
             Err(other) => Err(other.into()),
         }
     }
-}
-
-// The held answers. No holder awaits or panics while it changes the map, so a poisoned lock still
-// guards a whole map.
-fn lock_held(
-    held_answers: &Mutex<HashMap<RunId, HeldAnswer>>,
-) -> MutexGuard<'_, HashMap<RunId, HeldAnswer>> {
-    lock(held_answers)
 }
 
 /// The settle of one choice a run's end let go: the guard that no settlement followed its request

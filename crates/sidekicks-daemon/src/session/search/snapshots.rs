@@ -13,11 +13,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 
 use lru::LruCache;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_search::index::HeldSearch;
 
 use crate::mutex_lock::lock;
 use crate::session::search::query::ParsedSearchQuery;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// One held search: the parsed query it answers, so a cursor sent with another query continues
 /// nothing, its view of the index behind the lock one page takes, and where the rowid floor log

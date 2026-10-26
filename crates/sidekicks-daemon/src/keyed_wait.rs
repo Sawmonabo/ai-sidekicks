@@ -10,7 +10,7 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use tokio::sync::oneshot;
 
@@ -26,7 +26,8 @@ struct ArmedWaits<Key, Settlement> {
 
 /// The armed waits on keys of one kind; clones share the same waits.
 pub(crate) struct KeyedWaits<Key, Settlement> {
-    /// The waits every clone shares.
+    /// The waits every clone shares. No holder panics while it changes the map, so a poisoned
+    /// lock still holds whole waits.
     waits: Arc<Mutex<ArmedWaits<Key, Settlement>>>,
 }
 
@@ -54,7 +55,7 @@ impl<Key: Eq + Hash + Clone, Settlement: Clone> KeyedWaits<Key, Settlement> {
     /// before the wait is armed finds no waiter.
     pub(crate) fn arm(&self, key: Key) -> ArmedWait<Key, Settlement> {
         let (sender, receiver) = oneshot::channel();
-        let mut waits = lock_waits(&self.waits);
+        let mut waits = lock(&self.waits);
         let waiter_id = waits.next_waiter_id;
         waits.next_waiter_id += 1;
         waits
@@ -77,7 +78,7 @@ impl<Key: Eq + Hash + Clone, Settlement: Clone> KeyedWaits<Key, Settlement> {
         Key: Borrow<Lookup>,
         Lookup: Eq + Hash + ?Sized,
     {
-        let waiters = lock_waits(&self.waits).by_key.remove(key);
+        let waiters = lock(&self.waits).by_key.remove(key);
         send_to_each(
             waiters.into_iter().flat_map(HashMap::into_values),
             &settlement,
@@ -90,7 +91,7 @@ impl<Key: Eq + Hash + Clone, Settlement: Clone> KeyedWaits<Key, Settlement> {
         mut is_settled: impl FnMut(&Key) -> bool,
         settlement: Settlement,
     ) {
-        let mut waits = lock_waits(&self.waits);
+        let mut waits = lock(&self.waits);
         let settled_keys: Vec<Key> = waits
             .by_key
             .keys()
@@ -119,10 +120,7 @@ impl<Key: Eq + Hash + Clone, Settlement: Clone> KeyedWaits<Key, Settlement> {
         Key: Borrow<Lookup>,
         Lookup: Eq + Hash + ?Sized,
     {
-        lock_waits(&self.waits)
-            .by_key
-            .get(key)
-            .map_or(0, HashMap::len)
+        lock(&self.waits).by_key.get(key).map_or(0, HashMap::len)
     }
 }
 
@@ -135,13 +133,6 @@ fn send_to_each<Settlement: Clone>(
         // A send fails only for a waiter dropping at this moment, which has withdrawn.
         let _withdrawn = sender.send(settlement.clone());
     }
-}
-
-// No holder panics while it changes the map, so a poisoned lock still holds whole waits.
-fn lock_waits<Key, Settlement>(
-    waits: &Mutex<ArmedWaits<Key, Settlement>>,
-) -> MutexGuard<'_, ArmedWaits<Key, Settlement>> {
-    lock(waits)
 }
 
 /// One armed wait. Dropping it before it settles withdraws it without settling any other waiter,
@@ -174,7 +165,7 @@ impl<Key: Eq + Hash, Settlement> ArmedWait<Key, Settlement> {
 
 impl<Key: Eq + Hash, Settlement> Drop for ArmedWait<Key, Settlement> {
     fn drop(&mut self) {
-        let mut waits = lock_waits(&self.waits);
+        let mut waits = lock(&self.waits);
         if let Some(waiters) = waits.by_key.get_mut(&self.key) {
             waiters.remove(&self.waiter_id);
             if waiters.is_empty() {

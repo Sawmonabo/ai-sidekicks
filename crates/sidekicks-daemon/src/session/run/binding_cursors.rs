@@ -277,6 +277,7 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::state::RunState;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::integer::SafeInt;
 
     use super::{RUN_BINDING_CURSORS_STATEMENT_CAPACITY, RunBindingCursors};
@@ -287,9 +288,9 @@ mod tests {
         CreateRuntimeBindingInput, RuntimeBindingSpawnConfig,
     };
     use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
+    use crate::questions::schema::schema_parts;
     use crate::session::run::engine::tests::insert_running_run;
     use crate::session::run::epochs::ExecutionEpochs;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     struct Harness {
         database: TestDatabase,
@@ -300,7 +301,7 @@ mod tests {
 
     impl Harness {
         async fn new() -> Self {
-            let database = TestDatabase::new();
+            let database = TestDatabase::new(schema_parts());
             let store = open_store(&database).await;
             let epochs = Arc::new(Mutex::new(ExecutionEpochs::new(
                 NonZeroUsize::new(8).expect("the cap is not zero"),

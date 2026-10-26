@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use futures::future::join_all;
 use sidekicks_contracts::run::id::RunId;
@@ -39,7 +39,8 @@ pub(super) struct WithdrawJob {
     candidates: Vec<QueueItemRecord>,
     /// Cancelled once the caller stops waiting.
     deadline: CancellationToken,
-    /// Set when the withdraws start, under its lock, which the caller reads as it cancels.
+    /// Set when the withdraws start, under its lock, which the caller reads as it cancels. A plain
+    /// boolean no holder leaves half-written, so a poisoned lock still holds a whole flag.
     has_started: Arc<Mutex<bool>>,
     /// Where the withdrawals go; dropped unsent when the deadline passed first.
     reply: oneshot::Sender<WithdrawReply>,
@@ -55,11 +56,6 @@ pub(super) struct LateWithdraw {
     hand_number: u64,
     /// Whether the provider had taken it.
     is_delivered: bool,
-}
-
-// Locks `flag`; it holds a plain boolean, which no holder leaves half-written.
-fn lock_flag(flag: &Mutex<bool>) -> MutexGuard<'_, bool> {
-    lock(flag)
 }
 
 impl QueueDelivery {
@@ -168,7 +164,7 @@ impl QueueDelivery {
             answered.ok()
         } else {
             let is_started = {
-                let is_started = lock_flag(&has_started);
+                let is_started = lock(&has_started);
                 deadline.cancel();
                 *is_started
             };
@@ -201,7 +197,7 @@ impl QueueDelivery {
             reply,
         } = job;
         {
-            let mut is_started = lock_flag(&has_started);
+            let mut is_started = lock(&has_started);
             if deadline.is_cancelled() {
                 return;
             }

@@ -410,7 +410,7 @@ impl CodexSideQuestions {
     /// turn stopped on its own task, and one still forking or starting its turn let go by its ask,
     /// its turn stopped once started.
     pub(crate) async fn forget_session(&self, session_id: SessionId) {
-        lock_copy_stops(&self.copy_stops)
+        lock(&self.copy_stops)
             .copies
             .retain(|_side_question_id, copy| {
                 let is_kept = copy.session_id != session_id;
@@ -434,7 +434,7 @@ impl CodexSideQuestions {
     /// once started while its service still has a connection, and logs the turn it cannot stop.
     pub(crate) async fn stop_every_copy(&self) {
         {
-            let mut copy_stops = lock_copy_stops(&self.copy_stops);
+            let mut copy_stops = lock(&self.copy_stops);
             copy_stops.is_closed = true;
             for (_side_question_id, copy) in copy_stops.copies.drain() {
                 copy.stop.cancel();
@@ -492,7 +492,7 @@ impl CodexSideQuestions {
         copy_thread_id: &str,
         question: CodexSideQuestion,
     ) -> bool {
-        let mut copy_stops = lock_copy_stops(&self.copy_stops);
+        let mut copy_stops = lock(&self.copy_stops);
         let is_entered = copy_stops.copies.remove(&side_question_id).is_some();
         if is_entered {
             self.lock().insert(copy_thread_id.to_owned(), question);
@@ -504,7 +504,7 @@ impl CodexSideQuestions {
     // stop already fired, entering nothing, once the driver stopped every copy.
     fn enter_copy(&self, params: &AskSideQuestionParams) -> CancellationToken {
         let stop = CancellationToken::new();
-        let mut copy_stops = lock_copy_stops(&self.copy_stops);
+        let mut copy_stops = lock(&self.copy_stops);
         if copy_stops.is_closed {
             stop.cancel();
             return stop;
@@ -520,9 +520,7 @@ impl CodexSideQuestions {
     }
 
     fn remove_copy_stop(&self, side_question_id: SideQuestionId) {
-        lock_copy_stops(&self.copy_stops)
-            .copies
-            .remove(&side_question_id);
+        lock(&self.copy_stops).copies.remove(&side_question_id);
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<String, CodexSideQuestion>> {
@@ -623,9 +621,7 @@ async fn answer_at_rest(
     let read = stop
         .run_until_cancelled(read_copy_turn(&mut question, &mut copy, &usage))
         .await;
-    lock_copy_stops(&copy_stops)
-        .copies
-        .remove(&question.side_question_id);
+    lock(&copy_stops).copies.remove(&question.side_question_id);
     if let Some(turn) = read {
         deliver_answer(&dispatch, question, turn).await;
     } else {
@@ -656,10 +652,6 @@ async fn read_copy_turn(
         }
     }
     None
-}
-
-fn lock_copy_stops(copy_stops: &Mutex<CodexCopyStops>) -> MutexGuard<'_, CodexCopyStops> {
-    lock(copy_stops)
 }
 
 // Takes the live copy off its session's routing, stops its turn where it started, as a throwaway

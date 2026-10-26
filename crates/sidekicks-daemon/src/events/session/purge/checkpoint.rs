@@ -22,6 +22,7 @@ const LAST_RETRY_WAIT: Duration = Duration::from_secs(5);
 /// Truncates the write-ahead log, retried until it succeeds, one loop at a time.
 pub(crate) struct WriteAheadLogTruncation {
     writer: Arc<DatabaseWriter>,
+    // Two flags no panicking holder could leave apart from the task they describe.
     state: Arc<Mutex<TruncationState>>,
     tasks: TaskTracker,
     stop: CancellationToken,

@@ -13,7 +13,7 @@ use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, ExitStatus};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -275,14 +275,10 @@ fn join_channel(process_arguments: &[OsString]) -> (SharedRecords, Option<PartyR
     (records, requests)
 }
 
-fn lock_records(records: &Mutex<Option<PartyRecords>>) -> MutexGuard<'_, Option<PartyRecords>> {
-    lock(records)
-}
-
 /// Sends `record`; a failure is said on standard error, since the command runs on whether or not
 /// the daemon hears of it.
 fn send_record(records: &Mutex<Option<PartyRecords>>, record: &PartyRecord) {
-    if let Some(records) = lock_records(records).as_mut()
+    if let Some(records) = lock(records).as_mut()
         && let Err(error) = records.send(record)
     {
         write_error_line(&format!(
@@ -294,7 +290,7 @@ fn send_record(records: &Mutex<Option<PartyRecords>>, record: &PartyRecord) {
 /// Tells the daemon what the wrapper could not do while its command runs on as it is: a record
 /// when it joined its channel, else a line on standard error.
 fn note(records: &Mutex<Option<PartyRecords>>, message: &str) {
-    let mut records = lock_records(records);
+    let mut records = lock(records);
     let sent = records.as_mut().map(|records| {
         records.send(&PartyRecord::Warning {
             message: format!("the command wrapper {message}"),
@@ -339,15 +335,11 @@ enum CommandState {
 
 type SharedState = Arc<Mutex<CommandState>>;
 
-fn lock_state(state: &Mutex<CommandState>) -> MutexGuard<'_, CommandState> {
-    lock(state)
-}
-
 /// Hands each stop signal the wrapper receives to its command's process group from now on: before
 /// the command starts, the signal's end is told and taken as the wrapper's own.
 fn pass_signals_to_group(state: &SharedState, records: &SharedRecords) {
     let (state, signaled_records) = (Arc::clone(state), Arc::clone(records));
-    let started = pass_on_stop_signals(move |signal| match *lock_state(&state) {
+    let started = pass_on_stop_signals(move |signal| match *lock(&state) {
         CommandState::NotStarted => {
             send_record(
                 &signaled_records,
@@ -441,7 +433,7 @@ fn run_child(
 ) -> ExitCode {
     start_in_own_group(&mut command);
     let mut child = {
-        let mut state = lock_state(state);
+        let mut state = lock(state);
         match command.spawn() {
             Ok(child) => {
                 *state = CommandState::Running { group: child.id() };
@@ -454,7 +446,7 @@ fn run_child(
         let (state, records) = (Arc::clone(state), Arc::clone(records));
         follow_stops(requests, Arc::clone(&records), move || {
             // Held until `Stopped` is sent, so the wait's `Exited` comes after it.
-            let state = lock_state(&state);
+            let state = lock(&state);
             if let CommandState::Running { group } = *state {
                 signal_command_group(group, TerminalSignal::Kill)?;
                 send_record(&records, &PartyRecord::Stopped {});
@@ -464,7 +456,7 @@ fn run_child(
     }
     // The child stays unreaped until its state reads reaped, so no stop reaches a reused id.
     let exited = wait_for_exit(child.id(), None);
-    let mut state = lock_state(state);
+    let mut state = lock(state);
     *state = CommandState::Reaped;
     let waited = exited.and_then(|_| child.wait());
     match waited {
