@@ -142,10 +142,6 @@ impl CapabilityRefreshing {
     /// Ends the pass task, dropping a pass under way, which cancels its reads, and settles once
     /// the task has ended; every caller still waiting then returns `false`. Fails only when the
     /// task itself ended abnormally.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's stop ends the refresh through it")
-    )]
     pub(crate) async fn stop(self) -> Result<(), JoinError> {
         let Self { stop, task } = self;
         drop(stop);
