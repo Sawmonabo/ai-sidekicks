@@ -88,6 +88,7 @@ mod tests {
 
     use super::WorkflowSecretStore;
     use crate::credential_store::{KeychainRefusal, SecretKeychain};
+    use crate::ipc::domain_error::DomainError;
 
     /// The value the seal writes.
     const SECRET: &str = "hunter2-do-not-print";
@@ -151,10 +152,11 @@ mod tests {
             .expect_err("a value the keychain did not keep is refused");
 
         assert_eq!(refusal.cause(), KeychainRefusalCause::Unavailable);
-        let refused = refusal
-            .into_domain_error(RefusalCode::WorkflowSecretStoreUnavailable, |cause| {
-                WorkflowSecretStoreUnavailableDetails { cause }
-            });
+        let refused = DomainError::keychain_refused(
+            refusal,
+            RefusalCode::WorkflowSecretStoreUnavailable,
+            |cause| WorkflowSecretStoreUnavailableDetails { cause },
+        );
         assert_eq!(refused.code, RefusalCode::WorkflowSecretStoreUnavailable);
         for written in [refused.to_string(), format!("{refused:?}")] {
             assert!(!written.contains("hunter2"), "{written}");

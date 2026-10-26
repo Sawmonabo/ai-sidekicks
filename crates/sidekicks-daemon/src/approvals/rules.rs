@@ -64,12 +64,11 @@ use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::keyed_lock::{KeyHold, KeyedLock};
+use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::session_control::RevokeRuleParams;
-use crate::provider::port::permission_ask::{
-    ProviderAnswerRule, ProviderAskAction, ProviderAskActionKind, ProviderAskRule,
-};
+use crate::provider::port::permission_ask::{ProviderAnswerRule, ProviderAskAction};
 use crate::session::directory::lookups::{session_exists, session_project_sql};
 use crate::session::not_found::session_not_found;
 use crate::workspace::schema::MountOrigin;
@@ -121,10 +120,10 @@ impl From<ApprovalRuleError> for HandlerError {
     /// are faults in the daemon.
     fn from(error: ApprovalRuleError) -> Self {
         match error {
-            ApprovalRuleError::Refused(refusal)
-            | ApprovalRuleError::Append(SessionEventAppendError::Append(
+            ApprovalRuleError::Refused(refusal) => Self::Refused(refusal),
+            ApprovalRuleError::Append(SessionEventAppendError::Append(
                 EventAppendError::SessionWriteRefused(refusal),
-            )) => Self::Refused(refusal),
+            )) => Self::Refused(refusal.into()),
             fault @ (ApprovalRuleError::Database(_)
             | ApprovalRuleError::Pool(_)
             | ApprovalRuleError::Provider(_)

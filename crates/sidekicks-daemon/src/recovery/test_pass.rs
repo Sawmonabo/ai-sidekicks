@@ -25,6 +25,7 @@ use crate::approvals::run_blocking::ApprovalRunEnd;
 use crate::approvals::service::tests::test_approval_service;
 use crate::artifacts::test_store::ArtifactTestStore;
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::statement::{DATABASE_NOW_SQL, WriteStatement};
 use crate::database::writer::test_file::{
     TestDatabase, session_event_row, test_run_id, test_session_id,
@@ -33,6 +34,9 @@ use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::events::log_service::tests::TestLog;
 use crate::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
+};
+use crate::events::projection::{
+    ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
 use crate::events::session::followers::SessionEventFollowers;
 use crate::events::session::purge::SessionPurge;
@@ -45,15 +49,11 @@ use crate::pty::shell::test_table::TableFixture;
 use crate::recovery::damaged_history::{DamagedHistory, DamagedHistoryDeps};
 use crate::recovery::database_file::copy::DatabaseFileCopier;
 use crate::recovery::database_file::damage::DatabaseDamageWatch;
-use crate::recovery::projection_rebuild::{
-    ProjectionContradiction, ProjectionRebuildService, SessionProjection, SessionProjectionFold,
-    mark_stale_statement,
-};
+use crate::recovery::projection_rebuild::{ProjectionRebuildService, mark_stale_statement};
 use crate::recovery::restart_settle::{RestartSettle, RestartSettleDeps};
 use crate::recovery::session_write_refusal::refuse_session_event;
 use crate::recovery::startup::{StartupRecovery, StartupRecoveryDeps};
 use crate::recovery::status::RecoveryStatusTracker;
-use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{insert_running_run, test_engine};
 use crate::session::run::live_count::count_live_runs_after_commits;
@@ -116,7 +116,11 @@ pub(crate) struct PassFixture {
 impl PassFixture {
     /// The fixture over a fresh database.
     pub(crate) async fn new() -> Self {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(
+            crate::approvals::schema::schema_parts()
+                .with_parts(crate::plans::schema::schema_parts())
+                .with_parts(crate::workflow::schema::schema_parts()),
+        );
         let status = Arc::new(RecoveryStatusTracker::new());
         let (after_commit, live_runs) = count_live_runs_after_commits();
         let writer = Arc::new(

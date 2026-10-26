@@ -24,9 +24,11 @@ use std::error::Error;
 use std::sync::Arc;
 
 use rusqlite::Connection;
+use serde_json::{Map, Value};
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::session::{SessionEvent, SessionEventReadError};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::event_cursor::{
     EventCursor, EventCursorPositionOutOfRange, START_OF_LOG_POSITION,
     SessionEventCursorUnresolvable, encode_event_cursor,
@@ -53,7 +55,6 @@ use crate::events::session::read::{
     DamagedFromSequenceReader, SessionEventFilter, SessionEventReads, SessionLogReadError,
     resolve_event_cursor,
 };
-use crate::ipc::domain_error::DomainError;
 
 /// The most events a read after a cursor returns when the caller names no limit.
 const DEFAULT_EVENT_READ_LIMIT: u32 = 100;
@@ -78,7 +79,20 @@ pub(crate) type ProjectionError = Box<dyn Error + Send + Sync>;
 /// Refuses an append to a session that takes no event of the given type, with the refusal the
 /// caller answers.
 pub(crate) type SessionWriteCheck =
-    dyn Fn(&SessionId, &str) -> Result<(), DomainError> + Send + Sync;
+    dyn Fn(&SessionId, &str) -> Result<(), SessionAppendRefusal> + Send + Sync;
+
+/// A session's refusal of an append, raised by its [`SessionWriteCheck`] and answered by the
+/// caller with this code, message and detail; its `Display` is the message a person reads.
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+pub(crate) struct SessionAppendRefusal {
+    /// What went wrong, in words a person reads.
+    pub(crate) message: String,
+    /// The refusal code the caller answers with.
+    pub(crate) code: RefusalCode,
+    /// The refusal's fields, as the caller's answer carries them.
+    pub(crate) detail: Map<String, Value>,
+}
 
 /// The reads of one call, on a borrowed connection.
 type LogReads<'reader> = SessionEventReads<'reader, &'reader DamagedFromSequenceReader>;
@@ -111,7 +125,7 @@ pub(crate) struct EventLogAppendReceipt {
 pub(crate) enum EventAppendError {
     /// The session takes no event of this type; the refusal is the one its check built.
     #[error(transparent)]
-    SessionWriteRefused(DomainError),
+    SessionWriteRefused(SessionAppendRefusal),
     /// A preceding event names another session than the event it precedes.
     #[error(
         "a preceding {preceding_type} event of session {} cannot share the write of an event of \

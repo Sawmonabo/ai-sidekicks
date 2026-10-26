@@ -20,6 +20,7 @@ use sidekicks_platforms::{
 use tokio_util::sync::CancellationToken;
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::daemon::already_running_error::DaemonAlreadyRunningError;
 use crate::daemon::data_folder::data_folder;
 use crate::daemon::data_folder_lock::{DataFolderLock, DataFolderLockError};
 use crate::daemon::own_root::become_own_root;
@@ -65,9 +66,12 @@ enum ServiceStartError {
         #[source]
         source: io::Error,
     },
-    /// The data folder could not be held, another daemon holding it among the reasons.
+    /// Another daemon holds the data folder.
     #[error(transparent)]
-    Lock(#[from] DataFolderLockError),
+    AlreadyRunning(DaemonAlreadyRunningError),
+    /// The data folder's lock could not be taken or its holder's record written.
+    #[error(transparent)]
+    Lock(DataFolderLockError),
     /// The service log could not be installed.
     #[error("the service log could not be installed")]
     Log(#[source] tracing_subscriber::util::TryInitError),
@@ -126,7 +130,11 @@ fn start_and_run() -> Result<ExitCode, ServiceStartError> {
         }
     })?;
     // Before the log opens, so a second start writes nothing to the first one's log.
-    let data_folder_lock = DataFolderLock::take(&data_folder)?;
+    let data_folder_lock = DataFolderLock::take(&data_folder).map_err(|error| match error {
+        DataFolderLockError::Held(held) => ServiceStartError::AlreadyRunning(held.into()),
+        failure @ (DataFolderLockError::Lock { .. }
+        | DataFolderLockError::RecordProcessId { .. }) => ServiceStartError::Lock(failure),
+    })?;
     let log = open_service_log(&data_folder, io::stderr())
         .install()
         .map_err(ServiceStartError::Log)?;
@@ -240,7 +248,7 @@ fn run_daemon(
 // error, and otherwise on standard error alone.
 fn report_start_failure(error: &ServiceStartError) {
     // A held data folder is the other daemon's; its log is not this start's to write.
-    if let ServiceStartError::Lock(DataFolderLockError::Held(held)) = error {
+    if let ServiceStartError::AlreadyRunning(held) = error {
         write_error_line(&held.to_string());
         return;
     }

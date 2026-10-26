@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use rstest::rstest;
 use serde::de::DeserializeOwned;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::approval::{
     ApprovalCategory, ApprovalDecision, ApprovalResolutionInvalidReason, ApprovalResolveRequest,
@@ -41,10 +41,12 @@ use crate::approvals::run_blocking::ApprovalRunHolds;
 use crate::approvals::store::{APPROVAL_REQUEST_READER_STATEMENT_CAPACITY, StoredApprovalRequest};
 use crate::daemon::scheduler::Scheduler;
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
+    SessionAppendRefusal,
 };
 use crate::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventLinkage,
@@ -56,7 +58,6 @@ use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
 use crate::ipc::domain_error::DomainError;
-use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{stored_run_state, test_engine};
 use crate::session::run::projection::insert_queued_run_statement;
@@ -141,7 +142,7 @@ impl ApprovalFixture {
     }
 
     async fn build(is_engine_reached: bool) -> Self {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(crate::approvals::schema::schema_parts());
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
                 .await
@@ -166,10 +167,11 @@ impl ApprovalFixture {
                 if (is_answer && refusing.load(Ordering::SeqCst))
                     || (is_rule && refusing_rules.load(Ordering::SeqCst))
                 {
-                    Err(DomainError::new(
-                        "rebuilding",
-                        RefusalCode::SessionRebuilding,
-                    ))
+                    Err(SessionAppendRefusal {
+                        message: "rebuilding".to_owned(),
+                        code: RefusalCode::SessionRebuilding,
+                        detail: Map::new(),
+                    })
                 } else {
                     Ok(())
                 }

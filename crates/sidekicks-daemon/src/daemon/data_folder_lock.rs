@@ -2,13 +2,12 @@
 //! held for the daemon's whole life and freed the moment the daemon dies. The holder writes its
 //! process id beside the lock, so a refused start names it.
 
+use std::fmt::{self, Display};
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
-
-use crate::daemon::already_running_error::{DaemonAlreadyRunningError, HeldPlace};
 
 /// The lock file, in the data folder.
 const LOCK_FILE_NAME: &str = "daemon.lock";
@@ -24,12 +23,45 @@ const HELD_RETRY_BOUND: Duration = Duration::from_secs(1);
 /// How long between two tries of a held lock.
 const HELD_RETRY_INTERVAL: Duration = Duration::from_millis(50);
 
+/// Another daemon holds the data folder; its `Display` is the refusal a person reads.
+#[derive(Debug, thiserror::Error)]
+pub(crate) struct HeldDataFolder {
+    /// The data folder.
+    pub(crate) path: PathBuf,
+    /// The holder's process id as it recorded it, when the record could be read.
+    pub(crate) process_id: Option<u32>,
+    /// The lock's answer that showed the folder is held.
+    #[source]
+    pub(crate) source: io::Error,
+}
+
+impl Display for HeldDataFolder {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write_data_folder_held(formatter, self.process_id)
+    }
+}
+
+/// Writes the refusal a person reads when another daemon holds the data folder, naming the
+/// holder's `process_id` when it is known.
+pub(crate) fn write_data_folder_held(
+    formatter: &mut fmt::Formatter<'_>,
+    process_id: Option<u32>,
+) -> fmt::Result {
+    match process_id {
+        Some(process_id) => write!(
+            formatter,
+            "The background service is already running (process {process_id})."
+        ),
+        None => write!(formatter, "The background service is already running."),
+    }
+}
+
 /// Why the data folder could not be held.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DataFolderLockError {
     /// Another daemon holds it.
     #[error(transparent)]
-    Held(#[from] DaemonAlreadyRunningError),
+    Held(#[from] HeldDataFolder),
     /// The lock file could not be opened or locked.
     #[error("the data folder's lock file {} could not be locked", path.display())]
     Lock {
@@ -84,13 +116,10 @@ impl DataFolderLock {
                     thread::sleep(HELD_RETRY_INTERVAL);
                 }
                 Err(TryLockError::WouldBlock) => {
-                    let held = io::Error::from(io::ErrorKind::WouldBlock);
-                    return Err(DaemonAlreadyRunningError {
-                        held_place: HeldPlace::DataFolder {
-                            path: data_folder.to_path_buf(),
-                            process_id: read_holder_process_id(data_folder),
-                        },
-                        source: Some(Box::new(held)),
+                    return Err(HeldDataFolder {
+                        path: data_folder.to_path_buf(),
+                        process_id: read_holder_process_id(data_folder),
+                        source: io::Error::from(io::ErrorKind::WouldBlock),
                     }
                     .into());
                 }
@@ -138,7 +167,6 @@ mod tests {
     use std::time::Duration;
 
     use super::{DataFolderLock, DataFolderLockError};
-    use crate::daemon::already_running_error::HeldPlace;
 
     #[test]
     fn a_second_take_is_refused_naming_the_holder_without_waiting_for_it() {
@@ -155,11 +183,8 @@ mod tests {
         let Err(DataFolderLockError::Held(refused)) = second else {
             panic!("the second take was not refused as held");
         };
-        assert!(matches!(
-            refused.held_place,
-            HeldPlace::DataFolder { process_id: Some(process_id), .. }
-                if process_id == std::process::id()
-        ));
+        assert_eq!(refused.path, data_folder.path());
+        assert_eq!(refused.process_id, Some(std::process::id()));
         assert_eq!(
             refused.to_string(),
             format!(

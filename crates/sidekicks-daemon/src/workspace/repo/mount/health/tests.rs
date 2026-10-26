@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
+use serde_json::Map;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId};
@@ -13,10 +14,10 @@ use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
+    SessionAppendRefusal,
 };
 use crate::events::session::followers::SessionEventFollowers;
 use crate::git::process::test_git_runner;
-use crate::ipc::domain_error::DomainError;
 use crate::workspace::event_emitter::WorkspaceEventEmitter;
 use crate::workspace::repo::root_resolver::RepoRootResolver;
 use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
@@ -38,7 +39,7 @@ fn heard(rows: &Connection, session_id: SessionId) -> i64 {
 // Catches a change sent twice to a session, a session never told, or a failed send not retried.
 #[tokio::test]
 async fn a_changed_mount_health_reaches_each_session_once_and_a_failed_send_is_sent_again() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(crate::git::worktree::schema::schema_parts());
     let writer = Arc::new(
         DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
@@ -60,10 +61,11 @@ async fn a_changed_mount_health_reaches_each_session_once_and_a_failed_send_is_s
         refuse_session_write: Some(Box::new(
             move |session_id: &SessionId, _event_type: &str| {
                 if *refusing.lock().expect("no holder panics") == Some(*session_id) {
-                    Err(DomainError::new(
-                        "the test refuses this session's appends",
-                        RefusalCode::SessionNotFound,
-                    ))
+                    Err(SessionAppendRefusal {
+                        message: "the test refuses this session's appends".to_owned(),
+                        code: RefusalCode::SessionNotFound,
+                        detail: Map::new(),
+                    })
                 } else {
                     Ok(())
                 }

@@ -5,6 +5,8 @@ use std::error::Error;
 use std::fmt::{self, Display};
 use std::path::PathBuf;
 
+use crate::daemon::data_folder_lock::{HeldDataFolder, write_data_folder_held};
+
 /// What the other daemon holds that this start needs.
 #[derive(Debug)]
 pub(crate) enum HeldPlace {
@@ -22,16 +24,7 @@ pub(crate) enum HeldPlace {
 impl Display for HeldPlace {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DataFolder {
-                process_id: Some(process_id),
-                ..
-            } => write!(
-                formatter,
-                "The background service is already running (process {process_id})."
-            ),
-            Self::DataFolder {
-                process_id: None, ..
-            } => write!(formatter, "The background service is already running."),
+            Self::DataFolder { process_id, .. } => write_data_folder_held(formatter, *process_id),
             Self::Socket(path) => write!(
                 formatter,
                 "The background service is already running on the socket {}.",
@@ -51,4 +44,17 @@ pub(crate) struct DaemonAlreadyRunningError {
     /// The failure that showed the place is held, such as a refused bind or a lock held elsewhere.
     #[source]
     pub(crate) source: Option<Box<dyn Error + Send + Sync>>,
+}
+
+impl From<HeldDataFolder> for DaemonAlreadyRunningError {
+    /// The start's refusal for a data folder another daemon's lock holds.
+    fn from(held: HeldDataFolder) -> Self {
+        Self {
+            held_place: HeldPlace::DataFolder {
+                path: held.path,
+                process_id: held.process_id,
+            },
+            source: Some(Box::new(held.source)),
+        }
+    }
 }

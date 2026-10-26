@@ -7,8 +7,9 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::recovery::SessionHistoryDamagedRecovery;
 
+use crate::events::log_service::SessionAppendRefusal;
 use crate::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
-use crate::ipc::domain_error::DomainError;
+use crate::ipc::domain_error::{DomainError, refusal_fields};
 use crate::recovery::status::{RecoveryStatusTracker, SessionWriteRefusal};
 
 /// Refuses a call naming the session with `session.rebuilding` while the restart's pass is still
@@ -22,7 +23,7 @@ pub(crate) fn refuse_call_naming_session(
     tracker
         .read_session_call_refusal(session_id)
         .map_or(Ok(()), |refusal| {
-            Err(session_write_refusal(refusal, method))
+            Err(session_write_refusal(refusal, method).into())
         })
 }
 
@@ -33,7 +34,7 @@ pub(crate) fn refuse_session_event(
     tracker: &RecoveryStatusTracker,
     session_id: &SessionId,
     event_type: &str,
-) -> Result<(), DomainError> {
+) -> Result<(), SessionAppendRefusal> {
     if event_type == DAMAGED_EVENTS_SKIPPED_TYPE.as_str() {
         return Ok(());
     }
@@ -44,29 +45,29 @@ pub(crate) fn refuse_session_event(
         })
 }
 
-fn session_write_refusal(refusal: SessionWriteRefusal, write: &str) -> DomainError {
+fn session_write_refusal(refusal: SessionWriteRefusal, write: &str) -> SessionAppendRefusal {
     match refusal {
-        SessionWriteRefusal::Rebuilding(details) => DomainError::new(
-            format!(
+        SessionWriteRefusal::Rebuilding(details) => SessionAppendRefusal {
+            message: format!(
                 "Session {} is not taking {write}: the restart's recovery is rebuilding it",
                 details.session_id
             ),
-            RefusalCode::SessionRebuilding,
-        )
-        .with_detail(details),
+            code: RefusalCode::SessionRebuilding,
+            detail: refusal_fields(details),
+        },
         SessionWriteRefusal::HistoryDamaged(details) => {
             let damage = match details.recovery {
                 SessionHistoryDamagedRecovery::Degraded => "degraded",
                 SessionHistoryDamagedRecovery::Damaged => "damaged",
             };
-            DomainError::new(
-                format!(
+            SessionAppendRefusal {
+                message: format!(
                     "Session {} is not taking {write}: its history is damaged ({damage})",
                     details.session_id
                 ),
-                RefusalCode::SessionHistoryDamaged,
-            )
-            .with_detail(details)
+                code: RefusalCode::SessionHistoryDamaged,
+                detail: refusal_fields(details),
+            }
         }
     }
 }
@@ -83,6 +84,7 @@ mod tests {
 
     use super::{refuse_call_naming_session, refuse_session_event};
     use crate::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
+    use crate::ipc::domain_error::DomainError;
     use crate::recovery::status::{LastGoodPoint, RecoveryStatusTracker};
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -202,7 +204,7 @@ mod tests {
             SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
         let tracker = tracker_at(stage, &session_id);
 
-        let refusal_of = |answer: Result<(), crate::ipc::domain_error::DomainError>| {
+        let refusal_of = |answer: Result<(), DomainError>| {
             answer.err().map(|error| {
                 let detail = error
                     .detail
@@ -226,7 +228,9 @@ mod tests {
             "a call naming the session"
         );
         assert_eq!(
-            refusal_of(refuse_session_event(&tracker, &session_id, EVENT_TYPE)),
+            refusal_of(
+                refuse_session_event(&tracker, &session_id, EVENT_TYPE).map_err(DomainError::from)
+            ),
             expected(event_refusal),
             "an event of the session"
         );

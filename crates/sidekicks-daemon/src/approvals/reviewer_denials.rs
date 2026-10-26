@@ -257,10 +257,10 @@ impl From<DenialOverrideError> for HandlerError {
     /// driver's error as a driver error answers; the rest are faults in the daemon.
     fn from(error: DenialOverrideError) -> Self {
         match error {
-            DenialOverrideError::Refused(refusal)
-            | DenialOverrideError::Append(SessionEventAppendError::Append(
+            DenialOverrideError::Refused(refusal) => Self::Refused(refusal),
+            DenialOverrideError::Append(SessionEventAppendError::Append(
                 EventAppendError::SessionWriteRefused(refusal),
-            )) => Self::Refused(refusal),
+            )) => Self::Refused(refusal.into()),
             DenialOverrideError::Driver(driver) => driver.into(),
             fault @ (DenialOverrideError::Read(_)
             | DenialOverrideError::Pool(_)
