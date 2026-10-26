@@ -1,6 +1,7 @@
 //! The Codex driver, over the one shared Codex app-server every session reaches by its socket.
 
 use std::error::Error;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -538,7 +539,7 @@ impl ProviderDriver for CodexDriver {
         self.expire_account_home_diagnostics(home, cutoff)
     }
 
-    fn running_service_log_files(&self) -> Vec<PathBuf> {
+    fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
         self.registry.running_service_log_files()
     }
 }

@@ -5,6 +5,7 @@
 //! is supported only when a recorded snapshot declares it. A steer is not gated here, since it is
 //! how the run queue delivers a held message.
 
+use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
@@ -178,12 +179,13 @@ impl ProviderRegistry {
     }
 
     /// The logs the registered providers' running services write, which the diagnostic-log expiry
-    /// never deletes; blocking.
-    pub(crate) fn running_service_log_files(&self) -> Vec<PathBuf> {
-        self.drivers
-            .iter()
-            .flat_map(|registered| registered.driver.running_service_log_files())
-            .collect()
+    /// never deletes; blocking. Fails with the first driver's failure to name its services' logs.
+    pub(crate) fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
+        let mut files = Vec::new();
+        for registered in &self.drivers {
+            files.extend(registered.driver.running_service_log_files()?);
+        }
+        Ok(files)
     }
 
     /// Each registered provider with its driver, in the table's order.
