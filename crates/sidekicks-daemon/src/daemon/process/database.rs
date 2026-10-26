@@ -402,7 +402,7 @@ pub(crate) async fn open_database_file(
     };
     let damage = Arc::new(DatabaseDamageWatch::new());
     let status = Arc::new(RecoveryStatusTracker::new());
-    let damaged_writer = Arc::new(OnceLock::new());
+    let listener_writer = Arc::new(OnceLock::new());
     let (after_commit, live_runs) = count_live_runs_after_commits();
     let writer = open_writer(
         &database_path,
@@ -411,13 +411,13 @@ pub(crate) async fn open_database_file(
             on_write_failed: Some(report_write_damage(
                 Arc::clone(&damage),
                 Arc::clone(&status),
-                Arc::clone(&damaged_writer),
+                Arc::clone(&listener_writer),
             )),
             after_commit: Some(after_commit),
         },
     )
     .await?;
-    damaged_writer
+    listener_writer
         .set(Arc::downgrade(&writer))
         .expect("only the open sets the writer its listener ends");
     let is_vouched = Arc::new(AtomicBool::new(is_vouched));
@@ -476,16 +476,16 @@ pub(crate) async fn open_database_file(
     })
 }
 
-/// Closes the database file once the work that reads and writes it has ended: the check first,
-/// then the damage found recorded, its writer ended if nothing has ended it yet, then the log's
-/// truncation stopped; then the read pool before the writer, so the writer is the last to close
-/// the file and folds the write-ahead log into it, except an ended writer, which is joined first
-/// and skips that checkpoint, so a damaged file's log stays for the repair; damage the drain meets
-/// is recorded after the writer's close. The check, the
-/// truncation and the writer's drain all end within `remaining`, counted from the call; a check or
-/// truncation still running then is a failure, and the close goes on without it. The clean stop is
-/// recorded only for a file vouched for, with no damage found, no write left unfinished, no
-/// failure here and `is_stop_failed` false. Answers each step's failure, every step having run.
+/// Closes the database file once the work that reads and writes it has ended: the check first, then
+/// the damage found recorded, its writer ended if nothing has ended it yet, then the log's
+/// truncation stopped; then the read pool before the writer, so the writer is the last to close the
+/// file and folds the write-ahead log into it, except an ended writer, which is joined first and
+/// skips that checkpoint, so a damaged file's log stays for the repair; damage the drain meets is
+/// recorded after the writer's close. The check, the truncation and the writer's drain all end
+/// within `remaining`, counted from the call; a check or truncation still running then is a
+/// failure, and the close goes on without it. The clean stop is recorded only for a file vouched
+/// for, with no damage found, no write left unfinished, no failure here and `is_stop_failed` false.
+/// Answers each step's failure, every step having run.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the daemon's stop, which closes the data folder")
@@ -523,8 +523,8 @@ pub(crate) async fn close_database_file(
             None
         }
     };
-    let is_damage_recorded = damage.is_found();
-    if is_damage_recorded {
+    let was_found_before_drain = damage.is_found();
+    if was_found_before_drain {
         let found = damage.when_found().await;
         stop_writes_for_damage(found, &status, &writer);
         record_damage(&database_path, found, &mut failures).await;
@@ -549,7 +549,7 @@ pub(crate) async fn close_database_file(
     // Kept through the close, so damage a read meets during the drain still ends the writer.
     drop(damage_follower);
     // Damage the drain met, which the listener has already ended the writer for.
-    if !is_damage_recorded && damage.is_found() {
+    if !was_found_before_drain && damage.is_found() {
         let found = damage.when_found().await;
         record_damage(&database_path, found, &mut failures).await;
     }
@@ -660,7 +660,8 @@ fn report_write_damage(
         if is_database_damage_error(failure)
             && let Some(writer) = writer.get().and_then(Weak::upgrade)
         {
-            stop_writes_for_damage(&describe_error(failure), &status, &writer);
+            let found = damage.found().expect("the report has recorded the damage");
+            stop_writes_for_damage(found, &status, &writer);
         }
     })
 }

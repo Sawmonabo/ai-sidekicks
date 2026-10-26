@@ -55,6 +55,11 @@ impl DatabaseDamageWatch {
         self.found.wait().await
     }
 
+    /// What the first damage found was, `None` while none is.
+    pub(crate) fn found(&self) -> Option<&str> {
+        self.found.get().map(String::as_str)
+    }
+
     /// Whether damage has been found, so a caller acts before a waiter on `when_found` runs.
     pub(crate) fn is_found(&self) -> bool {
         self.found.initialized()
