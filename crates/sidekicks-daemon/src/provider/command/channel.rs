@@ -246,10 +246,9 @@ struct AdmittedParty {
 
 impl AdmittedParty {
     /// Opens the record `party` sealed under `sequence` to `daemon`; `None`, the record dropped,
-    /// when it does not open under this party's context, opens but does not parse, which is
-    /// logged, its number is not past the last one
-    /// opened, or the party is nested and the record is neither `starting` nor `asking`. A number
-    /// past the next one skips those between.
+    /// when it does not open under this party's context, opens but does not parse, which is logged,
+    /// its number is not past the last one opened, or the party is nested and the record is neither
+    /// `starting` nor `asking`. A number past the next one skips those between.
     fn open_record(
         &mut self,
         daemon: &ChannelPrivateKey,
@@ -467,9 +466,9 @@ impl CommandChannel {
         .map_err(io::Error::other)?
     }
 
-    /// Forgets `party`, which has ended, so its key and numbers are not held and
-    /// the requests it did not read are removed; a later record from its id is admitted afresh.
-    /// A request that cannot be removed is logged.
+    /// Forgets `party`, which has ended, so its key and numbers are not held and the requests it
+    /// did not read are removed; a later record from its id is admitted afresh. A request that
+    /// cannot be removed is logged.
     pub(crate) async fn forget_party(&self, party: PartyId) {
         self.parties
             .lock()
