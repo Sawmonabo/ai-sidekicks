@@ -489,6 +489,20 @@ impl QuestionPort for QuestionsService {
         .boxed()
     }
 
+    fn wait_while_question_waits(
+        &self,
+        session_id: SessionId,
+        request_id: String,
+        run_id: RunId,
+    ) -> BoxFuture<'_, Result<bool, Box<dyn Error + Send + Sync>>> {
+        async move {
+            QuestionsService::wait_while_question_waits(self, session_id, &request_id, run_id)
+                .await
+                .map_err(Into::into)
+        }
+        .boxed()
+    }
+
     fn withdraw_question(
         &self,
         withdrawal: ProviderQuestionWithdrawal,

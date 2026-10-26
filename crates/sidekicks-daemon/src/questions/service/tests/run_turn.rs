@@ -189,37 +189,64 @@ async fn a_question_whose_asker_left_is_withdrawn_after_its_record(
 }
 
 // A driver's question its provider withdraws while it waits for its run ends its take at once,
-// settled, the run still waiting on the first question, so the run's line moves on. Killed by
-// leaving out the wake of the run's waiters in the withdrawal.
+// settled, the run still waiting on the first question, so the run's line moves on: at the head of
+// the line, and second in it, behind a question still waiting. Killed by leaving out the wake of
+// the run's waiters in the withdrawal, and, second in line, by waiting for the place alone.
+#[rstest]
+#[case::head_of_the_line(false)]
+#[case::second_in_line(true)]
 #[tokio::test]
-async fn a_waiting_question_its_provider_withdraws_ends_its_turn_at_once() {
+async fn a_waiting_question_its_provider_withdraws_ends_its_turn_at_once(
+    #[case] is_behind_another: bool,
+) {
     let fixture = Fixture::new().await;
     fixture.ask("request-1", json!([choice_page()]), true).await;
-    let second = take_question_in_turn(
+    let head = take_question_in_turn(
         &fixture.questions,
         fixture.question("request-2", json!([choice_page()]), true),
         None,
         QuestionLinePlace::line_up(fixture.run_id),
         std::future::pending(),
     );
-    tokio::pin!(second);
-    drive_until_asked(&fixture, 2, second.as_mut()).await;
+    tokio::pin!(head);
+    drive_until_asked(&fixture, 2, head.as_mut()).await;
+    let behind = take_question_in_turn(
+        &fixture.questions,
+        fixture.question("request-3", json!([choice_page()]), true),
+        None,
+        QuestionLinePlace::line_up(fixture.run_id),
+        std::future::pending(),
+    );
+    tokio::pin!(behind);
+    let (withdrawn_id, withdrawn) = if is_behind_another {
+        drive_until_asked(&fixture, 3, behind.as_mut()).await;
+        ("request-3", behind.as_mut())
+    } else {
+        ("request-2", head.as_mut())
+    };
 
-    let (withdrawn, ended) = bounded(async {
+    let (withdrawal, ended) = bounded(async {
         tokio::join!(
             fixture
                 .questions
                 .withdraw_question(ProviderQuestionWithdrawal {
                     session_id: fixture.session_id,
-                    request_id: "request-2".to_owned(),
+                    request_id: withdrawn_id.to_owned(),
                 }),
-            &mut second
+            withdrawn
         )
     })
     .await;
 
-    withdrawn.expect("the withdrawal is taken");
+    withdrawal.expect("the withdrawal is taken");
     assert_eq!(ended.expect("the turn ends"), QuestionTurnEnd::Settled);
-    assert_eq!(fixture.state(asked_id(&fixture, 1)), "canceled");
+    let withdrawn_index = if is_behind_another { 2 } else { 1 };
+    assert_eq!(
+        fixture.state(asked_id(&fixture, withdrawn_index)),
+        "canceled"
+    );
+    if is_behind_another {
+        assert_eq!(fixture.state(asked_id(&fixture, 1)), "waitingForRun");
+    }
     assert_eq!(fixture.run_state(), "waitingForInput");
 }

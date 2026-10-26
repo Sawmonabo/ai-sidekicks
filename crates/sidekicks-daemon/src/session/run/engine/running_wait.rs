@@ -1,7 +1,8 @@
 //! The wait for a run to read `running` again, which a question asked while its run waits on
-//! another question, on an approval or in a pause takes before it is answerable: woken where a
-//! write moves the run to `running`, where its end lands and where a question waiting for it
-//! settles, with no timer.
+//! another question, on an approval or in a pause takes before it is answerable, and which one
+//! behind it in its run's line takes to read whether it still waits: woken where a write moves the
+//! run to `running`, where its end lands and where a question waiting for it settles, with no
+//! timer.
 
 use std::pin::pin;
 use std::sync::{Arc, Mutex};
@@ -21,12 +22,25 @@ impl RunEngine {
     /// [`crate::session::run::refusals::RunRefusal::NotFound`] for a run with no row, and as the
     /// read fails.
     pub(crate) async fn wait_for_running_wake(&self, run_id: RunId) -> Result<(), RunEngineError> {
+        self.wait_for_running_wake_unless(run_id, async {
+            let run = self.require_run(run_id).await?;
+            Ok(run.state == RunState::Running || run.state.is_terminal())
+        })
+        .await
+    }
+
+    /// Waits for the next wake of `run_id`'s waiters unless `is_done` answers true; it is read once
+    /// the wait is armed, so a wake that lands between the read and the wait is kept. Fails as
+    /// `is_done` fails.
+    pub(crate) async fn wait_for_running_wake_unless<Failure>(
+        &self,
+        run_id: RunId,
+        is_done: impl Future<Output = Result<bool, Failure>>,
+    ) -> Result<(), Failure> {
         let waiter = RunningWaiter::enter(&self.live, run_id);
-        // Enabled before the read, so a write that lands between the read and the wait wakes it.
         let mut woken = pin!(waiter.wake.notified());
         woken.as_mut().enable();
-        let run = self.require_run(run_id).await?;
-        if run.state != RunState::Running && !run.state.is_terminal() {
+        if !is_done.await? {
             woken.await;
         }
         Ok(())

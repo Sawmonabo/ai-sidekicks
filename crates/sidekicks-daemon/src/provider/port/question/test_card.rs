@@ -319,6 +319,29 @@ impl QuestionPort for QuestionCard {
         .boxed()
     }
 
+    fn wait_while_question_waits(
+        &self,
+        _session_id: SessionId,
+        request_id: String,
+        _run_id: RunId,
+    ) -> BoxFuture<'_, Result<bool, Box<dyn Error + Send + Sync>>> {
+        async move {
+            let mut closed = std::pin::pin!(self.closed.notified());
+            closed.as_mut().enable();
+            let is_waiting = self
+                .waiting
+                .lock()
+                .expect("never poisoned")
+                .iter()
+                .any(|(held, _)| held.request_id == request_id);
+            if is_waiting {
+                closed.await;
+            }
+            Ok(is_waiting)
+        }
+        .boxed()
+    }
+
     fn withdraw_question(
         &self,
         withdrawal: ProviderQuestionWithdrawal,

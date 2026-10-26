@@ -8,6 +8,7 @@ use sidekicks_contracts::question::{
     QuestionAskedState, QuestionCanceledReason, QuestionId, QuestionOpenedPayload,
     QuestionSettledState,
 };
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 
@@ -125,6 +126,31 @@ impl QuestionsService {
             .await?;
         self.forget_held_request(&question_id);
         Ok(WaitingQuestionOpening::Settled)
+    }
+
+    /// Waits, with no timer, for the next wake of `run_id`'s waiters while the question of
+    /// `session_id` asked under `request_id` still waits for its run, its state read once the wait
+    /// is armed; answers whether it waited, false at once for one no longer waiting. Fails as the
+    /// read fails.
+    pub(super) async fn wait_while_question_waits(
+        &self,
+        session_id: SessionId,
+        request_id: &str,
+        run_id: RunId,
+    ) -> Result<bool, QuestionError> {
+        let mut is_waiting = false;
+        self.engine
+            .wait_for_running_wake_unless(run_id, async {
+                is_waiting = match self.held_question_of(session_id, request_id) {
+                    Some(question_id) => {
+                        self.read_state(question_id).await? == Some(QuestionState::WaitingForRun)
+                    }
+                    None => false,
+                };
+                Ok::<_, QuestionError>(!is_waiting)
+            })
+            .await?;
+        Ok(is_waiting)
     }
 
     /// Cancels `question_id` of `session_id`, which waits for its run, for `reason` in a write of

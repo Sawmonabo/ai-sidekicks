@@ -143,6 +143,17 @@ pub(crate) trait QuestionPort: Send + Sync {
         run_id: RunId,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
 
+    /// Waits, with no timer, for the next wake of `run_id`'s waiters while the question of
+    /// `session_id` recorded under `request_id` still waits for its run, read once the wait is
+    /// armed; answers whether it waited, false at once for a question withdrawn or settled. An
+    /// error when its read fails.
+    fn wait_while_question_waits(
+        &self,
+        session_id: SessionId,
+        request_id: String,
+        run_id: RunId,
+    ) -> BoxFuture<'_, Result<bool, Box<dyn Error + Send + Sync>>>;
+
     /// Settles a withdrawn question's card canceled. An error when it could not be settled.
     fn withdraw_question(
         &self,
@@ -203,13 +214,21 @@ async fn take_in_turn(
         return Ok(QuestionTurnEnd::Taken);
     }
     // Held across every wait and the opening, so the questions behind it wait their turn. Its
-    // asker's leaving is read first throughout, so a question no one waits for never opens.
+    // asker's leaving is read first throughout, so a question no one waits for never opens; one
+    // withdrawn or settled behind the head of the line ends its turn at its run's wake.
     let _held = match place {
         Ok(hold) => hold,
-        Err(wait) => tokio::select! {
-            biased;
-            () = &mut asker_left => return Ok(QuestionTurnEnd::AskerLeft),
-            hold = wait => hold,
+        Err(mut wait) => loop {
+            tokio::select! {
+                biased;
+                () = &mut asker_left => return Ok(QuestionTurnEnd::AskerLeft),
+                hold = &mut wait => break hold,
+                waited = port.wait_while_question_waits(session_id, request_id.clone(), run_id) => {
+                    if !waited? {
+                        return Ok(QuestionTurnEnd::Settled);
+                    }
+                }
+            }
         },
     };
     loop {
