@@ -1,8 +1,9 @@
 //! The question tables as the log keeps them in step: each record from its `question.asked`, each
 //! opening of one that waited for its run from its `question.opened`, each cancellation from its
 //! `question.canceled`, a held question's answer from the `user.message.sent` that names it, and a
-//! queued answer's pairing, withdrawal and admission from the send and the queue's own events. A rebuild writes every row at the event's own instant through the live
-//! write's own statements and guards, so the rows it writes are the rows the live writes wrote.
+//! queued answer's pairing, withdrawal and admission from the send and the queue's own events. A
+//! rebuild writes every row at the event's own instant through the live write's own statements and
+//! guards, so the rows it writes are the rows the live writes wrote.
 
 use std::borrow::Cow;
 

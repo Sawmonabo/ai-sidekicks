@@ -1,9 +1,9 @@
 //! A connection's own requests to its server, each bounded in time: an ordinary request waits 60 s
 //! through rmcp's request options; a tool call that may run long waits out the connection's idle
-//! window, which the daemon keeps, within one total bound rmcp keeps; and a task's result held while
-//! the task waits on the person waits within that total bound alone. A request whose bound runs
-//! out, or whose caller stops waiting, tells the server it is canceled, and its raw reply, should
-//! one still come, is dropped.
+//! window, which the daemon keeps, within one total bound rmcp keeps; and a task's result held
+//! while the task waits on the person waits within that total bound alone. A request whose bound
+//! runs out, or whose caller stops waiting, tells the server it is canceled, and its raw reply,
+//! should one still come, is dropped.
 
 use std::collections::HashSet;
 use std::sync::Arc;

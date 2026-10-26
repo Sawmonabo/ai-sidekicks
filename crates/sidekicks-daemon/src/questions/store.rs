@@ -333,8 +333,8 @@ pub(crate) fn read_unsettled_among(
         .collect()
 }
 
-/// The questions `run_id` holds open or waiting for it whose agent waits on them, oldest first. Fails as SQLite
-/// does, or when a stored id does not read.
+/// The questions `run_id` holds open or waiting for it whose agent waits on them, oldest first.
+/// Fails as SQLite does, or when a stored id does not read.
 pub(crate) fn read_open_held_questions(
     connection: &Connection,
     run_id: &RunId,

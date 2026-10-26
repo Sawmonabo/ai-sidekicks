@@ -7,8 +7,8 @@
 //!   rmcp's own types ([`v2`]).
 //! - A task's question is held under its own request id, and its answer goes back to the server
 //!   that asked, never to the run's driver.
-//! - A question a server's request waits on is taken in its run's turn: asked while its run waits on
-//!   something else, it is recorded at once waiting for the run and opened once the run reads
+//! - A question a server's request waits on is taken in its run's turn: asked while its run waits
+//!   on something else, it is recorded at once waiting for the run and opened once the run reads
 //!   running, first in, first out per run, never answered `cancel` for that reason.
 //! - A question nobody waits on any more is withdrawn from the card: one whose task or call is
 //!   dropped, or whose request the server canceled.

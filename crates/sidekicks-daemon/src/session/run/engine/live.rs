@@ -83,10 +83,10 @@ pub(super) struct LimitCut {
 }
 
 /// Every map is bounded by the live runs: an entry leaves when its run, its start, its continue,
-/// its write, its turn or its last waiter ends, on every exit path. A turn's cuts are bounded by the stops in
-/// flight or landed with a row, each leaving when its stop withdraws it or its turn's end is
-/// written, so they can outlive their run's end until then; a provider process's exit and a
-/// restart's settle end every open turn of the run.
+/// its write, its turn or its last waiter ends, on every exit path. A turn's cuts are bounded by
+/// the stops in flight or landed with a row, each leaving when its stop withdraws it or its turn's
+/// end is written, so they can outlive their run's end until then; a provider process's exit and
+/// a restart's settle end every open turn of the run.
 #[derive(Default)]
 pub(super) struct LiveRuns {
     /// The runs no driver has yet.

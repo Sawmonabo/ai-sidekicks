@@ -45,8 +45,9 @@ impl QuestionsService {
     /// Refused `question.notFound` for an id no record holds, `question.notWaiting` for a question
     /// its agent does not wait for, `question.waitingForRun` for one that still waits for its run,
     /// `question.answersIncomplete` for a list that does not answer every question and
-    /// `question.answerInvalid` for an answer its question cannot take, each with nothing sent. Fails as the driver or the wait fails, nothing written, or as the write
-    /// fails after the answer went out.
+    /// `question.answerInvalid` for an answer its question cannot take, each with nothing sent.
+    /// Fails as the driver or the wait fails, nothing written, or as the write fails after the
+    /// answer went out.
     pub(crate) async fn resolve_question(
         &self,
         request: QuestionResolveRequest,

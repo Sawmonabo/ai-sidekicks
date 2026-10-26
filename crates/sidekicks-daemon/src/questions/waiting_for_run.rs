@@ -1,6 +1,6 @@
 //! A question asked while its run waits on something else: another question, an approval or a
-//! pause. It is recorded at once, waiting for its run, so the card shows it greyed; it opens, in the
-//! write that moves its run to `waitingForInput` on it, once the run reads running; and it is
+//! pause. It is recorded at once, waiting for its run, so the card shows it greyed; it opens, in
+//! the write that moves its run to `waitingForInput` on it, once the run reads running; and it is
 //! canceled, its run unmoved, when its provider withdraws it or its run ends first.
 
 use sidekicks_contracts::event::session::SessionEvent;
