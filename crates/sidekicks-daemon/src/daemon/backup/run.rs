@@ -99,6 +99,20 @@ static LAST_RUN_SQL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     )
 });
 
+/// The backups folder `Back up to` names in `settings`, or the default one in the data folder under
+/// `home_folder`; the start reads it before the database file opens, for the repair. Fails when
+/// the settings file does not read.
+pub(crate) async fn backup_folder(
+    settings: &MachineSettingsFile,
+    home_folder: &Path,
+) -> Result<PathBuf, MachineSettingsFileError> {
+    let settings = settings.read().await?.settings.backup;
+    Ok(settings.folder.map_or_else(
+        || data_folder(home_folder).join(BACKUP_DEFAULT_FOLDER_NAME),
+        |folder| PathBuf::from(folder.as_str()),
+    ))
+}
+
 /// What asked for a run, weakest first: a request joining a queued run keeps the stronger.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum BackupTrigger {
@@ -281,11 +295,7 @@ impl Backups {
     /// The backups folder `Back up to` names, or the default one in the data folder. Fails when
     /// the settings file does not read.
     pub(crate) async fn folder(&self) -> Result<PathBuf, MachineSettingsFileError> {
-        let settings = self.deps.settings.read().await?.settings.backup;
-        Ok(settings.folder.map_or_else(
-            || self.data_folder().join(BACKUP_DEFAULT_FOLDER_NAME),
-            |folder| PathBuf::from(folder.as_str()),
-        ))
+        backup_folder(&self.deps.settings, &self.deps.home_folder).await
     }
 
     /// The service's data folder.
