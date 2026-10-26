@@ -9,7 +9,6 @@ use interprocess::local_socket::tokio::Listener;
 use crate::posix::socket::listener::bind_socket_listener;
 use crate::posix::socket::path::check_socket_path;
 use crate::run_folder::askpass_socket_path;
-use crate::socket::listener::ExistingSocket;
 
 /// Binds the askpass program's listener at [`askpass_socket_path`] in `folder` and returns it with
 /// the socket's path, which git's askpass program is given. Runs inside a tokio runtime. Fails
@@ -22,6 +21,6 @@ pub fn askpass_listener(folder: &Path) -> io::Result<(Listener, PathBuf)> {
         .map_err(|refusal| io::Error::new(ErrorKind::InvalidInput, refusal))?;
     // One run folder can serve two data folders (one runtime folder per account on Linux), so a
     // file already there may be another daemon's; the start removed one nobody answers on.
-    let listener = bind_socket_listener(&socket_path, ExistingSocket::Refuse)?;
+    let listener = bind_socket_listener(&socket_path)?;
     Ok((listener, socket_path))
 }

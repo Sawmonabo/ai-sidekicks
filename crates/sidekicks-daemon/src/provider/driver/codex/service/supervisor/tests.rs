@@ -8,7 +8,7 @@ use rstest::rstest;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_platforms::{ExistingSocket, bind_socket_listener};
+use sidekicks_platforms::bind_socket_listener;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -134,7 +134,7 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
     // Under `/tmp`, so the socket's path fits the system's limit.
     let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
     let socket = folder.path().join("s.sock");
-    let listener = match bind_socket_listener(&socket, ExistingSocket::Refuse) {
+    let listener = match bind_socket_listener(&socket) {
         Ok(listener) => listener,
         Err(error) if error.kind() == std::io::ErrorKind::Unsupported => return,
         Err(error) => panic!("the test's socket does not listen: {error}"),

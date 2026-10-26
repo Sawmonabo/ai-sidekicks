@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use interprocess::local_socket::traits::tokio::Listener as _;
 use sidekicks_platforms::{
-    CAN_LINK_A_SOCKET, ExistingSocket, bind_socket_listener, read_socket_link, replace_socket_link,
+    CAN_LINK_A_SOCKET, bind_socket_listener, read_socket_link, replace_socket_link,
 };
 
 use super::stand_in::{
@@ -99,8 +99,8 @@ async fn a_restart_joins_an_unrecorded_service_on_the_link_and_drains_the_record
     let is_second_gone = wait_until_gone(second_process).await;
     let home_socket = home_socket_path(&services.home.codex_home);
     let unrecorded_socket = services.home.codex_home.join("unrecorded.sock");
-    let unrecorded = bind_socket_listener(&unrecorded_socket, ExistingSocket::Refuse)
-        .expect("the unrecorded listener listens");
+    let unrecorded =
+        bind_socket_listener(&unrecorded_socket).expect("the unrecorded listener listens");
     let answering = tokio::spawn(async move {
         while let Ok(stream) = unrecorded.accept().await {
             tokio::spawn(answer_as_codex_service(stream));

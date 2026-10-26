@@ -12,7 +12,7 @@ use std::time::Duration;
 use interprocess::local_socket::tokio::{Listener, Stream};
 use interprocess::local_socket::traits::tokio::Listener as _;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_platforms::{ExistingSocket, PinnedProcess, bind_socket_listener};
+use sidekicks_platforms::{PinnedProcess, bind_socket_listener};
 use tokio::task::{JoinError, JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 
@@ -100,8 +100,7 @@ impl LocalGateway {
         caller_process_reader: Arc<dyn CallerProcessReader>,
         secure_defaults: &SecureDefaults,
     ) -> io::Result<Self> {
-        let listener =
-            bind_socket_listener(secure_defaults.local_ipc_path(), ExistingSocket::Refuse)?;
+        let listener = bind_socket_listener(secure_defaults.local_ipc_path())?;
         let stop = CancellationToken::new();
         let accepting = tokio::spawn(accept_connections(
             listener,
