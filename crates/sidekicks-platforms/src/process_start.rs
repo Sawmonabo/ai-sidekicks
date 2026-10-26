@@ -17,7 +17,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use crate::{list_user_process_ids, read_process_start};
+    use crate::{harness_test_name, list_user_process_ids, read_process_start};
 
     // The marker the child carries, and the value it carries it with.
     const PROBE_NAME: &str = "SIDEKICKS_PROBE";
@@ -40,12 +40,12 @@ mod tests {
             return;
         }
         let program = std::env::current_exe().expect("the test program is known");
-        let test_name = module_path!()
-            .split_once("::")
-            .map_or(module_path!(), |(_, path)| path);
         let arguments = [
             "--exact".to_owned(),
-            format!("{test_name}::process_start_reads_a_child_s_arguments_environment_and_id"),
+            harness_test_name(
+                module_path!(),
+                "process_start_reads_a_child_s_arguments_environment_and_id",
+            ),
             "--nocapture".to_owned(),
         ];
         let mut child = Command::new(&program)

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use hpke::Kem as _;
-use sidekicks_platforms::pin_running_process;
+use sidekicks_platforms::{harness_test_name, pin_running_process};
 
 use super::{
     AdmittedParty, ChannelKem, ChannelPrivateKey, ChannelPublicKey, CommandChannel, Direction,
@@ -13,7 +13,6 @@ use super::{
     record_context, record_name, seal, write_record,
 };
 use crate::ipc::caller_process::system_reader::ProcessTableReader;
-use crate::provider::command::harness_test_name;
 
 /// The process a test starts as a party: it prints `ready <its id>`, starts a party of its own
 /// under it where `NESTED_KEY_VARIABLE` names that party's key, and waits for its input to end.

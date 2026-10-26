@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sidekicks_platforms::{
-    LeftoverSweep, TerminalSignal, create_file_atomically, name_program, pin_running_process,
-    read_child_exit, send_signal,
+    LeftoverSweep, TerminalSignal, create_file_atomically, harness_test_name, name_program,
+    pin_running_process, read_child_exit, send_signal,
 };
 
 use super::{COMMAND_PROVIDER_VARIABLE, run_command_wrapper_with};
@@ -15,7 +15,6 @@ use crate::ipc::caller_process::system_reader::ProcessTableReader;
 use crate::provider::command::channel::{
     CommandChannel, DaemonRequest, PartyRecord, ReceivedRecord,
 };
-use crate::provider::command::harness_test_name;
 use crate::provider::driver::PROVIDERS;
 
 /// The variable a started wrapper reads its own arguments from, joined by the unit separator.

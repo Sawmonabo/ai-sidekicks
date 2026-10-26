@@ -386,7 +386,7 @@ pub use terminal::{
     TerminalSignalRoute, TerminalWake, TerminalWaker,
 };
 #[cfg(any(test, feature = "test-support"))]
-pub use test_program::pass_through_start;
+pub use test_program::{harness_test_name, pass_through_start};
 pub use tool_memory_cap::TOOL_MEMORY_CAP_ENFORCEABLE;
 #[cfg(not(target_os = "linux"))]
 pub use user_namespace::can_create_user_namespace;

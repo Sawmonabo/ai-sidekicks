@@ -19,6 +19,7 @@ use nix::unistd::{Pid, dup, isatty, pipe, tcgetpgrp};
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 
+use crate::posix::ctrl_c::end_by_default_action;
 use crate::posix::process::group::{signal_group, signal_group_once};
 use crate::posix::terminal::posix_signal;
 use crate::terminal::TerminalSignal;
@@ -120,10 +121,7 @@ pub fn stop_signal_number(signal: TerminalSignal) -> Option<i32> {
 /// Ends this process by `signal`'s default action, as a process that took it with no handler
 /// ends. Returns only when the action could not be taken, with the system's error.
 pub fn end_by_stop_signal(signal: TerminalSignal) -> io::Error {
-    match signal_hook::low_level::emulate_default_handler(posix_signal(signal) as i32) {
-        Ok(()) => io::Error::other("the signal's default action left the process running"),
-        Err(error) => error,
-    }
+    end_by_default_action(posix_signal(signal) as i32)
 }
 
 /// Ends this process the way its child whose exit is `status` ended: a signal's end raised again
@@ -132,10 +130,10 @@ pub fn end_by_stop_signal(signal: TerminalSignal) -> io::Error {
 /// and the signal's number, as a shell reads it.
 pub fn end_as_child_ended(status: ExitStatus) -> (ExitCode, Option<io::Error>) {
     if let Some(number) = status.signal() {
-        let failure = signal_hook::low_level::emulate_default_handler(number).err();
+        let failure = end_by_default_action(number);
         return (
             ExitCode::from(u8::try_from(128 + number).unwrap_or(u8::MAX)),
-            failure,
+            Some(failure),
         );
     }
     let code = status
