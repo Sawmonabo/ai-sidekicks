@@ -13,14 +13,8 @@ use tokio::time::{sleep, timeout};
 
 use super::{DriverCalls, Fixture, HELD_WATCH, WAIT, fixture, recording_driver};
 use crate::provider::driver::test_registry::bind_run_to_first_provider;
-use crate::queue::delivery::ProviderProcessIdentity;
+use crate::queue::delivery::TEST_PROVIDER_PROCESS;
 use crate::queue::store::RecordedQueueItemState;
-
-/// The session's provider process while it runs.
-const LIVE_PROCESS: ProviderProcessIdentity = ProviderProcessIdentity {
-    process_id: 7,
-    spawn_sequence: 1,
-};
 
 /// How the session's lead runs stand when one of them ends with a message waiting.
 #[derive(Clone, Copy, Debug)]
@@ -129,7 +123,7 @@ async fn a_message_a_gone_process_kept_moves_on_once_a_driver_tells_of_it() {
     let calls = Arc::new(DriverCalls::default());
     calls.is_kept_by_process.store(true, Ordering::SeqCst);
     let fixture = fixture(recording_driver(&calls)).await;
-    fixture.process.set(Some(LIVE_PROCESS));
+    fixture.process.set(Some(TEST_PROVIDER_PROCESS));
     let run_id = fixture.insert_run("running");
     bind_run_to_first_provider(&fixture.database, run_id);
     let item_id = fixture.queue_message(run_id).await;

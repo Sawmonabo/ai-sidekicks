@@ -50,7 +50,7 @@ use crate::provider::driver::session_control::ProviderSessionHandle;
 use crate::provider::driver::test_registry::{new_run_id, registry_of_first_provider};
 use crate::provider::runtime_binding::store::RuntimeBindingStore;
 use crate::queue::changes::QueueChangeSignals;
-use crate::queue::delivery::{ProviderProcessIdentity, ProviderProcessIds};
+use crate::queue::delivery::{ProcessStandIn, ProviderProcessIds};
 use crate::queue::error::QueueError;
 use crate::queue::provider_session::test_opening::{
     record_first_provider_capabilities, test_opening_composer,
@@ -75,23 +75,6 @@ const WAIT: Duration = Duration::from_secs(5);
 
 /// How long a call held behind other work is watched to show it waits.
 const HELD_WATCH: Duration = Duration::from_millis(200);
-
-/// The session's provider process, as the test sets it; none runs until a test sets one.
-#[derive(Default)]
-struct ProcessStandIn(Mutex<Option<ProviderProcessIdentity>>);
-
-impl ProcessStandIn {
-    /// Makes `process` the session's provider process; `None` when none runs.
-    fn set(&self, process: Option<ProviderProcessIdentity>) {
-        *lock(&self.0) = process;
-    }
-}
-
-impl ProviderProcessIds for ProcessStandIn {
-    fn process_identity(&self, _session_id: &SessionId) -> Option<ProviderProcessIdentity> {
-        *lock(&self.0)
-    }
-}
 
 /// What the stand-in driver was asked, in order, and how it answers.
 #[derive(Default)]
