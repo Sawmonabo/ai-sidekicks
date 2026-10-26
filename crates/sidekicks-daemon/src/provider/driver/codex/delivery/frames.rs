@@ -56,8 +56,8 @@ pub(crate) trait CodexFrameEffects: Send + Sync {
         ask_kind: CodexAskKind,
     );
 
-    /// Drops the corrections waiting on a turn that ended.
-    fn forget_turn_corrections(&self, session_id: SessionId, turn_id: &str);
+    /// Drops the corrections and lets go of the questions waiting on a turn that ended.
+    fn forget_turn_asks(&self, session_id: SessionId, turn_id: &str);
 
     /// Cuts a turn too long for the model's window out of the conversation `thread_id`.
     fn cut_oversized_turn(&self, session_id: SessionId, thread_id: &str, turn_id: &str);

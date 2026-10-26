@@ -329,7 +329,7 @@ impl CodexAskHandOff {
 
     /// Drops the corrections an ended turn's asks could have carried out, which no later turn may,
     /// and the questions it had pending, which Codex let go of with it, each one's take told so.
-    pub(crate) fn forget_turn_corrections(&self, session_id: SessionId, turn_id: &str) {
+    pub(crate) fn forget_turn_asks(&self, session_id: SessionId, turn_id: &str) {
         let mut state = lock(&self.state);
         remove_nested(&mut state.corrections, session_id, turn_id);
         let Some(pending) = state.pending_questions.get_mut(&session_id) else {

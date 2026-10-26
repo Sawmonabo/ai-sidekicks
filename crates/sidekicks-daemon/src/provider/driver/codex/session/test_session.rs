@@ -794,7 +794,7 @@ impl CodexFrameEffects for NoEffects {
     ) {
     }
 
-    fn forget_turn_corrections(&self, _session_id: SessionId, _turn_id: &str) {}
+    fn forget_turn_asks(&self, _session_id: SessionId, _turn_id: &str) {}
 
     fn cut_oversized_turn(&self, _session_id: SessionId, _thread_id: &str, _turn_id: &str) {}
 
