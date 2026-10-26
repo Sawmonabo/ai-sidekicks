@@ -6,6 +6,7 @@ use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{self, ErrorKind};
 use std::process::{Command, ExitCode, ExitStatus};
+use std::time::Duration;
 
 use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::tty::Pty;
@@ -112,7 +113,7 @@ pub fn has_unread_output(_pty: &Pty) -> io::Result<bool> {
 }
 
 /// Waits for no child. Always fails with `Unsupported`.
-pub fn wait_for_exit_unreaped(_process_id: u32) -> io::Result<()> {
+pub fn wait_for_exit(_pid: u32, _bound: Option<Duration>) -> io::Result<bool> {
     Err(unwrapped())
 }
 

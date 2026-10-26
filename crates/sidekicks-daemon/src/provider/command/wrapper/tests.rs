@@ -13,7 +13,7 @@ use sidekicks_platforms::{
 use super::{COMMAND_PROVIDER_VARIABLE, run_command_wrapper_with};
 use crate::ipc::caller_process::system_reader::ProcessTableReader;
 use crate::provider::command::channel::{
-    CommandChannel, DaemonRequest, PartyRecord, ReceivedRecord,
+    CommandChannel, DaemonRequest, PartyId, PartyRecord, ReceivedRecord,
 };
 use crate::provider::driver::PROVIDERS;
 
@@ -172,6 +172,50 @@ fn ended_by(child: &mut Child) -> Option<String> {
     read_child_exit(&child.wait().expect("the wrapper ends"), None).signal_name
 }
 
+/// The party whose `Starting` comes next on `channel`.
+async fn starting_party(
+    channel: &CommandChannel,
+    watch: &mut sidekicks_platforms::FolderArrivalWatch,
+) -> PartyId {
+    loop {
+        let records = next_records(channel, watch).await;
+        if let Some(starting) = records
+            .iter()
+            .find(|received| matches!(received.record, PartyRecord::Starting { .. }))
+        {
+            return starting.party;
+        }
+    }
+}
+
+/// Sends `party` the daemon's stop and fails unless its `Stopped` comes before its `Exited`.
+async fn stop_in_order(
+    channel: &CommandChannel,
+    watch: &mut sidekicks_platforms::FolderArrivalWatch,
+    party: PartyId,
+) {
+    channel
+        .send_request(party, &DaemonRequest::Stop {})
+        .await
+        .expect("the stop is sent");
+    let mut told = Vec::new();
+    while !told
+        .iter()
+        .any(|record| matches!(record, PartyRecord::Exited { .. }))
+    {
+        told.extend(
+            next_records(channel, watch)
+                .await
+                .into_iter()
+                .map(|received| received.record)
+                .filter(|record| {
+                    matches!(record, PartyRecord::Stopped {} | PartyRecord::Exited { .. })
+                }),
+        );
+    }
+    assert_eq!(told.first(), Some(&PartyRecord::Stopped {}));
+}
+
 // Fails when a line that is no agent's command writes a record or waits for `go`, when an agent's
 // Bash line is not told to the daemon, or when the command runs with `SIGPIPE` ignored, which
 // makes `yes` report a broken pipe.
@@ -275,37 +319,10 @@ async fn a_terminal_command_takes_ctrl_c_the_interrupt_and_a_stop_past_an_ignore
     );
     with_channel(&mut command, &channel);
     let mut child = command.spawn().expect("the wrapper starts");
-    let party = loop {
-        let records = next_records(&channel, &mut watch).await;
-        if let Some(starting) = records
-            .iter()
-            .find(|received| matches!(received.record, PartyRecord::Starting { .. }))
-        {
-            break starting.party;
-        }
-    };
+    let party = starting_party(&channel, &mut watch).await;
     let _output = read_until(&mut child, "ready");
     send_signal(child.id(), TerminalSignal::Hangup).expect("the hangup is sent");
-    channel
-        .send_request(party, &DaemonRequest::Stop {})
-        .await
-        .expect("the stop is sent");
-    let mut told = Vec::new();
-    while !told
-        .iter()
-        .any(|record| matches!(record, PartyRecord::Exited { .. }))
-    {
-        told.extend(
-            next_records(&channel, &mut watch)
-                .await
-                .into_iter()
-                .map(|received| received.record)
-                .filter(|record| {
-                    matches!(record, PartyRecord::Stopped {} | PartyRecord::Exited { .. })
-                }),
-        );
-    }
-    assert_eq!(told.first(), Some(&PartyRecord::Stopped {}));
+    stop_in_order(&channel, &mut watch, party).await;
     assert_eq!(ended_by(&mut child).as_deref(), Some("SIGKILL"));
 }
 
@@ -335,15 +352,7 @@ async fn a_relayed_command_takes_one_interrupt_and_a_stop_ends_its_whole_group()
     );
     with_channel(&mut command, &channel);
     let mut child = command.spawn().expect("the wrapper starts");
-    let party = loop {
-        let records = next_records(&channel, &mut watch).await;
-        if let Some(starting) = records
-            .iter()
-            .find(|received| matches!(received.record, PartyRecord::Starting { .. }))
-        {
-            break starting.party;
-        }
-    };
+    let party = starting_party(&channel, &mut watch).await;
     let mut lines = BufReader::new(child.stdout.take().expect("its output")).lines();
     let mut background = None;
     let mut next_line = || {
@@ -364,26 +373,7 @@ async fn a_relayed_command_takes_one_interrupt_and_a_stop_ends_its_whole_group()
     let background = background.expect("the background process is named");
     send_signal(child.id(), TerminalSignal::Interrupt).expect("the interrupt is sent");
     while next_line() != "interrupted" {}
-    channel
-        .send_request(party, &DaemonRequest::Stop {})
-        .await
-        .expect("the stop is sent");
-    let mut told = Vec::new();
-    while !told
-        .iter()
-        .any(|record| matches!(record, PartyRecord::Exited { .. }))
-    {
-        told.extend(
-            next_records(&channel, &mut watch)
-                .await
-                .into_iter()
-                .map(|received| received.record)
-                .filter(|record| {
-                    matches!(record, PartyRecord::Stopped {} | PartyRecord::Exited { .. })
-                }),
-        );
-    }
-    assert_eq!(told.first(), Some(&PartyRecord::Stopped {}));
+    stop_in_order(&channel, &mut watch, party).await;
     assert_eq!(ended_by(&mut child).as_deref(), Some("SIGKILL"));
     tokio::time::timeout(Duration::from_secs(5), async {
         while pin_running_process(background)
@@ -398,6 +388,38 @@ async fn a_relayed_command_takes_one_interrupt_and_a_stop_ends_its_whole_group()
     // The output ends once the background process, which holds it open, has ended.
     let rest: Vec<String> = lines.map(|line| line.expect("a line reads")).collect();
     assert!(!rest.iter().any(|line| line == "interrupted"), "{rest:?}");
+}
+
+// Fails when a command that stops itself reads as ended, in a terminal of its own or outside one:
+// its stop signals are then dropped and the daemon's stop does nothing, so the wrapper waits on it
+// for good. The command stops itself right after its `ready`, while the daemon's stop still
+// crosses the channel's folder. A typed Ctrl+Z cannot stand in for it here: the terminal's
+// command leads a group whose parent is outside its session, where a typed stop is dropped.
+// Mutation: the platforms crate's `wait_for_exit` with no bound as one blocking `waitid`.
+#[tokio::test]
+async fn a_command_that_stopped_itself_still_takes_the_daemon_s_stop() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let stand_in = write_stand_in(folder.path());
+    let channel = open_channel(folder.path());
+    let mut watch = channel.watch().await.expect("the channel is watched");
+    for is_tty in [false, true] {
+        let mut own = vec!["--conversation", "conversation", "--process", "process-1"];
+        if is_tty {
+            own.push("--tty");
+        }
+        own.extend(["--", "/bin/sh", "-c", "echo ready; kill -STOP $$; sleep 30"]);
+        let mut command = wrapper(&own, is_tty.then_some(stand_in.as_path()));
+        with_channel(&mut command, &channel);
+        let mut child = command.spawn().expect("the wrapper starts");
+        let party = starting_party(&channel, &mut watch).await;
+        let _output = read_until(&mut child, "ready");
+        stop_in_order(&channel, &mut watch, party).await;
+        assert_eq!(
+            ended_by(&mut child).as_deref(),
+            Some("SIGKILL"),
+            "with a terminal: {is_tty}"
+        );
+    }
 }
 
 // Fails when a terminal command's last output is cut off because the wrapper stops waiting while

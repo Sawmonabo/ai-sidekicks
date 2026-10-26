@@ -799,3 +799,49 @@ fn shell_script(script: &str) -> TestProgram {
         arguments: vec!["-c".to_owned(), script.to_owned()],
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
+
+    use super::{RELEASE_HANGUP_GRACE, release_terminal, terminal_options};
+    use crate::posix::process::exit::wait_for_stop;
+    use crate::posix::terminal::inner::{
+        TEST_WINDOW_SIZE, end_inner_terminal, read_until_marker, start_inner_terminal,
+    };
+
+    // Fails when a program stopped as its terminal is released reads as exited, so it is never
+    // killed and the PTY's drop waits on it for good. It ignores the hangup, which macOS otherwise
+    // lets end a stopped session leader. Mutation: `is_exit` answering true for any code but 0.
+    #[test]
+    fn a_stopped_program_is_killed_within_the_release_s_grace() {
+        let options = terminal_options(
+            "/bin/sh".to_owned(),
+            vec![
+                "-c".to_owned(),
+                "trap '' HUP; echo ready; kill -STOP $$; sleep 30".to_owned(),
+            ],
+            None,
+            HashMap::new(),
+        );
+        let terminal =
+            start_inner_terminal(&options, TEST_WINDOW_SIZE).expect("the terminal starts");
+        let process_id = terminal.pty.child().id();
+        if let Err(output) = read_until_marker(&terminal.pty, "ready", Duration::from_secs(20)) {
+            end_inner_terminal(terminal);
+            panic!("the program did not print ready: {output}");
+        }
+        wait_for_stop(process_id).expect("the program stops");
+        let (released, was_released) = mpsc::channel();
+        thread::spawn(move || {
+            release_terminal(terminal.pty, || {});
+            released.send(()).expect("the test waits for the release");
+        });
+        was_released
+            .recv_timeout(RELEASE_HANGUP_GRACE + Duration::from_secs(5))
+            .expect("the release ends within its grace");
+    }
+}

@@ -15,7 +15,7 @@ use alacritty_terminal::tty::Pty;
 use sidekicks_platforms::{
     InnerTerminal, RawStandardInput, blocking_terminal_master, end_terminal_session,
     has_unread_output, pass_on_stop_signals, read_standard_input_window_size, read_terminal_master,
-    signal_foreground_group, start_inner_terminal, terminal_options, wait_for_exit_unreaped,
+    signal_foreground_group, start_inner_terminal, terminal_options, wait_for_exit,
     wait_for_terminal_command,
 };
 
@@ -158,10 +158,10 @@ pub(super) fn run_in_terminal(
         );
     }
     // The command stays unreaped until its state reads reaped, so no stop reaches a reused id.
-    let exited = wait_for_exit_unreaped(pty.child().id());
+    let exited = wait_for_exit(pty.child().id(), None);
     let mut state = lock_state(state);
     *state = CommandState::Reaped;
-    let status = exited.and_then(|()| wait_for_terminal_command(&pty));
+    let status = exited.and_then(|_| wait_for_terminal_command(&pty));
     // The output a command printed just before it exited is still on its way to the provider.
     wait_for_last_output(&pty, &output_ended, &tail, records);
     if let Some(raw_input) = raw_input
