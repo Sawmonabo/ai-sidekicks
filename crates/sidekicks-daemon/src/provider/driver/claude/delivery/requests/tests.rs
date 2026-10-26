@@ -173,3 +173,35 @@ async fn a_question_withdrawn_before_its_record_landed_is_withdrawn_once_it_land
     assert_eq!(card.taken().len(), 1, "the record landed");
     card.wait_until_none_open().await;
 }
+
+// A question whose take fails after its record landed is withdrawn by its request id, so no record
+// is left with no take to open it. Killed by leaving out the withdrawal on a failed take.
+#[tokio::test(start_paused = true)]
+async fn a_question_whose_take_failed_is_withdrawn() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    let card = Arc::new(QuestionCard::default());
+    card.lose_record_answers();
+    let port: Arc<dyn QuestionPort> = card.clone();
+    assert!(
+        session
+            .requests
+            .dependencies
+            .questions
+            .register(port)
+            .is_ok()
+    );
+    session.request(
+        "question",
+        &json!({
+            "subtype": "can_use_tool",
+            "tool_name": "AskUserQuestion",
+            "tool_use_id": "call-1",
+            "input": {"questions": [{"question": "Which name?", "header": "Name", "options": []}]},
+        }),
+    );
+    card.wait_until_withdrawals(1).await;
+
+    assert_eq!(card.taken().len(), 1, "the record landed");
+    card.wait_until_none_open().await;
+}

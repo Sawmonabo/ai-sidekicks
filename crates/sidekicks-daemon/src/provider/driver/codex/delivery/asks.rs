@@ -62,7 +62,7 @@ use crate::provider::port::permission_ask::{
 };
 use crate::provider::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort,
-    take_question_in_turn,
+    QuestionTurnError, take_question_in_turn,
 };
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::project_rule_folders::write_into_project_folders;
@@ -512,6 +512,10 @@ impl CodexAskHandOff {
             questions: read_codex_question_prompts(request.method, &Value::Object(params.clone())),
             is_agent_waiting: true,
         };
+        let withdrawal = ProviderQuestionWithdrawal {
+            session_id,
+            request_id: question.request_id.clone(),
+        };
         let tasks = self.dependencies.tasks.clone();
         // Asked while the run waits on something else, the question waits on the card for the
         // run; let go meanwhile, it is withdrawn.
@@ -528,6 +532,17 @@ impl CodexAskHandOff {
                 )
                 .await;
                 if let Err(error) = taken {
+                    // A failed take may leave its record waiting with no take left to open it.
+                    if let QuestionTurnError::Take(_) = error
+                        && let Err(withdrawal_error) = port.withdraw_question(withdrawal).await
+                    {
+                        report_owner_failure(
+                            provider_account_id.clone(),
+                            CodexDeliveryPort::Question,
+                            session_id,
+                            withdrawal_error,
+                        );
+                    }
                     report_owner_failure(
                         provider_account_id,
                         CodexDeliveryPort::Question,

@@ -1,8 +1,9 @@
 //! A questions card for tests: it takes one open question per run at a time, as a run waiting on
 //! one does, keeps the rest waiting for their run until it reads running again, and can hold back
-//! its record writes, its takes' outcomes and its withdrawals.
+//! its record writes, its takes' outcomes and its withdrawals, or lose its record writes' answers.
 
 use std::error::Error;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
@@ -39,6 +40,8 @@ pub(crate) struct QuestionCard {
     /// card, counted in `held_records`.
     record_gate: Mutex<Option<Arc<Semaphore>>>,
     held_records: Mutex<usize>,
+    /// Set by [`Self::lose_record_answers`].
+    is_record_answer_lost: AtomicBool,
     /// The request id of every withdrawal taken, in order.
     withdrawals: Mutex<Vec<String>>,
 }
@@ -178,6 +181,11 @@ impl QuestionCard {
         }
     }
 
+    /// Makes each later record write land on the card, then fail, as a write whose answer is lost.
+    pub(crate) fn lose_record_answers(&self) {
+        self.is_record_answer_lost.store(true, Ordering::SeqCst);
+    }
+
     /// Waits until `count` record writes wait at the gate of [`Self::hold_records`]; fails the
     /// test past 60 s.
     pub(crate) async fn wait_until_records_held(&self, count: usize) {
@@ -273,7 +281,11 @@ impl QuestionPort for QuestionCard {
                 let landed = gate.acquire().await;
                 assert!(landed.is_err(), "the gate only ever closes");
             }
-            self.record(question, answer, may_open).await
+            let recorded = self.record(question, answer, may_open).await;
+            if self.is_record_answer_lost.load(Ordering::SeqCst) {
+                return Err("the record's answer was lost".into());
+            }
+            recorded
         }
         .boxed()
     }
