@@ -1,8 +1,8 @@
 //! The repository services the daemon's start builds once: its git, the repository mounts, the
 //! chats' managed workspaces, the broker git's questions reach the person through, the watch over
 //! each working folder, the live sessions' folders and their projects' fetches, the branch lists,
-//! the worktrees, the turn snapshots and the mounts' health re-probe. Their background work begins once the start's
-//! recovery pass has settled the runs.
+//! the worktrees, the turn snapshots and the mounts' health re-probe. Their background work begins
+//! once the start's recovery pass has settled the runs.
 
 use std::error::Error;
 use std::io;
