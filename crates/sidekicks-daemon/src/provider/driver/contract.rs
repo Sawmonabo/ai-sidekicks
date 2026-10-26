@@ -533,6 +533,13 @@ pub(crate) trait ProviderDriver: Send + Sync {
     ) -> Result<u64, Box<dyn Error + Send + Sync>> {
         Ok(0)
     }
+
+    /// The logs in the daemon's `logs/` folder that the provider's services running now write,
+    /// which the diagnostic-log expiry never deletes; blocking. Empty for a provider that runs no
+    /// service writing one.
+    fn running_service_log_files(&self) -> Vec<PathBuf> {
+        Vec::new()
+    }
 }
 
 /// A follow of a session's live command list, ended when this drops.

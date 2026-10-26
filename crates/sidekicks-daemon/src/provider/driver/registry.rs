@@ -5,6 +5,7 @@
 //! is supported only when a recorded snapshot declares it. A steer is not gated here, since it is
 //! how the run queue delivers a held message.
 
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use serde_json::json;
@@ -174,6 +175,15 @@ impl ProviderRegistry {
         } else {
             Err(provider_capability_unsupported(provider, flag))
         }
+    }
+
+    /// The logs the registered providers' running services write, which the diagnostic-log expiry
+    /// never deletes; blocking.
+    pub(crate) fn running_service_log_files(&self) -> Vec<PathBuf> {
+        self.drivers
+            .iter()
+            .flat_map(|registered| registered.driver.running_service_log_files())
+            .collect()
     }
 
     /// Each registered provider with its driver, in the table's order.

@@ -1,7 +1,7 @@
 //! The Codex driver, over the one shared Codex app-server every session reaches by its socket.
 
 use std::error::Error;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -212,6 +212,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // Codex's log folder; the rows its service logs into the home's database the driver's own
     // expiry deletes.
     account_home_diagnostic_folders: &[&["log"]],
+    // Each thread's rollout, a spawned child thread's under its own id.
+    account_home_conversation_folders: &[&["sessions"]],
 };
 
 /// Builds the Codex driver over the shared services; it stores handles and does no I/O.
@@ -534,5 +536,9 @@ impl ProviderDriver for CodexDriver {
         cutoff: SystemTime,
     ) -> Result<u64, Box<dyn Error + Send + Sync>> {
         self.expire_account_home_diagnostics(home, cutoff)
+    }
+
+    fn running_service_log_files(&self) -> Vec<PathBuf> {
+        self.registry.running_service_log_files()
     }
 }

@@ -28,7 +28,7 @@ use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvi
 use crate::daemon::process::stop::DaemonStopFailure;
 use crate::daemon::process::{DAEMON_STOP_DRAIN_BOUND, DaemonProcess, DaemonStartError};
 use crate::daemon::release_version::this_build_release_version;
-use crate::daemon::service_log::open_service_log;
+use crate::daemon::service_log::{ServiceLogFiles, open_service_log};
 use crate::daemon::service_status::record_start_failure;
 use crate::error_description::describe_error;
 use crate::events::session::insert::monotonic_ns_now;
@@ -131,10 +131,11 @@ fn start_and_run() -> Result<ExitCode, ServiceStartError> {
         .install()
         .map_err(ServiceStartError::Log)?;
     install_panic_hook(&data_folder, log.file_writer());
-    let exit_code = run_daemon(home_folder, data_folder_lock).unwrap_or_else(|error| {
-        report_start_failure(&error);
-        ExitCode::FAILURE
-    });
+    let exit_code =
+        run_daemon(home_folder, data_folder_lock, log.files()).unwrap_or_else(|error| {
+            report_start_failure(&error);
+            ExitCode::FAILURE
+        });
     drop(log);
     Ok(exit_code)
 }
@@ -146,6 +147,7 @@ fn start_and_run() -> Result<ExitCode, ServiceStartError> {
 fn run_daemon(
     home_folder: PathBuf,
     data_folder_lock: DataFolderLock,
+    service_log_files: ServiceLogFiles,
 ) -> Result<ExitCode, ServiceStartError> {
     if let Err(error) = turn_off_transparent_huge_pages() {
         tracing::warn!(
@@ -199,6 +201,7 @@ fn run_daemon(
             caller_process_reader,
             stop,
             base_environment: ProviderBaseEnvironment::Capture,
+            service_log_files,
         })
         .await;
         let ran = match started {

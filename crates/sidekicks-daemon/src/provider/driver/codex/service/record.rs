@@ -138,6 +138,41 @@ fn home_record_folder(data_folder: &Path, codex_home: &Path) -> io::Result<PathB
     Ok(data_folder.join(RECORD_FOLDER_NAME).join(key))
 }
 
+/// The key of each Codex folder whose records' folder under `data_folder` holds a record, so a
+/// lasting service a daemon started may still run on it; none when no record was ever kept.
+/// Blocking. Fails with a folder's read error.
+pub(crate) fn recorded_home_keys(data_folder: &Path) -> io::Result<Vec<String>> {
+    let folders = match std::fs::read_dir(data_folder.join(RECORD_FOLDER_NAME)) {
+        Ok(folders) => folders,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    let mut keys = Vec::new();
+    for folder in folders {
+        let folder = folder?;
+        // A name that is not UTF-8 is no key the daemon wrote.
+        let (true, Ok(key)) = (
+            folder.file_type()?.is_dir(),
+            folder.file_name().into_string(),
+        ) else {
+            continue;
+        };
+        for entry in std::fs::read_dir(folder.path())? {
+            if is_record_file(&entry?.path()) {
+                keys.push(key);
+                break;
+            }
+        }
+    }
+    Ok(keys)
+}
+
+// Whether `path` names a record file.
+fn is_record_file(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| name.to_string_lossy().ends_with(RECORD_FILE_SUFFIX))
+}
+
 impl LockedServiceRecord {
     /// The record file the hold is on.
     pub(crate) fn file(&self) -> &LastingServiceRecordFile {
@@ -163,10 +198,7 @@ impl LockedServiceRecord {
         let mut others = Vec::new();
         for entry in std::fs::read_dir(folder)? {
             let path = entry?.path();
-            let is_record = path
-                .file_name()
-                .is_some_and(|name| name.to_string_lossy().ends_with(RECORD_FILE_SUFFIX));
-            if is_record && path != self.file.record {
+            if is_record_file(&path) && path != self.file.record {
                 others.push(Self {
                     file: LastingServiceRecordFile::at(path),
                     hold: Arc::clone(&self.hold),

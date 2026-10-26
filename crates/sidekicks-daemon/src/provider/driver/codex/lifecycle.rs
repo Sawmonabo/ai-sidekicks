@@ -107,7 +107,7 @@ pub(crate) struct CodexDriver {
     helper_roles_folder: PathBuf,
     is_terminal_reach_on: Arc<AtomicBool>,
     log_expiry: AccountHomeLogExpiry,
-    registry: Arc<CodexServiceRegistry>,
+    pub(super) registry: Arc<CodexServiceRegistry>,
     release: Arc<CodexConversationRelease>,
     slots: Arc<CodexSessionSlots>,
     run_routes: Arc<CodexRunRoutes>,
