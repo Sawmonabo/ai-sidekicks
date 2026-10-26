@@ -434,7 +434,7 @@ fn a_terminal_command_s_last_output_all_reaches_a_slow_provider_terminal() {
         if count == 0 {
             break;
         }
-        copied += piece[..count].iter().filter(|byte| **byte == b'z').count();
+        copied += memchr::memchr_iter(b'z', &piece[..count]).count();
         std::thread::sleep(Duration::from_millis(15));
     }
     assert!(child.wait().expect("the wrapper ends").success());

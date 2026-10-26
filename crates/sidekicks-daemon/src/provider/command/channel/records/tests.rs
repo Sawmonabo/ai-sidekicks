@@ -12,6 +12,7 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::BoundedInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_platforms::{InputTerminal, InputWaitReading};
 use tokio::sync::watch;
@@ -384,6 +385,6 @@ async fn a_wrapper_s_exit_written_just_before_its_end_settles_its_row() {
         .await
         .expect("the ending comes")
         .expect("the endings stay open");
-    assert_eq!(ending.exit_code.map(|code| code.get()), Some(3));
+    assert_eq!(ending.exit_code.map(BoundedInt::get), Some(3));
     follower.abort();
 }
