@@ -85,9 +85,10 @@ pub(crate) enum CrashMonitorEndFailure {
 
 /// Ends the daemon's work: the stop token, so the work under way ends; the socket, so no new call
 /// comes; then, within what is left of `bound`, the mutating calls under way, the capability
-/// refresh, the providers' registration, the repository services' background work, the scheduler,
-/// the working-folder watch, the askpass broker, the search index, the drivers and the git trees a
-/// failed call left. Answers each step's failure, every step having run.
+/// refresh, the providers' registration, the repository services' background work, the chats'
+/// write watch and file recount, the scheduler, the working-folder watch, the askpass broker, the
+/// search index, the drivers and the git trees a failed call left. Answers each step's failure,
+/// every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
     intent: DaemonStopIntent,
@@ -132,6 +133,17 @@ pub(crate) async fn stop_work(
     {
         failures.push(failure.into());
     }
+    if let Some(repo) = &process.repo
+        && let Err(error) = repo.workspaces.stop().await
+    {
+        failures.push(
+            TaskStopFailure {
+                task: "chats' file recount",
+                error,
+            }
+            .into(),
+        );
+    }
     // Before the drivers, since a job it runs may still call into them.
     if let Some(scheduler) = process.scheduler.take()
         && let Err(failure) = scheduler.stop().await
@@ -169,9 +181,9 @@ pub(crate) async fn stop_work(
 }
 
 /// Closes everything that holds a file in the data folder: lets the repository services go, then
-/// closes the database file within what is left of the drain bound, ends the crash monitor, waiting for its exit, and removes its socket
-/// from the run folder, then lets the data folder's lock go last. Answers each step's failure,
-/// every step having run.
+/// closes the database file within what is left of the drain bound, ends the crash monitor,
+/// waiting for its exit, and removes its socket from the run folder, then lets the data folder's
+/// lock go last. Answers each step's failure, every step having run.
 pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<DaemonStopFailure> {
     let mut failures = Vec::new();
     // Their pools and writer handles go before the file closes.

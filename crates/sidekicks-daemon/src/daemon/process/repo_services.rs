@@ -86,10 +86,6 @@ pub(crate) struct RepoServices {
     pub(crate) mounts: Arc<RepoMountService>,
     /// The chats' managed workspaces and the watch of their writes; the stop ends both through
     /// [`ManagedWorkspaceService::stop`].
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the session services and the daemon's stop")
-    )]
     pub(crate) workspaces: Arc<ManagedWorkspaceService>,
     /// The broker git's questions go through, `None` where the system has no private askpass
     /// socket, which leaves clones unavailable; the stop closes it.
