@@ -37,7 +37,8 @@ const FALLBACK_WINDOW: WindowSize = WindowSize {
     cell_height: 0,
 };
 
-/// How many of the command's last output bytes the wrapper keeps for its last line.
+/// How many of the command's last output bytes the wrapper keeps for its last line: 1 KiB, more
+/// than the last line of a terminal's screen holds, which is where a prompt sits.
 const OUTPUT_TAIL_BYTES: usize = 1024;
 
 /// How often the wrapper looks, once the terminal's command exited, whether the master still holds
