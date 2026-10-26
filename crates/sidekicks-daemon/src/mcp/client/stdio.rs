@@ -8,7 +8,6 @@
 //! - It closes as the protocol asks: its input closed, 2 s, `SIGTERM` to its group, 2 s, then a
 //!   kill of the group; a connection dropped unclosed kills it at once.
 
-use std::borrow::Cow;
 use std::error::Error;
 use std::io;
 use std::path::PathBuf;
@@ -38,6 +37,7 @@ use crate::provider::spawn_environment::{
     ProviderEnvironmentRequest, SpawnEnvironmentError, build_conversation_command_environment,
     remove_environment_names,
 };
+use crate::utf8_stream::Utf8StreamDecoder;
 
 /// How long a closed server may take to end after its input closed, and again after `SIGTERM`.
 const CLOSE_STEP_WAIT: Duration = Duration::from_secs(2);
@@ -330,16 +330,12 @@ fn log_error_output_line(server: &str, line: &[u8]) {
 }
 
 // A logged line as text: its `\r` dropped, a character the 4 KiB cut split at its end left out,
-// and any other invalid byte read as U+FFFD.
-fn error_output_line_text(line: &[u8]) -> Cow<'_, str> {
+// and each other invalid sequence read as U+FFFD.
+fn error_output_line_text(line: &[u8]) -> String {
     let line = line.strip_suffix(b"\r").unwrap_or(line);
-    match std::str::from_utf8(line) {
-        Ok(text) => Cow::Borrowed(text),
-        Err(error) if error.error_len().is_none() => {
-            String::from_utf8_lossy(&line[..error.valid_up_to()])
-        }
-        Err(_) => String::from_utf8_lossy(line),
-    }
+    let mut text = String::with_capacity(line.len());
+    Utf8StreamDecoder::default().push(line, |piece| text.push_str(piece));
+    text
 }
 
 #[cfg(test)]
@@ -347,6 +343,7 @@ mod tests {
     use std::process::Stdio;
     use std::time::{Duration, Instant};
 
+    use rstest::rstest;
     use serde_json::json;
     use sidekicks_contracts::run::control::ProcessExit;
     use sidekicks_platforms::{PathRules, Spawner, wrap_session_child_command};
@@ -478,14 +475,25 @@ mod tests {
     }
 
     // Mutation: in `error_output_line_text`, decode the cut line lossily as it stands, which ends
-    // it in U+FFFD.
-    #[test]
-    fn a_logged_line_cut_inside_a_character_leaves_the_character_out() {
-        let mut line = "a".repeat(LOGGED_LINE_MAX_BYTES - 1).into_bytes();
+    // it in U+FFFD, or call the decoder's `finish`, which does too.
+    #[rstest]
+    #[case::nothing_else_invalid(b"", "")]
+    // An invalid byte earlier in the line reads as U+FFFD and still leaves the cut character out.
+    #[case::an_invalid_byte_before_it(b"\xFF", "\u{FFFD}")]
+    fn a_logged_line_cut_inside_a_character_leaves_the_character_out(
+        #[case] start: &[u8],
+        #[case] expected_start: &str,
+    ) {
+        let mut line = start.to_vec();
+        line.resize(LOGGED_LINE_MAX_BYTES - 1, b'a');
         line.extend_from_slice("é".as_bytes());
 
         let text = error_output_line_text(&line[..LOGGED_LINE_MAX_BYTES]);
 
-        assert_eq!(text, "a".repeat(LOGGED_LINE_MAX_BYTES - 1));
+        let expected_a_count = LOGGED_LINE_MAX_BYTES - 1 - start.len();
+        assert_eq!(
+            text,
+            format!("{expected_start}{}", "a".repeat(expected_a_count))
+        );
     }
 }
