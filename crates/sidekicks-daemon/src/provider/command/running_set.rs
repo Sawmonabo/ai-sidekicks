@@ -289,7 +289,10 @@ impl RunningCommandSets {
                 return Ok(());
             };
             match row.state {
-                RowState::Stopping { .. } => Err(row.stop_answer.clone()),
+                RowState::Stopping { .. } => Err(row
+                    .stop_answer
+                    .clone()
+                    .expect("a stopping row holds its stop's answer")),
                 RowState::Foreground | RowState::Background => {
                     let was_foreground = row.state == RowState::Foreground;
                     let (answer, answered) = watch::channel(None);
@@ -337,23 +340,21 @@ impl RunningCommandSets {
 
     // A later stop of a command whose stop was sent: answered as that stop is, once it is.
     async fn answered_stop(
-        answered: Option<watch::Receiver<Option<StopAnswer>>>,
+        mut answered: watch::Receiver<Option<StopAnswer>>,
         command_id: &CommandId,
     ) -> Result<(), HandlerError> {
-        let Some(mut answered) = answered else {
-            return Ok(());
-        };
         let answer = answered
             .wait_for(Option::is_some)
             .await
-            .map(|answer| answer.clone());
+            .ok()
+            .and_then(|answer| answer.clone());
         match answer {
-            Ok(Some(Ok(()))) => Ok(()),
-            Ok(Some(Err((code, message)))) => Err(DomainError::new(message, code)
+            Some(Ok(())) => Ok(()),
+            Some(Err((code, message))) => Err(DomainError::new(message, code)
                 .with_detail(json!({ "commandId": command_id }))
                 .into()),
             // The first stop's caller went away before the provider answered.
-            Ok(None) | Err(_) => Err(DomainError::new(
+            None => Err(DomainError::new(
                 "The provider did not answer the stop.",
                 RefusalCode::ProviderUnavailable,
             )
