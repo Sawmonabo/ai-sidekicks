@@ -126,7 +126,7 @@ pub(crate) trait QuestionPort: Send + Sync {
     /// Waits, with no timer, until `run_id` reads running or has ended, or a question waiting for
     /// it settled; the caller reads again what it waits on. An error when the run has no row or
     /// its read fails.
-    fn wait_until_running(
+    fn wait_for_running_wake(
         &self,
         run_id: RunId,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
@@ -208,7 +208,7 @@ async fn take_in_turn(
             WaitingQuestionOpening::RunNotRunning => tokio::select! {
                 biased;
                 () = &mut asker_left => return Ok(QuestionTurnEnd::AskerLeft),
-                waited = port.wait_until_running(run_id) => waited?,
+                waited = port.wait_for_running_wake(run_id) => waited?,
             },
         }
     }

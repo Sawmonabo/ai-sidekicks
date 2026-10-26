@@ -476,13 +476,13 @@ impl QuestionPort for QuestionsService {
         .boxed()
     }
 
-    fn wait_until_running(
+    fn wait_for_running_wake(
         &self,
         run_id: RunId,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async move {
             self.engine
-                .wait_until_running(run_id)
+                .wait_for_running_wake(run_id)
                 .await
                 .map_err(Into::into)
         }

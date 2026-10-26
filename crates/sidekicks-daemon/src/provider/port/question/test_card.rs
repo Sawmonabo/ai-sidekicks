@@ -304,7 +304,7 @@ impl QuestionPort for QuestionCard {
         async move { Ok(opening) }.boxed()
     }
 
-    fn wait_until_running(
+    fn wait_for_running_wake(
         &self,
         run_id: RunId,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {

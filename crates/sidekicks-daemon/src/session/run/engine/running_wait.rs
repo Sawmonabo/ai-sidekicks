@@ -20,7 +20,7 @@ impl RunEngine {
     /// question waiting for it that settled; the caller reads again what it waits on. Fails with
     /// [`crate::session::run::refusals::RunRefusal::NotFound`] for a run with no row, and as the
     /// read fails.
-    pub(crate) async fn wait_until_running(&self, run_id: RunId) -> Result<(), RunEngineError> {
+    pub(crate) async fn wait_for_running_wake(&self, run_id: RunId) -> Result<(), RunEngineError> {
         let waiter = RunningWaiter::enter(&self.live, run_id);
         // Enabled before the read, so a write that lands between the read and the wait wakes it.
         let mut woken = pin!(waiter.wake.notified());
