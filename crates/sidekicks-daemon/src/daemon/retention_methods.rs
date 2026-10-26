@@ -452,7 +452,7 @@ mod tests {
                     &database,
                     &log,
                     home.path().to_path_buf(),
-                    Arc::new(|| async { Ok(Vec::new()) }.boxed()),
+                    Arc::new(|_meter| async { Ok(Vec::new()) }.boxed()),
                 ),
             },
         )
