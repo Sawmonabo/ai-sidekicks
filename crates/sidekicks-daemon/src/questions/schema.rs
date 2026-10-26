@@ -15,8 +15,7 @@ use crate::database::sql_list::sql_list_of_every;
 
 /// Where a question record stands, as the `questions.state` column holds it: waiting for its run
 /// to read running where it was asked while the run was not, then open until it is answered or
-/// canceled. Converts to the
-/// column's word and reads back from it.
+/// canceled. Converts to the column's word and reads back from it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, VariantArray, IntoStaticStr)]
 #[serde(rename_all = "camelCase")]
 #[strum(serialize_all = "camelCase")]
