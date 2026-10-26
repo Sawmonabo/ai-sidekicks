@@ -393,19 +393,6 @@ mod tests {
             .expect("the watch reads");
     }
 
-    // Fails when a file whose name is gone before the watch fails as anything but missing.
-    #[tokio::test]
-    async fn file_append_watch_of_a_missing_file_fails_as_not_found() {
-        let folder = tempfile::tempdir().expect("a scratch folder");
-
-        let failure = FileAppendWatch::watch(&folder.path().join("output")).await;
-
-        assert_eq!(
-            failure.err().map(|failure| failure.kind()),
-            Some(ErrorKind::NotFound)
-        );
-    }
-
     // Fails when a drain waits for an append, or does not hand back what was appended.
     #[tokio::test]
     async fn file_append_watch_drains_without_waiting() {

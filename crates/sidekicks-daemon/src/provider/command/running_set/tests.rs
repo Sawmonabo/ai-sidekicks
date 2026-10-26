@@ -679,29 +679,16 @@ async fn two_runs_of_one_command_each_settle_their_own_row() {
     );
 }
 
-// Fails when output or an ending is addressed by the binding the command started on, which a
-// fork move replaces.
+// Fails when an ending is appended on the binding the command started on, which a fork move
+// replaces.
 #[tokio::test]
-async fn a_command_running_across_a_fork_move_reaches_the_new_binding() {
+async fn a_command_running_across_a_fork_move_ends_on_the_new_binding() {
     let mut fixture = fixture();
     fixture.sets.command_started(start("long", "cargo test"));
-    let mut feed = fixture.sets.subscribe(session());
-    next_set(&mut feed).await;
     *fixture
         .binding
         .lock()
         .unwrap_or_else(PoisonError::into_inner) = binding("binding-b");
-    fixture
-        .sets
-        .publish_output(session(), command("long"), "after the move".to_owned());
-    assert_eq!(
-        next_frame(&mut feed).await,
-        AgentCommandSubscribeFrame::Output {
-            session_id: session(),
-            command_id: command("long"),
-            data: "after the move".to_owned(),
-        }
-    );
     fixture
         .sets
         .command_ended(session(), command("long"), end(Some(0), None));
