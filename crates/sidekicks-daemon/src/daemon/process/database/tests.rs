@@ -366,9 +366,8 @@ async fn damage_a_write_meets_in_the_stops_drain_ends_the_writer_and_is_recorded
 // A stop while the check still walks a file nothing vouches for ends the check and waits for its
 // connection to close before the writer closes, so the writer is the file's last connection and
 // leaves no log behind, and the writes the check held fail as closed while held; the file stays
-// unvouched. Killed by the follower returning at the stop without awaiting the check's answer (the
-// check's connection may outlive the writer's), and by the hold's sender dropped before the
-// writer's close (the held write fails as the writer's end instead, and the log stays).
+// unvouched. Killed by restoring the follower's early return that drops the hold's sender before
+// the writer's close: the held write then fails as the writer's end, not as closed while held.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stop_during_the_check_waits_for_it_and_closes_the_writer_last() {
     let harness = Harness::new();
