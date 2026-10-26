@@ -124,6 +124,11 @@ impl PromptAnswer {
             answer(text);
         }
     }
+
+    // Drops the answer unsent, for a prompt whose askpass has ended.
+    fn dismiss(mut self) {
+        self.0.take();
+    }
 }
 
 impl Drop for PromptAnswer {
@@ -207,6 +212,7 @@ struct WrapperExit {
 }
 
 struct OpenPrompt {
+    askpass: PartyId,
     text: NonEmptyText,
     is_masked: bool,
     answer: PromptAnswer,
@@ -517,24 +523,41 @@ impl RunningCommandSets {
         });
     }
 
-    /// Opens an askpass prompt on the wrapper `party`'s command, in its own words, masked when its
-    /// kind is; `answer` takes the person's answer, and answers empty for a wrapper the set holds
-    /// nothing of.
+    /// Opens the askpass `askpass`'s prompt on the wrapper `party`'s command, in its own words,
+    /// masked when its kind is; `answer` takes the person's answer, and answers empty for a wrapper
+    /// the set holds nothing of.
     pub(crate) fn prompt_opened(
         &self,
         session_id: SessionId,
         party: PartyId,
+        askpass: PartyId,
         text: NonEmptyText,
         is_masked: bool,
         answer: PromptAnswer,
     ) {
         self.update_wrapper(session_id, party, |facts| {
             facts.prompt = Some(OpenPrompt {
+                askpass,
                 text,
                 is_masked,
                 answer,
             });
             true
+        });
+    }
+
+    /// Closes the prompt the askpass `askpass` opened on the wrapper `party`'s command, unanswered,
+    /// once that askpass ended.
+    pub(crate) fn prompt_ended(&self, session_id: SessionId, party: PartyId, askpass: PartyId) {
+        self.update_wrapper(session_id, party, |facts| {
+            let is_its_prompt = facts
+                .prompt
+                .as_ref()
+                .is_some_and(|prompt| prompt.askpass == askpass);
+            if is_its_prompt && let Some(prompt) = facts.prompt.take() {
+                prompt.answer.dismiss();
+            }
+            is_its_prompt
         });
     }
 

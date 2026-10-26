@@ -496,6 +496,7 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     fixture.sets.prompt_opened(
         session(),
         7,
+        70,
         NonEmptyText::new("Password for 'https://me@example.com': ".to_owned()).expect("text"),
         true,
         PromptAnswer::new(move |text| {

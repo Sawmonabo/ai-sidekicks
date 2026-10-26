@@ -4,7 +4,8 @@
 //! checks, its exit settles the row's exit code, and an askpass's prompt opens on the row of the
 //! wrapper above it, answered empty at once where no wrapper is. A wrapper started under another is
 //! answered `go` and pairs with nothing. A wrapper is let go at its exit, or at its process's end
-//! where it died before saying so or is nested.
+//! where it died before saying so or is nested; an askpass at its process's end, which closes its
+//! prompt where no one answered it.
 
 use std::collections::HashMap;
 use std::io::{self, ErrorKind};
@@ -44,6 +45,14 @@ struct FollowedWrapper {
     following: u64,
 }
 
+/// What the daemon holds of one askpass while its prompt is open: the wrapper whose row shows it,
+/// where one does, and the wait for its process to end, which closes the prompt and forgets it.
+struct FollowedAskpass {
+    wrapper: Option<PartyId>,
+    process_end: Option<JoinHandle<()>>,
+    following: u64,
+}
+
 /// A followed party whose process ended: its id and which following of that id it was.
 type EndedParty = (PartyId, u64);
 
@@ -68,6 +77,7 @@ pub(crate) async fn follow_channel_records(
         set,
         waits,
         wrappers: HashMap::new(),
+        askpasses: HashMap::new(),
         process_ended,
         followings: 0,
     };
@@ -90,6 +100,12 @@ pub(crate) async fn follow_channel_records(
                     .is_some_and(|wrapper| wrapper.following == following)
                 {
                     follower.release(party).await;
+                } else if follower
+                    .askpasses
+                    .get(&party)
+                    .is_some_and(|askpass| askpass.following == following)
+                {
+                    follower.askpass_ended(party).await;
                 }
             }
         }
@@ -103,6 +119,7 @@ struct RecordFollower {
     set: Arc<RunningCommandSets>,
     waits: Arc<dyn InputWaitReader>,
     wrappers: HashMap<PartyId, FollowedWrapper>,
+    askpasses: HashMap<PartyId, FollowedAskpass>,
     /// Takes each followed party whose process ended, at most one entry per party followed.
     process_ended: mpsc::UnboundedSender<EndedParty>,
     /// How many parties were followed so far, which numbers each following.
@@ -188,17 +205,28 @@ impl RecordFollower {
             PartyRecord::Asking {} => {
                 let prompt = received.first_argument.and_then(NonEmptyText::new);
                 let channel = Arc::clone(&self.channel);
+                // The askpass is forgotten once its process ends, after it read its answer.
                 let answer = PromptAnswer::new(move |text| {
                     tokio::spawn(async move {
                         send_request(&channel, party, &DaemonRequest::Answer { text }).await;
-                        channel.forget_party(party).await;
                     });
                 });
                 // A prompt with no wrapper to show it on is answered empty as `answer` drops.
                 if let Some((wrapper, prompt)) = received.wrapper.zip(prompt) {
                     let is_masked = is_masked_prompt(prompt.as_str());
                     self.set
-                        .prompt_opened(session_id, wrapper, prompt, is_masked, answer);
+                        .prompt_opened(session_id, wrapper, party, prompt, is_masked, answer);
+                }
+                let (following, process_end) = self.watch_process_end(party);
+                let followed = FollowedAskpass {
+                    wrapper: received.wrapper,
+                    process_end,
+                    following,
+                };
+                if let Some(earlier) = self.askpasses.insert(party, followed)
+                    && let Some(process_end) = earlier.process_end
+                {
+                    process_end.abort();
                 }
             }
         }
@@ -224,6 +252,17 @@ impl RecordFollower {
             }
         });
         (following, Some(process_end))
+    }
+
+    // Lets the askpass `party` go once its process ended: its prompt, which no one can answer any
+    // more, closed, and its place on the channel forgotten.
+    async fn askpass_ended(&mut self, party: PartyId) {
+        if let Some(askpass) = self.askpasses.remove(&party)
+            && let Some(wrapper) = askpass.wrapper
+        {
+            self.set.prompt_ended(self.session_id, wrapper, party);
+        }
+        self.channel.forget_party(party).await;
     }
 
     // Lets the wrapper `party` go: its output read to the end, its checks stopped, its row's

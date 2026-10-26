@@ -449,7 +449,7 @@ impl CommandChannel {
         .map_err(io::Error::other)?
     }
 
-    /// Forgets `party`, which has ended or been answered, so its key and numbers are not held and
+    /// Forgets `party`, which has ended, so its key and numbers are not held and
     /// the requests it did not read are removed; a later record from its id is admitted afresh.
     /// A request that cannot be removed is logged.
     pub(crate) async fn forget_party(&self, party: PartyId) {
