@@ -320,8 +320,15 @@ impl QuestionsService {
             QuestionCanceledReason::Withdrawn
         };
         if state == Some(QuestionState::WaitingForRun) {
-            self.cancel_waiting_question(question_id, held.session_id, reason)
-                .await?;
+            let canceled = self
+                .cancel_waiting_question(question_id, held.session_id, reason)
+                .await;
+            // One its run's end canceled meanwhile stays as that end settled it.
+            if let Err(failure) = canceled
+                && self.read_state(question_id).await? == Some(QuestionState::WaitingForRun)
+            {
+                return Err(failure);
+            }
             self.forget_held_request(&question_id);
             return Ok(());
         }
