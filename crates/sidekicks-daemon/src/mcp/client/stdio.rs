@@ -8,6 +8,7 @@
 //! - It closes as the protocol asks: its input closed, 2 s, `SIGTERM` to its group, 2 s, then a
 //!   kill of the group; a connection dropped unclosed kills it at once.
 
+use std::borrow::Cow;
 use std::error::Error;
 use std::io;
 use std::path::PathBuf;
@@ -324,8 +325,21 @@ async fn read_error_output(
 }
 
 fn log_error_output_line(server: &str, line: &[u8]) {
-    let line = String::from_utf8_lossy(line.strip_suffix(b"\r").unwrap_or(line));
+    let line = error_output_line_text(line);
     tracing::info!(server, line = %line, "a tool server wrote to its error output");
+}
+
+// A logged line as text: its `\r` dropped, a character the 4 KiB cut split at its end left out,
+// and any other invalid byte read as U+FFFD.
+fn error_output_line_text(line: &[u8]) -> Cow<'_, str> {
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    match std::str::from_utf8(line) {
+        Ok(text) => Cow::Borrowed(text),
+        Err(error) if error.error_len().is_none() => {
+            String::from_utf8_lossy(&line[..error.valid_up_to()])
+        }
+        Err(_) => String::from_utf8_lossy(line),
+    }
 }
 
 #[cfg(test)]
@@ -339,7 +353,7 @@ mod tests {
     use tokio::io::AsyncReadExt as _;
     use tokio::process::Command;
 
-    use super::{McpStdioServer, StdioProcess};
+    use super::{LOGGED_LINE_MAX_BYTES, McpStdioServer, StdioProcess, error_output_line_text};
     use crate::mcp::client::connection::{McpConnectionError, McpServerConnection};
     use crate::mcp::client::test_server::{
         Reply, method_not_found, start_test_server, test_client, test_scope, v1_initialize_result,
@@ -461,5 +475,17 @@ mod tests {
             .expect("every holder of the output ended")
             .expect("the output reads");
         assert_eq!(said, "asked\n");
+    }
+
+    // Mutation: in `error_output_line_text`, decode the cut line lossily as it stands, which ends
+    // it in U+FFFD.
+    #[test]
+    fn a_logged_line_cut_inside_a_character_leaves_the_character_out() {
+        let mut line = "a".repeat(LOGGED_LINE_MAX_BYTES - 1).into_bytes();
+        line.extend_from_slice("é".as_bytes());
+
+        let text = error_output_line_text(&line[..LOGGED_LINE_MAX_BYTES]);
+
+        assert_eq!(text, "a".repeat(LOGGED_LINE_MAX_BYTES - 1));
     }
 }
