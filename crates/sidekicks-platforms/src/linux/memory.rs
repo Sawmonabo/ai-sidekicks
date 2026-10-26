@@ -7,7 +7,15 @@ use std::ffi::OsString;
 use std::io::{self, ErrorKind};
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
+#[cfg(any(test, feature = "test-support"))]
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(any(test, feature = "test-support"))]
+use std::sync::{Arc, OnceLock};
+#[cfg(any(test, feature = "test-support"))]
+use std::thread;
+#[cfg(any(test, feature = "test-support"))]
+use std::time::Duration;
 
 #[cfg(any(test, feature = "test-support"))]
 use crate::footprint::ProcessFootprint;
@@ -23,6 +31,15 @@ const MEMORY_INFO_PATH: &str = "/proc/meminfo";
 // This process's status, one `Name:   value` line each.
 #[cfg(any(test, feature = "test-support"))]
 const PROCESS_STATUS_PATH: &str = "/proc/self/status";
+
+// The status lines whose sum is the memory the process holds: its resident anonymous and shared
+// memory and its swapped-out pages, leaving out the resident pages of files it maps.
+#[cfg(any(test, feature = "test-support"))]
+const HELD_MEMORY_LINES: [&str; 3] = ["RssAnon:", "RssShmem:", "VmSwap:"];
+
+// How often the footprint's peak sampler reads the held bytes.
+#[cfg(any(test, feature = "test-support"))]
+const PEAK_SAMPLE_INTERVAL: Duration = Duration::from_millis(2);
 
 // Where the unified (version 2) hierarchy and the version 1 memory controller are mounted.
 const CGROUP2_ROOT: &[u8] = b"/sys/fs/cgroup";
@@ -43,6 +60,11 @@ const KIBIBYTE: u64 = 1024;
 // Set once a control group file failed to read for a reason other than its absence.
 static HAS_LOGGED_CGROUP_READ_FAILURE: AtomicBool = AtomicBool::new(false);
 
+// The most bytes the process has held since its first footprint reading, which the sampler and
+// each reading raise; the sampler's start error when it could not start.
+#[cfg(any(test, feature = "test-support"))]
+static PEAK_MARK: OnceLock<Result<Arc<AtomicU64>, Arc<io::Error>>> = OnceLock::new();
+
 /// The most memory process `process_id` has held since it started, in bytes, from `VmHWM` in its
 /// status file; `None` when no process has the id or it holds no memory of its own, as a process
 /// that exited and is not yet reaped and a kernel thread show no memory lines. Blocks on the
@@ -61,23 +83,25 @@ pub fn read_process_peak_bytes(process_id: u32) -> io::Result<Option<u64>> {
         .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "the peak passes the largest size"))
 }
 
-/// This process's footprint as Linux reports it, from one read of `/proc/self/status`: its
-/// approximate resident set now (`VmRSS`) and at its peak (`VmHWM`). Fails with `InvalidData`
-/// naming the line when either is missing, unparsable or past the largest size, and with the
-/// read's error otherwise.
+/// This process's footprint as Linux reports it: the memory the process itself holds now
+/// (`RssAnon`, `RssShmem` and `VmSwap` from one read of `/proc/self/status`, so its swapped-out
+/// pages count and the pages of files it maps do not), and the most it has held since the first
+/// reading in this process, which starts a thread sampling the same sum every 2 ms. Fails with
+/// `InvalidData` naming the line when one is missing, unparsable or past the largest size, or when
+/// the sum is; with the read's error otherwise; and with the thread's error when it cannot start.
 #[cfg(any(test, feature = "test-support"))]
 pub fn process_footprint() -> io::Result<ProcessFootprint> {
-    let status = std::fs::read(PROCESS_STATUS_PATH)?;
-    let bytes_on = |name: &str| {
-        status_kibibytes(&status, name.as_bytes())
-            .and_then(|kibibytes| kibibytes.checked_mul(KIBIBYTE))
-            .ok_or_else(|| {
-                io::Error::new(ErrorKind::InvalidData, format!("no readable `{name}` line"))
-            })
+    let current_bytes = held_bytes()?;
+    let peak_mark = match PEAK_MARK.get_or_init(start_peak_sampler) {
+        Ok(peak_mark) => peak_mark,
+        Err(error) => return Err(io::Error::new(error.kind(), Arc::clone(error))),
     };
+    let peak_bytes = peak_mark
+        .fetch_max(current_bytes, Ordering::Relaxed)
+        .max(current_bytes);
     Ok(ProcessFootprint {
-        current_bytes: bytes_on("VmRSS:")?,
-        peak_bytes: bytes_on("VmHWM:")?,
+        current_bytes,
+        peak_bytes,
         tool_line: "no footprint tool on Linux".to_string(),
     })
 }
@@ -294,4 +318,47 @@ fn kibibytes_after(line: &[u8], name: &[u8]) -> Option<u64> {
         return None;
     }
     std::str::from_utf8(digits).ok()?.parse().ok()
+}
+
+// Starts the thread that raises the mark, from 0, to the held bytes every `PEAK_SAMPLE_INTERVAL`.
+// A read failure ends the thread, as the next reading reports it itself.
+#[cfg(any(test, feature = "test-support"))]
+fn start_peak_sampler() -> Result<Arc<AtomicU64>, Arc<io::Error>> {
+    let peak_mark = Arc::new(AtomicU64::new(0));
+    let sampled_mark = Arc::clone(&peak_mark);
+    thread::Builder::new()
+        .name("footprint-peak-sampler".to_owned())
+        .spawn(move || {
+            while let Ok(bytes) = held_bytes() {
+                sampled_mark.fetch_max(bytes, Ordering::Relaxed);
+                thread::sleep(PEAK_SAMPLE_INTERVAL);
+            }
+        })
+        .map_err(Arc::new)?;
+    Ok(peak_mark)
+}
+
+// The bytes this process holds: the sum of its `HELD_MEMORY_LINES` in `/proc/self/status`.
+#[cfg(any(test, feature = "test-support"))]
+fn held_bytes() -> io::Result<u64> {
+    let status = std::fs::read(PROCESS_STATUS_PATH)?;
+    HELD_MEMORY_LINES.iter().try_fold(0_u64, |sum, name| {
+        let bytes = status_kibibytes(&status, name.as_bytes())
+            .ok_or_else(|| {
+                io::Error::new(ErrorKind::InvalidData, format!("no readable `{name}` line"))
+            })?
+            .checked_mul(KIBIBYTE)
+            .ok_or_else(|| {
+                io::Error::new(
+                    ErrorKind::InvalidData,
+                    format!("`{name}` passes the largest size"),
+                )
+            })?;
+        sum.checked_add(bytes).ok_or_else(|| {
+            io::Error::new(
+                ErrorKind::InvalidData,
+                "the footprint passes the largest size",
+            )
+        })
+    })
 }
