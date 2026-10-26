@@ -50,8 +50,9 @@ fn entries_under(folder: &Path) -> Vec<String> {
 }
 
 // Fails when an empty answer, the end of input, is printed and exits 0, which git takes as an
-// empty password, or when a typed answer is not printed as its one line. Mutation: in
-// `ask_daemon`, drop `.filter(|text| !text.is_empty())`.
+// empty password, when a typed answer is not printed as its one line, or when the askpass leaves
+// its answer's request behind. Mutations: in `ask_daemon`, drop `.filter(|text| !text.is_empty())`;
+// in `read_request`, keep the request file.
 #[rstest]
 #[case::end_of_input("", 1, "")]
 #[case::typed_answer("hunter2", 0, "hunter2\n")]
@@ -103,7 +104,6 @@ async fn the_askpass_exits_as_the_answer_says(
         .await
         .expect("the wait runs")
         .expect("the askpass ends");
-    channel.forget_party(asking.party).await;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(exit_code), "{stderr}");
