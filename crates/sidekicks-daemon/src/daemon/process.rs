@@ -29,7 +29,7 @@ use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_platforms::{
     DaemonRunFolder, SocketPathRefused, Spawner, WakeWatch, WallClock, WallClockTimer,
-    check_socket_path, read_command_argument_limit, secret_store_offer,
+    askpass_socket_path, check_socket_path, read_command_argument_limit, secret_store_offer,
 };
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinError;
@@ -393,7 +393,12 @@ impl DaemonProcess {
     ) -> Result<(), DaemonStartError> {
         let monitor_socket_path =
             crash_monitor_socket_path(&run_folder.folder_path, std::process::id());
-        for path in [&run_folder.socket_path, &monitor_socket_path] {
+        let askpass_socket_path = askpass_socket_path(&run_folder.folder_path);
+        for path in [
+            &run_folder.socket_path,
+            &monitor_socket_path,
+            &askpass_socket_path,
+        ] {
             check_socket_path(path).map_err(|source| DaemonStartError::SocketPathRefused {
                 path: path.clone(),
                 source,
