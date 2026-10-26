@@ -47,6 +47,11 @@ pub fn pass_on_stop_signals(
 /// Changes nothing: Windows runs no command through the wrapper.
 pub fn start_in_own_group(_command: &mut Command) {}
 
+/// Runs no job. Always fails with `Unsupported`.
+pub fn run_foreground_job(_command: &mut Command) -> io::Result<ExitStatus> {
+    Err(unwrapped())
+}
+
 /// Signals no group. Always fails with `Unsupported`.
 pub fn signal_command_group(_group: u32, _signal: TerminalSignal) -> io::Result<()> {
     Err(unwrapped())

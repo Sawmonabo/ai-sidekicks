@@ -19,8 +19,8 @@ use std::time::{Duration, Instant};
 
 use sidekicks_platforms::{
     TerminalSignal, end_as_child_ended, end_by_stop_signal, exec_command, name_program,
-    pass_on_stop_signals, read_child_exit, read_descriptor_path, signal_command_group,
-    start_in_own_group, stop_signal_number, take_in_orphans, wait_for_exit,
+    pass_on_stop_signals, read_child_exit, read_descriptor_path, run_foreground_job,
+    signal_command_group, start_in_own_group, stop_signal_number, take_in_orphans, wait_for_exit,
 };
 
 use crate::provider::command::channel::party::{
@@ -74,7 +74,8 @@ enum WrapperForm {
         is_tty: bool,
         words: Vec<OsString>,
     },
-    /// The wrapper started again inside the command's terminal, which runs the words in its place.
+    /// The wrapper started again inside the command's terminal, the session's leader, which runs
+    /// the words as the terminal's foreground job and ends as they ended.
     Inner {
         arg0: Option<OsString>,
         words: Vec<OsString>,
@@ -176,7 +177,10 @@ pub(crate) fn run_command_wrapper_with(
             words,
         } => run_relayed_command(process_arguments, &process, arg0.as_deref(), is_tty, &words),
         WrapperForm::Inner { arg0, words } => {
-            exec_failed(&exec_command(&mut word_command(arg0.as_deref(), &words)))
+            match run_foreground_job(&mut word_command(arg0.as_deref(), &words)) {
+                Ok(status) => end_as_command_ended(status),
+                Err(error) => exec_failed(&error),
+            }
         }
     }
 }

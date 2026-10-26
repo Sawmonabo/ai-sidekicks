@@ -3,7 +3,8 @@ use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::path::Path;
 use std::process::{Child, Command, ExitCode, Stdio};
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::mpsc::RecvTimeoutError;
+use std::time::{Duration, Instant};
 
 use sidekicks_platforms::{
     LeftoverSweep, TerminalSignal, create_file_atomically, harness_test_name, name_program,
@@ -390,14 +391,14 @@ async fn a_relayed_command_takes_one_interrupt_and_a_stop_ends_its_whole_group()
     assert!(!rest.iter().any(|line| line == "interrupted"), "{rest:?}");
 }
 
-// Fails when a command that stops itself reads as ended, in a terminal of its own or outside one:
-// its stop signals are then dropped and the daemon's stop does nothing, so the wrapper waits on it
-// for good. The command stops itself right after its `ready`, while the daemon's stop still
-// crosses the channel's folder. A typed Ctrl+Z cannot stand in for it here: the terminal's
-// command leads a group whose parent is outside its session, where a typed stop is dropped.
-// Mutation: the platforms crate's `wait_for_exit` with no bound as one blocking `waitid`.
+// Fails when a stopped command reads as ended, or when a Ctrl+Z typed into a command's terminal
+// does not stop it: its stop signals are then dropped and the daemon's stop does nothing, so the
+// wrapper waits on it for good, or its lines keep coming. Outside a terminal the command stops
+// itself right after its `ready`, while the daemon's stop still crosses the channel's folder.
+// Mutations: the platforms crate's `wait_for_exit` with no bound as one blocking `waitid`; the
+// `Inner` arm executing the command in its own place again.
 #[tokio::test]
-async fn a_command_that_stopped_itself_still_takes_the_daemon_s_stop() {
+async fn a_stopped_command_still_takes_the_daemon_s_stop() {
     let folder = tempfile::tempdir().expect("a folder");
     let stand_in = write_stand_in(folder.path());
     let channel = open_channel(folder.path());
@@ -405,14 +406,47 @@ async fn a_command_that_stopped_itself_still_takes_the_daemon_s_stop() {
     for is_tty in [false, true] {
         let mut own = vec!["--conversation", "conversation", "--process", "process-1"];
         if is_tty {
-            own.push("--tty");
+            own.extend([
+                "--tty",
+                "--",
+                "/bin/sh",
+                "-c",
+                "echo ready; while :; do echo tick; sleep 0.05; done",
+            ]);
+        } else {
+            own.extend(["--", "/bin/sh", "-c", "echo ready; kill -STOP $$; sleep 30"]);
         }
-        own.extend(["--", "/bin/sh", "-c", "echo ready; kill -STOP $$; sleep 30"]);
         let mut command = wrapper(&own, is_tty.then_some(stand_in.as_path()));
         with_channel(&mut command, &channel);
         let mut child = command.spawn().expect("the wrapper starts");
         let party = starting_party(&channel, &mut watch).await;
-        let _output = read_until(&mut child, "ready");
+        let output = read_until(&mut child, "ready");
+        // The input stays open until the wrapper ended, as a provider's terminal does.
+        let mut input = child.stdin.take().expect("its input");
+        if is_tty {
+            // The lines are read on a thread of their own, so a quiet shows as no line in time.
+            let (line_sent, line_came) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                for line in output.lines() {
+                    if line_sent.send(line).is_err() {
+                        return;
+                    }
+                }
+            });
+            let typed_at = Instant::now();
+            input.write_all(b"\x1a").expect("ctrl+z is typed");
+            input.flush().expect("it is sent");
+            loop {
+                match line_came.recv_timeout(Duration::from_millis(500)) {
+                    Err(RecvTimeoutError::Timeout) => break,
+                    Err(RecvTimeoutError::Disconnected) => panic!("the output ended"),
+                    Ok(_) => assert!(
+                        typed_at.elapsed() < Duration::from_secs(3),
+                        "the typed ctrl+z left the command running"
+                    ),
+                }
+            }
+        }
         stop_in_order(&channel, &mut watch, party).await;
         assert_eq!(
             ended_by(&mut child).as_deref(),

@@ -5,18 +5,19 @@
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{self, ErrorKind, Read as _, Write as _};
-use std::os::fd::AsRawFd as _;
+use std::os::fd::{AsRawFd as _, BorrowedFd};
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::process::{Command, ExitCode, ExitStatus};
 use std::time::Duration;
 
 use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::tty::Pty;
+use nix::errno::Errno;
 use nix::fcntl::{FcntlArg, OFlag, fcntl};
-use nix::sys::signal::Signal;
+use nix::sys::signal::{SigSet, SigmaskHow, Signal, pthread_sigmask};
 use nix::sys::termios::{SetArg, Termios, cfmakeraw, tcgetattr, tcgetsid, tcsetattr};
 use nix::sys::wait::{WaitStatus, waitpid};
-use nix::unistd::{Pid, dup, isatty, pipe, tcgetpgrp};
+use nix::unistd::{Pid, dup, isatty, pipe, setpgid, tcgetpgrp, tcsetpgrp};
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 
@@ -103,6 +104,59 @@ pub fn pass_on_stop_signals(
 /// wrapper's own group takes reaches it only as the wrapper passes it on.
 pub fn start_in_own_group(command: &mut Command) {
     command.process_group(0);
+}
+
+/// Runs the program `command` starts as the foreground job of the terminal on this process's
+/// standard input, as a job-control shell runs one: in a process group of its own, which it leads,
+/// made the terminal's foreground group by the child and by this process, so a typed stop stops it
+/// where this process leads the session. Waits past a stop and answers the job's exit. Fails with
+/// the system's error when the group or the terminal cannot be set, or the program cannot start.
+pub fn run_foreground_job(command: &mut Command) -> io::Result<ExitStatus> {
+    // Blocked, never ignored, since an ignored action would outlive the exec; the child inherits
+    // the block for its own call and puts the mask back before its exec.
+    let saved = block_terminal_output_stop()?;
+    start_in_own_group(command);
+    // SAFETY: the closure runs in the forked child before its exec and makes only
+    // async-signal-safe calls, `getpid`, `tcsetpgrp` and `pthread_sigmask`, on its stack alone.
+    unsafe {
+        command.pre_exec(move || {
+            let taken = tcsetpgrp(standard_input(), Pid::this());
+            pthread_sigmask(SigmaskHow::SIG_SETMASK, Some(&saved), None)?;
+            taken.map_err(io::Error::from)
+        });
+    }
+    let placed = command.spawn().and_then(|child| {
+        let job = Pid::from_raw(i32::try_from(child.id()).map_err(io::Error::other)?);
+        // The child set its group and took the terminal before its exec; these answer the same
+        // where it has not yet, as a shell does. Its exec or its exit refuses the group's change.
+        match setpgid(job, job) {
+            Ok(()) | Err(Errno::EACCES | Errno::ESRCH) => {}
+            Err(error) => return Err(io::Error::from(error)),
+        }
+        // An exited job's group is gone, which the terminal refuses: nothing is left to place.
+        match tcsetpgrp(standard_input(), job) {
+            Ok(()) | Err(Errno::EPERM) => Ok(child),
+            Err(error) => Err(io::Error::from(error)),
+        }
+    });
+    pthread_sigmask(SigmaskHow::SIG_SETMASK, Some(&saved), None).map_err(io::Error::from)?;
+    // Std's wait reports no stop, so a stopped job keeps the wait and the terminal.
+    placed?.wait()
+}
+
+/// Blocks `SIGTTOU` on the calling thread, which a group outside the terminal's foreground draws by
+/// setting it, and answers the mask it had. Fails with the system's error.
+fn block_terminal_output_stop() -> io::Result<SigSet> {
+    let mut blocked = SigSet::empty();
+    blocked.add(Signal::SIGTTOU);
+    let mut saved = SigSet::empty();
+    pthread_sigmask(SigmaskHow::SIG_BLOCK, Some(&blocked), Some(&mut saved))?;
+    Ok(saved)
+}
+
+fn standard_input() -> BorrowedFd<'static> {
+    // SAFETY: descriptor 0 is the process's standard input, which nothing here closes.
+    unsafe { BorrowedFd::borrow_raw(libc::STDIN_FILENO) }
 }
 
 /// Sends `signal` to every process of the group `group` leads, a kill on macOS again until no
