@@ -550,6 +550,9 @@ refusal_codes! {
     /// `question.resolve` named a question the agent does not wait for, whose answer is a message
     /// sent through the queue.
     QuestionNotWaiting = "question.notWaiting" (FailedPrecondition, 409);
+    /// `question.resolve` named a question that waits for its run to read running before it takes
+    /// an answer.
+    QuestionWaitingForRun = "question.waitingForRun" (FailedPrecondition, 409);
     /// Relay authentication failed.
     RelayAuthenticationFailed = "relay.authenticationFailed" (Unauthenticated, 401);
     /// Relay connection to the upstream service failed.

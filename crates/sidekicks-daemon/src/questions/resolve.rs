@@ -43,9 +43,9 @@ use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions
 impl QuestionsService {
     /// Answers every question of `request`'s record from `device_id` and answers its state.
     /// Refused `question.notFound` for an id no record holds, `question.notWaiting` for a question
-    /// its agent does not wait for or one that still waits for its run, `question.answersIncomplete` for a list that does not answer
-    /// every question and `question.answerInvalid` for an answer its question cannot take, each
-    /// with nothing sent. Fails as the driver or the wait fails, nothing written, or as the write
+    /// its agent does not wait for, `question.waitingForRun` for one that still waits for its run,
+    /// `question.answersIncomplete` for a list that does not answer every question and
+    /// `question.answerInvalid` for an answer its question cannot take, each with nothing sent. Fails as the driver or the wait fails, nothing written, or as the write
     /// fails after the answer went out.
     pub(crate) async fn resolve_question(
         &self,
@@ -308,12 +308,12 @@ pub(crate) fn question_not_waiting(question_id: QuestionId) -> DomainError {
     .with_detail(json!({ "questionId": question_id }))
 }
 
-// `question.notWaiting` for a question that waits for its run, which takes no answer until the run
-// reads running and the question opens.
+// `question.waitingForRun` for a question that waits for its run, which takes no answer until the
+// run reads running and the question opens.
 fn question_waiting_for_run(question_id: QuestionId) -> DomainError {
     DomainError::new(
         "The question waits for its run and takes its answer once the run reaches it",
-        RefusalCode::QuestionNotWaiting,
+        RefusalCode::QuestionWaitingForRun,
     )
     .with_detail(json!({ "questionId": question_id }))
 }

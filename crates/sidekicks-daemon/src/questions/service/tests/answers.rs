@@ -121,11 +121,11 @@ enum RefusedRecord {
 
 // The answers are checked against the record before anything goes out: a short list is refused
 // `question.answersIncomplete`, an answer its question cannot take `question.answerInvalid` with
-// its page and reason, an id no record holds `question.notFound`, and a question its agent does
-// not wait for, or one that waits for its run, `question.notWaiting`; none of them reaches the
-// driver, the record keeps its state and the run where it was. Killed by removing the count
-// check, any one reason's check, the waiting check, or the check of a question waiting for its
-// run.
+// its page and reason, an id no record holds `question.notFound`, a question its agent does not
+// wait for `question.notWaiting`, and one that waits for its run `question.waitingForRun`; none
+// of them reaches the driver, the record keeps its state and the run where it was. Killed by
+// removing the count check, any one reason's check, the waiting check, or the check of a question
+// waiting for its run.
 #[rstest]
 #[case::one_answer_short(
     RefusedRecord::Waited,
@@ -179,7 +179,7 @@ enum RefusedRecord {
 #[case::a_question_waiting_for_its_run(
     RefusedRecord::WaitingForRun,
     json!([{ "kind": "skipped" }]),
-    RefusalCode::QuestionNotWaiting,
+    RefusalCode::QuestionWaitingForRun,
     None,
     "running"
 )]

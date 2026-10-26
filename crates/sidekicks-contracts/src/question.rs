@@ -439,6 +439,7 @@ methods! {
             refusals: [
                 QuestionNotFound,
                 QuestionNotWaiting,
+                QuestionWaitingForRun,
                 QuestionAnswersIncomplete,
                 QuestionAnswerInvalid,
             ],
