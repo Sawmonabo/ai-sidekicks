@@ -37,6 +37,8 @@ mod feed;
 
 use feed::OutputRing;
 pub(crate) use feed::RunningCommandFeed;
+#[cfg(test)]
+pub(crate) use feed::{next_sent_frame, next_sent_set_where};
 
 #[cfg(test)]
 mod tests;

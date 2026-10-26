@@ -17,12 +17,11 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 use tokio::sync::mpsc;
 
 use super::{
-    CommandEndingAppender, CommandInput, PromptAnswer, RunningCommandFeed, RunningCommandSets,
-    WrapperCommand,
+    CommandEndingAppender, CommandInput, PromptAnswer, RunningCommandSets, WrapperCommand,
+    next_sent_frame, next_sent_set_where,
 };
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
-use crate::ipc::stream::feed::{CreditGate, Feed as _};
 use crate::provider::command::waiting_checks::WaitingState;
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::port::running_command_publisher::{
@@ -164,24 +163,6 @@ fn start(id: &str, name: &str) -> CommandStart {
     }
 }
 
-async fn next_frame(feed: &mut RunningCommandFeed) -> AgentCommandSubscribeFrame {
-    let gate = CreditGate::with_credit(1);
-    tokio::time::timeout(Duration::from_secs(5), feed.next(&gate))
-        .await
-        .expect("a frame comes")
-        .expect("the feed reads")
-        .expect("the feed is open")
-}
-
-/// The set the feed sends next, skipping output.
-async fn next_set(feed: &mut RunningCommandFeed) -> Vec<RunningCommand> {
-    loop {
-        if let AgentCommandSubscribeFrame::Commands { commands, .. } = next_frame(feed).await {
-            return commands.as_slice().to_vec();
-        }
-    }
-}
-
 async fn next_ending(fixture: &mut Fixture) -> Appended {
     tokio::time::timeout(Duration::from_secs(5), fixture.endings.recv())
         .await
@@ -223,19 +204,6 @@ fn row<'a>(set: &'a [RunningCommand], id: &str) -> &'a RunningCommand {
         .expect("the row")
 }
 
-/// The next set the feed sends in which `holds` holds.
-async fn next_set_where(
-    feed: &mut RunningCommandFeed,
-    holds: impl Fn(&[RunningCommand]) -> bool,
-) -> Vec<RunningCommand> {
-    loop {
-        let set = next_set(feed).await;
-        if holds(&set) {
-            return set;
-        }
-    }
-}
-
 // Each cell of the running set's table. Fails when a cell's branch is changed: the person's stop
 // not ending a command by the person, a summary kept on a finished ending or dropped from a failed
 // one, a reseed that keeps an unlisted background row or ends a foreground one outside its scope,
@@ -251,7 +219,7 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     let acts = Arc::new(DriverScript::default());
     let driver = scripted_driver(&acts, true);
     let mut feed = fixture.sets.subscribe(session());
-    assert_eq!(next_set(&mut feed).await, Vec::new());
+    assert_eq!(next_sent_set_where(&mut feed, |_| true).await, Vec::new());
 
     // Absent: output is dropped, a stop answers at once, a move and a write are refused.
     fixture
@@ -288,13 +256,13 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     // a move whose start was missed both add a background row.
     fixture.sets.command_started(start("stop-me", "sleep 1"));
     fixture.sets.command_started(start("stop-me", "sleep 2"));
-    let set = next_set(&mut feed).await;
+    let set = next_sent_set_where(&mut feed, |_| true).await;
     assert_eq!(set.len(), 1);
     assert!(set[0].waiting_in_foreground && set[0].can_move_to_background);
     fixture
         .sets
         .command_moved_to_background(start("missed", "make"));
-    let set = next_set(&mut feed).await;
+    let set = next_sent_set_where(&mut feed, |_| true).await;
     assert!(!set[1].waiting_in_foreground && !set[1].can_move_to_background);
 
     // Output of a held row is an output frame.
@@ -302,7 +270,7 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
         .sets
         .publish_output(session(), command("stop-me"), "tick".to_owned());
     assert_eq!(
-        next_frame(&mut feed).await,
+        next_sent_frame(&mut feed).await,
         AgentCommandSubscribeFrame::Output {
             session_id: session(),
             command_id: command("stop-me"),
@@ -354,7 +322,7 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
             RefusalCode::ProviderUnavailable
         );
     }
-    let set = next_set_where(&mut feed, |set| {
+    let set = next_sent_set_where(&mut feed, |set| {
         set.iter()
             .any(|row| row.command_id == command("refuse-stop"))
     })
@@ -477,7 +445,7 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
         is_echo_off: true,
     };
     fixture.sets.waiting_read(session(), 7, reading);
-    let set = next_set_where(&mut feed, |set| {
+    let set = next_sent_set_where(&mut feed, |set| {
         set.iter()
             .any(|row| row.command_id == command("asking") && row.waiting_for_input)
     })
@@ -503,7 +471,8 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
             *answer.lock().unwrap_or_else(PoisonError::into_inner) = Some(text);
         }),
     );
-    let set = next_set_where(&mut feed, |set| set.iter().any(|row| row.prompt.is_some())).await;
+    let set =
+        next_sent_set_where(&mut feed, |set| set.iter().any(|row| row.prompt.is_some())).await;
     let asking = row(&set, "asking");
     assert!(asking.echo_off && asking.waiting_for_input);
     let end_of_input = CommandInput {
@@ -621,7 +590,7 @@ async fn a_slow_reader_reads_the_live_tail_ending_with_the_last_piece() {
     let fixture = fixture();
     fixture.sets.command_started(start("loud", "yes"));
     let mut feed = fixture.sets.subscribe(session());
-    next_set(&mut feed).await;
+    next_sent_set_where(&mut feed, |_| true).await;
     let piece = "x".repeat(1023) + "\n";
     for _ in 0..300 {
         fixture
@@ -631,7 +600,7 @@ async fn a_slow_reader_reads_the_live_tail_ending_with_the_last_piece() {
     fixture
         .sets
         .publish_output(session(), command("loud"), "the end".to_owned());
-    let AgentCommandSubscribeFrame::Output { data, .. } = next_frame(&mut feed).await else {
+    let AgentCommandSubscribeFrame::Output { data, .. } = next_sent_frame(&mut feed).await else {
         panic!("an output frame comes");
     };
     assert!(data.ends_with("the end"));
@@ -645,7 +614,7 @@ async fn two_runs_of_one_command_each_settle_their_own_row() {
     fixture.sets.command_started(start("first", "npm test"));
     fixture.sets.command_started(start("second", "npm test"));
     let mut feed = fixture.sets.subscribe(session());
-    next_set(&mut feed).await;
+    next_sent_set_where(&mut feed, |_| true).await;
     for party in [11, 12] {
         fixture.sets.wrapper_started(
             session(),
@@ -655,7 +624,7 @@ async fn two_runs_of_one_command_each_settle_their_own_row() {
     }
     fixture.sets.wrapper_output(session(), 12, "second's");
     assert_eq!(
-        next_frame(&mut feed).await,
+        next_sent_frame(&mut feed).await,
         AgentCommandSubscribeFrame::Output {
             session_id: session(),
             command_id: command("second"),

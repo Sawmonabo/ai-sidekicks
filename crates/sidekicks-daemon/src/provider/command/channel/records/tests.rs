@@ -7,7 +7,7 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use hpke::Kem as _;
 use sidekicks_contracts::command::{
-    AgentCommandEndedPayload, AgentCommandSubscribeFrame, CommandId, RunningCommand,
+    AgentCommandEndedPayload, AgentCommandSubscribeFrame, CommandId,
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
@@ -19,7 +19,6 @@ use sidekicks_platforms::{InputTerminal, InputWaitReading, TerminalSignal, send_
 use tokio::sync::watch;
 
 use super::{RecordFollower, follow_channel_records, tail_output};
-use crate::ipc::stream::feed::{CreditGate, Feed as _};
 use crate::provider::command::channel::tests::{
     end_party, names_in, open_channel, party_command, ready_parties, sealed,
 };
@@ -28,6 +27,7 @@ use crate::provider::command::channel::{
 };
 use crate::provider::command::running_set::{
     CommandEndingAppender, CommandInput, RunningCommandFeed, RunningCommandSets, WrapperCommand,
+    next_sent_frame, next_sent_set_where,
 };
 use crate::provider::command::waiting_checks::InputWaitReader;
 use crate::provider::driver::contract::MockProviderDriver;
@@ -143,20 +143,10 @@ fn tailed_row(sets: &Arc<RunningCommandSets>, id: &str, party: PartyId) -> Taile
     }
 }
 
-/// The next frame `feed` sends.
-async fn next_frame(feed: &mut RunningCommandFeed) -> AgentCommandSubscribeFrame {
-    let gate = CreditGate::with_credit(1);
-    tokio::time::timeout(Duration::from_secs(5), feed.next(&gate))
-        .await
-        .expect("a frame comes")
-        .expect("the feed reads")
-        .expect("the feed is open")
-}
-
 /// The data of the next output frame `feed` sends.
 async fn next_output(feed: &mut RunningCommandFeed) -> String {
     loop {
-        if let AgentCommandSubscribeFrame::Output { data, .. } = next_frame(feed).await {
+        if let AgentCommandSubscribeFrame::Output { data, .. } = next_sent_frame(feed).await {
             return data;
         }
     }
@@ -165,17 +155,11 @@ async fn next_output(feed: &mut RunningCommandFeed) -> String {
 /// Waits for a set from `feed` in which the row `id` shows a prompt where `is_shown`, or none.
 async fn until_prompt_shown(feed: &mut RunningCommandFeed, id: &str, is_shown: bool) {
     let command_id = CommandId::new(id.to_owned()).expect("a command id");
-    let shows = |set: &[RunningCommand]| {
+    next_sent_set_where(feed, |set| {
         set.iter()
             .any(|row| row.command_id == command_id && row.prompt.is_some() == is_shown)
-    };
-    loop {
-        if let AgentCommandSubscribeFrame::Commands { commands, .. } = next_frame(feed).await
-            && shows(commands.as_slice())
-        {
-            return;
-        }
-    }
+    })
+    .await;
 }
 
 /// Polls `holds` every 20 ms, failing the test with `what` after 5 s.

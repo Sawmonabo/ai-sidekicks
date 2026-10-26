@@ -126,6 +126,32 @@ impl RunningCommandFeed {
     }
 }
 
+/// The next frame `feed` sends through a gate of one credit, failing the test after 5 s.
+#[cfg(test)]
+pub(crate) async fn next_sent_frame(feed: &mut RunningCommandFeed) -> AgentCommandSubscribeFrame {
+    let gate = crate::ipc::stream::feed::CreditGate::with_credit(1);
+    tokio::time::timeout(std::time::Duration::from_secs(5), feed.next(&gate))
+        .await
+        .expect("a frame comes")
+        .expect("the feed reads")
+        .expect("the feed is open")
+}
+
+/// The next set `feed` sends in which `holds` holds, skipping output and every other set.
+#[cfg(test)]
+pub(crate) async fn next_sent_set_where(
+    feed: &mut RunningCommandFeed,
+    holds: impl Fn(&[sidekicks_contracts::command::RunningCommand]) -> bool,
+) -> Vec<sidekicks_contracts::command::RunningCommand> {
+    loop {
+        if let AgentCommandSubscribeFrame::Commands { commands, .. } = next_sent_frame(feed).await
+            && holds(commands.as_slice())
+        {
+            return commands.as_slice().to_vec();
+        }
+    }
+}
+
 impl Feed for RunningCommandFeed {
     type Emission = AgentCommandSubscribeFrame;
 
