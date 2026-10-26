@@ -86,11 +86,11 @@ pub(crate) enum QuestionTurnEnd {
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum QuestionTurnError {
     /// A write or the run's read failed before the question ended its turn.
-    #[error(transparent)]
-    Take(Box<dyn Error + Send + Sync>),
+    #[error("the question was not taken in its run's turn")]
+    Take(#[source] Box<dyn Error + Send + Sync>),
     /// Its asker left and its withdrawal failed.
-    #[error(transparent)]
-    Withdrawal(Box<dyn Error + Send + Sync>),
+    #[error("the question its asker left was not withdrawn")]
+    Withdrawal(#[source] Box<dyn Error + Send + Sync>),
 }
 
 /// A question's place in its run's line, taken where the question arrives, before any await, and
