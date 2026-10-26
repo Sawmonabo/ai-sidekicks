@@ -185,15 +185,20 @@ async fn take_in_turn(
     {
         return Ok(QuestionTurnEnd::Taken);
     }
-    // Held across every wait and the opening, so the questions behind it wait their turn.
+    // Held across every wait and the opening, so the questions behind it wait their turn. Its
+    // asker's leaving is read first throughout, so a question no one waits for never opens.
     let _turn = match place {
         Ok(hold) => hold,
         Err(wait) => tokio::select! {
-            hold = wait => hold,
+            biased;
             () = &mut asker_left => return Ok(QuestionTurnEnd::AskerLeft),
+            hold = wait => hold,
         },
     };
     loop {
+        if asker_left.as_mut().now_or_never().is_some() {
+            return Ok(QuestionTurnEnd::AskerLeft);
+        }
         match port
             .open_waiting_question(session_id, request_id.clone())
             .await?
@@ -201,8 +206,9 @@ async fn take_in_turn(
             WaitingQuestionOpening::Opened => return Ok(QuestionTurnEnd::Taken),
             WaitingQuestionOpening::Settled => return Ok(QuestionTurnEnd::Settled),
             WaitingQuestionOpening::RunNotRunning => tokio::select! {
-                waited = port.wait_until_running(run_id) => waited?,
+                biased;
                 () = &mut asker_left => return Ok(QuestionTurnEnd::AskerLeft),
+                waited = port.wait_until_running(run_id) => waited?,
             },
         }
     }
