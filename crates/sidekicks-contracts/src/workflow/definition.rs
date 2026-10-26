@@ -3,7 +3,7 @@
 //! webhook, the versions, and the events a workflow appends before any run exists.
 
 pub mod builder;
-#[cfg(feature = "wasm")]
+#[cfg(feature = "workflow-check-wasm")]
 pub mod check;
 pub mod document;
 pub mod events;

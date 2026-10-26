@@ -18,6 +18,7 @@ pub(crate) const TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &definition::handle::TYPESCRIPT_MODULE,
     &definition::item::TYPESCRIPT_MODULE,
     &definition::methods::TYPESCRIPT_MODULE,
+    &definition::params::TYPESCRIPT_MODULE,
     &definition::refusals::TYPESCRIPT_MODULE,
     &definition::versions::TYPESCRIPT_MODULE,
     &kept_values::TYPESCRIPT_MODULE,

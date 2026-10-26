@@ -19,7 +19,7 @@ pub(crate) fn prototype_free_names() -> serde_json::Value {
     serde_json::json!({ "not": { "const": PROTOTYPE_KEY } })
 }
 
-/// Reads an object of any members but `__proto__`, for a kept-unknown map
+/// Reads an object of any members but `__proto__`, for a map whose members a peer names
 /// (`deserialize_with`); its schema states [`prototype_free_names`].
 pub(crate) fn prototype_free<'de, D: Deserializer<'de>>(
     deserializer: D,

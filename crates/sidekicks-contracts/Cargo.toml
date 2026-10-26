@@ -55,8 +55,8 @@ getrandom_03 = { workspace = true, features = ["wasm_js"] }
 uuid = { workspace = true, features = ["js"] }
 
 [features]
-# The WebAssembly exports the workflow builder loads.
-wasm = ["dep:wasm-bindgen"]
+# The workflow checks' WebAssembly exports, which the builder runs in the page.
+workflow-check-wasm = ["dep:wasm-bindgen"]
 
 [lints]
 workspace = true
