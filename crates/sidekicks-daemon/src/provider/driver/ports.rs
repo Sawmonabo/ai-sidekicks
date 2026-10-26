@@ -13,6 +13,7 @@ use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::provider::callback_tools::host::CallbackToolHost;
+use crate::provider::driver::SessionSpawnContextResolver;
 use crate::provider::driver::run_control::DaemonTurnBindingResolver;
 use crate::provider::driver::session_control::DriverResumeResult;
 use crate::provider::port::in_process_tool_servers::InProcessToolServers;
@@ -92,6 +93,9 @@ pub(crate) struct SessionPlace {
 /// each registered once by the daemon's start; a driver that finds one absent refuses or waits as
 /// its own call says.
 pub(crate) struct DriverPorts {
+    /// Where each session's provider process runs, resolved at every spawn, and the accounts a
+    /// provider runs on.
+    pub(crate) spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
     /// The run engine.
     pub(crate) run_engine: Arc<PortRegistration<Arc<RunEngine>>>,
     /// The run engine's dispatch of what a provider delivers.
@@ -142,6 +146,7 @@ impl DriverPorts {
     /// Every port unregistered, for the daemon's start to register.
     pub(crate) fn new() -> Self {
         Self {
+            spawn_contexts: Arc::new(PortRegistration::new("spawn contexts")),
             run_engine: Arc::new(PortRegistration::new("run engine")),
             inbound_dispatch: Arc::new(PortRegistration::new("inbound dispatch")),
             daemon_turn_bindings: Arc::new(PortRegistration::new("daemon turn bindings")),

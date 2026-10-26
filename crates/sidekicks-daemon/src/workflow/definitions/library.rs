@@ -36,13 +36,6 @@ use crate::workflow::runs::record::column;
 
 /// The statements a [`WorkflowLibrary`] prepares on a read connection: the name holder, the
 /// definition read, the definition list and the list cursor's check.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start sums the read pool's statement set"
-    )
-)]
 pub(crate) const WORKFLOW_LIBRARY_STATEMENT_CAPACITY: usize = 4;
 
 // A definition never has the empty id, so binding it excludes no workflow.

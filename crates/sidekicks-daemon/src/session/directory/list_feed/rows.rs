@@ -21,10 +21,6 @@ use crate::session::directory::lookups::session_project_sql;
 use crate::session::directory::run_activity::session_activity_sql;
 
 /// The statements the list's reads prepare, counted into the read pool's statement capacity.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start, sizing its read connections")
-)]
 pub(crate) const SESSION_LIST_ROWS_STATEMENT_CAPACITY: usize = 2;
 
 /// The rows one read of the opening list takes, so no read holds a connection for the whole list.

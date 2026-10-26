@@ -185,10 +185,6 @@ impl ScriptedDriver {
                 database.path(),
                 POOL_STATEMENT_CAPACITY,
             )),
-            spawn_contexts: Arc::new(FolderContexts {
-                work: work.clone(),
-                account_folders,
-            }),
             data_folder: folder.path().join("data"),
             home_folder: home.clone(),
             // Claude Code's home in every composed environment is the fixture's own.
@@ -200,6 +196,13 @@ impl ScriptedDriver {
             ..test_driver_services()
         };
         let ports = &base.ports;
+        ports
+            .spawn_contexts
+            .register(Arc::new(FolderContexts {
+                work: work.clone(),
+                account_folders,
+            }))
+            .expect("the spawn contexts register once");
         let recording = Arc::new(RecordingPorts::default());
         let usage = Arc::new(RecordingUsage::default());
         let relaunches = Arc::new(RecordedRelaunches::default());

@@ -22,34 +22,13 @@ use crate::recovery::projection_rebuild::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which registers the projection with the rebuild"
-    )
-)]
 const CLEAR_ANSWER_ITEMS_SQL: &str = "DELETE FROM question_answer_items
   WHERE question_id IN (SELECT id FROM questions WHERE session_id = ?)";
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which registers the projection with the rebuild"
-    )
-)]
 const CLEAR_QUESTIONS_SQL: &str = "DELETE FROM questions WHERE session_id = ?";
 
 // Every type the fold reads: a record, its cancellation, a send that answers it, and what becomes
 // of a queued answer.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which registers the projection with the rebuild"
-    )
-)]
 const QUESTION_EVENT_TYPES: [SessionEventType; 6] = [
     SessionEventType::QuestionAsked,
     SessionEventType::QuestionCanceled,
@@ -61,13 +40,6 @@ const QUESTION_EVENT_TYPES: [SessionEventType; 6] = [
 
 /// The statements that keep the queued answers of every question in step with an append, run in
 /// the append's own write for each event it stores.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which hands the event log its projection statements"
-    )
-)]
 pub(crate) fn question_projection_statements(
     envelope: &UnsequencedEventEnvelope,
 ) -> Vec<WriteStatement> {
@@ -77,13 +49,6 @@ pub(crate) fn question_projection_statements(
 /// The `questions` and `question_answer_items` rows as a rebuild replaces them. Its fold keeps no
 /// state, so the projection is its own fold.
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which registers the projection with the rebuild"
-    )
-)]
 pub(crate) struct QuestionsProjection;
 
 impl SessionProjection for QuestionsProjection {

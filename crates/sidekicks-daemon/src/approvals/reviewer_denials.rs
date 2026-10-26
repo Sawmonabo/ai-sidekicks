@@ -71,13 +71,6 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The statements [`ReviewerDenials`] prepares on a read connection: the blocked call's row, the
 /// session's state, the block, its override, the run and its provider, and the run's agent.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start sizes the read connections' statement caches with it"
-    )
-)]
 pub(crate) const REVIEWER_DENIALS_STATEMENT_CAPACITY: usize = 6 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // The blocked call's own row: the newest opening of the call in the block's run, outside every

@@ -43,13 +43,6 @@ use crate::keyed_lock::KeyedLock;
 use crate::random_hex::random_hex;
 
 /// The statements the prune's context read prepares on a read connection: the one row read.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start sizes the read connections' statement caches with it"
-    )
-)]
 pub(crate) const TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY: usize = 1;
 
 const SELECT_RUN_CONTEXT_SQL: &str =

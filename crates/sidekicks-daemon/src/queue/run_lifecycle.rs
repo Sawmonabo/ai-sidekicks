@@ -37,6 +37,7 @@ use crate::admission::memory_gate::MemoryGate;
 use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use crate::events::session::followers::CommittedEvent;
 use crate::keyed_lock::KeyHold;
+use crate::provider::driver::ports::ProcessGoneListener;
 use crate::queue::admission::QueueAdmission;
 use crate::queue::delivery::{InterruptedRunContinuation, QueueDelivery};
 use crate::queue::error::QueueError;
@@ -200,10 +201,6 @@ impl QueueRunLifecycle {
     /// Moves on what waits for runs of the session that ended while its provider process kept a
     /// message for them, once that process is gone, as at their end, and settles the messages
     /// their resumes kept from the provider's record.
-    #[expect(
-        dead_code,
-        reason = "the provider-process registry, when a session's process exits"
-    )]
     pub(crate) fn on_process_gone(self: &Arc<Self>, session_id: SessionId) {
         self.schedule(session_id, |work| work.is_process_gone = true);
     }
@@ -771,6 +768,15 @@ impl QueueRunLifecycle {
     // lock still guards a whole state.
     fn lock(&self) -> MutexGuard<'_, LifecycleState> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+// A driver tells of a process that ended through the port, which outlives no queue.
+impl ProcessGoneListener for Weak<QueueRunLifecycle> {
+    fn process_gone(&self, session_id: SessionId) {
+        if let Some(lifecycle) = self.upgrade() {
+            lifecycle.on_process_gone(session_id);
+        }
     }
 }
 

@@ -30,14 +30,12 @@ use crate::daemon::scheduler::budget::{
     BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
 };
 use crate::daemon::service_log::{
-    CRASH_REPORTS_FOLDER_NAME, is_service_log_file_name, service_log_folder,
+    CRASH_REPORTS_FOLDER_NAME, ServiceLogFiles, is_service_log_file_name, service_log_folder,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::missing_entry::{MissingEntry, is_gone};
-use crate::observability::diagnostic_buckets::account_homes::{
-    account_home_diagnostic_folders, read_account_homes,
-};
 use crate::observability::diagnostic_buckets::recorders::diagnostic_bucket_folders;
+use crate::provider::account_homes::{account_home_diagnostic_folders, read_account_homes};
 use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::service_log::{
@@ -45,7 +43,6 @@ use crate::provider::service_log::{
 };
 
 /// How often the expiry runs: hourly, so no log outlives its bound by more than an hour.
-#[expect(dead_code, reason = "the daemon's start registers the hourly expiry")]
 pub(crate) const DIAGNOSTIC_LOG_EXPIRY_INTERVAL: Duration = Duration::from_hours(1);
 
 const DAY: Duration = Duration::from_hours(24);
@@ -71,8 +68,21 @@ const DIAGNOSTIC_EXPIRY_BUDGET: JobBudget = JobBudget::new(&[
 ]);
 
 /// Names, at each pass, the files the expiry leaves alone: the one the service log holds open and
-/// each running provider service's log.
+/// each running provider service's log. Blocking.
 pub(crate) type LiveDiagnosticFiles = Arc<dyn Fn() -> Vec<PathBuf> + Send + Sync>;
+
+/// The files each pass leaves alone: the service log's live file and each running provider
+/// service's log, read at each pass.
+pub(crate) fn live_diagnostic_files(
+    service_log: ServiceLogFiles,
+    providers: Arc<ProviderRegistry>,
+) -> LiveDiagnosticFiles {
+    Arc::new(move || {
+        let mut files = providers.running_service_log_files();
+        files.extend(service_log.live_file());
+        files
+    })
+}
 
 /// What the expiry job reads.
 pub(crate) struct DiagnosticExpiryDeps {
@@ -100,10 +110,6 @@ struct ExpiryCount {
 /// `Keep diagnostic logs for` as it stands at each pass and metered against its processor budget.
 /// Never fails: account homes that cannot be read are told in the service log and the rest is
 /// expired.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start registers the hourly expiry")
-)]
 pub(crate) fn diagnostic_expiry_job(
     deps: Arc<DiagnosticExpiryDeps>,
 ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static {
@@ -126,11 +132,7 @@ async fn run_expiry(deps: Arc<DiagnosticExpiryDeps>, meter: ProcessorMeter) -> M
     let Some(cutoff) = SystemTime::now().checked_sub(keep) else {
         return Ok(None);
     };
-    // Compared by name, so the folder may be spelled differently by the caller and the log.
-    let live_file_names: Vec<OsString> = (deps.live_files)()
-        .iter()
-        .filter_map(|file| file.file_name().map(ToOwned::to_owned))
-        .collect();
+    let live_files = Arc::clone(&deps.live_files);
     let logs_folder = service_log_folder(&deps.data_folder);
     let crash_folders = [
         deps.data_folder.join(CRASH_DUMPS_FOLDER_NAME),
@@ -163,6 +165,11 @@ async fn run_expiry(deps: Arc<DiagnosticExpiryDeps>, meter: ProcessorMeter) -> M
     let expired = meter
         .run_blocking(move || {
             let mut count = ExpiryCount::default();
+            // Compared by name, so the folder may be spelled differently by the caller and the log.
+            let live_file_names: Vec<OsString> = live_files()
+                .iter()
+                .filter_map(|file| file.file_name().map(ToOwned::to_owned))
+                .collect();
             let live_logs =
                 expire_diagnostic_logs(&logs_folder, &live_file_names, cutoff, &mut count);
             for folder in &folders {
@@ -346,8 +353,8 @@ mod tests {
     use crate::database::statement::{StatementBindings, WriteStatement};
     use crate::database::writer::test_file::TestDatabase;
     use crate::events::log_service::tests::open_log;
-    use crate::observability::diagnostic_buckets::account_homes::account_home_diagnostic_folders;
     use crate::observability::diagnostic_buckets::recorders::diagnostic_bucket_folders;
+    use crate::provider::account_homes::account_home_diagnostic_folders;
     use crate::provider::driver::PROVIDERS;
     use crate::provider::driver::contract::{MockProviderDriver, ProviderDriver};
     use crate::provider::driver::test_registry::registry_of_first_providers;

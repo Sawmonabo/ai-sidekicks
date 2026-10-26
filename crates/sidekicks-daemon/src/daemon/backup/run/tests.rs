@@ -20,7 +20,7 @@ use super::{
 };
 use crate::daemon::backup::mirror::MirrorRoot;
 use crate::daemon::data_folder::data_folder;
-use crate::daemon::machine::settings::file::MachineSettingsFile;
+use crate::daemon::machine::settings::file::{MachineSettingsFile, machine_settings_file_path};
 use crate::daemon::scheduler::Scheduler;
 use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::DatabaseReadPool;
@@ -44,9 +44,9 @@ pub(crate) fn test_backups(
             BACKUP_STATEMENT_CAPACITY,
         )),
         truncation: Arc::new(WriteAheadLogTruncation::new(Arc::clone(&log.writer))),
-        settings: Arc::new(MachineSettingsFile::new(
-            data_folder(&home_folder).join("machine-settings.json"),
-        )),
+        settings: Arc::new(MachineSettingsFile::new(machine_settings_file_path(
+            &home_folder,
+        ))),
         home_folder,
         read_mirror_roots,
         manifest_facts: BackupManifestFacts {
@@ -109,7 +109,7 @@ async fn a_failed_run_prunes_nothing_and_the_next_one_prunes_after_it_succeeds()
     fs::write(&kept_file, b"learned").expect("written");
     let is_mirror_readable = Arc::new(AtomicBool::new(false));
     let readable = Arc::clone(&is_mirror_readable);
-    let read_mirror_roots: MirrorRootsReader = Arc::new(move || {
+    let read_mirror_roots: MirrorRootsReader = Arc::new(move |_meter| {
         let roots = if readable.load(Ordering::SeqCst) {
             Ok(vec![
                 MirrorRoot::new("agent-memory".to_owned(), Path::new("agent-memory.md"))
@@ -201,7 +201,7 @@ async fn a_stopped_run_waits_for_its_copy_and_leaves_no_folder() {
     let log = open_log(&database, None).await;
     let home = TempDir::new().expect("a scratch folder");
     let backups_folder = data_folder(home.path()).join("backups");
-    let read_mirror_roots: MirrorRootsReader = Arc::new(|| async { Ok(Vec::new()) }.boxed());
+    let read_mirror_roots: MirrorRootsReader = Arc::new(|_meter| async { Ok(Vec::new()) }.boxed());
     let backups = test_backups(
         &database,
         &log,
@@ -262,7 +262,7 @@ async fn a_back_up_now_that_joins_a_daily_run_makes_it_copy() {
     let log = open_log(&database, None).await;
     let home = TempDir::new().expect("a scratch folder");
     let backups_folder = data_folder(home.path()).join("backups");
-    let read_mirror_roots: MirrorRootsReader = Arc::new(|| async { Ok(Vec::new()) }.boxed());
+    let read_mirror_roots: MirrorRootsReader = Arc::new(|_meter| async { Ok(Vec::new()) }.boxed());
     let backups = test_backups(
         &database,
         &log,

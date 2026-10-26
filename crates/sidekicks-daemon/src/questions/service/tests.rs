@@ -31,7 +31,7 @@ use crate::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
 };
 use crate::events::session::appender::{
-    SessionEventAppender, SessionEventDraft, SessionEventLinkage,
+    SessionEventAppender, SessionEventDraft, SessionEventLinkage, UnsequencedEventEnvelope,
 };
 use crate::events::session::followers::SessionEventFollowers;
 use crate::events::session::read::DamagedFromSequenceReader;
@@ -94,7 +94,9 @@ impl Fixture {
                 EVENT_LOG_STATEMENT_CAPACITY,
             )),
             followers: Arc::new(SessionEventFollowers::default()),
-            projection_statements: Some(Box::new(question_projection_statements)),
+            projection_statements: Some(Box::new(|envelope: &UnsequencedEventEnvelope| {
+                Ok(question_projection_statements(envelope))
+            })),
             refuse_session_write: None,
             read_damaged_from_sequence: None,
         }));

@@ -8,7 +8,7 @@ mod run_ends;
 mod sends;
 
 use std::num::NonZeroUsize;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -50,7 +50,7 @@ use crate::provider::driver::session_control::ProviderSessionHandle;
 use crate::provider::driver::test_registry::{new_run_id, registry_of_first_provider};
 use crate::provider::runtime_binding::store::RuntimeBindingStore;
 use crate::queue::changes::QueueChangeSignals;
-use crate::queue::delivery::{ProviderProcessIdentity, ProviderProcessIds};
+use crate::queue::delivery::{ProcessStandIn, ProviderProcessIds};
 use crate::queue::error::QueueError;
 use crate::queue::provider_session::test_opening::{
     record_first_provider_capabilities, test_opening_composer,
@@ -76,15 +76,6 @@ const WAIT: Duration = Duration::from_secs(5);
 /// How long a call held behind other work is watched to show it waits.
 const HELD_WATCH: Duration = Duration::from_millis(200);
 
-/// A session with no provider process running.
-struct NoProcess;
-
-impl ProviderProcessIds for NoProcess {
-    fn process_identity(&self, _session_id: &SessionId) -> Option<ProviderProcessIdentity> {
-        None
-    }
-}
-
 /// What the stand-in driver was asked, in order, and how it answers.
 #[derive(Default)]
 struct DriverCalls {
@@ -102,6 +93,8 @@ struct DriverCalls {
     start_failures_left: AtomicUsize,
     /// How many priority steers find their turn ended before one is taken.
     dropped_priority_steers_left: AtomicUsize,
+    /// Whether the provider's process keeps a message it took past its run's end.
+    is_kept_by_process: AtomicBool,
 }
 
 impl DriverCalls {
@@ -127,15 +120,17 @@ fn take_one(left: &AtomicUsize) -> bool {
 }
 
 /// A driver whose provider takes messages at once, reads a priority message and gives back what
-/// it was handed, recording each start, steer and resume in `calls`.
+/// it was handed, its process keeping one past the run's end as `calls` says, recording each
+/// start, steer and resume in `calls`.
 fn recording_driver(calls: &Arc<DriverCalls>) -> MockProviderDriver {
     let mut driver = MockProviderDriver::new();
+    let handing = Arc::clone(calls);
     driver
         .expect_message_handing()
-        .return_const(MessageHanding {
+        .returning(move || MessageHanding {
             hands_at: HandMoment::AtOnce,
             can_withdraw: true,
-            kept_by_process: false,
+            kept_by_process: handing.is_kept_by_process.load(Ordering::SeqCst),
             reads_priority_message: true,
         });
     driver
@@ -221,6 +216,7 @@ struct Fixture {
     session_id: SessionId,
     // The engine's posture files.
     home: TempDir,
+    process: Arc<ProcessStandIn>,
 }
 
 async fn fixture(driver: MockProviderDriver) -> Fixture {
@@ -230,23 +226,26 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     let session_id = test_session_id();
     insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
     insert_lead(&database, session_id, PROVIDERS[0].id);
-    let queue = queue_over(&database, &log, &home, driver);
+    let process = Arc::new(ProcessStandIn::default());
+    let queue = queue_over(&database, &log, &home, driver, Arc::clone(&process) as _);
     Fixture {
         database,
         log,
         queue,
         session_id,
         home,
+        process,
     }
 }
 
 /// A run queue over `database` and its `log`, built as the daemon's start builds it, its lead's
-/// provider answered by `driver`.
+/// provider answered by `driver` and its process read from `processes`.
 fn queue_over(
     database: &TestDatabase,
     log: &TestLog,
     home: &TempDir,
     driver: MockProviderDriver,
+    processes: Arc<dyn ProviderProcessIds>,
 ) -> Arc<RunQueue> {
     let pool = Arc::new(DatabaseReadPool::new(
         database.path(),
@@ -294,7 +293,7 @@ fn queue_over(
         providers: Arc::clone(&providers),
         provider_sessions,
         memory_gate,
-        processes: Arc::new(NoProcess),
+        processes,
         pauses: Arc::new(RunPauseControl::new(pool, engine, providers)),
         followers: Arc::clone(&log.followers),
         read_damaged_from_sequence,

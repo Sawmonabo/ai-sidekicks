@@ -345,10 +345,6 @@ impl GitRunner {
     /// Waits up to [`SHUTDOWN_STOP_GRACE`] for the end of every tree a failed call left, since a
     /// git the kernel holds may never be reaped, and logs how many are still ending past it. A call
     /// failing after this still ends its tree on a task of its own, which nothing waits for.
-    #[expect(
-        dead_code,
-        reason = "the daemon's stop waits for the git trees a failed call left ending"
-    )]
     pub(crate) async fn wait_for_tree_ends(&self) {
         self.tree_ends.close();
         if tokio::time::timeout(SHUTDOWN_STOP_GRACE, self.tree_ends.wait())

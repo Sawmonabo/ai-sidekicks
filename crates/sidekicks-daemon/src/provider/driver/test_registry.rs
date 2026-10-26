@@ -14,7 +14,6 @@ use futures::future::BoxFuture;
 use rusqlite::params;
 use serde_json::Value;
 use sidekicks_contracts::artifacts::id::ArtifactId;
-use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
@@ -42,10 +41,7 @@ use crate::provider::driver::ports::{
     DriverPorts, MessageGivenBackListener, MessageRefusedListener, MessageTakenListener,
 };
 use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::{
-    DriverServices, PROVIDERS, ProviderAccountFolders, ProviderRegistration, SessionSpawnContext,
-    SessionSpawnContextResolver,
-};
+use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
 use crate::provider::port::run_state_publisher::RunStatePublisher;
 use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
@@ -63,39 +59,14 @@ const TEST_POOL_STATEMENT_CAPACITY: usize = 16;
 /// The most line bytes the test bound lets the shell-line reader parse at once.
 const TEST_SHELL_LINE_LIMIT: usize = 1 << 20;
 
-/// What a test that resolves no spawn context, account folders or attachment, or rebinds no
-/// binding, answers: the daemon's part that serves it is not built in that test.
+/// What a test that resolves no attachment, or rebinds no binding, answers: the daemon's part that
+/// serves it is not built in that test.
 #[derive(Debug, thiserror::Error)]
 #[error("the test serves no {0}")]
 struct NotServedInTest(&'static str);
 
-/// A spawn-context and account-folder resolver, attachment resolver and binding rebinder that
-/// serve nothing.
-struct NothingServed;
-
-impl SessionSpawnContextResolver for NothingServed {
-    fn resolve_spawn_context(
-        &self,
-        _session_id: SessionId,
-        _provider_account_id: Option<ProviderAccountId>,
-    ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn Error + Send + Sync>>> {
-        async { Err(NotServedInTest("spawn context").into()) }.boxed()
-    }
-
-    fn resolve_account_folders(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<Option<ProviderAccountFolders>, Box<dyn Error + Send + Sync>>> {
-        async { Err(NotServedInTest("account folders").into()) }.boxed()
-    }
-
-    fn read_credential_generation(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>> {
-        async { Err(NotServedInTest("credential generation").into()) }.boxed()
-    }
-}
+/// An attachment resolver and binding rebinder that serve nothing.
+pub(crate) struct NothingServed;
 
 impl RuntimeBindingRebinder for NothingServed {
     fn rebind(
@@ -116,10 +87,11 @@ impl AttachmentResolver for NothingServed {
     }
 }
 
-/// The shared services every driver's build takes, with every port unregistered, no spawn context,
-/// attachment or binding rebind served, the read pool on a database no test opens, every folder
-/// under a relative one that no test makes, and a set of held provider services of its own, which
-/// a test reads through its field. Called on a tokio runtime, which the spawner thread starts on.
+/// The shared services every driver's build takes, with every port unregistered, the spawn
+/// contexts among them, no attachment or binding rebind served, the read pool on a database no
+/// test opens, every folder under a relative one that no test makes, and a set of held provider
+/// services of its own, which a test reads through its field. Called on a tokio runtime, which
+/// the spawner thread starts on.
 pub(crate) fn test_driver_services() -> DriverServices {
     let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
     let folder = PathBuf::from("driver-services");
@@ -152,7 +124,6 @@ pub(crate) fn test_driver_services() -> DriverServices {
         pending_compactions: PendingCompactionRegistry::default(),
         processes: Arc::new(ProviderProcessRegistry::default()),
         provider_services: Arc::new(ProviderServiceProcesses::default()),
-        spawn_contexts: Arc::new(NothingServed),
         runtime_bindings: Arc::new(NothingServed),
         shell_lines: Arc::new(ShellLineReadingBound::new(TEST_SHELL_LINE_LIMIT)),
         ports: Arc::new(DriverPorts::new()),
@@ -183,16 +154,24 @@ pub(crate) fn registry_of_first_provider(driver: Arc<dyn ProviderDriver>) -> Pro
 pub(crate) fn registry_of_first_providers(
     drivers: Vec<Arc<dyn ProviderDriver>>,
 ) -> ProviderRegistry {
-    let table: Vec<ProviderRegistration> = PROVIDERS[..drivers.len()]
+    let services = test_driver_services();
+    ProviderRegistry::register_from(&registrations_of_first_providers(drivers), &services)
+}
+
+/// The table's first providers in its order, one for each of `drivers`, each built as its driver;
+/// the registry is built from it next, on the same thread.
+pub(crate) fn registrations_of_first_providers(
+    drivers: Vec<Arc<dyn ProviderDriver>>,
+) -> Vec<ProviderRegistration> {
+    let table = PROVIDERS[..drivers.len()]
         .iter()
         .map(|descriptor| ProviderRegistration {
             descriptor,
             build: take_next_driver,
         })
         .collect();
-    let services = test_driver_services();
     NEXT_DRIVERS.with_borrow_mut(|next| *next = drivers.into());
-    ProviderRegistry::register_from(&table, &services)
+    table
 }
 
 /// Binds `run_id` in `database` to the table's first provider, as a live runtime binding does, so a

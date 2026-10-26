@@ -35,10 +35,6 @@ use crate::workflow::not_found::{WorkflowNotFound, WorkflowVersionAddress};
 
 /// The statements a [`WorkflowVersions`] prepares on a read connection: a version by number, a
 /// version by id, and a version's whole workflow.
-#[expect(
-    dead_code,
-    reason = "the daemon's start sums the read pool's statement set"
-)]
 pub(crate) const WORKFLOW_VERSIONS_STATEMENT_CAPACITY: usize = 3;
 
 // The columns of one version, in the order `version_from_row` reads them.

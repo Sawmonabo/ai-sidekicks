@@ -128,6 +128,10 @@ pub(crate) struct ProviderDescriptor {
     /// diagnosis and never reads back for a session; `Keep diagnostic logs for` deletes their files
     /// by age in each account home the app manages.
     pub(crate) account_home_diagnostic_folders: &'static [&'static [&'static str]],
+    /// The folders, as components under an account home, the provider keeps its conversations
+    /// and their files in, which hold no credential; a backup keeps them in each account home the
+    /// app manages.
+    pub(crate) account_home_conversation_folders: &'static [&'static [&'static str]],
 }
 
 impl ProviderDescriptor {
@@ -215,13 +219,6 @@ impl ProviderDescriptor {
     /// Every variable the app sets on the provider's processes or its Terminal pane's shells, which
     /// a person's own environment row may not name: the process, launch, credential-home and
     /// screen-reader names. The withheld names are left out, since a person's command keeps them.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the environment rows' check refuses a name the app sets through it"
-        )
-    )]
     pub(crate) fn app_set_environment_names(&self) -> impl Iterator<Item = &'static str> {
         self.process_environment
             .iter()
@@ -373,8 +370,22 @@ impl ReportedVersionReading {
     }
 }
 
-/// Every provider's descriptor, in the order the providers are listed and their drivers registered.
-pub(crate) const PROVIDERS: &[&ProviderDescriptor] = &[&claude::DESCRIPTOR, &codex::DESCRIPTOR];
+/// The one table of providers: each provider's registration, in the order the providers are listed
+/// and their drivers registered, which the daemon's start builds the registry from once.
+pub(crate) const PROVIDER_REGISTRATIONS: &[ProviderRegistration] = &[
+    ProviderRegistration {
+        descriptor: &claude::DESCRIPTOR,
+        build: claude::build,
+    },
+    ProviderRegistration {
+        descriptor: &codex::DESCRIPTOR,
+        build: codex::build,
+    },
+];
+
+/// Every provider's descriptor, in the table's order.
+pub(crate) const PROVIDERS: &[&ProviderDescriptor] =
+    &descriptors_of::<{ PROVIDER_REGISTRATIONS.len() }>(PROVIDER_REGISTRATIONS);
 
 const _: () = assert!(
     has_valid_ids(PROVIDERS),
@@ -415,8 +426,6 @@ pub(crate) struct DriverServices {
     /// The processes serving the provider services the daemon holds a connection to, which each
     /// driver's dial holds and the daemon's caller check reads.
     pub(crate) provider_services: Arc<ProviderServiceProcesses>,
-    /// Where each session's provider process runs, resolved at every spawn.
-    pub(crate) spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
     /// Points a session's binding at the conversation a driver moved it onto.
     pub(crate) runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
     /// The daemon-wide bound on the shell-line bytes an ask's checks parse at once.
@@ -453,8 +462,8 @@ pub(crate) struct ProviderAccountFolders {
 }
 
 /// Resolves where a session's provider process runs, and reads the accounts a provider runs on:
-/// an account's folders before any session runs on it, and its credential generation. Wired by
-/// the daemon.
+/// an account's folders before any session runs on it, and its credential generation. The daemon
+/// registers it on [`DriverPorts::spawn_contexts`].
 pub(crate) trait SessionSpawnContextResolver: Send + Sync {
     /// The context `session_id` runs in on `provider_account_id`'s account, or on the person's own
     /// sign-in when `None`. Fails when the session or its folders cannot be read.
@@ -483,13 +492,6 @@ pub(crate) trait SessionSpawnContextResolver: Send + Sync {
 
 /// One registered provider: its descriptor and the function that builds its driver from the shared
 /// services, storing its handles without I/O.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start registers each provider's driver through it"
-    )
-)]
 pub(crate) struct ProviderRegistration {
     /// The provider's fixed facts.
     pub(crate) descriptor: &'static ProviderDescriptor,
@@ -507,6 +509,19 @@ const fn has_valid_ids(table: &[&ProviderDescriptor]) -> bool {
         i += 1;
     }
     true
+}
+
+/// The descriptors of the first `N` of `registrations`, in their order; `N` is at least one.
+const fn descriptors_of<const N: usize>(
+    registrations: &[ProviderRegistration],
+) -> [&'static ProviderDescriptor; N] {
+    let mut descriptors = [registrations[0].descriptor; N];
+    let mut i = 1;
+    while i < N {
+        descriptors[i] = registrations[i].descriptor;
+        i += 1;
+    }
+    descriptors
 }
 
 /// Whether no two entries of `table` share an id.

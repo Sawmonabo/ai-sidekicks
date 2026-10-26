@@ -40,13 +40,6 @@ use crate::text_cut::cut_to_code_points;
 /// The statements the self-naming prepares on a read connection: the first completed lead run,
 /// the name and first message, the run's reply, the unnamed sessions, the session's working folder
 /// and the run's provider.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start sizes the read connections' statement caches with it"
-    )
-)]
 pub(crate) const SESSION_AUTO_TITLE_STATEMENT_CAPACITY: usize = 6;
 
 /// A fallback name reads as a few words: whole words up to this many code points.

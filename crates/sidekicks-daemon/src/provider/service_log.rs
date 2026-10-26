@@ -46,19 +46,28 @@ pub(crate) fn provider_service_log_file(
     home: &Path,
 ) -> io::Result<PathBuf> {
     let key = provider_home_key(&sidekicks_platforms::real_path(home)?);
+    Ok(provider_service_log_file_of_key(
+        logs_folder,
+        provider_id,
+        &key,
+    ))
+}
+
+/// The log of `provider_id`'s lasting service on the home whose key is `home_key`, in the daemon's
+/// `logs_folder`.
+pub(crate) fn provider_service_log_file_of_key(
+    logs_folder: &Path,
+    provider_id: &ProviderId,
+    home_key: &str,
+) -> PathBuf {
     let provider_id = provider_id.as_str();
-    Ok(logs_folder.join(format!("{provider_id}{SERVICE_LOG_NAME_INFIX}{key}.log")))
+    logs_folder.join(format!(
+        "{provider_id}{SERVICE_LOG_NAME_INFIX}{home_key}.log"
+    ))
 }
 
 /// Whether `file_name` names a provider service's log, the tail kept beside it, or that tail
 /// while it is written: `<provider id>-service-<16 hex digits>` and one of their endings.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the diagnostic-log expiry the scheduler runs matches the provider services' logs"
-    )
-)]
 pub(crate) fn is_provider_service_log_file_name(file_name: &str) -> bool {
     let Some(stem) = SERVICE_LOG_ENDINGS
         .iter()

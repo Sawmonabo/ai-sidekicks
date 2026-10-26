@@ -17,7 +17,7 @@ use crate::provider::driver::codex::service::registry::CodexServiceRegistry;
 use crate::provider::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::codex::session::test_session::{
-    OneFolder, TEST_THREAD, TestCodexSession, fork_reply, no_turns,
+    TEST_THREAD, TestCodexSession, fork_reply, no_turns, one_folder_spawn_contexts,
 };
 use crate::provider::driver::codex::thread::settings::CodexThreadSettings;
 use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
@@ -132,7 +132,7 @@ fn test_recovery(
             session_relaunched,
             rate_limits: CodexRateLimitFiling::new(
                 Arc::clone(&session.dispatch),
-                Arc::new(OneFolder(folder.join("work"))),
+                one_folder_spawn_contexts(folder.join("work")),
             ),
             tasks: TaskTracker::new(),
         },

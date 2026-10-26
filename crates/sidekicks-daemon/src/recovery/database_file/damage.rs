@@ -14,6 +14,7 @@ use futures::future::BoxFuture;
 use rusqlite::ErrorCode;
 use tokio::sync::{SetOnce, SetOnceError};
 
+use crate::daemon::process::jobs::IdleMemoryCollect;
 use crate::database::writer::sqlite_error_code;
 use crate::error_description::describe_error;
 use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
@@ -51,9 +52,13 @@ impl DatabaseDamageWatch {
     }
 
     /// Resolves with what the first damage found was; never resolves while none is.
-    #[expect(dead_code, reason = "the daemon's start")]
     pub(crate) async fn when_found(&self) -> &str {
         self.found.wait().await
+    }
+
+    /// What the first damage found was, `None` while none is.
+    pub(crate) fn found(&self) -> Option<&str> {
+        self.found.get().map(String::as_str)
     }
 
     /// Whether damage has been found, so a caller acts before a waiter on `when_found` runs.
@@ -93,7 +98,6 @@ impl DatabaseDamageWatch {
 
 /// Records the damage beside the database file, durably, so the next start repairs the file.
 /// Fails with the crash-safe write's failure.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) async fn record_database_damage(
     database_path: &Path,
     damage: &str,
@@ -128,26 +132,29 @@ fn damage_record_path(database_path: &Path) -> PathBuf {
 }
 
 /// The gate that tells the watch of every failure a call meets, then hands the failure on to the
-/// caller unchanged.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which puts the gate in front of the registry"
-    )
-)]
+/// caller unchanged, holding the idle memory collect off while the call runs.
 pub(crate) struct DamageReportGate {
     /// The dispatch the calls go on to.
     next: Arc<dyn Dispatch>,
     /// The watch each failure is told to.
     watch: Arc<DatabaseDamageWatch>,
+    /// The collect each call holds off until it answers.
+    idle_memory: Arc<IdleMemoryCollect>,
 }
 
 impl DamageReportGate {
-    /// The gate over `next`, telling `watch` of each failure.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
-    pub(crate) fn new(next: Arc<dyn Dispatch>, watch: Arc<DatabaseDamageWatch>) -> Self {
-        Self { next, watch }
+    /// The gate over `next`, telling `watch` of each failure and holding `idle_memory` off while
+    /// a call runs.
+    pub(crate) fn new(
+        next: Arc<dyn Dispatch>,
+        watch: Arc<DatabaseDamageWatch>,
+        idle_memory: Arc<IdleMemoryCollect>,
+    ) -> Self {
+        Self {
+            next,
+            watch,
+            idle_memory,
+        }
     }
 }
 
@@ -157,10 +164,12 @@ impl Dispatch for DamageReportGate {
         request: Request,
         context: HandlerContext,
     ) -> BoxFuture<'static, Result<Reply, DispatchError>> {
+        let in_flight = self.idle_memory.touch();
         let call = self.next.dispatch(request, context);
         let watch = Arc::clone(&self.watch);
         async move {
             let answer = call.await;
+            drop(in_flight);
             if let Err(error) = &answer {
                 watch.report_dispatch_failure(error);
             }
@@ -179,8 +188,11 @@ mod tests {
     use futures::future::BoxFuture;
     use rstest::rstest;
     use rusqlite::ffi;
+    use tokio::sync::watch;
+    use tokio_util::sync::CancellationToken;
 
     use super::{DamageReportGate, DatabaseDamageWatch};
+    use crate::daemon::process::jobs::IdleMemoryCollect;
     use crate::database::writer::messages::WriteJobFailure;
     use crate::ipc::call_fixtures::{context, request};
     use crate::ipc::registry::{
@@ -251,6 +263,10 @@ mod tests {
                 calls: Arc::clone(&calls),
             }),
             Arc::clone(&watch),
+            Arc::new(IdleMemoryCollect::start(
+                watch::channel(0).1,
+                CancellationToken::new(),
+            )),
         );
 
         let reply = gate.dispatch(request("test.call", None), context(1)).await;

@@ -15,10 +15,6 @@ use crate::ipc::registry::{
 
 /// Registers `daemon.crashReport.list` over the data folder `data_folder`. Fails the start when
 /// the method is already registered.
-#[expect(
-    dead_code,
-    reason = "the daemon's start registers the crash report list"
-)]
 pub(crate) fn register_crash_methods(
     registry: &mut MethodRegistryBuilder,
     data_folder: PathBuf,

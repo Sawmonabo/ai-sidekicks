@@ -10,6 +10,7 @@ use sidekicks_platforms::DaemonRunFolder;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::data_folder_lock::DataFolderLock;
+use crate::daemon::service_log::ServiceLogFiles;
 use crate::ipc::caller_process::contract::CallerProcessReader;
 
 /// What the daemon's start runs with.
@@ -34,6 +35,8 @@ pub(crate) struct DaemonStartOptions {
     pub(crate) stop: CancellationToken,
     /// Where the providers' base environment comes from.
     pub(crate) base_environment: ProviderBaseEnvironment,
+    /// The service log's files, which the diagnostic-log expiry leaves the live one of alone.
+    pub(crate) service_log_files: ServiceLogFiles,
 }
 
 /// Where the providers' base environment comes from: the real login-shell capture, or, in a test

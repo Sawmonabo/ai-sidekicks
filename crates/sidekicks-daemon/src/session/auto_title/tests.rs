@@ -17,7 +17,6 @@ use tokio::sync::Notify;
 
 use super::{SESSION_AUTO_TITLE_STATEMENT_CAPACITY, SessionAutoTitle, first_words_of};
 use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::statement::WriteStatement;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::events::log_service::{
@@ -67,7 +66,9 @@ async fn harness(build: fn(&DriverServices) -> Arc<dyn ProviderDriver>) -> Harne
             EVENT_LOG_STATEMENT_CAPACITY,
         )),
         followers: Arc::clone(&followers),
-        projection_statements: Some(Box::new(directory_row_change)),
+        projection_statements: Some(Box::new(|envelope: &UnsequencedEventEnvelope| {
+            Ok(directory_statements_for(&DirectoryEvent::from(envelope))?)
+        })),
         refuse_session_write: None,
         read_damaged_from_sequence: None,
     }));
@@ -101,19 +102,6 @@ async fn harness(build: fn(&DriverServices) -> Arc<dyn ProviderDriver>) -> Harne
         changes,
         auto_title,
     }
-}
-
-/// The statements that change the session's directory row for the event in `envelope`.
-fn directory_row_change(envelope: &UnsequencedEventEnvelope) -> Vec<WriteStatement> {
-    let session_id = envelope.session_id();
-    directory_statements_for(&DirectoryEvent {
-        session_id: &session_id,
-        occurred_at: envelope.occurred_at.as_str(),
-        category: envelope.category(),
-        event_type: envelope.event_type().as_str(),
-        payload: envelope.payload(),
-    })
-    .expect("the event reads as its type")
 }
 
 /// Stores an unnamed session whose first message was `first_message` and whose lead run,

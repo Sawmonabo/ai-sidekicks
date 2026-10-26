@@ -17,6 +17,7 @@ use crate::provider::driver::SessionSpawnContextResolver;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::service::registry::CodexHomeResolver;
 use crate::provider::driver::contract::DriverError;
+use crate::provider::port::registration::PortRegistration;
 
 /// The person's own Codex folder under their home, where `CODEX_HOME` names none.
 const CODEX_PERSONAL_HOME_FOLDER_NAME: &str = ".codex";
@@ -89,7 +90,7 @@ impl CodexServiceKind {
 /// every other on the person's own Codex folder, which the person's terminal-reach switch decides
 /// the service of.
 pub(crate) struct CodexHomes {
-    spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
+    spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
     personal_home: PathBuf,
     is_terminal_reach_on: Arc<AtomicBool>,
 }
@@ -99,7 +100,7 @@ impl CodexHomes {
     /// `base_environment`'s `CODEX_HOME`, else `.codex` under `home_folder`; the switch reads
     /// `is_terminal_reach_on`.
     pub(crate) fn new(
-        spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
+        spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
         base_environment: &[(String, String)],
         home_folder: &Path,
         is_terminal_reach_on: Arc<AtomicBool>,
@@ -139,6 +140,8 @@ impl CodexHomeResolver for CodexHomes {
             };
             let folders = self
                 .spawn_contexts
+                .require_port()
+                .map_err(|error| DriverError::Internal(Box::new(error)))?
                 .resolve_account_folders(provider_account_id.clone())
                 .await
                 .map_err(DriverError::Internal)?;

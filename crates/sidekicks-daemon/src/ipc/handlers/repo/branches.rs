@@ -12,7 +12,6 @@ use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationEr
 
 /// Registers `project.branch.list` on `branches`; a mount that is not attached is refused with
 /// `repoMount.notFound`. Fails the start when the method is already registered.
-#[expect(dead_code, reason = "the daemon's start")]
 pub(crate) fn register_repo_branches(
     registry: &mut MethodRegistryBuilder,
     branches: Arc<BranchListReader>,

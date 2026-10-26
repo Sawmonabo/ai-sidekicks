@@ -27,13 +27,6 @@ mod tests;
 
 /// The statements `approval.list` prepares on a read connection: whether the session exists, and
 /// its asks.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start registers the approval methods"
-    )
-)]
 pub(crate) const APPROVAL_METHODS_STATEMENT_CAPACITY: usize = 2;
 
 /// What the approval methods read and act through.
@@ -71,10 +64,6 @@ impl From<ApprovalListReadError> for HandlerError {
 /// Registers `approval.resolve`, `approval.list`, `approval.rule.list`, `approval.rule.revoke` and
 /// `approval.denial.override` over `sources`. An answer with no calling device is a fault in the
 /// daemon, answered as an internal error. Fails the start when one is already registered.
-#[expect(
-    dead_code,
-    reason = "the daemon's start registers the approval methods"
-)]
 pub(crate) fn register_approval_methods(
     registry: &mut MethodRegistryBuilder,
     sources: &Arc<ApprovalMethodSources>,

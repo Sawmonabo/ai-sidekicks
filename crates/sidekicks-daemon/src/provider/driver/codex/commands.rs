@@ -120,14 +120,6 @@ struct CommandListener {
 impl CodexProviderCommandCache {
     /// A cache reading the tool servers' prompts through `server_prompts` and each live session's
     /// source through `source_for`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start registers the driver, which builds the one command cache \
-                      its sessions share"
-        )
-    )]
     pub(crate) fn new(
         server_prompts: Arc<PortRegistration<Arc<dyn CodexServerPromptPort>>>,
         source_for: CodexCommandSourceLookup,

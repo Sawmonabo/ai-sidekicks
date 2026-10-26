@@ -165,6 +165,8 @@ pub use linux::caller_process::{
 pub use linux::descriptor_path::read_descriptor_path;
 #[cfg(target_os = "linux")]
 pub use linux::input_wait::{may_wait_for_input, read_input_wait};
+#[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
+pub use linux::memory::process_footprint;
 #[cfg(target_os = "linux")]
 pub use linux::memory::{
     available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
@@ -175,8 +177,6 @@ pub use linux::pinned_process::this_process;
 pub use linux::pinned_process::{PinnedProcess, pin_child_process, pin_running_process};
 #[cfg(target_os = "linux")]
 pub use linux::power_source::PowerSourceWatch;
-#[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
-pub use linux::process_footprint;
 #[cfg(target_os = "linux")]
 pub use linux::process_start::{read_process_environment, read_process_start};
 #[cfg(target_os = "linux")]
@@ -253,6 +253,8 @@ pub use posix::child_command::{
 };
 #[cfg(unix)]
 pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
+#[cfg(unix)]
+pub use posix::current_user::current_user_id;
 #[cfg(unix)]
 pub use posix::disk::{
     flush_file, flush_folder, flush_open_file, is_on_network_file_system, read_exact_at,
@@ -401,6 +403,8 @@ pub use windows::child_command::{
 pub use windows::command_argument_limit::read_command_argument_limit;
 #[cfg(target_os = "windows")]
 pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
+#[cfg(target_os = "windows")]
+pub use windows::current_user::current_user_id;
 #[cfg(target_os = "windows")]
 pub use windows::descriptor_path::read_descriptor_path;
 #[cfg(target_os = "windows")]

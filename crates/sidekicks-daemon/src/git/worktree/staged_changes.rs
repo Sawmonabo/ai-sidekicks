@@ -56,22 +56,18 @@ pub(crate) enum StagedChangesError {
 }
 
 /// Opens temporary worktrees of a folder's staged changes under the daemon's worktrees folder.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Claude Code's staged review reads the index through it"
-    )
-)]
 #[derive(Clone)]
 pub(crate) struct StagedChangesWorktrees {
     folder: PathBuf,
     git: GitRunner,
 }
 
-#[expect(
-    dead_code,
-    reason = "Claude Code's staged review reads the index through it"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Claude Code's staged review reads the index through it"
+    )
 )]
 impl StagedChangesWorktrees {
     /// The worktrees under `worktrees_folder`, the daemon's own and absolute, made with `git`.

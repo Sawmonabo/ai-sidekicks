@@ -225,13 +225,18 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         &["feedback", "drafts"],
         &["usage-data"],
     ],
+    // Transcripts with their subagents' and tools' files, the pre-edit snapshots a checkpoint
+    // restores, task lists, uploads and dev mods, each kept per conversation.
+    account_home_conversation_folders: &[
+        &["projects"],
+        &["file-history"],
+        &["tasks"],
+        &["uploads"],
+        &["dev-mods"],
+    ],
 };
 
 /// Builds the Claude Code driver over the shared services; it stores handles and does no I/O.
-#[expect(
-    dead_code,
-    reason = "the daemon's start registers the driver through it"
-)]
 pub(super) fn build(services: &DriverServices) -> Arc<dyn ProviderDriver> {
     Arc::new(ClaudeDriver::new(services))
 }
@@ -492,6 +497,11 @@ impl ProviderDriver for ClaudeDriver {
         app_values: ProviderRowValues,
     ) -> BoxFuture<'_, Result<Vec<ProviderRow>, DriverError>> {
         self.read_rows(app_values).boxed()
+    }
+
+    // Both rows follow Claude Code's own values until the app stores one.
+    fn row_defaults(&self) -> ProviderRowValues {
+        ProviderRowValues::default()
     }
 
     // Both rows reach sessions started later through the values each start is handed.

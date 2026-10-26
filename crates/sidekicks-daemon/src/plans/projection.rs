@@ -20,23 +20,9 @@ use crate::recovery::projection_rebuild::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which registers the projection with the rebuild"
-    )
-)]
 const CLEAR_PLANS_SQL: &str = "DELETE FROM plans WHERE session_id = ?";
 
 // Every type the fold reads: a plan, its three verdicts and its lost hold.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which registers the projection with the rebuild"
-    )
-)]
 const PLAN_EVENT_TYPES: [SessionEventType; 5] = [
     SessionEventType::PlanProposed,
     SessionEventType::PlanAccepted,
@@ -48,13 +34,6 @@ const PLAN_EVENT_TYPES: [SessionEventType; 5] = [
 /// The `plans` rows as a rebuild replaces them. Its fold keeps no state, so the projection is its
 /// own fold.
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which registers the projection with the rebuild"
-    )
-)]
 pub(crate) struct PlansProjection;
 
 impl SessionProjection for PlansProjection {

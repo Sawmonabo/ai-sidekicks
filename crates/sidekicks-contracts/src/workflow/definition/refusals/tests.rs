@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{WorkflowNodeHandles, check_workflow_connection, check_workflow_graph};
+use super::{
+    WorkflowConnectionCheckInput, WorkflowGraphCheckInput, WorkflowNodeHandles,
+    check_workflow_connection, check_workflow_graph,
+};
 use crate::workflow::definition::document::{
     WorkflowDraftDocument, WorkflowNode, WorkflowNodeId, node,
 };
@@ -261,4 +264,41 @@ fn graph(
         .filter_map(|node| Some((node.id.clone(), handles_of(node)?)))
         .collect();
     (document, trigger, node_handles)
+}
+
+// Killed by `node_handles` typed as a plain map: the member `__proto__` would then read and its
+// handles reach the check.
+#[rstest]
+#[case::the_graph_check(|mut input: Value| {
+    input.as_object_mut().expect("an object").remove("edge");
+    serde_json::from_value::<WorkflowGraphCheckInput>(input).is_err()
+})]
+#[case::the_connection_check(|input: Value| {
+    serde_json::from_value::<WorkflowConnectionCheckInput>(input).is_err()
+})]
+fn a_prototype_member_among_the_node_handles_does_not_read(
+    #[case] does_not_read: fn(Value) -> bool,
+) {
+    let handles = json!({
+        "category": "agent",
+        "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
+        "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+    });
+    let input = json!({
+        "trigger": node("t", "trigger.manual"),
+        "nodes": [node("a", "agent.run")],
+        "edges": [],
+        "edge": main_edge("t", "a"),
+        "nodeHandles": { "a": handles, "__proto__": handles },
+    });
+    let mut accepted = input.clone();
+    accepted["nodeHandles"]
+        .as_object_mut()
+        .expect("an object")
+        .remove("__proto__");
+    assert!(
+        !does_not_read(accepted),
+        "the input without the member reads"
+    );
+    assert!(does_not_read(input));
 }

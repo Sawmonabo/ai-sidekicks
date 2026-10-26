@@ -76,6 +76,33 @@ pub(crate) trait ProviderProcessIds: Send + Sync {
     fn process_identity(&self, session_id: &SessionId) -> Option<ProviderProcessIdentity>;
 }
 
+/// The provider process a test's session runs.
+#[cfg(test)]
+pub(crate) const TEST_PROVIDER_PROCESS: ProviderProcessIdentity = ProviderProcessIdentity {
+    process_id: 7,
+    spawn_sequence: 1,
+};
+
+/// A test's session's provider process, as the test sets it; none runs until it sets one.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct ProcessStandIn(Mutex<Option<ProviderProcessIdentity>>);
+
+#[cfg(test)]
+impl ProcessStandIn {
+    /// Makes `process` the session's provider process; `None` when none runs.
+    pub(crate) fn set(&self, process: Option<ProviderProcessIdentity>) {
+        *crate::mutex_lock::lock(&self.0) = process;
+    }
+}
+
+#[cfg(test)]
+impl ProviderProcessIds for ProcessStandIn {
+    fn process_identity(&self, _session_id: &SessionId) -> Option<ProviderProcessIdentity> {
+        *crate::mutex_lock::lock(&self.0)
+    }
+}
+
 /// Which waiting messages open a run whose driver is being started.
 pub(crate) trait OpeningMessages: Send + Sync {
     /// Whether the waiting message `item` opens the run it waits for, whose driver is being

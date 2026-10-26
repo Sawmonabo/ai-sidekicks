@@ -15,13 +15,6 @@ use crate::database::statement::{StatementBindings, WriteStatement, text_binding
 use crate::database::writer::{DatabaseWriter, WriteError};
 
 /// The statements [`MachineRegistry`] prepares on a read connection: the other owner's row.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start sizes the read connections' statement caches with it"
-    )
-)]
 pub(crate) const MACHINE_REGISTRY_STATEMENT_CAPACITY: usize = 1;
 
 // A re-registration refreshes only `updated_at`; the first registration's time stays.

@@ -33,13 +33,6 @@ enum WriteStep {
 
 /// Registers `terminal.write`, finding each write's shell through `lookup`; a write naming no shell
 /// is answered its refusal without holding the writes after it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start registers terminal.write with the shell table's lookup"
-    )
-)]
 pub(crate) fn register_terminal_write(
     registry: &mut MethodRegistryBuilder,
     lookup: ShellInputLookup,

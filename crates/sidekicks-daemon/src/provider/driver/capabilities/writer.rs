@@ -37,10 +37,6 @@ use crate::provider::output_validation::{ProviderOutputValidationError, check_co
 
 /// The statements a [`DriverCapabilitiesWriter`] prepares on a read connection: the contract row,
 /// the flag rows and the tool rows.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start sizes read caches with it")
-)]
 pub(crate) const DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY: usize = 3;
 
 // The pair comes from the parent row itself, so a row with no version stays apart from no row.
@@ -191,10 +187,6 @@ struct CapabilitySnapshot {
 
 impl DriverCapabilitiesWriter {
     /// A writer reading through `reads` and writing through `writer`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start builds the one writer")
-    )]
     pub(crate) fn new(reads: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
         Self {
             reads,
@@ -291,14 +283,6 @@ impl DriverCapabilitiesWriter {
     /// snapshot, its fixed output-speed levels from `descriptor`. Fails with
     /// [`DriverCapabilitiesWriterError::FlagSetMismatch`] when the stored flag rows are not exactly
     /// the flag set, and when the read fails or a stored value does not read as its type.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start seeds each provider's capabilities from the stored \
-                      reading through it"
-        )
-    )]
     pub(crate) async fn hydrate(
         &self,
         provider: &ProviderId,

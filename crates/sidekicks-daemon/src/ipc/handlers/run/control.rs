@@ -42,7 +42,6 @@ struct CallingDeviceIsDaemon;
 /// Registers `agent.run.intervene`, `agent.run.pause`, `agent.run.resume`,
 /// `agent.run.refusalChoice.resolve` and `agent.run.usageCreditsChoice.resolve` over `services`.
 /// Fails the start when one is already registered.
-#[expect(dead_code, reason = "the daemon's start")]
 pub(crate) fn register_run_control(
     registry: &mut MethodRegistryBuilder,
     services: &RunControlServices,

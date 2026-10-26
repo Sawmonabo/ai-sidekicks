@@ -40,13 +40,6 @@ use crate::session::search::files::listing::{
 use crate::session::working_folder::{WorkingFolderReadError, read_working_folder};
 
 /// The statements the file search prepares on a read connection: the session's working folder.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start sizes the read connections' statement caches with it"
-    )
-)]
 pub(crate) const FILE_SEARCH_STATEMENT_CAPACITY: usize = 1;
 
 /// The most rows one `@` search answers.

@@ -48,13 +48,6 @@ const METHODS_TAKEN_BY_A_DAMAGED_SESSION: [&str; 2] = [
 /// stop, the restart and the flush is refused `daemon.writeRefused` while the daemon takes no
 /// writes, and one naming a session the pass is still rebuilding, or one with damaged history, is
 /// refused `session.rebuilding` or `session.history.damaged`. A call it takes goes on untouched.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which puts the gate in front of the registry"
-    )
-)]
 pub(crate) struct RecoveryWriteGate {
     /// The dispatch the calls go on to.
     next: Arc<dyn Dispatch>,
@@ -67,13 +60,6 @@ pub(crate) struct RecoveryWriteGate {
 impl RecoveryWriteGate {
     /// The gate over `next`; `registry` says which method mutates and `status` where the recovery
     /// stands.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which puts the gate in front of the registry"
-        )
-    )]
     pub(crate) fn new(
         next: Arc<dyn Dispatch>,
         registry: Arc<MethodRegistry>,
@@ -87,13 +73,6 @@ impl RecoveryWriteGate {
     }
 
     /// The refusal of `request`, `None` when the gate takes it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which puts the gate in front of the registry"
-        )
-    )]
     fn refusal_of(&self, request: &Request) -> Option<DomainError> {
         let method = request.method.as_str();
         let is_mutating = self

@@ -49,13 +49,6 @@ use crate::text_cut::cut_to_code_points;
 
 /// The statements the session changes prepare on a read connection: the session's facts, its
 /// runs, and the providers their bindings name.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start sizes the read connections' statement caches with it"
-    )
-)]
 pub(crate) const SESSION_CHANGES_STATEMENT_CAPACITY: usize = 3;
 
 const SELECT_FACTS_SQL: &str =

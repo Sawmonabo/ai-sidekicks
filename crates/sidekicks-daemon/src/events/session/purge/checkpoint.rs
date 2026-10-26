@@ -34,10 +34,6 @@ struct TruncationState {
 
 impl WriteAheadLogTruncation {
     /// The truncation of `writer`'s log.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start builds the log's truncation")
-    )]
     pub(crate) fn new(writer: Arc<DatabaseWriter>) -> Self {
         Self {
             writer,
@@ -71,7 +67,6 @@ impl WriteAheadLogTruncation {
 
     /// Ends the truncation for the daemon's stop and waits for its task; a log left untruncated is
     /// truncated by the next start's request.
-    #[expect(dead_code, reason = "the daemon's stop ends the log's truncation")]
     pub(crate) async fn stop(&self) {
         self.stop.cancel();
         self.tasks.close();

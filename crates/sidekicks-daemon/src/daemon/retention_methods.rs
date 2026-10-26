@@ -45,10 +45,6 @@ use crate::ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
 use crate::workflow::runs::record::{StoredInstantBound, stored_instant_bound};
 
 /// The statements the methods' reads prepare, counted into the read pool's statement capacity.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start, sizing its read connections")
-)]
 pub(crate) const RETENTION_STATEMENT_CAPACITY: usize = 2;
 
 const DAY: Duration = Duration::from_hours(24);
@@ -128,13 +124,6 @@ impl From<SelectionReadError> for HandlerError {
 
 /// Registers `daemon.retention.read`, `.update`, `.purge` and `.subscribe`. Fails the start when a
 /// method is already registered.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start registers the retention methods"
-    )
-)]
 pub(crate) fn register_retention_methods(
     registry: &mut MethodRegistryBuilder,
     deps: RetentionMethodsDeps,
@@ -463,7 +452,7 @@ mod tests {
                     &database,
                     &log,
                     home.path().to_path_buf(),
-                    Arc::new(|| async { Ok(Vec::new()) }.boxed()),
+                    Arc::new(|_meter| async { Ok(Vec::new()) }.boxed()),
                 ),
             },
         )

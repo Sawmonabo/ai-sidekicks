@@ -1,6 +1,6 @@
-//! The write queue: the one task that owns the writer's queue. It takes every message the
-//! writer's handles send, in the order they sent them, admits writes up to the queue's cap and
-//! keeps the rest waiting in order, sends the thread one batch, checkpoint or repack at a time,
+//! The write queue: the one task that owns the writer's queue. It takes every message the writer's
+//! handles send, in the order they sent them, admits writes up to the queue's cap and keeps the
+//! rest waiting in order, sends the thread one batch, checkpoint, optimize or repack at a time,
 //! beside at most one copy, settles each write from the thread's answer, and closes the writer. A
 //! batch holds whatever has been sent when the thread is free, so writes that arrive during a
 //! commit form the next one.
@@ -287,6 +287,10 @@ impl WriteQueue {
                 }
                 None => self.maintenance.take_checkpoint(mode, reply),
             },
+            QueueMessage::Optimize(reply) => match self.maintenance_refusal() {
+                Some(refusal) => send_answer(reply, Err(refusal)),
+                None => self.maintenance.take_optimize(reply),
+            },
             QueueMessage::Repack { cancel, reply } => match self.maintenance_refusal() {
                 Some(refusal) => send_answer(reply, Err(refusal)),
                 None => self
@@ -374,9 +378,9 @@ impl WriteQueue {
     }
 
     /// Answers what has come due and sends the thread its next request when none is in flight: a
-    /// hold whose writes have settled starts first, then a checkpoint, then a repack, then
-    /// whatever is queued, and none of them goes while the writer holds its writes. A close whose
-    /// writes have all settled lets the thread go.
+    /// hold whose writes have settled starts first, then a checkpoint, then an optimize, then a
+    /// repack, then whatever is queued, and none of them goes while the writer holds its writes. A
+    /// close whose writes have all settled lets the thread go.
     fn advance(&mut self) {
         self.answer_settled_flushes();
         if self.is_thread_busy() {
@@ -778,6 +782,9 @@ impl WriteQueue {
                 // Nothing reaches the file any more, so a hold holds at once.
                 QueueMessage::Hold { started, .. } => send_answer(started, ()),
                 QueueMessage::Checkpoint { reply, .. } => {
+                    send_answer(reply, Err(MaintenanceError::Closed));
+                }
+                QueueMessage::Optimize(reply) => {
                     send_answer(reply, Err(MaintenanceError::Closed));
                 }
                 QueueMessage::Repack { reply, .. } => {

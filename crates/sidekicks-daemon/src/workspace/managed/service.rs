@@ -49,7 +49,6 @@ const GIT_INIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The folder holding every chat's managed workspace under `home_folder`, one subfolder per
 /// session id.
-#[cfg_attr(not(test), expect(dead_code, reason = "a chat's create and its purge"))]
 pub(crate) fn managed_workspaces_folder(home_folder: &Path) -> PathBuf {
     home_folder
         .join(DAEMON_DATA_FOLDER_NAME)
