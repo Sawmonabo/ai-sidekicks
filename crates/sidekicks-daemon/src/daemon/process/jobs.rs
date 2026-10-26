@@ -153,9 +153,12 @@ impl IdleMemoryCollect {
     }
 
     /// Marks a call in flight until the answer is dropped, so the collect waits for it.
-    #[expect(
-        dead_code,
-        reason = "the dispatch chain, which holds one for each call it serves"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the dispatch chain, which holds one for each call it serves"
+        )
     )]
     pub(crate) fn touch(&self) -> CallInFlight {
         if self.calls.count.fetch_add(1, Ordering::AcqRel) == 0 {

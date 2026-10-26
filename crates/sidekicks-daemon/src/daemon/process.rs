@@ -309,10 +309,6 @@ pub(crate) struct DaemonProcess {
     /// Whether a step of the stop failed, so no clean stop is recorded.
     pub(crate) has_stop_failed: bool,
     /// Hands freed memory back once the work goes quiet; ends with the work.
-    #[expect(
-        dead_code,
-        reason = "the dispatch chain, which holds a call in flight for each call it serves"
-    )]
     idle_memory: Option<Arc<IdleMemoryCollect>>,
 }
 

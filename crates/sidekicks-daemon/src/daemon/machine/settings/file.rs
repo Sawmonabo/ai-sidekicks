@@ -23,10 +23,6 @@ use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use crate::ipc::stream::latest_value::LatestValueOutlet;
 
 /// The settings file's name in the daemon's data folder.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start opens the settings file by it")
-)]
 pub(crate) const MACHINE_SETTINGS_FILE_NAME: &str = "machine-settings.json";
 
 // Readable and writable by the person alone: an environment row's value can carry a proxy's
