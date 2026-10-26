@@ -61,13 +61,14 @@ pub fn end_by_stop_signal(_signal: TerminalSignal) -> io::Error {
     unwrapped()
 }
 
-/// The code to exit with as the child whose exit is `status` did; a code past what `ExitCode`
-/// holds exits as a failure.
-pub fn end_as_child_ended(status: ExitStatus) -> ExitCode {
-    status
+/// The code to exit with as the child whose exit is `status` did, with no failure; a code past what
+/// `ExitCode` holds exits as a failure.
+pub fn end_as_child_ended(status: ExitStatus) -> (ExitCode, Option<io::Error>) {
+    let code = status
         .code()
         .and_then(|code| u8::try_from(code).ok())
-        .map_or(ExitCode::FAILURE, ExitCode::from)
+        .map_or(ExitCode::FAILURE, ExitCode::from);
+    (code, None)
 }
 
 /// Reads no window size. Always fails with `Unsupported`.
@@ -82,6 +83,11 @@ impl RawStandardInput {
     /// Sets nothing raw. Always fails with `Unsupported`.
     pub fn enter() -> io::Result<Option<Self>> {
         Err(unwrapped())
+    }
+
+    /// Puts back nothing, as none is ever set.
+    pub fn leave(self) -> io::Result<()> {
+        match self.0 {}
     }
 }
 

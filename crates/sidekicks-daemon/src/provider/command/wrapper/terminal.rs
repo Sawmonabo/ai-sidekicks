@@ -13,15 +13,15 @@ use std::time::{Duration, Instant};
 use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::tty::Pty;
 use sidekicks_platforms::{
-    InnerTerminal, RawStandardInput, blocking_terminal_master, end_as_child_ended,
-    end_terminal_session, has_unread_output, pass_on_stop_signals, read_standard_input_window_size,
-    read_terminal_master, signal_foreground_group, start_inner_terminal, terminal_options,
-    wait_for_terminal_command,
+    InnerTerminal, RawStandardInput, blocking_terminal_master, end_terminal_session,
+    has_unread_output, pass_on_stop_signals, read_standard_input_window_size, read_terminal_master,
+    signal_foreground_group, start_inner_terminal, terminal_options, wait_for_terminal_command,
 };
 
 use super::{
-    ARG0_FLAG, CommandState, INNER_FLAG, SharedRecords, SharedState, WORDS_SEPARATOR, exec_failed,
-    exited_record, follow_stops, lock_records, lock_state, note, send_record,
+    ARG0_FLAG, CommandState, INNER_FLAG, SharedRecords, SharedState, WORDS_SEPARATOR,
+    end_as_command_ended, exec_failed, exited_record, follow_stops, lock_records, lock_state, note,
+    send_record,
 };
 use crate::provider::command::channel::PartyRecord;
 use crate::provider::command::channel::party::PartyRequests;
@@ -101,14 +101,15 @@ pub(super) fn run_in_terminal(
         group: pty.child().id(),
     };
     let pty = Arc::new(pty);
-    let raw_input = RawStandardInput::enter().unwrap_or_else(|error| {
-        note(records, &format!("could not set its terminal raw: {error}"));
-        None
-    });
     let master = match blocking_terminal_master(&pty) {
         Ok(master) => master,
         Err(error) => return exec_failed(&error),
     };
+    // Nothing returns before the input is left as it was, below.
+    let raw_input = RawStandardInput::enter().unwrap_or_else(|error| {
+        note(records, &format!("could not set its terminal raw: {error}"));
+        None
+    });
     let tail: SharedTail = Arc::new((
         Mutex::new(OutputTail {
             bytes: Vec::new(),
@@ -159,11 +160,17 @@ pub(super) fn run_in_terminal(
     *state = CommandState::Reaped;
     // The output a command printed just before it exited is still on its way to the provider.
     wait_for_last_output(&pty, &output_ended, &tail, records);
-    drop(raw_input);
+    if let Some(raw_input) = raw_input
+        && let Err(error) = raw_input.leave()
+    {
+        write_error_line(&format!(
+            "sidekicks-command-wrapper could not put its terminal back from raw: {error}"
+        ));
+    }
     match status {
         Ok(status) => {
             send_record(records, &exited_record(status));
-            end_as_child_ended(status)
+            end_as_command_ended(status)
         }
         Err(error) => {
             write_error_line(&format!(

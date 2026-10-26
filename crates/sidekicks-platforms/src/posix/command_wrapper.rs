@@ -127,22 +127,22 @@ pub fn end_by_stop_signal(signal: TerminalSignal) -> io::Error {
 }
 
 /// Ends this process the way its child whose exit is `status` ended: a signal's end raised again
-/// as that signal's default action, else the child's own code. Answers the code to exit with only
-/// where the raise did not end the process: 128 and the signal's number, as a shell reads it.
-pub fn end_as_child_ended(status: ExitStatus) -> ExitCode {
+/// as that signal's default action, else the child's own code. Answers the code to exit with, and
+/// where the raise did not end the process the error that kept it from doing so, the code then 128
+/// and the signal's number, as a shell reads it.
+pub fn end_as_child_ended(status: ExitStatus) -> (ExitCode, Option<io::Error>) {
     if let Some(number) = status.signal() {
-        if let Err(error) = signal_hook::low_level::emulate_default_handler(number) {
-            tracing::warn!(
-                error = &error as &(dyn std::error::Error + 'static),
-                "a child's ending signal could not be raised again"
-            );
-        }
-        return ExitCode::from(u8::try_from(128 + number).unwrap_or(u8::MAX));
+        let failure = signal_hook::low_level::emulate_default_handler(number).err();
+        return (
+            ExitCode::from(u8::try_from(128 + number).unwrap_or(u8::MAX)),
+            failure,
+        );
     }
-    status
+    let code = status
         .code()
         .and_then(|code| u8::try_from(code).ok())
-        .map_or(ExitCode::FAILURE, ExitCode::from)
+        .map_or(ExitCode::FAILURE, ExitCode::from);
+    (code, None)
 }
 
 /// The window size of the terminal this process's standard input is, read once; `None` when its
@@ -178,8 +178,9 @@ pub fn read_standard_input_window_size() -> io::Result<Option<WindowSize>> {
     }))
 }
 
-/// This process's standard input set raw, every byte passed through as typed, until it drops,
-/// which puts back the settings it had.
+/// This process's standard input set raw, every byte passed through as typed, until
+/// [`RawStandardInput::leave`] puts back the settings it had.
+#[must_use = "the standard input stays raw until it is left"]
 pub struct RawStandardInput {
     settings: Termios,
 }
@@ -198,17 +199,10 @@ impl RawStandardInput {
         tcsetattr(&input, SetArg::TCSANOW, &raw).map_err(io::Error::from)?;
         Ok(Some(Self { settings }))
     }
-}
 
-impl Drop for RawStandardInput {
-    fn drop(&mut self) {
-        if let Err(errno) = tcsetattr(io::stdin(), SetArg::TCSANOW, &self.settings) {
-            let error = io::Error::from(errno);
-            tracing::warn!(
-                error = &error as &(dyn std::error::Error + 'static),
-                "the standard input's terminal settings could not be put back"
-            );
-        }
+    /// Puts back the settings the standard input had. Fails with the system's error.
+    pub fn leave(self) -> io::Result<()> {
+        tcsetattr(io::stdin(), SetArg::TCSANOW, &self.settings).map_err(io::Error::from)
     }
 }
 

@@ -308,6 +308,18 @@ fn exited_record(status: ExitStatus) -> PartyRecord {
     }
 }
 
+/// Ends the wrapper as its command ended with `status`, saying on standard error where it could
+/// not end by the command's signal, and answering the code it exits with then.
+fn end_as_command_ended(status: ExitStatus) -> ExitCode {
+    let (code, failure) = end_as_child_ended(status);
+    if let Some(error) = failure {
+        write_error_line(&format!(
+            "sidekicks-command-wrapper could not end by its command's signal: {error}"
+        ));
+    }
+    code
+}
+
 /// Where the wrapper's command is, which the signal thread, the daemon's stop and the wait read
 /// under one lock, so a stop or a signal never reaches a reaped command's reused id and `Stopped`
 /// is sent before `Exited`.
@@ -451,7 +463,7 @@ fn run_child(
     match waited {
         Ok(status) => {
             send_record(records, &exited_record(status));
-            end_as_child_ended(status)
+            end_as_command_ended(status)
         }
         Err(error) => {
             write_error_line(&format!(
