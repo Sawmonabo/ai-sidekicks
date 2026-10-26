@@ -1,8 +1,9 @@
 //! `question.resolve`: the person's answers to every question of one record, checked against its
 //! pages before anything goes out. A question its run waits on gets its answers through the run's
-//! driver first; only then does one write settle the record `answered`, append the person's turn
-//! and move the run back to `running`, guarded so a second answer that raced the first, or the
-//! run's end, is refused whole and reads the state back. A question a workflow wait holds gets its
+//! driver first, or through the tool-server client when a tool server asked it; only then does
+//! one write settle the record `answered`, append the person's turn and move the run back to
+//! `running`, guarded so a second answer that raced the first, or the run's end, is refused whole
+//! and reads the state back. A question a workflow wait holds gets its
 //! answers through the wait. A settled record answers its state and sends nothing.
 //!
 //! One window stays open on a provider that drops its own pending requests when its turn ends and
@@ -30,7 +31,9 @@ use crate::ipc::registry::HandlerError;
 use crate::provider::driver::contract::{ProviderRequestAnswer, RespondToRequestParams};
 use crate::questions::answer_text::compose_answer_text;
 use crate::questions::schema::QuestionState;
-use crate::questions::service::{HeldRequest, QuestionError, QuestionsService};
+use crate::questions::service::{
+    HeldRequest, HeldRequestAnswerer, QuestionError, QuestionsService,
+};
 use crate::questions::store::{
     QuestionHolder, read_asked, read_question, settle_question_statement,
 };
@@ -40,10 +43,11 @@ use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions
 impl QuestionsService {
     /// Answers every question of `request`'s record from `device_id` and answers its state.
     /// Refused `question.notFound` for an id no record holds, `question.notWaiting` for a question
-    /// its agent does not wait for, `question.answersIncomplete` for a list that does not answer
-    /// every question and `question.answerInvalid` for an answer its question cannot take, each
-    /// with nothing sent. Fails as the driver or the wait fails, nothing written, or as the write
-    /// fails after the answer went out.
+    /// its agent does not wait for, `question.waitingForRun` for one that still waits for its run,
+    /// `question.answersIncomplete` for a list that does not answer every question and
+    /// `question.answerInvalid` for an answer its question cannot take, each with nothing sent.
+    /// Fails as the driver or the wait fails, nothing written, or as the write fails after the
+    /// answer went out.
     pub(crate) async fn resolve_question(
         &self,
         request: QuestionResolveRequest,
@@ -71,6 +75,9 @@ impl QuestionsService {
         if !stored.is_agent_waiting {
             return Err(question_not_waiting(question_id).into());
         }
+        if stored.state == QuestionState::WaitingForRun {
+            return Err(question_waiting_for_run(question_id).into());
+        }
         let asked = asked.ok_or(QuestionError::AskedMissing { question_id })?;
         check_answers(question_id, asked_pages(&asked), &answers)?;
         let state = match stored.holder {
@@ -91,10 +98,11 @@ impl QuestionsService {
         Ok(QuestionResolveResponse { question_id, state })
     }
 
-    // The answers to the run's driver, then the settle, the person's turn and the run's move in
-    // one write. A write refused after the driver took the answers, as when a second answer raced
-    // it or the run ended meanwhile, reads the state back: the run's end settled it `canceled`.
-    // The request is let go either way, since the driver has answered it.
+    // The answers to whoever asked, the run's driver or the tool server through the tool-server
+    // client, then the settle, the person's turn and the run's move in one write. A write refused
+    // after the answers went out, as when a second answer raced them or the run ended meanwhile,
+    // reads the state back: the run's end settled it `canceled`. The request is let go either way,
+    // since it has been answered.
     async fn answer_held(
         &self,
         question_id: QuestionId,
@@ -105,19 +113,29 @@ impl QuestionsService {
             session_id,
             run_id,
             request_id,
+            answered_by,
         } = self
             .held_request(&question_id)
             .ok_or(QuestionError::RequestNotHeld { question_id })?;
         let message = MessageContent::new(compose_answer_text(&answers))
             .map_err(QuestionError::AnswerText)?;
-        let driver = read_run_driver::<QuestionError>(&self.reads, &self.providers, run_id).await?;
-        driver
-            .respond_to_request(RespondToRequestParams {
-                run_id,
-                request_id,
-                response: ProviderRequestAnswer::Question { answers },
-            })
-            .await?;
+        match answered_by {
+            HeldRequestAnswerer::Driver => {
+                let driver =
+                    read_run_driver::<QuestionError>(&self.reads, &self.providers, run_id).await?;
+                driver
+                    .respond_to_request(RespondToRequestParams {
+                        run_id,
+                        request_id,
+                        response: ProviderRequestAnswer::Question { answers },
+                    })
+                    .await?;
+            }
+            HeldRequestAnswerer::ToolServerTask(answer) => answer
+                .answer(answers)
+                .await
+                .map_err(QuestionError::ToolServerTask)?,
+        }
         let turn = SessionEventDraft::new(
             UserMessageSentPayload {
                 session_id,
@@ -186,6 +204,7 @@ impl From<QuestionError> for HandlerError {
             | QuestionError::AnswerText(_)
             | QuestionError::WaitsUnregistered(_)
             | QuestionError::Wait(_)
+            | QuestionError::ToolServerTask(_)
             | QuestionError::Read(_)
             | QuestionError::Database(_)) => Self::Internal(Box::new(fault)),
         }
@@ -200,10 +219,10 @@ fn asked_pages(asked: &QuestionAskedPayload) -> &[QuestionPrompt] {
     }
 }
 
-// The settled state a row's word reads as; none while it is open.
+// The settled state a row's word reads as; none while it is open or waits for its run.
 fn settled_state(state: QuestionState) -> Option<QuestionSettledState> {
     match state {
-        QuestionState::Open => None,
+        QuestionState::WaitingForRun | QuestionState::Open => None,
         QuestionState::Answered => Some(QuestionSettledState::Answered),
         QuestionState::Canceled => Some(QuestionSettledState::Canceled),
     }
@@ -286,6 +305,16 @@ pub(crate) fn question_not_waiting(question_id: QuestionId) -> DomainError {
     DomainError::new(
         "The agent does not wait for this question; a message answers it",
         RefusalCode::QuestionNotWaiting,
+    )
+    .with_detail(json!({ "questionId": question_id }))
+}
+
+// `question.waitingForRun` for a question that waits for its run, which takes no answer until the
+// run reads running and the question opens.
+fn question_waiting_for_run(question_id: QuestionId) -> DomainError {
+    DomainError::new(
+        "The question waits for its run and takes its answer once the run reaches it",
+        RefusalCode::QuestionWaitingForRun,
     )
     .with_detail(json!({ "questionId": question_id }))
 }

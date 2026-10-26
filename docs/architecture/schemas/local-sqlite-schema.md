@@ -702,21 +702,23 @@ CREATE INDEX idx_plans_fresh_session ON plans(fresh_session_id) WHERE fresh_sess
 CREATE INDEX idx_plans_waiting_run ON plans(run_id) WHERE state = 'waiting';
 
 -- Owner: Plan-010
--- The question record, rebuilt from question.asked, question.canceled, the user.message.sent that
--- answers it and the admission of a queued answer. Its pages stay in its question.asked event,
--- read from there when an answer is checked; a secret answer is stored nowhere.
+-- The question record, rebuilt from question.asked, question.opened, question.canceled, the
+-- user.message.sent that answers it and the admission of a queued answer. Its pages stay in its
+-- question.asked event, read from there when an answer is checked; a secret answer is stored
+-- nowhere.
 CREATE TABLE questions (
   id                TEXT PRIMARY KEY,  -- QuestionId
   session_id        TEXT NOT NULL,
   run_id            TEXT,              -- the run that holds it, or
   wait_id           TEXT,              -- the workflow wait that holds it
   is_agent_waiting  INTEGER NOT NULL CHECK(is_agent_waiting IN (0, 1)), -- 0: a queued message answers it
-  state             TEXT NOT NULL DEFAULT 'open' CHECK(state IN ('open', 'answered', 'canceled')),
+  state             TEXT NOT NULL DEFAULT 'open' CHECK(state IN ('waitingForRun', 'open', 'answered', 'canceled')),
   CHECK((run_id IS NULL) <> (wait_id IS NULL))
 ) STRICT;
 
 CREATE INDEX idx_questions_session ON questions(session_id);
-CREATE INDEX idx_questions_open_run ON questions(run_id) WHERE state = 'open';
+-- A run's end reads the questions it still holds, open or waiting for it.
+CREATE INDEX idx_questions_unsettled_run ON questions(run_id) WHERE state IN ('waitingForRun', 'open');
 
 -- Owner: Plan-010
 -- Each queued message answering a question its agent does not wait for: inserted by the

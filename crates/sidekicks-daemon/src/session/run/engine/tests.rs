@@ -28,6 +28,7 @@ use crate::database::statement::DATABASE_NOW_SQL;
 use crate::database::writer::test_file::TestDatabase;
 use crate::events::log_service::EventLogService;
 use crate::events::session::appender::SessionEventDraft;
+use crate::mutex_lock::lock;
 use crate::pause_point::PausePoint;
 use crate::policy::execution_posture_service::{
     ExecutionPostureService, compose_execution_posture,
@@ -35,7 +36,6 @@ use crate::policy::execution_posture_service::{
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::test_registry::test_driver_services;
 use crate::session::run::engine::limits::LimitStop;
-use crate::session::run::engine::live::lock;
 use crate::session::run::engine::turns::{ProviderTurnEnd, StepCount, TurnOutcome};
 use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
 use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};

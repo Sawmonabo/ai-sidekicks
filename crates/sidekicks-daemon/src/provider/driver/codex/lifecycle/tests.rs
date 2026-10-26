@@ -46,6 +46,8 @@ use crate::provider::driver::test_registry::new_session_id;
 use crate::provider::driver::test_registry::{
     RecordedQueue, TestRunPorts, new_run_id, test_driver_services,
 };
+use crate::provider::port::question::QuestionPort;
+use crate::provider::port::registration::PortRegistration;
 use crate::provider::runtime_binding::store::RuntimeBindingSpawnConfig;
 use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
 use crate::session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
@@ -64,6 +66,8 @@ pub(super) struct LiveCodexSession {
     pub(super) binding_id: RuntimeBindingId,
     pub(super) scripted: ScriptedCodexService,
     pub(super) queue: Arc<RecordedQueue>,
+    /// Where the questions card registers, which no test registers until it asks a question.
+    pub(super) questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
     pub(super) database: TestDatabase,
     pub(super) followers: Arc<SessionEventFollowers>,
     _home: TempDir,
@@ -128,6 +132,7 @@ impl LiveCodexSession {
         assert!(ports.message_taken.register(queue.clone()).is_ok());
         assert!(ports.message_refused.register(queue.clone()).is_ok());
         assert!(ports.message_given_back.register(queue.clone()).is_ok());
+        let questions = Arc::clone(&ports.questions);
         let driver = CodexDriver::new(&services);
         let parts = Arc::clone(driver.parts().expect("the driver composes"));
 
@@ -229,6 +234,7 @@ impl LiveCodexSession {
             binding_id,
             scripted,
             queue,
+            questions,
             database,
             followers: run_ports.log.followers,
             _home: home,

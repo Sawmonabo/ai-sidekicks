@@ -33,12 +33,13 @@ use crate::database::connection::read_pool::ReadLength;
 use crate::database::statement::WriteStatement;
 use crate::error_description::describe_error;
 use crate::events::session::appender::SessionEventDraft;
+use crate::mutex_lock::lock;
 use crate::provider::driver::contract::bound_failure_detail;
 use crate::provider::driver::run_control::DriverRunRefusal;
 use crate::queue::store::take_over_interrupted_statement;
 use crate::session::run::agent::RunAgentReader;
 use crate::session::run::daemon_turn::queue_daemon_turn_run;
-use crate::session::run::engine::live::{ContinuingGuard, StartingGuard, StartingRun, lock};
+use crate::session::run::engine::live::{ContinuingGuard, StartingGuard, StartingRun};
 use crate::session::run::engine::{
     LiveAppend, RunEngine, RunEngineError, RunResumeError, with_cleanup_failures,
 };

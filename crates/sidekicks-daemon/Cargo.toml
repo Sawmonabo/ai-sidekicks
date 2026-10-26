@@ -9,9 +9,6 @@ publish.workspace = true
 
 [package.metadata.cargo-shear]
 ignored = [
-  # The loopback listener for the agents' tool servers, the telemetry receiver and the cookie
-  # check in front of a machine's shared ports.
-  "axum",
   # The linking digits of a device link.
   "hkdf",
   # The browser tools and Preview's pages over DevTools.
@@ -62,9 +59,6 @@ ignored = [
   # The redaction set built from each secret of a run.
   "form_urlencoded",
   "percent-encoding",
-  # The daemon's own tool server and its connections to a session's tool servers.
-  "rmcp",
-  "sse-stream",
   # The JavaScript engine of a workflow's quick code step, its file-watch trigger's path patterns
   # and the passkey statement checks.
   "rquickjs",

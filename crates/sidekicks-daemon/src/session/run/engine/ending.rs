@@ -9,7 +9,8 @@ use sidekicks_contracts::run::state::RunState;
 use tokio::sync::SetOnce;
 
 use crate::events::session::append_lock::SessionAppendHold;
-use crate::session::run::engine::live::{EndingWrite, LiveRuns, lock, settle};
+use crate::mutex_lock::lock;
+use crate::session::run::engine::live::{EndingWrite, LiveRuns, settle};
 use crate::session::run::engine::{RunEngine, RunEngineError, settled};
 use crate::session::run::read::RunRead;
 use crate::session::run::setup_gates::RunTerminalContext;
@@ -20,7 +21,8 @@ impl RunEngine {
     /// in flight for a continue to wait on and carries the settle of every intervention left with
     /// no outcome on the run; once it has committed, the run queue's holds of the interrupts it
     /// settled go and the terminal hooks run, every failure returned after all have run, with the
-    /// end kept.
+    /// end kept. A move to `running` and an end, once written, wake whoever waits for the run to
+    /// read `running` again.
     pub(super) async fn change(
         &self,
         change: RunStateChange,
@@ -28,8 +30,13 @@ impl RunEngine {
         hold: Option<&SessionAppendHold>,
     ) -> Result<RunRead, RunEngineError> {
         let run_id = change.run_id;
-        if !RunState::from(change.entry.state()).is_terminal() {
-            return Ok(self.changes.write(change, companions, hold).await?);
+        let to_state = RunState::from(change.entry.state());
+        if !to_state.is_terminal() {
+            let written = self.changes.write(change, companions, hold).await?;
+            if to_state == RunState::Running {
+                self.wake_running_waiters(&run_id);
+            }
+            return Ok(written);
         }
         // In flight before the settle reads the rows, so a dispatch that answers nothing after
         // that read waits for this end and settles its own row.
@@ -38,6 +45,7 @@ impl RunEngine {
         drop(ending);
         let (run, released_choices) = written?;
         self.forget_ended_run(&run_id);
+        self.wake_running_waiters(&run_id);
         let released = self.release_interrupt_holds(run_id, released_choices).await;
         let hooks = self
             .gates
@@ -151,7 +159,8 @@ mod tests {
     use tokio::sync::SetOnce;
 
     use super::EndingGuard;
-    use crate::session::run::engine::live::{EndingWrite, LiveRuns, lock};
+    use crate::mutex_lock::lock;
+    use crate::session::run::engine::live::{EndingWrite, LiveRuns};
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // How long the live lock is held after the guard begins to drop, long enough for a guard that

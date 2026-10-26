@@ -107,12 +107,13 @@ impl RecordedRelaunches {
         lock(&self.taken).clone()
     }
 
-    /// The relaunches once the first is reported, which comes after the process it started.
-    pub(crate) async fn first_reported(&self) -> Vec<(SessionId, bool)> {
+    /// The relaunches once `count` are reported, each after the process it started, which a start
+    /// reader sees first.
+    pub(crate) async fn reported(&self, count: usize) -> Vec<(SessionId, bool)> {
         loop {
             let next = self.reported.notified();
             let taken = self.taken();
-            if !taken.is_empty() {
+            if taken.len() >= count {
                 return taken;
             }
             next.await;

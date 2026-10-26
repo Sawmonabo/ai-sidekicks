@@ -43,7 +43,7 @@ use crate::plan::{
     PlanAcceptedPayload, PlanHandedOffPayload, PlanHoldEndedPayload, PlanKeptPayload,
     PlanProposedPayload,
 };
-use crate::question::{QuestionAskedPayload, QuestionCanceledPayload};
+use crate::question::{QuestionAskedPayload, QuestionCanceledPayload, QuestionOpenedPayload};
 use crate::relay::RelayPinRefusedPayload;
 use crate::repo::mount::{RepoMountHealthChangedPayload, WorkspaceLifecyclePayload};
 use crate::run::control::{
@@ -350,7 +350,9 @@ session_events! {
     /// Emitted when an agent, tool server or workflow step asks the person a question.
     QuestionAsked(#[garde(dive)] QuestionAskedPayload) = "question.asked"
         => read(question_asked_run),
-    /// Emitted when an open question ends unanswered.
+    /// Emitted when a question waiting for its run becomes answerable once the run reads running.
+    QuestionOpened(QuestionOpenedPayload) = "question.opened",
+    /// Emitted when an open question, or one waiting for its run, ends unanswered.
     QuestionCanceled(QuestionCanceledPayload) = "question.canceled",
     /// Emitted when the daemon accepts a message the person sent, or a voice call hears one.
     UserMessageSent(UserMessageSentPayload) = "user.message.sent" => optional,

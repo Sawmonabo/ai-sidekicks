@@ -5,7 +5,6 @@
 mod ask_action;
 pub(super) mod asks;
 mod children;
-pub(super) mod elicitation_form;
 mod failure_cause;
 pub(super) mod frames;
 pub(super) mod memory;

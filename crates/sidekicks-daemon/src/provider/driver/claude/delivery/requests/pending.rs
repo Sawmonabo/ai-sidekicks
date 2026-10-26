@@ -1,11 +1,13 @@
 //! The requests each session holds pending: recorded before they are attributed, so a withdrawal
 //! that comes first finds them, marked once handed on to their service, and closed by an answer or
-//! a withdrawal, the last close telling every waiter on the session's open asks.
+//! a withdrawal, the last close telling every waiter on the session's open asks. Each one closed or
+//! recorded over is let go, which a question's take reads as its asker leaving.
 
 use std::collections::HashMap;
 
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
 use super::{ClaudeHeldAsk, ClaudeHeldQuestion};
 
@@ -33,9 +35,13 @@ impl HeldRequest {
 pub(super) struct PendingRequest {
     /// What it holds the answer for.
     pub(super) held: HeldRequest,
-    admission: u64,
+    /// Its recording's number, so a close finds this recording and not a later one under the id.
+    pub(super) admission: u64,
     /// Whether its service has it.
     pub(super) is_handed_on: bool,
+    /// Canceled once it is closed or recorded over, so a question's take still writing its record
+    /// withdraws it once the record lands.
+    let_go: CancellationToken,
 }
 
 // One session's pending requests, and the waiters told when the last one closes.
@@ -63,7 +69,8 @@ impl RequestTables {
     ) -> u64 {
         self.next_admission += 1;
         let admission = self.next_admission;
-        self.by_session
+        let recorded_over = self
+            .by_session
             .entry(session_id)
             .or_default()
             .pending
@@ -73,28 +80,32 @@ impl RequestTables {
                     held,
                     admission,
                     is_handed_on: false,
+                    let_go: CancellationToken::new(),
                 },
             );
+        // A request recorded again is a new request under the same id; a question's take, let go,
+        // withdraws whichever question the card holds under that id, the new one perhaps.
+        if let Some(recorded_over) = recorded_over {
+            recorded_over.let_go.cancel();
+        }
         admission
     }
 
-    /// Marks the recording `admission` handed on; `false` when it was closed or recorded again.
+    /// Marks the recording `admission` handed on and answers its letting go, which a question's
+    /// take waits on; `None` when it was closed or recorded again.
     pub(super) fn mark_handed_on(
         &mut self,
         session_id: SessionId,
         request_id: &str,
         admission: u64,
-    ) -> bool {
-        let Some(pending) = self
+    ) -> Option<CancellationToken> {
+        let pending = self
             .by_session
             .get_mut(&session_id)
             .and_then(|requests| requests.pending.get_mut(request_id))
-            .filter(|pending| pending.admission == admission)
-        else {
-            return false;
-        };
+            .filter(|pending| pending.admission == admission)?;
         pending.is_handed_on = true;
-        true
+        Some(pending.let_go.clone())
     }
 
     /// Whether the recording `admission` is still pending.
@@ -115,7 +126,8 @@ impl RequestTables {
             .and_then(|requests| requests.pending.get(request_id))
     }
 
-    /// Takes a request out of the session's open asks, telling every waiter once the last closes.
+    /// Takes a request out of the session's open asks and lets it go, telling every waiter once
+    /// the last closes.
     pub(super) fn close(
         &mut self,
         session_id: SessionId,
@@ -123,6 +135,7 @@ impl RequestTables {
     ) -> Option<PendingRequest> {
         let requests = self.by_session.get_mut(&session_id)?;
         let closed = requests.pending.remove(request_id)?;
+        closed.let_go.cancel();
         if requests.pending.is_empty() {
             for waiter in requests.on_closed.drain(..) {
                 // A waiter that stopped waiting needs no word.
@@ -143,14 +156,19 @@ impl RequestTables {
         Some(receiver)
     }
 
-    /// Takes every request the session holds, letting its waiters go unanswered.
+    /// Takes every request the session holds and lets each go, letting its waiters go unanswered.
     pub(super) fn take_session(
         &mut self,
         session_id: SessionId,
     ) -> HashMap<String, PendingRequest> {
-        self.by_session
+        let pending = self
+            .by_session
             .remove(&session_id)
             .map(|requests| requests.pending)
-            .unwrap_or_default()
+            .unwrap_or_default();
+        for request in pending.values() {
+            request.let_go.cancel();
+        }
+        pending
     }
 }

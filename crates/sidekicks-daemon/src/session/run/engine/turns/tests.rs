@@ -12,8 +12,8 @@ use crate::database::writer::test_file::{TestDatabase, test_envelope, test_sessi
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
 use crate::events::log_service::tests::open_log;
 use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
+use crate::mutex_lock::lock;
 use crate::session::run::engine::RunEngineError;
-use crate::session::run::engine::live::lock;
 use crate::session::run::engine::tests::{
     append, arm_step_count, events, hand_limit_interrupter, insert_running_run, provider_end,
     stored_events, stored_run_state, test_engine, turn, turn_started_at,

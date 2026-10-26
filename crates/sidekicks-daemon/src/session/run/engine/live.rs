@@ -4,14 +4,15 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::wire::integer::SafeInt;
-use tokio::sync::{SetOnce, SetOnceError};
+use tokio::sync::{Notify, SetOnce, SetOnceError};
 
+use crate::mutex_lock::lock;
 use crate::session::run::engine::turns::StepCount;
 use crate::session::run::restart::outranking_limit;
 
@@ -82,10 +83,10 @@ pub(super) struct LimitCut {
 }
 
 /// Every map is bounded by the live runs: an entry leaves when its run, its start, its continue,
-/// its write or its turn ends, on every exit path. A turn's cuts are bounded by the stops in
-/// flight or landed with a row, each leaving when its stop withdraws it or its turn's end is
-/// written, so they can outlive their run's end until then; a provider process's exit and a
-/// restart's settle end every open turn of the run.
+/// its write, its turn or its last waiter ends, on every exit path. A turn's cuts are bounded by
+/// the stops in flight or landed with a row, each leaving when its stop withdraws it or its turn's
+/// end is written, so they can outlive their run's end until then; a provider process's exit and
+/// a restart's settle end every open turn of the run.
 #[derive(Default)]
 pub(super) struct LiveRuns {
     /// The runs no driver has yet.
@@ -118,6 +119,8 @@ pub(super) struct LiveRuns {
     /// Each run whose step limit's interrupt is being handed to the interventions service, so
     /// one goes at a time.
     pub(super) step_interrupts_in_flight: HashSet<RunId>,
+    /// The wake of each run someone waits on to read `running` again, while anyone waits.
+    pub(super) running_waits: HashMap<RunId, Arc<Notify>>,
     /// The identity the next limit stop's cut takes.
     pub(super) next_stop_id: AtomicU64,
 }
@@ -346,12 +349,6 @@ pub(super) fn settle<Value>(settlement: &SetOnce<Value>, value: Value) {
     if let Err(SetOnceError(later)) = settlement.set(value) {
         drop(later);
     }
-}
-
-/// Locks the live runs. The map holds whole entries only, so a panic elsewhere leaves nothing half
-/// written, and a poisoned lock is taken as it is.
-pub(super) fn lock(live: &Mutex<LiveRuns>) -> MutexGuard<'_, LiveRuns> {
-    live.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 #[cfg(test)]

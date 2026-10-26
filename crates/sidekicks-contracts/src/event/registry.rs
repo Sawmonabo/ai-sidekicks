@@ -138,6 +138,7 @@ session_event_types! {
         AgentInterventionFailed = "agent.intervention.failed",
         UserMessageSent = "user.message.sent",
         QuestionAsked = "question.asked",
+        QuestionOpened = "question.opened",
         QuestionCanceled = "question.canceled",
     ]
     /// The event types of the `artifactPublication` category.

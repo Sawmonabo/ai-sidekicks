@@ -233,6 +233,7 @@ Refusals of the operations on a run's running commands ([Running Command Payload
 | `question.answerInvalid` | A `question.resolve` answer its question cannot take; nothing is answered or sent and the question stays open. `data.fields.page` names the question and `data.fields.reason` how: `secretOnPlain` (a secret for a question that is not secret, or anything but a secret or a skip for one that is), `labelNotOffered` (a label the question does not offer), `severalOnSingle` (several labels for a question that takes one) or `textOnChoice` (typed text for a form field whose options are its only values) | `invalidArgument` | 422 |
 | `question.notFound` | `question.resolve` named a question the daemon holds no record of | `notFound` | 404 |
 | `question.notWaiting` | `question.resolve` named a question its agent does not wait for, which a message sent through the queue answers; nothing is answered | `failedPrecondition` | 409 |
+| `question.waitingForRun` | `question.resolve` named a question that waits for its run to read running, shown greyed under `Waiting for the run`; nothing is answered and it opens once the run reads running | `failedPrecondition` | 409 |
 
 ### Agent
 

@@ -8,9 +8,9 @@ use tokio::sync::oneshot;
 
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
+use crate::mutex_lock::lock;
 use crate::pause_point::ArmedPause;
 use crate::session::run::engine::limits::LimitStop;
-use crate::session::run::engine::live::lock;
 use crate::session::run::engine::tests::{
     SETTLE_WAIT, append, arm_step_count, hand_limit_interrupter, insert_running_run, stored_events,
     test_engine, token_limit, turn, turn_completed_at, turn_started_at,

@@ -407,7 +407,7 @@ impl CodexFrameDelivery {
         }
         self.dependencies
             .effects
-            .forget_turn_corrections(record.session_id, turn_id);
+            .forget_turn_asks(record.session_id, turn_id);
     }
 
     // Codex settled an ask itself, such as at a turn's interrupt: no answer is sent for it, and

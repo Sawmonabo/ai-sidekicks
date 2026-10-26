@@ -12,6 +12,8 @@ use crate::provider::driver::claude::session::scripted::daemon_services::PortCal
 use crate::provider::driver::claude::session::scripted::{ScriptedSession, settle};
 use crate::provider::driver::claude::session::tool_server_calls::ClaudeToolServerCalls;
 use crate::provider::driver::contract::ProviderRequestAnswer;
+use crate::provider::port::question::QuestionPort;
+use crate::provider::port::question::test_card::QuestionCard;
 
 fn tool_ask(tool_use_id: &str) -> Value {
     json!({
@@ -131,4 +133,135 @@ async fn a_questions_answers_are_keyed_by_its_words_with_several_picks_joined() 
         answers[0]["updatedInput"]["answers"],
         json!({"Which colors?": "Red, Blue", "Which name?": "Ada"})
     );
+}
+
+// Claude Code withdraws a question while its record's write is still queued: the withdrawal finds
+// nothing on the card, and the question's own take withdraws it once the record lands. Killed by
+// leaving the let-go out of a pending request's close.
+#[tokio::test(start_paused = true)]
+async fn a_question_withdrawn_before_its_record_landed_is_withdrawn_once_it_lands() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    let card = Arc::new(QuestionCard::default());
+    card.hold_records();
+    let port: Arc<dyn QuestionPort> = card.clone();
+    assert!(
+        session
+            .requests
+            .dependencies
+            .questions
+            .register(port)
+            .is_ok()
+    );
+    session.request(
+        "question",
+        &json!({
+            "subtype": "can_use_tool",
+            "tool_name": "AskUserQuestion",
+            "tool_use_id": "call-1",
+            "input": {"questions": [{"question": "Which name?", "header": "Name", "options": []}]},
+        }),
+    );
+    card.wait_until_records_held(1).await;
+
+    session.cancel("question");
+    card.wait_until_withdrawals(1).await;
+    assert!(card.taken().is_empty(), "the withdrawal finds nothing");
+    card.land_records();
+    card.wait_until_withdrawals(2).await;
+
+    assert_eq!(card.withdrawals(), ["question", "question"]);
+    assert_eq!(card.taken().len(), 1, "the record landed");
+    card.wait_until_none_open().await;
+}
+
+// A question recorded waiting for its run whose take fails is withdrawn from the card by its
+// request id, and Claude Code's request is answered denied, so the agent never waits on a request
+// no card holds. Killed by leaving out the take's withdrawal or the driver's refusal.
+#[tokio::test(start_paused = true)]
+async fn a_question_whose_take_failed_is_withdrawn_and_refused() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    let card = Arc::new(QuestionCard::default());
+    card.fail_waiting_opens();
+    let port: Arc<dyn QuestionPort> = card.clone();
+    assert!(
+        session
+            .requests
+            .dependencies
+            .questions
+            .register(port)
+            .is_ok()
+    );
+    session.request(
+        "question",
+        &json!({
+            "subtype": "can_use_tool",
+            "tool_name": "AskUserQuestion",
+            "tool_use_id": "call-1",
+            "input": {"questions": [{"question": "Which name?", "header": "Name", "options": []}]},
+        }),
+    );
+    card.wait_until_withdrawals(1).await;
+    settle().await;
+
+    assert_eq!(card.withdrawals(), ["question"]);
+    assert!(card.taken().is_empty(), "it never opened");
+    card.wait_until_none_waiting().await;
+    let answers: Vec<_> = session
+        .channel
+        .writes()
+        .into_iter()
+        .filter_map(|write| match write {
+            ScriptedWrite::Answer { request_id, answer } => Some((request_id, answer)),
+            ScriptedWrite::Control(_) | ScriptedWrite::User(_) | ScriptedWrite::Terminate => None,
+        })
+        .collect();
+    assert_eq!(answers.len(), 1);
+    assert_eq!(answers[0].0, "question");
+    assert_eq!(answers[0].1["behavior"], "deny");
+}
+
+// A question Claude Code let go of while its record's write was queued, whose write then fails, is
+// withdrawn by its take but never answered, since its id may already name a new request. Killed by
+// leaving the let-go check out of the driver's refusal.
+#[tokio::test(start_paused = true)]
+async fn a_question_let_go_before_its_record_failed_is_not_refused() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    let card = Arc::new(QuestionCard::default());
+    card.hold_records();
+    let port: Arc<dyn QuestionPort> = card.clone();
+    assert!(
+        session
+            .requests
+            .dependencies
+            .questions
+            .register(port)
+            .is_ok()
+    );
+    session.request(
+        "question",
+        &json!({
+            "subtype": "can_use_tool",
+            "tool_name": "AskUserQuestion",
+            "tool_use_id": "call-1",
+            "input": {"questions": [{"question": "Which name?", "header": "Name", "options": []}]},
+        }),
+    );
+    card.wait_until_records_held(1).await;
+
+    session.cancel("question");
+    card.wait_until_withdrawals(1).await;
+    card.fail_records();
+    card.land_records();
+    card.wait_until_withdrawals(2).await;
+    settle().await;
+
+    assert_eq!(card.withdrawals(), ["question", "question"]);
+    assert!(card.taken().is_empty(), "the record never landed");
+    let has_answer = session.channel.writes().into_iter().any(|write| {
+        matches!(write, ScriptedWrite::Answer { request_id, .. } if request_id == "question")
+    });
+    assert!(!has_answer, "a request let go of is not answered");
 }

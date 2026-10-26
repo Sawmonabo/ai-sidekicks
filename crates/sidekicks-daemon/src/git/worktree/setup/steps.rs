@@ -20,14 +20,14 @@ use sidekicks_contracts::worktree::setup::{
 use sidekicks_platforms::{
     ChildTree, Spawner, async_pipe_reader, read_child_exit, shell_line_command, start_child_tree,
 };
-use tokio::io::{AsyncRead, AsyncReadExt as _};
+use tokio::io::AsyncRead;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 
 use crate::error_description::describe_error;
 use crate::git::worktree::copy::{TreeCopyPolicy, copy_tree};
-use crate::process_exit::OutputTail;
+use crate::process_exit::{OutputTail, read_output_chunks};
 use crate::workspace::last_error::normalize_workspace_last_error;
 use crate::workspace::trust_envelope::{components_equal, is_contained_within};
 
@@ -39,9 +39,6 @@ const WARM_LABEL: &str = "git status";
 
 // The label of the project's steps' read when it fails.
 const READ_PROJECT_STEPS_LABEL: &str = "Setup steps";
-
-/// The size of one read of a command's output.
-const OUTPUT_READ_CHUNK: usize = 64 * 1024;
 
 // How long a command's output may stay open after the command exits or is ended, for the last
 // lines to arrive, before what it left running is ended and the tail is taken as read so far.
@@ -578,26 +575,13 @@ impl Default for CommandOutput {
     }
 }
 
-async fn read_output(mut reader: impl AsyncRead + Unpin, output: &Mutex<CommandOutput>) {
-    let mut chunk = vec![0_u8; OUTPUT_READ_CHUNK];
-    loop {
-        match reader.read(&mut chunk).await {
-            Ok(0) => return,
-            Ok(read) => {
-                let mut output = output.lock().unwrap_or_else(PoisonError::into_inner);
-                output.tail.push(&chunk[..read]);
-                output.has_printed = true;
-            }
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-            Err(error) => {
-                tracing::warn!(
-                    error = &error as &(dyn Error + 'static),
-                    "A setup command's output could not be read to its end"
-                );
-                return;
-            }
-        }
-    }
+async fn read_output(reader: impl AsyncRead + Unpin, output: &Mutex<CommandOutput>) {
+    read_output_chunks(reader, "a setup command's output", |chunk| {
+        let mut output = output.lock().unwrap_or_else(PoisonError::into_inner);
+        output.tail.push(chunk);
+        output.has_printed = true;
+    })
+    .await;
 }
 
 // The step's outcome with the output read so far, which a command ended early may add to later.

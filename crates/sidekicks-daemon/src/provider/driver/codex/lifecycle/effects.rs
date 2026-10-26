@@ -66,9 +66,9 @@ impl CodexFrameEffects for CodexDriverEffects {
         }
     }
 
-    fn forget_turn_corrections(&self, session_id: SessionId, turn_id: &str) {
+    fn forget_turn_asks(&self, session_id: SessionId, turn_id: &str) {
         if let Some(parts) = self.link.parts() {
-            parts.hand_off.forget_turn_corrections(session_id, turn_id);
+            parts.hand_off.forget_turn_asks(session_id, turn_id);
         }
     }
 

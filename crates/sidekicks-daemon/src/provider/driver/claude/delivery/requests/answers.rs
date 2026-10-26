@@ -14,6 +14,7 @@ use sidekicks_contracts::approval::RememberedScopeKind;
 use sidekicks_contracts::question::{QuestionAnswer, QuestionPrompt};
 use sidekicks_platforms::PathRules;
 
+use crate::provider::driver::claude::hooks::pause::ClaudeHookAnswer;
 use crate::provider::driver::claude::session::permissions::{
     ClaudePermissionsError, ClaudeProjectRuleFolders, keep_claude_project_rule,
     keep_claude_session_rule, read_claude_session_rules,
@@ -22,7 +23,9 @@ use crate::provider::driver::claude::session::rules::{
     ClaudeProjectFolder, ClaudeRepository, ClaudeRulesError, compose_claude_project_allow_update,
 };
 use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::question_answers::read_question_answer_texts;
+use crate::provider::driver::question_answers::{
+    QUESTION_UNSHOWN_REASON, read_question_answer_texts,
+};
 use crate::provider::port::permission_ask::{
     ProviderAnswerRule, ProviderAskAction, ProviderPermissionAnswer,
 };
@@ -87,6 +90,21 @@ pub(crate) fn compose_claude_question_answer(
     match question.route {
         ClaudeQuestionRoute::Ask => json!({"behavior": "allow", "updatedInput": updated_input}),
         ClaudeQuestionRoute::Hook => compose_pre_tool_use_allow(Some(updated_input)),
+    }
+}
+
+/// The refusal of a question the questions card could not put to the person, in the shape its
+/// route takes: an ask's deny, or the question hook's deny, each telling the agent it was not
+/// answered.
+pub(crate) fn compose_claude_question_refusal(route: ClaudeQuestionRoute) -> Value {
+    match route {
+        ClaudeQuestionRoute::Ask => {
+            json!({"behavior": "deny", "message": QUESTION_UNSHOWN_REASON})
+        }
+        ClaudeQuestionRoute::Hook => serde_json::to_value(ClaudeHookAnswer::Deny {
+            reason: QUESTION_UNSHOWN_REASON.to_owned(),
+        })
+        .expect("a hook answer of strings always serializes"),
     }
 }
 

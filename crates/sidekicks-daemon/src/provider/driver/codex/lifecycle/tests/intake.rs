@@ -25,6 +25,8 @@ use crate::provider::driver::run_control::{
     WaitingMessage,
 };
 use crate::provider::driver::test_registry::{new_message_id, terminal_events};
+use crate::provider::port::question::QuestionPort;
+use crate::provider::port::question::test_card::QuestionCard;
 use crate::session::run::engine::tests::stored_run_state;
 
 // Real time under a timeout, since the run engine writes the turn's end through the database
@@ -683,4 +685,83 @@ async fn a_dynamic_tool_call_is_refused_as_a_tool_the_daemon_does_not_serve() {
             },
         })
     );
+}
+
+// Real time under a timeout, as above. Codex lets a question go with its turn's end while its
+// record's write is still queued: the turn's withdrawal finds nothing on the card, and the
+// question's own take withdraws it once the record lands. Killed by leaving the let-go out of
+// forgetting a question.
+#[tokio::test]
+async fn a_question_its_turn_let_go_before_its_record_landed_is_withdrawn_once_it_lands() {
+    let session = LiveCodexSession::start(&[]).await;
+    let card = Arc::new(QuestionCard::default());
+    card.hold_records();
+    let port: Arc<dyn QuestionPort> = card.clone();
+    assert!(session.questions.register(port).is_ok());
+    session.scripted.script.send(&json!({
+        "jsonrpc": "2.0",
+        "id": "question-1",
+        "method": "item/tool/requestUserInput",
+        "params": {
+            "threadId": TEST_THREAD,
+            "turnId": TEST_TURN,
+            "itemId": "item-1",
+            "questions": [{"id": "name", "header": "Name", "question": "Which name?"}],
+        },
+    }));
+    card.wait_until_records_held(1).await;
+
+    session
+        .scripted
+        .script
+        .send(&turn_completed(TEST_THREAD, TEST_TURN, "completed"));
+    card.wait_until_withdrawals(1).await;
+    assert!(
+        card.taken().is_empty(),
+        "the turn's withdrawal finds nothing"
+    );
+    card.land_records();
+    card.wait_until_withdrawals(2).await;
+
+    assert_eq!(card.withdrawals(), [r#""question-1""#, r#""question-1""#]);
+    assert_eq!(card.taken().len(), 1, "the record landed");
+    card.wait_until_none_open().await;
+}
+
+// Real time under a timeout, as above. A question recorded waiting for its run whose take fails is
+// withdrawn from the card by its request id, and Codex's request is answered with no answers, its
+// refusal, so the agent never waits on a request no card holds. Killed by leaving out the take's
+// withdrawal or the driver's refusal.
+#[tokio::test]
+async fn a_question_whose_take_failed_is_withdrawn_and_refused() {
+    let mut session = LiveCodexSession::start(&[]).await;
+    let card = Arc::new(QuestionCard::default());
+    card.fail_waiting_opens();
+    let port: Arc<dyn QuestionPort> = card.clone();
+    assert!(session.questions.register(port).is_ok());
+    session.scripted.script.send(&json!({
+        "jsonrpc": "2.0",
+        "id": "question-1",
+        "method": "item/tool/requestUserInput",
+        "params": {
+            "threadId": TEST_THREAD,
+            "turnId": TEST_TURN,
+            "itemId": "item-1",
+            "questions": [{"id": "name", "header": "Name", "question": "Which name?"}],
+        },
+    }));
+    let answer = loop {
+        let sent =
+            tokio::time::timeout(Duration::from_secs(10), session.scripted.script.next_sent())
+                .await
+                .expect("the session answers the question");
+        if sent["id"] == "question-1" {
+            break sent;
+        }
+    };
+
+    assert_eq!(card.withdrawals(), [r#""question-1""#]);
+    assert!(card.taken().is_empty(), "it never opened");
+    card.wait_until_none_waiting().await;
+    assert_eq!(answer["result"], json!({"answers": {}}));
 }

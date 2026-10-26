@@ -536,6 +536,11 @@ interface QuestionAskedPayload {
   // settles it.
   runId?: RunId;
   waitId?: string; // a UUID
+  // On a run's question only: `open` is answerable at once, its run waiting on it; `waitingForRun`
+  // was asked while its run waits on something else, so it is recorded waiting, shown greyed under
+  // `Waiting for the run`, and opens in the order the run's questions came once the run reads
+  // running. A workflow step's question is open at once and carries none.
+  state?: "open" | "waitingForRun";
   // False only on a question the agent does not wait for (Codex's `agentMessage` item carrying
   // `questions` with `delivery: "async"`): the run keeps running and no card of its own is raised.
   isAgentWaiting: boolean;
@@ -587,6 +592,23 @@ interface QuestionAskedPayload {
     // A text field's faint hint while it is empty, where the question sets one.
     placeholder?: string;
   }>;
+}
+
+// question.opened — a question that waited for its run opened, its run now waiting on it, in the
+// write that moves the run from running to wait on it, so its card is no longer greyed.
+interface QuestionOpenedPayload {
+  sessionId: SessionId;
+  questionId: QuestionId;
+}
+
+// question.canceled — an open question, or one waiting for its run, ended unanswered; the card
+// closes on a reload and on every device, and no `user.message.sent` is written.
+interface QuestionCanceledPayload {
+  sessionId: SessionId;
+  questionId: QuestionId;
+  // Its turn was interrupted, its provider withdrew the request, or its run ended, a restart of
+  // the background service among the ways a run ends.
+  reason: "interrupted" | "withdrawn" | "runEnded";
 }
 
 // question.resolve — one call answers every page. Per question the answer is exactly one of: the

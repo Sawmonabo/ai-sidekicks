@@ -124,8 +124,9 @@ pub(crate) fn prepare_lasting_child_command(command: &mut Command) {
     }
 }
 
-/// Asks `child` to stop with `SIGTERM` to its own process id, never its group, so a running reply
-/// can finish. Fails with the system's error from the send.
+/// Asks `child` to stop with `SIGTERM` to its own process id, so a running reply can finish; a
+/// child [`wrap_session_child_command`] wraps takes it as its whole group, what it started
+/// included. Fails with the system's error from the send.
 pub fn ask_child_to_stop(child: &mut dyn ChildWrapper) -> io::Result<()> {
     child.signal(libc::SIGTERM)
 }

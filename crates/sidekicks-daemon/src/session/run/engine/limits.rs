@@ -28,7 +28,8 @@ use crate::database::connection::read_pool::ReadLength;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::events::session::appender::SessionEventDraft;
 use crate::interventions::store::is_limit_interrupt_pending;
-use crate::session::run::engine::live::{CutGuard, StepInterruptGuard, lock};
+use crate::mutex_lock::lock;
+use crate::session::run::engine::live::{CutGuard, StepInterruptGuard};
 use crate::session::run::engine::turns::{WriteWithResend, set_step_limit_reached};
 use crate::session::run::engine::{
     LiveAppend, RunEngine, RunEngineError, refused_statement_index, settled,

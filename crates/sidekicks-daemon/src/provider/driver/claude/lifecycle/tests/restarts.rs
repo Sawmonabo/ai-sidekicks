@@ -46,7 +46,10 @@ async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
     tokio::time::sleep(RESTART_WAITS_PASSED).await;
 
     assert!(fixture.starts.take_started().is_empty());
-    assert_eq!(fixture.relaunches.taken(), vec![(session_id, true); 4]);
+    assert_eq!(
+        fixture.relaunches.reported(4).await,
+        vec![(session_id, true); 4]
+    );
     let notices = fixture
         .engine
         .deliveries()
@@ -84,7 +87,10 @@ async fn a_restart_whose_slot_was_taken_during_its_wait_does_nothing() {
     tokio::time::sleep(RESTART_WAITS_PASSED).await;
 
     assert!(fixture.starts.take_started().is_empty());
-    assert_eq!(fixture.relaunches.taken(), vec![(session_id, true)]);
+    assert_eq!(
+        fixture.relaunches.reported(1).await,
+        vec![(session_id, true)]
+    );
     assert!(!fixture.driver.starts_process(session_id));
 }
 
@@ -123,7 +129,7 @@ async fn a_build_move_on_a_busy_session_waits_for_its_turn_to_settle() {
         ClaudeConversationStart::Resume { .. }
     ));
     assert_eq!(
-        fixture.relaunches.first_reported().await,
+        fixture.relaunches.reported(1).await,
         vec![(session_id, true)]
     );
 }

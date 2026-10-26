@@ -6,6 +6,8 @@
 //!   and a task the holder spawns is handed the hold, since a hold on a `'static` lock is itself
 //!   `'static`.
 //! - The hold ends when it drops, by a value, an error or a cancel alike.
+//! - A caller that must fix its place before it awaits takes it with `try_acquire`: the hold when
+//!   the key is free, else a wait that keeps the place it took.
 //! - Each key's queue is a FIFO mutex, removed once no caller holds or waits on it, so the map
 //!   never grows with every key ever locked.
 //! - Work that must land whole, or not at all, runs held in a task of its own (`run_held`), which
@@ -13,7 +15,9 @@
 
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::task::{Context, Poll, Waker};
 
 use tokio::sync::{OwnedMutexGuard, oneshot};
 use tokio::task::JoinError;
@@ -53,6 +57,31 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
         };
         hold.guard = Some(queue.lock_owned().await);
         hold
+    }
+
+    /// Takes `requested_key`'s place in line at once, with no await: the hold when no one holds or
+    /// waits on the key, else a wait that keeps this place behind every caller that asked first,
+    /// which awaiting carries on from and dropping gives up.
+    pub(crate) fn try_acquire(
+        &self,
+        requested_key: Key,
+    ) -> Result<KeyHold<'_, Key>, KeyWait<'_, Key>>
+    where
+        Key: Send + Sync,
+    {
+        // Unconstrained in every poll, the first one's join of the queue included, so no exhausted
+        // task budget holds a poll of the wait back.
+        let mut acquiring: Pin<Box<dyn Future<Output = KeyHold<'_, Key>> + Send + '_>> =
+            Box::pin(tokio::task::unconstrained(self.acquire(requested_key)));
+        // One poll joins the key's queue, which tokio's mutex serves in the order it was joined;
+        // the task that awaits the wait polls it again with its own waker from that place.
+        match acquiring
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+        {
+            Poll::Ready(hold) => Ok(hold),
+            Poll::Pending => Err(KeyWait(acquiring)),
+        }
     }
 
     /// Runs `work` once `key` is held, in a task of its own that keeps the key until `work` ends
@@ -125,6 +154,21 @@ impl<Key: Eq + Hash + Clone> KeyHold<'_, Key> {
     }
 }
 
+/// A caller's place in a key's line, taken by [`KeyedLock::try_acquire`] behind every caller that
+/// asked first: awaiting it answers the hold once those ahead release the key, and dropping it
+/// gives up the place.
+pub(crate) struct KeyWait<'lock, Key: Eq + Hash + Clone>(
+    Pin<Box<dyn Future<Output = KeyHold<'lock, Key>> + Send + 'lock>>,
+);
+
+impl<'lock, Key: Eq + Hash + Clone> Future for KeyWait<'lock, Key> {
+    type Output = KeyHold<'lock, Key>;
+
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        self.0.as_mut().poll(context)
+    }
+}
+
 impl<Key: Eq + Hash + Clone> Drop for KeyHold<'_, Key> {
     fn drop(&mut self) {
         drop(self.guard.take());
@@ -187,6 +231,31 @@ mod tests {
         assert!(poll!(second.as_mut()).is_pending());
         drop(first);
         drop(second.await);
+        assert!(lock.lock_queues().is_empty());
+    }
+
+    // A place taken with no await is kept ahead of a caller that asks later, whichever polls first.
+    // Killed by a `try_acquire` that only tries the lock and joins the queue at the first await.
+    #[tokio::test]
+    async fn a_place_taken_with_no_await_is_served_before_a_later_caller() {
+        let lock = KeyedLock::<&str>::new();
+        let Ok(first) = lock.try_acquire("session") else {
+            panic!("a free key is held at once");
+        };
+        let Err(placed) = lock.try_acquire("session") else {
+            panic!("a held key is not held twice");
+        };
+        let mut later = std::pin::pin!(lock.acquire("session"));
+        assert!(poll!(later.as_mut()).is_pending());
+        drop(first);
+        assert!(
+            poll!(later.as_mut()).is_pending(),
+            "the place taken first comes first"
+        );
+        let placed = placed.await;
+        assert!(poll!(later.as_mut()).is_pending());
+        drop(placed);
+        drop(later.await);
         assert!(lock.lock_queues().is_empty());
     }
 

@@ -9,9 +9,8 @@ mod tests;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
-use futures::future::BoxFuture;
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::commands::{
@@ -23,6 +22,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::app_server_protocol::SkillsListParams;
 use crate::provider::driver::codex::service::supervisor::CodexService;
@@ -35,28 +35,10 @@ use crate::provider::driver::diagnostics::{
 use crate::provider::driver::run_control::PickedSkill;
 use crate::provider::driver::session_control::ProviderCommandsListener;
 use crate::provider::port::registration::PortRegistration;
+use crate::provider::port::server_prompts::ServerPromptPort;
 
 /// The provider's live skill listing.
 const CODEX_SKILLS_LIST_METHOD: &str = "skills/list";
-
-/// The daemon's tool-server client's side of the `/` list: each working server's prompts for a
-/// session, registered by that client once it runs.
-pub(crate) trait CodexServerPromptPort: Send + Sync {
-    /// Each working tool server's prompts for the session, as prompt entries naming a server.
-    fn read_prompts(
-        &self,
-        session_id: SessionId,
-        binding: ProviderCommandBinding,
-    ) -> BoxFuture<'_, Vec<ProviderCommandEntry>>;
-
-    /// Calls `on_change` when a server's prompts for the session change, until the returned
-    /// call stops the watch.
-    fn watch_prompts(
-        &self,
-        session_id: SessionId,
-        on_change: Arc<dyn Fn() + Send + Sync>,
-    ) -> Box<dyn FnOnce() + Send>;
-}
 
 /// What one live session's list is read from: its service, the account it runs on, its own folder
 /// and the run whose list it is.
@@ -90,7 +72,7 @@ pub(crate) struct CodexSkillListing {
 
 /// Holds each session's listing and composes the reply from it, for every session of one driver.
 pub(crate) struct CodexProviderCommandCache {
-    server_prompts: Arc<PortRegistration<Arc<dyn CodexServerPromptPort>>>,
+    server_prompts: Arc<PortRegistration<Arc<dyn ServerPromptPort>>>,
     source_for: CodexCommandSourceLookup,
     /// The generation a held listing must be read under, counted for the whole cache and never
     /// reset, so a reused session id never matches an earlier read's.
@@ -121,7 +103,7 @@ impl CodexProviderCommandCache {
     /// A cache reading the tool servers' prompts through `server_prompts` and each live session's
     /// source through `source_for`.
     pub(crate) fn new(
-        server_prompts: Arc<PortRegistration<Arc<dyn CodexServerPromptPort>>>,
+        server_prompts: Arc<PortRegistration<Arc<dyn ServerPromptPort>>>,
         source_for: CodexCommandSourceLookup,
     ) -> Arc<Self> {
         Arc::new(Self {
@@ -185,7 +167,7 @@ impl CodexProviderCommandCache {
         listener: ProviderCommandsListener,
     ) -> ProviderCommandsSubscription {
         let id = {
-            let mut state = self.lock();
+            let mut state = lock(&self.state);
             state.next_listener_id += 1;
             state.next_listener_id
         };
@@ -201,7 +183,7 @@ impl CodexProviderCommandCache {
                 }),
             )
         });
-        self.lock()
+        lock(&self.state)
             .listeners
             .entry(session_id)
             .or_default()
@@ -217,7 +199,7 @@ impl CodexProviderCommandCache {
                 return;
             };
             let removed = {
-                let mut state = cache.lock();
+                let mut state = lock(&cache.state);
                 let listeners = state.listeners.entry(session_id).or_default();
                 let removed = listeners
                     .iter()
@@ -238,8 +220,7 @@ impl CodexProviderCommandCache {
     /// its listeners.
     pub(crate) fn refresh(self: &Arc<Self>, session_id: SessionId) {
         self.discard_listing(session_id);
-        let listeners: Vec<ProviderCommandsListener> = self
-            .lock()
+        let listeners: Vec<ProviderCommandsListener> = lock(&self.state)
             .listeners
             .get(&session_id)
             .map(|listeners| {
@@ -257,7 +238,7 @@ impl CodexProviderCommandCache {
     /// Forgets a closed session: its listing, its generation, its listeners and their watches.
     pub(crate) fn forget_session(&self, session_id: SessionId) {
         let listeners = {
-            let mut state = self.lock();
+            let mut state = lock(&self.state);
             state.listings.remove(&session_id);
             state.generation_by_session.remove(&session_id);
             state.listeners.remove(&session_id).unwrap_or_default()
@@ -269,7 +250,7 @@ impl CodexProviderCommandCache {
 
     /// Clears a session's listing and generation together; a read in flight then stores nothing.
     pub(crate) fn discard_listing(&self, session_id: SessionId) {
-        let mut state = self.lock();
+        let mut state = lock(&self.state);
         state.listings.remove(&session_id);
         state.generation_by_session.remove(&session_id);
     }
@@ -281,7 +262,7 @@ impl CodexProviderCommandCache {
         source: &CodexCommandSource,
     ) -> Result<CodexSkillListing, CodexError> {
         let generation = {
-            let mut state = self.lock();
+            let mut state = lock(&self.state);
             if let Some(held) = state.listings.get(&source.session_id) {
                 return Ok(held.clone());
             }
@@ -296,7 +277,7 @@ impl CodexProviderCommandCache {
             &reply,
             source.provider_account_id.clone(),
         )?;
-        let mut state = self.lock();
+        let mut state = lock(&self.state);
         if state.generation_by_session.get(&source.session_id) == Some(&generation) {
             state.listings.insert(source.session_id, listing.clone());
         }
@@ -310,10 +291,7 @@ impl CodexProviderCommandCache {
         provider_account_id: Option<ProviderAccountId>,
     ) -> Result<CodexSkillListing, CodexError> {
         let reading = read_codex_skill_listing(reply, provider_account_id)?;
-        let mut reported = self
-            .rejections
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        let mut reported = lock(&self.rejections);
         for rejection in reading.rejections {
             reported.report(&rejection.record(session_id));
         }
@@ -336,10 +314,6 @@ impl CodexProviderCommandCache {
                 .report(),
             }
         });
-    }
-
-    fn lock(&self) -> MutexGuard<'_, CacheState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 

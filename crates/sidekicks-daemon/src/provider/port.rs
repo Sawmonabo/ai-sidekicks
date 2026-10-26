@@ -11,6 +11,7 @@ pub(crate) mod repository_reader;
 pub(crate) mod reviewer_denial;
 pub(crate) mod run_state_publisher;
 pub(crate) mod running_command_publisher;
+pub(crate) mod server_prompts;
 pub(crate) mod session_advisor_store;
 pub(crate) mod session_inbox_address;
 pub(crate) mod session_rules;

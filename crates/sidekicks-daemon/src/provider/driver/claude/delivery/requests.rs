@@ -23,6 +23,7 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
 use self::pending::{HeldRequest, PendingRequest, RequestTables};
 use crate::mutex_lock::lock;
@@ -72,7 +73,10 @@ use crate::provider::port::permission_ask::{
     ProviderPermissionAskWithdrawal, ProviderRuleNotKeptError,
 };
 use crate::provider::port::plan::{PlanPort, ProviderPlan};
-use crate::provider::port::question::{ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort};
+use crate::provider::port::question::{
+    ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort,
+    QuestionTurnError, take_question_in_turn,
+};
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::record_readers::read_non_empty_string;
 use crate::session::run::epochs::DeliveryOperation;
@@ -81,7 +85,7 @@ use crate::session::run::inbound::{DeliveryBinding, InboundDelivery, InboundOutc
 use answers::{
     ClaudeAnswerRuleError, ClaudeAnswerRules, ClaudeAskAnswerError, ClaudeHeldAsk,
     ClaudeHeldQuestion, ClaudeQuestionRoute, compose_claude_ask_answer,
-    compose_claude_question_answer, compose_pre_tool_use_allow,
+    compose_claude_question_answer, compose_claude_question_refusal, compose_pre_tool_use_allow,
 };
 
 // The decision reason of an ask an ask rule sent to the host.
@@ -167,7 +171,7 @@ impl From<ClaudeRequestAnswerError> for DriverError {
 /// Handles the requests a Claude Code process holds runs on, and answers them.
 pub(crate) struct ClaudeInboundRequests {
     dependencies: ClaudeInboundRequestsDependencies,
-    tables: Mutex<RequestTables>,
+    tables: Arc<Mutex<RequestTables>>,
 }
 
 impl ClaudeInboundRequests {
@@ -175,7 +179,7 @@ impl ClaudeInboundRequests {
     pub(crate) fn new(dependencies: ClaudeInboundRequestsDependencies) -> Self {
         Self {
             dependencies,
-            tables: Mutex::new(RequestTables::default()),
+            tables: Arc::new(Mutex::new(RequestTables::default())),
         }
     }
 
@@ -247,10 +251,10 @@ impl ClaudeInboundRequests {
         request_id: &str,
         response: ProviderRequestAnswer,
     ) -> Result<(), ClaudeRequestAnswerError> {
-        let held = self
+        let (held, admission) = self
             .lock()
             .held(live.session_id, request_id)
-            .map(|pending| pending.held.clone())
+            .map(|pending| (pending.held.clone(), pending.admission))
             .ok_or_else(|| ClaudeRequestAnswerError::NotHeld {
                 request_id: request_id.to_owned(),
             })?;
@@ -271,28 +275,15 @@ impl ClaudeInboundRequests {
                 return Err(ClaudeRequestAnswerError::KindMismatch);
             }
         };
-        let answer = serde_json::value::to_raw_value(&answer)
-            .expect("an answer the daemon composes always serializes");
-        match live
-            .channel
-            .answer_inbound_request(request_id.to_owned(), answer)
-            .await
-        {
-            ClaudeWriteAttempt::Written => {}
-            ClaudeWriteAttempt::Failed {
-                delivery: ClaudeWriteDelivery::Unsent,
-                cause,
-            } => return Err(ClaudeSessionError::InputUnwritable(cause).into()),
-            ClaudeWriteAttempt::Failed {
-                delivery: ClaudeWriteDelivery::Indeterminate,
-                cause,
-            } => {
-                self.lock().close(live.session_id, request_id);
-                live.channel.terminate().await;
-                return Err(ClaudeRequestAnswerError::WriteCut(cause));
-            }
-        }
-        self.lock().close(live.session_id, request_id);
+        write_answer(
+            &self.tables,
+            &*live.channel,
+            live.session_id,
+            request_id,
+            admission,
+            &answer,
+        )
+        .await?;
         let Some(made_rule) = made_rule else {
             return Ok(());
         };
@@ -433,7 +424,7 @@ impl ClaudeInboundRequests {
             input: input.clone(),
             action: reading.action.clone(),
         });
-        let Some(admitted) = self
+        let Some((admitted, _admission, _let_go)) = self
             .admit(
                 session,
                 &request_id,
@@ -578,7 +569,7 @@ impl ClaudeInboundRequests {
             ClaudeQuestionRoute::Ask => "control_request/can_use_tool",
             ClaudeQuestionRoute::Hook => "control_request/hook_callback",
         };
-        let Some(admitted) = self
+        let Some((admitted, admission, let_go)) = self
             .admit(session, &request_id, run, None, held, wire)
             .await
         else {
@@ -594,16 +585,53 @@ impl ClaudeInboundRequests {
             questions,
             is_agent_waiting: true,
         };
+        // Taken in its run's turn, its place in the run's line taken before its task runs: asked
+        // while the run waits on something else, it waits on the card for the run; withdrawn or
+        // ended with its run meanwhile, it is never taken, and once Claude Code let it go its take
+        // withdraws it after its record's write.
+        let place = QuestionLinePlace::line_up(question.run_id);
+        let request_id = question.request_id.clone();
+        let (tables, channel) = (Arc::clone(&self.tables), Arc::clone(&session.channel));
         tokio::spawn(async move {
-            if let Err(error) = port.take_question(question).await {
-                record_hand_off_failure(session_id, admitted, error.as_ref());
+            let taken = take_question_in_turn(
+                port.as_ref(),
+                question,
+                None,
+                place,
+                let_go.clone().cancelled_owned(),
+            )
+            .await;
+            let Err(error) = taken else {
+                return;
+            };
+            record_hand_off_failure(session_id, admitted, &error);
+            // Withdrawn from the card by its take, so the agent is answered refused rather than
+            // left waiting on a request no card holds; one Claude Code let go of meanwhile is not
+            // answered, since its id may already name a new request.
+            if let QuestionTurnError::Take { .. } = error
+                && !let_go.is_cancelled()
+            {
+                let refusal = compose_claude_question_refusal(route);
+                let refused = write_answer(
+                    &tables,
+                    &*channel,
+                    session_id,
+                    &request_id,
+                    admission,
+                    &refusal,
+                )
+                .await;
+                if let Err(refused_error) = refused {
+                    record_hand_off_failure(session_id, admitted, &refused_error);
+                }
             }
         });
     }
 
-    // Records the request pending and admits it on its run's execution; `Some` with its kind once
-    // admitted and still pending, so it is handed on. An ask from before an undo's cut is absorbed
-    // and never shown, and one withdrawn before it was admitted never reaches its service.
+    // Records the request pending and admits it on its run's execution; `Some` with its kind, its
+    // recording's number and its letting go once admitted and still pending, so it is handed on. An ask from before an
+    // undo's cut is absorbed and never shown, and one withdrawn before it was admitted never
+    // reaches its service.
     async fn admit(
         &self,
         session: &ClaudeRequestSession<'_>,
@@ -612,7 +640,7 @@ impl ClaudeInboundRequests {
         tool_call_id: Option<&str>,
         held: HeldRequest,
         wire: &str,
-    ) -> Option<&'static str> {
+    ) -> Option<(&'static str, u64, CancellationToken)> {
         let session_id = session.stream.session_id();
         let kind = held.kind();
         let admission = self.lock().record(session_id, request_id, held);
@@ -639,7 +667,7 @@ impl ClaudeInboundRequests {
         if is_admitted {
             return tables
                 .mark_handed_on(session_id, request_id, admission)
-                .then_some(kind);
+                .map(|let_go| (kind, admission, let_go));
         }
         if tables.is_pending(session_id, request_id, admission) {
             tables.close(session_id, request_id);
@@ -661,6 +689,54 @@ impl ClaudeInboundRequests {
 
     fn lock(&self) -> MutexGuard<'_, RequestTables> {
         lock(&self.tables)
+    }
+}
+
+// Writes `answer` to the request Claude Code holds under `request_id`, recorded as `admission`,
+// and closes that recording once it went, never a later one under the same id; a write cut short
+// closes it too and ends the process, which can never read it.
+async fn write_answer(
+    tables: &Mutex<RequestTables>,
+    channel: &dyn ClaudeProcessChannel,
+    session_id: SessionId,
+    request_id: &str,
+    admission: u64,
+    answer: &Value,
+) -> Result<(), ClaudeRequestAnswerError> {
+    let answer = serde_json::value::to_raw_value(answer)
+        .expect("an answer the daemon composes always serializes");
+    match channel
+        .answer_inbound_request(request_id.to_owned(), answer)
+        .await
+    {
+        ClaudeWriteAttempt::Written => {}
+        ClaudeWriteAttempt::Failed {
+            delivery: ClaudeWriteDelivery::Unsent,
+            cause,
+        } => return Err(ClaudeSessionError::InputUnwritable(cause).into()),
+        ClaudeWriteAttempt::Failed {
+            delivery: ClaudeWriteDelivery::Indeterminate,
+            cause,
+        } => {
+            close_recording(tables, session_id, request_id, admission);
+            channel.terminate().await;
+            return Err(ClaudeRequestAnswerError::WriteCut(cause));
+        }
+    }
+    close_recording(tables, session_id, request_id, admission);
+    Ok(())
+}
+
+// Closes the recording `admission` of `request_id`, if it is the one still pending.
+fn close_recording(
+    tables: &Mutex<RequestTables>,
+    session_id: SessionId,
+    request_id: &str,
+    admission: u64,
+) {
+    let mut tables = lock(tables);
+    if tables.is_pending(session_id, request_id, admission) {
+        tables.close(session_id, request_id);
     }
 }
 
