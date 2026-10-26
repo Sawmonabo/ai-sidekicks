@@ -3,7 +3,7 @@
 //! in the stop's order, and names the step that failed.
 
 pub(crate) mod database;
-mod jobs;
+pub(crate) mod jobs;
 mod projections;
 pub(crate) mod start_options;
 pub(crate) mod stop;
