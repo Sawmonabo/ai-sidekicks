@@ -224,19 +224,21 @@ async fn a_waiting_question_its_provider_withdraws_ends_its_turn_at_once(
     );
     tokio::pin!(head);
     drive_until_asked(&fixture, 2, head.as_mut()).await;
-    let behind = take_question_in_turn(
-        &fixture.questions,
-        fixture.question("request-3", json!([choice_page()]), true),
-        None,
-        QuestionLinePlace::line_up(fixture.run_id),
-        std::future::pending(),
-    );
-    tokio::pin!(behind);
-    let (withdrawn_id, withdrawn) = if is_behind_another {
-        drive_until_asked(&fixture, 3, behind.as_mut()).await;
-        ("request-3", behind.as_mut())
-    } else {
-        ("request-2", head.as_mut())
+    let mut behind = is_behind_another.then(|| {
+        Box::pin(take_question_in_turn(
+            &fixture.questions,
+            fixture.question("request-3", json!([choice_page()]), true),
+            None,
+            QuestionLinePlace::line_up(fixture.run_id),
+            std::future::pending(),
+        ))
+    });
+    let (withdrawn_id, withdrawn) = match behind.as_mut() {
+        Some(behind) => {
+            drive_until_asked(&fixture, 3, behind.as_mut()).await;
+            ("request-3", behind.as_mut())
+        }
+        None => ("request-2", head.as_mut()),
     };
 
     let (withdrawal, ended) = bounded(async {
