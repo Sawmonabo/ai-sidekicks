@@ -13,8 +13,8 @@ use crate::terminal::{InnerTerminal, TerminalDevice};
 
 /// Opens a terminal of `window_size` and starts the program `options` names in it as a session
 /// leader whose controlling terminal it is, with `alacritty_terminal`'s `USER`, `HOME`,
-/// `ALACRITTY_WINDOW_ID` and `WINDOWID` added, the last two of which the program removes itself.
-/// Blocks; fails with the system's error when the terminal cannot be opened or read or the program
+/// `ALACRITTY_WINDOW_ID` and `WINDOWID` added, the last two of which the program removes itself;
+/// the terminal keeps a handle of its own on the program side. Blocks; fails with the system's error when the terminal cannot be opened or read or the program
 /// cannot be started.
 pub fn start_inner_terminal(
     options: &Options,
@@ -30,8 +30,14 @@ pub fn start_inner_terminal(
     };
     let OpenptyResult { master, slave } = openpty(&size, None).map_err(io::Error::from)?;
     let device = terminal_device(fstat(&slave).map_err(io::Error::from)?.st_rdev)?;
+    // Close-on-exec, so the command inherits only the descriptors the PTY gives it.
+    let program_side = slave.try_clone()?;
     let pty = tty::from_fd(options, 0, master, slave)?;
-    Ok(InnerTerminal { pty, device })
+    Ok(InnerTerminal {
+        _program_side: program_side,
+        pty,
+        device,
+    })
 }
 
 // The device number `rdev` as the terminal device every platform's reading compares.
@@ -86,9 +92,10 @@ pub(crate) fn read_until_marker(
     Ok(String::from_utf8_lossy(&output).into_owned())
 }
 
-/// Ends the command `terminal` started and its group as a test's teardown, reading what it still
-/// prints until its side closes, since a process's exit waits for its terminal's output to drain.
-/// A group already gone is left as it is, so the test's own failure is the one reported.
+/// Ends the command `terminal` started and its group as a test's teardown, closing the terminal's
+/// own handle on the program side and reading what the command still prints until that side
+/// closes, since a process's exit waits for its terminal's output to drain. A group already gone
+/// is left as it is, so the test's own failure is the one reported.
 #[cfg(test)]
 pub(crate) fn end_inner_terminal(terminal: InnerTerminal) {
     use std::io::{ErrorKind, Read};
@@ -98,14 +105,21 @@ pub(crate) fn end_inner_terminal(terminal: InnerTerminal) {
     use nix::sys::signal::{Signal, killpg};
     use nix::unistd::Pid;
 
-    let leader = i32::try_from(terminal.pty.child().id()).expect("a process id");
+    let InnerTerminal {
+        _program_side: program_side,
+        pty,
+        ..
+    } = terminal;
+    let leader = i32::try_from(pty.child().id()).expect("a process id");
     match killpg(Pid::from_raw(leader), Signal::SIGKILL) {
         Ok(()) => {}
         Err(Errno::ESRCH) => return,
         Err(errno) => panic!("the command's group is not killed: {errno}"),
     }
+    // Closed first, so the read below ends at the command's close rather than its 10 s bound.
+    drop(program_side);
     let started = Instant::now();
-    let mut master = terminal.pty.file();
+    let mut master = pty.file();
     let mut buffer = [0_u8; 4_096];
     while started.elapsed() < Duration::from_secs(10) {
         match master.read(&mut buffer) {
@@ -117,7 +131,7 @@ pub(crate) fn end_inner_terminal(terminal: InnerTerminal) {
             Err(_closed) => break,
         }
     }
-    drop(terminal);
+    drop(pty);
 }
 
 #[cfg(test)]

@@ -3,6 +3,8 @@
 
 use std::error::Error;
 use std::io;
+#[cfg(unix)]
+use std::os::fd::OwnedFd;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -124,10 +126,17 @@ impl TerminalMasterReading {
 pub struct TerminalDevice(pub u64);
 
 /// A terminal a command runs in as its own session's leader, the terminal its controlling one: the
-/// open PTY, whose master reads the command's output and takes its input, and the device number
-/// of its program side. Dropping it sends the leader SIGHUP and waits for it to exit, so a leader
-/// that ignores SIGHUP hangs the drop: its owner ends the command's group first.
+/// open PTY, whose master reads the command's output and takes its input, a handle of its own on
+/// the program side, and that side's device number. Dropping it sends the leader SIGHUP and waits
+/// for it to exit, so a leader that ignores SIGHUP hangs the drop: its owner ends the command's
+/// group first.
 pub struct InnerTerminal {
+    /// A handle on the program side, kept for the terminal's life so the master never reads as
+    /// closed while a command that closed its own descriptors reopens `/dev/tty`; the command's end
+    /// is read from its exit. Declared first, so it closes before the PTY's drop waits on the
+    /// leader.
+    #[cfg(unix)]
+    pub(crate) _program_side: OwnedFd,
     /// The open PTY, with the command it started.
     pub pty: Pty,
     /// The device number of the PTY's program side.

@@ -13,10 +13,10 @@ use std::time::{Duration, Instant};
 use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::tty::Pty;
 use sidekicks_platforms::{
-    InnerTerminal, RawStandardInput, TerminalOutputWatch, blocking_terminal_master,
-    end_terminal_session, pass_on_stop_signals, read_standard_input_window_size,
-    read_terminal_master, signal_foreground_group, start_inner_terminal, terminal_options,
-    wait_for_exit, wait_for_terminal_command,
+    RawStandardInput, TerminalOutputWatch, blocking_terminal_master, end_terminal_session,
+    pass_on_stop_signals, read_standard_input_window_size, read_terminal_master,
+    signal_foreground_group, start_inner_terminal, terminal_options, wait_for_exit,
+    wait_for_terminal_command,
 };
 
 use super::{
@@ -94,14 +94,16 @@ pub(super) fn run_in_terminal(
     inner_arguments.push(WORDS_SEPARATOR.to_owned());
     inner_arguments.extend(words.iter().map(|word| word.to_string_lossy().into_owned()));
     let options = terminal_options(program, inner_arguments, None, HashMap::new());
-    let InnerTerminal { pty, device } = match start_inner_terminal(&options, window) {
+    let terminal = match start_inner_terminal(&options, window) {
         Ok(terminal) => terminal,
         Err(error) => return exec_failed(&error),
     };
     *lock_state(state) = CommandState::Running {
-        group: pty.child().id(),
+        group: terminal.pty.child().id(),
     };
-    let pty = Arc::new(pty);
+    // The rest of `terminal`, its own handle on the program side among it, lives until the
+    // wrapper returns, so the master never reads as closed while the command runs.
+    let pty = Arc::new(terminal.pty);
     let master = match blocking_terminal_master(&pty) {
         Ok(master) => master,
         Err(error) => return abandon_terminal(&pty, &error),
@@ -154,7 +156,7 @@ pub(super) fn run_in_terminal(
     if lock_records(records).is_some() {
         report_terminal(
             Arc::clone(&pty),
-            device,
+            terminal.device,
             Arc::clone(records),
             Arc::clone(&tail),
         );
