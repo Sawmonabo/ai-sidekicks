@@ -2,6 +2,7 @@
 //! stop, in the reverse order, carrying why it stops. A start that fails releases what it took,
 //! in the stop's order, and names the step that failed.
 
+mod crash_monitor;
 pub(crate) mod database;
 pub(crate) mod jobs;
 pub(crate) mod method_tables;
@@ -15,11 +16,9 @@ mod tests;
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crash_handler::CrashHandler;
 use futures::FutureExt as _;
 use jiff::Timestamp;
 use sidekicks_contracts::daemon::lifecycle::{DAEMON_READY_LINE, DAEMON_STOP_DRAIN_BOUND_MS};
@@ -29,7 +28,6 @@ use sidekicks_platforms::{
     DaemonRunFolder, SocketPathRefused, Spawner, WakeWatch, WallClock, WallClockTimer,
     check_socket_path, read_command_argument_limit, secret_store_offer,
 };
-use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
@@ -49,15 +47,14 @@ use crate::daemon::backup::run::{
 };
 use crate::daemon::configuration::{ConfigurationError, ConfigurationStore};
 use crate::daemon::crash::monitor::{
-    CRASH_MONITOR_MODE, CrashMonitorError, attach_crash_handler, connect_crash_monitor,
-    crash_monitor_socket_path, remove_dead_monitor_sockets,
+    CrashMonitorError, crash_monitor_socket_path, remove_dead_monitor_sockets,
 };
 use crate::daemon::data_folder::data_folder;
 use crate::daemon::data_folder_lock::DataFolderLock;
 use crate::daemon::login_shell_environment::capture_provider_base_environment;
 use crate::daemon::machine::local::{LocalMachineError, read_or_mint_local_machine};
 use crate::daemon::machine::settings::file::{MachineSettingsFile, machine_settings_file_path};
-use crate::daemon::panic_hook::send_panics_to_monitor;
+use crate::daemon::process::crash_monitor::CrashMonitor;
 use crate::daemon::process::database::{
     DatabaseFile, DatabaseFileOpenError, DatabaseFileStart, open_database_file,
 };
@@ -68,9 +65,7 @@ use crate::daemon::process::providers::{
     register_providers, sweep_left_staged_worktrees,
 };
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
-use crate::daemon::process::stop::{
-    CrashMonitorEndFailure, DaemonStopFailure, close_data_folder, stop_work,
-};
+use crate::daemon::process::stop::{DaemonStopFailure, close_data_folder, stop_work};
 use crate::daemon::process::supervision::{ProcessStateTracker, ServingSocketHooks};
 use crate::daemon::run_folder::{
     RunFolderError, bind_socket, mint_session_token, prepare_run_folder,
@@ -84,7 +79,6 @@ use crate::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
 };
 use crate::git::process::{GitLimits, GitRunner, find_git_executable};
-use crate::helper_mode::child::start_helper_mode_child;
 use crate::ipc::caller_process::contract::CallerProcessReader;
 use crate::ipc::caller_process::descent::CallerCheck;
 use crate::ipc::in_flight_mutations::InFlightMutations;
@@ -108,10 +102,6 @@ use crate::settle_all::{SettleFailures, settle_all};
 /// The longest the stop's drain runs, the work ending and the data folder closing together.
 pub(crate) const DAEMON_STOP_DRAIN_BOUND: Duration =
     Duration::from_millis(DAEMON_STOP_DRAIN_BOUND_MS);
-
-// The longest the crash monitor's end waits for the killed monitor to exit, apart from the drain,
-// since a kill is sent before the wait begins.
-const CRASH_MONITOR_END_BOUND: Duration = Duration::from_secs(1);
 
 /// Why the daemon could not start, naming the step that failed.
 #[derive(Debug, thiserror::Error)]
@@ -232,81 +222,6 @@ struct ServiceInputs {
     authorizer: Arc<Authorizer>,
     /// The daemon's secrets, for the status read, the erase and each keychain.
     secret_items: Arc<SecretItems>,
-}
-
-/// The crash monitor: the `minidump` child and, once it is reached, the handler that asks it for a
-/// dump on a crash.
-pub(crate) struct CrashMonitor {
-    child: Child,
-    handler: Option<CrashHandler>,
-    socket_path: PathBuf,
-}
-
-impl CrashMonitor {
-    /// Starts the monitor through `program` on `spawner`, serving `socket_path`. Fails when the
-    /// child cannot start.
-    async fn spawn(
-        spawner: &Spawner,
-        program: &Path,
-        socket_path: PathBuf,
-    ) -> Result<Self, DaemonStartError> {
-        let mut command = Command::new(program);
-        command
-            .arg(CRASH_MONITOR_MODE)
-            .arg(&socket_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null());
-        let child = start_helper_mode_child(spawner, command)
-            .await
-            .map_err(DaemonStartError::CrashMonitorStart)?;
-        Ok(Self {
-            child,
-            handler: None,
-            socket_path,
-        })
-    }
-
-    /// Connects to the monitor within its bound, attaches the crash handler and sends later panics
-    /// to it. Fails naming the step.
-    async fn connect(&mut self) -> Result<(), DaemonStartError> {
-        let connect_path = self.socket_path.clone();
-        let client = Arc::new(
-            tokio::task::spawn_blocking(move || connect_crash_monitor(&connect_path))
-                .await
-                .map_err(DaemonStartError::CrashMonitorConnectEnded)??,
-        );
-        self.handler = Some(
-            attach_crash_handler(Arc::clone(&client)).map_err(DaemonStartError::CrashHandler)?,
-        );
-        send_panics_to_monitor(client);
-        Ok(())
-    }
-
-    /// Detaches the crash handler, ends the monitor, waiting at most its own bound for its exit,
-    /// and removes its socket from the run folder. Answers each step's failure.
-    async fn end(mut self) -> Vec<DaemonStopFailure> {
-        drop(self.handler.take());
-        let mut failures = Vec::new();
-        match tokio::time::timeout(CRASH_MONITOR_END_BOUND, self.child.kill()).await {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => failures.push(CrashMonitorEndFailure::Kill(error).into()),
-            Err(_elapsed) => {
-                failures.push(CrashMonitorEndFailure::StillRunning(CRASH_MONITOR_END_BOUND).into());
-            }
-        }
-        match tokio::fs::remove_file(&self.socket_path).await {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(source) => failures.push(
-                CrashMonitorEndFailure::Socket {
-                    path: self.socket_path,
-                    source,
-                }
-                .into(),
-            ),
-        }
-        failures
-    }
 }
 
 /// A step of the erase the process runs on the task that owns it, answering once the step ran.
