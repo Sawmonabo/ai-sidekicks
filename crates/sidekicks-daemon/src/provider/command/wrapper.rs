@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use sidekicks_platforms::{
     TerminalSignal, end_as_child_ended, end_by_stop_signal, exec_command, name_program,
     pass_on_stop_signals, read_child_exit, read_descriptor_path, signal_command_group,
-    start_in_own_group, stop_signal_number, take_in_orphans,
+    start_in_own_group, stop_signal_number, take_in_orphans, wait_for_exit_unreaped,
 };
 
 use crate::provider::command::channel::party::{
@@ -457,9 +457,11 @@ fn run_child(
             Ok(())
         });
     }
-    let waited = child.wait();
+    // The child stays unreaped until its state reads reaped, so no stop reaches a reused id.
+    let exited = wait_for_exit_unreaped(child.id());
     let mut state = lock_state(state);
     *state = CommandState::Reaped;
+    let waited = exited.and_then(|()| child.wait());
     match waited {
         Ok(status) => {
             send_record(records, &exited_record(status));

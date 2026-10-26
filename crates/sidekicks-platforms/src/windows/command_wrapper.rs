@@ -111,6 +111,11 @@ pub fn has_unread_output(_pty: &Pty) -> io::Result<bool> {
     Err(unwrapped())
 }
 
+/// Waits for no child. Always fails with `Unsupported`.
+pub fn wait_for_exit_unreaped(_process_id: u32) -> io::Result<()> {
+    Err(unwrapped())
+}
+
 /// Waits for no command. Always fails with `Unsupported`.
 pub fn wait_for_terminal_command(_pty: &Pty) -> io::Result<ExitStatus> {
     Err(unwrapped())

@@ -260,6 +260,32 @@ pub fn has_unread_output(pty: &Pty) -> io::Result<bool> {
     Ok(ready > 0)
 }
 
+/// Waits for this process's child `process_id` to exit, leaving it unreaped, so its id names it
+/// and its group until the caller reaps it. Blocks; fails with the system's error.
+pub fn wait_for_exit_unreaped(process_id: u32) -> io::Result<()> {
+    let id = libc::id_t::from(process_id);
+    loop {
+        let mut info = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
+        // SAFETY: `info` is a live, writable `siginfo_t` the call fills, and `WNOWAIT` leaves the
+        // child as it is.
+        let status = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                id,
+                info.as_mut_ptr(),
+                libc::WEXITED | libc::WNOWAIT,
+            )
+        };
+        if status == 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
 /// Waits for the command `pty` started to exit and answers its status; the PTY's own drop then
 /// finds it reaped. Blocks; fails with the system's error.
 pub fn wait_for_terminal_command(pty: &Pty) -> io::Result<ExitStatus> {
