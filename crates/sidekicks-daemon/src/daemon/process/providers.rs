@@ -15,7 +15,8 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, ProviderValue};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_platforms::{PathRules, Spawner, current_user_id};
-use tokio::task::{JoinError, JoinHandle};
+use tokio::task::JoinError;
+use tokio_util::task::AbortOnDropHandle;
 
 use crate::approvals::permission_asks::PermissionAsks;
 use crate::approvals::reviewer_denials::ReviewerDenials;
@@ -119,13 +120,6 @@ pub(crate) struct Providers {
 /// shared services, with every port unregistered, and starts the capability refresh over them, no
 /// pass asked yet. Builds start no process and do no I/O; called inside the daemon's runtime,
 /// which the refresh's task runs on.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the providers through it"
-    )
-)]
 pub(crate) fn build_providers(
     registrations: &[ProviderRegistration],
     start: ProviderStart,
@@ -189,13 +183,6 @@ pub(crate) fn build_providers(
 /// driver, so a gated call is answered from it before the first refresh lands; a provider never
 /// read, or read with no version, stays refused until then. A stored reading that cannot be
 /// rebuilt is reported as a driver diagnostic and its provider's gate stays closed.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start seeds the capability gate through it before the socket binds"
-    )
-)]
 pub(crate) async fn hydrate_capabilities(providers: &Providers) {
     for (provider, _) in providers.registry.drivers() {
         let descriptor = providers
@@ -356,10 +343,6 @@ pub(crate) fn compose_session_inbox_addresses(
 
 /// Removes the staged reviews' worktrees a stopped daemon left, before any call can open one, each
 /// failure logged.
-#[expect(
-    dead_code,
-    reason = "the daemon's start sweeps the leftover worktrees through it before the socket binds"
-)]
 pub(crate) async fn sweep_left_staged_worktrees(providers: &Providers) {
     for failure in providers.staged_changes.sweep_left_worktrees().await {
         tracing::warn!(
@@ -372,8 +355,8 @@ pub(crate) async fn sweep_left_staged_worktrees(providers: &Providers) {
 /// The providers' registration running on its own task, which the start waits for before the run
 /// queue's recovery and the stop ends before the drivers.
 pub(crate) struct ProvidersRegistration {
-    /// The task, until it is seen to end.
-    task: Option<JoinHandle<()>>,
+    /// The task, until it is seen to end; dropped, it ends the task.
+    task: Option<AbortOnDropHandle<()>>,
 }
 
 /// Why the providers' registration did not end cleanly at the stop.
@@ -390,13 +373,6 @@ pub(crate) enum ProvidersRegistrationStopFailure {
 impl ProvidersRegistration {
     /// Waits until every driver's first read landed, failed or missed its deadline and every row
     /// value was applied; at once when it ended already. Fails when its task panicked.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start waits for it before the run queue's recovery"
-        )
-    )]
     pub(crate) async fn finished(&mut self) -> Result<(), JoinError> {
         let Some(task) = self.task.as_mut() else {
             return Ok(());
@@ -409,10 +385,6 @@ impl ProvidersRegistration {
     /// Lets the registration end within `remaining`, else ends it where it stands, so no read it
     /// started outlives the stop; called after the capability refresh stopped and before the
     /// drivers shut down. Fails as [`ProvidersRegistrationStopFailure`] says.
-    #[expect(
-        dead_code,
-        reason = "the daemon's stop ends the registration through it before the drivers"
-    )]
     pub(crate) async fn stop(
         mut self,
         remaining: Duration,
@@ -437,15 +409,9 @@ impl ProvidersRegistration {
 /// every driver's capabilities are read, declared and recorded at once, a provider with a lasting
 /// service connecting to it in its read, then each driver's Settings rows take their values, each
 /// one `settings_file` stores over the driver's default. It ends once every read landed, failed or
-/// missed its deadline and every value was applied; a failure is logged, never returned. A value
+/// missed its deadline and every value was applied, or, applying none, once the refresh stopped
+/// before the reads; a failure is logged, never returned. Dropping the handle ends it. A value
 /// changed later is applied by the provider settings' update, through the same driver call.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start starts the registration through it"
-    )
-)]
 pub(crate) fn register_providers(
     providers: &Providers,
     index_opened: impl Future<Output = ()> + Send + 'static,
@@ -456,7 +422,11 @@ pub(crate) fn register_providers(
     let task = tokio::spawn(async move {
         index_opened.await;
         if !refresher.refresh_now().await {
-            tracing::warn!("the capability refresh ended before the providers' first reads");
+            tracing::warn!(
+                "the capability refresh ended before the providers' first reads, so no row value \
+                 is applied"
+            );
+            return;
         }
         match settings_file.read().await {
             Ok(reading) => apply_row_values(&registry, &reading.settings.provider_settings).await,
@@ -466,7 +436,9 @@ pub(crate) fn register_providers(
             ),
         }
     });
-    ProvidersRegistration { task: Some(task) }
+    ProvidersRegistration {
+        task: Some(AbortOnDropHandle::new(task)),
+    }
 }
 
 // Applies to every driver its rows' values, all drivers at once: each value `stored` holds for a
@@ -550,7 +522,6 @@ fn report_row_apply_failure(
 
 /// Ends every driver's work for `intent`, all at once, and answers each driver's failure, in the
 /// table's order.
-#[expect(dead_code, reason = "the daemon's stop ends the drivers through it")]
 pub(crate) async fn shut_down_drivers(
     registry: &ProviderRegistry,
     intent: DaemonStopIntent,
@@ -606,19 +577,13 @@ mod tests {
     };
     use crate::provider::driver::test_registry::{NothingServed, registrations_of_first_providers};
     use crate::provider::driver::{PROVIDERS, ProviderRegistration};
-    use crate::queue::delivery::{ProviderProcessIdentity, ProviderProcessIds};
+    use crate::queue::delivery::{ProviderProcessIds, TEST_PROVIDER_PROCESS};
 
     /// The statements the tests' read pool caches.
     const READ_STATEMENT_CAPACITY: usize = 16;
 
     /// The most line bytes the tests' bound lets the shell-line reader parse at once.
     const SHELL_LINE_LIMIT: usize = 1 << 20;
-
-    /// The provider process the stand-in driver records as spawned.
-    const SPAWNED: ProviderProcessIdentity = ProviderProcessIdentity {
-        process_id: 7,
-        spawn_sequence: 1,
-    };
 
     /// The session the stand-in driver records its process for.
     static SPAWNED_SESSION: LazyLock<SessionId> = LazyLock::new(test_session_id);
@@ -678,7 +643,9 @@ mod tests {
         let registrations = [ProviderRegistration {
             descriptor: PROVIDERS[0],
             build: |services| {
-                services.processes.record(*SPAWNED_SESSION, SPAWNED);
+                services
+                    .processes
+                    .record(*SPAWNED_SESSION, TEST_PROVIDER_PROCESS);
                 Arc::new(MockProviderDriver::new())
             },
         }];
@@ -688,7 +655,7 @@ mod tests {
         let queue_reads: Arc<dyn ProviderProcessIds> = providers.processes;
         assert_eq!(
             queue_reads.process_identity(&SPAWNED_SESSION),
-            Some(SPAWNED)
+            Some(TEST_PROVIDER_PROCESS)
         );
     }
 
