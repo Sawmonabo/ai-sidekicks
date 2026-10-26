@@ -326,6 +326,19 @@ impl QuestionCard {
             .expect("the card holds the questions waiting for their run");
     }
 
+    /// Waits until no question waits for its run on the card, as once each was opened or
+    /// withdrawn; fails the test past 60 s.
+    pub(super) async fn wait_until_none_waiting(&self) {
+        let none_waiting = async {
+            while !self.waiting().is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        timeout(Duration::from_secs(60), none_waiting)
+            .await
+            .expect("no question waits for its run");
+    }
+
     /// Holds back the outcome of each later take until the returned gate is notified, the question
     /// already on the card, as a take whose write is enqueued before it answers.
     pub(super) fn hold_takes(&self) -> Arc<Notify> {

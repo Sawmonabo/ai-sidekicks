@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
 use sidekicks_contracts::run::id::RunId;
+use tokio_util::sync::CancellationToken;
 
 use crate::mcp::client::connection::McpConnectionScope;
 use crate::mcp::client::tasks::{
@@ -27,6 +28,8 @@ pub(super) struct CallsInFlight {
 struct CallInFlight {
     number: u64,
     run_id: RunId,
+    /// Canceled once the call ends, which ends its questions' waits for the run.
+    ended: CancellationToken,
     /// The request ids of the questions the call asked that the card took.
     open_questions: Vec<String>,
 }
@@ -50,6 +53,7 @@ impl CallsInFlight {
         lock(&self.calls).push(CallInFlight {
             number,
             run_id: call.run_id,
+            ended: CancellationToken::new(),
             open_questions: Vec::new(),
         });
         TrackedCall {
@@ -75,14 +79,14 @@ impl CallsInFlight {
     /// the person's answer; withdrawn when the call ended or the card did not take it.
     async fn ask(&self, scope: &McpConnectionScope, number: u64, params: Value) -> QuestionOutcome {
         let watches: &TaskWatches = &scope.task_watches;
-        let Some(run_id) = self.run_of(number) else {
+        let Some((run_id, ended)) = self.run_of(number) else {
             return QuestionOutcome::Withdrawn;
         };
         let request_id = watches.mint_request_id(scope, &format!("call-{number}"));
         let question = compose_question(scope, run_id, request_id.clone(), &params);
         let (answer, answered) = ElicitationAnswer::open(params);
         if !watches
-            .take_question(scope, question, answer, QuestionTake::InRunTurn)
+            .take_question(scope, question, answer, QuestionTake::InRunTurn, &ended)
             .await
         {
             return QuestionOutcome::Withdrawn;
@@ -110,11 +114,12 @@ impl CallsInFlight {
         outcome
     }
 
-    fn run_of(&self, number: u64) -> Option<RunId> {
+    // The run of call `number` and its end, while it is in flight.
+    fn run_of(&self, number: u64) -> Option<(RunId, CancellationToken)> {
         lock(&self.calls)
             .iter()
             .find(|call| call.number == number)
-            .map(|call| call.run_id)
+            .map(|call| (call.run_id, call.ended.clone()))
     }
 }
 
@@ -141,7 +146,9 @@ impl TrackedCall<'_> {
         let Some(place) = calls.iter().position(|call| call.number == self.number) else {
             return Vec::new();
         };
-        calls.remove(place).open_questions
+        let call = calls.remove(place);
+        call.ended.cancel();
+        call.open_questions
     }
 }
 
@@ -323,6 +330,44 @@ mod tests {
             let answer = server.answer_to(request).expect("the client answered");
             assert_eq!(answer["result"], board_accepted());
         }
+    }
+
+    // A call that ends while its question waits for the run takes that question off the card at
+    // once, never opening it later. Mutation: in `TrackedCall::forget`, leave out the cancel of
+    // the call's end; the question then waits on until the first is answered.
+    #[tokio::test(start_paused = true)]
+    async fn a_call_that_ends_while_its_question_waits_for_the_run_withdraws_it() {
+        let (client, card) = test_client();
+        let (connection, server) = open_test_server(&client, eliciting_v1_server()).await;
+        let sink = CountingSink::new(&server);
+        let contact = contact();
+        let first_call = track_call();
+        let mut second_call = track_call();
+        second_call.run_id = first_call.run_id;
+        let first = connection.call_tool(first_call, &sink, &contact);
+        tokio::pin!(first);
+        tokio::select! {
+            _ = &mut first => panic!("the first call ended before its question was taken"),
+            () = card.wait_until_taken(1) => {}
+        }
+        let mut second = Box::pin(connection.call_tool(second_call, &sink, &contact));
+        tokio::select! {
+            _ = &mut first => panic!("the first call ended before its question was answered"),
+            _ = &mut second => panic!("the second call ended before its question was asked"),
+            () = card.wait_until_waiting(1) => {}
+        }
+
+        drop(second);
+
+        tokio::select! {
+            _ = &mut first => panic!("the first call ended before its question was answered"),
+            () = card.wait_until_none_waiting() => {}
+        }
+        assert_eq!(
+            card.taken().len(),
+            1,
+            "the ended call's question never opens"
+        );
     }
 
     // Mutation: in `TaskWatches::take_question`, await the card's take inline instead of in a

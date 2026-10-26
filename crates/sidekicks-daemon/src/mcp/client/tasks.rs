@@ -34,6 +34,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use strum::{IntoStaticStr, VariantArray};
 use tokio::sync::{Notify, oneshot, watch};
+use tokio_util::sync::CancellationToken;
 
 use crate::mcp::client::connection::{McpConnectionScope, McpServerConnection};
 use crate::mcp::client::requests::{McpRequestError, RequestWait};
@@ -283,6 +284,8 @@ pub(crate) struct TaskWatches {
 struct WatchedTask {
     wake: Arc<Notify>,
     run_id: RunId,
+    /// Canceled once the task stops being followed, which ends its questions' waits for the run.
+    ended: CancellationToken,
     /// The request ids of the task's questions taken by the card.
     open_questions: Vec<String>,
 }
@@ -338,6 +341,7 @@ impl TaskWatches {
             WatchedTask {
                 wake: Arc::clone(&wake),
                 run_id: call.run_id,
+                ended: CancellationToken::new(),
                 open_questions: Vec::new(),
             },
         );
@@ -382,9 +386,9 @@ impl TaskWatches {
     }
 
     /// Hands the card one question of `scope`'s task `mcp_task_id`, answered through `answer`,
-    /// taken as `take` says. `None` when the task is not followed; `Some(None)` when the card did
-    /// not take it, which is logged, so a later poll can ask it again; else the question's request
-    /// id.
+    /// taken as `take` says. `None` when the task is not followed, or stopped being followed before
+    /// the card took it; `Some(None)` when the card did not take it, which is logged, so a later
+    /// poll can ask it again; else the question's request id.
     pub(super) async fn ask(
         &self,
         scope: &McpConnectionScope,
@@ -394,11 +398,18 @@ impl TaskWatches {
         take: QuestionTake,
     ) -> Option<Option<String>> {
         let key = watch_key(scope, mcp_task_id);
-        let run_id = lock(&self.watched).get(&key)?.run_id;
+        let (run_id, ended) = {
+            let watched = lock(&self.watched);
+            let task = watched.get(&key)?;
+            (task.run_id, task.ended.clone())
+        };
         let request_id = self.mint_request_id(scope, mcp_task_id);
         let question = compose_question(scope, run_id, request_id.clone(), params);
-        if !self.take_question(scope, question, answer, take).await {
-            return Some(None);
+        if !self
+            .take_question(scope, question, answer, take, &ended)
+            .await
+        {
+            return (!ended.is_cancelled()).then_some(None);
         }
         let is_followed = lock(&self.watched)
             .get_mut(&key)
@@ -418,10 +429,11 @@ impl TaskWatches {
     }
 
     /// Hands the card `question`, answered through `answer` and taken as `take` says; false when
-    /// the card did not take it, which is logged, or it was settled before its run's turn came.
-    /// The take runs in a task of its own, so one whose asker stops waiting still completes and
-    /// its question is withdrawn, never left open with nobody to answer it; a question waiting its
-    /// turn stops waiting with its asker and is withdrawn. Until the card's intake is registered
+    /// the card did not take it, which is logged, when it was settled before its run's turn came,
+    /// or when `owner_ended`, its call's or task's end, came first. The take runs in a task of its
+    /// own, so one whose asker or owner stops waiting still completes and its question is
+    /// withdrawn, never left open with nobody to answer it; a question waiting its turn stops
+    /// waiting with its asker or its owner and is withdrawn. Until the card's intake is registered
     /// this reads as taken while nobody holds `answer`: a 2025-11-25 question is then answered
     /// `cancel`, and a 2026-07-28 one is never asked again.
     pub(super) async fn take_question(
@@ -430,6 +442,7 @@ impl TaskWatches {
         question: ProviderQuestion,
         answer: Arc<dyn ToolServerQuestionAnswer>,
         take: QuestionTake,
+        owner_ended: &CancellationToken,
     ) -> bool {
         let Some(port) = self.questions.port().cloned() else {
             return true;
@@ -488,9 +501,13 @@ impl TaskWatches {
             request_id,
             taken,
         };
-        let took = match (&mut pending.taken).await {
-            Ok(took) => took,
-            Err(_ended) => Err("the take ended without an outcome".into()),
+        let took = tokio::select! {
+            took = &mut pending.taken => match took {
+                Ok(took) => took,
+                Err(_ended) => Err("the take ended without an outcome".into()),
+            },
+            // Its call or task ended first; the pending take, dropped, has the question withdrawn.
+            () = owner_ended.cancelled() => return false,
         };
         if let Err(error) = took {
             tracing::warn!(
@@ -673,6 +690,7 @@ impl TaskWatch<'_> {
     pub(super) async fn finish(self) {
         let removed = lock(&self.watches.watched).remove(&self.key);
         if let Some(task) = removed {
+            task.ended.cancel();
             self.watches
                 .withdraw_questions(self.key.0, task.open_questions)
                 .await;
@@ -684,6 +702,7 @@ impl Drop for TaskWatch<'_> {
     fn drop(&mut self) {
         let removed = lock(&self.watches.watched).remove(&self.key);
         if let Some(task) = removed {
+            task.ended.cancel();
             self.watches
                 .withdraw_questions_later(self.key.0, task.open_questions);
         }

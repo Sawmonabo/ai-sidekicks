@@ -219,13 +219,15 @@ mod tests {
 
     use super::read_task;
     use crate::mcp::client::tasks::{
-        McpTaskContact, McpTaskGeneration, McpTaskHandleObservation, McpToolCallEnd,
+        ElicitationAnswer, McpTaskContact, McpTaskGeneration, McpTaskHandleObservation,
+        McpToolCallEnd, compose_question,
     };
     use crate::mcp::client::test_server::{
         CountingSink, Reply, Responder, board_accepted, board_answer, board_form, contact,
         method_not_found, open_test_server, test_client, text_result, track_call, track_dispatch,
         v1_initialize_result,
     };
+    use crate::provider::port::question::QuestionPort as _;
 
     /// A 2025-11-25 server whose `track` tool runs only as a task `task-1`, answering `tasks/get`
     /// through `poll_reply` with the poll's number and `tasks/result` through `result_reply`.
@@ -766,6 +768,43 @@ mod tests {
         }
 
         card.wait_until_none_open().await;
+    }
+
+    // A task dropped while its question waits for the run, which waits on another question,
+    // takes that question off the card at once. Mutation: in `TaskWatch`'s drop, leave out the
+    // cancel of the task's end; the question then waits on until the other is answered.
+    #[tokio::test(start_paused = true)]
+    async fn a_task_dropped_while_its_question_waits_for_the_run_withdraws_it() {
+        let (client, card) = test_client();
+        let (connection, server) = open_test_server(&client, asking_task_server()).await;
+        let call = track_call();
+        let request_id = connection
+            .scope
+            .task_watches
+            .mint_request_id(&connection.scope, "other");
+        let (answer, _answered) = ElicitationAnswer::open(board_form());
+        card.take_tool_server_question(
+            compose_question(&connection.scope, call.run_id, request_id, &board_form()),
+            answer,
+        )
+        .await
+        .expect("the card takes the run's other question");
+        let sink = CountingSink::new(&server);
+        let contact = contact();
+        let mut asking = Box::pin(connection.call_tool(call, &sink, &contact));
+        tokio::select! {
+            _ = &mut asking => panic!("the call ended before its question was asked"),
+            () = card.wait_until_waiting(1) => {}
+        }
+
+        drop(asking);
+
+        card.wait_until_none_waiting().await;
+        assert_eq!(
+            card.taken().len(),
+            1,
+            "the dropped task's question never opens"
+        );
     }
 
     // Mutation: in `read_result`, rebuild the failure from the error's code and message alone,
