@@ -16,6 +16,7 @@ use tokio::time::timeout;
 use super::{LiveSessionFolders, LiveSessionFoldersDeps};
 use crate::daemon::scheduler::Scheduler;
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
 use crate::events::log_service::EventLogAppendOptions;
 use crate::events::log_service::tests::{TestLog, open_log};
@@ -24,7 +25,7 @@ use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::fetch::{BackgroundFetch, BackgroundFetchDeps};
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
-use crate::session::directory::test_rows::insert_session_row;
+use crate::questions::schema::schema_parts;
 use crate::workspace::folder::canonical_path::canonical_folder_path;
 use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
@@ -106,7 +107,7 @@ fn held_folder(
 // starts again, and a syncing event left out of the followed set.
 #[tokio::test]
 async fn a_moved_session_holds_its_new_folder_first_and_an_archived_one_lets_both_go() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let reads = Arc::new(DatabaseReadPool::new(
         database.path(),

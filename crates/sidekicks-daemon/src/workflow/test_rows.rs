@@ -10,7 +10,6 @@ use sidekicks_contracts::workflow::run::status::{
 };
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 
-use crate::approvals::schema::APPROVAL_SCHEMA_SQL;
 use crate::workflow::schema::WORKFLOW_SCHEMA_SQL;
 
 /// The session every test run lives in.
@@ -25,17 +24,12 @@ const STEP_STARTED_AT: &str = "2026-10-02T00:00:01.000Z";
 
 const EMPTY_PAYLOAD_REF: &str = r#"{"kind":"inline","items":[]}"#;
 
-/// Creates the workflow tables and the approval tables their gate answers point at. Fails as
-/// SQLite does.
-pub(crate) fn create_workflow_tables(connection: &Connection) -> rusqlite::Result<()> {
-    connection.execute_batch(&APPROVAL_SCHEMA_SQL)?;
-    connection.execute_batch(&WORKFLOW_SCHEMA_SQL)
-}
-
 /// A connection on a fresh in-memory database holding the workflow tables, with foreign keys on.
 pub(crate) fn workflow_tables() -> Connection {
     let connection = Connection::open_in_memory().expect("an in-memory database opens");
-    create_workflow_tables(&connection).expect("the workflow tables create");
+    connection
+        .execute_batch(&WORKFLOW_SCHEMA_SQL)
+        .expect("the workflow tables create");
     connection
 }
 

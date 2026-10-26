@@ -17,6 +17,7 @@ use super::{
 };
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
+use crate::plans::schema::schema_parts;
 use crate::session::run::engine::RunEngineError;
 use crate::session::run::engine::tests::{
     append, continue_request, events, hand_limit_interrupter, insert_running_run, started_turn,
@@ -36,7 +37,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 // cut, which ends turn 2 `tokenLimit`.
 #[tokio::test]
 async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -352,7 +353,7 @@ async fn a_restart_ends_each_turn_a_limits_row_names_with_the_limit(
     #[case] settled_state: &str,
     #[case] settled_events: &[(&str, Option<&str>, Option<&str>)],
 ) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -434,7 +435,7 @@ async fn a_restart_ends_each_turn_a_limits_row_names_with_the_limit(
 // turn 2, which the continue started after the stop's row named turn 1.
 #[tokio::test]
 async fn a_restart_after_an_overtaken_token_stop_and_a_continue_stops_the_run() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -505,7 +506,7 @@ async fn a_restart_after_an_overtaken_token_stop_and_a_continue_stops_the_run() 
 // its queue still starts with an error, or by dropping the guard, which fails that run.
 #[tokio::test]
 async fn a_message_queued_while_a_restart_settles_a_queued_run_leaves_it_queued() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -567,7 +568,7 @@ async fn a_message_queued_while_a_restart_settles_a_queued_run_leaves_it_queued(
 // before the moves, which refuses at another position.
 #[tokio::test]
 async fn a_restart_settle_is_refused_by_an_interrupt_asked_for_after_its_read() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -628,7 +629,7 @@ async fn a_restart_settle_is_refused_by_an_interrupt_asked_for_after_its_read() 
 // answers a run the table refused to move as settled.
 #[tokio::test]
 async fn a_restart_settle_the_table_refuses_from_the_state_read_is_an_error() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -721,7 +722,7 @@ async fn a_restart_settle_meets_what_landed_after_its_read(
     #[case] expected_state: (&str, i64),
     #[case] expected_event_count: usize,
 ) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();

@@ -585,13 +585,14 @@ mod tests {
     use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
     use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
+    use crate::questions::schema::schema_parts;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // Killed by spelling the guard's category other than the stored word, which lets a second
     // terminal through, or by dropping its run version condition, which refuses every version.
     #[tokio::test]
     async fn the_terminal_guard_refuses_only_at_a_version_holding_a_stored_terminal() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
             .expect("the writer opens its database");

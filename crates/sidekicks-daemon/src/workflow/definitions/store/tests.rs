@@ -29,6 +29,7 @@ use crate::workflow::definitions::drafts::{
 use crate::workflow::definitions::errors::DefinitionRefusal;
 use crate::workflow::definitions::library::WORKFLOW_LIBRARY_STATEMENT_CAPACITY;
 use crate::workflow::not_found::{WorkflowNotFound, WorkflowVersionAddress};
+use crate::workflow::schema::schema_parts;
 
 /// A document of `name` whose trigger feeds its one node, which the graph check passes.
 fn document(name: &str, path: &str) -> Value {
@@ -152,7 +153,7 @@ fn update(definition_id: WorkflowDefinitionId, name: &str) -> WorkflowDefinition
 /// the in-write name check's refusal as a stale version.
 #[tokio::test]
 async fn a_save_clears_its_draft_and_a_refused_name_leaves_nothing() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let (store, drafts) = open_stores(&database).await;
     let nightly = create(&store, "Nightly").await;
     let weekly = create(&store, "Weekly").await;
@@ -199,7 +200,7 @@ async fn a_save_clears_its_draft_and_a_refused_name_leaves_nothing() {
 /// from the create; clear it for every origin.
 #[tokio::test]
 async fn a_create_from_the_new_workflow_draft_clears_it_and_an_import_leaves_it() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let (store, drafts) = open_stores(&database).await;
     let hold_new_draft = || async {
         drafts
@@ -259,7 +260,7 @@ fn definition_name(rows: &Connection, definition_id: WorkflowDefinitionId) -> St
 /// check, or its deleted workflow condition, from the write.
 #[tokio::test]
 async fn a_duplicate_takes_a_free_copy_name_and_its_source_locks_only_for_the_same_content() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let (store, _drafts) = open_stores(&database).await;
     let source = create_from(
         &store,

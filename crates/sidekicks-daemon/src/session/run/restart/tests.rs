@@ -15,6 +15,7 @@ use super::{
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
 use crate::interventions::store::UnresolvedInterventionState;
+use crate::questions::schema::schema_parts;
 use crate::session::run::read::{LiveRun, RunRead};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -242,7 +243,7 @@ fn a_restart_settles_each_live_run_by_what_it_was_waiting_on(
 // message is gone.
 #[tokio::test]
 async fn the_waiting_item_guard_holds_only_while_a_queued_message_targets_the_run() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
         .await
         .expect("the writer opens its database");

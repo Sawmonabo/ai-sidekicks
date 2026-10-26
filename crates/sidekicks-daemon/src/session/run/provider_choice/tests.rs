@@ -35,6 +35,7 @@ use crate::events::session::appender::{
 };
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::ipc::handlers::driver::resolution::LiveRunDriverError;
+use crate::plans::schema::schema_parts;
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::run_control::AnswerProviderChoiceResult;
 use crate::provider::driver::test_registry::{
@@ -159,7 +160,7 @@ const WAITING_ON_THE_CHOICE: ChoiceRun = ChoiceRun {
 };
 
 async fn fixture(driver: MockProviderDriver, setup: ChoiceRun) -> Fixture {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id: SessionId = test_session_id();

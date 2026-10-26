@@ -28,6 +28,7 @@ use crate::artifacts::payload_store::PayloadStore;
 use crate::artifacts::schema::ARTIFACT_STATEMENT_CAPACITY;
 use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, session_event_row, test_envelope};
 use crate::events::log_service::tests::TestLog;
 use crate::events::log_service::{EVENT_LOG_STATEMENT_CAPACITY, EventLogAppendOptions};
@@ -48,8 +49,8 @@ use crate::provider::driver::test_registry::test_driver_services;
 use crate::provider::driver::{PROVIDERS, ProviderRegistration};
 use crate::pty::shell::test_table::{TableFixture, table_fixture};
 use crate::recovery::status::RecoveryStatusTracker;
+use crate::remote::shared_ports::schema::schema_parts;
 use crate::session::directory::list_feed::SessionListFeed;
-use crate::session::directory::test_rows::insert_session_row;
 use crate::session::related::ranking::SessionRelatedRanking;
 use crate::session::run::engine::tests::insert_running_run;
 use crate::session::run::live_count::tests::counted_log;
@@ -86,7 +87,7 @@ pub(crate) struct PurgeFixture {
 
 /// A purge over a fresh database; a provider driver it calls fails the test.
 pub(crate) async fn purge_fixture() -> PurgeFixture {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let (log, live_runs) = counted_log(&database).await;
     let recovery = Arc::new(RecoveryStatusTracker::new());
     let TestPurge {
@@ -166,7 +167,7 @@ pub(crate) async fn test_purge(
         repo_mounts,
         test_git_runner(),
         writes,
-        Arc::clone(&list_feed),
+        list_feed.clone(),
     ));
     let project_rules = Arc::new(ApprovalRules::new(
         Arc::clone(&reads),

@@ -2,11 +2,11 @@
 //! provider, whose driver is a stand-in that records each answer it is handed: a held question's
 //! answer and the refusals that send nothing, each way a question ends unanswered, a question's
 //! turn while its run waits on another, and the queued answers of a question its agent does not
-//! wait for, rebuilt from the log.
+//! wait for.
 
 mod answers;
 mod endings;
-mod queued_answers;
+pub(crate) mod queued_answers;
 mod run_turn;
 
 use std::sync::{Arc, Mutex};
@@ -36,6 +36,7 @@ use crate::events::session::appender::{
 };
 use crate::events::session::followers::SessionEventFollowers;
 use crate::events::session::version::SESSION_EVENT_VERSION;
+use crate::plans::schema::schema_parts;
 use crate::provider::driver::contract::{MockProviderDriver, ProviderRequestAnswer};
 use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
@@ -71,27 +72,31 @@ impl ToolServerQuestionAnswer for RecordingTaskAnswer {
 
 /// A running run bound to a stand-in driver, its engine, the log with the queued answers'
 /// statements, and the questions service.
-struct Fixture {
-    database: TestDatabase,
-    writer: Arc<DatabaseWriter>,
+pub(crate) struct Fixture {
+    /// The test database the run, the log and the question rows are in.
+    pub(crate) database: TestDatabase,
+    /// The writer every write of the fixture goes through.
+    pub(crate) writer: Arc<DatabaseWriter>,
     appender: SessionEventAppender,
     engine: Arc<RunEngine>,
     questions: QuestionsService,
-    session_id: SessionId,
+    /// The session the run and its questions belong to.
+    pub(crate) session_id: SessionId,
     run_id: RunId,
     handed: HandedAnswers,
     _home: TempDir,
 }
 
 impl Fixture {
-    async fn new() -> Self {
+    /// The fixture whose stand-in driver takes every answer and leaves the run running.
+    pub(crate) async fn new() -> Self {
         Self::with_driver(false).await
     }
 
     /// The fixture whose stand-in driver, when `is_run_ended_on_answer`, fails the run as it takes
     /// an answer, as a provider that exits at that moment does.
     async fn with_driver(is_run_ended_on_answer: bool) -> Self {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
                 .await

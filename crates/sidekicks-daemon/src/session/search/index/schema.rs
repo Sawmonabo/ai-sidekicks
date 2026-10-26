@@ -2,11 +2,9 @@
 //! that change searchable text, and the log of lowered highest rowids a held search reads its rows
 //! against. The daemon's schema script runs it with the rest.
 
-use std::sync::LazyLock;
-
 use sidekicks_search::index::IndexRowKind;
 
-use crate::database::schema::SESSION_EVENTS_TABLE;
+use crate::database::schema::{SESSION_EVENTS_TABLE, SchemaPart, SchemaParts};
 use crate::database::sql_list::sql_list_of_every;
 use crate::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
 use crate::session::search::index::columns::index_key_sql;
@@ -14,10 +12,12 @@ use crate::session::search::index::outbox::OutboxOperation;
 use crate::session::search::index::rows::INDEXED_EVENT_TYPES_SQL;
 use crate::session::search::rowid_floors::rowid_floor_trigger_sql;
 
-/// The SQL of the search index's tables and the triggers that write them, run as part of the
-/// daemon schema's script.
-pub(crate) static SEARCH_INDEX_SCHEMA_SQL: LazyLock<String> =
-    LazyLock::new(search_index_schema_sql);
+/// The provider drivers' list and the search index's own part, whose triggers follow the session
+/// directory's tables they watch.
+pub(crate) fn schema_parts() -> SchemaParts {
+    crate::database::schema::provider_drivers::schema_parts()
+        .with_part(SchemaPart::new("search_index", search_index_schema_sql()))
+}
 
 // The outbox row a trigger writes, from the SQL of each of its columns.
 fn outbox_insert_sql(
@@ -260,7 +260,7 @@ CREATE TABLE session_search_rowid_floors (
 /// schema, whose insert gives the outbox its rows, and answers the outbox's highest id after it.
 #[cfg(test)]
 pub(crate) fn add_titled_session(connection: &rusqlite::Connection, session_id: &str) -> u64 {
-    crate::session::directory::test_rows::insert_session_row(
+    crate::database::schema::session_directory::insert_session_row(
         connection,
         session_id,
         Some("Billing fix"),

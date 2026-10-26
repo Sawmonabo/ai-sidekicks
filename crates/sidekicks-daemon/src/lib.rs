@@ -47,7 +47,7 @@ pub mod random_hex;
 pub mod read_retry;
 pub mod recovery;
 pub(crate) mod redaction;
-pub(crate) mod remote;
+pub mod remote;
 pub mod retry_waits;
 pub mod session;
 pub mod settle_all;

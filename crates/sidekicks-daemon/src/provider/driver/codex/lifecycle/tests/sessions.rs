@@ -14,6 +14,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use super::super::CodexDriver;
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
 use crate::database::writer::test_file::TestDatabase;
+use crate::plans::schema::schema_parts;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::provider::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::provider::driver::codex::run::start::record::CodexTurnRequest;
@@ -332,7 +333,7 @@ async fn the_daemons_stop_stops_the_turn_of_a_resting_sessions_side_question() {
         return;
     };
     let folder = tempfile::tempdir().expect("the test makes a folder");
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let driver = driver_holding(&scripted, folder.path(), &database).await;
     let served = tokio::spawn(serve_unended_copy(
         listener,

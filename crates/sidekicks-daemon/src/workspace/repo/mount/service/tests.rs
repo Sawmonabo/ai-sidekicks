@@ -15,6 +15,7 @@ use super::{RepoMountService, RepoMountServiceError};
 use crate::database::writer::test_file::TestDatabase;
 use crate::file::bounded_read::stall_reads_of;
 use crate::git::process::test_git_runner;
+use crate::git::worktree::schema::schema_parts;
 use crate::ipc::domain_error::DomainError;
 use crate::workspace::repo::errors::RepoRefusal;
 use crate::workspace::repo::root_resolver::{RepoRootResolution, RepoRootResolver};
@@ -77,7 +78,7 @@ fn insert_running_run(rows: &Connection) {
 #[tokio::test]
 async fn a_detach_while_an_agent_runs_in_the_project_names_its_session() {
     // Catches a refused running check read as a plain write failure instead of the conflict.
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let (service, rows) = open_service(&database).await;
     insert_running_run(&rows);
 
@@ -100,7 +101,7 @@ async fn a_detach_while_an_agent_runs_in_the_project_names_its_session() {
 #[tokio::test]
 async fn a_detach_that_loses_its_flip_reports_the_state_the_winner_left() {
     // Catches a flip lost to a concurrent detach read as a failure instead of the mount's state.
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let (service, _rows) = open_service(&database).await;
     let paused = service.detach_pause.arm();
     let loser = tokio::spawn({
@@ -137,7 +138,7 @@ async fn a_detach_that_loses_its_flip_reports_the_state_the_winner_left() {
 #[tokio::test]
 async fn a_read_whose_root_never_answers_reads_the_mount_unreachable() {
     // Catches a root probe awaited past the ceiling, or a mount left healthy without its probe.
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let (service, rows) = open_service(&database).await;
     let temporary = tempfile::tempdir().expect("the temporary folder is made");
     let root = temporary.path().join("app");
@@ -172,7 +173,7 @@ async fn a_read_whose_root_never_answers_reads_the_mount_unreachable() {
 #[tokio::test]
 async fn an_attach_whose_root_resolves_past_the_path_cap_is_refused_before_any_write() {
     // Catches a resolved root kept unchecked until the reply, or refused under another code.
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let long_root = PathBuf::from(format!("/{}", "a".repeat(FILE_PATH_MAX_LEN)));
     let resolver = RepoRootResolver::answering(
         test_git_runner(),
@@ -213,7 +214,7 @@ async fn an_attach_whose_root_resolves_past_the_path_cap_is_refused_before_any_w
 async fn a_detach_whose_run_ends_before_its_session_is_read_detaches_on_its_retry() {
     // Catches a run that ended between the running check and the read of its session answered as
     // the write's failure instead of tried again.
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let (service, rows) = open_service(&database).await;
     insert_running_run(&rows);
     let paused = service.running_read_pause.arm();
@@ -250,7 +251,7 @@ async fn a_detach_whose_run_ends_before_its_session_is_read_detaches_on_its_retr
 async fn a_detach_whose_archived_workspace_does_not_read_reports_it_committed() {
     // Catches a committed detach whose archived rows do not read reported as a failed row read,
     // which tells the caller nothing was written.
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let (service, rows) = open_service(&database).await;
     let bound_root = <&'static str>::from(ExecutionMode::BoundRoot);
     rows.execute_batch(&format!(

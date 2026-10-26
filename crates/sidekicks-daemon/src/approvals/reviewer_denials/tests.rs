@@ -26,7 +26,9 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use super::{
     DenialOverrideError, REVIEWER_DENIALS_STATEMENT_CAPACITY, ReviewerDenialError, ReviewerDenials,
 };
+use crate::approvals::schema::schema_parts;
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::events::session::appender::{
@@ -41,7 +43,6 @@ use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_providers,
 };
 use crate::provider::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
-use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::pause::tests::unanswered;
 use crate::session::run::projection::insert_queued_run_statement;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -69,7 +70,7 @@ impl Fixture {
     /// A fixture whose run is bound to the table's first provider, answered by `first`, beside
     /// the second answered by `second`.
     async fn new(first: MockProviderDriver, second: MockProviderDriver) -> Self {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
         let events = Arc::new(SessionEventAppender::new(
             Arc::clone(&log.service),

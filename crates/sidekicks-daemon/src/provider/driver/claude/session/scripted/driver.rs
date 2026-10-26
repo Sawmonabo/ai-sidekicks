@@ -32,6 +32,7 @@ use super::{SCRIPTED_PROVIDER_SESSION_ID, hand_scripted_frame, scripted_staged_c
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::mutex_lock::lock;
+use crate::plans::schema::schema_parts;
 use crate::policy::execution_posture_service::{
     ExecutionPostureService, compose_execution_posture,
 };
@@ -173,7 +174,7 @@ impl ScriptedDriver {
     /// The driver whose accounts run on `account_folders`, else on the person's own home.
     pub(crate) fn with_account_folders(account_folders: Option<ProviderAccountFolders>) -> Self {
         let folder = tempfile::tempdir().expect("the test makes a temporary folder");
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         drop((database.opener())().expect("the test database opens with the daemon's schema"));
         let home = folder.path().join("home");
         let work = folder.path().join("work");

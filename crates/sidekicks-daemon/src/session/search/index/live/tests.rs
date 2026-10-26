@@ -18,8 +18,9 @@ use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 use super::test_services::TestDaemonServices;
 use super::{LiveIndexShared, LiveIndexState, OpenIndex, catch_up, delete_applied, follow_commits};
 use crate::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::TestDatabase;
-use crate::session::directory::test_rows::insert_session_row;
+use crate::questions::schema::schema_parts;
 use crate::session::search::index::applier::SearchIndexApplier;
 use crate::session::search::index::columns::index_key_of;
 use crate::session::search::index::outbox::{AppliedOutbox, OutboxReader, delete_applied_outbox};
@@ -75,7 +76,7 @@ async fn index_behind_its_database(
 
 #[tokio::test]
 async fn a_delete_during_a_first_page_s_read_keeps_the_floor_it_reads_from() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let services = TestDaemonServices::open(&database).await;
     let folder = tempfile::tempdir().expect("the test makes a temporary folder");
     let (shared, open, _) = index_behind_its_database(&database, &services, folder.path(), 3).await;
@@ -117,7 +118,7 @@ async fn a_delete_during_a_first_page_s_read_keeps_the_floor_it_reads_from() {
 async fn a_restart_deletes_what_its_index_holds_and_applies_what_it_does_not(
     #[case] session_count: usize,
 ) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let services = TestDaemonServices::open(&database).await;
     let folder = tempfile::tempdir().expect("the test makes a temporary folder");
     let (shared, open, highest_id_given) =
@@ -226,7 +227,7 @@ fn move_outbox(connection: &Connection, away: bool) {
 // applies during the wait, by a wait that does not double and by a warning per attempt.
 #[tokio::test(start_paused = true)]
 async fn a_failed_apply_keeps_the_last_commit_served_and_is_tried_again_after_its_wait() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let services = TestDaemonServices::open(&database).await;
     let folder = tempfile::tempdir().expect("the test makes a temporary folder");
     let (shared, open, _) = index_behind_its_database(&database, &services, folder.path(), 1).await;
@@ -320,7 +321,7 @@ async fn an_apply_passes_over_a_damaged_row_and_applies_the_rows_after_it(
     let (damage_logs, _, damage_log_count) = MessageWaker::new("search_index_row_damaged");
     tracing::subscriber::set_global_default(tracing_subscriber::registry().with(damage_logs))
         .expect("the test's process logs to it alone");
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
     let services = TestDaemonServices::open(&log.database).await;
     let folder = tempfile::tempdir().expect("the test makes a temporary folder");
     let (_, open, _) = index_behind_its_database(&log.database, &services, folder.path(), 1).await;

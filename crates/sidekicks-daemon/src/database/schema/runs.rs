@@ -10,14 +10,21 @@ use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
 
 use crate::command_receipts::{CommandAcceptance, CommandOutcome};
+use crate::database::schema::{SchemaPart, SchemaParts};
 use crate::database::sql_list::{sql_list_of, sql_list_of_every};
 use crate::mcp::client::tasks::McpTaskGeneration;
 use crate::mcp::client::tasks::recorder::MCP_TASK_ID_MAX_LENGTH;
 use crate::provider::driver::run_control::InterruptPendingChoice;
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
-/// The runs' tables and indexes.
-pub(super) fn runs_schema_sql() -> String {
+/// The search index's list and the runs' own part.
+pub(crate) fn schema_parts() -> SchemaParts {
+    crate::session::search::index::schema::schema_parts()
+        .with_part(SchemaPart::new("runs", runs_schema_sql()))
+}
+
+// The runs' tables and indexes.
+fn runs_schema_sql() -> String {
     let queue_states = sql_list_of_every::<QueueItemState>();
     let queued = <&'static str>::from(QueueItemState::Queued);
     let not_delivered = <&'static str>::from(QueueItemState::NotDelivered);

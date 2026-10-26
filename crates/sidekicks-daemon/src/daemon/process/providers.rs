@@ -584,6 +584,7 @@ mod tests {
     use crate::provider::driver::test_registry::{NothingServed, registrations_of_first_providers};
     use crate::provider::driver::{PROVIDERS, ProviderRegistration};
     use crate::queue::delivery::{ProviderProcessIds, TEST_PROVIDER_PROCESS};
+    use crate::remote::shared_ports::schema::schema_parts;
 
     /// The statements the tests' read pool caches.
     const READ_STATEMENT_CAPACITY: usize = 16;
@@ -603,7 +604,7 @@ mod tests {
     impl TestStart {
         fn new() -> Self {
             Self {
-                database: TestDatabase::new(),
+                database: TestDatabase::new(schema_parts()),
                 home: tempfile::tempdir().expect("the test makes a home folder"),
             }
         }

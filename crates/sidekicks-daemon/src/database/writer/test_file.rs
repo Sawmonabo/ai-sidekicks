@@ -1,5 +1,5 @@
-//! A database file for tests, opened as the daemon opens its own with the daemon's whole schema,
-//! and the event rows tests write to it.
+//! A database file for tests, opened as the daemon opens its own with the schema of the parts a
+//! test names, and the event rows tests write to it.
 
 // The event rows' imports are gated: those rows serve only the crate's own tests.
 use std::path::PathBuf;
@@ -20,6 +20,7 @@ use {
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::writer_open::{DatabaseOpenError, open_database};
+use crate::database::schema::{DatabaseSchema, SchemaParts};
 #[cfg(test)]
 use crate::{
     events::content::codec::BodyEncoder,
@@ -31,20 +32,20 @@ use crate::{
 #[cfg(test)]
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-/// A database file in a folder of its own, removed when this drops.
+/// A database file in a folder of its own, removed when this drops, and the schema it is opened
+/// with.
 pub struct TestDatabase {
     folder: TempDir,
+    schema: DatabaseSchema,
 }
 
 impl TestDatabase {
-    /// A folder for a database file the opener creates.
-    #[expect(
-        clippy::new_without_default,
-        reason = "each call makes a new temporary folder"
-    )]
-    pub fn new() -> Self {
+    /// A folder for a database file the opener creates with `parts`, the list of the tables the
+    /// test's own module can name.
+    pub fn new(parts: SchemaParts) -> Self {
         Self {
             folder: tempfile::tempdir().expect("the test makes a temporary folder"),
+            schema: parts.into_schema(),
         }
     }
 
@@ -54,14 +55,15 @@ impl TestDatabase {
     }
 
     /// The opener a writer runs on its thread: the daemon's own open of the file, which creates it
-    /// with the daemon's schema. Fails as that open does.
+    /// with this database's schema. Fails as that open does.
     pub fn opener(
         &self,
     ) -> impl FnOnce() -> Result<Connection, CleanupFailures<DatabaseOpenError, rusqlite::Error>>
     + Send
     + 'static {
         let path = self.path();
-        move || open_database(&path)
+        let schema = self.schema.clone();
+        move || open_database(&path, &schema)
     }
 
     /// A second connection on the file, for a test to read what the writer committed.

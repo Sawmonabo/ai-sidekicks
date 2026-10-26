@@ -18,8 +18,7 @@ pub mod restore;
 pub mod sqlite_shell;
 pub(crate) mod stall_watch;
 
-use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 /// The suffix of the write-ahead log SQLite keeps beside a database.
@@ -34,13 +33,6 @@ pub(crate) const READ_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How many bytes at the end of a child's error output are kept for its failure's message.
 pub(crate) const ERROR_OUTPUT_KEPT_BYTES: usize = 4_096;
-
-/// `database_path` with `suffix` added to its file name: `daemon.db` becomes `daemon.db-wal`.
-pub(crate) fn sibling_path(database_path: &Path, suffix: &str) -> PathBuf {
-    let mut path = OsString::from(database_path.as_os_str());
-    path.push(suffix);
-    PathBuf::from(path)
-}
 
 /// The folder the database file at `database_path` sits in; the daemon's path to it always names
 /// one.

@@ -16,9 +16,10 @@ use std::path::Path;
 use sidekicks_platforms::{FileFacts, file_facts, flush_folder};
 use tokio::task::JoinError;
 
+use crate::database::sibling_path;
 use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use crate::missing_entry::MissingEntry as _;
-use crate::recovery::database_file::{WRITE_AHEAD_LOG_SUFFIX, sibling_path, store_folder};
+use crate::recovery::database_file::{WRITE_AHEAD_LOG_SUFFIX, store_folder};
 
 /// How the last run on the database file ended, as its record tells.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

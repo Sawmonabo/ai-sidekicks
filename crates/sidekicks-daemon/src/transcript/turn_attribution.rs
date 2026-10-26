@@ -401,6 +401,7 @@ mod tests {
 
     use super::{RunTurnReads, SessionTurnAttribution};
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
+    use crate::questions::schema::schema_parts;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn run_event(
@@ -424,7 +425,7 @@ mod tests {
 
     #[test]
     fn a_run_terminal_event_frees_its_fold() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         database.opener()().expect("the test creates its database");
         let reader = database.reader();
         let no_damage = |_: &SessionId| None;

@@ -22,6 +22,7 @@ use crate::git::process::{
     GitCall, GitRunner, find_git_executable, in_folder, test_git_runner,
     test_git_runner_with_environment,
 };
+use crate::git::worktree::schema::schema_parts;
 use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 const WAIT: Duration = Duration::from_secs(30);
@@ -47,7 +48,7 @@ impl Fixture {
 
     // `new`, its git run by `git` and its folders in `scratch`.
     async fn with_git(git: GitRunner, scratch: TempDir) -> Self {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
         let repository = scratch.path().join("repository");
         git_in(

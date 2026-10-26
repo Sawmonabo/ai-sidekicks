@@ -202,6 +202,7 @@ mod tests {
     use crate::database::connection::read_pool::DatabaseReadPool;
     use crate::database::writer::test_file::TestDatabase;
     use crate::events::log_service::tests::open_log;
+    use crate::git::worktree::schema::schema_parts;
     use crate::workspace::test_rows::project_and_mount_rows;
 
     const READ_STATEMENT_CAPACITY: usize = 4;
@@ -210,7 +211,7 @@ mod tests {
     // delete a branch another put-back marked since.
     #[tokio::test]
     async fn a_put_back_s_mark_made_after_the_claims_are_made_is_seen() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         // Opening the log makes the database's tables.
         let _log = open_log(&database, None).await;
         let connection = database.reader();

@@ -24,6 +24,7 @@ use crate::git::process::{
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::rows::WorktreeRow;
+use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
 use crate::settle_all::SettleFailures;
 use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
@@ -159,7 +160,7 @@ struct CleanupFixture {
 
 impl CleanupFixture {
     async fn new(git: GitRunner) -> Self {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
         let scratch = tempfile::tempdir().expect("a scratch folder");
         let repository = scratch.path().join("app");

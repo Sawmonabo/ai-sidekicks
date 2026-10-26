@@ -324,6 +324,7 @@ mod tests {
     use crate::ipc::call_fixtures::{context, request};
     use crate::ipc::registry::{Dispatch as _, EncodedFeed, Reply};
     use crate::ipc::stream::feed::CreditGate;
+    use crate::remote::shared_ports::schema::schema_parts;
     use crate::transcript::test_log::{
         STALLING_TEXT, stalling_parse, wire_block_starts, wire_message,
     };
@@ -365,7 +366,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_catch_up_reads_past_its_first_page_only_once_the_lane_has_credit_then_follows() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await.service;
         let session_id = test_session_id();
         for _ in 0..60 {
@@ -472,7 +473,7 @@ mod tests {
     // opened inside a row placing its pieces from zero.
     #[tokio::test]
     async fn event_subscribe_places_pieces_in_their_row_across_cut_frames_and_from_inside() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await.service;
         let session_id = test_session_id();
         let run_id = sidekicks_contracts::wire::id::mint_uuid_v7().to_string();
@@ -519,7 +520,7 @@ mod tests {
     // sent as events of their own.
     #[tokio::test]
     async fn event_subscribe_sends_a_patch_bearing_completion_once_whole_and_no_part_of_it() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await.service;
         let session_id = test_session_id();
         let run_id = sidekicks_contracts::wire::id::mint_uuid_v7().to_string();
@@ -598,7 +599,7 @@ mod tests {
     // not refused, and by one row's failed cut failing the frame or another row.
     #[tokio::test]
     async fn event_subscribe_sends_each_rows_block_starts_and_a_failed_cut_fails_its_row_alone() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await.service;
         let session_id = test_session_id();
         let run_id = sidekicks_contracts::wire::id::mint_uuid_v7().to_string();
@@ -688,7 +689,7 @@ mod tests {
     // there already gave.
     #[tokio::test]
     async fn event_subscribe_sends_a_message_rows_starts_once_across_a_plan_block_inside_it() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await.service;
         let session_id = test_session_id();
         let run_id = sidekicks_contracts::wire::id::mint_uuid_v7().to_string();

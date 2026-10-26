@@ -139,11 +139,12 @@ mod tests {
     use crate::events::log_service::EventLogAppendOptions;
     use crate::events::log_service::tests::open_log;
     use crate::ipc::registry::HandlerError;
+    use crate::remote::shared_ports::schema::schema_parts;
     use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
 
     #[tokio::test]
     async fn a_row_the_session_lacks_is_refused_where_a_row_with_no_body_reads_absent() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await.service;
         let session_id = test_session_id();
         let pinned = serde_json::from_value(json!({

@@ -27,6 +27,7 @@ use tokio_util::task::TaskTracker;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, insert_lead};
 use crate::mutex_lock::lock;
+use crate::plans::schema::schema_parts;
 use crate::policy::execution_posture_service::{
     ExecutionPostureService, compose_execution_posture,
 };
@@ -165,7 +166,7 @@ impl TestCodexSession {
     /// binding.
     pub(crate) async fn start() -> Self {
         let scripted = start_scripted_codex_service();
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let home = tempfile::tempdir().expect("the test makes a home folder");
         let TestRunPorts {
             engine,

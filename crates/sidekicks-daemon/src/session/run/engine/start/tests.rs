@@ -6,6 +6,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
+use crate::plans::schema::schema_parts;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::registry::test_provider;
 use crate::provider::driver::run_control::DriverRunRefusal;
@@ -21,7 +22,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 // model and sentence, or by missing the refusal behind the queue's error that carries it.
 #[tokio::test]
 async fn a_start_the_driver_refused_fails_the_run_as_the_daemons_refusal() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     database
@@ -81,7 +82,7 @@ async fn a_start_the_driver_refused_fails_the_run_as_the_daemons_refusal() {
 // start's `running` write lands.
 #[tokio::test]
 async fn a_provider_report_during_a_start_waits_for_its_running_write() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");

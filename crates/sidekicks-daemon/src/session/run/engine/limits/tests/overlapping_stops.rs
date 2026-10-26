@@ -10,6 +10,7 @@ use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
 use crate::mutex_lock::lock;
 use crate::pause_point::ArmedPause;
+use crate::plans::schema::schema_parts;
 use crate::session::run::engine::limits::LimitStop;
 use crate::session::run::engine::tests::{
     SETTLE_WAIT, append, arm_step_count, hand_limit_interrupter, insert_running_run, stored_events,
@@ -53,7 +54,7 @@ async fn answer(hand: oneshot::Sender<bool>, is_refused: bool, ended: oneshot::R
 // row names.
 #[tokio::test]
 async fn two_stops_whose_hands_fail_leave_their_turn_no_cut() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -115,7 +116,7 @@ async fn two_stops_whose_hands_fail_leave_their_turn_no_cut() {
 // does not end with the spend limit the one stop whose hand went has a row naming it with.
 #[tokio::test]
 async fn a_turn_keeps_the_cut_of_its_one_handed_stop_after_two_later_stops_fail() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -205,7 +206,7 @@ async fn a_turn_keeps_the_cut_of_its_one_handed_stop_after_two_later_stops_fail(
 // it cut none, and by one that leaves its cut in place, which no later turn end clears.
 #[tokio::test]
 async fn a_stop_whose_turn_ends_as_its_cut_goes_in_names_no_turn() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -276,7 +277,7 @@ fn limit_rows(database: &TestDatabase, run_id: &RunId) -> Vec<(String, Option<i6
 #[case::step(true)]
 #[tokio::test]
 async fn a_stop_its_caller_drops_mid_hand_keeps_the_cut_its_row_names(#[case] is_step: bool) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -358,7 +359,7 @@ async fn a_stop_its_caller_drops_mid_hand_keeps_the_cut_its_row_names(#[case] is
 // cut too while that hand's row names the turn.
 #[tokio::test]
 async fn a_late_failed_hand_withdraws_its_own_cut_and_leaves_another_of_its_limit() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");

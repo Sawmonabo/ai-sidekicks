@@ -40,6 +40,7 @@ use crate::interventions::interrupt_queue::{
     SendNowOutcome,
 };
 use crate::ipc::domain_error::DomainError;
+use crate::plans::schema::schema_parts;
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::run_control::{
@@ -230,7 +231,7 @@ async fn harness_reading_priority(
             kept_by_process: false,
             reads_priority_message,
         });
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();

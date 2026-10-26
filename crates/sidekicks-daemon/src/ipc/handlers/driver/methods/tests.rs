@@ -28,6 +28,7 @@ use super::{
     list_provider_commands,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
@@ -40,7 +41,7 @@ use crate::provider::driver::contract::{
 };
 use crate::provider::driver::error_causes::ExecutableUnresolvable;
 use crate::provider::driver::test_registry::registry_of_first_providers;
-use crate::session::directory::test_rows::insert_session_row;
+use crate::remote::shared_ports::schema::schema_parts;
 use crate::session::run::engine::tests::insert_running_run;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -55,7 +56,7 @@ struct Fixture {
 }
 
 fn fixture(drivers: Vec<MockProviderDriver>) -> Fixture {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let schema = database.opener()().expect("the test creates its database");
     let session_id = test_session_id();
     insert_session_row(&schema, session_id.text().as_str(), None, None);

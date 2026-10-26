@@ -12,6 +12,7 @@ use super::{limit_record, record_interrupt, running_at};
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::EventLogService;
 use crate::events::log_service::tests::open_log;
+use crate::plans::schema::schema_parts;
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{
     SETTLE_WAIT, TestLimitInterrupter, append, continue_request, events, hand_limit_interrupter,
@@ -121,9 +122,9 @@ async fn a_restart_ends_each_turn_of_a_log_with_the_cause_the_live_path_writes(
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     let home = tempfile::tempdir().expect("the test makes a home folder");
-    let live_database = TestDatabase::new();
+    let live_database = TestDatabase::new(schema_parts());
     let live_log = open_log(&live_database, None).await;
-    let restart_database = TestDatabase::new();
+    let restart_database = TestDatabase::new(schema_parts());
     let restart_log = open_log(&restart_database, None).await;
     let (live, _live_interventions) = write_cut_log(
         cut_log,
@@ -198,7 +199,7 @@ async fn a_restart_ends_each_turn_of_a_log_with_the_cause_the_live_path_writes(
 // provider's late end writing that turn a second end.
 #[tokio::test]
 async fn a_restart_ends_the_open_turns_of_runs_that_had_ended() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -300,7 +301,7 @@ async fn a_restart_ends_the_open_turns_of_runs_that_had_ended() {
 // older one, which ends a turn of a run that ran again since its read.
 #[tokio::test]
 async fn the_ended_runs_sweep_collects_its_failures_and_ends_no_turn_of_a_run_that_moved() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -379,7 +380,7 @@ async fn the_ended_runs_sweep_collects_its_failures_and_ends_no_turn_of_a_run_th
 // while the late end lands, which then ends it `tokenLimit`, a limit no row names.
 #[tokio::test]
 async fn a_late_turn_end_after_a_restart_takes_the_limit_its_row_names() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();

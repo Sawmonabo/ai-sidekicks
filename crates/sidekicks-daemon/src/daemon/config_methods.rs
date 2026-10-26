@@ -102,6 +102,7 @@ mod tests {
     use crate::events::log_service::tests::open_log;
     use crate::ipc::call_fixtures::{context, request};
     use crate::ipc::registry::{Dispatch as _, DispatchError, MethodRegistryBuilder, Reply};
+    use crate::remote::shared_ports::schema::schema_parts;
 
     // The port and step bound as the row holds them.
     fn stored_settings(database: &TestDatabase) -> (i64, Option<i64>) {
@@ -120,7 +121,7 @@ mod tests {
     // refused for being taken.
     #[tokio::test]
     async fn a_refused_setting_writes_nothing_and_a_held_port_is_saved() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
         let reads = DatabaseReadPool::new(database.path(), DAEMON_CONFIGURATION_STATEMENT_CAPACITY);
         let configuration = Arc::new(

@@ -5,14 +5,15 @@
 //! rebuilt from the log. The artifact is never changed; the plan's state word lives here, and the
 //! artifact list reads it.
 
-use std::sync::LazyLock;
-
 use sidekicks_contracts::plan::PlanState;
 
+use crate::database::schema::{SchemaPart, SchemaParts};
 use crate::database::sql_list::sql_list_of_every;
 
-/// The SQL of the plan table and its indexes, run as part of the daemon schema's script.
-pub(crate) static PLAN_SCHEMA_SQL: LazyLock<String> = LazyLock::new(plan_schema_sql);
+/// The artifacts' list and the plan table's own part.
+pub(crate) fn schema_parts() -> SchemaParts {
+    crate::artifacts::schema::schema_parts().with_part(SchemaPart::new("plans", plan_schema_sql()))
+}
 
 fn plan_schema_sql() -> String {
     let states = sql_list_of_every::<PlanState>();

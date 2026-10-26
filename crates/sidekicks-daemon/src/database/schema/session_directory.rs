@@ -244,3 +244,34 @@ CREATE INDEX idx_session_related_related ON session_related(related_session_id);
 "
     )
 }
+
+/// When every test session was made and last active.
+#[cfg(any(test, feature = "test-support"))]
+const TEST_SESSION_ROW_AT: &str = "2026-10-18T09:00:00.000Z";
+
+/// Stores the session `session_id`, an active chat named `name` running in `place` (the place's
+/// wire JSON), each `None` left unset, as the directory stores one, for other tables' tests.
+#[cfg(any(test, feature = "test-support"))]
+pub fn insert_session_row(
+    connection: &rusqlite::Connection,
+    session_id: &str,
+    name: Option<&str>,
+    place: Option<&str>,
+) {
+    // Cached, so a test storing many sessions compiles the statement and its triggers once.
+    connection
+        .prepare_cached(
+            "INSERT INTO sessions (id, shape, state, name, place, created_at, updated_at, \
+             last_activity_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?6)",
+        )
+        .expect("the test's insert prepares")
+        .execute(rusqlite::params![
+            session_id,
+            <&'static str>::from(SessionShape::Chat),
+            <&'static str>::from(SessionState::Active),
+            name,
+            place,
+            TEST_SESSION_ROW_AT
+        ])
+        .expect("the test stores a session");
+}

@@ -12,6 +12,7 @@ use super::LimitStop;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
 use crate::mutex_lock::lock;
+use crate::plans::schema::schema_parts;
 use crate::session::run::engine::live::ContinuingRun;
 use crate::session::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, append, continue_request, events, hand_limit_interrupter,
@@ -48,7 +49,7 @@ async fn interrupt_and_continue(engine: &RunEngine, run_id: RunId, accepted_run_
 // both: either way the provider's end of the cut turn is written with another cause or none.
 #[tokio::test]
 async fn a_cut_turn_keeps_its_limit_past_the_runs_end_and_a_stop_that_found_it_ended() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -113,7 +114,7 @@ async fn a_cut_turn_keeps_its_limit_past_the_runs_end_and_a_stop_that_found_it_e
 // provider then ends with no cause.
 #[tokio::test]
 async fn a_later_turns_cut_keeps_the_limit_of_an_earlier_cut_turn() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -186,7 +187,7 @@ async fn a_later_turns_cut_keeps_the_limit_of_an_earlier_cut_turn() {
 // left no row keeping its cut, which no restart reads.
 #[tokio::test]
 async fn a_token_stop_retried_after_a_failed_interrupt_sends_the_interrupt_alone() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -245,7 +246,7 @@ async fn a_token_stop_retried_after_a_failed_interrupt_sends_the_interrupt_alone
 // ran again would run on past its token limit.
 #[tokio::test]
 async fn a_token_stop_after_an_overtaken_limit_and_a_continue_stops_the_run() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -332,7 +333,7 @@ async fn a_token_stop_after_an_overtaken_limit_and_a_continue_stops_the_run() {
 // left no row keeping its cut.
 #[tokio::test]
 async fn a_spend_stop_retried_during_a_continue_interrupts_the_continued_run() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -402,7 +403,7 @@ async fn a_token_stop_past_its_reached_event_waits_only_on_its_own_pending_inter
     #[case] refusals: usize,
     #[case] expected_calls: usize,
 ) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -453,7 +454,7 @@ async fn a_spend_stop_waits_on_the_spend_limits_pending_interrupt(
     #[case] state: &str,
     #[case] expected_calls: usize,
 ) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -493,7 +494,7 @@ async fn a_turn_two_limits_cut_ends_with_the_higher_ranked_limit(
     #[case] is_token_first: bool,
     #[case] is_provider_end_first: bool,
 ) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -594,7 +595,7 @@ async fn a_failed_stop_keeps_its_cut_only_while_its_row_is_pending(
     #[case] is_step: bool,
     #[case] failure: StopFailure,
 ) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();

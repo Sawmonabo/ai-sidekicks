@@ -22,6 +22,7 @@ use crate::provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, RuntimeBindingStore,
 };
 use crate::provider::runtime_binding::test_store::{binding_input, spawned_build};
+use crate::questions::schema::schema_parts;
 use crate::session::run::binding_cursors::RunBindingCursors;
 use crate::session::run::engine::tests::insert_running_run;
 use crate::session::run::epochs::ExecutionEpochs;
@@ -39,7 +40,7 @@ const WAIT: Duration = Duration::from_secs(5);
 // inside the open (the test times out), or by the relaunch left unrecorded.
 #[tokio::test]
 async fn open_resumes_a_conversation_and_binds_the_run_under_its_own_hold() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let session_id = test_session_id();
     let earlier_run_id = new_run_id();

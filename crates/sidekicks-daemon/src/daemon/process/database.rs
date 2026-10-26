@@ -44,6 +44,7 @@ use crate::daemon::repairing_socket::{
 use crate::daemon::retention_methods::RETENTION_STATEMENT_CAPACITY;
 use crate::database::connection::read_pool::{DatabaseReadPool, DatabaseReadPoolCloseError};
 use crate::database::connection::writer_open::{DatabaseOpenError, open_database};
+use crate::database::schema::DatabaseSchema;
 use crate::database::statement::WriteStatement;
 use crate::database::writer::{
     DatabaseWriter, DatabaseWriterOpenError, DatabaseWriterOptions, ThreadJoinError,
@@ -93,6 +94,7 @@ use crate::recovery::restart_settle::RESTART_SETTLE_STATEMENT_CAPACITY;
 use crate::recovery::session_write_refusal::refuse_session_event;
 use crate::recovery::startup::STARTUP_RECOVERY_STATEMENT_CAPACITY;
 use crate::recovery::status::RecoveryStatusTracker;
+use crate::remote::shared_ports;
 use crate::session::auto_title::SESSION_AUTO_TITLE_STATEMENT_CAPACITY;
 use crate::session::changes::SESSION_CHANGES_STATEMENT_CAPACITY;
 use crate::session::directory::list_feed::rows::SESSION_LIST_ROWS_STATEMENT_CAPACITY;
@@ -337,6 +339,8 @@ pub(crate) async fn open_database_file(
         process_state,
         stop,
     } = start;
+    // The daemon's whole schema, which the repair readies a fresh file with and the writer opens.
+    let schema = shared_ports::schema::schema_parts().into_schema();
     // Before anything opens the file, so a repaired file replaces it whole.
     let repaired = repair_database_file_while_answering(RepairingSocketDeps {
         options: &DatabaseFileRepairOptions {
@@ -345,6 +349,7 @@ pub(crate) async fn open_database_file(
             index_folder_path: &index_folder_path,
             shell,
             copier,
+            schema: &schema,
             now,
         },
         backup_folder: &backup_folder,
@@ -395,6 +400,7 @@ pub(crate) async fn open_database_file(
     let (after_commit, live_runs) = count_live_runs_after_commits();
     let writer = open_writer(
         &database_path,
+        schema,
         DatabaseWriterOptions {
             writes_held_until,
             on_write_failed: Some(report_write_damage(
@@ -561,14 +567,17 @@ async fn record_damage(
     }
 }
 
-// Opens the writer on the file at `database_path`. A file holding another build's schema fails as
-// that; one too damaged to open has its damage recorded, so the next start repairs it.
+// Opens the writer on the file at `database_path` with `schema`. A file holding another build's
+// schema fails as that; one too damaged to open has its damage recorded, so the next start repairs
+// it.
 async fn open_writer(
     database_path: &Path,
+    schema: DatabaseSchema,
     options: DatabaseWriterOptions,
 ) -> Result<Arc<DatabaseWriter>, DatabaseFileOpenError> {
     let opened_path = database_path.to_path_buf();
-    let failure = match DatabaseWriter::open(move || open_database(&opened_path), options).await {
+    let opener = move || open_database(&opened_path, &schema);
+    let failure = match DatabaseWriter::open(opener, options).await {
         Ok(writer) => return Ok(Arc::new(writer)),
         Err(failure) => failure,
     };

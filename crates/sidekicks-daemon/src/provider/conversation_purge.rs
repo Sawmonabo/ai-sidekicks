@@ -169,6 +169,7 @@ mod tests {
     use crate::provider::driver::registry::{ProviderRegistry, test_provider};
     use crate::provider::driver::test_registry::test_driver_services;
     use crate::provider::driver::{PROVIDERS, ProviderRegistration};
+    use crate::questions::schema::schema_parts;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // A binding row of `run_id` on `provider` naming `resume_handle`.
@@ -193,7 +194,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_provider_no_driver_answers_refuses_before_any_driver_is_called() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         // Opening the writer creates the file with the daemon's schema.
         let _writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await

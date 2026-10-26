@@ -507,6 +507,7 @@ mod tests {
     use super::{
         CapabilitySnapshotChange, DriverCapabilitiesWriterError, test_capabilities_writer,
     };
+    use crate::database::schema::provider_drivers::schema_parts;
     use crate::database::writer::test_file::TestDatabase;
     use crate::provider::driver::PROVIDERS;
     use crate::provider::driver::capabilities::{
@@ -557,7 +558,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_same_reading_writes_no_capability_row_and_a_new_build_rewrites_only_its_version() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let writer = test_capabilities_writer(&database).await;
         let provider = provider();
         let first = writer
@@ -605,7 +606,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_stored_flag_set_missing_a_flag_fails_the_rebuild() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let writer = test_capabilities_writer(&database).await;
         let provider = provider();
         writer

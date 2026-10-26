@@ -18,6 +18,7 @@ use crate::provider::driver::codex::service::supervisor::test_service::{
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::test_registry::{new_session_id, test_driver_services};
 use crate::provider::runtime_binding::test_store::record_session_leg;
+use crate::questions::schema::schema_parts;
 
 /// The statements the driver's read pool caches.
 const POOL_STATEMENT_CAPACITY: usize = 8;
@@ -76,7 +77,7 @@ fn driver_on_account(
 #[tokio::test]
 async fn a_resting_session_is_renamed_on_its_stored_accounts_service_with_its_stored_handle() {
     let mut scripted = start_scripted_codex_service();
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
     let driver = driver_on_account(&scripted, &database, account.clone());
     let session_id = new_session_id();
@@ -102,7 +103,7 @@ async fn a_resting_session_is_renamed_on_its_stored_accounts_service_with_its_st
 #[tokio::test]
 async fn a_session_that_never_ran_renames_with_nothing_sent() {
     let scripted = start_scripted_codex_service();
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
     let driver = driver_on_account(&scripted, &database, account);
 

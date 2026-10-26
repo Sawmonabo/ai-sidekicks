@@ -14,6 +14,7 @@ use tokio::time::Instant;
 
 use crate::daemon::scheduler::budget::{Measured, ThreadProcessorTime};
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
+use crate::database::schema::schema_parts;
 use crate::database::statement::{StatementBindings, WriteStatement};
 use crate::database::writer::messages::{
     BatchAnswer, BatchFailure, CheckpointReport, CommittedBatch, ThreadExit, ThreadRequest,
@@ -127,7 +128,7 @@ fn sequences(written: Result<CommittedWrite, WriteError>) -> Vec<u64> {
 
 #[tokio::test]
 async fn a_refused_write_rolls_back_alone_and_uses_no_sequence() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let (release, writes_held_until) = oneshot::channel();
     let writer = open_writer(&database, Some(writes_held_until), None).await;
     let session_id = test_session_id();
@@ -176,7 +177,7 @@ async fn a_refused_write_rolls_back_alone_and_uses_no_sequence() {
 
 #[tokio::test]
 async fn flush_answers_once_a_queued_write_has_committed() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let writer = open_writer(&database, None, None).await;
     let session_id = test_session_id();
     let written = queue(
@@ -196,7 +197,7 @@ async fn flush_answers_once_a_queued_write_has_committed() {
 
 #[tokio::test]
 async fn a_write_at_the_cap_waits_and_is_stored() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let (release, writes_held_until) = oneshot::channel();
     let writer = open_writer(&database, Some(writes_held_until), None).await;
     let session_id = test_session_id();
@@ -326,7 +327,7 @@ async fn no_checkpoint_runs_while_the_writer_holds_its_writes() {
 
 #[tokio::test]
 async fn a_close_at_its_drain_bound_rolls_back_the_batch_in_flight() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let (failures_heard, on_write_failed) = counting_listener();
     let writer = open_writer(&database, None, Some(on_write_failed)).await;
     // Sent back to back, the two writes go out as one batch.
@@ -382,7 +383,7 @@ async fn sqlite_ending_the_transaction_fails_the_whole_batch(
     #[case] has_source: bool,
     #[case] expected_failures_heard: usize,
 ) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let (release, writes_held_until) = oneshot::channel();
     let (failures_heard, on_write_failed) = counting_listener();
     let writer = open_writer(&database, Some(writes_held_until), Some(on_write_failed)).await;

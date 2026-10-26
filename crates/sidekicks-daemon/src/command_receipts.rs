@@ -256,6 +256,7 @@ mod tests {
     use super::{CommandAcceptance, CommandReceiptError, CommandReceiptStore, CommandToReceive};
     use crate::database::writer::test_file::TestDatabase;
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+    use crate::questions::schema::schema_parts;
 
     // A canceled accept writes nothing; the accept after it records the command, which only an
     // accepted receipt lets a worker claim.
@@ -267,7 +268,7 @@ mod tests {
         #[case] status: CommandAcceptance,
         #[case] is_claimable: bool,
     ) {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
             .expect("the writer opens its database");

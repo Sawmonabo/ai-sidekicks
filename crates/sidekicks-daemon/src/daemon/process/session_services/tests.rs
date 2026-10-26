@@ -30,6 +30,7 @@ use crate::daemon::machine::local::LocalMachine;
 use crate::daemon::process::repo_services::{RepoServiceStart, RepoServices, build_repo_services};
 use crate::daemon::scheduler::Scheduler;
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::events::session::appender::SessionEventAppender;
@@ -50,8 +51,8 @@ use crate::provider::runtime_binding::store::{RuntimeBindingSpawnConfig, Runtime
 use crate::provider::runtime_binding::test_store::{binding_input, spawned_build};
 use crate::queue::delivery::{ProviderProcessIdentity, ProviderProcessIds};
 use crate::queue::provider_session::test_opening::test_opening_composer;
+use crate::remote::shared_ports::schema::schema_parts;
 use crate::session::directory::list_feed::SessionListFeed;
-use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::engine::tests::insert_running_run;
 use crate::session::run::epochs::ExecutionEpochs;
 use crate::workspace::managed::service::{ManagedWorkspaceService, managed_workspaces_folder};
@@ -83,7 +84,7 @@ struct Fixture {
 }
 
 async fn fixture() -> Fixture {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     std::fs::create_dir(home.path().join("run")).expect("the test makes the run folder");

@@ -189,10 +189,11 @@ mod tests {
     use super::{
         advisor_model_change_statement, read_session_advisor_model, session_mode_change_statement,
     };
+    use crate::database::schema::session_directory::insert_session_row;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use crate::provider::port::session_advisor_store::ClaudeSessionAdvisorStore;
-    use crate::session::directory::test_rows::insert_session_row;
+    use crate::questions::schema::schema_parts;
 
     const AT: &str = "2026-10-23T12:00:00.000Z";
 
@@ -200,7 +201,7 @@ mod tests {
     // advisor that overwrites the one the person set off.
     #[tokio::test]
     async fn a_resolved_advisor_fills_only_an_advisor_no_one_set() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
             .expect("the writer opens");

@@ -21,6 +21,7 @@ use super::{
     RunInboundDispatch,
 };
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
+use crate::plans::schema::schema_parts;
 use crate::provider::driver::diagnostics::RecordedEvents;
 use crate::provider::driver::registry::test_provider;
 use crate::provider::driver::test_registry::{TestRunPorts, new_run_id};
@@ -51,7 +52,7 @@ struct Harness {
 impl Harness {
     // A run stored in `state`, with its binding's cursor open at the run's start.
     async fn new(state: RunState) -> Self {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let home = tempfile::tempdir().expect("the test makes a home folder");
         // Opening the writer creates the file with the daemon's schema.
         let TestRunPorts {

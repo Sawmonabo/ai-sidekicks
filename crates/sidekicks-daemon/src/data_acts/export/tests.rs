@@ -18,9 +18,9 @@ use super::{
 use crate::artifacts::payload_store::{ContentHash, PayloadStore};
 use crate::artifacts::schema::ARTIFACT_STATEMENT_CAPACITY;
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::events::session::read::HYDRATED_PAGE_TEXT_BYTES;
 use crate::mutex_lock::lock;
-use crate::session::directory::test_rows::insert_session_row;
 use crate::transcript::test_log::TranscriptTestLog;
 
 // Planted where the export must not read: an account's home folder, the credential in it, a
@@ -140,7 +140,7 @@ async fn wait_until_finished(exports: &DataExports, job_id: DataExportJobId) -> 
 // column read or the account's home copied, and by a second export let start.
 #[tokio::test]
 async fn an_export_holds_every_part_decoded_and_no_credential() {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::remote::shared_ports::schema::schema_parts());
     let long_body = "\u{e9}".repeat(1_500);
     log.reply("m1", Some(0), &long_body);
     let homes = tempfile::tempdir().expect("the homes folder is made");
@@ -287,7 +287,7 @@ async fn export_session_lines(log: &TranscriptTestLog) -> Vec<String> {
 // and by the first piece's length taken for the whole.
 #[tokio::test]
 async fn a_reply_too_long_for_a_page_is_written_as_its_whole_line() {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::remote::shared_ports::schema::schema_parts());
     insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
     let pattern = "a \"quoted\" \\ path\nwith a tab\t, a bell \u{7}, caf\u{e9} and \u{1f980}; ";
     let length =
@@ -333,7 +333,7 @@ async fn an_export_of_long_replies_stays_within_64_mib() {
         Err(error) if error.kind() == ErrorKind::Unsupported => return,
         Err(error) => panic!("the footprint read failed: {error}"),
     };
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::remote::shared_ports::schema::schema_parts());
     insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
     let reply_bytes = usize::try_from(2 * MEBIBYTE).expect("2 MiB fits memory");
     for index in 0..64 {
@@ -411,7 +411,7 @@ async fn an_export_that_panics_frees_its_slot_and_fails() {
 // refused as an existing folder. Killed by a failure that leaves the folder behind.
 #[tokio::test]
 async fn a_failed_export_leaves_no_folder_and_the_same_folder_starts_again() {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::remote::shared_ports::schema::schema_parts());
     insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
     let store_folder = tempfile::tempdir().expect("the store folder is made");
     let payloads =

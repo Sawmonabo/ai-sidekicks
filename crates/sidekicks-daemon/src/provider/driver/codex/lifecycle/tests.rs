@@ -28,6 +28,7 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, insert_lead};
 use crate::events::session::followers::SessionEventFollowers;
 use crate::mutex_lock::lock;
+use crate::plans::schema::schema_parts;
 use crate::provider::driver::DriverServices;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::notification_routing::CodexRoutedFrames;
@@ -101,7 +102,7 @@ impl LiveCodexSession {
     // first.
     async fn open(steers: Option<&[QueueItemId]>, released: &[Value], is_retriable: bool) -> Self {
         let scripted = start_scripted_codex_service();
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let home = tempfile::tempdir().expect("the test makes a home folder");
         let run_ports = TestRunPorts::open(
             &database,

@@ -5,6 +5,7 @@ use sidekicks_contracts::run::id::RunId;
 use super::SELECT_INTERRUPT_TRIGGER_SQL;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
+use crate::questions::schema::schema_parts;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // The trigger read seeks the session's interrupted events of the run through the run index, with
@@ -12,7 +13,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 // index and sorts the rows.
 #[tokio::test]
 async fn the_trigger_read_searches_the_run_index() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     // The log's schema is made by its writer.
     let _log = open_log(&database, None).await;
     let session_id = test_session_id();

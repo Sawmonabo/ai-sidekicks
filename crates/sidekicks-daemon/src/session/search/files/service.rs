@@ -500,10 +500,11 @@ mod tests {
 
     use super::{FILE_SEARCH_STATEMENT_CAPACITY, FileSearchError, FileSearchService};
     use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::schema::session_directory::insert_session_row;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use crate::git::process::{GitRunner, test_git_runner, write_link};
-    use crate::session::directory::test_rows::insert_session_row;
+    use crate::questions::schema::schema_parts;
     use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
     /// Bounds a wait the test expects to end, so one that never does fails the test.
@@ -519,7 +520,7 @@ mod tests {
     }
 
     async fn harness(git: GitRunner, folder: &Path) -> Harness {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         // Opening the writer creates the file with the daemon's schema.
         let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await

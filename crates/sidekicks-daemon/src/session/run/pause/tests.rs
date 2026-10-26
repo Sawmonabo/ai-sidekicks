@@ -29,6 +29,7 @@ use crate::events::log_service::tests::{TestLog, open_log};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::handlers::driver::resolution::LiveRunDriverError;
 use crate::keyed_lock::{KeyHold, KeyedLock};
+use crate::plans::schema::schema_parts;
 use crate::provider::driver::PROVIDERS;
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::error_causes::RequestUnanswered;
@@ -108,7 +109,7 @@ async fn fixture(mut driver: MockProviderDriver, state: &str) -> Fixture {
             kept_by_process: false,
             reads_priority_message: false,
         });
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id: SessionId = test_session_id();

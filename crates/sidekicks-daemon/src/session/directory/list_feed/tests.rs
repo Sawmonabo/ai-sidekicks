@@ -13,13 +13,14 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::timeout;
 
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
 use crate::events::log_service::EventLogAppendOptions;
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::ipc::stream::feed::{CreditGate, Feed as _};
+use crate::plans::schema::schema_parts;
 use crate::session::directory::list_feed::subscriber::SessionListSubscriber;
 use crate::session::directory::list_feed::{SessionListFeed, SessionListOpening};
-use crate::session::directory::test_rows::insert_session_row;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // Past the renewal interval, so a paused clock reaches a renewal before the wait ends.
@@ -92,7 +93,7 @@ async fn upsert_of(
 // for the read under way: the held opening serves the session as read, then its newest entry.
 #[tokio::test]
 async fn a_change_behind_the_opening_read_follows_it_and_a_second_opening_waits_for_it() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let session_id = test_session_id();
     insert_session_row(
@@ -142,7 +143,7 @@ async fn a_change_behind_the_opening_read_follows_it_and_a_second_opening_waits_
 // sends one upsert carrying the last, and a removed row leaves the list with the chats count less.
 #[tokio::test]
 async fn a_slow_subscriber_sends_the_newest_entry_once_and_a_purge_removes_it() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let (renamed, purged, kept) = (test_session_id(), test_session_id(), test_session_id());
     let connection = database.reader();
@@ -199,7 +200,7 @@ async fn a_slow_subscriber_sends_the_newest_entry_once_and_a_purge_removes_it() 
 // once no session runs no interval sends anything.
 #[tokio::test(start_paused = true)]
 async fn the_renewal_runs_only_while_a_session_runs() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let session_id = test_session_id();
     let connection = database.reader();

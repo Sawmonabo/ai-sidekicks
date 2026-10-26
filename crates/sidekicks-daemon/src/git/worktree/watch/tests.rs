@@ -23,13 +23,14 @@ use super::{
 };
 use crate::daemon::scheduler::Scheduler;
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
 use crate::file_watch::ChangeFeed;
 use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
-use crate::session::directory::test_rows::insert_session_row;
+use crate::git::worktree::schema::schema_parts;
 use crate::workspace::folder::canonical_path::canonical_folder_path;
 use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
@@ -67,7 +68,7 @@ struct Fixture {
 
 impl Fixture {
     async fn new(read_watch_ceiling: ReadWatchCeiling, slow_tick_interval: Duration) -> Self {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
         let reads = Arc::new(DatabaseReadPool::new(
             database.path(),

@@ -33,12 +33,14 @@ use tempfile::TempDir;
 use super::{EMPTIED_RUN_DETAIL, RunQueue, RunQueueDeps};
 use crate::admission::memory_gate::{MemoryGate, MemoryGateFigures};
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, insert_lead, test_session_id};
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::events::session::read::DamagedFromSequenceReader;
 use crate::ipc::domain_error::DomainError;
 use crate::mutex_lock::lock;
 use crate::pause_point::PausePoint;
+use crate::plans::schema::schema_parts;
 use crate::provider::driver::PROVIDERS;
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
@@ -60,7 +62,6 @@ use crate::queue::store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
     insert_queue_item_statement,
 };
-use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::binding_cursors::RunBindingCursors;
 use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
 use crate::session::run::epochs::ExecutionEpochs;
@@ -220,7 +221,7 @@ struct Fixture {
 }
 
 async fn fixture(driver: MockProviderDriver) -> Fixture {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();

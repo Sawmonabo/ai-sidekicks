@@ -10,6 +10,7 @@ use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, Provider
 use sidekicks_contracts::wire::record::Record;
 
 use super::{RESTART_WAITS_PASSED, resume_params, start_params};
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::provider::driver::claude::session::establishment::context::CLAUDE_ADVISOR_ROW_ID;
 use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel;
@@ -22,7 +23,6 @@ use crate::provider::driver::session_control::{
     CloseSessionParams, DriverResumeResult, ProviderBuildChange, ResumeSessionParams,
 };
 use crate::provider::driver::test_registry::{new_run_id, new_session_id};
-use crate::session::directory::test_rows::insert_session_row;
 
 // Killed by restarting past a full crash window: the fifth exit inside it reports the loop and
 // starts nothing.

@@ -31,6 +31,7 @@ use super::{
     QueueDeliveryDeps, TEST_PROVIDER_PROCESS,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::provider::driver::contract::MockProviderDriver;
@@ -42,13 +43,13 @@ use crate::provider::driver::run_control::{
 use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, new_run_id, registry_of_first_provider,
 };
+use crate::questions::schema::schema_parts;
 use crate::queue::changes::QueueChangeSignals;
 use crate::queue::recorder::{QueueRecorder, QueueRecorderDeps};
 use crate::queue::session_lock::QueueSessionLock;
 use crate::queue::store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, insert_queue_item_statement,
 };
-use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::engine::tests::insert_running_run;
 use crate::session::run::pause::ContinuedMessages;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -127,7 +128,7 @@ struct Fixture {
 }
 
 async fn fixture(driver: MockProviderDriver) -> Fixture {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let session_id = test_session_id();
     insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
