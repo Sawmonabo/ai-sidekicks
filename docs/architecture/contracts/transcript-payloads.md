@@ -601,6 +601,16 @@ interface QuestionOpenedPayload {
   questionId: QuestionId;
 }
 
+// question.canceled — an open question, or one waiting for its run, ended unanswered; the card
+// closes on a reload and on every device, and no `user.message.sent` is written.
+interface QuestionCanceledPayload {
+  sessionId: SessionId;
+  questionId: QuestionId;
+  // Its turn was interrupted, its provider withdrew the request, or its run ended, a restart of
+  // the background service among the ways a run ends.
+  reason: "interrupted" | "withdrawn" | "runEnded";
+}
+
 // question.resolve — one call answers every page. Per question the answer is exactly one of: the
 // picked labels, typed text, a secret, or a skip — which is why the arms are a closed union rather
 // than four optional members. A secret is delivered to the provider and NEVER stored: it reaches no

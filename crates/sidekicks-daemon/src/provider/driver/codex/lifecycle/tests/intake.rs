@@ -736,7 +736,7 @@ async fn a_question_its_turn_let_go_before_its_record_landed_is_withdrawn_once_i
 async fn a_question_whose_take_failed_is_withdrawn_and_refused() {
     let mut session = LiveCodexSession::start(&[]).await;
     let card = Arc::new(QuestionCard::default());
-    card.fail_run_reads();
+    card.fail_waiting_opens();
     let port: Arc<dyn QuestionPort> = card.clone();
     assert!(session.questions.register(port).is_ok());
     session.scripted.script.send(&json!({

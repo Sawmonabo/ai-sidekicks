@@ -93,8 +93,9 @@ pub(crate) fn compose_claude_question_answer(
     }
 }
 
-/// The refusal of a question the questions card could not show, in the shape its route takes: an
-/// ask's deny, or the question hook's deny, each telling the agent it was not answered.
+/// The refusal of a question the questions card could not put to the person, in the shape its
+/// route takes: an ask's deny, or the question hook's deny, each telling the agent it was not
+/// answered.
 pub(crate) fn compose_claude_question_refusal(route: ClaudeQuestionRoute) -> Value {
     match route {
         ClaudeQuestionRoute::Ask => {

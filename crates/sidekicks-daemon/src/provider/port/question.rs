@@ -16,6 +16,7 @@ use sidekicks_contracts::question::{QuestionAnswer, QuestionAskedState, Question
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::error_description::describe_error;
 use crate::keyed_lock::{KeyHold, KeyWait, KeyedLock};
 
 // Each run's line of questions taken in its turn, which every driver's question and each tool
@@ -270,8 +271,8 @@ async fn take_in_turn(
 }
 
 // The words a take's error adds when the withdrawal after it failed too.
-fn describe_withdrawal_failure(withdrawal: Option<&(dyn Error + Send + Sync)>) -> String {
+fn describe_withdrawal_failure(withdrawal: Option<&(dyn Error + Send + Sync + 'static)>) -> String {
     withdrawal
-        .map(|error| format!(", nor withdrawn: {error}"))
+        .map(|error| format!(", nor withdrawn: {}", describe_error(error)))
         .unwrap_or_default()
 }

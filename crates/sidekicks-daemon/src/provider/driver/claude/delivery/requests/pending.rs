@@ -35,7 +35,8 @@ impl HeldRequest {
 pub(super) struct PendingRequest {
     /// What it holds the answer for.
     pub(super) held: HeldRequest,
-    admission: u64,
+    /// Its recording's number, so a close finds this recording and not a later one under the id.
+    pub(super) admission: u64,
     /// Whether its service has it.
     pub(super) is_handed_on: bool,
     /// Canceled once it is closed or recorded over, so a question's take still writing its record

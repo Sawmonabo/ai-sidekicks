@@ -183,7 +183,7 @@ async fn a_question_whose_take_failed_is_withdrawn_and_refused() {
     let session = ScriptedSession::new().await;
     session.hold_lead_turn("lead");
     let card = Arc::new(QuestionCard::default());
-    card.fail_run_reads();
+    card.fail_waiting_opens();
     let port: Arc<dyn QuestionPort> = card.clone();
     assert!(
         session

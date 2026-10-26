@@ -478,7 +478,7 @@ impl CodexAskHandOff {
     // Holds a question for the questions card, taken in its run's turn until Codex lets go of it,
     // which its take reads as its asker leaving: its own take withdraws it once its record is
     // written, and its card is withdrawn where it is let go, for a take that already ended; a take
-    // that failed is answered refused. Codex keeps one user-input question pending per turn, so a
+    // that failed while Codex still holds it is answered refused. Codex keeps one user-input question pending per turn, so a
     // second there lets the first go.
     fn hand_question(
         &self,
@@ -549,8 +549,8 @@ impl CodexAskHandOff {
                 let Err(error) = taken else {
                     return;
                 };
-                // One Codex let go of meanwhile, its record failed, is no longer held to answer.
-                let is_withdrawn_by_take =
+                // One Codex let go of meanwhile is no longer held to answer.
+                let is_still_held =
                     matches!(error, QuestionTurnError::Take { .. }) && !let_go.is_cancelled();
                 report_owner_failure(
                     provider_account_id.clone(),
@@ -560,7 +560,7 @@ impl CodexAskHandOff {
                 );
                 // Withdrawn from the card by its take, so the agent is answered refused rather
                 // than left waiting on a request no card holds.
-                if is_withdrawn_by_take {
+                if is_still_held {
                     lock(&state).forget_question(session_id, &request_id);
                     let refusal = CodexServerRequestAnswer::Refuse {
                         reason: QUESTION_UNSHOWN_REASON.to_owned(),

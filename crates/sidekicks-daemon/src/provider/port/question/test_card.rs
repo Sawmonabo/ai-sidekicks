@@ -41,8 +41,8 @@ pub(crate) struct QuestionCard {
     /// card, counted in `held_records`.
     record_gate: Mutex<Option<Arc<Semaphore>>>,
     held_records: Mutex<usize>,
-    /// Set by [`Self::fail_run_reads`].
-    is_run_read_failing: AtomicBool,
+    /// Set by [`Self::fail_waiting_opens`].
+    is_waiting_open_failing: AtomicBool,
     /// Set by [`Self::fail_records`].
     is_record_failing: AtomicBool,
     /// The request id of every withdrawal taken, in order.
@@ -90,7 +90,7 @@ impl QuestionCard {
     ) -> Result<QuestionAskedState, Box<dyn Error + Send + Sync>> {
         let taking = {
             let mut open = self.open.lock().expect("never poisoned");
-            let may_open = may_open && !self.is_run_read_failing.load(Ordering::SeqCst);
+            let may_open = may_open && !self.is_waiting_open_failing.load(Ordering::SeqCst);
             if may_open && !Self::is_waiting_on_question(&open, question.run_id) {
                 self.open_question(&mut open, question, answer);
                 QuestionAskedState::Open
@@ -186,9 +186,9 @@ impl QuestionCard {
     }
 
     /// Records each later question waiting for its run, as one asked while its run waits on
-    /// something else, and fails the run's read that would open it.
-    pub(crate) fn fail_run_reads(&self) {
-        self.is_run_read_failing.store(true, Ordering::SeqCst);
+    /// something else, and fails the write that would open it.
+    pub(crate) fn fail_waiting_opens(&self) {
+        self.is_waiting_open_failing.store(true, Ordering::SeqCst);
     }
 
     /// Fails each later record write before it reaches the card, as a write the store refused.
@@ -303,7 +303,7 @@ impl QuestionPort for QuestionCard {
         _session_id: SessionId,
         request_id: String,
     ) -> BoxFuture<'_, Result<WaitingQuestionOpening, Box<dyn Error + Send + Sync>>> {
-        if self.is_run_read_failing.load(Ordering::SeqCst) {
+        if self.is_waiting_open_failing.load(Ordering::SeqCst) {
             return async { Err("the run's read failed".into()) }.boxed();
         }
         let opening = {
