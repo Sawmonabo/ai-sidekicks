@@ -39,7 +39,7 @@ use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use sidekicks_platforms::{
     create_missing_private_folders, create_new_private_folder, flush_file, flush_folder,
     remove_tree, rename_replacing,
@@ -51,7 +51,9 @@ use crate::daemon::backup::mirror::{
     MIRROR_FOLDER_NAME, MIRROR_ROOTS_FILE_NAME, MirrorError, MirrorRoot, mirror_roots,
 };
 use crate::daemon::data_folder::data_folder;
+use crate::daemon::machine::local::LocalMachine;
 use crate::daemon::machine::settings::file::{MachineSettingsFile, MachineSettingsFileError};
+use crate::daemon::release_version::this_build_release_version;
 use crate::daemon::scheduler::budget::{
     BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
 };
@@ -146,9 +148,26 @@ pub(crate) struct BackupManifestFacts {
     pub(crate) computer_name: FreeFormText<BACKUP_LABEL_MAX_LEN>,
 }
 
-/// Reads the files and folders the mirror keeps, as they stand at the run.
+/// What each manifest records, from this build's release version, which one release ships as both
+/// the app's and the service's, and `machine`'s name, cut to [`BACKUP_LABEL_MAX_LEN`] code points.
+/// Fails when the name is blank or holds a NUL.
+pub(crate) fn backup_manifest_facts(
+    machine: &LocalMachine,
+) -> Result<BackupManifestFacts, TextError> {
+    let version = this_build_release_version();
+    Ok(BackupManifestFacts {
+        app_version: version.clone(),
+        service_version: version,
+        computer_name: FreeFormText::new(
+            cut_to_code_points(&machine.name, BACKUP_LABEL_MAX_LEN).to_owned(),
+        )?,
+    })
+}
+
+/// Reads the files and folders the mirror keeps, as they stand at the run, its reads charged to the
+/// run's meter.
 pub(crate) type MirrorRootsReader =
-    Arc<dyn Fn() -> BoxFuture<'static, io::Result<Vec<MirrorRoot>>> + Send + Sync>;
+    Arc<dyn Fn(ProcessorMeter) -> BoxFuture<'static, io::Result<Vec<MirrorRoot>>> + Send + Sync>;
 
 /// What the runs read and write through.
 pub(crate) struct BackupDeps {
@@ -292,10 +311,6 @@ pub(crate) struct Backups {
 
 impl Backups {
     /// The backups over `deps`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start makes the service's backups")
-    )]
     pub(crate) fn new(deps: BackupDeps) -> Arc<Self> {
         Arc::new(Self {
             deps,
@@ -519,7 +534,7 @@ impl Backups {
         let database = backup_folder.join(BACKUP_DATABASE_FILE_NAME);
         let placed = database.clone();
         let total_bytes = blocking(meter, move || check_and_place(&checked, &placed)).await??;
-        let roots = (self.deps.read_mirror_roots)()
+        let roots = (self.deps.read_mirror_roots)(meter.clone())
             .await
             .map_err(BackupRunError::MirrorRoots)?;
         let mirror_folder = folder.join(MIRROR_FOLDER_NAME);

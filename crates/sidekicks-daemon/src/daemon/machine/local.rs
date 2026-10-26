@@ -63,10 +63,6 @@ pub(crate) enum LocalMachineError {
 /// user id, reads the friendly name on `spawner`, and stores them for every later start. Fails
 /// with [`LocalMachineError`] when the read, the name or the write fails, or a stored id does not
 /// parse.
-#[expect(
-    dead_code,
-    reason = "the daemon's start reads it once its database is open"
-)]
 pub(crate) async fn read_or_mint_local_machine(
     reads: &DatabaseReadPool,
     writer: &DatabaseWriter,
