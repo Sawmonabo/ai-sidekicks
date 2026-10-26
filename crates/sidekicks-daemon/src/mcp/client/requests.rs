@@ -344,13 +344,14 @@ mod tests {
         Reply, method_not_found, open_test_server, test_client, v1_initialize_result,
     };
 
-    // Mutations: in `PageCursors::follow`, leave out the repeated-cursor stop or the page cap;
-    // either list then never ends and the test times out.
+    // Mutations: in `PageCursors::follow`, leave out the repeated-cursor stop or the page cap,
+    // and either list never ends and the test times out; or replace `extend` with assignment in
+    // `list_all_prompts` or `read_task_tools`, which keeps only the last page read.
     #[rstest]
     #[case::a_repeated_cursor(false, 2)]
     #[case::a_list_that_never_ends(true, MAX_LIST_PAGES)]
     #[tokio::test(start_paused = true)]
-    async fn a_paged_list_stops_at_a_repeated_cursor_or_the_page_cap(
+    async fn a_paged_list_stops_at_a_repeated_cursor_or_the_page_cap_keeping_every_page_read(
         #[case] is_endless: bool,
         #[case] expected_pages: usize,
     ) {
@@ -366,13 +367,24 @@ mod tests {
                 } else {
                     "c".to_owned()
                 };
+                // Only the first page names a task tool; every page names a prompt of its own.
+                let tools = if *page == 1 {
+                    json!([{
+                        "name": "track",
+                        "inputSchema": { "type": "object" },
+                        "execution": { "taskSupport": "required" },
+                    }])
+                } else {
+                    json!([])
+                };
+                let prompts = json!([{ "name": format!("prompt-{page}") }]);
                 match method {
                     "initialize" => Reply::Answer(json!({ "result": v1_initialize_result() })),
                     "tools/list" => Reply::Answer(
-                        json!({ "result": { "tools": [], "nextCursor": next_cursor } }),
+                        json!({ "result": { "tools": tools, "nextCursor": next_cursor } }),
                     ),
                     "prompts/list" => Reply::Answer(
-                        json!({ "result": { "prompts": [], "nextCursor": next_cursor } }),
+                        json!({ "result": { "prompts": prompts, "nextCursor": next_cursor } }),
                     ),
                     _ => method_not_found(),
                 }
@@ -380,7 +392,7 @@ mod tests {
         )
         .await;
 
-        timeout(
+        let prompts = timeout(
             Duration::from_secs(60),
             connection.requests.list_all_prompts(),
         )
@@ -390,6 +402,14 @@ mod tests {
 
         assert_eq!(server.requests("tools/list").len(), expected_pages);
         assert_eq!(server.requests("prompts/list").len(), expected_pages);
+        assert_eq!(prompts.len(), expected_pages, "every page's prompt is kept");
+        assert!(
+            connection
+                .is_task_tool("track")
+                .await
+                .expect("the tools are read"),
+            "the first page's task tool is kept"
+        );
     }
 
     // Mutation: in `PendingRequest::drop`, leave out `raw.take`; the request then stays awaited
