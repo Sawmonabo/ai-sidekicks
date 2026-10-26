@@ -445,9 +445,13 @@ mod tests {
         let (client, card) = test_client();
         let (connection, server) = open_test_server(
             &client,
-            v2_task_server(|_, updates, _| match updates {
-                0 | 1 => input_required(&["k1", "k2"]),
-                _ => completed(),
+            // Waiting on both through the second poll, so a key asked again shows there.
+            v2_task_server(|poll, updates, _| {
+                if poll <= 2 || updates < 2 {
+                    input_required(&["k1", "k2"])
+                } else {
+                    completed()
+                }
             }),
         )
         .await;
@@ -455,7 +459,11 @@ mod tests {
         let run_id = call.run_id;
         let sink = CountingSink::new(&server);
         let contact = contact();
+        // The person answers k1 only after the first poll, in which the run waiting on k1 refused
+        // k2.
         let person = async {
+            card.wait_until_taken(1).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
             let first = card.answer_open(board_answer()).await;
             let second = card.answer_open(board_answer()).await;
             (first, second)
