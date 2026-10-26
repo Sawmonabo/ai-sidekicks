@@ -108,6 +108,11 @@ mod tests {
         r#"eval 'a && eval '"'"'b'"'"'' < /dev/null && pwd -P >| /tmp/claude-1a2b-cwd"#,
         Some("a && eval 'b'")
     )]
+    #[case::heredoc(
+        "eval 'cat <<'\"'\"'EOF'\"'\"'\nhi\nEOF' && pwd -P >| /tmp/claude-1a2b-cwd",
+        Some("cat <<'EOF'\nhi\nEOF")
+    )]
+    #[case::empty_command("eval '' < /dev/null && pwd -P >| /tmp/claude-1a2b-cwd", Some(""))]
     #[case::hook("/Users/me/.claude/hooks/format.sh", None)]
     #[case::hook_ending_in_pwd("cd /tmp && make && pwd", None)]
     #[case::tool_server_start("npx -y @modelcontextprotocol/server-filesystem /tmp", None)]
