@@ -145,10 +145,10 @@ async fn a_question_asked_while_its_run_waits_opens_once_the_first_answer_moves_
     assert_eq!(fixture.state(waiting), "canceled");
 }
 
-// A question whose asker left by the time it was recorded is withdrawn after its record's write,
-// whether it was recorded waiting for its run or opened at once, so no record lands after its
-// withdrawal: `withdrawn`, the run as it was before. Killed by leaving out the withdrawal on an
-// asker that left, or by reading the asker only while the question waits.
+// A question whose asker left by the time it was recorded is recorded waiting for its run, even
+// when it could have opened at once, and withdrawn after its record's write, so no record lands
+// after its withdrawal and it never opens: `withdrawn`, the run never moved by it. Killed by
+// leaving out the withdrawal on an asker that left, or by letting it open at its record.
 #[rstest]
 #[case::recorded_waiting(true, "waitingForInput")]
 #[case::opened_at_once(false, "running")]
@@ -180,8 +180,22 @@ async fn a_question_whose_asker_left_is_withdrawn_after_its_record(
     .await;
 
     assert_eq!(ended.expect("the turn ends"), QuestionTurnEnd::AskerLeft);
-    let left = asked_id(&fixture, usize::from(is_run_waiting));
-    assert_eq!(fixture.state(left), "canceled");
+    let left_index = usize::from(is_run_waiting);
+    assert_eq!(
+        fixture.payloads("question.asked")[left_index]["state"],
+        "waitingForRun"
+    );
+    assert_eq!(fixture.state(asked_id(&fixture, left_index)), "canceled");
+    assert_eq!(
+        fixture.payloads("question.opened").len(),
+        0,
+        "it never opens"
+    );
+    assert_eq!(
+        fixture.payloads("agent.run.waitingForInput").len(),
+        usize::from(is_run_waiting),
+        "the run waits only on the first question"
+    );
     let canceled = fixture.payloads("question.canceled");
     assert_eq!(canceled.len(), 1);
     assert_eq!(canceled[0]["reason"], "withdrawn");

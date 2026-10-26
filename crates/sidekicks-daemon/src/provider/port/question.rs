@@ -206,11 +206,15 @@ async fn take_in_turn(
 ) -> Result<QuestionTurnEnd, Box<dyn Error + Send + Sync>> {
     let (session_id, run_id) = (question.session_id, question.run_id);
     let request_id = question.request_id.clone();
-    if port
-        .record_question_in_turn(question, answer, place.is_ok())
-        .await?
-        == QuestionAskedState::Open
-    {
+    // Read once: a finished asker future is never polled again.
+    let has_asker_left = asker_left.as_mut().now_or_never().is_some();
+    let recorded = port
+        .record_question_in_turn(question, answer, place.is_ok() && !has_asker_left)
+        .await?;
+    if has_asker_left {
+        return Ok(QuestionTurnEnd::AskerLeft);
+    }
+    if recorded == QuestionAskedState::Open {
         return Ok(QuestionTurnEnd::Taken);
     }
     // Held across every wait and the opening, so the questions behind it wait their turn. Its
