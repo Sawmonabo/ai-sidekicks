@@ -10,7 +10,9 @@ use rusqlite::types::{Type, Value as SqlValue};
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_contracts::question::{QuestionAskedPayload, QuestionId, QuestionSettledState};
+use sidekicks_contracts::question::{
+    QuestionAskedPayload, QuestionAskedState, QuestionId, QuestionSettledState,
+};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::{UuidText, UuidTextForm};
@@ -22,14 +24,27 @@ use crate::database::stored_column::{closed_word, optional_text_column, text_col
 use crate::questions::schema::QuestionState;
 
 const INSERT_QUESTION_SQL: &str = "INSERT INTO questions
-  (id, session_id, run_id, wait_id, is_agent_waiting)
-  VALUES (@id, @sessionId, @runId, @waitId, @isAgentWaiting)";
+  (id, session_id, run_id, wait_id, is_agent_waiting, state)
+  VALUES (@id, @sessionId, @runId, @waitId, @isAgentWaiting, @state)";
 
-// Settles an open question; refused once it is settled.
+// Settles an open question, or cancels one waiting for its run; refused once it is settled.
 static SETTLE_QUESTION_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "UPDATE questions SET state = @state WHERE id = @questionId AND state = '{}'",
-        <&'static str>::from(QuestionState::Open)
+        "UPDATE questions SET state = @state
+  WHERE id = @questionId
+    AND (state = '{open}' OR (state = '{waiting}' AND @state = '{canceled}'))",
+        open = <&'static str>::from(QuestionState::Open),
+        waiting = <&'static str>::from(QuestionState::WaitingForRun),
+        canceled = <&'static str>::from(QuestionState::Canceled)
+    )
+});
+
+// Opens a question that waited for its run; refused unless it still waits.
+static OPEN_WAITING_QUESTION_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE questions SET state = '{open}' WHERE id = @questionId AND state = '{waiting}'",
+        open = <&'static str>::from(QuestionState::Open),
+        waiting = <&'static str>::from(QuestionState::WaitingForRun)
     )
 });
 
@@ -71,23 +86,25 @@ const ASKED_SQL: &str = "SELECT payload FROM session_events
   WHERE session_id = @sessionId AND type = @askedType
     AND json_extract(payload, '$.questionId') = @questionId";
 
-// The questions a run holds open and its agent waits on.
+// The questions a run holds open, or waiting for it, and its agent waits on.
 static OPEN_HELD_OF_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT id, session_id FROM questions
-  WHERE run_id = @runId AND state = '{}' AND is_agent_waiting = 1
+  WHERE run_id = @runId AND state IN ('{waiting}', '{open}') AND is_agent_waiting = 1
   ORDER BY rowid",
-        <&'static str>::from(QuestionState::Open)
+        waiting = <&'static str>::from(QuestionState::WaitingForRun),
+        open = <&'static str>::from(QuestionState::Open)
     )
 });
 
-// Which of a JSON array of question ids are open.
-static OPEN_AMONG_SQL: LazyLock<String> = LazyLock::new(|| {
+// Which of a JSON array of question ids are not settled: open, or waiting for their run.
+static UNSETTLED_AMONG_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT questions.id FROM json_each(@questionIds) AS listed
   JOIN questions ON questions.id = listed.value
-  WHERE questions.state = '{}'",
-        <&'static str>::from(QuestionState::Open)
+  WHERE questions.state IN ('{waiting}', '{open}')",
+        waiting = <&'static str>::from(QuestionState::WaitingForRun),
+        open = <&'static str>::from(QuestionState::Open)
     )
 });
 
@@ -119,7 +136,7 @@ pub(crate) struct StoredQuestion {
     pub(crate) state: QuestionState,
 }
 
-/// An open question its agent waits on, as a run's end settles it.
+/// A question its agent waits on, open or waiting for its run, as a run's end settles it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct HeldQuestion {
     /// The question.
@@ -128,15 +145,20 @@ pub(crate) struct HeldQuestion {
     pub(crate) session_id: SessionId,
 }
 
-/// The record's row as `asked` writes it, open. Refused when the record is already kept.
+/// The record's row as `asked` writes it, open or waiting for its run. Refused when the record is
+/// already kept.
 pub(crate) fn insert_question_statement(asked: &QuestionAskedPayload) -> WriteStatement {
-    let (question_id, session_id, run_id, wait_id, is_agent_waiting) = match asked {
+    let (question_id, session_id, run_id, wait_id, is_agent_waiting, state) = match asked {
         QuestionAskedPayload::Run(asked) => (
             asked.question_id,
             asked.session_id,
             Some(asked.run_id.text()),
             None,
             asked.is_agent_waiting,
+            match asked.state {
+                QuestionAskedState::Open => QuestionState::Open,
+                QuestionAskedState::WaitingForRun => QuestionState::WaitingForRun,
+            },
         ),
         QuestionAskedPayload::Wait(asked) => (
             asked.question_id,
@@ -144,6 +166,7 @@ pub(crate) fn insert_question_statement(asked: &QuestionAskedPayload) -> WriteSt
             None,
             Some(asked.wait_id.text()),
             asked.is_agent_waiting,
+            QuestionState::Open,
         ),
     };
     WriteStatement {
@@ -157,12 +180,26 @@ pub(crate) fn insert_question_statement(asked: &QuestionAskedPayload) -> WriteSt
                 Cow::Borrowed("@isAgentWaiting"),
                 SqlValue::Integer(i64::from(is_agent_waiting)),
             ),
+            text_binding("@state", state.into()),
         ]),
         expected_row_count: Some(1),
     }
 }
 
-/// Settles the open question `question_id` as `state`; refused once it is settled.
+/// Opens `question_id`, which waited for its run; refused unless it still waits.
+pub(crate) fn open_waiting_question_statement(question_id: &QuestionId) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(OPEN_WAITING_QUESTION_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![text_binding(
+            "@questionId",
+            question_id.text().as_str(),
+        )]),
+        expected_row_count: Some(1),
+    }
+}
+
+/// Settles the open question `question_id` as `state`, or cancels it while it waits for its run;
+/// refused once it is settled, and an answer is refused while it waits.
 pub(crate) fn settle_question_statement(
     question_id: &QuestionId,
     state: QuestionSettledState,
@@ -281,21 +318,22 @@ pub(crate) fn read_asked(
         .optional()
 }
 
-/// Which of `question_ids` are open. Fails as SQLite does, or when a stored id does not read.
-pub(crate) fn read_open_among(
+/// Which of `question_ids` are not settled: open, or waiting for their run. Fails as SQLite does,
+/// or when a stored id does not read.
+pub(crate) fn read_unsettled_among(
     connection: &Connection,
     question_ids: &[QuestionId],
 ) -> rusqlite::Result<HashSet<QuestionId>> {
     let listed = serde_json::to_string(question_ids).expect("a list of ids writes as JSON");
     connection
-        .prepare_cached(&OPEN_AMONG_SQL)?
+        .prepare_cached(&UNSETTLED_AMONG_SQL)?
         .query_map(named_params! { "@questionIds": listed }, |row| {
             text_column(row, 0, |text| QuestionId::new(&text))
         })?
         .collect()
 }
 
-/// The questions `run_id` holds open whose agent waits on them, oldest first. Fails as SQLite
+/// The questions `run_id` holds open or waiting for it whose agent waits on them, oldest first. Fails as SQLite
 /// does, or when a stored id does not read.
 pub(crate) fn read_open_held_questions(
     connection: &Connection,

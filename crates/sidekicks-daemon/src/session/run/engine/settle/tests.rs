@@ -16,7 +16,7 @@ use sidekicks_contracts::session::id::SessionId;
 use crate::database::statement::DATABASE_NOW_SQL;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
-use crate::session::run::engine::live::lock;
+use crate::mutex_lock::lock;
 use crate::session::run::engine::tests::{
     STEP_BOUND, append, provider_end, run_version, stored_events, stored_run_state, test_engine,
     token_limit, turn, turn_started_at,

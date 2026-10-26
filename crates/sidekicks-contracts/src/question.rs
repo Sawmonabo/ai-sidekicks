@@ -247,11 +247,26 @@ macro_rules! question_asked {
     };
 }
 
+/// Where a run's question record stands when it is written: open, answerable at once; or waiting
+/// for its run, asked while the run was not running, which the card shows greyed under the line
+/// `Waiting for the run` until `question.opened` makes it answerable, in the order its run's
+/// questions came.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum QuestionAskedState {
+    /// Answerable at once; its run waits on it.
+    Open,
+    /// Waiting for its run to read running before it is answerable.
+    WaitingForRun,
+}
+
 question_asked! {
     /// An agent's or a tool server's question, held by its run.
     pub struct RunQuestionAskedPayload {
         /// The run that waits.
         pub run_id: RunId,
+        /// Whether the question is answerable at once or waits for its run.
+        pub state: QuestionAskedState,
         /// Only a workflow step's question names a wait.
         #[serde(
             default,
@@ -276,6 +291,14 @@ question_asked! {
         pub run_id: Option<Never>,
         /// The workflow wait.
         pub wait_id: UuidTextForm,
+        /// Only a run's question can wait for its run; a workflow wait's is open at once.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub state: Option<Never>,
     }
 }
 
@@ -287,6 +310,17 @@ pub enum QuestionAskedPayload {
     Run(#[garde(dive)] RunQuestionAskedPayload),
     /// Held by a workflow wait.
     Wait(#[garde(dive)] WaitQuestionAskedPayload),
+}
+
+/// `question.opened`: a question waiting for its run became answerable once the run read running,
+/// in the write that moves the run to `waitingForInput` on it, so its card is no longer greyed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QuestionOpenedPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The question.
+    pub question_id: QuestionId,
 }
 
 /// Why an open question ended unanswered: its turn was interrupted, its provider withdrew the
@@ -302,8 +336,8 @@ pub enum QuestionCanceledReason {
     RunEnded,
 }
 
-/// `question.canceled`: an open question ended unanswered, so its card stays closed after a
-/// reload and on every device, and no `user.message.sent` is written.
+/// `question.canceled`: an open question, or one waiting for its run, ended unanswered, so its card
+/// stays closed after a reload and on every device, and no `user.message.sent` is written.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QuestionCanceledPayload {
@@ -421,7 +455,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<QuestionOption>(),
         Definition::read::<QuestionDefault>(),
         Definition::read::<QuestionPrompt>(),
+        Definition::read::<QuestionAskedState>(),
         Definition::read::<QuestionAskedPayload>().checked(),
+        Definition::read::<QuestionOpenedPayload>().checked(),
         Definition::read::<QuestionCanceledReason>(),
         Definition::read::<QuestionCanceledPayload>().checked(),
         Definition::read::<QuestionAnswer>(),

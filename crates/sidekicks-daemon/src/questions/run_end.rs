@@ -1,21 +1,18 @@
 //! The provider requests a run's end lets go, settled in the write that ends the run, so no daemon
-//! death between the end and the settle leaves one open: each question the run holds open and its
-//! agent waits on is canceled, each plan still waiting on a request the run's driver held is
-//! reopened, and each choice its provider asked and no answer settled is settled with none. The
-//! reason is the end's own: `interrupted` (`canceled` for the retry-or-edit choice) for every
-//! interrupted end, `runEnded` for any other, a restart's among them. A question its agent does not
-//! wait for stays open, since a queued message answers it after the run.
+//! death between the end and the settle leaves one open: each question its agent waits on that the
+//! run holds open, or that waits for the run, is canceled, each plan still waiting on a request the
+//! run's driver held is reopened, and each choice its provider asked and no answer settled is
+//! settled with none. The reason is the end's own: `interrupted` (`canceled` for the retry-or-edit
+//! choice) for every interrupted end, `runEnded` for any other, a restart's among them. A question
+//! its agent does not wait for stays open, since a queued message answers it after the run.
 
-use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::plan::PlanHoldEndedReason;
-use sidekicks_contracts::question::{
-    QuestionCanceledPayload, QuestionCanceledReason, QuestionSettledState,
-};
+use sidekicks_contracts::question::{QuestionCanceledReason, QuestionSettledState};
 use sidekicks_contracts::run::state::RunState;
 
 use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
-use crate::events::session::appender::SessionEventDraft;
 use crate::plans::store::{hold_end_write, read_held_plans_of_run};
+use crate::questions::service::canceled_event;
 use crate::questions::store::{read_open_held_questions, settle_question_statement};
 use crate::session::run::engine::RunEngineError;
 use crate::session::run::provider_choice::read_open_choice_settlements;
@@ -69,16 +66,11 @@ pub(crate) async fn settle_held_requests_at_run_end(
             &question.question_id,
             QuestionSettledState::Canceled,
         ));
-        companions
-            .preceding_events
-            .push(SessionEventDraft::of_session(
-                question.session_id,
-                &SessionEvent::QuestionCanceled(QuestionCanceledPayload {
-                    session_id: question.session_id,
-                    question_id: question.question_id,
-                    reason: question_reason,
-                }),
-            )?);
+        companions.preceding_events.push(canceled_event(
+            question.session_id,
+            question.question_id,
+            question_reason,
+        )?);
     }
     for plan in plans {
         let (statement, event) = hold_end_write(plan, plan_reason);

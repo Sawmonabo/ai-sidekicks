@@ -11,7 +11,8 @@ use tokio::sync::SetOnce;
 use super::LimitStop;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
-use crate::session::run::engine::live::{ContinuingRun, lock};
+use crate::mutex_lock::lock;
+use crate::session::run::engine::live::ContinuingRun;
 use crate::session::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, append, continue_request, events, hand_limit_interrupter,
     held_driver, insert_running_run, started_turn, step_stop, stored_events, stored_run_state,

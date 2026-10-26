@@ -1,7 +1,7 @@
 //! The question tables as the log keeps them in step: each record from its `question.asked`, each
-//! cancellation from its `question.canceled`, a held question's answer from the `user.message.sent`
-//! that names it, and a queued answer's pairing, withdrawal and admission from the send and the
-//! queue's own events. A rebuild writes every row at the event's own instant through the live
+//! opening of one that waited for its run from its `question.opened`, each cancellation from its
+//! `question.canceled`, a held question's answer from the `user.message.sent` that names it, and a
+//! queued answer's pairing, withdrawal and admission from the send and the queue's own events. A rebuild writes every row at the event's own instant through the live
 //! write's own statements and guards, so the rows it writes are the rows the live writes wrote.
 
 use std::borrow::Cow;
@@ -16,7 +16,8 @@ use sidekicks_contracts::session::id::SessionId;
 use crate::database::statement::{StatementBindings, WriteStatement};
 use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::questions::store::{
-    insert_question_statement, queued_answer_statements, settle_question_statement,
+    insert_question_statement, open_waiting_question_statement, queued_answer_statements,
+    settle_question_statement,
 };
 use crate::recovery::projection_rebuild::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
@@ -27,10 +28,11 @@ const CLEAR_ANSWER_ITEMS_SQL: &str = "DELETE FROM question_answer_items
 
 const CLEAR_QUESTIONS_SQL: &str = "DELETE FROM questions WHERE session_id = ?";
 
-// Every type the fold reads: a record, its cancellation, a send that answers it, and what becomes
-// of a queued answer.
-const QUESTION_EVENT_TYPES: [SessionEventType; 6] = [
+// Every type the fold reads: a record, its opening, its cancellation, a send that answers it, and
+// what becomes of a queued answer.
+const QUESTION_EVENT_TYPES: [SessionEventType; 7] = [
     SessionEventType::QuestionAsked,
+    SessionEventType::QuestionOpened,
     SessionEventType::QuestionCanceled,
     SessionEventType::UserMessageSent,
     SessionEventType::AgentQueueItemAdmitted,
@@ -87,6 +89,8 @@ impl SessionProjectionFold for QuestionsProjection {
     ) -> Result<(), ProjectionContradiction> {
         if let SessionEvent::QuestionAsked(asked) = event {
             statements.push(insert_question_statement(asked));
+        } else if let SessionEvent::QuestionOpened(opened) = event {
+            statements.push(open_waiting_question_statement(&opened.question_id));
         } else if let SessionEvent::QuestionCanceled(canceled) = event {
             statements.push(settle_question_statement(
                 &canceled.question_id,

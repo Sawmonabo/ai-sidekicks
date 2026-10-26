@@ -43,7 +43,7 @@ use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions
 impl QuestionsService {
     /// Answers every question of `request`'s record from `device_id` and answers its state.
     /// Refused `question.notFound` for an id no record holds, `question.notWaiting` for a question
-    /// its agent does not wait for, `question.answersIncomplete` for a list that does not answer
+    /// its agent does not wait for or one that still waits for its run, `question.answersIncomplete` for a list that does not answer
     /// every question and `question.answerInvalid` for an answer its question cannot take, each
     /// with nothing sent. Fails as the driver or the wait fails, nothing written, or as the write
     /// fails after the answer went out.
@@ -73,6 +73,9 @@ impl QuestionsService {
         }
         if !stored.is_agent_waiting {
             return Err(question_not_waiting(question_id).into());
+        }
+        if stored.state == QuestionState::WaitingForRun {
+            return Err(question_waiting_for_run(question_id).into());
         }
         let asked = asked.ok_or(QuestionError::AskedMissing { question_id })?;
         check_answers(question_id, asked_pages(&asked), &answers)?;
@@ -215,10 +218,10 @@ fn asked_pages(asked: &QuestionAskedPayload) -> &[QuestionPrompt] {
     }
 }
 
-// The settled state a row's word reads as; none while it is open.
+// The settled state a row's word reads as; none while it is open or waits for its run.
 fn settled_state(state: QuestionState) -> Option<QuestionSettledState> {
     match state {
-        QuestionState::Open => None,
+        QuestionState::WaitingForRun | QuestionState::Open => None,
         QuestionState::Answered => Some(QuestionSettledState::Answered),
         QuestionState::Canceled => Some(QuestionSettledState::Canceled),
     }
@@ -300,6 +303,16 @@ pub(crate) fn question_not_found(question_id: QuestionId) -> DomainError {
 pub(crate) fn question_not_waiting(question_id: QuestionId) -> DomainError {
     DomainError::new(
         "The agent does not wait for this question; a message answers it",
+        RefusalCode::QuestionNotWaiting,
+    )
+    .with_detail(json!({ "questionId": question_id }))
+}
+
+// `question.notWaiting` for a question that waits for its run, which takes no answer until the run
+// reads running and the question opens.
+fn question_waiting_for_run(question_id: QuestionId) -> DomainError {
+    DomainError::new(
+        "The question waits for its run and takes its answer once the run reaches it",
         RefusalCode::QuestionNotWaiting,
     )
     .with_detail(json!({ "questionId": question_id }))

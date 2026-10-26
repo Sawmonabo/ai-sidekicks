@@ -79,6 +79,7 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::AgentInterventionFailed
         | SessionEventType::UserMessageSent
         | SessionEventType::QuestionAsked
+        | SessionEventType::QuestionOpened
         | SessionEventType::QuestionCanceled
         | SessionEventType::ArtifactPublished
         | SessionEventType::GitSettled

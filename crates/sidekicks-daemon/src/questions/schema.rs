@@ -13,12 +13,16 @@ use strum::{IntoStaticStr, VariantArray};
 
 use crate::database::sql_list::sql_list_of_every;
 
-/// Where a question record stands, as the `questions.state` column holds it: open until it is
-/// answered or canceled. Converts to the column's word and reads back from it.
+/// Where a question record stands, as the `questions.state` column holds it: waiting for its run
+/// to read running where it was asked while the run was not, then open until it is answered or
+/// canceled. Converts to the
+/// column's word and reads back from it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, VariantArray, IntoStaticStr)]
 #[serde(rename_all = "camelCase")]
 #[strum(serialize_all = "camelCase")]
 pub(crate) enum QuestionState {
+    /// Waiting for its run to read running before it is answerable.
+    WaitingForRun,
     /// Waiting for its answer.
     Open,
     /// Answered.
@@ -33,10 +37,11 @@ pub(crate) static QUESTION_SCHEMA_SQL: LazyLock<String> = LazyLock::new(question
 fn question_schema_sql() -> String {
     let states = sql_list_of_every::<QuestionState>();
     let open = <&'static str>::from(QuestionState::Open);
+    let waiting = <&'static str>::from(QuestionState::WaitingForRun);
     format!(
         "
--- One row per question record, rebuilt from question.asked, question.canceled, the
--- user.message.sent that answers it and the admission of a queued answer.
+-- One row per question record, rebuilt from question.asked, question.opened, question.canceled,
+-- the user.message.sent that answers it and the admission of a queued answer.
 CREATE TABLE questions (
   id                TEXT PRIMARY KEY,
   session_id        TEXT NOT NULL,
@@ -50,7 +55,7 @@ CREATE TABLE questions (
 
 CREATE INDEX idx_questions_session ON questions(session_id);
 -- A run's end reads the questions it still holds.
-CREATE INDEX idx_questions_open_run ON questions(run_id) WHERE state = '{open}';
+CREATE INDEX idx_questions_open_run ON questions(run_id) WHERE state IN ('{waiting}', '{open}');
 
 -- Each queued message that answers a question its agent does not wait for, until the agent takes
 -- one, which answers the question, or the message is withdrawn.

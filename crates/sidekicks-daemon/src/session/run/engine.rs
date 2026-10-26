@@ -9,6 +9,7 @@
 mod ending;
 mod limits;
 mod live;
+mod running_wait;
 mod settle;
 mod start;
 #[cfg(test)]
@@ -48,6 +49,7 @@ use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::interventions::interrupt_queue::{InterruptQueue, InterruptQueueError};
 use crate::interventions::store::run_at_version_statement;
 use crate::ipc::domain_error::DomainError;
+use crate::mutex_lock::lock;
 #[cfg(test)]
 use crate::pause_point::PausePoint;
 use crate::policy::execution_posture_service::ExecutionPostureService;
@@ -55,7 +57,7 @@ use crate::provider::driver::registry::ProviderRegistry;
 use crate::session::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError};
 use crate::session::run::daemon_turn::DaemonTurnQueueError;
 use crate::session::run::engine::live::{
-    ContinuingRun, LiveRuns, ProviderChangeGuard, StartingRun, lock,
+    ContinuingRun, LiveRuns, ProviderChangeGuard, StartingRun,
 };
 use crate::session::run::engine::turns::{ProviderTurnEnd, TurnEnd, TurnOutcome, WriteWithResend};
 use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};

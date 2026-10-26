@@ -4,6 +4,7 @@
 //! back through the client.
 
 use std::error::Error;
+use std::pin::pin;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
@@ -48,15 +49,41 @@ pub(crate) trait ToolServerQuestionAnswer: Send + Sync {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
 }
 
+/// How a question taken in its run's turn was recorded: open, its run waiting on it, or waiting
+/// for its run to read running first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum QuestionTaking {
+    /// Open, answerable at once.
+    Open,
+    /// Waiting for its run, shown greyed until the run reads running.
+    WaitingForRun,
+}
+
+/// What an attempt to open a question that waits for its run came to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WaitingQuestionOpening {
+    /// Opened, its run moved to wait on it.
+    Opened,
+    /// Its run does not read running, so it waits on.
+    RunNotRunning,
+    /// It no longer waits: withdrawn, or canceled with its run's end.
+    Settled,
+}
+
+/// How a question taken in its run's turn ended its turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum QuestionTurnEnd {
+    /// It is open on the card.
+    Taken,
+    /// It was settled before its turn came: withdrawn, or canceled with its run's end.
+    Settled,
+    /// Its asker stopped waiting before its turn came; its record still waits for its run.
+    AskerLeft,
+}
+
 /// The questions card's intake, registered through a `PortRegistration`. Until it is registered, a
 /// question stays pending at the provider: nothing answers it.
 pub(crate) trait QuestionPort: Send + Sync {
-    /// Records `question`, whose answer comes later. An error when it could not be recorded.
-    fn take_question(
-        &self,
-        question: ProviderQuestion,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
-
     /// Records `question`, asked by a tool server's task during the run, whose answer goes to
     /// `answer` rather than the run's driver. An error when it could not be recorded.
     fn take_tool_server_question(
@@ -65,9 +92,86 @@ pub(crate) trait QuestionPort: Send + Sync {
         answer: Arc<dyn ToolServerQuestionAnswer>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
 
+    /// Records `question` as [`take_question_in_turn`] needs it: open when `may_open` and its run
+    /// reads running, else waiting for its run; answered through `answer`, or through the run's
+    /// driver when `None`. An error when it could not be recorded.
+    fn record_question_in_turn(
+        &self,
+        question: ProviderQuestion,
+        answer: Option<Arc<dyn ToolServerQuestionAnswer>>,
+        may_open: bool,
+    ) -> BoxFuture<'_, Result<QuestionTaking, Box<dyn Error + Send + Sync>>>;
+
+    /// Opens the question of `session_id` recorded under `request_id` that waits for its run, in
+    /// the write that moves its run from `running` to wait on it; one whose run has ended is
+    /// canceled. An error when the write failed for another reason.
+    fn open_waiting_question(
+        &self,
+        session_id: SessionId,
+        request_id: String,
+    ) -> BoxFuture<'_, Result<WaitingQuestionOpening, Box<dyn Error + Send + Sync>>>;
+
+    /// Waits, with no timer, until `run_id` reads running or has ended. An error when the run has
+    /// no row or its read fails.
+    fn wait_until_running(
+        &self,
+        run_id: RunId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+
     /// Settles a withdrawn question's card canceled. An error when it could not be settled.
     fn withdraw_question(
         &self,
         withdrawal: ProviderQuestionWithdrawal,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+}
+
+/// Takes `question` through `port` in its run's turn, answered through `answer`, or the run's
+/// driver when `None`. It is recorded at once: open when nothing queued in `queue` is ahead of it
+/// and its run reads running, else waiting for its run, then taken in `queue`'s first-in, first-out
+/// order once the run reads running, never refused for asking while the run waits on something
+/// else. A `None` queue takes turns with no order. Waiting ends early when `asker_left` resolves.
+/// An error when a write or the run's read fails.
+pub(crate) async fn take_question_in_turn(
+    port: &dyn QuestionPort,
+    question: ProviderQuestion,
+    answer: Option<Arc<dyn ToolServerQuestionAnswer>>,
+    queue: Option<Arc<tokio::sync::Mutex<()>>>,
+    asker_left: impl Future<Output = ()>,
+) -> Result<QuestionTurnEnd, Box<dyn Error + Send + Sync>> {
+    let mut asker_left = pin!(asker_left);
+    let (session_id, run_id) = (question.session_id, question.run_id);
+    let request_id = question.request_id.clone();
+    let first_in_line = queue
+        .as_ref()
+        .and_then(|queue| Arc::clone(queue).try_lock_owned().ok());
+    let may_open = queue.is_none() || first_in_line.is_some();
+    if port
+        .record_question_in_turn(question, answer, may_open)
+        .await?
+        == QuestionTaking::Open
+    {
+        return Ok(QuestionTurnEnd::Taken);
+    }
+    // Held across every wait and the opening, so the questions behind it wait their turn.
+    let _turn = match (first_in_line, queue) {
+        (Some(turn), _) => Some(turn),
+        (None, Some(queue)) => tokio::select! {
+            turn = queue.lock_owned() => Some(turn),
+            () = &mut asker_left => return Ok(QuestionTurnEnd::AskerLeft),
+        },
+        (None, None) => None,
+    };
+    loop {
+        match port
+            .open_waiting_question(session_id, request_id.clone())
+            .await?
+        {
+            WaitingQuestionOpening::Opened => return Ok(QuestionTurnEnd::Taken),
+            WaitingQuestionOpening::Settled => return Ok(QuestionTurnEnd::Settled),
+            WaitingQuestionOpening::RunNotRunning => tokio::select! {
+                waited = port.wait_until_running(run_id) => waited?,
+                () = &mut asker_left => return Ok(QuestionTurnEnd::AskerLeft),
+            },
+        }
+    }
 }

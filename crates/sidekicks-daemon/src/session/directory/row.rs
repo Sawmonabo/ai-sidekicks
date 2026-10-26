@@ -315,6 +315,7 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::AgentInterventionExpired
         | SessionEventType::AgentInterventionFailed
         | SessionEventType::QuestionAsked
+        | SessionEventType::QuestionOpened
         | SessionEventType::QuestionCanceled
         | SessionEventType::ArtifactPublished
         | SessionEventType::GitSettled

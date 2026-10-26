@@ -29,8 +29,9 @@ use crate::database::stored_column::safe_int_column;
 use crate::events::session::append_lock::SessionAppendHold;
 use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 use crate::interventions::store::run_at_version_statement;
+use crate::mutex_lock::lock;
 use crate::session::run::engine::limits::LimitStop;
-use crate::session::run::engine::live::{LiveRuns, lock};
+use crate::session::run::engine::live::LiveRuns;
 use crate::session::run::engine::{
     LIVE_APPEND_VERSION_GUARD_INDEX, RunEngine, RunEngineError, refused_statement_index,
     safe_run_version, with_cleanup_failures,

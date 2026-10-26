@@ -1,7 +1,8 @@
 //! The question record's intake from the drivers: a question a provider asks is recorded open in
 //! one write, which moves its run to `waitingForInput` when its agent waits, and a question the
-//! provider withdraws is canceled in one write that moves its run back to `running`. The provider's
-//! request id is kept in memory for the life of the request, which never outlives the daemon.
+//! provider withdraws is canceled in one write that moves its run back to `running`; one waiting
+//! for its run is canceled with the run unmoved. The provider's request id is kept in memory for
+//! the life of the request, which never outlives the daemon.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -13,8 +14,8 @@ use futures::future::BoxFuture;
 use rusqlite::{Connection, named_params};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::question::{
-    QuestionAskedPayload, QuestionCanceledPayload, QuestionCanceledReason, QuestionId,
-    QuestionSettledState, RunQuestionAskedPayload,
+    QuestionAskedPayload, QuestionAskedState, QuestionCanceledPayload, QuestionCanceledReason,
+    QuestionId, QuestionSettledState, RunQuestionAskedPayload,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{InterventionState, InterventionType};
@@ -35,12 +36,13 @@ use crate::mutex_lock::lock;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::port::question::{
-    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, ToolServerQuestionAnswer,
+    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, QuestionTaking,
+    ToolServerQuestionAnswer, WaitingQuestionOpening,
 };
 use crate::provider::port::registration::{PortRegistration, PortRegistrationError};
 use crate::questions::schema::QuestionState;
 use crate::questions::store::{
-    insert_question_statement, read_open_among, read_question, settle_question_statement,
+    insert_question_statement, read_question, read_unsettled_among, settle_question_statement,
 };
 use crate::questions::waits::QuestionWaits;
 use crate::session::run::engine::{RunEngine, RunEngineError};
@@ -197,6 +199,19 @@ impl QuestionsService {
         question: ProviderQuestion,
         answered_by: HeldRequestAnswerer,
     ) -> Result<QuestionId, QuestionError> {
+        self.record_question(question, answered_by, QuestionAskedState::Open)
+            .await
+    }
+
+    /// Records `question` as [`Self::take_question`] does when `state` is open; waiting for its
+    /// run, in a write of its own with the run unmoved, its request kept for the answer. Fails as
+    /// the draft, the move or the write fails.
+    pub(super) async fn record_question(
+        &self,
+        question: ProviderQuestion,
+        answered_by: HeldRequestAnswerer,
+        state: QuestionAskedState,
+    ) -> Result<QuestionId, QuestionError> {
         let ProviderQuestion {
             session_id,
             run_id,
@@ -213,6 +228,7 @@ impl QuestionsService {
             question_id,
             session_id,
             run_id,
+            state,
             wait_id: None,
             is_agent_waiting,
             questions,
@@ -221,7 +237,8 @@ impl QuestionsService {
         let event = SessionEventDraft::of_session(session_id, &SessionEvent::QuestionAsked(asked))?;
         let _question_hold = self.question_lock.acquire(question_id).await;
         self.forget_settled_requests().await?;
-        if !is_agent_waiting {
+        let is_waiting_for_run = state == QuestionAskedState::WaitingForRun;
+        if !is_agent_waiting || is_waiting_for_run {
             self.appender
                 .append(
                     event,
@@ -231,6 +248,17 @@ impl QuestionsService {
                     },
                 )
                 .await?;
+            if is_waiting_for_run {
+                self.hold_request(
+                    question_id,
+                    HeldRequest {
+                        session_id,
+                        run_id,
+                        request_id,
+                        answered_by,
+                    },
+                );
+            }
             return Ok(question_id);
         }
         self.engine
@@ -246,7 +274,7 @@ impl QuestionsService {
                 },
             )
             .await?;
-        lock(&self.held_requests).insert(
+        self.hold_request(
             question_id,
             HeldRequest {
                 session_id,
@@ -259,19 +287,16 @@ impl QuestionsService {
     }
 
     /// Cancels the open question the provider asked under `withdrawal`'s request, in the write
-    /// that moves its run back to `running`: `interrupted` when the run has an interrupt recorded,
-    /// else `withdrawn`. A request no open question holds, its question answered or settled by its
-    /// run's end, is left as it is. Fails as the read or the move fails, the question left open.
+    /// that moves its run back to `running`, or in a write of its own while it waits for its run:
+    /// `interrupted` when the run has an interrupt recorded, else `withdrawn`. A request no open or
+    /// waiting question holds, its question answered or settled by its run's end, is left as it
+    /// is. Fails as the read or the move fails, the question left as it was.
     pub(crate) async fn withdraw_question(
         &self,
         withdrawal: ProviderQuestionWithdrawal,
     ) -> Result<(), QuestionError> {
-        let Some(question_id) = lock(&self.held_requests)
-            .iter()
-            .find(|(_, held)| {
-                held.session_id == withdrawal.session_id && held.request_id == withdrawal.request_id
-            })
-            .map(|(question_id, _)| *question_id)
+        let Some(question_id) =
+            self.held_question_of(withdrawal.session_id, &withdrawal.request_id)
         else {
             return Ok(());
         };
@@ -280,10 +305,13 @@ impl QuestionsService {
             return Ok(());
         };
         let run_id = held.run_id;
-        let is_interrupted = self
+        let (is_interrupted, state) = self
             .reads
             .read(ReadLength::Short, move |reader| {
-                Ok::<_, QuestionError>(has_interrupt(reader, &run_id)?)
+                Ok::<_, QuestionError>((
+                    has_interrupt(reader, &run_id)?,
+                    read_question(reader, &question_id)?.map(|stored| stored.state),
+                ))
             })
             .await?;
         let reason = if is_interrupted {
@@ -291,14 +319,13 @@ impl QuestionsService {
         } else {
             QuestionCanceledReason::Withdrawn
         };
-        let canceled = SessionEventDraft::of_session(
-            held.session_id,
-            &SessionEvent::QuestionCanceled(QuestionCanceledPayload {
-                session_id: held.session_id,
-                question_id,
-                reason,
-            }),
-        )?;
+        if state == Some(QuestionState::WaitingForRun) {
+            self.cancel_waiting_question(question_id, held.session_id, reason)
+                .await?;
+            self.forget_held_request(&question_id);
+            return Ok(());
+        }
+        let canceled = canceled_event(held.session_id, question_id, reason)?;
         let moved = self
             .engine
             .transition(
@@ -342,12 +369,29 @@ impl QuestionsService {
         let open = self
             .reads
             .read(ReadLength::Short, move |reader| {
-                Ok::<_, QuestionError>(read_open_among(reader, &read_ids)?)
+                Ok::<_, QuestionError>(read_unsettled_among(reader, &read_ids)?)
             })
             .await?;
         lock(&self.held_requests)
             .retain(|question_id, _| !held.contains(question_id) || open.contains(question_id));
         Ok(())
+    }
+
+    /// The question `session_id`'s provider asked under `request_id`, while its request is held.
+    pub(super) fn held_question_of(
+        &self,
+        session_id: SessionId,
+        request_id: &str,
+    ) -> Option<QuestionId> {
+        lock(&self.held_requests)
+            .iter()
+            .find(|(_, held)| held.session_id == session_id && held.request_id == request_id)
+            .map(|(question_id, _)| *question_id)
+    }
+
+    /// Keeps `held`, the request `question_id`'s answer goes back under, until it settles.
+    fn hold_request(&self, question_id: QuestionId, held: HeldRequest) {
+        lock(&self.held_requests).insert(question_id, held);
     }
 
     /// The request `question_id`'s answer goes back under, while it is held.
@@ -376,15 +420,6 @@ impl QuestionsService {
 }
 
 impl QuestionPort for QuestionsService {
-    fn take_question(
-        &self,
-        question: ProviderQuestion,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        QuestionsService::take_question(self, question, HeldRequestAnswerer::Driver)
-            .map(|taken| taken.map(drop).map_err(Into::into))
-            .boxed()
-    }
-
     fn take_tool_server_question(
         &self,
         question: ProviderQuestion,
@@ -393,6 +428,48 @@ impl QuestionPort for QuestionsService {
         QuestionsService::take_question(self, question, HeldRequestAnswerer::ToolServerTask(answer))
             .map(|taken| taken.map(drop).map_err(Into::into))
             .boxed()
+    }
+
+    fn record_question_in_turn(
+        &self,
+        question: ProviderQuestion,
+        answer: Option<Arc<dyn ToolServerQuestionAnswer>>,
+        may_open: bool,
+    ) -> BoxFuture<'_, Result<QuestionTaking, Box<dyn Error + Send + Sync>>> {
+        let answered_by = answer.map_or(
+            HeldRequestAnswerer::Driver,
+            HeldRequestAnswerer::ToolServerTask,
+        );
+        QuestionsService::record_question_in_turn(self, question, answered_by, may_open)
+            .map(|taken| taken.map_err(Into::into))
+            .boxed()
+    }
+
+    fn open_waiting_question(
+        &self,
+        session_id: SessionId,
+        request_id: String,
+    ) -> BoxFuture<'_, Result<WaitingQuestionOpening, Box<dyn Error + Send + Sync>>> {
+        async move {
+            QuestionsService::open_waiting_question(self, session_id, &request_id)
+                .await
+                .map_err(Into::into)
+        }
+        .boxed()
+    }
+
+    fn wait_until_running(
+        &self,
+        run_id: RunId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async move {
+            self.engine
+                .wait_until_running(run_id)
+                .await
+                .map(drop)
+                .map_err(Into::into)
+        }
+        .boxed()
     }
 
     fn withdraw_question(
@@ -413,4 +490,20 @@ pub(crate) fn has_interrupt(reader: &Connection, run_id: &RunId) -> rusqlite::Re
         .query_row(named_params! { "@runId": run_id.text().as_str() }, |row| {
             row.get(0)
         })
+}
+
+/// The `question.canceled` of `question_id` in `session_id`, for `reason`. Fails as the draft does.
+pub(super) fn canceled_event(
+    session_id: SessionId,
+    question_id: QuestionId,
+    reason: QuestionCanceledReason,
+) -> Result<SessionEventDraft, SessionEventDraftError> {
+    SessionEventDraft::of_session(
+        session_id,
+        &SessionEvent::QuestionCanceled(QuestionCanceledPayload {
+            session_id,
+            question_id,
+            reason,
+        }),
+    )
 }
