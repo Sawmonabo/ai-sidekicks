@@ -18,7 +18,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt, BufReader};
 use tokio::sync::{Notify, mpsc, watch};
-use tokio::time::Instant;
+use tokio::time::{Duration, Instant, timeout};
 
 use crate::mcp::client::McpClient;
 use crate::mcp::client::connection::{McpConnectionScope, McpServerConnection};
@@ -250,18 +250,29 @@ impl QuestionCard {
         self.taken.lock().expect("never poisoned").clone()
     }
 
-    /// Waits until no question is open, as once every one was answered or withdrawn.
+    /// Waits until no question is open, as once every one was answered or withdrawn; fails the
+    /// test past 60 s.
     pub(super) async fn wait_until_none_open(&self) {
-        while !self.open.lock().expect("never poisoned").is_empty() {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
+        let none_open = async {
+            while !self.open.lock().expect("never poisoned").is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        timeout(Duration::from_secs(60), none_open)
+            .await
+            .expect("every question is answered or withdrawn");
     }
 
-    /// Waits until the card took `count` questions.
+    /// Waits until the card took `count` questions; fails the test past 60 s.
     pub(super) async fn wait_until_taken(&self, count: usize) {
-        while self.taken().len() < count {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
+        let taken = async {
+            while self.taken().len() < count {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        timeout(Duration::from_secs(60), taken)
+            .await
+            .expect("the card takes the questions");
     }
 
     /// Holds back the outcome of each later take until the returned gate is notified, the question

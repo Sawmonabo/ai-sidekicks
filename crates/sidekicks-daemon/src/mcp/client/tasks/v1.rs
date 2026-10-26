@@ -559,9 +559,13 @@ mod tests {
         let sink = CountingSink::new(&server);
         let contact = contact();
         let cancel = async {
-            while sink.recorded().is_empty() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
+            timeout(Duration::from_secs(60), async {
+                while sink.recorded().is_empty() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("the handle is recorded");
             canceled.store(true, std::sync::atomic::Ordering::SeqCst);
             connection
                 .cancel_task(McpTaskGeneration::V1, "task-1")
@@ -761,9 +765,7 @@ mod tests {
             drop(call);
         }
 
-        timeout(Duration::from_secs(5), card.wait_until_none_open())
-            .await
-            .expect("the question is withdrawn");
+        card.wait_until_none_open().await;
     }
 
     // Mutation: in `read_result`, rebuild the failure from the error's code and message alone,

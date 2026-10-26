@@ -121,9 +121,13 @@ async fn an_event_past_the_bound_ends_the_stream_without_a_resume() {
     )
     .await
     .expect("the connection opens");
-    while stream_requests.load(Ordering::SeqCst) == 0 {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    timeout(Duration::from_secs(10), async {
+        while stream_requests.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the stream is opened");
     // rmcp's first two reconnects wait 1 s and 2 s.
     tokio::time::sleep(Duration::from_millis(3_500)).await;
 

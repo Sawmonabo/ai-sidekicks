@@ -156,7 +156,7 @@ impl Drop for TrackedCall<'_> {
 mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
-    use tokio::time::{Duration, timeout};
+    use tokio::time::Duration;
 
     use crate::mcp::client::tasks::McpToolCallEnd;
     use crate::mcp::client::test_server::{
@@ -293,10 +293,7 @@ mod tests {
 
         tokio::select! {
             _ = &mut call => panic!("the call ended while its server waited on its question"),
-            withdrawn = timeout(Duration::from_secs(60), card.wait_until_none_open()) => {
-                withdrawn.expect("the question the card took after its request was canceled \
-                                  is withdrawn");
-            }
+            () = card.wait_until_none_open() => {}
         }
         assert_eq!(card.taken().len(), 1);
     }
