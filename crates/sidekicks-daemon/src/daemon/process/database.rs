@@ -479,10 +479,6 @@ pub(crate) async fn open_database_file(
 /// failure, and the close goes on without it. The clean stop is recorded only for a file vouched
 /// for, with no damage found, no write left unfinished, no failure here and `is_stop_failed` false.
 /// Answers each step's failure, every step having run.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's stop, which closes the data folder")
-)]
 pub(crate) async fn close_database_file(
     file: DatabaseFile,
     remaining: Duration,
