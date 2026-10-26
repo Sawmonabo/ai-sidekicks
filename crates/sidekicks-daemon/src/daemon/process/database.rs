@@ -51,7 +51,7 @@ use crate::database::writer::{
 };
 use crate::error_description::describe_error;
 use crate::events::log_service::{
-    EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
+    EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies, ProjectionError,
 };
 use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::events::session::followers::SessionEventFollowers;
@@ -612,7 +612,7 @@ async fn open_writer(
 // directory row first, which the others' rows refer to, then the questions' queued answers.
 fn session_projection_statements(
     envelope: &UnsequencedEventEnvelope,
-) -> Result<Vec<WriteStatement>, Box<dyn Error + Send + Sync>> {
+) -> Result<Vec<WriteStatement>, ProjectionError> {
     let mut statements = directory_statements_for(&DirectoryEvent::from(envelope))?;
     statements.extend(question_projection_statements(envelope));
     Ok(statements)
@@ -726,10 +726,10 @@ impl CheckFollower {
     }
 
     // Starts the check of the file and the task acting on its answer.
-    fn start(acts: CheckAnswerDeps) -> Self {
-        let check = DatabaseFileCheck::start(acts.database_path.clone());
+    fn start(deps: CheckAnswerDeps) -> Self {
+        let check = DatabaseFileCheck::start(deps.database_path.clone());
         let stop = CancellationToken::new();
-        let task = tokio::spawn(follow_check(check, stop.clone(), acts));
+        let task = tokio::spawn(follow_check(check, stop.clone(), deps));
         Self {
             stop,
             task: Some(task),
@@ -757,7 +757,7 @@ impl CheckFollower {
 async fn follow_check(
     mut check: DatabaseFileCheck,
     stop: CancellationToken,
-    acts: CheckAnswerDeps,
+    deps: CheckAnswerDeps,
 ) -> Option<WritesRelease> {
     let check_started = Instant::now();
     let answered = tokio::select! {
@@ -778,7 +778,7 @@ async fn follow_check(
         process_state,
         is_vouched,
         truncation,
-    } = acts;
+    } = deps;
     match answer {
         Ok(DatabaseFileCheckAnswer::Sound) => {
             tracing::info!(

@@ -85,7 +85,8 @@ impl DatabaseFileCheck {
         self.stop.cancel();
     }
 
-    /// What the check found, awaited until it answers once. Fails when the check could not run.
+    /// What the check found; await it until it answers, never after, since a finished check's
+    /// answer is taken once. Fails when the check could not run.
     pub async fn answer(&mut self) -> Result<DatabaseFileCheckAnswer, DatabaseFileCheckError> {
         (&mut self.task)
             .await

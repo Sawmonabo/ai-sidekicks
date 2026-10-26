@@ -1,7 +1,7 @@
 //! The background jobs the start schedules once its recovery pass has ended: the writer's passive
 //! checkpoint and daily optimize, the hourly diagnostic-log expiry, the crash report pass at once
-//! and then on the expiry's tick, and the daily backup; and the one-shot collect that hands freed
-//! memory back once the daemon's work goes quiet.
+//! and then hourly, and the daily backup; and the one-shot collect that hands freed memory back
+//! once the daemon's work goes quiet.
 
 use std::error::Error;
 use std::path::PathBuf;
