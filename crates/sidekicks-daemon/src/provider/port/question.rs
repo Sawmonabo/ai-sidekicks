@@ -3,6 +3,9 @@
 //! daemon's tool-server client hands the questions a tool server's task asks, whose answer goes
 //! back through the client.
 
+#[cfg(test)]
+pub(crate) mod test_card;
+
 use std::error::Error;
 use std::pin::{Pin, pin};
 use std::sync::{Arc, LazyLock};

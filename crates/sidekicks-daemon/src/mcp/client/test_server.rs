@@ -1,25 +1,22 @@
 //! An in-process tool server for the client's tests: hand-written JSON lines over a pipe, so it can
 //! answer in the 2025-11-25 shapes rmcp's own server no longer writes, stay silent, write a line
 //! `serde_json` would not, or send a request of its own before it replies; each message it
-//! receives is kept with the instant it arrived. Beside it, a questions card that takes one open
-//! question per run at a time, as a run waiting on one does, keeps the rest waiting for their run
-//! until it reads running again, and can hold back its takes' outcomes and its withdrawals.
+//! receives is kept with the instant it arrived.
 
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
-use sidekicks_contracts::question::{QuestionAnswer, QuestionAskedState};
+use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt, BufReader};
-use tokio::sync::{Notify, mpsc, watch};
-use tokio::time::{Duration, Instant, timeout};
+use tokio::sync::{mpsc, watch};
+use tokio::time::Instant;
 
 use crate::mcp::client::McpClient;
 use crate::mcp::client::connection::{McpConnectionScope, McpServerConnection};
@@ -29,10 +26,8 @@ use crate::mcp::client::tasks::{
     McpTaskContact, McpTaskDispatchIdentity, McpTaskHandleObservation, McpTaskHandleSink,
     McpToolCall,
 };
-use crate::provider::port::question::{
-    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, ToolServerQuestionAnswer,
-    WaitingQuestionOpening,
-};
+use crate::provider::port::question::QuestionPort;
+use crate::provider::port::question::test_card::QuestionCard;
 use crate::provider::port::registration::PortRegistration;
 
 /// What the server does with one request.
@@ -244,267 +239,6 @@ pub(super) fn test_client() -> (McpClient, Arc<QuestionCard>) {
         McpClient::new(Arc::new(questions)).expect("the client builds"),
         card,
     )
-}
-
-/// One question on the card with its answerer.
-type CardQuestion = (ProviderQuestion, Arc<dyn ToolServerQuestionAnswer>);
-
-/// A questions card that holds one open question per run, as a run waiting on one refuses a
-/// second, its run reading running again once none is open: each question opened, those still
-/// open with their answerers until answered or withdrawn, and those waiting for their run.
-#[derive(Default)]
-pub(super) struct QuestionCard {
-    taken: Mutex<Vec<ProviderQuestion>>,
-    open: Mutex<Vec<CardQuestion>>,
-    waiting: Mutex<Vec<CardQuestion>>,
-    asked: Notify,
-    /// Notified whenever an open question is answered or withdrawn, as its run reads running.
-    closed: Notify,
-    take_gate: Mutex<Option<Arc<Notify>>>,
-    withdraw_gate: Mutex<Option<Arc<Notify>>>,
-}
-
-impl QuestionCard {
-    /// Every question the card opened, in order.
-    pub(super) fn taken(&self) -> Vec<ProviderQuestion> {
-        self.taken.lock().expect("never poisoned").clone()
-    }
-
-    /// The questions on the card waiting for their run, in the order they came.
-    pub(super) fn waiting(&self) -> Vec<ProviderQuestion> {
-        self.waiting
-            .lock()
-            .expect("never poisoned")
-            .iter()
-            .map(|(question, _)| question.clone())
-            .collect()
-    }
-
-    // Opens `question` with `answer`; the open list's lock is held by the caller.
-    fn open_question(
-        &self,
-        open: &mut Vec<CardQuestion>,
-        question: ProviderQuestion,
-        answer: Arc<dyn ToolServerQuestionAnswer>,
-    ) {
-        self.taken
-            .lock()
-            .expect("never poisoned")
-            .push(question.clone());
-        open.push((question, answer));
-        self.asked.notify_waiters();
-    }
-
-    // Whether `run_id` has a question open, so the run does not read running.
-    fn is_waiting_on_question(open: &[CardQuestion], run_id: RunId) -> bool {
-        open.iter().any(|(held, _)| held.run_id == run_id)
-    }
-
-    /// Waits until no question is open, as once every one was answered or withdrawn; fails the
-    /// test past 60 s.
-    pub(super) async fn wait_until_none_open(&self) {
-        let none_open = async {
-            while !self.open.lock().expect("never poisoned").is_empty() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        };
-        timeout(Duration::from_secs(60), none_open)
-            .await
-            .expect("every question is answered or withdrawn");
-    }
-
-    /// Waits until the card took `count` questions; fails the test past 60 s.
-    pub(super) async fn wait_until_taken(&self, count: usize) {
-        let taken = async {
-            while self.taken().len() < count {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        };
-        timeout(Duration::from_secs(60), taken)
-            .await
-            .expect("the card takes the questions");
-    }
-
-    /// Waits until `count` questions wait for their run on the card; fails the test past 60 s.
-    pub(super) async fn wait_until_waiting(&self, count: usize) {
-        let waiting = async {
-            while self.waiting().len() < count {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        };
-        timeout(Duration::from_secs(60), waiting)
-            .await
-            .expect("the card holds the questions waiting for their run");
-    }
-
-    /// Waits until no question waits for its run on the card, as once each was opened or
-    /// withdrawn; fails the test past 60 s.
-    pub(super) async fn wait_until_none_waiting(&self) {
-        let none_waiting = async {
-            while !self.waiting().is_empty() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        };
-        timeout(Duration::from_secs(60), none_waiting)
-            .await
-            .expect("no question waits for its run");
-    }
-
-    /// Holds back the outcome of each later take until the returned gate is notified, the question
-    /// already on the card, as a take whose write is enqueued before it answers.
-    pub(super) fn hold_takes(&self) -> Arc<Notify> {
-        let gate = Arc::new(Notify::new());
-        *self.take_gate.lock().expect("never poisoned") = Some(Arc::clone(&gate));
-        gate
-    }
-
-    /// Holds back each later withdrawal until the returned gate is notified, the question still
-    /// open, as a withdrawal whose write waits behind another.
-    pub(super) fn hold_withdrawals(&self) -> Arc<Notify> {
-        let gate = Arc::new(Notify::new());
-        *self.withdraw_gate.lock().expect("never poisoned") = Some(Arc::clone(&gate));
-        gate
-    }
-
-    /// Waits for an open question, answers the oldest with `answers` through its answerer and
-    /// closes it.
-    pub(super) async fn answer_open(&self, answers: Vec<QuestionAnswer>) -> ProviderQuestion {
-        loop {
-            let asked = self.asked.notified();
-            let open = {
-                let mut open = self.open.lock().expect("never poisoned");
-                (!open.is_empty()).then(|| open.remove(0))
-            };
-            if let Some((question, answer)) = open {
-                answer.answer(answers).await.expect("the answer is sent");
-                self.closed.notify_waiters();
-                return question;
-            }
-            asked.await;
-        }
-    }
-}
-
-impl QuestionPort for QuestionCard {
-    fn take_tool_server_question(
-        &self,
-        question: ProviderQuestion,
-        answer: Arc<dyn ToolServerQuestionAnswer>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        let taken = {
-            let mut open = self.open.lock().expect("never poisoned");
-            if Self::is_waiting_on_question(&open, question.run_id) {
-                Err("the run already waits on a question".into())
-            } else {
-                self.open_question(&mut open, question, answer);
-                Ok(())
-            }
-        };
-        let gate = self.take_gate.lock().expect("never poisoned").clone();
-        async move {
-            if let Some(gate) = gate {
-                gate.notified().await;
-            }
-            taken
-        }
-        .boxed()
-    }
-
-    fn record_question_in_turn(
-        &self,
-        question: ProviderQuestion,
-        answer: Option<Arc<dyn ToolServerQuestionAnswer>>,
-        may_open: bool,
-    ) -> BoxFuture<'_, Result<QuestionAskedState, Box<dyn Error + Send + Sync>>> {
-        let Some(answer) = answer else {
-            return async { Err("the tool-server client asks no driver question".into()) }.boxed();
-        };
-        let taking = {
-            let mut open = self.open.lock().expect("never poisoned");
-            if may_open && !Self::is_waiting_on_question(&open, question.run_id) {
-                self.open_question(&mut open, question, answer);
-                QuestionAskedState::Open
-            } else {
-                self.waiting
-                    .lock()
-                    .expect("never poisoned")
-                    .push((question, answer));
-                QuestionAskedState::WaitingForRun
-            }
-        };
-        let gate = self.take_gate.lock().expect("never poisoned").clone();
-        async move {
-            if let Some(gate) = gate {
-                gate.notified().await;
-            }
-            Ok(taking)
-        }
-        .boxed()
-    }
-
-    fn open_waiting_question(
-        &self,
-        _session_id: SessionId,
-        request_id: String,
-    ) -> BoxFuture<'_, Result<WaitingQuestionOpening, Box<dyn Error + Send + Sync>>> {
-        let opening = {
-            let mut open = self.open.lock().expect("never poisoned");
-            let mut waiting = self.waiting.lock().expect("never poisoned");
-            match waiting
-                .iter()
-                .position(|(held, _)| held.request_id == request_id)
-            {
-                None => WaitingQuestionOpening::Settled,
-                Some(place) if Self::is_waiting_on_question(&open, waiting[place].0.run_id) => {
-                    WaitingQuestionOpening::RunNotRunning
-                }
-                Some(place) => {
-                    let (question, answer) = waiting.remove(place);
-                    self.open_question(&mut open, question, answer);
-                    WaitingQuestionOpening::Opened
-                }
-            }
-        };
-        async move { Ok(opening) }.boxed()
-    }
-
-    fn wait_until_running(
-        &self,
-        run_id: RunId,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        async move {
-            let mut closed = std::pin::pin!(self.closed.notified());
-            closed.as_mut().enable();
-            if Self::is_waiting_on_question(&self.open.lock().expect("never poisoned"), run_id) {
-                closed.await;
-            }
-            Ok(())
-        }
-        .boxed()
-    }
-
-    fn withdraw_question(
-        &self,
-        withdrawal: ProviderQuestionWithdrawal,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        let gate = self.withdraw_gate.lock().expect("never poisoned").clone();
-        async move {
-            if let Some(gate) = gate {
-                gate.notified().await;
-            }
-            self.open
-                .lock()
-                .expect("never poisoned")
-                .retain(|(held, _)| held.request_id != withdrawal.request_id);
-            self.waiting
-                .lock()
-                .expect("never poisoned")
-                .retain(|(held, _)| held.request_id != withdrawal.request_id);
-            self.closed.notify_waiters();
-            Ok(())
-        }
-        .boxed()
-    }
 }
 
 /// A sink that keeps each handle with how many `tasks/get` the server had received by then.

@@ -12,6 +12,8 @@ use crate::provider::driver::claude::session::scripted::daemon_services::PortCal
 use crate::provider::driver::claude::session::scripted::{ScriptedSession, settle};
 use crate::provider::driver::claude::session::tool_server_calls::ClaudeToolServerCalls;
 use crate::provider::driver::contract::ProviderRequestAnswer;
+use crate::provider::port::question::QuestionPort;
+use crate::provider::port::question::test_card::QuestionCard;
 
 fn tool_ask(tool_use_id: &str) -> Value {
     json!({
@@ -131,4 +133,43 @@ async fn a_questions_answers_are_keyed_by_its_words_with_several_picks_joined() 
         answers[0]["updatedInput"]["answers"],
         json!({"Which colors?": "Red, Blue", "Which name?": "Ada"})
     );
+}
+
+// Claude Code withdraws a question while its record's write is still queued: the withdrawal finds
+// nothing on the card, and the question's own take withdraws it once the record lands. Killed by
+// leaving the let-go out of a pending request's close.
+#[tokio::test(start_paused = true)]
+async fn a_question_withdrawn_before_its_record_landed_is_withdrawn_once_it_lands() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    let card = Arc::new(QuestionCard::default());
+    card.hold_records();
+    let port: Arc<dyn QuestionPort> = card.clone();
+    assert!(
+        session
+            .requests
+            .dependencies
+            .questions
+            .register(port)
+            .is_ok()
+    );
+    session.request(
+        "question",
+        &json!({
+            "subtype": "can_use_tool",
+            "tool_name": "AskUserQuestion",
+            "tool_use_id": "call-1",
+            "input": {"questions": [{"question": "Which name?", "header": "Name", "options": []}]},
+        }),
+    );
+    card.wait_until_records_held(1).await;
+
+    session.cancel("question");
+    card.wait_until_withdrawals(1).await;
+    assert!(card.taken().is_empty(), "the withdrawal finds nothing");
+    card.land_records();
+    card.wait_until_withdrawals(2).await;
+
+    assert_eq!(card.taken().len(), 1, "the record landed");
+    card.wait_until_none_open().await;
 }

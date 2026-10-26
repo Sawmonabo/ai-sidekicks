@@ -23,6 +23,7 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
 use self::pending::{HeldRequest, PendingRequest, RequestTables};
 use crate::mutex_lock::lock;
@@ -435,7 +436,7 @@ impl ClaudeInboundRequests {
             input: input.clone(),
             action: reading.action.clone(),
         });
-        let Some(admitted) = self
+        let Some((admitted, _let_go)) = self
             .admit(
                 session,
                 &request_id,
@@ -580,7 +581,7 @@ impl ClaudeInboundRequests {
             ClaudeQuestionRoute::Ask => "control_request/can_use_tool",
             ClaudeQuestionRoute::Hook => "control_request/hook_callback",
         };
-        let Some(admitted) = self
+        let Some((admitted, let_go)) = self
             .admit(session, &request_id, run, None, held, wire)
             .await
         else {
@@ -598,21 +599,28 @@ impl ClaudeInboundRequests {
         };
         // Taken in its run's turn, its place in the run's line taken before its task runs: asked
         // while the run waits on something else, it waits on the card for the run; withdrawn or
-        // ended with its run meanwhile, it is never taken.
+        // ended with its run meanwhile, it is never taken, and once Claude Code let it go its take
+        // withdraws it after its record's write.
         let turn = QuestionTurn::line_up(question.run_id);
         tokio::spawn(async move {
-            let taken =
-                take_question_in_turn(port.as_ref(), question, None, turn, std::future::pending())
-                    .await;
+            let taken = take_question_in_turn(
+                port.as_ref(),
+                question,
+                None,
+                turn,
+                let_go.cancelled_owned(),
+            )
+            .await;
             if let Err(error) = taken {
                 record_hand_off_failure(session_id, admitted, error.as_ref());
             }
         });
     }
 
-    // Records the request pending and admits it on its run's execution; `Some` with its kind once
-    // admitted and still pending, so it is handed on. An ask from before an undo's cut is absorbed
-    // and never shown, and one withdrawn before it was admitted never reaches its service.
+    // Records the request pending and admits it on its run's execution; `Some` with its kind and
+    // its letting go once admitted and still pending, so it is handed on. An ask from before an
+    // undo's cut is absorbed and never shown, and one withdrawn before it was admitted never
+    // reaches its service.
     async fn admit(
         &self,
         session: &ClaudeRequestSession<'_>,
@@ -621,7 +629,7 @@ impl ClaudeInboundRequests {
         tool_call_id: Option<&str>,
         held: HeldRequest,
         wire: &str,
-    ) -> Option<&'static str> {
+    ) -> Option<(&'static str, CancellationToken)> {
         let session_id = session.stream.session_id();
         let kind = held.kind();
         let admission = self.lock().record(session_id, request_id, held);
@@ -648,7 +656,7 @@ impl ClaudeInboundRequests {
         if is_admitted {
             return tables
                 .mark_handed_on(session_id, request_id, admission)
-                .then_some(kind);
+                .map(|let_go| (kind, let_go));
         }
         if tables.is_pending(session_id, request_id, admission) {
             tables.close(session_id, request_id);

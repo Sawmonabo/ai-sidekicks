@@ -129,15 +129,18 @@ struct CodexAskState {
     /// approved on, taken by Codex's next ask for it in the same turn and dropped when the turn
     /// ends.
     corrections: HashMap<SessionId, HashMap<String, HashMap<String, ApprovalRequestId>>>,
-    /// The question pending on each turn, by session then turn.
+    /// The questions held for their card, by session then Codex's request id.
     pending_questions: HashMap<SessionId, HashMap<String, PendingQuestion>>,
 }
 
-/// A question pending on its turn: its request id, and the replacement that ends its take.
+/// A question held for its card, and Codex's letting go of it, which ends its take.
 struct PendingQuestion {
-    request_id: String,
-    /// Canceled once a later question of the turn replaces it.
-    replaced: CancellationToken,
+    /// The turn a user-input question is pending on, where Codex keeps one, so a later one there
+    /// replaces it.
+    pending_on_turn: Option<String>,
+    /// Canceled once Codex lets go of it: answered, withdrawn, replaced by a later question of its
+    /// turn, its turn ended or its session closed.
+    let_go: CancellationToken,
 }
 
 /// Hands Codex's approvals and questions to the run engine, then to their owner, and carries the
@@ -308,20 +311,39 @@ impl CodexAskHandOff {
     }
 
     /// Forgets the approvals a closed session held, the corrections it waited on and its pending
-    /// questions.
+    /// questions, each one's take told it was let go.
     pub(crate) fn forget_session(&self, session_id: SessionId) {
         let mut state = lock(&self.state);
         state.held_approvals.remove(&session_id);
         state.corrections.remove(&session_id);
-        state.pending_questions.remove(&session_id);
+        for question in state
+            .pending_questions
+            .remove(&session_id)
+            .into_iter()
+            .flat_map(HashMap::into_values)
+        {
+            question.let_go.cancel();
+        }
     }
 
     /// Drops the corrections an ended turn's asks could have carried out, which no later turn may,
-    /// and the question it had pending, which Codex let go of with it.
+    /// and the questions it had pending, which Codex let go of with it, each one's take told so.
     pub(crate) fn forget_turn_corrections(&self, session_id: SessionId, turn_id: &str) {
         let mut state = lock(&self.state);
         remove_nested(&mut state.corrections, session_id, turn_id);
-        remove_nested(&mut state.pending_questions, session_id, turn_id);
+        let Some(pending) = state.pending_questions.get_mut(&session_id) else {
+            return;
+        };
+        pending.retain(|_, question| {
+            let is_of_turn = question.pending_on_turn.as_deref() == Some(turn_id);
+            if is_of_turn {
+                question.let_go.cancel();
+            }
+            !is_of_turn
+        });
+        if pending.is_empty() {
+            state.pending_questions.remove(&session_id);
+        }
     }
 
     // Reads what an approval would do and the card a corrected command or path carries out; a
@@ -436,10 +458,10 @@ impl CodexAskHandOff {
         }
     }
 
-    // Holds a question for the questions card, taken in its run's turn. Codex keeps one question
-    // pending per turn and a second replaces the first, so the first's card is taken back and its
-    // ask let go: its own take withdraws it once its record is written, and its card is withdrawn
-    // here for a take that already ended.
+    // Holds a question for the questions card, taken in its run's turn until Codex lets go of it,
+    // which its take reads as its asker leaving: its own take withdraws it once its record is
+    // written, and its card is withdrawn where it is let go, for a take that already ended. Codex
+    // keeps one user-input question pending per turn, so a second there lets the first go.
     fn hand_question(
         &self,
         record: &CodexSessionRecord,
@@ -449,30 +471,35 @@ impl CodexAskHandOff {
     ) -> CodexServerRequestDecision {
         let session_id = record.session_id;
         let provider_account_id = record.provider_account_id.clone();
-        let replaced_by_later = CancellationToken::new();
-        if request.method == CodexRoutedMethod::UserInputRequest
-            && let Some(turn_id) = read_non_empty_string(params, "turnId")
-        {
-            let pending = PendingQuestion {
-                request_id: request.request_id.clone(),
-                replaced: replaced_by_later.clone(),
+        let let_go = CancellationToken::new();
+        let pending_on_turn = (request.method == CodexRoutedMethod::UserInputRequest)
+            .then(|| read_non_empty_string(params, "turnId").map(str::to_owned))
+            .flatten();
+        let replaced = {
+            let mut state = lock(&self.state);
+            let pending = state.pending_questions.entry(session_id).or_default();
+            let replaced = pending_on_turn.as_deref().and_then(|turn_id| {
+                let replaced_id = pending
+                    .iter()
+                    .find(|(_, question)| question.pending_on_turn.as_deref() == Some(turn_id))
+                    .map(|(request_id, _)| request_id.clone())?;
+                pending
+                    .remove(&replaced_id)
+                    .map(|question| (replaced_id, question))
+            });
+            let question = PendingQuestion {
+                pending_on_turn,
+                let_go: let_go.clone(),
             };
-            let replaced = lock(&self.state)
-                .pending_questions
-                .entry(session_id)
-                .or_default()
-                .insert(turn_id.to_owned(), pending);
-            if let Some(replaced) = replaced {
-                replaced.replaced.cancel();
-                if let Ok(connection) = record.service.connection() {
-                    connection.forget_held_request(&replaced.request_id);
-                }
-                self.withdraw_question_card(
-                    session_id,
-                    provider_account_id.clone(),
-                    replaced.request_id,
-                );
+            pending.insert(request.request_id.clone(), question);
+            replaced
+        };
+        if let Some((replaced_id, replaced)) = replaced {
+            replaced.let_go.cancel();
+            if let Ok(connection) = record.service.connection() {
+                connection.forget_held_request(&replaced_id);
             }
+            self.withdraw_question_card(session_id, provider_account_id.clone(), replaced_id);
         }
         let Some(port) = self.dependencies.owners.questions.port().cloned() else {
             return CodexServerRequestDecision::Held { on_held: None };
@@ -486,7 +513,7 @@ impl CodexAskHandOff {
         };
         let tasks = self.dependencies.tasks.clone();
         // Asked while the run waits on something else, the question waits on the card for the
-        // run; replaced meanwhile, it is withdrawn.
+        // run; let go meanwhile, it is withdrawn.
         let take_question = move || {
             // Its place in its run's line is taken before its task runs.
             let turn = QuestionTurn::line_up(question.run_id);
@@ -496,7 +523,7 @@ impl CodexAskHandOff {
                     question,
                     None,
                     turn,
-                    replaced_by_later.cancelled_owned(),
+                    let_go.cancelled_owned(),
                 )
                 .await;
                 if let Err(error) = taken {
@@ -572,13 +599,16 @@ impl CodexAskHandOff {
         approval
     }
 
+    // Forgets a question Codex let go of, answered or withdrawn, its take told so.
     fn forget_question(&self, session_id: SessionId, request_id: &str) {
         let mut state = lock(&self.state);
-        let Some(by_turn) = state.pending_questions.get_mut(&session_id) else {
+        let Some(pending) = state.pending_questions.get_mut(&session_id) else {
             return;
         };
-        by_turn.retain(|_, pending| pending.request_id != request_id);
-        if by_turn.is_empty() {
+        if let Some(question) = pending.remove(request_id) {
+            question.let_go.cancel();
+        }
+        if pending.is_empty() {
             state.pending_questions.remove(&session_id);
         }
     }
