@@ -1,6 +1,7 @@
 //! A question asked while its run waits on another: recorded at once waiting for the run, opened
 //! only once the run reads running, and canceled with the run's end while it still waits.
 
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -34,6 +35,29 @@ fn sequence_of(fixture: &Fixture, event_type: &str) -> i64 {
         .expect("the event's sequence reads")
 }
 
+/// Polls `take` until the log records `count` questions; fails the test should the take end
+/// first, as a question taken while its run waited, or 60 s pass.
+async fn drive_until_asked(fixture: &Fixture, count: usize, mut take: Pin<&mut impl Future>) {
+    let asked = async {
+        while fixture.payloads("question.asked").len() < count {
+            tokio::select! {
+                _ = &mut take => panic!("the question was taken while its run waited"),
+                () = tokio::time::sleep(Duration::from_millis(10)) => {}
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(60), asked)
+        .await
+        .expect("the question is recorded");
+}
+
+/// Awaits `work`, failing the test past 60 s.
+async fn bounded<T>(work: impl Future<Output = T>) -> T {
+    tokio::time::timeout(Duration::from_secs(60), work)
+        .await
+        .expect("the work ends in time")
+}
+
 /// The id of the `index`th question the log records.
 fn asked_id(fixture: &Fixture, index: usize) -> QuestionId {
     serde_json::from_value(fixture.payloads("question.asked")[index]["questionId"].clone())
@@ -65,12 +89,7 @@ async fn a_question_asked_while_its_run_waits_opens_once_the_first_answer_moves_
         std::future::pending(),
     );
     tokio::pin!(second);
-    while fixture.payloads("question.asked").len() < 2 {
-        tokio::select! {
-            _ = &mut second => panic!("the second question was taken while its run waited"),
-            () = tokio::time::sleep(Duration::from_millis(10)) => {}
-        }
-    }
+    drive_until_asked(&fixture, 2, second.as_mut()).await;
     let waiting = asked_id(&fixture, 1);
     assert_eq!(
         fixture.payloads("question.asked")[1]["state"],
@@ -80,10 +99,13 @@ async fn a_question_asked_while_its_run_waits_opens_once_the_first_answer_moves_
     assert_eq!(fixture.state(first), "open");
     assert_eq!(fixture.run_state(), "waitingForInput");
 
-    let (answered, taken) = tokio::join!(
-        fixture.answer(first, json!([{ "kind": "picked", "labels": ["Alpha"] }])),
-        &mut second
-    );
+    let (answered, taken) = bounded(async {
+        tokio::join!(
+            fixture.answer(first, json!([{ "kind": "picked", "labels": ["Alpha"] }])),
+            &mut second
+        )
+    })
+    .await;
 
     answered.expect("the first question is answered");
     assert_eq!(taken.expect("the turn ends"), QuestionTurnEnd::Taken);
@@ -105,19 +127,17 @@ async fn a_question_asked_while_its_run_waits_opens_once_the_first_answer_moves_
         std::future::pending(),
     );
     tokio::pin!(third);
-    while fixture.payloads("question.asked").len() < 3 {
-        tokio::select! {
-            _ = &mut third => panic!("the third question was taken while its run waited"),
-            () = tokio::time::sleep(Duration::from_millis(10)) => {}
-        }
-    }
-    let (ended, third_end) = tokio::join!(
-        fixture.engine.transition(
-            RunStateChange::new(fixture.run_id, failed()),
-            RunStateChangeCompanions::default(),
-        ),
-        &mut third
-    );
+    drive_until_asked(&fixture, 3, third.as_mut()).await;
+    let (ended, third_end) = bounded(async {
+        tokio::join!(
+            fixture.engine.transition(
+                RunStateChange::new(fixture.run_id, failed()),
+                RunStateChangeCompanions::default(),
+            ),
+            &mut third
+        )
+    })
+    .await;
 
     ended.expect("the run ends");
     assert_eq!(third_end.expect("the turn ends"), QuestionTurnEnd::Settled);
@@ -183,14 +203,9 @@ async fn a_waiting_question_its_provider_withdraws_ends_its_turn_at_once() {
         std::future::pending(),
     );
     tokio::pin!(second);
-    while fixture.payloads("question.asked").len() < 2 {
-        tokio::select! {
-            _ = &mut second => panic!("the second question was taken while its run waited"),
-            () = tokio::time::sleep(Duration::from_millis(10)) => {}
-        }
-    }
+    drive_until_asked(&fixture, 2, second.as_mut()).await;
 
-    let (withdrawn, ended) = tokio::time::timeout(Duration::from_secs(30), async {
+    let (withdrawn, ended) = bounded(async {
         tokio::join!(
             fixture
                 .questions
@@ -201,8 +216,7 @@ async fn a_waiting_question_its_provider_withdraws_ends_its_turn_at_once() {
             &mut second
         )
     })
-    .await
-    .expect("the withdrawn question's turn ends");
+    .await;
 
     withdrawn.expect("the withdrawal is taken");
     assert_eq!(ended.expect("the turn ends"), QuestionTurnEnd::Settled);
