@@ -172,13 +172,13 @@ mod tests {
 
     #[rstest]
     // `ï` split across two chunks decodes once, as itself.
-    #[case::a_split_character(tail_of::<10>(&[b"na\xC3".as_slice(), b"\xAFve".as_slice()]), "naïve")]
+    #[case::a_split_character(tail_of::<10>(&[&b"na\xC3"[..], &b"\xAFve"[..]]), "naïve")]
     // A sequence left unfinished at the end reads as one U+FFFD.
     #[case::an_unfinished_character(tail_of::<10>(&[b"ok\xE2\x82".as_slice()]), "ok\u{FFFD}")]
     // The last three code points start inside `e` with its accent, so the cut moves past both.
     #[case::a_grapheme_boundary(tail_of::<3>(&[b"abe\xCC\x81cd".as_slice()]), "cd")]
     // Long output trimmed while it streams keeps exactly the last code points.
-    #[case::the_last_code_points(tail_of::<4>(&[b"0123456789".as_slice(), b"abcdef".as_slice()]), "cdef")]
+    #[case::the_last_code_points(tail_of::<4>(&[&b"0123456789"[..], &b"abcdef"[..]]), "cdef")]
     #[case::blank_output(tail_of::<10>(&[b" \n\t".as_slice()]), "(no output)")]
     #[case::no_output(tail_of::<10>(&[]), "(no output)")]
     fn keeps_the_tail(#[case] tail: String, #[case] expected: &str) {

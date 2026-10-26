@@ -246,12 +246,12 @@ enum TaskInput {
 async fn cancel_for_unsupported_input(connection: &McpServerConnection, mcp_task_id: &str) {
     tracing::warn!(
         server = connection.scope.server_name.as_str(),
-        "a tool server task asked for sampling, which the client does not take; canceled"
+        "a tool server task asked for input the client does not take; canceled"
     );
     if let Err(error) = connection.requests.cancel_v2_task(mcp_task_id).await {
         tracing::warn!(
             error = &error as &(dyn Error + 'static),
-            "a tool server task asking for sampling was not canceled"
+            "a tool server task asking for input the client does not take was not canceled"
         );
     }
 }
@@ -501,7 +501,7 @@ mod tests {
                 "k2 is answered after k1"
             );
         }
-        assert!(server.requests("tasks/get").len() >= 3);
+        assert_eq!(server.requests("tasks/get").len(), 3);
     }
 
     /// The keys of every `tasks/update` answer `server` received, each with its answer, in key

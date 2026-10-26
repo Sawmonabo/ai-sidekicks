@@ -154,7 +154,7 @@ impl Drop for TrackedCall<'_> {
 mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
-    use tokio::time::Duration;
+    use tokio::time::{Duration, timeout};
 
     use crate::mcp::client::tasks::McpToolCallEnd;
     use crate::mcp::client::test_server::{
@@ -239,10 +239,14 @@ mod tests {
         let sink = CountingSink::new(&server);
         let contact = contact();
 
-        let (end, question) = tokio::join!(
-            connection.call_tool(call, &sink, &contact),
-            card.answer_open(board_answer()),
-        );
+        let (end, question) = timeout(Duration::from_secs(60), async {
+            tokio::join!(
+                connection.call_tool(call, &sink, &contact),
+                card.answer_open(board_answer()),
+            )
+        })
+        .await
+        .expect("the call and its question end");
 
         let McpToolCallEnd::Answered { result } = end.expect("the call ends") else {
             panic!("the call is answered");

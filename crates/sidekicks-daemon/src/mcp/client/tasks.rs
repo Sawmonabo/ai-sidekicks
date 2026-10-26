@@ -156,8 +156,8 @@ pub(crate) enum McpToolCallError {
     /// The server accepted the call as a task but named no task.
     #[error("the tool server accepted the call as a task without naming the task")]
     AcceptanceWithoutHandle,
-    /// The server asked the call for sampling, which the client does not take.
-    #[error("the tool server asked for sampling, which the client does not take")]
+    /// The server asked the call for input the client does not take, such as sampling.
+    #[error("the tool server asked for input the client does not take")]
     UnsupportedInputRequest,
     /// The server asked for input more rounds than a call drives.
     #[error("the tool server asked for input more than {max_rounds} times")]
