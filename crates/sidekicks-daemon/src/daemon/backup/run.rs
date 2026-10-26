@@ -34,6 +34,7 @@ use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
 use sidekicks_contracts::event::envelope::{DAEMON_SCOPE_SENTINEL_SESSION_ID, EventOccurredAt};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::machine::settings::BackupSettings;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -107,10 +108,15 @@ pub(crate) async fn backup_folder(
     home_folder: &Path,
 ) -> Result<PathBuf, MachineSettingsFileError> {
     let settings = settings.read().await?.settings.backup;
-    Ok(settings.folder.map_or_else(
+    Ok(backup_folder_of(&settings, home_folder))
+}
+
+// The backups folder `Back up to` names in `backup`, or the default one under `home_folder`.
+fn backup_folder_of(backup: &BackupSettings, home_folder: &Path) -> PathBuf {
+    backup.folder.as_ref().map_or_else(
         || data_folder(home_folder).join(BACKUP_DEFAULT_FOLDER_NAME),
         |folder| PathBuf::from(folder.as_str()),
-    ))
+    )
 }
 
 /// What asked for a run, weakest first: a request joining a queued run keeps the stronger.
@@ -381,7 +387,7 @@ impl Backups {
         if is_skipped {
             return Ok(None);
         }
-        let folder = self.folder().await?;
+        let folder = backup_folder_of(&settings, &self.deps.home_folder);
         let written = self.write_backup(&folder, stop, meter, &mut joined).await;
         let mut copied = None;
         let event = match written {
