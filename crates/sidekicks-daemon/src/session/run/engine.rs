@@ -78,9 +78,9 @@ use crate::settle_all::{SettleFailures, settle_all};
 /// cuts and the queued messages waiting for it, the number a run's next turn takes, its newest open
 /// turn and every open turn, its provider, whether it ended since a version, its interventions with
 /// no outcome and one session's ended runs still holding one, the two agent reads, and the run
-/// end's reads of its open held questions (`OPEN_HELD_OF_RUN_SQL`), its plans still holding a
-/// request (`HELD_PLANS_OF_RUN_SQL`) and its open choices (the newest request of each dialog and
-/// whether it was settled since).
+/// end's reads of its held questions open or waiting for it (`UNSETTLED_HELD_OF_RUN_SQL`), its
+/// plans still holding a request (`HELD_PLANS_OF_RUN_SQL`) and its open choices (the newest
+/// request of each dialog and whether it was settled since).
 pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 19 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.

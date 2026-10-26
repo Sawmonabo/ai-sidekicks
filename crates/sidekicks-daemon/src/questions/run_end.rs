@@ -13,7 +13,7 @@ use sidekicks_contracts::run::state::RunState;
 use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use crate::plans::store::{hold_end_write, read_held_plans_of_run};
 use crate::questions::service::canceled_event;
-use crate::questions::store::{read_open_held_questions, settle_question_statement};
+use crate::questions::store::{read_unsettled_held_questions, settle_question_statement};
 use crate::session::run::engine::RunEngineError;
 use crate::session::run::provider_choice::read_open_choice_settlements;
 use crate::session::run::read::RunStateReader;
@@ -44,7 +44,7 @@ pub(crate) async fn settle_held_requests_at_run_end(
                 None => Vec::new(),
             };
             Ok::<_, RunEngineError>((
-                read_open_held_questions(reader, &run_id)?,
+                read_unsettled_held_questions(reader, &run_id)?,
                 read_held_plans_of_run(reader, &run_id)?,
                 choices,
             ))

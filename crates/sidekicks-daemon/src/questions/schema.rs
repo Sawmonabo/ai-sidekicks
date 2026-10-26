@@ -53,8 +53,9 @@ CREATE TABLE questions (
 ) STRICT;
 
 CREATE INDEX idx_questions_session ON questions(session_id);
--- A run's end reads the questions it still holds.
-CREATE INDEX idx_questions_open_run ON questions(run_id) WHERE state IN ('{waiting}', '{open}');
+-- A run's end reads the questions it still holds, open or waiting for it.
+CREATE INDEX idx_questions_unsettled_run ON questions(run_id)
+  WHERE state IN ('{waiting}', '{open}');
 
 -- Each queued message that answers a question its agent does not wait for, until the agent takes
 -- one, which answers the question, or the message is withdrawn.

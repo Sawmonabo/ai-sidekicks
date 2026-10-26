@@ -87,7 +87,7 @@ const ASKED_SQL: &str = "SELECT payload FROM session_events
     AND json_extract(payload, '$.questionId') = @questionId";
 
 // The questions a run holds open, or waiting for it, and its agent waits on.
-static OPEN_HELD_OF_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
+static UNSETTLED_HELD_OF_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT id, session_id FROM questions
   WHERE run_id = @runId AND state IN ('{waiting}', '{open}') AND is_agent_waiting = 1
@@ -335,12 +335,12 @@ pub(crate) fn read_unsettled_among(
 
 /// The questions `run_id` holds open or waiting for it whose agent waits on them, oldest first.
 /// Fails as SQLite does, or when a stored id does not read.
-pub(crate) fn read_open_held_questions(
+pub(crate) fn read_unsettled_held_questions(
     connection: &Connection,
     run_id: &RunId,
 ) -> rusqlite::Result<Vec<HeldQuestion>> {
     connection
-        .prepare_cached(&OPEN_HELD_OF_RUN_SQL)?
+        .prepare_cached(&UNSETTLED_HELD_OF_RUN_SQL)?
         .query_map(named_params! { "@runId": run_id.text().as_str() }, |row| {
             Ok(HeldQuestion {
                 question_id: text_column(row, 0, |text| QuestionId::new(&text))?,
