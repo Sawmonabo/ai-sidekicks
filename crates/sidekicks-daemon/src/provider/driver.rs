@@ -128,6 +128,10 @@ pub(crate) struct ProviderDescriptor {
     /// diagnosis and never reads back for a session; `Keep diagnostic logs for` deletes their files
     /// by age in each account home the app manages.
     pub(crate) account_home_diagnostic_folders: &'static [&'static [&'static str]],
+    /// The folders, as components under an account home, the provider keeps its conversations
+    /// and their files in, which hold no credential; a backup keeps them in each account home the
+    /// app manages.
+    pub(crate) account_home_conversation_folders: &'static [&'static [&'static str]],
 }
 
 impl ProviderDescriptor {
@@ -215,13 +219,6 @@ impl ProviderDescriptor {
     /// Every variable the app sets on the provider's processes or its Terminal pane's shells, which
     /// a person's own environment row may not name: the process, launch, credential-home and
     /// screen-reader names. The withheld names are left out, since a person's command keeps them.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the environment rows' check refuses a name the app sets through it"
-        )
-    )]
     pub(crate) fn app_set_environment_names(&self) -> impl Iterator<Item = &'static str> {
         self.process_environment
             .iter()

@@ -1,6 +1,7 @@
-//! The account homes the app manages, from the accounts table, and the provider diagnostic folders
-//! in each, which its provider's descriptor names. No folder that holds a session's files is among
-//! them, so only `Delete old data` removes those.
+//! The account homes the app manages, from the accounts table, and the folders each provider's
+//! descriptor names in them: the ones it writes for its own diagnosis, which hold no session's
+//! files, so only `Delete old data` removes those, and the ones that hold its conversations, which
+//! a backup keeps.
 
 use std::path::{Path, PathBuf};
 
@@ -8,9 +9,10 @@ use rusqlite::Connection;
 
 use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::provider::driver::PROVIDERS;
+use crate::provider::driver::{PROVIDERS, ProviderDescriptor};
 
-const ACCOUNT_HOMES_SQL: &str = "SELECT provider, credential_home_path FROM provider_accounts";
+const ACCOUNT_HOMES_SQL: &str =
+    "SELECT account_id, provider, credential_home_path FROM provider_accounts";
 
 /// Why the account homes could not be read.
 #[derive(Debug, thiserror::Error)]
@@ -25,6 +27,8 @@ pub(crate) enum AccountHomesReadError {
 
 /// One account's home and the provider whose account it is.
 pub(crate) struct AccountHome {
+    /// The account's id.
+    pub(crate) account_id: String,
     /// The provider's id.
     pub(crate) provider: String,
     /// The account's home folder.
@@ -50,8 +54,9 @@ fn query_account_homes(connection: &Connection) -> Result<Vec<AccountHome>, Acco
     let homes = statement
         .query_map([], |row| {
             Ok(AccountHome {
-                provider: row.get(0)?,
-                home: PathBuf::from(row.get::<_, String>(1)?),
+                account_id: row.get(0)?,
+                provider: row.get(1)?,
+                home: PathBuf::from(row.get::<_, String>(2)?),
             })
         })?
         .collect::<Result<_, _>>()?;
@@ -60,14 +65,39 @@ fn query_account_homes(connection: &Connection) -> Result<Vec<AccountHome>, Acco
 
 /// The diagnostic folders `provider`'s descriptor names, under `home`.
 pub(crate) fn account_home_diagnostic_folders(provider: &str, home: &Path) -> Vec<PathBuf> {
+    descriptor_folders(provider, home, |descriptor| {
+        descriptor.account_home_diagnostic_folders
+    })
+    .map(|(_, folder)| folder)
+    .collect()
+}
+
+/// The conversation folders `provider`'s descriptor names, each with its components, under `home`.
+pub(crate) fn account_home_conversation_folders(
+    provider: &str,
+    home: &Path,
+) -> Vec<(&'static [&'static str], PathBuf)> {
+    descriptor_folders(provider, home, |descriptor| {
+        descriptor.account_home_conversation_folders
+    })
+    .collect()
+}
+
+// The folders `folders_of` reads from `provider`'s descriptor, each with its components, under
+// `home`.
+fn descriptor_folders<'home>(
+    provider: &'home str,
+    home: &'home Path,
+    folders_of: fn(&ProviderDescriptor) -> &'static [&'static [&'static str]],
+) -> impl Iterator<Item = (&'static [&'static str], PathBuf)> + 'home {
     PROVIDERS
         .iter()
-        .filter(|descriptor| descriptor.id == provider)
-        .flat_map(|descriptor| descriptor.account_home_diagnostic_folders)
-        .map(|components| {
-            components
+        .filter(move |descriptor| descriptor.id == provider)
+        .flat_map(move |descriptor| folders_of(descriptor))
+        .map(move |components| {
+            let folder = components
                 .iter()
-                .fold(home.to_path_buf(), |path, part| path.join(part))
+                .fold(home.to_path_buf(), |path, part| path.join(part));
+            (*components, folder)
         })
-        .collect()
 }

@@ -225,6 +225,15 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         &["feedback", "drafts"],
         &["usage-data"],
     ],
+    // Transcripts with their subagents' and tools' files, the pre-edit snapshots a checkpoint
+    // restores, task lists, uploads and dev mods, each kept per conversation.
+    account_home_conversation_folders: &[
+        &["projects"],
+        &["file-history"],
+        &["tasks"],
+        &["uploads"],
+        &["dev-mods"],
+    ],
 };
 
 /// Builds the Claude Code driver over the shared services; it stores handles and does no I/O.
