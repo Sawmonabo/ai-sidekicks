@@ -13,12 +13,11 @@ use std::time::{Duration, Instant};
 
 use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::tty::Pty;
-use nix::errno::Errno;
 use nix::fcntl::{FcntlArg, OFlag, fcntl};
 use nix::sys::signal::{SigSet, SigmaskHow, Signal, pthread_sigmask};
 use nix::sys::termios::{SetArg, Termios, cfmakeraw, tcgetattr, tcgetsid, tcsetattr};
 use nix::sys::wait::{WaitStatus, waitpid};
-use nix::unistd::{Pid, dup, isatty, pipe, setpgid, tcgetpgrp, tcsetpgrp};
+use nix::unistd::{Pid, dup, isatty, pipe, tcgetpgrp, tcsetpgrp};
 use polling::{Event, Events, PollMode, Poller};
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
@@ -110,7 +109,7 @@ pub fn start_in_own_group(command: &mut Command) {
 
 /// Runs the program `command` starts as the foreground job of the terminal on this process's
 /// standard input, as a job-control shell runs one: in a process group of its own, which it leads,
-/// made the terminal's foreground group by the child and by this process, so a typed stop stops it
+/// made the terminal's foreground group by the child before its exec, so a typed stop stops it
 /// where this process leads the session. Waits past a stop and answers the job's exit. Fails with
 /// the system's error when the group or the terminal cannot be set, or the program cannot start.
 pub fn run_foreground_job(command: &mut Command) -> io::Result<ExitStatus> {
@@ -127,23 +126,10 @@ pub fn run_foreground_job(command: &mut Command) -> io::Result<ExitStatus> {
             taken.map_err(io::Error::from)
         });
     }
-    let placed = command.spawn().and_then(|child| {
-        let job = Pid::from_raw(i32::try_from(child.id()).map_err(io::Error::other)?);
-        // The child set its group and took the terminal before its exec; these answer the same
-        // where it has not yet, as a shell does. Its exec or its exit refuses the group's change.
-        match setpgid(job, job) {
-            Ok(()) | Err(Errno::EACCES | Errno::ESRCH) => {}
-            Err(error) => return Err(io::Error::from(error)),
-        }
-        // An exited job's group is gone, which the terminal refuses: nothing is left to place.
-        match tcsetpgrp(standard_input(), job) {
-            Ok(()) | Err(Errno::EPERM) => Ok(child),
-            Err(error) => Err(io::Error::from(error)),
-        }
-    });
+    let spawned = command.spawn();
     pthread_sigmask(SigmaskHow::SIG_SETMASK, Some(&saved), None).map_err(io::Error::from)?;
     // Std's wait reports no stop, so a stopped job keeps the wait and the terminal.
-    placed?.wait()
+    spawned?.wait()
 }
 
 /// Blocks `SIGTTOU` on the calling thread, which a group outside the terminal's foreground draws by
