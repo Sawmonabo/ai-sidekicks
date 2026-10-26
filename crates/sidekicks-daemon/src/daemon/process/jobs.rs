@@ -143,10 +143,6 @@ struct CallsInFlight {
 
 impl IdleMemoryCollect {
     /// Starts the collect over `live_runs`, the writer's count of live runs; it ends with `stop`.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start, which runs the collect over the writer's live-run count"
-    )]
     pub(crate) fn start(live_runs: watch::Receiver<u32>, stop: CancellationToken) -> Self {
         let calls = Arc::new(CallsInFlight::default());
         let collect = tokio::spawn(collect_when_quiet(live_runs, Arc::clone(&calls), stop));

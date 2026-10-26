@@ -448,7 +448,7 @@ impl DaemonProcess {
         let secure_defaults = SecureDefaults::load(SecureDefaultsConfig {
             local_ipc_path: run_folder.socket_path.clone(),
         })?;
-        self.database = Some(
+        let database = self.database.insert(
             open_database_file(DatabaseFileStart {
                 database_path: data_folder.join(DAEMON_DATABASE_FILE_NAME),
                 data_folder: data_folder.clone(),
@@ -465,6 +465,11 @@ impl DaemonProcess {
             })
             .await?,
         );
+        let damage = Arc::clone(&database.damage);
+        self.idle_memory = Some(Arc::new(IdleMemoryCollect::start(
+            database.live_runs.clone(),
+            self.work_stop.clone(),
+        )));
         self.check_stop("capturing the providers' base environment")?;
         let git_executable = find_git_executable(&base_environment);
         let authorizer = Arc::new(Authorizer::load_built_in()?);
@@ -491,6 +496,7 @@ impl DaemonProcess {
                 caller_process_reader,
                 session_token,
                 &secure_defaults,
+                damage,
             )
             .await?,
         );
@@ -518,13 +524,15 @@ impl DaemonProcess {
     }
 
     // Registers the handshake and the subscriptions' cancel, freezes the registry and binds the
-    // serving socket with `session_token` at the path `secure_defaults` checked.
+    // serving socket with `session_token` at the path `secure_defaults` checked; a feed's failure
+    // is told to `damage`.
     async fn bind_serving_socket(
         &self,
         run_folder: &DaemonRunFolder,
         caller_process_reader: Arc<dyn CallerProcessReader>,
         session_token: String,
         secure_defaults: &SecureDefaults,
+        damage: Arc<DatabaseDamageWatch>,
     ) -> Result<LocalGateway, DaemonStartError> {
         let caller_check = CallerCheck::new(
             Arc::clone(&caller_process_reader),
@@ -533,7 +541,7 @@ impl DaemonProcess {
         );
         let negotiator =
             ProtocolNegotiator::new(session_token.clone(), caller_check.admission_check());
-        let subscriptions = Subscriptions::new(Arc::new(DatabaseDamageWatch::new()));
+        let subscriptions = Subscriptions::new(damage);
         let mut builder = MethodRegistryBuilder::new();
         negotiator.register_handshake(&mut builder)?;
         subscriptions.register_cancel(&mut builder)?;
