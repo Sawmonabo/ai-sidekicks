@@ -26,7 +26,7 @@ use tokio::process::{ChildStderr, ChildStdout, Command};
 use tokio::sync::{oneshot, watch};
 use tokio_tungstenite::tungstenite::{self, Message};
 
-use crate::process_exit::{OutputTail, compose_process_exit};
+use crate::process_exit::{OUTPUT_CHUNK_BYTES, OutputTail, compose_process_exit};
 use crate::provider::service_log::{open_provider_service_log, read_provider_service_log_tail};
 
 /// The variable that opens a lasting service's shutdown socket; Codex reads it only on Windows.
@@ -234,8 +234,8 @@ async fn read_output_tail(
     mut standard_error: ChildStderr,
 ) -> io::Result<OutputTail<PROVIDER_FAILURE_DETAIL_MAX_LEN>> {
     let mut tail = OutputTail::new();
-    let mut output_chunk = vec![0; 8192];
-    let mut error_chunk = vec![0; 8192];
+    let mut output_chunk = vec![0; OUTPUT_CHUNK_BYTES];
+    let mut error_chunk = vec![0; OUTPUT_CHUNK_BYTES];
     let mut is_output_open = true;
     let mut is_error_open = true;
     while is_output_open || is_error_open {

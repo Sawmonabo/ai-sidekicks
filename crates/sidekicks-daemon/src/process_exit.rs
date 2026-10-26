@@ -16,8 +16,9 @@ use unicode_segmentation::GraphemeCursor;
 
 use crate::utf8_stream::Utf8StreamDecoder;
 
-/// The most of a child's output read from its pipe at once.
-const OUTPUT_CHUNK_BYTES: usize = 8 * 1024;
+/// The most of a child's output one read of its pipe takes, so the buffer each reader holds stays
+/// small however much the child prints.
+pub(crate) const OUTPUT_CHUNK_BYTES: usize = 8 * 1024;
 
 // What a tail reads when the process printed nothing but whitespace, since the wire refuses blank.
 const NO_OUTPUT: &str = "(no output)";

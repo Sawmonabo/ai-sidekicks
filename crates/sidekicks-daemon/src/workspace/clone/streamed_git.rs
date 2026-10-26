@@ -20,14 +20,12 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::git::process::{GitCall, GitError, GitRunner, SHUTDOWN_STOP_GRACE};
+use crate::process_exit::OUTPUT_CHUNK_BYTES;
 use crate::utf8_stream::Utf8StreamDecoder;
 
 /// How long git has to end after a person's cancel before it and its helpers are ended: long
 /// enough for git to remove what it was writing, short enough that a cancel is felt.
 pub(crate) const CANCEL_STOP_GRACE: Duration = Duration::from_secs(5);
-
-// The most one read of git's standard error takes.
-const STDERR_READ_CHUNK: usize = 8 * 1024;
 
 // The most of git's standard error read at its exit, past which a process it left behind floods
 // the pipe and the read fails.
@@ -165,7 +163,7 @@ async fn read_stderr(
     on_stderr: &mut impl FnMut(&str),
 ) -> io::Result<()> {
     let mut decoder = Utf8StreamDecoder::default();
-    let mut buffer = vec![0; STDERR_READ_CHUNK];
+    let mut buffer = vec![0; OUTPUT_CHUNK_BYTES];
     loop {
         let count = tokio::select! {
             biased;

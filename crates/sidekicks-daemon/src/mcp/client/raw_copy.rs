@@ -23,6 +23,7 @@ use serde_json::Value;
 use tokio::io::{AsyncRead, ReadBuf};
 
 use crate::mutex_lock::lock;
+use crate::process_exit::OUTPUT_CHUNK_BYTES;
 use crate::provider::inbound_json::decode_inbound_json;
 
 /// The method of the one request rmcp sends itself whose reply the client reads raw.
@@ -235,7 +236,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for RawLineTee<R> {
             if tee.is_ended {
                 return Poll::Ready(Ok(()));
             }
-            let mut chunk = [0_u8; 8192];
+            let mut chunk = [0_u8; OUTPUT_CHUNK_BYTES];
             let mut read = ReadBuf::new(&mut chunk);
             ready!(Pin::new(&mut tee.inner).poll_read(context, &mut read))?;
             if read.filled().is_empty() {
