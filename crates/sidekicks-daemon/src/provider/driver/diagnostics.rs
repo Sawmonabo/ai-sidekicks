@@ -92,9 +92,6 @@ pub(crate) enum DriverDiagnosticKind {
     /// The provider refused the output-speed level the driver applied, so the process runs on the
     /// level it held; the run's declared state reports which.
     OutputSpeedApplyRefused,
-    /// A choice set with an unreadable option or no readable admissible one. The ask still
-    /// reaches the person as free text; only the choice set is lost.
-    InteractiveRequestOptionSetDropped,
     /// A receiver-generated task handle could not be stored on its receipt row (over a column
     /// bound, ill-formed Unicode, absent row, or a different handle; the disposition reason names
     /// which). The call stays halted after a restart, never run again, and the handle is never
@@ -182,9 +179,6 @@ impl DriverDiagnosticKind {
             Self::ProviderCommandEntryRejected => "driver.providerCommands.entryRejected",
             Self::OutputSpeedStateRejected => "driver.outputSpeed.stateRejected",
             Self::OutputSpeedApplyRefused => "driver.outputSpeed.applyRefused",
-            Self::InteractiveRequestOptionSetDropped => {
-                "driver.interactiveRequest.optionSetDropped"
-            }
             Self::McpTaskHandleWriteRefused => "driver.mcpTaskHandle.writeRefused",
             Self::McpTaskHandleWriteFailed => "driver.mcpTaskHandle.writeFailed",
             Self::LateEventAbsorbed => "run.lateEvent.absorbed",

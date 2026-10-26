@@ -17,7 +17,7 @@ use sidekicks_contracts::wire::number::Number;
 use sidekicks_contracts::wire::text::{NonEmptyText, is_ecmascript_whitespace};
 
 use crate::mcp::elicitation_form::option_sets::{
-    AskOptionSetReading, ElicitationOption, read_elicitation_field_option_set,
+    ElicitationOption, ElicitationOptionSetReading, read_elicitation_field_option_set,
 };
 use crate::provider::driver::question_answers::read_question_answer_texts;
 use crate::provider::record_readers::read_non_empty_string;
@@ -75,7 +75,7 @@ pub(crate) fn read_elicitation_questions(
             let default = read_starting_answer(&field, &option_set);
             let (minimum, maximum) = read_number_range(field.members);
             let options = match option_set {
-                AskOptionSetReading::Read { options } => options
+                ElicitationOptionSetReading::Read { options } => options
                     .iter()
                     .map(|option| QuestionOption {
                         label: to_non_empty_text(option.label.as_str()),
@@ -83,7 +83,20 @@ pub(crate) fn read_elicitation_questions(
                         preview: None,
                     })
                     .collect(),
-                AskOptionSetReading::Absent | AskOptionSetReading::Dropped { .. } => Vec::new(),
+                ElicitationOptionSetReading::Absent => Vec::new(),
+                ElicitationOptionSetReading::Dropped {
+                    reason,
+                    declared_count,
+                } => {
+                    tracing::warn!(
+                        server = header.as_ref().map(NonEmptyText::as_str),
+                        field = field.name,
+                        reason,
+                        declared_count,
+                        "a tool server's choices could not be shown; the field is asked as text"
+                    );
+                    Vec::new()
+                }
             };
             QuestionPrompt {
                 header: header.clone(),
@@ -121,11 +134,12 @@ pub(crate) fn compose_elicitation_content(
         let mut values = read_question_answer_texts(answers.get(index))
             .into_iter()
             .map(|pick| match &option_set {
-                AskOptionSetReading::Read { options } => {
+                ElicitationOptionSetReading::Read { options } => {
                     let picked = options.iter().find(|option| option.label.as_str() == pick);
                     Value::from(picked.map_or(pick, |option| option.value.as_str()))
                 }
-                AskOptionSetReading::Absent | AskOptionSetReading::Dropped { .. } => {
+                ElicitationOptionSetReading::Absent
+                | ElicitationOptionSetReading::Dropped { .. } => {
                     read_typed_answer(field.members, pick)
                 }
             });
@@ -186,11 +200,11 @@ fn read_elicitation_fields(payload: &Map<String, Value>) -> Vec<ElicitationField
 // draw, such as a value that is no option of the field.
 fn read_starting_answer(
     field: &ElicitationField<'_>,
-    option_set: &AskOptionSetReading,
+    option_set: &ElicitationOptionSetReading,
 ) -> Option<QuestionDefault> {
     let declared = field.members.get("default")?;
     match option_set {
-        AskOptionSetReading::Read { options } => {
+        ElicitationOptionSetReading::Read { options } => {
             let values = if let Value::Array(values) = declared {
                 values.as_slice()
             } else {
@@ -209,24 +223,26 @@ fn read_starting_answer(
                     .map(|label| QuestionDefault::Text(label.into_string()))
             }
         }
-        AskOptionSetReading::Absent | AskOptionSetReading::Dropped { .. } => match declared {
-            Value::Array(values) => values
-                .iter()
-                .map(|value| {
-                    value
-                        .as_str()
-                        .and_then(|text| NonEmptyText::new(text.to_owned()))
-                })
-                .collect::<Option<Vec<NonEmptyText>>>()
-                .map(QuestionDefault::Labels),
-            Value::String(text) => Some(QuestionDefault::Text(text.clone())),
-            Value::Bool(flag) => Some(QuestionDefault::Flag(*flag)),
-            Value::Number(number) => number
-                .as_f64()
-                .and_then(Number::new)
-                .map(QuestionDefault::Number),
-            Value::Null | Value::Object(_) => None,
-        },
+        ElicitationOptionSetReading::Absent | ElicitationOptionSetReading::Dropped { .. } => {
+            match declared {
+                Value::Array(values) => values
+                    .iter()
+                    .map(|value| {
+                        value
+                            .as_str()
+                            .and_then(|text| NonEmptyText::new(text.to_owned()))
+                    })
+                    .collect::<Option<Vec<NonEmptyText>>>()
+                    .map(QuestionDefault::Labels),
+                Value::String(text) => Some(QuestionDefault::Text(text.clone())),
+                Value::Bool(flag) => Some(QuestionDefault::Flag(*flag)),
+                Value::Number(number) => number
+                    .as_f64()
+                    .and_then(Number::new)
+                    .map(QuestionDefault::Number),
+                Value::Null | Value::Object(_) => None,
+            }
+        }
     }
 }
 

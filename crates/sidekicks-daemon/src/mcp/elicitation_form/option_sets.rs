@@ -22,9 +22,9 @@ pub(crate) struct ElicitationOption {
 }
 
 /// What one field yielded when read for a choice set. `Absent` (no choices) differs from
-/// `Dropped` (choices the card cannot carry), so only the latter earns a diagnostic.
+/// `Dropped` (choices the card cannot carry), so only the latter is logged.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum AskOptionSetReading {
+pub(crate) enum ElicitationOptionSetReading {
     /// The ask offers no choices.
     Absent,
     /// The choices, in the server's order.
@@ -42,7 +42,7 @@ pub(crate) enum AskOptionSetReading {
 }
 
 /// One declared option before its bounds are checked: the members that become its value and label.
-struct AskOptionCandidate<'params> {
+struct ElicitationOptionCandidate<'params> {
     value: Option<&'params Value>,
     label: Option<&'params Value>,
 }
@@ -52,19 +52,19 @@ struct AskOptionCandidate<'params> {
 pub(crate) fn read_elicitation_field_option_set(
     property: &Value,
     takes_several_answers: bool,
-) -> AskOptionSetReading {
+) -> ElicitationOptionSetReading {
     let source = match property.as_object() {
         Some(property) if takes_several_answers => property.get("items"),
         _ => Some(property),
     };
     match source.and_then(read_elicitation_enum_arm) {
-        Some(candidates) => read_ask_option_candidates(candidates),
-        None => AskOptionSetReading::Absent,
+        Some(candidates) => read_elicitation_option_candidates(candidates),
+        None => ElicitationOptionSetReading::Absent,
     }
 }
 
 /// The candidates one elicitation property declares, or `None` when it declares no choices.
-fn read_elicitation_enum_arm(property: &Value) -> Option<Vec<AskOptionCandidate<'_>>> {
+fn read_elicitation_enum_arm(property: &Value) -> Option<Vec<ElicitationOptionCandidate<'_>>> {
     let property = property.as_object()?;
     // A single pick titles its values in `oneOf`, a field of several picks in its items' `anyOf`.
     let titled =
@@ -77,11 +77,11 @@ fn read_elicitation_enum_arm(property: &Value) -> Option<Vec<AskOptionCandidate<
             titled
                 .iter()
                 .map(|option| match option.as_object() {
-                    Some(option) => AskOptionCandidate {
+                    Some(option) => ElicitationOptionCandidate {
                         value: option.get("const"),
                         label: option.get("title"),
                     },
-                    None => AskOptionCandidate {
+                    None => ElicitationOptionCandidate {
                         value: None,
                         label: None,
                     },
@@ -104,7 +104,7 @@ fn read_elicitation_enum_arm(property: &Value) -> Option<Vec<AskOptionCandidate<
                 let declared_name = names
                     .and_then(|names| names.get(index))
                     .filter(|name| name.is_string());
-                AskOptionCandidate {
+                ElicitationOptionCandidate {
                     value: Some(value),
                     label: Some(declared_name.unwrap_or(value)),
                 }
@@ -115,9 +115,11 @@ fn read_elicitation_enum_arm(property: &Value) -> Option<Vec<AskOptionCandidate<
 
 /// Reads one candidate set whole, or says why it was refused. All or nothing: a partial set would
 /// hide a choice the server offered, whereas the free-text answer can express any choice.
-fn read_ask_option_candidates(candidates: Vec<AskOptionCandidate<'_>>) -> AskOptionSetReading {
+fn read_elicitation_option_candidates(
+    candidates: Vec<ElicitationOptionCandidate<'_>>,
+) -> ElicitationOptionSetReading {
     if candidates.is_empty() {
-        return AskOptionSetReading::Absent;
+        return ElicitationOptionSetReading::Absent;
     }
     let declared_count = candidates.len();
     let options: Option<Vec<ElicitationOption>> = candidates
@@ -130,8 +132,8 @@ fn read_ask_option_candidates(candidates: Vec<AskOptionCandidate<'_>>) -> AskOpt
         })
         .collect();
     match options {
-        Some(options) => AskOptionSetReading::Read { options },
-        None => AskOptionSetReading::Dropped {
+        Some(options) => ElicitationOptionSetReading::Read { options },
+        None => ElicitationOptionSetReading::Dropped {
             reason: "at least one declared option carried an unreadable or out-of-bounds value \
                      or label, and a partial set would hide a choice the server is waiting for",
             declared_count,
