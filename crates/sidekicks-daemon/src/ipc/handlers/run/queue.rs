@@ -51,7 +51,6 @@ pub(crate) struct RunQueueMethods {
 
 /// Registers `agent.queueItem.create`, `.list`, `.cancel`, `.reorder` and `.subscribe` over
 /// `methods`. Fails the start when one is already registered.
-#[expect(dead_code, reason = "the daemon's start")]
 pub(crate) fn register_run_queue(
     registry: &mut MethodRegistryBuilder,
     methods: &RunQueueMethods,

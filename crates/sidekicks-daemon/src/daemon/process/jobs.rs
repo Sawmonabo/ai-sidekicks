@@ -58,10 +58,6 @@ pub(crate) enum JobScheduleError {
 /// checkpoint every five minutes, the optimize a day after the start and daily after, the
 /// diagnostic-log expiry and the crash report pass at once and then hourly, and the daily backup.
 /// Fails with the first job the scheduler refuses.
-#[expect(
-    dead_code,
-    reason = "the daemon's start, which schedules the jobs once its recovery pass has ended"
-)]
 pub(crate) async fn schedule_jobs(
     scheduler: &Arc<Scheduler>,
     deps: JobDeps,
@@ -153,13 +149,6 @@ impl IdleMemoryCollect {
     }
 
     /// Marks a call in flight until the answer is dropped, so the collect waits for it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the dispatch chain, which holds one for each call it serves"
-        )
-    )]
     pub(crate) fn touch(&self) -> CallInFlight {
         if self.calls.count.fetch_add(1, Ordering::AcqRel) == 0 {
             self.calls.moved.notify_one();

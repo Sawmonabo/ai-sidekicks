@@ -81,7 +81,6 @@ impl From<DriverMethodReadError> for HandlerError {
 
 /// Registers `provider.model.list`, `provider.mode.list`, `agent.run.context.compact` and
 /// `provider.command.list` over `sources`. Fails the start when one is already registered.
-#[expect(dead_code, reason = "the daemon's start")]
 pub(crate) fn register_driver_methods(
     registry: &mut MethodRegistryBuilder,
     sources: &Arc<DriverMethodSources>,

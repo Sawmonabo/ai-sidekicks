@@ -27,6 +27,7 @@ use crate::provider::driver::codex::usage_limit_signal::{
     codex_epoch_seconds_to_wire_instant, observe_codex_rate_limit_read,
 };
 use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
+use crate::provider::port::registration::PortRegistration;
 use crate::session::run::inbound::rows::MachineScopedRow;
 use crate::session::run::inbound::{InboundDelivery, RunInboundDispatch};
 
@@ -37,7 +38,7 @@ pub(crate) struct CodexRateLimitFiling {
     /// The run engine's dispatch, which files each row.
     dispatch: Arc<RunInboundDispatch>,
     /// Reads the account's credential generation.
-    spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
+    spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
     /// What was last filed, shared by every clone. Never held across an await.
     filed: Arc<Mutex<FiledRateLimits>>,
     /// Held per account through each filing, shared by every clone.
@@ -57,7 +58,7 @@ impl CodexRateLimitFiling {
     /// filed nothing yet.
     pub(crate) fn new(
         dispatch: Arc<RunInboundDispatch>,
-        spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
+        spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
     ) -> Self {
         Self {
             dispatch,
@@ -108,11 +109,15 @@ impl CodexRateLimitFiling {
         };
         // Held through the filing, so a reading one clone is filing is not filed again by another.
         let _filing = self.filings.acquire(provider_account_id.clone()).await;
-        let credential_generation = match self
-            .spawn_contexts
-            .read_credential_generation(provider_account_id.clone())
-            .await
-        {
+        let read = match self.spawn_contexts.require_port() {
+            Ok(spawn_contexts) => {
+                spawn_contexts
+                    .read_credential_generation(provider_account_id.clone())
+                    .await
+            }
+            Err(error) => Err(error.into()),
+        };
+        let credential_generation = match read {
             Ok(generation) => generation,
             Err(error) => {
                 tracing::warn!(

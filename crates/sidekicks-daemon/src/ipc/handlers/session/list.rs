@@ -19,7 +19,6 @@ use crate::session::directory::list_feed::SessionListFeed;
 /// Registers `session.subscribe` on `registry`. A list that cannot be read fails the call with
 /// nothing left open; one that later stops being current ends the subscription with a fault.
 /// Fails the start when the method is already registered.
-#[expect(dead_code, reason = "the daemon's start registers the sessions list")]
 pub(crate) fn register_session_list(
     registry: &mut MethodRegistryBuilder,
     list_feed: Arc<SessionListFeed>,

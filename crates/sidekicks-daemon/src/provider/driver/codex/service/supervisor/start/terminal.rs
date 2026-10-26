@@ -343,6 +343,7 @@ async fn launch_terminal_service(
         codex_home,
     )
     .map_err(|error| start_failed("The Codex service's log could not be named.", error))?;
+    service.set_lasting_log_file(log_file.clone());
     let lasting = start_lasting_codex_service(&dependencies.spawner, process_launch, &log_file)
         .await
         .map_err(|error| start_failed("The Codex service could not be started.", error))?;

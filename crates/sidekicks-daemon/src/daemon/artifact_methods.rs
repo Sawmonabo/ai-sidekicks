@@ -36,7 +36,8 @@ use crate::ipc::handlers::artifact::publish::register_artifact_publish;
 use crate::ipc::handlers::artifact::read::register_artifact_read;
 use crate::ipc::registry::{MethodRegistryBuilder, RegistrationError};
 
-const ARTIFACTS_FOLDER_NAME: &str = "artifacts";
+/// The artifact store's folder in the data folder.
+pub(crate) const ARTIFACTS_FOLDER_NAME: &str = "artifacts";
 
 // How often the reaper looks for streams past their lifetime and spools gone unwritten: often
 // enough that a stream is ended within minutes of its six-hour lifetime.
@@ -84,12 +85,11 @@ pub(crate) enum ArtifactMethodsError {
 /// The artifact store's background work, and its binding of a message's files to stored copies.
 #[expect(
     dead_code,
-    reason = "the daemon's start schedules the reaper, hands the drivers the attachments and \
-              the plans and a chat's versions the publisher"
+    reason = "the plans and a chat's versions take the publisher, the data export the payloads"
 )]
 pub(crate) struct ArtifactMethods {
     /// Binds the files a message carries to their stored copies, for the drivers to hand over.
-    pub(crate) attachments: ArtifactAttachmentResolver,
+    pub(crate) attachments: Arc<ArtifactAttachmentResolver>,
     /// Stores the daemon's own payloads, for the plan record and a chat's versions.
     pub(crate) publisher: Arc<ArtifactPublishService>,
     /// The stored payloads, which the data export copies each session's files from.
@@ -102,10 +102,6 @@ impl ArtifactMethods {
     /// Schedules the ingest reaper on `scheduler`, a pass at once then one every ten minutes;
     /// called once, after the daemon's recovery pass has ended. Canceling the handle ends future
     /// passes. Fails when the scheduler has stopped.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start schedules the reaper once its recovery pass has ended"
-    )]
     pub(crate) fn start(&self, scheduler: &Scheduler) -> Result<ScheduledJobHandle, ScheduleError> {
         scheduler.schedule_repeating(
             "ingest reaper",
@@ -168,13 +164,6 @@ async fn run_reaper_pass(
 
 /// Builds the artifact store and registers its calls on `registry`. Fails when the payload folder
 /// cannot be opened or a call is already registered.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the artifact store once its database is open"
-    )
-)]
 pub(crate) fn register_artifact_methods(
     registry: &mut MethodRegistryBuilder,
     deps: ArtifactMethodsDeps,
@@ -212,10 +201,10 @@ pub(crate) fn register_artifact_methods(
     register_artifact_read(registry, Arc::clone(&deps.reads), Arc::clone(&payloads))?;
     Ok(ArtifactMethods {
         publisher,
-        attachments: ArtifactAttachmentResolver::new(
+        attachments: Arc::new(ArtifactAttachmentResolver::new(
             Arc::clone(&deps.reads),
             Arc::clone(&payloads),
-        ),
+        )),
         ingest,
         payloads,
         reads: deps.reads,

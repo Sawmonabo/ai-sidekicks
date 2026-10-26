@@ -7,13 +7,13 @@
 //! another and a new listener's first reading is never older than a change announced after it.
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use sidekicks_contracts::machine::settings::{
-    BranchNamePattern, MachineSettings, MachineSettingsChange, MachineSettingsReading,
-    ProjectBranchPatternRefusedDetails, SettingsFileRepair, SettingsFileRepairCause,
-    parse_machine_settings_file,
+    BranchNamePattern, MACHINE_SETTINGS_FILE_PATH_SEGMENTS, MachineSettings, MachineSettingsChange,
+    MachineSettingsReading, ProjectBranchPatternRefusedDetails, SettingsFileRepair,
+    SettingsFileRepairCause, parse_machine_settings_file,
 };
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::create_private_folder;
@@ -21,9 +21,6 @@ use tokio::sync::watch;
 
 use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use crate::ipc::stream::latest_value::{LatestValueOutlet, LatestValueOutlets};
-
-/// The settings file's name in the daemon's data folder.
-pub(crate) const MACHINE_SETTINGS_FILE_NAME: &str = "machine-settings.json";
 
 // Readable and writable by the person alone: an environment row's value can carry a proxy's
 // credentials.
@@ -62,9 +59,17 @@ struct Listeners {
     watchers: Vec<watch::Sender<MachineSettings>>,
 }
 
+/// The settings file under the person's `home_folder`, in the daemon's data folder.
+pub(crate) fn machine_settings_file_path(home_folder: &Path) -> PathBuf {
+    MACHINE_SETTINGS_FILE_PATH_SEGMENTS
+        .iter()
+        .fold(home_folder.to_path_buf(), |path, segment| {
+            path.join(segment)
+        })
+}
+
 impl MachineSettingsFile {
-    /// The settings file at `file_path`, `<home>/.ai-sidekicks/machine-settings.json` in the
-    /// daemon.
+    /// The settings file at `file_path`, [`machine_settings_file_path`] in the daemon.
     pub(crate) fn new(file_path: PathBuf) -> Self {
         Self {
             file_path,
@@ -255,7 +260,7 @@ mod tests {
         MachineSettings, MachineSettingsChange, SettingsFileRepairCause,
     };
 
-    use super::{MACHINE_SETTINGS_FILE_NAME, MachineSettingsFile};
+    use super::{MachineSettingsFile, machine_settings_file_path};
 
     // A broken file reads as the defaults with its repair until a change is written, and a
     // reader of the watch holds the settings and hears the change. Killed by a watch the
@@ -263,7 +268,9 @@ mod tests {
     #[tokio::test]
     async fn an_unparsable_file_is_repaired_and_the_repair_carried_until_the_next_write() {
         let folder = tempfile::tempdir().expect("a scratch folder is made");
-        let file_path = folder.path().join(MACHINE_SETTINGS_FILE_NAME);
+        let file_path = machine_settings_file_path(folder.path());
+        std::fs::create_dir_all(file_path.parent().expect("the file has a folder"))
+            .expect("the data folder is made");
         std::fs::write(&file_path, "{ not json").expect("the broken file is written");
         let file = Arc::new(MachineSettingsFile::new(file_path.clone()));
 

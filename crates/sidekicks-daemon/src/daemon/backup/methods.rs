@@ -31,7 +31,6 @@ pub(crate) struct BackupMethodsDeps {
 
 /// Registers `daemon.backup.read` and `daemon.backup.start`. Fails the start when a method is
 /// already registered.
-#[expect(dead_code, reason = "the daemon's start registers the backup methods")]
 pub(crate) fn register_backup_methods(
     registry: &mut MethodRegistryBuilder,
     deps: BackupMethodsDeps,

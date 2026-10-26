@@ -75,14 +75,6 @@ pub(crate) struct CodexSessionLetGo<'deps> {
 
 impl CodexSessionSlots {
     /// Slots with no session in them.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start registers the driver, which builds the slots its \
-                      sessions are claimed in"
-        )
-    )]
     pub(crate) fn new() -> Self {
         Self {
             transitions: KeyedLock::new(),

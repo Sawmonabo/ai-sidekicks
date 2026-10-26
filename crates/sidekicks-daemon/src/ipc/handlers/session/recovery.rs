@@ -15,7 +15,6 @@ use crate::recovery::damaged_history::DamagedHistory;
 /// Registers the two recovery actions, refusing a session the daemon does not hold
 /// `session.notFound` and one the action does not fit `session.recovery.refused`. Fails the start
 /// when either is already registered.
-#[expect(dead_code, reason = "the daemon's start")]
 pub(crate) fn register_session_recovery_methods(
     registry: &mut MethodRegistryBuilder,
     damaged_history: Arc<DamagedHistory>,

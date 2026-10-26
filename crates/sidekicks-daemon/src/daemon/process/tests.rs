@@ -1,3 +1,4 @@
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,12 +14,13 @@ use super::{DaemonProcess, DaemonStartError, DaemonStartFailure};
 use crate::credential_store::items::{SecretItems, SecretItemsStart};
 use crate::credential_store::os::TestStoreAccess;
 use crate::daemon::crash::monitor::{
-    CRASH_DUMPS_FOLDER_NAME, crash_monitor_socket_path, serve_crash_monitor,
+    CRASH_DUMPS_FOLDER_NAME, CRASH_MONITOR_MODE, crash_monitor_socket_path, serve_crash_monitor,
 };
 use crate::daemon::data_folder::data_folder;
 use crate::daemon::data_folder_lock::DataFolderLock;
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
 use crate::daemon::release_version::this_build_release_version;
+use crate::daemon::service_log::open_service_log;
 use crate::data_acts::erase::{DataErase, DataEraseDeps};
 use crate::ipc::caller_process::system_reader::ProcessTableReader;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
@@ -32,7 +34,8 @@ const MONITOR_SOCKET_VARIABLE: &str = "SIDEKICKS_TEST_CRASH_MONITOR_SOCKET";
 const ERASE_WAIT: Duration = Duration::from_secs(30);
 
 // The crash monitor the daemon starts in these tests: this test binary, run through a script as
-// the daemon's own program, serving the socket the mode's argument names. Run only that way.
+// the daemon's own program, serving the socket the mode's argument names; the script fails every
+// other mode, the search index's build among them. Run only that way.
 #[test]
 #[ignore = "the started daemon's crash monitor, run through its script"]
 fn crash_monitor_stand_in() {
@@ -69,7 +72,8 @@ impl TestHome {
         let program = std::env::current_exe().expect("the test program names itself");
         let daemon_program = home.path().join("daemon-program");
         let script = format!(
-            "#!/bin/sh\n{MONITOR_SOCKET_VARIABLE}=\"$2\" exec '{}' --exact \
+            "#!/bin/sh\n[ \"$1\" = {CRASH_MONITOR_MODE} ] || exit 1\n\
+             {MONITOR_SOCKET_VARIABLE}=\"$2\" exec '{}' --exact \
              {test_path}::crash_monitor_stand_in --include-ignored >/dev/null\n",
             program.display()
         );
@@ -118,6 +122,7 @@ impl TestHome {
             ),
             stop,
             base_environment: ProviderBaseEnvironment::Given(Arc::from([])),
+            service_log_files: open_service_log(&data_folder, io::sink()).files(),
         })
         .await
     }

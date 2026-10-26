@@ -19,7 +19,6 @@ use crate::ipc::stream::latest_value::LatestValueFeed;
 /// Registers `session.workingFolder.subscribe` on `watcher`; a session this daemon holds no row
 /// for is refused with `session.notFound`, leaving nothing open. Fails the start when the method
 /// is already registered.
-#[expect(dead_code, reason = "the daemon's start")]
 pub(crate) fn register_working_folder(
     registry: &mut MethodRegistryBuilder,
     watcher: Arc<WorkingFolderWatcher>,

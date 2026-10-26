@@ -12,14 +12,14 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::{
-    FIRST_PROCESS, HANDS_AT_ONCE, continued_ids, count_steers, driver_handing, fixture, hand,
-    insert_item, set_run_state, settle, stored_item,
+    HANDS_AT_ONCE, continued_ids, count_steers, driver_handing, fixture, hand, insert_item,
+    set_run_state, settle, stored_item,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::run_control::TakenMessages;
 use crate::provider::driver::test_registry::registry_of_first_provider;
-use crate::queue::delivery::ProviderProcessIdentity;
+use crate::queue::delivery::{ProviderProcessIdentity, TEST_PROVIDER_PROCESS};
 use crate::queue::store::RecordedQueueItemState;
 use crate::session::run::engine::tests::test_engine;
 use crate::session::run::pause::tests::unanswered;
@@ -43,8 +43,8 @@ const KEPT_BY_PROCESS: MessageHanding = MessageHanding {
 #[rstest]
 #[case::no_process_runs(None)]
 #[case::a_new_process_reuses_the_id(Some(ProviderProcessIdentity {
-    process_id: FIRST_PROCESS.process_id,
-    spawn_sequence: FIRST_PROCESS.spawn_sequence + 1,
+    process_id: TEST_PROVIDER_PROCESS.process_id,
+    spawn_sequence: TEST_PROVIDER_PROCESS.spawn_sequence + 1,
 }))]
 #[tokio::test]
 async fn a_message_kept_by_a_process_no_longer_the_sessions_waits_unhanded(
@@ -60,11 +60,7 @@ async fn a_message_kept_by_a_process_no_longer_the_sessions_waits_unhanded(
     set_run_state(&fixture, RunState::Completed);
     fixture.delivery.end_run(fixture.session_id, fixture.run_id);
     let is_kept_through_the_end = fixture.delivery.is_handed(&item.id);
-    *fixture
-        .process
-        .0
-        .lock()
-        .expect("the test's process is writable") = next_process;
+    fixture.process.set(next_process);
     let ended_runs = fixture
         .delivery
         .forget_kept_by_gone_process(fixture.session_id)
@@ -177,11 +173,7 @@ async fn a_resume_kept_message_a_live_process_holds_waits_for_the_process_end() 
         .await;
     let reads_at_the_runs_end = record_reads.load(Ordering::SeqCst);
     let is_kept_through_the_end = fixture.delivery.is_handed(&item.id);
-    *fixture
-        .process
-        .0
-        .lock()
-        .expect("the test's process is writable") = None;
+    fixture.process.set(None);
     let at_the_process_end = control
         .settle_kept_by_record(fixture.session_id, fixture.run_id, &fixture.delivery)
         .await;

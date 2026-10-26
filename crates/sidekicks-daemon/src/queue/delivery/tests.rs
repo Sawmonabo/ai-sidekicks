@@ -27,8 +27,8 @@ use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
 use super::{
-    InterruptedRunContinuation, OpeningMessages, ProviderProcessIdentity, ProviderProcessIds,
-    QueueDelivery, QueueDeliveryDeps,
+    InterruptedRunContinuation, OpeningMessages, ProcessStandIn, ProviderProcessIds, QueueDelivery,
+    QueueDeliveryDeps, TEST_PROVIDER_PROCESS,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
@@ -74,21 +74,6 @@ const HANDS_AT_TOOL_BOUNDARY: MessageHanding = MessageHanding {
     kept_by_process: false,
     reads_priority_message: false,
 };
-
-/// The session's provider process when each test starts.
-const FIRST_PROCESS: ProviderProcessIdentity = ProviderProcessIdentity {
-    process_id: 7,
-    spawn_sequence: 1,
-};
-
-/// The session's provider process, as the test sets it.
-struct ProcessStandIn(Mutex<Option<ProviderProcessIdentity>>);
-
-impl ProviderProcessIds for ProcessStandIn {
-    fn process_identity(&self, _session_id: &SessionId) -> Option<ProviderProcessIdentity> {
-        *self.0.lock().expect("the test's process is readable")
-    }
-}
 
 /// The messages that open a run being started, as the test sets them, and a step the test runs
 /// once, at the next read of a waiting message's opening, which a hand makes right after its read
@@ -160,7 +145,8 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         signals: Arc::new(QueueChangeSignals::new()),
     }));
     let session_lock = Arc::new(QueueSessionLock::new());
-    let process = Arc::new(ProcessStandIn(Mutex::new(Some(FIRST_PROCESS))));
+    let process = Arc::new(ProcessStandIn::default());
+    process.set(Some(TEST_PROVIDER_PROCESS));
     let openings = Arc::new(OpeningStandIn {
         openings: Mutex::new(HashSet::new()),
         after_read: Mutex::new(None),

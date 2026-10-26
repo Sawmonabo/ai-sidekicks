@@ -7,6 +7,7 @@ pub(crate) mod askpass;
 pub(crate) mod child_command;
 pub(crate) mod child_tree;
 pub(crate) mod ctrl_c;
+pub(crate) mod current_user;
 pub(crate) mod disk;
 pub(crate) mod entry_identity;
 pub(crate) mod error_codes;

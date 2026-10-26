@@ -5,6 +5,7 @@
 //! is supported only when a recorded snapshot declares it. A steer is not gated here, since it is
 //! how the run queue delivers a held message.
 
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use serde_json::json;
@@ -84,13 +85,6 @@ pub(crate) struct ProviderRegistry {
 impl ProviderRegistry {
     /// Builds every provider in `table`, in its order, from the one bundle of shared services. A
     /// build does no I/O and starts no process, so it cannot fail.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start registers every provider through it"
-        )
-    )]
     pub(crate) fn register_from(table: &[ProviderRegistration], services: &DriverServices) -> Self {
         Self {
             drivers: table
@@ -181,6 +175,15 @@ impl ProviderRegistry {
         } else {
             Err(provider_capability_unsupported(provider, flag))
         }
+    }
+
+    /// The logs the registered providers' running services write, which the diagnostic-log expiry
+    /// never deletes; blocking.
+    pub(crate) fn running_service_log_files(&self) -> Vec<PathBuf> {
+        self.drivers
+            .iter()
+            .flat_map(|registered| registered.driver.running_service_log_files())
+            .collect()
     }
 
     /// Each registered provider with its driver, in the table's order.

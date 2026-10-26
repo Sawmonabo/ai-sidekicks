@@ -95,7 +95,7 @@ const CODEX_SERVICE_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) struct CodexDriver {
     base_environment: Arc<[(String, String)]>,
     reserved_names: Arc<ReservedEnvironmentNames>,
-    spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
+    spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
     execution_postures: Arc<ExecutionPostureService>,
     attachments: Arc<dyn AttachmentResolver>,
     runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
@@ -107,7 +107,7 @@ pub(crate) struct CodexDriver {
     helper_roles_folder: PathBuf,
     is_terminal_reach_on: Arc<AtomicBool>,
     log_expiry: AccountHomeLogExpiry,
-    registry: Arc<CodexServiceRegistry>,
+    pub(super) registry: Arc<CodexServiceRegistry>,
     release: Arc<CodexConversationRelease>,
     slots: Arc<CodexSessionSlots>,
     run_routes: Arc<CodexRunRoutes>,
@@ -162,7 +162,7 @@ impl CodexDriver {
         let tasks = TaskTracker::new();
         let is_terminal_reach_on = Arc::new(AtomicBool::new(false));
         let homes = Arc::new(CodexHomes::new(
-            Arc::clone(&services.spawn_contexts),
+            Arc::clone(&services.ports.spawn_contexts),
             &services.base_environment,
             &services.home_folder,
             Arc::clone(&is_terminal_reach_on),
@@ -204,7 +204,7 @@ impl CodexDriver {
         Self {
             base_environment: Arc::clone(&services.base_environment),
             reserved_names: Arc::clone(&services.reserved_names),
-            spawn_contexts: Arc::clone(&services.spawn_contexts),
+            spawn_contexts: Arc::clone(&services.ports.spawn_contexts),
             execution_postures: Arc::clone(&services.execution_postures),
             attachments: Arc::clone(&services.attachments),
             runtime_bindings: Arc::clone(&services.runtime_bindings),

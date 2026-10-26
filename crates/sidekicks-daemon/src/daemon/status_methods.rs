@@ -51,13 +51,6 @@ pub(crate) struct StatusMethodsDeps {
 
 /// Registers `daemon.status.read`, a read-only query. Fails the start when the method is already
 /// registered.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start registers its status read on its registry"
-    )
-)]
 pub(crate) fn register_status_methods(
     registry: &mut MethodRegistryBuilder,
     deps: StatusMethodsDeps,

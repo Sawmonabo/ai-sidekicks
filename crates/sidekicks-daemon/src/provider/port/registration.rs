@@ -33,6 +33,11 @@ impl<Port> PortRegistration<Port> {
         }
     }
 
+    /// The port's name, as its errors give it.
+    pub(crate) const fn port_name(&self) -> &'static str {
+        self.port_name
+    }
+
     /// Registers `port`. An error when one is registered already, since it has a single owner.
     pub(crate) fn register(&self, port: Port) -> Result<(), PortRegistrationError> {
         if self.port.set(port).is_err() {

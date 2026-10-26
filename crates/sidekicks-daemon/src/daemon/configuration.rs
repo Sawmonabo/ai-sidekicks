@@ -92,10 +92,6 @@ pub(crate) struct ConfigurationStore {
 impl ConfigurationStore {
     /// Opens the store over the row the schema wrote, reading it. Fails when the read fails or a
     /// stored value does not read as its type.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start opens the configuration store")
-    )]
     pub(crate) async fn open(
         writer: Arc<DatabaseWriter>,
         reads: &DatabaseReadPool,

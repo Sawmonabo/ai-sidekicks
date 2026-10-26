@@ -39,13 +39,6 @@ pub(crate) struct DataMethodsDeps {
 
 /// Registers the export's three verbs and the erase. Fails the start when a method is already
 /// registered.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start registers the data verbs once the store is open"
-    )
-)]
 pub(crate) fn register_data_methods(
     registry: &mut MethodRegistryBuilder,
     deps: DataMethodsDeps,

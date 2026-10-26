@@ -1,6 +1,7 @@
 //! Providers: the drivers that run each provider's process, their capabilities, hand-over and the
 //! searches a provider needs.
 
+pub(crate) mod account_homes;
 pub(crate) mod callback_tools;
 pub(crate) mod capability;
 pub(crate) mod command_search;

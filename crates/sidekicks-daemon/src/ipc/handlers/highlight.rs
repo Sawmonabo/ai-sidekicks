@@ -18,13 +18,6 @@ use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationEr
 
 /// Registers `highlight.read` over `highlighter`, refusing a read a newer one for the same block
 /// replaced. Fails the start when the method is already registered.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start registers highlight.read on its registry"
-    )
-)]
 pub(crate) fn register_highlight_read(
     registry: &mut MethodRegistryBuilder,
     highlighter: Arc<CodeHighlighter>,

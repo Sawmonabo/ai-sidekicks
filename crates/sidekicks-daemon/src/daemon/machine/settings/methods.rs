@@ -51,13 +51,6 @@ impl From<MachineSettingsFileError> for HandlerError {
 /// Registers `machine.settings.read`, `machine.settings.update` and `machine.settings.subscribe`.
 /// An update with a refused environment row or branch-name pattern is refused before anything is
 /// written. Fails the start when a method is already registered.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start registers the settings methods once the file is open"
-    )
-)]
 pub(crate) fn register_machine_settings_methods(
     registry: &mut MethodRegistryBuilder,
     deps: MachineSettingsMethodsDeps,
@@ -146,7 +139,7 @@ mod tests {
     use sidekicks_contracts::method::Method as _;
 
     use super::{MachineSettingsMethodsDeps, register_machine_settings_methods};
-    use crate::daemon::machine::settings::file::{MACHINE_SETTINGS_FILE_NAME, MachineSettingsFile};
+    use crate::daemon::machine::settings::file::{MachineSettingsFile, machine_settings_file_path};
     use crate::ipc::call_fixtures::{context, request};
     use crate::ipc::registry::{Dispatch as _, DispatchError, MethodRegistryBuilder, Reply};
     use crate::ipc::stream::feed::CreditGate;
@@ -159,7 +152,7 @@ mod tests {
     #[tokio::test]
     async fn an_update_reaches_another_client_and_the_file_and_a_credential_row_writes_nothing() {
         let folder = tempfile::tempdir().expect("a scratch folder is made");
-        let file_path = folder.path().join(MACHINE_SETTINGS_FILE_NAME);
+        let file_path = machine_settings_file_path(folder.path());
         let mut builder = MethodRegistryBuilder::new();
         register_machine_settings_methods(
             &mut builder,

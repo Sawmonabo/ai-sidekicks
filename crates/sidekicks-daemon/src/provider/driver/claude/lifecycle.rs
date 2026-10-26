@@ -135,7 +135,6 @@ impl ClaudeDriver {
             starts,
             sources: Arc::new(ClaudeSpawnSources {
                 spawner: services.spawner.clone(),
-                spawn_contexts: Arc::clone(&services.spawn_contexts),
                 runtime_bindings: Arc::clone(&services.runtime_bindings),
                 pool: Arc::clone(&services.pool),
                 execution_postures: Arc::clone(&services.execution_postures),
@@ -255,7 +254,10 @@ impl ClaudeDriver {
         let folders = match provider_account_id {
             Some(provider_account_id) => self
                 .sources
+                .ports
                 .spawn_contexts
+                .require_port()
+                .map_err(internal)?
                 .resolve_account_folders(provider_account_id.clone())
                 .await
                 .map_err(DriverError::Internal)?,

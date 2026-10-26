@@ -64,10 +64,6 @@ impl From<ApprovalListReadError> for HandlerError {
 /// Registers `approval.resolve`, `approval.list`, `approval.rule.list`, `approval.rule.revoke` and
 /// `approval.denial.override` over `sources`. An answer with no calling device is a fault in the
 /// daemon, answered as an internal error. Fails the start when one is already registered.
-#[expect(
-    dead_code,
-    reason = "the daemon's start registers the approval methods"
-)]
 pub(crate) fn register_approval_methods(
     registry: &mut MethodRegistryBuilder,
     sources: &Arc<ApprovalMethodSources>,
