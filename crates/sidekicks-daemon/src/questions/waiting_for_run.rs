@@ -93,9 +93,20 @@ impl QuestionsService {
             Ok(_run) => return Ok(WaitingQuestionOpening::Opened),
             Err(failure) => failure,
         };
-        if self.read_state(question_id).await? != Some(QuestionState::WaitingForRun) {
-            self.forget_held_request(&question_id);
-            return Ok(WaitingQuestionOpening::Settled);
+        match self.read_state(question_id).await {
+            Ok(Some(QuestionState::WaitingForRun)) => {}
+            Ok(_settled) => {
+                self.forget_held_request(&question_id);
+                return Ok(WaitingQuestionOpening::Settled);
+            }
+            // The move's failure is the one the caller acts on; the read's is logged beside it.
+            Err(read) => {
+                tracing::warn!(
+                    error = &read as &(dyn std::error::Error + 'static),
+                    "a waiting question's state was not read after its opening failed"
+                );
+                return Err(failure.into());
+            }
         }
         if !matches!(failure, RunEngineError::Refused(_)) {
             return Err(failure.into());
