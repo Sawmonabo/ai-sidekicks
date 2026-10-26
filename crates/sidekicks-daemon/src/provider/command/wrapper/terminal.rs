@@ -253,11 +253,11 @@ fn copy_input(master: &std::fs::File) {
 }
 
 /// Copies the command's output into the provider's terminal on a thread of its own, keeping its
-/// last bytes in `tail`, until every descriptor on the terminal's program side closed or, once the
-/// command exited, no output comes for `OUTPUT_QUIET`, as a background process holding the
-/// terminal open keeps it from closing. It reads only once `output_watch` sees output, so the
-/// wake at the exit reaches it; the receiver hears once the output has ended, with the error that
-/// kept the copier from telling whether more was coming.
+/// last bytes in `tail`, until, once the command exited, no output comes for `OUTPUT_QUIET`: the
+/// terminal's own handle keeps its program side open, so the end is read from the exit, never
+/// from a close. It reads only once `output_watch` sees output, so the wake at the exit reaches
+/// it; the receiver hears once the output has ended, with the error that kept the copier from
+/// telling whether more was coming.
 fn copy_output(
     mut master: std::fs::File,
     output_watch: Arc<TerminalOutputWatch>,
@@ -286,7 +286,8 @@ fn copy_output(
                         break;
                     }
                 }
-                // The master answers an error once the command's side has closed.
+                // The program side stays open until the terminal drops, so an error or an empty
+                // read means the terminal itself is gone.
                 let Ok(count) = master.read(&mut buffer) else {
                     break;
                 };
@@ -362,8 +363,8 @@ fn report_terminal(
                 checks_done += 1;
                 let master = match read_terminal_master(&pty, &peer_failure_noted) {
                     Ok(master) => master,
-                    // The terminal closes once its command ends, which ends the reports.
-                    Err(_closed) => return,
+                    // The terminal's session ends with its leader's exit, which ends the reports.
+                    Err(_ended) => return,
                 };
                 let report = (master, output_tail);
                 if last_report.as_ref() != Some(&report) {
