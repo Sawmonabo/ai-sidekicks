@@ -398,7 +398,10 @@ mod tests {
     use std::io;
     use std::path::{Path, PathBuf};
 
+    use sidekicks_platforms::askpass_socket_path;
+
     use super::{RepoServiceStartError, askpass_or_unavailable};
+    use crate::daemon::already_running_error::{DaemonAlreadyRunningError, HeldPlace};
     use crate::workspace::clone::askpass::broker::{AskpassBroker, AskpassBrokerError};
 
     // The first case is killed by the `Unsupported` guard widened to every listen error, which
@@ -431,6 +434,32 @@ mod tests {
             matches!(unsupported, Ok(None)),
             "{:?}",
             unsupported.map(|broker| broker.is_some())
+        );
+    }
+
+    // Killed by the `AddrInUse` arm deleted: another daemon's askpass socket then fails the start
+    // as a broker that could not start, not as a daemon already running there.
+    #[test]
+    fn another_daemon_s_askpass_socket_fails_the_start_as_already_running() {
+        let run_folder = Path::new("/run/ai-sidekicks");
+
+        let held = askpass_or_unavailable(
+            Err(AskpassBrokerError::Listen(io::Error::from(
+                io::ErrorKind::AddrInUse,
+            ))),
+            run_folder,
+        );
+
+        assert!(
+            matches!(
+                held,
+                Err(RepoServiceStartError::AlreadyRunning(DaemonAlreadyRunningError {
+                    held_place: HeldPlace::Socket(ref path),
+                    ..
+                })) if *path == askpass_socket_path(run_folder)
+            ),
+            "{:?}",
+            held.map(|broker| broker.is_some())
         );
     }
 }

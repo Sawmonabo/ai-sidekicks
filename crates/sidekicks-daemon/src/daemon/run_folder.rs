@@ -186,4 +186,36 @@ mod tests {
             "the file at the socket's path is kept"
         );
     }
+
+    // Killed by the askpass socket dropped from the sockets the preparation clears: a crashed
+    // daemon's askpass socket then stays, and every later start fails as already running.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_crashed_daemon_s_askpass_socket_is_removed() {
+        use sidekicks_platforms::askpass_socket_path;
+
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let folder_path = scratch.path().join("run");
+        create_private_folder(&folder_path).expect("the run folder is made");
+        let askpass_path = askpass_socket_path(&folder_path);
+        // A dropped standard listener leaves its socket file, as a crashed daemon's does.
+        drop(
+            std::os::unix::net::UnixListener::bind(&askpass_path)
+                .expect("the test binds the askpass socket"),
+        );
+
+        let result = prepare_run_folder(&DaemonRunFolder {
+            token_path: folder_path.join("daemon.token"),
+            status_path: folder_path.join("service-status.json"),
+            socket_path: folder_path.join("daemon.sock"),
+            folder_path,
+        })
+        .await;
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(
+            !askpass_path.exists(),
+            "the askpass socket nobody answers on is removed"
+        );
+    }
 }
