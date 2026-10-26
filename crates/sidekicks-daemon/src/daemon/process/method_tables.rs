@@ -14,6 +14,7 @@ use crate::daemon::lifecycle_methods::{LifecycleMethodsDeps, register_lifecycle_
 use crate::daemon::machine::settings::methods::{
     MachineSettingsMethodsDeps, register_machine_settings_methods,
 };
+use crate::daemon::process::jobs::IdleMemoryCollect;
 use crate::daemon::retention_methods::{RetentionMethodsDeps, register_retention_methods};
 use crate::daemon::status_methods::{StatusMethodsDeps, register_status_methods};
 use crate::events::log_service::EventLogService;
@@ -179,7 +180,6 @@ pub(crate) fn register_method_tables(
 
 /// The chain a call on the serving socket passes through, and its gate that records mutating calls,
 /// which the flush and the stop wait on.
-#[expect(dead_code, reason = "the daemon's start and stop read the gates")]
 pub(crate) struct GateChain {
     /// The outermost gate, which the gateway dispatches every call to.
     pub(crate) dispatch: Arc<dyn Dispatch>,
@@ -189,18 +189,19 @@ pub(crate) struct GateChain {
 
 /// Builds, over the frozen `registry`, the chain a call passes: the handshake's gate, then the
 /// recovery's write gate, then the record of mutating calls, then the damage report, then the
-/// registry, so a refused call is never recorded and every failure a handler answers reaches
-/// `damage`.
-#[expect(dead_code, reason = "the daemon's start builds the gates through it")]
+/// registry, so a refused call is never recorded, every failure a handler answers reaches
+/// `damage`, and `idle_memory` waits while any call runs.
 pub(crate) fn gate_chain(
     negotiator: &Arc<ProtocolNegotiator>,
     registry: &Arc<MethodRegistry>,
     status: Arc<RecoveryStatusTracker>,
     damage: Arc<DatabaseDamageWatch>,
+    idle_memory: &Arc<IdleMemoryCollect>,
 ) -> GateChain {
     let damage_reports: Arc<dyn Dispatch> = Arc::new(DamageReportGate::new(
         Arc::clone(registry) as Arc<dyn Dispatch>,
         damage,
+        Arc::clone(idle_memory),
     ));
     let in_flight = Arc::new(InFlightMutations::new(damage_reports, Arc::clone(registry)));
     let write_gate: Arc<dyn Dispatch> = Arc::new(RecoveryWriteGate::new(
