@@ -57,7 +57,7 @@ fn ask_daemon(process_arguments: &[OsString]) -> io::Result<Option<String>> {
     } = *party;
     records.send(&PartyRecord::Asking {})?;
     loop {
-        match requests.next_request(None)? {
+        match requests.next_request(None).map_err(io::Error::other)? {
             Some(DaemonRequest::Answer { text }) => {
                 return Ok(Some(text).filter(|text| !text.is_empty()));
             }

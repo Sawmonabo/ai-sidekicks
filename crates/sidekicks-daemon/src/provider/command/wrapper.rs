@@ -24,7 +24,7 @@ use sidekicks_platforms::{
 };
 
 use crate::provider::command::channel::party::{
-    ChannelParty, PartyRecords, PartyRequests, PartyStart, own_arguments,
+    ChannelParty, PartyRecords, PartyRequests, PartyStart, RequestError, own_arguments,
 };
 use crate::provider::command::channel::{DaemonRequest, PARTY_SECRET_VARIABLE, PartyRecord};
 use crate::provider::driver::shell_prefix_command_of;
@@ -395,7 +395,13 @@ fn run_line_command(
                     );
                     break;
                 }
-                Err(error) => {
+                Err(RequestError::Unreadable(error)) => {
+                    note(
+                        &records,
+                        &format!("lost a request from the daemon: {error}"),
+                    );
+                }
+                Err(RequestError::Watch(error)) => {
                     write_error_line(&format!(
                         "sidekicks-command-wrapper could not read its requests, so the command \
                          runs uncovered: {error}"
@@ -429,7 +435,7 @@ fn run_child(
     };
     if let Some(requests) = requests {
         let (state, records) = (Arc::clone(state), Arc::clone(records));
-        follow_stops(requests, move || {
+        follow_stops(requests, Arc::clone(&records), move || {
             // Held until `Stopped` is sent, so the wait's `Exited` comes after it.
             let state = lock_state(&state);
             if let CommandState::Running { group } = *state {
@@ -488,8 +494,13 @@ fn run_relayed_command(
     run_child(word_command(arg0, words), &state, &records, requests)
 }
 
-/// Follows the daemon's requests on a thread of its own, running `stop` at each `Stop`.
-fn follow_stops(mut requests: PartyRequests, stop: impl Fn() -> io::Result<()> + Send + 'static) {
+/// Follows the daemon's requests on a thread of its own, running `stop` at each `Stop`; a request
+/// that cannot be read is told to the daemon through `records`.
+fn follow_stops(
+    mut requests: PartyRequests,
+    records: SharedRecords,
+    stop: impl Fn() -> io::Result<()> + Send + 'static,
+) {
     let followed = thread::Builder::new()
         .name("command requests".to_owned())
         .spawn(move || {
@@ -503,7 +514,13 @@ fn follow_stops(mut requests: PartyRequests, stop: impl Fn() -> io::Result<()> +
                         }
                     }
                     Ok(Some(DaemonRequest::Go {} | DaemonRequest::Answer { .. }) | None) => {}
-                    Err(error) => {
+                    Err(RequestError::Unreadable(error)) => {
+                        note(
+                            &records,
+                            &format!("lost a request from the daemon: {error}"),
+                        );
+                    }
+                    Err(RequestError::Watch(error)) => {
                         write_error_line(&format!(
                             "sidekicks-command-wrapper stopped reading its requests, so the \
                              daemon cannot stop the command: {error}"

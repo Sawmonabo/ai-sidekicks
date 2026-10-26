@@ -142,22 +142,37 @@ impl PartyRecords {
     }
 }
 
+/// Why a party has no next request from the daemon.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum RequestError {
+    /// One request could not be read and is lost; the next call goes on with the others.
+    #[error("a request from the daemon could not be read: {0}")]
+    Unreadable(#[source] io::Error),
+    /// The watch on the requests failed, so no later request can come.
+    #[error("the daemon's requests could not be watched: {0}")]
+    Watch(#[source] io::Error),
+}
+
 impl PartyRequests {
     /// The daemon's next request to this party, waiting on this thread until one comes or
     /// `deadline` passes, `None` then; the requests of one listing are handed out in order before
-    /// the next listing. Each request read is removed, and one that cannot be read, does not open
-    /// or comes out of order is dropped. Fails with the watch's error.
+    /// the next listing. Each request read is removed, and one gone before its read, that does not
+    /// open or comes out of order is dropped. Fails with [`RequestError::Unreadable`] for a request
+    /// whose read fails, and with [`RequestError::Watch`] once the watch fails.
     pub(crate) fn next_request(
         &mut self,
         deadline: Option<Instant>,
-    ) -> io::Result<Option<DaemonRequest>> {
+    ) -> Result<Option<DaemonRequest>, RequestError> {
         loop {
             while let Some(path) = self.pending.pop_front() {
-                if let Some(request) = self.read_request(&path) {
+                if let Some(request) = self.read_request(&path).map_err(RequestError::Unreadable)? {
                     return Ok(Some(request));
                 }
             }
-            let arrivals = self.watch.next_arrivals(deadline)?;
+            let arrivals = self
+                .watch
+                .next_arrivals(deadline)
+                .map_err(RequestError::Watch)?;
             if arrivals.is_empty() {
                 return Ok(None);
             }
@@ -166,23 +181,33 @@ impl PartyRequests {
     }
 
     // The request at `path`, removed once read; `None` for a file that is not this party's
-    // request, is gone, cannot be read, does not open or comes out of order.
-    fn read_request(&mut self, path: &Path) -> Option<DaemonRequest> {
-        let (party, sequence) = parse_record_name(path)?;
+    // request, is gone, does not open or comes out of order. Fails with the read's error.
+    fn read_request(&mut self, path: &Path) -> io::Result<Option<DaemonRequest>> {
+        let Some((party, sequence)) = parse_record_name(path) else {
+            return Ok(None);
+        };
         if party != self.party {
-            return None;
+            return Ok(None);
         }
-        let sealed = std::fs::read(path).ok()?;
+        let sealed = match std::fs::read(path) {
+            Ok(sealed) => sealed,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
         // A request left behind is removed with the party's others once the daemon forgets it.
         std::fs::remove_file(path).unwrap_or_default();
         if sequence <= self.last_sequence {
-            return None;
+            return Ok(None);
         }
         let context = record_context(Direction::ToParty, party, sequence);
-        let plaintext = open(&self.private_key, &self.daemon_key, &context, &sealed)?;
-        let request = serde_json::from_slice(&plaintext).ok()?;
+        let Some(plaintext) = open(&self.private_key, &self.daemon_key, &context, &sealed) else {
+            return Ok(None);
+        };
+        let Ok(request) = serde_json::from_slice(&plaintext) else {
+            return Ok(None);
+        };
         self.last_sequence = sequence;
-        Some(request)
+        Ok(Some(request))
     }
 }
 

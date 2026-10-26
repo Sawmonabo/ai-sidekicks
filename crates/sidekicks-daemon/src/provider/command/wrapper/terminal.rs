@@ -136,7 +136,7 @@ pub(super) fn run_in_terminal(
     }
     if let Some(requests) = requests {
         let (stopped, records, state) = (Arc::clone(&pty), Arc::clone(records), Arc::clone(state));
-        follow_stops(requests, move || {
+        follow_stops(requests, Arc::clone(&records), move || {
             // Held until `Stopped` is sent, so the wait's `Exited` comes after it.
             let state = lock_state(&state);
             if matches!(*state, CommandState::Running { .. }) {
