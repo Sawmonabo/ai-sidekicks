@@ -93,7 +93,8 @@ pub(crate) struct RepoServices {
     pub(crate) git: GitRunner,
     /// The repository mounts of this machine.
     pub(crate) mounts: Arc<RepoMountService>,
-    /// The chats' managed workspaces and the watch of their writes; dropping it ends both.
+    /// The chats' managed workspaces and the watch of their writes; the stop ends both through
+    /// [`ManagedWorkspaceService::stop`].
     pub(crate) workspaces: Arc<ManagedWorkspaceService>,
     /// The broker git's questions go through, `None` where the system has no private askpass
     /// socket, which leaves clones unavailable; the stop closes it.
@@ -263,7 +264,6 @@ pub(crate) async fn start_repo_attachments(
     services: &RepoServices,
     followers: &Arc<SessionEventFollowers>,
 ) -> Result<RepoAttachments, RepoAttachmentStartError> {
-    services.live_folders.start(followers).await?;
     let tick = Arc::new(Notify::new());
     let ticking = Arc::clone(&tick);
     // The job only wakes the triggers' task, so a slow probe holds no other job.
@@ -277,6 +277,10 @@ pub(crate) async fn start_repo_attachments(
             async { Ok(()) }.boxed()
         },
     )?;
+    if let Err(error) = services.live_folders.start(followers).await {
+        health_tick.cancel();
+        return Err(error.into());
+    }
     let health_triggers = tokio::spawn(reprobe_mount_health(
         Arc::clone(&services.mount_health),
         tick,
@@ -383,7 +387,7 @@ fn askpass_or_unavailable(
         }
         Err(AskpassBrokerError::Listen(error)) if error.kind() == io::ErrorKind::Unsupported => {
             tracing::warn!(
-                error = &error as &(dyn std::error::Error + 'static),
+                error = &error as &(dyn Error + 'static),
                 "the clone service was not started: this system has no private socket for git's \
                  questions"
             );
@@ -404,26 +408,11 @@ mod tests {
     use crate::daemon::already_running_error::{DaemonAlreadyRunningError, HeldPlace};
     use crate::workspace::clone::askpass::broker::{AskpassBroker, AskpassBrokerError};
 
-    // The first case is killed by the `Unsupported` guard widened to every listen error, which
-    // answers `None` for a run folder whose socket path is past the system's bound; the second by
-    // the `Unsupported` arm deleted, which fails the start where the system has no askpass socket.
+    // The first case is killed by the `Unsupported` arm deleted, which fails the start where the
+    // system has no askpass socket; the second by the `Unsupported` guard widened to every listen
+    // error, which answers `None` for a run folder whose socket path is past the system's bound.
     #[tokio::test]
     async fn only_a_system_with_no_askpass_socket_leaves_the_broker_unstarted() {
-        let run_folder = PathBuf::from("/").join("a".repeat(200));
-        let past_the_bound = askpass_or_unavailable(
-            AskpassBroker::start(&run_folder, PathBuf::from("askpass-program")),
-            &run_folder,
-        );
-        assert!(
-            matches!(
-                past_the_bound,
-                Err(RepoServiceStartError::Askpass(AskpassBrokerError::Listen(ref error)))
-                    if error.kind() == io::ErrorKind::InvalidInput
-            ),
-            "{:?}",
-            past_the_bound.as_ref().map(Option::is_some)
-        );
-
         let unsupported = askpass_or_unavailable(
             Err(AskpassBrokerError::Listen(io::Error::from(
                 io::ErrorKind::Unsupported,
@@ -434,6 +423,26 @@ mod tests {
             matches!(unsupported, Ok(None)),
             "{:?}",
             unsupported.map(|broker| broker.is_some())
+        );
+
+        let run_folder = PathBuf::from("/").join("a".repeat(200));
+        let started = AskpassBroker::start(&run_folder, PathBuf::from("askpass-program"));
+        // Where the system has no askpass socket, no path is past its bound.
+        if matches!(
+            started,
+            Err(AskpassBrokerError::Listen(ref error)) if error.kind() == io::ErrorKind::Unsupported
+        ) {
+            return;
+        }
+        let past_the_bound = askpass_or_unavailable(started, &run_folder);
+        assert!(
+            matches!(
+                past_the_bound,
+                Err(RepoServiceStartError::Askpass(AskpassBrokerError::Listen(ref error)))
+                    if error.kind() == io::ErrorKind::InvalidInput
+            ),
+            "{:?}",
+            past_the_bound.as_ref().map(Option::is_some)
         );
     }
 

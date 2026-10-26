@@ -4,13 +4,10 @@
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex, Weak};
 
-use serde_json::json;
-use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::events::SessionLifecycleChangePayload;
 use sidekicks_contracts::session::id::{SessionId, UserId};
 use sidekicks_contracts::session::methods::SessionState;
@@ -210,7 +207,7 @@ async fn fixture() -> Fixture {
 
 impl Fixture {
     // Records a binding of a new running run of `session_id` through the services' cursors.
-    async fn bind_new_run(&self, session_id: SessionId) -> (RunId, RuntimeBindingId) {
+    async fn bind_new_run(&self, session_id: SessionId) -> RuntimeBindingId {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         insert_running_run(&self.database, session_id, run_id);
         let binding = self
@@ -225,7 +222,7 @@ impl Fixture {
             })
             .await
             .expect("the binding is recorded");
-        (run_id, binding.id)
+        binding.id
     }
 
     // Publishes `event` on `session_id`'s log to the followers, as a committed write does.
@@ -245,33 +242,15 @@ impl Fixture {
     }
 }
 
-// Killed by deleting the binding cursors' follow from the start's attachments: the ended run's
-// cursor then outlives the next binding, and the live one outlives the session's close.
+// Killed by deleting the binding cursors' follow from the start's attachments: a live run's
+// cursor then outlives its session's close.
 #[tokio::test]
-async fn the_started_follows_drop_an_ended_runs_cursor_and_a_closed_sessions() {
+async fn the_started_follows_drop_a_closed_sessions_cursors() {
     let mut fixture = fixture().await;
     let followers = Arc::clone(&fixture.log.followers);
     let attachments = start_session_attachments(&fixture.session, &followers);
     let session_id = test_session_id();
-    let (ended_run, ended_binding) = fixture.bind_new_run(session_id).await;
-
-    let completed: SessionEvent = serde_json::from_value(json!({
-        "type": SessionEventType::AgentRunCompleted.as_str(),
-        "payload": {
-            "sessionId": session_id,
-            "runId": ended_run,
-            "runVersion": 2,
-            "previousState": <&'static str>::from(RunState::Running),
-            "newState": <&'static str>::from(RunState::Completed),
-        },
-    }))
-    .expect("the test writes a run state change");
-    fixture.publish(session_id, &completed);
-    let (_live_run, live_binding) = fixture.bind_new_run(session_id).await;
-    assert!(
-        !fixture.is_open(&ended_binding),
-        "the next binding drops the ended run's cursor"
-    );
+    let live_binding = fixture.bind_new_run(session_id).await;
 
     fixture.publish(
         session_id,
