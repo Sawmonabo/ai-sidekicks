@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
-use sidekicks_contracts::question::QuestionAnswer;
+use sidekicks_contracts::question::{QuestionAnswer, QuestionAskedState};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -30,8 +30,8 @@ use crate::mcp::client::tasks::{
     McpToolCall,
 };
 use crate::provider::port::question::{
-    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, QuestionTaking,
-    ToolServerQuestionAnswer, WaitingQuestionOpening,
+    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, ToolServerQuestionAnswer,
+    WaitingQuestionOpening,
 };
 use crate::provider::port::registration::PortRegistration;
 
@@ -415,7 +415,7 @@ impl QuestionPort for QuestionCard {
         question: ProviderQuestion,
         answer: Option<Arc<dyn ToolServerQuestionAnswer>>,
         may_open: bool,
-    ) -> BoxFuture<'_, Result<QuestionTaking, Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<QuestionAskedState, Box<dyn Error + Send + Sync>>> {
         let Some(answer) = answer else {
             return async { Err("the tool-server client asks no driver question".into()) }.boxed();
         };
@@ -423,13 +423,13 @@ impl QuestionPort for QuestionCard {
             let mut open = self.open.lock().expect("never poisoned");
             if may_open && !Self::is_waiting_on_question(&open, question.run_id) {
                 self.open_question(&mut open, question, answer);
-                QuestionTaking::Open
+                QuestionAskedState::Open
             } else {
                 self.waiting
                     .lock()
                     .expect("never poisoned")
                     .push((question, answer));
-                QuestionTaking::WaitingForRun
+                QuestionAskedState::WaitingForRun
             }
         };
         let gate = self.take_gate.lock().expect("never poisoned").clone();

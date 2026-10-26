@@ -9,7 +9,7 @@ use std::sync::{Arc, LazyLock};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use sidekicks_contracts::question::{QuestionAnswer, QuestionPrompt};
+use sidekicks_contracts::question::{QuestionAnswer, QuestionAskedState, QuestionPrompt};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
@@ -54,16 +54,6 @@ pub(crate) trait ToolServerQuestionAnswer: Send + Sync {
         &self,
         answers: Vec<QuestionAnswer>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
-}
-
-/// How a question taken in its run's turn was recorded: open, its run waiting on it, or waiting
-/// for its run to read running first.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum QuestionTaking {
-    /// Open, answerable at once.
-    Open,
-    /// Waiting for its run, shown greyed until the run reads running.
-    WaitingForRun,
 }
 
 /// What an attempt to open a question that waits for its run came to.
@@ -119,7 +109,7 @@ pub(crate) trait QuestionPort: Send + Sync {
         question: ProviderQuestion,
         answer: Option<Arc<dyn ToolServerQuestionAnswer>>,
         may_open: bool,
-    ) -> BoxFuture<'_, Result<QuestionTaking, Box<dyn Error + Send + Sync>>>;
+    ) -> BoxFuture<'_, Result<QuestionAskedState, Box<dyn Error + Send + Sync>>>;
 
     /// Opens the question of `session_id` recorded under `request_id` that waits for its run, in
     /// the write that moves its run from `running` to wait on it; one whose run has ended is
@@ -190,7 +180,7 @@ async fn take_in_turn(
     if port
         .record_question_in_turn(question, answer, place.is_ok())
         .await?
-        == QuestionTaking::Open
+        == QuestionAskedState::Open
     {
         return Ok(QuestionTurnEnd::Taken);
     }

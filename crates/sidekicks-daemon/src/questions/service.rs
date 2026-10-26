@@ -36,8 +36,8 @@ use crate::mutex_lock::lock;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::port::question::{
-    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, QuestionTaking,
-    ToolServerQuestionAnswer, WaitingQuestionOpening,
+    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, ToolServerQuestionAnswer,
+    WaitingQuestionOpening,
 };
 use crate::provider::port::registration::{PortRegistration, PortRegistrationError};
 use crate::questions::schema::QuestionState;
@@ -444,7 +444,7 @@ impl QuestionPort for QuestionsService {
         question: ProviderQuestion,
         answer: Option<Arc<dyn ToolServerQuestionAnswer>>,
         may_open: bool,
-    ) -> BoxFuture<'_, Result<QuestionTaking, Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<QuestionAskedState, Box<dyn Error + Send + Sync>>> {
         let answered_by = answer.map_or(
             HeldRequestAnswerer::Driver,
             HeldRequestAnswerer::ToolServerTask,

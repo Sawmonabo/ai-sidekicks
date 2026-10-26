@@ -12,7 +12,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::events::session::appender::{SessionEventDraft, SessionEventLinkage};
-use crate::provider::port::question::{ProviderQuestion, QuestionTaking, WaitingQuestionOpening};
+use crate::provider::port::question::{ProviderQuestion, WaitingQuestionOpening};
 use crate::questions::schema::QuestionState;
 use crate::questions::service::{
     HeldRequestAnswerer, QuestionError, QuestionsService, canceled_event,
@@ -31,13 +31,13 @@ impl QuestionsService {
         question: ProviderQuestion,
         answered_by: HeldRequestAnswerer,
         may_open: bool,
-    ) -> Result<QuestionTaking, QuestionError> {
+    ) -> Result<QuestionAskedState, QuestionError> {
         if may_open || !question.is_agent_waiting {
             match self
                 .take_question(question.clone(), answered_by.clone())
                 .await
             {
-                Ok(_question_id) => return Ok(QuestionTaking::Open),
+                Ok(_question_id) => return Ok(QuestionAskedState::Open),
                 // The run does not read running, so the question waits for it.
                 Err(QuestionError::Engine(RunEngineError::Refused(_))) => {}
                 Err(failure) => return Err(failure),
@@ -45,7 +45,7 @@ impl QuestionsService {
         }
         self.record_question(question, answered_by, QuestionAskedState::WaitingForRun)
             .await?;
-        Ok(QuestionTaking::WaitingForRun)
+        Ok(QuestionAskedState::WaitingForRun)
     }
 
     /// Opens the question of `session_id` asked under `request_id` that waits for its run, in the
