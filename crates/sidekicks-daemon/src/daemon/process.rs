@@ -4,6 +4,7 @@
 
 mod approvals;
 mod crash_monitor;
+pub(crate) mod damage_gate;
 pub(crate) mod database;
 pub(crate) mod jobs;
 pub(crate) mod method_tables;
@@ -58,6 +59,7 @@ use crate::daemon::login_shell_environment::capture_provider_base_environment;
 use crate::daemon::machine::local::{LocalMachineError, read_or_mint_local_machine};
 use crate::daemon::machine::settings::file::{MachineSettingsFile, machine_settings_file_path};
 use crate::daemon::process::crash_monitor::CrashMonitor;
+use crate::daemon::process::damage_gate::DispatchDamageWatch;
 use crate::daemon::process::database::{
     DatabaseFile, DatabaseFileOpenError, DatabaseFileStart, open_database_file,
 };
@@ -475,7 +477,7 @@ impl DaemonProcess {
         let truncation = Arc::clone(&database.truncation);
         let followers = Arc::clone(&database.followers);
         let status = Arc::clone(&database.status);
-        let damage = Arc::clone(&database.damage);
+        let damage = DispatchDamageWatch(Arc::clone(&database.damage));
         let live_runs = database.live_runs.clone();
         let idle_memory = Arc::clone(self.idle_memory.insert(Arc::new(IdleMemoryCollect::start(
             live_runs.clone(),
@@ -607,7 +609,7 @@ impl DaemonProcess {
         );
         let negotiator =
             ProtocolNegotiator::new(session_token.clone(), caller_check.admission_check());
-        let subscriptions = Subscriptions::new(Arc::clone(&damage));
+        let subscriptions = Subscriptions::new(Arc::new(damage.clone()));
         negotiator.register_handshake(&mut builder)?;
         subscriptions.register_cancel(&mut builder)?;
         let registry = Arc::new(builder.freeze());

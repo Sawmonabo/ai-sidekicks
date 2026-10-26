@@ -19,6 +19,7 @@ use tokio_util::sync::CancellationToken;
 use crate::bootstrap::secure_defaults::SecureDefaults;
 use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::lifecycle_methods::{LifecycleMethodsDeps, register_lifecycle_methods};
+use crate::daemon::process::damage_gate::DispatchDamageWatch;
 use crate::daemon::run_folder::{
     RunFolderError, bind_socket, mint_session_token, prepare_run_folder,
 };
@@ -217,7 +218,9 @@ async fn bind_repairing_socket(
         )),
         registry,
         negotiator,
-        subscriptions: Subscriptions::new(Arc::new(DatabaseDamageWatch::new())),
+        subscriptions: Subscriptions::new(Arc::new(DispatchDamageWatch(Arc::new(
+            DatabaseDamageWatch::new(),
+        )))),
         hooks: Arc::new(RepairingSocketHooks),
     };
     prepare_run_folder(deps.run_folder).await?;

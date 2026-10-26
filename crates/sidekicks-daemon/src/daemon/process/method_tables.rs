@@ -14,6 +14,7 @@ use crate::daemon::lifecycle_methods::{LifecycleMethodsDeps, register_lifecycle_
 use crate::daemon::machine::settings::methods::{
     MachineSettingsMethodsDeps, register_machine_settings_methods,
 };
+use crate::daemon::process::damage_gate::{DamageReportGate, DispatchDamageWatch};
 use crate::daemon::process::jobs::IdleMemoryCollect;
 use crate::daemon::retention_methods::{RetentionMethodsDeps, register_retention_methods};
 use crate::daemon::status_methods::{StatusMethodsDeps, register_status_methods};
@@ -39,15 +40,15 @@ use crate::ipc::handlers::session::read::register_session_read;
 use crate::ipc::handlers::session::recovery::register_session_recovery_methods;
 use crate::ipc::handlers::session::restart::{RestartTargetReader, register_session_restart};
 use crate::ipc::handlers::session::tags::register_session_tags;
-use crate::ipc::handlers::terminal::{ShellInputLookup, register_terminal_write};
+use crate::ipc::handlers::terminal::register_terminal_write;
 use crate::ipc::handlers::transcript::register_transcript_reads;
 use crate::ipc::in_flight_mutations::InFlightMutations;
 use crate::ipc::protocol_negotiation::ProtocolNegotiator;
 use crate::ipc::registry::{Dispatch, MethodRegistry, MethodRegistryBuilder, RegistrationError};
 use crate::provider::driver::registry::ProviderRegistry;
+use crate::pty::input_lookup::ShellInputLookup;
 use crate::questions::service::QuestionsService;
 use crate::recovery::damaged_history::DamagedHistory;
-use crate::recovery::database_file::damage::{DamageReportGate, DatabaseDamageWatch};
 use crate::recovery::status::RecoveryStatusTracker;
 use crate::recovery::write_gate::RecoveryWriteGate;
 use crate::session::addresses::SessionInboxAddresses;
@@ -195,7 +196,7 @@ pub(crate) fn gate_chain(
     negotiator: &Arc<ProtocolNegotiator>,
     registry: &Arc<MethodRegistry>,
     status: Arc<RecoveryStatusTracker>,
-    damage: Arc<DatabaseDamageWatch>,
+    damage: DispatchDamageWatch,
     idle_memory: &Arc<IdleMemoryCollect>,
 ) -> GateChain {
     let damage_reports: Arc<dyn Dispatch> = Arc::new(DamageReportGate::new(
