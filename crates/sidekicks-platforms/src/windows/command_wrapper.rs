@@ -112,9 +112,24 @@ pub fn blocking_terminal_master(_pty: &Pty) -> io::Result<File> {
     Err(unwrapped())
 }
 
-/// Reads no master. Always fails with `Unsupported`.
-pub fn wait_for_unread_output(_master: &File, _wait: Duration) -> io::Result<bool> {
-    Err(unwrapped())
+/// A watch on a terminal's master no Windows wrapper makes.
+pub struct TerminalOutputWatch(Infallible);
+
+impl TerminalOutputWatch {
+    /// Watches no master. Always fails with `Unsupported`.
+    pub fn new(_master: &File) -> io::Result<Self> {
+        Err(unwrapped())
+    }
+
+    /// Waits for nothing, as no watch is ever made.
+    pub fn wait(&self, _timeout: Option<Duration>) -> io::Result<bool> {
+        match self.0 {}
+    }
+
+    /// Wakes nothing, as no watch is ever made.
+    pub fn wake(&self) -> io::Result<()> {
+        match self.0 {}
+    }
 }
 
 /// Waits for no child. Always fails with `Unsupported`.

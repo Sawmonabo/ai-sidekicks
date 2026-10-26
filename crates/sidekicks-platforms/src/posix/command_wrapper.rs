@@ -5,10 +5,11 @@
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{self, ErrorKind, Read as _, Write as _};
+use std::num::NonZeroUsize;
 use std::os::fd::{AsRawFd as _, BorrowedFd};
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::process::{Command, ExitCode, ExitStatus};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::tty::Pty;
@@ -18,6 +19,7 @@ use nix::sys::signal::{SigSet, SigmaskHow, Signal, pthread_sigmask};
 use nix::sys::termios::{SetArg, Termios, cfmakeraw, tcgetattr, tcgetsid, tcsetattr};
 use nix::sys::wait::{WaitStatus, waitpid};
 use nix::unistd::{Pid, dup, isatty, pipe, setpgid, tcgetpgrp, tcsetpgrp};
+use polling::{Event, Events, PollMode, Poller};
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 
@@ -296,26 +298,59 @@ pub fn blocking_terminal_master(pty: &Pty) -> io::Result<File> {
     Ok(File::from(master))
 }
 
-/// Whether `master`, a terminal's master, holds output its program wrote that no read has taken
-/// yet, or gets some within `wait`; a terminal whose program side all closed reads as holding
-/// some, since a read of it then answers at once. Fails with the system's error.
-pub fn wait_for_unread_output(master: &File, wait: Duration) -> io::Result<bool> {
-    let mut watched = libc::pollfd {
-        fd: master.as_raw_fd(),
-        events: libc::POLLIN,
-        revents: 0,
-    };
-    let timeout = libc::c_int::try_from(wait.as_millis()).unwrap_or(libc::c_int::MAX);
-    loop {
-        // SAFETY: `watched` is one live, writable `pollfd` on the master `master` keeps open.
-        let ready = unsafe { libc::poll(&raw mut watched, 1, timeout) };
-        if ready >= 0 {
-            return Ok(ready > 0);
+/// A watch on a terminal's master for output its program wrote that no read has taken yet, which
+/// another thread can wake; one poller, so a wait costs no thread and no spin.
+pub struct TerminalOutputWatch {
+    // Declared before the master, so it drops first, while the master it watches is still open.
+    poller: Poller,
+    // Held only to keep the registered handle open.
+    _master: File,
+}
+
+/// The key the master is registered under, the only source the watch's poller holds.
+const MASTER_KEY: usize = 0;
+
+impl TerminalOutputWatch {
+    /// Watches `master`, a terminal's master, through a handle of its own. Fails with the system's
+    /// error.
+    pub fn new(master: &File) -> io::Result<Self> {
+        let master = master.try_clone()?;
+        let poller = Poller::new()?;
+        // SAFETY: the watch owns the master's handle and drops it after the poller, so the handle
+        // stays open while it is registered.
+        unsafe { poller.add_with_mode(&master, Event::readable(MASTER_KEY), PollMode::Level) }?;
+        Ok(Self {
+            poller,
+            _master: master,
+        })
+    }
+
+    /// Waits until the master holds unread output, answering true, or until `timeout` passes where
+    /// one is given or [`TerminalOutputWatch::wake`] is called, answering false. A terminal whose
+    /// program side all closed reads as holding some, since a read of it then answers at once.
+    /// Fails with the system's error.
+    pub fn wait(&self, timeout: Option<Duration>) -> io::Result<bool> {
+        let give_up_at = timeout.map(|timeout| Instant::now() + timeout);
+        let mut events = Events::with_capacity(NonZeroUsize::MIN);
+        loop {
+            events.clear();
+            let remaining =
+                give_up_at.map(|give_up_at| give_up_at.saturating_duration_since(Instant::now()));
+            self.poller.wait(&mut events, remaining)?;
+            if events.iter().any(|event| event.key == MASTER_KEY) {
+                return Ok(true);
+            }
+            // With no bound only a wake returns here; with one, an early return waits on.
+            if give_up_at.is_none_or(|give_up_at| Instant::now() >= give_up_at) {
+                return Ok(false);
+            }
         }
-        let error = io::Error::last_os_error();
-        if error.kind() != ErrorKind::Interrupted {
-            return Err(error);
-        }
+    }
+
+    /// Wakes the current wait, or the next one where none is under way. Fails with the system's
+    /// error.
+    pub fn wake(&self) -> io::Result<()> {
+        self.poller.notify()
     }
 }
 

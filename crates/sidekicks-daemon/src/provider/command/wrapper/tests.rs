@@ -497,6 +497,53 @@ fn a_terminal_command_s_last_output_all_reaches_a_slow_provider_terminal() {
     assert_eq!(copied, OUTPUT_BYTES);
 }
 
+// Fails when a terminal command's exit leaves the output copier blocked while a background
+// process that ignores its hangup holds the terminal open, so the wrapper waits out the drain's
+// cap: Linux sends no hangup to a terminal at its leader's exit, where macOS revokes it. Mutation:
+// drop the wake at the command's exit. Run on Linux, in the container leg.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_terminal_command_s_exit_wakes_the_output_copier_past_a_background_holder() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let stand_in = write_stand_in(folder.path());
+    let mut child = wrapper(
+        &[
+            "--conversation",
+            "conversation",
+            "--process",
+            "process-1",
+            "--tty",
+            "--",
+            "/bin/sh",
+            "-c",
+            "(trap '' HUP; exec sleep 5) & echo \"done $!\"",
+        ],
+        Some(&stand_in),
+    )
+    .spawn()
+    .expect("the wrapper starts");
+    let mut lines = BufReader::new(child.stdout.take().expect("its output")).lines();
+    let holder = loop {
+        let line = lines
+            .next()
+            .expect("the command prints")
+            .expect("a line reads");
+        if let Some(id) = line.trim_end().strip_prefix("done ") {
+            break id.parse::<u32>().expect("a process id");
+        }
+    };
+    let done_at = Instant::now();
+    let status = child.wait().expect("the wrapper ends");
+    let waited = done_at.elapsed();
+    // Killed before the checks, so no failure leaves it running.
+    send_signal(holder, TerminalSignal::Kill).expect("the holder is killed");
+    assert!(status.success());
+    assert!(
+        waited < Duration::from_secs(1),
+        "the wrapper took {waited:?}"
+    );
+}
+
 // Fails when a channel the wrapper cannot join leaves its command running uncovered with nothing
 // said, as the wrapper keeps no log. Mutation: drop the standard-error line in `join_channel`.
 #[test]

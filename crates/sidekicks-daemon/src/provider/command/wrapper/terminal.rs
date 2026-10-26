@@ -13,10 +13,10 @@ use std::time::{Duration, Instant};
 use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::tty::Pty;
 use sidekicks_platforms::{
-    InnerTerminal, RawStandardInput, blocking_terminal_master, end_terminal_session,
-    pass_on_stop_signals, read_standard_input_window_size, read_terminal_master,
-    signal_foreground_group, start_inner_terminal, terminal_options, wait_for_exit,
-    wait_for_terminal_command, wait_for_unread_output,
+    InnerTerminal, RawStandardInput, TerminalOutputWatch, blocking_terminal_master,
+    end_terminal_session, pass_on_stop_signals, read_standard_input_window_size,
+    read_terminal_master, signal_foreground_group, start_inner_terminal, terminal_options,
+    wait_for_exit, wait_for_terminal_command,
 };
 
 use super::{
@@ -106,6 +106,10 @@ pub(super) fn run_in_terminal(
         Ok(master) => master,
         Err(error) => return exec_failed(&error),
     };
+    let output_watch = match TerminalOutputWatch::new(&master) {
+        Ok(output_watch) => Arc::new(output_watch),
+        Err(error) => return exec_failed(&error),
+    };
     // Nothing returns before the input is left as it was, below.
     let raw_input = RawStandardInput::enter().unwrap_or_else(|error| {
         note(records, &format!("could not set its terminal raw: {error}"));
@@ -120,7 +124,7 @@ pub(super) fn run_in_terminal(
         Condvar::new(),
     ));
     copy_input(&master);
-    let output_ended = copy_output(master, Arc::clone(&tail));
+    let output_ended = copy_output(master, Arc::clone(&output_watch), Arc::clone(&tail));
     let (signaled, signaled_records) = (Arc::clone(&pty), Arc::clone(records));
     let started = pass_on_stop_signals(move |signal| {
         if let Err(error) = signal_foreground_group(&signaled, signal) {
@@ -161,6 +165,13 @@ pub(super) fn run_in_terminal(
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .has_command_exited = true;
+    // Set before the wake, so a copier woken from its wait reads the exit.
+    if let Err(error) = output_watch.wake() {
+        note(
+            records,
+            &format!("could not wake its output copier at its command's exit: {error}"),
+        );
+    }
     let mut state = lock_state(state);
     *state = CommandState::Reaped;
     let status = exited.and_then(|_| wait_for_terminal_command(&pty));
@@ -231,9 +242,14 @@ fn copy_input(master: &std::fs::File) {
 /// Copies the command's output into the provider's terminal on a thread of its own, keeping its
 /// last bytes in `tail`, until every descriptor on the terminal's program side closed or, once the
 /// command exited, no output comes for `OUTPUT_QUIET`, as a background process holding the
-/// terminal open keeps it from closing; the receiver hears once the output has ended, with the
-/// error that kept the copier from telling whether more was coming.
-fn copy_output(mut master: std::fs::File, tail: SharedTail) -> mpsc::Receiver<io::Result<()>> {
+/// terminal open keeps it from closing. It reads only once `output_watch` sees output, so the
+/// wake at the exit reaches it; the receiver hears once the output has ended, with the error that
+/// kept the copier from telling whether more was coming.
+fn copy_output(
+    mut master: std::fs::File,
+    output_watch: Arc<TerminalOutputWatch>,
+    tail: SharedTail,
+) -> mpsc::Receiver<io::Result<()>> {
     let (ended, output_ended) = mpsc::channel();
     let copied = thread::Builder::new()
         .name("command output".to_owned())
@@ -247,14 +263,14 @@ fn copy_output(mut master: std::fs::File, tail: SharedTail) -> mpsc::Receiver<io
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .has_command_exited;
-                if has_command_exited {
-                    match wait_for_unread_output(&master, OUTPUT_QUIET) {
-                        Ok(true) => {}
-                        Ok(false) => break,
-                        Err(error) => {
-                            copied = Err(error);
-                            break;
-                        }
+                match output_watch.wait(has_command_exited.then_some(OUTPUT_QUIET)) {
+                    Ok(true) => {}
+                    // Woken by the exit, the copier reads the flag again.
+                    Ok(false) if !has_command_exited => continue,
+                    Ok(false) => break,
+                    Err(error) => {
+                        copied = Err(error);
+                        break;
                     }
                 }
                 // The master answers an error once the command's side has closed.
