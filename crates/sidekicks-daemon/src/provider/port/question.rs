@@ -163,11 +163,11 @@ pub(crate) trait QuestionPort: Send + Sync {
 
 /// Takes `question` through `port` in its run's turn, answered through `answer`, or the run's
 /// driver when `None`. It is recorded at once: open when no question is ahead of `place`, its place
-/// in its run's line, and its run reads running, else waiting for its run, then taken in the
-/// line's order once the run reads running, never refused for asking while the run waits on
-/// something else. When `asker_left` resolves before its turn, or by the time it opened, it is
-/// withdrawn in this same task, after its record's write, so no record lands after its
-/// withdrawal. Fails with [`QuestionTurnError::Take`] when a write or the run's read fails, and
+/// in its run's line, its run reads running and its asker has not left, else waiting for its run,
+/// then taken in the line's order once the run reads running, never refused for asking while the
+/// run waits on something else. When `asker_left` resolves before its turn, or by the time it
+/// opened, it is withdrawn in this same task, after its record's write, so no record lands after
+/// its withdrawal. Fails with [`QuestionTurnError::Take`] when a write or the run's read fails, and
 /// with [`QuestionTurnError::Withdrawal`] when that withdrawal fails.
 pub(crate) async fn take_question_in_turn(
     port: &dyn QuestionPort,
@@ -218,8 +218,8 @@ async fn take_in_turn(
         return Ok(QuestionTurnEnd::Taken);
     }
     // Held across every wait and the opening, so the questions behind it wait their turn. Its
-    // asker's leaving is read first throughout, so a question no one waits for never opens; one
-    // withdrawn or settled behind the head of the line ends its turn at its run's wake.
+    // asker's leaving is read first throughout, so a question never opens once its asker has left;
+    // one withdrawn or settled behind the head of the line ends its turn at its run's wake.
     let _held = match place {
         Ok(hold) => hold,
         Err(mut wait) => loop {
