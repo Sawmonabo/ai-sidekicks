@@ -383,8 +383,7 @@ impl TaskWatches {
             .is_some();
         // A task that ended while its question was taken leaves nothing to answer it.
         if !is_followed {
-            self.withdraw_questions(scope.session_id, vec![request_id.clone()])
-                .await;
+            self.withdraw_questions_later(scope.session_id, vec![request_id.clone()]);
         }
         Some(Some(request_id))
     }

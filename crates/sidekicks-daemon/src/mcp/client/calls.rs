@@ -90,9 +90,7 @@ impl CallsInFlight {
             .is_some();
         // A call that ended while its question was taken leaves nothing to answer it.
         if !is_in_flight {
-            watches
-                .withdraw_questions(scope.session_id, vec![request_id])
-                .await;
+            watches.withdraw_questions_later(scope.session_id, vec![request_id]);
             return QuestionOutcome::Withdrawn;
         }
         let outcome = AwaitedQuestion::hold(watches, scope.session_id, request_id.clone())
@@ -296,5 +294,51 @@ mod tests {
             () = card.wait_until_none_open() => {}
         }
         assert_eq!(card.taken().len(), 1);
+    }
+
+    // Mutation: in `CallsInFlight::ask`, await the withdrawal of a question whose call ended
+    // while the card took it, instead of handing it to a task of its own; the server's cancel then
+    // drops the withdrawal while the card writes it, and the question stays open.
+    #[tokio::test(start_paused = true)]
+    async fn a_question_whose_call_ended_while_the_card_took_it_is_withdrawn_despite_a_cancel() {
+        let (client, card) = test_client();
+        let take_gate = card.hold_takes();
+        let withdraw_gate = card.hold_withdrawals();
+        let (connection, server) = open_test_server(&client, eliciting_v1_server()).await;
+        let sink = CountingSink::new(&server);
+        let contact = contact();
+        let call = connection.call_tool(track_call(), &sink, &contact);
+        tokio::pin!(call);
+        tokio::select! {
+            _ = &mut call => panic!("the call ended before its question was taken"),
+            () = card.wait_until_taken(1) => {}
+        }
+
+        // The server answers the call while the card still takes the call's question.
+        let call_id = server.requests("tools/call")[0].1["id"].clone();
+        let answered = json!({ "jsonrpc": "2.0", "id": call_id, "result": text_result("tracked") });
+        server
+            .unasked
+            .send(answered.to_string())
+            .expect("the server is running");
+        let end = call.await.expect("the call ends");
+        assert!(matches!(end, McpToolCallEnd::Answered { .. }));
+        take_gate.notify_one();
+        // The take's outcome is read before the clock moves, so the withdrawal waits on the card
+        // when the server cancels the request that asked.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let canceled = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/cancelled",
+            "params": { "requestId": "server-1" },
+        });
+        server
+            .unasked
+            .send(canceled.to_string())
+            .expect("the server is running");
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        withdraw_gate.notify_one();
+
+        card.wait_until_none_open().await;
     }
 }

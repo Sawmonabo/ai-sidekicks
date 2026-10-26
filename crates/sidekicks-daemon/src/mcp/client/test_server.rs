@@ -2,7 +2,8 @@
 //! answer in the 2025-11-25 shapes rmcp's own server no longer writes, stay silent, write a line
 //! `serde_json` would not, or send a request of its own before it replies; each message it
 //! receives is kept with the instant it arrived. Beside it, a questions card that takes one open
-//! question at a time, as a run waiting on one does, and can hold its takes' outcomes back.
+//! question at a time, as a run waiting on one does, and can hold back its takes' outcomes and
+//! its withdrawals.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -242,6 +243,7 @@ pub(super) struct QuestionCard {
     open: Mutex<Vec<(ProviderQuestion, Arc<dyn ToolServerQuestionAnswer>)>>,
     asked: Notify,
     take_gate: Mutex<Option<Arc<Notify>>>,
+    withdraw_gate: Mutex<Option<Arc<Notify>>>,
 }
 
 impl QuestionCard {
@@ -280,6 +282,14 @@ impl QuestionCard {
     pub(super) fn hold_takes(&self) -> Arc<Notify> {
         let gate = Arc::new(Notify::new());
         *self.take_gate.lock().expect("never poisoned") = Some(Arc::clone(&gate));
+        gate
+    }
+
+    /// Holds back each later withdrawal until the returned gate is notified, the question still
+    /// open, as a withdrawal whose write waits behind another.
+    pub(super) fn hold_withdrawals(&self) -> Arc<Notify> {
+        let gate = Arc::new(Notify::new());
+        *self.withdraw_gate.lock().expect("never poisoned") = Some(Arc::clone(&gate));
         gate
     }
 
@@ -342,11 +352,18 @@ impl QuestionPort for QuestionCard {
         &self,
         withdrawal: ProviderQuestionWithdrawal,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        self.open
-            .lock()
-            .expect("never poisoned")
-            .retain(|(held, _)| held.request_id != withdrawal.request_id);
-        async { Ok(()) }.boxed()
+        let gate = self.withdraw_gate.lock().expect("never poisoned").clone();
+        async move {
+            if let Some(gate) = gate {
+                gate.notified().await;
+            }
+            self.open
+                .lock()
+                .expect("never poisoned")
+                .retain(|(held, _)| held.request_id != withdrawal.request_id);
+            Ok(())
+        }
+        .boxed()
     }
 }
 
