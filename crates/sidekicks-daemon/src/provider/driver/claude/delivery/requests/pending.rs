@@ -82,6 +82,8 @@ impl RequestTables {
                     let_go: CancellationToken::new(),
                 },
             );
+        // A request recorded again is a new question under the same id; the old one's take, let
+        // go, withdraws the question the card holds under that id.
         if let Some(recorded_over) = recorded_over {
             recorded_over.let_go.cancel();
         }
