@@ -1,29 +1,18 @@
 //! The `terminal.*` methods served here: `terminal.write`, admitted in its step before any wait so
 //! a connection's writes reach the shell in the order they came.
 
-use std::sync::Arc;
-
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::method::Method;
-use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::terminal::{TerminalId, TerminalWrite, TerminalWriteRequest};
+use sidekicks_contracts::terminal::{TerminalWrite, TerminalWriteRequest};
 
 use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
 use crate::pty::control_lease::{ShellConnection, ShellLeaseCaller};
+use crate::pty::input_lookup::ShellInputLookup;
 use crate::pty::shell::paste::ShellPastePart;
-use crate::pty::shell::write::{AdmittedShellWrite, ShellInput, ShellWriteInput};
-
-/// Finds the input of a session's shell at once, or answers the refusal of a write naming no shell,
-/// which may wait on a read: `session.notFound` for a session this daemon does not hold and
-/// `terminal.notFound` for a shell the session does not have.
-pub(crate) type ShellInputLookup = Arc<
-    dyn Fn(&SessionId, &TerminalId) -> Result<Arc<ShellInput>, BoxFuture<'static, HandlerError>>
-        + Send
-        + Sync,
->;
+use crate::pty::shell::write::{AdmittedShellWrite, ShellWriteInput};
 
 /// A write's step before any wait: admitted on its shell, or refused once its refusal is read.
 enum WriteStep {
@@ -111,11 +100,12 @@ mod tests {
     use sidekicks_contracts::terminal::{TERMINAL_WRITES_WAITING_LIMIT, TerminalId};
     use sidekicks_contracts::trust_statement::DeviceId;
 
-    use super::{ShellInputLookup, register_terminal_write};
+    use super::register_terminal_write;
     use crate::ipc::call_fixtures::context;
     use crate::ipc::jsonrpc_error_mapping::{CallFailure, map_json_rpc_error};
     use crate::ipc::registry::{Dispatch, MethodRegistryBuilder, Request, TransportId};
     use crate::pty::control_lease::{ShellConnection, ShellControlLease, ShellLeaseCaller};
+    use crate::pty::input_lookup::ShellInputLookup;
     use crate::pty::shell::refusals::terminal_not_found;
     use crate::pty::shell::write::{QueueTerminalWrite, ShellInput, ShellInputHooks};
 

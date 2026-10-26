@@ -16,6 +16,7 @@ use strum::VariantArray;
 
 use crate::ipc::domain_error::DomainError;
 use crate::mutex_lock::lock;
+use crate::policy::ask_rule::ProviderAskRule;
 use crate::provider::driver::CommandSandboxAvailability;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::session::errors::record_unheard_claude_failure;
@@ -40,7 +41,6 @@ use crate::provider::driver::diagnostics::DriverDiagnosticKind;
 use crate::provider::driver::session_control::{
     UpdatePermissionLevelParams, permission_level_not_offered,
 };
-use crate::provider::port::permission_ask::ProviderAskRule;
 use crate::settle_all::{SettleFailures, settle_all};
 
 // The key a session's starting mode is read from.

@@ -24,13 +24,13 @@ use crate::cleanup_failures::CleanupFailures;
 use crate::git::exclude::{ExcludeError, add_repository_exclude};
 use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
 use crate::mutex_lock::lock;
+use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use crate::policy::destructive_git::covers_destructive_git;
 use crate::provider::driver::claude::session::ignored_settings::list_managed_settings_files;
 use crate::provider::driver::claude::session::settings_file::{
     ClaudeSettingsFileError, edit_settings_object, hold_settings_file, read_claude_settings_file,
     read_settings_file, write_settings_file,
 };
-use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
 use crate::provider::project_rule_folders::write_into_project_folders;
 
 // The project's own settings file Claude Code keeps on this machine, from a folder, and its exclude

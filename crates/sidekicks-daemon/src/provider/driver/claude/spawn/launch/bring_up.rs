@@ -11,6 +11,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_platforms::PathRules;
 
+use crate::policy::ask_rule::ProviderAskRule;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::hooks::registration::compose_claude_initialize_request;
 use crate::provider::driver::claude::session::answered_commands::{
@@ -42,7 +43,6 @@ use crate::provider::driver::claude::spawn::settings::{
 };
 use crate::provider::driver::session_control::SubagentPolicy;
 use crate::provider::port::in_process_tool_servers::InProcessToolServers;
-use crate::provider::port::permission_ask::ProviderAskRule;
 use crate::provider::spawned_version::ResolvedProviderExecutable;
 use crate::provider::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 

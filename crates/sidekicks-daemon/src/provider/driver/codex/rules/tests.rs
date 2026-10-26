@@ -10,7 +10,7 @@ use super::{
     CodexProjectRule, CodexRuleSources, CodexRulesError, RULE_EVALUATION_TIME_LIMIT,
     read_codex_project_rules, remove_codex_project_rule, write_codex_project_rule,
 };
-use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
+use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 
 fn rule(
     sense: RememberedRuleSense,

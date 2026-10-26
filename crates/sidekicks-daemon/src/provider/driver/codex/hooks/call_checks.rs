@@ -459,6 +459,7 @@ mod tests {
     use tokio_util::task::TaskTracker;
 
     use super::{CodexCallChecks, CodexCallChecksDependencies, CodexCallRuns, CodexHookCallRun};
+    use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
     use crate::policy::background_work::BackgroundWorkForms;
     use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
     use crate::provider::driver::PROVIDERS;
@@ -466,8 +467,8 @@ mod tests {
         CodexHookAnswer, CodexHookCall, CodexHookDispatch, CodexHookEvent,
     };
     use crate::provider::port::permission_ask::{
-        PermissionAskPort, ProviderAskAction, ProviderAskActionKind, ProviderAskRule,
-        ProviderPermissionAnswer, ProviderPermissionAsk, ProviderPermissionAskWithdrawal,
+        PermissionAskPort, ProviderAskAction, ProviderPermissionAnswer, ProviderPermissionAsk,
+        ProviderPermissionAskWithdrawal,
     };
     use crate::provider::port::registration::PortRegistration;
     use crate::provider::port::session_rules::SessionRulePort;

@@ -53,6 +53,7 @@ use crate::session::directory::list_feed::rows::{
 use crate::session::directory::list_feed::subscriber::{
     ListEnd, SessionListSubscriber, SubscriberChanges,
 };
+use crate::workspace::managed::service::SessionListRefresh;
 
 // The sessions one read of changed rows takes at most, so a burst of changes reads in short reads.
 const CHANGED_READ_SESSIONS: usize = 64;
@@ -278,6 +279,12 @@ impl SessionListFeed {
     fn lock_open_list(&self) -> MutexGuard<'_, Option<OpenList>> {
         // The slot holds no invariant a panicking holder could break.
         lock(&self.open_list)
+    }
+}
+
+impl SessionListRefresh for SessionListFeed {
+    fn refresh_session(&self, session_id: SessionId) {
+        self.refresh([session_id]);
     }
 }
 

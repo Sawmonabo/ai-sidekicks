@@ -29,11 +29,11 @@ use crate::git::exclude::{ExcludeError, add_repository_exclude};
 use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::MissingEntry;
 use crate::mutex_lock::lock;
+use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use crate::policy::destructive_git::covers_destructive_git;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::delivery::asks::CodexProjectRules;
 use crate::provider::driver::codex::rules::evaluator::RuleFileEvaluator;
-use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::repository_reader::RepositoryReader;
 

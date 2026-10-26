@@ -34,7 +34,6 @@ use crate::file::real_location::resolve_real_path;
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder};
 use crate::missing_entry::is_missing_entry;
 use crate::mutex_lock::lock;
-use crate::session::directory::list_feed::SessionListFeed;
 use crate::workspace::managed::write_watcher::{
     ManagedWorkspaceWrite, ManagedWorkspaceWriteWatcher,
 };
@@ -54,6 +53,12 @@ pub(crate) fn managed_workspaces_folder(home_folder: &Path) -> PathBuf {
     home_folder
         .join(DAEMON_DATA_FOLDER_NAME)
         .join(MANAGED_WORKSPACES_FOLDER_NAME)
+}
+
+/// The sessions list, told of a chat whose document count moved, which no event carries.
+pub(crate) trait SessionListRefresh: Send + Sync {
+    /// Names a session whose listed facts changed, once the write that changed them committed.
+    fn refresh_session(&self, session_id: SessionId);
 }
 
 /// A chat's managed workspace as its create made it.
@@ -157,7 +162,7 @@ impl ManagedWorkspaceService {
         repo_mounts: Arc<RepoMountService>,
         git: GitRunner,
         writes: mpsc::Sender<ManagedWorkspaceWrite>,
-        list_feed: Arc<SessionListFeed>,
+        list_feed: Arc<dyn SessionListRefresh>,
     ) -> Self {
         let workspaces_folder = managed_workspaces_folder(home_folder);
         let changed_folders = Arc::new(PendingSessions::default());
@@ -342,7 +347,7 @@ async fn count_documents(
     workspaces_folder: PathBuf,
     changed_folders: Arc<PendingSessions>,
     repo_mounts: Arc<RepoMountService>,
-    list_feed: Arc<SessionListFeed>,
+    list_feed: Arc<dyn SessionListRefresh>,
 ) {
     let listed_folder = workspaces_folder.clone();
     match run_on_own_thread("chat folders listing", move || {
@@ -380,7 +385,7 @@ async fn count_documents(
                 }
             };
             match repo_mounts.record_document_count(session_id, count).await {
-                Ok(true) => list_feed.refresh([session_id]),
+                Ok(true) => list_feed.refresh_session(session_id),
                 Ok(false) => {}
                 Err(error) => tracing::warn!(
                     error = &error as &(dyn Error + 'static),
@@ -464,20 +469,14 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use sidekicks_contracts::session::directory::{SessionListChange, SessionListEntry};
     use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::integer::SafeInt;
     use tokio::sync::mpsc;
     use tokio::time::timeout;
 
-    use super::{ManagedWorkspaceService, managed_workspaces_folder};
+    use super::{ManagedWorkspaceService, SessionListRefresh, managed_workspaces_folder};
     use crate::database::writer::test_file::TestDatabase;
-    use crate::events::session::followers::SessionEventFollowers;
     use crate::git::process::test_git_runner;
-    use crate::ipc::stream::feed::{CreditGate, Feed as _};
-    use crate::session::directory::list_feed::SessionListFeed;
-    use crate::session::directory::list_feed::subscriber::SessionListSubscriber;
-    use crate::session::directory::test_rows::insert_session_row;
+    use crate::git::worktree::schema::schema_parts;
     use crate::workspace::managed::write_watcher::{
         ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
     };
@@ -485,6 +484,38 @@ mod tests {
     use crate::workspace::repo::root_resolver::RepoRootResolver;
 
     const WAIT: Duration = Duration::from_secs(20);
+
+    // The sessions list's stand-in: sends on each session it is named.
+    struct NamedSessions(mpsc::UnboundedSender<SessionId>);
+
+    impl SessionListRefresh for NamedSessions {
+        fn refresh_session(&self, session_id: SessionId) {
+            self.0
+                .send(session_id)
+                .expect("the test hears the sessions named");
+        }
+    }
+
+    // The service for workspaces under `home` on `database`, and what hears each chat it names to
+    // the sessions list.
+    async fn start_service(
+        home: &tempfile::TempDir,
+        database: &TestDatabase,
+        writes: mpsc::Sender<ManagedWorkspaceWrite>,
+    ) -> (mpsc::UnboundedReceiver<SessionId>, ManagedWorkspaceService) {
+        let repo_mounts =
+            RepoMountService::for_test(database, RepoRootResolver::new(test_git_runner())).await;
+        let (named_sender, named) = mpsc::unbounded_channel();
+        let service = ManagedWorkspaceService::new(
+            home.path(),
+            None,
+            repo_mounts,
+            test_git_runner(),
+            writes,
+            Arc::new(NamedSessions(named_sender)),
+        );
+        (named, service)
+    }
 
     // Makes the session's workspace, writes one file in it at once, before the watch may be
     // ready, and waits for that one write to be reported.
@@ -524,20 +555,9 @@ mod tests {
     #[tokio::test]
     async fn a_create_after_the_workspaces_folder_is_removed_watches_it_again() {
         let home = tempfile::tempdir().expect("a scratch home");
-        let database = TestDatabase::new();
-        let repo_mounts =
-            RepoMountService::for_test(&database, RepoRootResolver::new(test_git_runner())).await;
+        let database = TestDatabase::new(schema_parts());
         let (writes_sender, mut writes) = mpsc::channel(64);
-        let list_feed =
-            SessionListFeed::for_test(&database, &Arc::new(SessionEventFollowers::default()));
-        let service = ManagedWorkspaceService::new(
-            home.path(),
-            None,
-            repo_mounts,
-            test_git_runner(),
-            writes_sender,
-            list_feed,
-        );
+        let (_named, service) = start_service(&home, &database, writes_sender).await;
 
         let first = SessionId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e70").expect("a session id");
         write_once_and_see_it_reported(&service, first, &mut writes).await;
@@ -547,65 +567,54 @@ mod tests {
         write_once_and_see_it_reported(&service, second, &mut writes).await;
     }
 
-    // The chat's document count as the next upsert of the list carries it.
-    async fn next_document_count(subscriber: &mut SessionListSubscriber, gate: &CreditGate) -> u64 {
-        loop {
-            let change = timeout(WAIT, subscriber.next(gate))
-                .await
-                .expect("a change comes")
-                .expect("the list reads")
-                .expect("the stream goes on");
-            if let SessionListChange::Upsert { entry, .. } = change
-                && let SessionListEntry::Chat(chat) = *entry
-            {
-                return chat
-                    .document_count
-                    .expect("a chat with a workspace counts")
-                    .get();
-            }
-        }
+    // The chat's document count as its managed mount's row holds it.
+    fn stored_document_count(database: &TestDatabase, session_id: SessionId) -> i64 {
+        database
+            .reader()
+            .query_row(
+                "SELECT document_count FROM repo_mounts WHERE managed_session_id = ?1",
+                [session_id.text().as_str()],
+                |row| row.get(0),
+            )
+            .expect("the chat's mount row reads")
+    }
+
+    // The chat's document count once the sessions list is next named the chat.
+    async fn next_document_count(
+        named: &mut mpsc::UnboundedReceiver<SessionId>,
+        database: &TestDatabase,
+        session_id: SessionId,
+    ) -> i64 {
+        let named = timeout(WAIT, named.recv())
+            .await
+            .expect("the sessions list is named the chat in time")
+            .expect("the service keeps naming chats");
+        assert_eq!(named, session_id);
+        stored_document_count(database, session_id)
     }
 
     // Catches a count left unwritten, the `.git` folder counted, a removal that leaves the count
-    // high, and a count that moves without the sessions list hearing of it: the chat's row follows
-    // the files written into and removed from its folder.
+    // high, and a count that moves without the sessions list being named the chat: the chat's row
+    // follows the files written into and removed from its folder.
     #[tokio::test]
     async fn a_chats_document_count_follows_its_folder_into_the_sessions_list() {
         let home = tempfile::tempdir().expect("a scratch home");
-        let database = TestDatabase::new();
-        let repo_mounts =
-            RepoMountService::for_test(&database, RepoRootResolver::new(test_git_runner())).await;
+        let database = TestDatabase::new(schema_parts());
         let (writes_sender, _writes) = mpsc::channel(64);
-        let list_feed =
-            SessionListFeed::for_test(&database, &Arc::new(SessionEventFollowers::default()));
-        let service = ManagedWorkspaceService::new(
-            home.path(),
-            None,
-            repo_mounts,
-            test_git_runner(),
-            writes_sender,
-            Arc::clone(&list_feed),
-        );
+        let (mut named, service) = start_service(&home, &database, writes_sender).await;
         let session_id =
             SessionId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e72").expect("a session id");
-        insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
         let workspace = service
             .create(session_id)
             .await
             .expect("the workspace is made");
-        let opening = list_feed.open().await.expect("the list opens");
-        let [SessionListEntry::Chat(chat)] = opening.sessions.as_slice() else {
-            panic!("the list holds the one chat");
-        };
-        assert_eq!(chat.document_count.map(SafeInt::get), Some(0));
-        let mut subscriber = opening.subscriber;
-        let gate = CreditGate::with_credit(1);
+        assert_eq!(stored_document_count(&database, session_id), 0);
 
         fs::write(workspace.path.join("plan.md"), "plan").expect("a file is written");
         fs::create_dir(workspace.path.join("notes")).expect("a folder is made");
         fs::write(workspace.path.join("notes").join("draft.md"), "draft").expect("written");
-        while next_document_count(&mut subscriber, &gate).await != 2 {}
+        while next_document_count(&mut named, &database, session_id).await != 2 {}
         fs::remove_file(workspace.path.join("plan.md")).expect("the file is removed");
-        while next_document_count(&mut subscriber, &gate).await != 1 {}
+        while next_document_count(&mut named, &database, session_id).await != 1 {}
     }
 }

@@ -41,6 +41,7 @@ use crate::approvals::rules::{ApprovalRuleError, ApprovalRules};
 use crate::approvals::service::{ApprovalService, ApprovalServiceError, RaisedCard};
 use crate::daemon::machine::registry::{MachineRegistry, MachineRegistryReadError};
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
+use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use crate::policy::authorizer::{Authorizer, PolicyDecision};
 use crate::policy::background_work::{BackgroundWorkForms, refuse_background_work};
 use crate::policy::execution_posture_service::ExecutionPostureService;
@@ -51,9 +52,7 @@ use crate::provider::callback_tools::host::{
     CallbackToolApprovalBasis, CallbackToolApprovalOutcome,
 };
 use crate::provider::driver::callback_tool::CallbackToolInvocation;
-use crate::provider::port::permission_ask::{
-    ProviderAskAction, ProviderAskActionKind, ProviderAskRule, ProviderPermissionAsk,
-};
+use crate::provider::port::permission_ask::{ProviderAskAction, ProviderPermissionAsk};
 use crate::session::permission_level::read_session_permission_level;
 use crate::session::run::agent::{RunAgentReadError, RunAgentReader};
 use crate::text_cut::cut_to_code_points;

@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use sidekicks_contracts::approval::RememberedRuleSense;
 
+use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use crate::policy::shell_commands::{ShellCommand, ShellLineReader, ShellLineReading, WordText};
-use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
 
 /// The subcommand a git command runs, and whether its options change what git itself runs. The
 /// subcommand's `Display` writes its text.

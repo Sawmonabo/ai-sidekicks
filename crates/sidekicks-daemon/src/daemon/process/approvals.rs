@@ -260,16 +260,17 @@ mod tests {
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::events::log_service::tests::open_log;
     use crate::events::session::read::DamagedFromSequenceReader;
+    use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
     use crate::provider::driver::contract::{DriverError, MockProviderDriver};
     use crate::provider::driver::session_control::RevokeRuleParams;
     use crate::provider::driver::test_registry::registry_of_first_provider;
-    use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
+    use crate::remote::shared_ports::schema::schema_parts;
 
     // Killed by mapping the read's refusal to an internal failure, which the person would read as
     // a fault instead of the session being gone.
     #[tokio::test]
     async fn a_revoke_for_a_session_with_no_lead_is_refused_session_not_found() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let _log = open_log(&database, None).await;
         let read_damaged_from_sequence: Arc<DamagedFromSequenceReader> =
             Arc::new(|_: &SessionId| None::<i64>);

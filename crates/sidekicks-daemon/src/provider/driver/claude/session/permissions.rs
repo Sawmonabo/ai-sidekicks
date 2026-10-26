@@ -16,6 +16,7 @@ use sidekicks_platforms::PathRules;
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::mutex_lock::lock;
+use crate::policy::ask_rule::ProviderAskRule;
 use crate::provider::driver::claude::session::errors::ClaudeSessionError;
 use crate::provider::driver::claude::session::rules::{
     ClaudeProjectFolder, ClaudeRulesError, remove_claude_project_rule,
@@ -29,7 +30,6 @@ use crate::provider::driver::claude::spawn::settings::{
     ClaudePermissionsRequest, compose_claude_permissions,
 };
 use crate::provider::driver::contract::DriverError;
-use crate::provider::port::permission_ask::ProviderAskRule;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::session_rules::SessionRulePort;
 

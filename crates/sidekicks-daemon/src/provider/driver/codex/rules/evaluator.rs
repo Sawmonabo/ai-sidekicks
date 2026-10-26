@@ -22,7 +22,7 @@ use starlark::values::list::{ListRef, UnpackList};
 use starlark::values::none::NoneType;
 
 use super::normalize_network_rule_host;
-use crate::provider::port::permission_ask::{ProviderAskActionKind, ProviderAskRule};
+use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 
 // The endings Codex strips from a program's name on Windows before it looks the name up.
 const WINDOWS_PROGRAM_SUFFIXES: [&str; 4] = [".exe", ".cmd", ".bat", ".com"];

@@ -2,6 +2,7 @@
 //! asks the daemon answers itself, the execution posture, the permission check every sensitive
 //! action passes and the approval seam of the app's own tools.
 
+pub(crate) mod ask_rule;
 pub(crate) mod authorizer;
 pub(crate) mod background_work;
 pub(crate) mod callback_tool_approvals;

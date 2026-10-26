@@ -17,6 +17,7 @@ use super::{
     provider_rule_of, query_rule_rows, rule_over,
 };
 use crate::approvals::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
+use crate::approvals::schema::schema_parts;
 use crate::approvals::service::tests::{ApprovalFixture, from_json};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
@@ -24,11 +25,10 @@ use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
+use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::contract::DriverError;
-use crate::provider::port::permission_ask::{
-    ProviderAnswerRule, ProviderAskActionKind, ProviderAskRule,
-};
+use crate::provider::port::permission_ask::ProviderAnswerRule;
 use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -55,7 +55,7 @@ async fn append(writer: &DatabaseWriter, session_id: SessionId, event: serde_jso
 // range applies the skipped rule and fails.
 #[tokio::test]
 async fn a_rule_remembered_in_a_skipped_range_is_not_in_force() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
         .await
         .expect("the writer opens its database");

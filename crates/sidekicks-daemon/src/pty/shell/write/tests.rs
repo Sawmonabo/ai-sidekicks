@@ -4,11 +4,11 @@ use std::time::Duration;
 use alacritty_terminal::event::{Event, EventListener};
 use bytes::Bytes;
 use futures::FutureExt as _;
-use serde_json::json;
 use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::{TERMINAL_WRITE_MAX_BYTES, TerminalId};
 use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_platforms::Spawner;
 use sidekicks_terminal::{
     CommandLine, OutputFilter, ScreenListener, ShellCommand, SpawnRequest, TerminalAnswers,
@@ -16,11 +16,10 @@ use sidekicks_terminal::{
 };
 use tokio::runtime::Handle;
 
-use super::{ShellInput, ShellInputHooks};
-use crate::ipc::call_fixtures::{context, request};
-use crate::ipc::handlers::terminal::{ShellInputLookup, register_terminal_write};
-use crate::ipc::registry::{Dispatch, MethodRegistryBuilder, Request, TransportId};
+use super::{AdmittedShellWrite, ShellInput, ShellInputHooks, ShellWriteInput};
+use crate::ipc::registry::TransportId;
 use crate::pty::control_lease::{ShellConnection, ShellControlLease, ShellLeaseCaller};
+use crate::pty::shell::paste::ShellPastePart;
 
 const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
 const FIRST_PANE: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c0001";
@@ -58,21 +57,40 @@ impl ScreenListener for AnswerThroughInput {
     fn answer_question(&mut self) {}
 }
 
-/// One write's params through `pane`.
-fn write(pane: &str, data: &str, paste: Option<bool>) -> Request {
-    let mut params = json!({
-        "kind": "keys",
-        "sessionId": SESSION,
-        "terminalId": "terminal-1",
-        "outputSubscriptionId": pane,
-        "data": data,
-    });
-    if let Some(is_last_part) = paste {
-        params["kind"] = json!("paste");
-        params["pasteId"] = json!(PASTE);
-        params["isLastPart"] = json!(is_last_part);
+/// The device's connection `transport` writing through `pane`.
+fn caller(transport: u64, pane: &str) -> ShellLeaseCaller {
+    ShellLeaseCaller {
+        connection: ShellConnection {
+            device_id: DeviceId::new("device".to_owned()).expect("a device id"),
+            transport_id: TransportId(transport),
+        },
+        output_subscription_id: SubscriptionId::new(pane).expect("a subscription id"),
     }
-    request("terminal.write", Some(&params))
+}
+
+/// Admits one write of `data` from connection `transport` through `pane`, typed keys or, with
+/// `paste`, a part of the one paste, that flag saying whether it is the last.
+fn write(
+    input: &Arc<ShellInput>,
+    transport: u64,
+    pane: &str,
+    data: &str,
+    paste: Option<bool>,
+) -> AdmittedShellWrite {
+    let caller = caller(transport, pane);
+    let data = data.to_owned();
+    let write = match paste {
+        None => ShellWriteInput::Keys(data),
+        Some(is_last_part) => ShellWriteInput::Paste(ShellPastePart {
+            paste_id: ClientUuid::new(PASTE.to_owned()).expect("the paste id is a UUID"),
+            output_subscription_id: caller.output_subscription_id,
+            data,
+            is_last_part,
+        }),
+    };
+    input
+        .admit_write(caller, write)
+        .expect("the write is admitted")
 }
 
 /// Reads the output until it holds `marker`, answering everything read so far.
@@ -204,21 +222,10 @@ async fn writes_from_two_connections_and_the_screen_s_answers_reach_the_program_
     // The question comes before `ready`, so its answer is in line before any write.
     read_until(&mut spawned.output, &mut text, "ready").await;
 
-    let lookup: ShellInputLookup = Arc::new(move |_session, _terminal| Ok(Arc::clone(&input)));
-    let mut builder = MethodRegistryBuilder::new();
-    register_terminal_write(&mut builder, lookup).expect("terminal.write registers");
-    let registry = builder.freeze();
     // Both connections of the device hold the shell, each through its own pane.
     for (transport, pane) in [(1, FIRST_PANE), (2, SECOND_PANE)] {
-        let caller = ShellLeaseCaller {
-            connection: ShellConnection {
-                device_id: DeviceId::new("device".to_owned()).expect("a device id"),
-                transport_id: TransportId(transport),
-            },
-            output_subscription_id: SubscriptionId::new(pane).expect("a subscription id"),
-        };
         lease
-            .take(&caller, false)
+            .take(&caller(transport, pane), false)
             .await
             .expect("the device takes the shell");
     }
@@ -229,17 +236,18 @@ async fn writes_from_two_connections_and_the_screen_s_answers_reach_the_program_
         );
     }
 
-    let mut calls = vec![
-        registry.dispatch(write(FIRST_PANE, "one", None), context(1)),
-        registry.dispatch(write(SECOND_PANE, "two", None), context(2)),
+    let mut writes = vec![
+        write(&input, 1, FIRST_PANE, "one", None),
+        write(&input, 2, SECOND_PANE, "two", None),
     ];
     for (index, part) in paste.iter().enumerate() {
-        calls.push(registry.dispatch(write(FIRST_PANE, part, Some(index == 3)), context(1)));
+        writes.push(write(&input, 1, FIRST_PANE, part, Some(index == 3)));
     }
-    calls.push(registry.dispatch(write(SECOND_PANE, "three", None), context(2)));
-    // Awaited last to first, so the order can only come from each call's dispatch, never its poll.
-    for call in calls.into_iter().rev() {
-        tokio::time::timeout(OUTPUT_BOUND, call)
+    writes.push(write(&input, 2, SECOND_PANE, "three", None));
+    // Awaited last to first, so the order can only come from each write's admission, never its
+    // poll.
+    for admitted in writes.into_iter().rev() {
+        tokio::time::timeout(OUTPUT_BOUND, admitted.answered())
             .await
             .expect("each write is taken in time")
             .expect("each write is answered");

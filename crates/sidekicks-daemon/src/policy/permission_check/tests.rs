@@ -31,6 +31,7 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::DatabaseWriter;
 use crate::events::session::appender::SessionEventAppender;
 use crate::mutex_lock::lock;
+use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use crate::policy::authorizer::Authorizer;
 use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
@@ -38,8 +39,7 @@ use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::PROVIDERS;
 use crate::provider::driver::session_control::RevokeRuleParams;
 use crate::provider::port::permission_ask::{
-    ProviderAnswerRule, ProviderAskAction, ProviderAskActionKind, ProviderAskRule,
-    ProviderPermissionAsk,
+    ProviderAnswerRule, ProviderAskAction, ProviderPermissionAsk,
 };
 
 /// The bound the tests read shell lines under.
