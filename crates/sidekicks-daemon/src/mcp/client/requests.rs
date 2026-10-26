@@ -1,11 +1,12 @@
-//! A connection's own requests to its server, each bounded in time through rmcp's request options:
-//! an ordinary request waits 60 s, a tool call that may run long waits out an idle window that
-//! each progress notification restarts, held to one total bound, and a task's result held while
-//! the task waits on the person waits within that total bound alone. When a bound runs out rmcp
-//! tells the server the request is canceled; a request whose caller stops waiting tells it the
-//! same, and its raw reply, should one still come, is dropped.
+//! A connection's own requests to its server, each bounded in time: an ordinary request waits 60 s
+//! through rmcp's request options; a tool call that may run long waits out the connection's idle
+//! window, which the daemon keeps, within one total bound rmcp keeps; and a task's result held while
+//! the task waits on the person waits within that total bound alone. A request whose bound runs
+//! out, or whose caller stops waiting, tells the server it is canceled, and its raw reply, should
+//! one still come, is dropped.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::Duration;
 
 use rmcp::model::{
@@ -18,6 +19,7 @@ use rmcp::service::{PeerRequestOptions, ServiceError};
 use rmcp::{Peer, RoleClient};
 use serde_json::{Map, Value};
 
+use crate::mcp::client::idle_window::ToolCallActivity;
 use crate::mcp::client::raw_copy::RawReplyCopy;
 
 /// How long an ordinary request waits for its answer (the TypeScript SDK's default).
@@ -75,7 +77,8 @@ impl PageCursors {
 pub(super) enum RequestWait {
     /// An ordinary request: 60 s.
     Ordinary,
-    /// A tool call: the connection's idle window, restarted by progress, within the total bound.
+    /// A tool call: the connection's idle window, which progress on the call starts again and an
+    /// open question holds still, within the total bound.
     ToolCall,
     /// A task's result held while the task waits on the person: the total bound alone, since the
     /// person may take longer than any idle window and the task's polls show the server answers.
@@ -111,12 +114,13 @@ pub(crate) enum McpRequestError {
 }
 
 /// The requests one connection sends its server, through its peer, its raw copy and its tool
-/// calls' idle window.
+/// calls' idle window and activity.
 #[derive(Clone)]
 pub(super) struct ServerRequests {
     pub(super) peer: Peer<RoleClient>,
     pub(super) raw: RawReplyCopy,
     pub(super) tool_call_idle_timeout: Duration,
+    pub(super) activity: Arc<ToolCallActivity>,
 }
 
 /// A request sent and not yet answered: dropped before its answer, it tells the server the request
@@ -153,20 +157,19 @@ impl Drop for PendingRequest<'_> {
 }
 
 impl ServerRequests {
-    fn request_options(&self, wait: RequestWait) -> PeerRequestOptions {
+    fn request_options(wait: RequestWait) -> PeerRequestOptions {
         match wait {
             RequestWait::Ordinary => PeerRequestOptions::with_timeout(ORDINARY_REQUEST_TIMEOUT),
-            RequestWait::ToolCall => PeerRequestOptions::with_timeout(self.tool_call_idle_timeout)
-                .reset_timeout_on_progress()
-                .with_max_total_timeout(TOOL_CALL_MAX_TOTAL_TIMEOUT),
-            RequestWait::HeldResult => {
+            RequestWait::ToolCall | RequestWait::HeldResult => {
                 PeerRequestOptions::no_options().with_max_total_timeout(TOOL_CALL_MAX_TOTAL_TIMEOUT)
             }
         }
     }
 
     /// Sends `request` and waits for its answer within `wait`'s bound, returning the request's id
-    /// beside the answer. Fails when it does not reach the server or no answer comes in time.
+    /// beside the answer; a tool call also within the connection's idle window, failing
+    /// [`ServiceError::Timeout`] once it runs out. Fails when it does not reach the server or no
+    /// answer comes in time.
     async fn send_bounded<T>(
         &self,
         request: ClientRequest,
@@ -175,14 +178,28 @@ impl ServerRequests {
     ) -> Result<T, ServiceError> {
         let handle = self
             .peer
-            .send_request_with_option(request, self.request_options(wait))
+            .send_request_with_option(request, Self::request_options(wait))
             .await?;
         let mut pending = PendingRequest {
             requests: self,
             id: handle.id.clone(),
             is_answered: false,
         };
-        let answered = handle.await_response().await;
+        let answered = match wait {
+            RequestWait::ToolCall => {
+                let progress = self.activity.watch_progress(handle.progress_token.clone());
+                tokio::select! {
+                    answered = handle.await_response() => answered,
+                    () = self.activity.idle_out(&progress, self.tool_call_idle_timeout) => {
+                        // Dropped unanswered, the pending request tells the server it is canceled.
+                        return Err(ServiceError::Timeout {
+                            timeout: self.tool_call_idle_timeout,
+                        });
+                    }
+                }
+            }
+            RequestWait::Ordinary | RequestWait::HeldResult => handle.await_response().await,
+        };
         pending.is_answered = true;
         Ok(read(&pending.id, answered))
     }

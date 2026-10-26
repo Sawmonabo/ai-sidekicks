@@ -7,6 +7,9 @@
 //!   rmcp's own types ([`v2`]).
 //! - A task's question is held under its own request id, and its answer goes back to the server
 //!   that asked, never to the run's driver.
+//! - A question a server's request waits on is taken in its run's turn: asked while its run waits on
+//!   something else, it is recorded at once waiting for the run and opened once the run reads
+//!   running, first in, first out per run, never answered `cancel` for that reason.
 //! - A question nobody waits on any more is withdrawn from the card: one whose task or call is
 //!   dropped, or whose request the server canceled.
 //! - A task is watched by its session, its server's name and its id, so two sessions whose
@@ -37,7 +40,8 @@ use crate::mcp::client::requests::{McpRequestError, RequestWait};
 use crate::mcp::elicitation_form::{compose_elicitation_content, read_elicitation_questions};
 use crate::mutex_lock::lock;
 use crate::provider::port::question::{
-    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, ToolServerQuestionAnswer,
+    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, QuestionTurnEnd,
+    ToolServerQuestionAnswer, take_question_in_turn,
 };
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::record_readers::read_non_empty_string;
@@ -262,13 +266,16 @@ impl McpServerConnection {
 type WatchKey = (SessionId, String, String);
 
 /// The tasks a client follows, across its connections, each one's early-poll wake and the run its
-/// questions are asked in; and the questions card every tool-server question goes to. It holds
-/// one entry per followed task, each until the task's poll ends, and in it each of the task's
-/// questions still open: a 2025-11-25 one until it settles, a 2026-07-28 one, at most 16 a poll,
-/// until the task ends.
+/// questions are asked in; the questions card every tool-server question goes to; and each run's
+/// queue of questions taken in its turn. It holds one entry per followed task, each until the
+/// task's poll ends, and in it each of the task's questions still open: a 2025-11-25 one until it
+/// settles, a 2026-07-28 one, at most 16 a poll, until the task ends; and one queue per run while
+/// a question of the run waits its turn.
 pub(crate) struct TaskWatches {
     questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
     watched: Mutex<HashMap<WatchKey, WatchedTask>>,
+    /// Each run's questions waiting their turn, first in, first out.
+    run_queues: Mutex<HashMap<RunId, Arc<tokio::sync::Mutex<()>>>>,
     /// Numbers each question a server asks, so its request id is never another's.
     next_question: AtomicU64,
 }
@@ -288,6 +295,16 @@ pub(super) struct TaskWatch<'watches> {
     pub(super) wake: Arc<Notify>,
 }
 
+/// When the card takes a question: at once, refused while its run waits on something else; or in
+/// its run's turn, waiting for the run to read running.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum QuestionTake {
+    /// At once, as a task's poll asks, which asks again later.
+    Now,
+    /// In its run's turn, as a server's request waiting on the answer asks.
+    InRunTurn,
+}
+
 /// What a question came to.
 pub(super) enum QuestionOutcome {
     /// The person answered; the form's content.
@@ -302,6 +319,7 @@ impl TaskWatches {
         Self {
             questions,
             watched: Mutex::new(HashMap::new()),
+            run_queues: Mutex::new(HashMap::new()),
             next_question: AtomicU64::new(1),
         }
     }
@@ -347,7 +365,10 @@ impl TaskWatches {
         params: Value,
     ) -> Option<QuestionOutcome> {
         let (answer, answered) = ElicitationAnswer::open(params.clone());
-        let Some(request_id) = self.ask(scope, mcp_task_id, &params, answer).await? else {
+        let asked = self
+            .ask(scope, mcp_task_id, &params, answer, QuestionTake::InRunTurn)
+            .await?;
+        let Some(request_id) = asked else {
             return Some(QuestionOutcome::Withdrawn);
         };
         let outcome = AwaitedQuestion::hold(self, scope.session_id, request_id.clone())
@@ -360,21 +381,23 @@ impl TaskWatches {
         Some(outcome)
     }
 
-    /// Hands the card one question of `scope`'s task `mcp_task_id`, answered through `answer`.
-    /// `None` when the task is not followed; `Some(None)` when the card did not take it, which is
-    /// logged, so a later poll can ask it again; else the question's request id.
+    /// Hands the card one question of `scope`'s task `mcp_task_id`, answered through `answer`,
+    /// taken as `take` says. `None` when the task is not followed; `Some(None)` when the card did
+    /// not take it, which is logged, so a later poll can ask it again; else the question's request
+    /// id.
     pub(super) async fn ask(
         &self,
         scope: &McpConnectionScope,
         mcp_task_id: &str,
         params: &Value,
         answer: Arc<dyn ToolServerQuestionAnswer>,
+        take: QuestionTake,
     ) -> Option<Option<String>> {
         let key = watch_key(scope, mcp_task_id);
         let run_id = lock(&self.watched).get(&key)?.run_id;
         let request_id = self.mint_request_id(scope, mcp_task_id);
         let question = compose_question(scope, run_id, request_id.clone(), params);
-        if !self.take_question(scope, question, answer).await {
+        if !self.take_question(scope, question, answer, take).await {
             return Some(None);
         }
         let is_followed = lock(&self.watched)
@@ -394,26 +417,65 @@ impl TaskWatches {
         format!("mcp:{}:{owner}:{number}", scope.server_name.as_str())
     }
 
-    /// Hands the card `question`, answered through `answer`; false when the card did not take it,
-    /// which is logged. The take runs in a task of its own, so one whose asker stops waiting still
-    /// completes and its question is withdrawn, never left open with nobody to answer it. Until
-    /// the card's intake is registered this reads as taken while nobody holds `answer`: a
-    /// 2025-11-25 question is then answered `cancel`, and a 2026-07-28 one is never asked again.
+    /// Hands the card `question`, answered through `answer` and taken as `take` says; false when
+    /// the card did not take it, which is logged, or it was settled before its run's turn came.
+    /// The take runs in a task of its own, so one whose asker stops waiting still completes and
+    /// its question is withdrawn, never left open with nobody to answer it; a question waiting its
+    /// turn stops waiting with its asker and is withdrawn. Until the card's intake is registered
+    /// this reads as taken while nobody holds `answer`: a 2025-11-25 question is then answered
+    /// `cancel`, and a 2026-07-28 one is never asked again.
     pub(super) async fn take_question(
         &self,
         scope: &McpConnectionScope,
         question: ProviderQuestion,
         answer: Arc<dyn ToolServerQuestionAnswer>,
+        take: QuestionTake,
     ) -> bool {
         let Some(port) = self.questions.port().cloned() else {
             return true;
         };
         let (session_id, request_id) = (question.session_id, question.request_id.clone());
-        let (sender, taken) = oneshot::channel();
+        let (mut sender, taken) = oneshot::channel();
+        let queue = (take == QuestionTake::InRunTurn)
+            .then(|| RunQueue::join(Arc::clone(&scope.task_watches), question.run_id));
         tokio::spawn({
             let request_id = request_id.clone();
             async move {
-                let took = port.take_tool_server_question(question, answer).await;
+                let took = match queue {
+                    None => port.take_tool_server_question(question, answer).await,
+                    Some(queue) => {
+                        let ended = take_question_in_turn(
+                            port.as_ref(),
+                            question,
+                            Some(answer),
+                            Some(Arc::clone(&queue.queue)),
+                            sender.closed(),
+                        )
+                        .await;
+                        drop(queue);
+                        match ended {
+                            Ok(QuestionTurnEnd::Taken) => Ok(()),
+                            Ok(QuestionTurnEnd::Settled) => {
+                                Err("the question was settled before its run's turn came".into())
+                            }
+                            // Its record still waits for the run, with nobody to answer it.
+                            Ok(QuestionTurnEnd::AskerLeft) => {
+                                withdraw_questions(port.as_ref(), session_id, vec![request_id])
+                                    .await;
+                                return;
+                            }
+                            Err(error) => {
+                                withdraw_questions(
+                                    port.as_ref(),
+                                    session_id,
+                                    vec![request_id.clone()],
+                                )
+                                .await;
+                                Err(error)
+                            }
+                        }
+                    }
+                };
                 // The asker stopped waiting while the card took the question.
                 if let Err(Ok(())) = sender.send(took) {
                     withdraw_questions(port.as_ref(), session_id, vec![request_id]).await;
@@ -483,6 +545,36 @@ async fn withdraw_questions(
                 error = &*error as &(dyn Error + 'static),
                 "a tool server's question was not withdrawn"
             );
+        }
+    }
+}
+
+/// One take's share of its run's queue; the last share to leave takes the run's queue out of the
+/// map, so the map holds only runs with a question waiting its turn.
+struct RunQueue {
+    watches: Arc<TaskWatches>,
+    run_id: RunId,
+    queue: Arc<tokio::sync::Mutex<()>>,
+}
+
+impl RunQueue {
+    // Joins `run_id`'s queue in `watches`, made when it has none.
+    fn join(watches: Arc<TaskWatches>, run_id: RunId) -> Self {
+        let queue = Arc::clone(lock(&watches.run_queues).entry(run_id).or_default());
+        Self {
+            watches,
+            run_id,
+            queue,
+        }
+    }
+}
+
+impl Drop for RunQueue {
+    fn drop(&mut self) {
+        let mut queues = lock(&self.watches.run_queues);
+        // The map's own share and this one are the last; every share is taken under the lock.
+        if Arc::strong_count(&self.queue) == 2 {
+            queues.remove(&self.run_id);
         }
     }
 }

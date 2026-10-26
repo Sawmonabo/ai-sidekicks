@@ -6,6 +6,7 @@
 mod calls;
 mod connection;
 mod http;
+mod idle_window;
 mod poll;
 mod prompts;
 mod raw_copy;
@@ -65,8 +66,8 @@ impl McpClient {
     pub(crate) fn new(
         questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
     ) -> Result<Self, McpClientError> {
-        // No `timeout` or `read_timeout`: either would cut a quiet event stream; each request's
-        // bound is rmcp's.
+        // No `timeout` or `read_timeout`: either would cut a quiet event stream; each request
+        // keeps its own bound.
         let http = reqwest::Client::builder()
             .pool_max_idle_per_host(IDLE_CONNECTIONS_PER_HOST)
             .build()

@@ -8,7 +8,8 @@
 //!   `initialize` reply. The whole start is held to the server's start-up timeout.
 //! - Every question the server asks goes on the questions card: one carrying a followed task's
 //!   id under that task's run, any other under the run of the call in flight on the connection,
-//!   and with none in flight it is answered `cancel`, since nobody saw it.
+//!   and with none in flight it is answered `cancel`, since nobody saw it. While it is open, the
+//!   connection's tool calls' idle window stands still.
 
 use std::collections::HashSet;
 use std::io;
@@ -18,7 +19,7 @@ use std::time::Duration;
 
 use rmcp::model::{
     ClientCapabilities, CustomNotification, ElicitRequestParams, ElicitResult, ElicitationAction,
-    ErrorData, Implementation, InitializeRequestParams, ProtocolVersion,
+    ErrorData, Implementation, InitializeRequestParams, ProgressNotificationParam, ProtocolVersion,
     TaskStatusNotificationParams,
 };
 use rmcp::service::{
@@ -33,6 +34,7 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::time::Instant;
 
 use crate::mcp::client::calls::CallsInFlight;
+use crate::mcp::client::idle_window::ToolCallActivity;
 use crate::mcp::client::prompts::PromptWatchers;
 use crate::mcp::client::raw_copy::{INITIALIZE_METHOD, RawCopyTransport, RawReplyCopy};
 use crate::mcp::client::requests::{McpRequestError, PageCursors, RequestWait, ServerRequests};
@@ -192,10 +194,12 @@ impl McpServerConnection {
         } = start;
         let are_tools_stale = Arc::new(AtomicBool::new(false));
         let calls = Arc::new(CallsInFlight::default());
+        let activity = Arc::new(ToolCallActivity::new());
         let handler = McpClientHandler {
             scope: scope.clone(),
             are_tools_stale: Arc::clone(&are_tools_stale),
             calls: Arc::clone(&calls),
+            activity: Arc::clone(&activity),
         };
         let lifecycle = serve_client_with_lifecycle(
             handler,
@@ -240,6 +244,7 @@ impl McpServerConnection {
                 peer: service.peer().clone(),
                 raw,
                 tool_call_idle_timeout,
+                activity,
             },
             scope,
             service,
@@ -344,6 +349,7 @@ pub(crate) struct McpClientHandler {
     scope: McpConnectionScope,
     are_tools_stale: Arc<AtomicBool>,
     calls: Arc<CallsInFlight>,
+    activity: Arc<ToolCallActivity>,
 }
 
 impl ClientHandler for McpClientHandler {
@@ -362,6 +368,9 @@ impl ClientHandler for McpClientHandler {
         request: ElicitRequestParams,
         context: RequestContext<RoleClient>,
     ) -> Result<ElicitResult, ErrorData> {
+        // Open from the request's arrival to its answer, its cancel included, so no call's idle
+        // window runs out while the person answers or the question waits its run's turn.
+        let _open_question = self.activity.open_question();
         let params = serde_json::to_value(&request)
             .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
         // rmcp moves the request's `_meta` out of its params into the context.
@@ -401,6 +410,15 @@ impl ClientHandler for McpClientHandler {
                 ElicitResult::new(ElicitationAction::Cancel)
             }
         })
+    }
+
+    fn on_progress(
+        &self,
+        params: ProgressNotificationParam,
+        _context: NotificationContext<RoleClient>,
+    ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
+        self.activity.progressed(&params.progress_token);
+        std::future::ready(())
     }
 
     async fn on_tool_list_changed(&self, _context: NotificationContext<RoleClient>) {

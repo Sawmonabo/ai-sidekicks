@@ -33,7 +33,7 @@ use crate::mcp::client::poll::{PollStep, follow_task as poll_until_end};
 use crate::mcp::client::requests::ServerRequests;
 use crate::mcp::client::tasks::{
     McpTaskContact, McpTaskGeneration, McpTaskHandleSink, McpToolCall, McpToolCallEnd,
-    McpToolCallError, QuestionOutcome, observe_mcp_task_acceptance,
+    McpToolCallError, QuestionOutcome, QuestionTake, observe_mcp_task_acceptance,
 };
 use crate::mcp::elicitation_form::compose_elicitation_content;
 use crate::mutex_lock::lock;
@@ -299,7 +299,13 @@ async fn answer_input_request(
     connection
         .scope
         .task_watches
-        .ask(&connection.scope, mcp_task_id, &params, answer)
+        .ask(
+            &connection.scope,
+            mcp_task_id,
+            &params,
+            answer,
+            QuestionTake::Now,
+        )
         .await
         .is_some_and(|taken| taken.is_some())
 }

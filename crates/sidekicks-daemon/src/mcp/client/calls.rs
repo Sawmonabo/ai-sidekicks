@@ -11,7 +11,8 @@ use sidekicks_contracts::run::id::RunId;
 
 use crate::mcp::client::connection::McpConnectionScope;
 use crate::mcp::client::tasks::{
-    AwaitedQuestion, ElicitationAnswer, McpToolCall, QuestionOutcome, TaskWatches, compose_question,
+    AwaitedQuestion, ElicitationAnswer, McpToolCall, QuestionOutcome, QuestionTake, TaskWatches,
+    compose_question,
 };
 use crate::mutex_lock::lock;
 
@@ -70,8 +71,8 @@ impl CallsInFlight {
         Some(self.ask(scope, number, params).await)
     }
 
-    /// Asks the elicitation `params` under call `number`'s run and waits for the person's answer;
-    /// withdrawn when the call ended or the card did not take it.
+    /// Asks the elicitation `params` under call `number`'s run, in the run's turn, and waits for
+    /// the person's answer; withdrawn when the call ended or the card did not take it.
     async fn ask(&self, scope: &McpConnectionScope, number: u64, params: Value) -> QuestionOutcome {
         let watches: &TaskWatches = &scope.task_watches;
         let Some(run_id) = self.run_of(number) else {
@@ -80,7 +81,10 @@ impl CallsInFlight {
         let request_id = watches.mint_request_id(scope, &format!("call-{number}"));
         let question = compose_question(scope, run_id, request_id.clone(), &params);
         let (answer, answered) = ElicitationAnswer::open(params);
-        if !watches.take_question(scope, question, answer).await {
+        if !watches
+            .take_question(scope, question, answer, QuestionTake::InRunTurn)
+            .await
+        {
             return QuestionOutcome::Withdrawn;
         }
         let is_in_flight = lock(&self.calls)
@@ -258,6 +262,67 @@ mod tests {
         );
         assert_eq!(server_answer(&server), board_accepted());
         assert!(sink.recorded().is_empty(), "a plain call records no task");
+    }
+
+    // A server's second question while the run waits on its first is on the card at once, waiting
+    // for the run, and taken once the first is answered, in the order the calls asked. Mutations:
+    // in `TaskWatches::take_question`, take a call's question `Now`, which the card refuses and the
+    // server reads as `cancel`; or open the waiting question once with no wait for the run.
+    #[tokio::test(start_paused = true)]
+    async fn a_second_question_of_a_waiting_run_waits_on_the_card_and_is_taken_after_the_first() {
+        let (client, card) = test_client();
+        let (connection, server) = open_test_server(&client, eliciting_v1_server()).await;
+        let sink = CountingSink::new(&server);
+        let contact = contact();
+        let first_call = track_call();
+        let mut second_call = track_call();
+        second_call.run_id = first_call.run_id;
+        let first = connection.call_tool(first_call, &sink, &contact);
+        tokio::pin!(first);
+        tokio::select! {
+            _ = &mut first => panic!("the first call ended before its question was taken"),
+            () = card.wait_until_taken(1) => {}
+        }
+        let second = connection.call_tool(second_call, &sink, &contact);
+        tokio::pin!(second);
+        tokio::select! {
+            _ = &mut first => panic!("the first call ended before its question was answered"),
+            _ = &mut second => panic!("the second call ended before its question was answered"),
+            () = card.wait_until_waiting(1) => {}
+        }
+
+        let waiting = card.waiting();
+        assert_eq!(
+            card.taken().len(),
+            1,
+            "the second question waits for its run"
+        );
+        let (first_end, second_end, ()) = tokio::join!(&mut first, &mut second, async {
+            card.answer_open(board_answer()).await;
+            card.wait_until_taken(2).await;
+            assert!(
+                card.waiting().is_empty(),
+                "the taken question no longer waits"
+            );
+            card.answer_open(board_answer()).await;
+        });
+
+        let taken = card.taken();
+        assert_eq!(
+            taken[1].request_id, waiting[0].request_id,
+            "taken in call order"
+        );
+        assert_ne!(taken[0].request_id, taken[1].request_id);
+        for end in [first_end, second_end] {
+            assert!(matches!(
+                end.expect("the call ends"),
+                McpToolCallEnd::Answered { .. }
+            ));
+        }
+        for request in ["server-1", "server-2"] {
+            let answer = server.answer_to(request).expect("the client answered");
+            assert_eq!(answer["result"], board_accepted());
+        }
     }
 
     // Mutation: in `TaskWatches::take_question`, await the card's take inline instead of in a
