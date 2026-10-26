@@ -36,8 +36,8 @@ pub struct InputWaitReading {
     /// Whether a process of the terminal's foreground group holds the terminal open for reading.
     pub accepts_input: bool,
     /// Whether the terminal's echo is off, the echo setting alone, which is what masks what is
-    /// typed: a prompt in raw mode, as a Node or Inquirer password prompt reads, clears the line
-    /// setting with the echo, so a full-screen program with echo off is masked too.
+    /// typed: a password prompt that reads in raw mode clears the line setting with the echo, so a
+    /// full-screen program with echo off is masked too.
     pub is_echo_off: bool,
 }
 

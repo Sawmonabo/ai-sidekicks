@@ -44,8 +44,8 @@ const OUTPUT_TAIL_BYTES: usize = 1024;
 /// output and the copier still copies: 10 ms, a wait short enough that no one sees it.
 const OUTPUT_QUIET: Duration = Duration::from_millis(10);
 
-/// The longest the wrapper drains a terminal whose output keeps coming after its command exited:
-/// 2 s, the drain cap Codex's exec uses for a grandchild holding its output open.
+/// The longest the wrapper drains a terminal whose output keeps coming after its command exited, as
+/// a background process holding the terminal open can make it: 2 s.
 const OUTPUT_DRAIN_CAP: Duration = Duration::from_secs(2);
 
 /// What the terminal's output thread shares with the reporter and the drain: the output's last

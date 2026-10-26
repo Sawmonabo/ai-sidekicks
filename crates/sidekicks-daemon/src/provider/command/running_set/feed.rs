@@ -16,8 +16,8 @@ use super::SessionCommands;
 use crate::ipc::registry::HandlerError;
 use crate::ipc::stream::feed::{Feed, SendGate};
 
-/// The most output bytes a command's live tail keeps, the terminal tail T3 Code keeps per terminal
-/// (`TERMINAL_OUTPUT_TAIL_CHARS`); the whole output lands as the tool call's result.
+/// The most output bytes a command's live tail keeps: 64 KiB, a terminal's recent scrollback for a
+/// reader that joins late; the whole output lands as the tool call's result.
 const OUTPUT_TAIL_BYTES: usize = 64 * 1024;
 
 /// A command's live tail: its newest output, cut only at a character boundary, with the offset
