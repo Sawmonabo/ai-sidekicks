@@ -1,14 +1,14 @@
 use std::ffi::OsString;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::path::Path;
-use std::process::{Child, Command, ExitCode, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Command, ExitCode, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
 use sidekicks_platforms::{
     LeftoverSweep, TerminalSignal, create_file_atomically, harness_test_name, name_program,
-    pin_running_process, read_child_exit, send_signal,
+    pin_running_process, read_child_exit, send_signal, wait_for_exit,
 };
 
 use super::{COMMAND_PROVIDER_VARIABLE, run_command_wrapper_with};
@@ -17,6 +17,9 @@ use crate::provider::command::channel::{
     CommandChannel, DaemonRequest, PartyId, PartyRecord, ReceivedRecord,
 };
 use crate::provider::driver::PROVIDERS;
+
+/// A command that prints `ready` and then a line every 50 ms until it is stopped.
+const TICKING_COMMAND: &str = "echo ready; while :; do echo tick; sleep 0.05; done";
 
 /// The variable a started wrapper reads its own arguments from, joined by the unit separator.
 const WRAPPER_ARGUMENTS_VARIABLE: &str = "SIDEKICKS_TEST_WRAPPER_ARGUMENTS";
@@ -171,6 +174,33 @@ fn read_until(child: &mut Child, marker: &str) -> BufReader<std::process::ChildS
 
 fn ended_by(child: &mut Child) -> Option<String> {
     read_child_exit(&child.wait().expect("the wrapper ends"), None).signal_name
+}
+
+/// Types Ctrl+Z into a terminal command whose lines `output` reads and fails unless its lines stop
+/// within 3 s, a 500 ms quiet standing for the stop.
+fn type_ctrl_z_until_quiet(input: &mut ChildStdin, output: BufReader<ChildStdout>) {
+    // The lines are read on a thread of their own, so a quiet shows as no line in time.
+    let (line_sent, line_came) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in output.lines() {
+            if line_sent.send(line).is_err() {
+                return;
+            }
+        }
+    });
+    let typed_at = Instant::now();
+    input.write_all(b"\x1a").expect("ctrl+z is typed");
+    input.flush().expect("it is sent");
+    loop {
+        match line_came.recv_timeout(Duration::from_millis(500)) {
+            Err(RecvTimeoutError::Timeout) => break,
+            Err(RecvTimeoutError::Disconnected) => panic!("the output ended"),
+            Ok(_) => assert!(
+                typed_at.elapsed() < Duration::from_secs(3),
+                "the typed ctrl+z left the command running"
+            ),
+        }
+    }
 }
 
 /// The party whose `Starting` comes next on `channel`.
@@ -407,13 +437,7 @@ async fn a_stopped_command_still_takes_the_daemon_s_stop() {
     for is_tty in [false, true] {
         let mut own = vec!["--conversation", "conversation", "--process", "process-1"];
         if is_tty {
-            own.extend([
-                "--tty",
-                "--",
-                "/bin/sh",
-                "-c",
-                "echo ready; while :; do echo tick; sleep 0.05; done",
-            ]);
+            own.extend(["--tty", "--", "/bin/sh", "-c", TICKING_COMMAND]);
         } else {
             own.extend(["--", "/bin/sh", "-c", "echo ready; kill -STOP $$; sleep 30"]);
         }
@@ -425,28 +449,7 @@ async fn a_stopped_command_still_takes_the_daemon_s_stop() {
         // The input stays open until the wrapper ended, as a provider's terminal does.
         let mut input = child.stdin.take().expect("its input");
         if is_tty {
-            // The lines are read on a thread of their own, so a quiet shows as no line in time.
-            let (line_sent, line_came) = std::sync::mpsc::channel();
-            std::thread::spawn(move || {
-                for line in output.lines() {
-                    if line_sent.send(line).is_err() {
-                        return;
-                    }
-                }
-            });
-            let typed_at = Instant::now();
-            input.write_all(b"\x1a").expect("ctrl+z is typed");
-            input.flush().expect("it is sent");
-            loop {
-                match line_came.recv_timeout(Duration::from_millis(500)) {
-                    Err(RecvTimeoutError::Timeout) => break,
-                    Err(RecvTimeoutError::Disconnected) => panic!("the output ended"),
-                    Ok(_) => assert!(
-                        typed_at.elapsed() < Duration::from_secs(3),
-                        "the typed ctrl+z left the command running"
-                    ),
-                }
-            }
+            type_ctrl_z_until_quiet(&mut input, output);
         }
         stop_in_order(&channel, &mut watch, party).await;
         assert_eq!(
@@ -455,6 +458,42 @@ async fn a_stopped_command_still_takes_the_daemon_s_stop() {
             "with a terminal: {is_tty}"
         );
     }
+}
+
+// Fails when a hangup the wrapper passes on never reaches a command a typed Ctrl+Z stopped, which
+// holds every signal but a kill until it is continued, so the wrapper and its stopped command are
+// left for good. Mutation: the `SIGCONT` dropped after a passed-on hangup or terminate.
+#[test]
+fn a_passed_on_hangup_ends_a_command_a_typed_ctrl_z_stopped() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let stand_in = write_stand_in(folder.path());
+    let mut child = wrapper(
+        &[
+            "--conversation",
+            "conversation",
+            "--process",
+            "process-1",
+            "--tty",
+            "--",
+            "/bin/sh",
+            "-c",
+            TICKING_COMMAND,
+        ],
+        Some(&stand_in),
+    )
+    .spawn()
+    .expect("the wrapper starts");
+    let output = read_until(&mut child, "ready");
+    // The input stays open until the wrapper ended, as a provider's terminal does.
+    let mut input = child.stdin.take().expect("its input");
+    type_ctrl_z_until_quiet(&mut input, output);
+    send_signal(child.id(), TerminalSignal::Hangup).expect("the hangup is sent");
+    // Past the job's end the wrapper drains its output for up to 2 s.
+    if !wait_for_exit(child.id(), Some(Duration::from_secs(10))).expect("the wrapper is watched") {
+        child.kill().expect("the wrapper is killed");
+        panic!("the hangup left the stopped command and its wrapper running");
+    }
+    assert_eq!(ended_by(&mut child).as_deref(), Some("SIGHUP"));
 }
 
 // Fails when a terminal command's last output is cut off because the copier ends at the command's

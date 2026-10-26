@@ -261,13 +261,19 @@ impl RawStandardInput {
     }
 }
 
-/// Sends `signal` to the foreground process group of the terminal `pty` is the master of. Fails
-/// with the system's error when the group cannot be read or the signal is refused; a group that
-/// has ended takes nothing and is no failure.
+/// Sends `signal` to the foreground process group of the terminal `pty` is the master of, and
+/// after a hangup or a terminate `SIGCONT` too, as a shell continues a stopped job it ends. Fails
+/// with the system's error when the group cannot be read or a signal is refused; a group that has
+/// ended takes nothing and is no failure.
 pub fn signal_foreground_group(pty: &Pty, signal: TerminalSignal) -> io::Result<()> {
     let group = tcgetpgrp(pty.file()).map_err(io::Error::from)?;
     let group = u32::try_from(group.as_raw()).map_err(io::Error::other)?;
-    signal_group_once(group, posix_signal(signal))?;
+    let is_signaled = signal_group_once(group, posix_signal(signal))?;
+    // A stopped process holds every signal but a kill until it is continued; an interrupt is left
+    // pending, as a shell leaves it.
+    if is_signaled && matches!(signal, TerminalSignal::Hangup | TerminalSignal::Terminate) {
+        signal_group_once(group, Signal::SIGCONT)?;
+    }
     Ok(())
 }
 
