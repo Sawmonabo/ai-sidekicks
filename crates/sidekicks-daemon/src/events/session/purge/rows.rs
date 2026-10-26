@@ -28,10 +28,6 @@ use crate::workspace::folder::canonical_path::canonical_folder_path;
 use crate::workspace::repo::mount::service::managed_mount_deletion_statements;
 
 /// The statements the purge's reads prepare, counted into the read pool's statement capacity.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start, sizing its read connections")
-)]
 pub(crate) const SESSION_PURGE_STATEMENT_CAPACITY: usize = 9;
 
 /// The position of the guard that the session is still marked for purging, in the delete's write.

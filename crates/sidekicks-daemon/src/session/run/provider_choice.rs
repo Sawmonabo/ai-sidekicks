@@ -60,7 +60,6 @@ mod tests;
 
 /// The statements [`ProviderChoiceResolver`] prepares on a read connection: the run, the provider
 /// it runs on, the newest request of a choice and a settlement since it.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) const PROVIDER_CHOICE_STATEMENT_CAPACITY: usize = 4;
 
 // The settlement guard is the one companion of a settlement's move, terminal or not.

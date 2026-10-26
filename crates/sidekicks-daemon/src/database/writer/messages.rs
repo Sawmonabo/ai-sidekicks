@@ -148,10 +148,6 @@ pub(crate) struct CheckpointReport {
 
 impl CheckpointReport {
     /// The bytes of write-ahead log the checkpoint moved into the store; none when it moved none.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start schedules the passive checkpoint"
-    )]
     pub(crate) fn checkpointed_bytes(self) -> u64 {
         u64::try_from(self.moved_frames.saturating_mul(self.page_size)).unwrap_or(0)
     }
@@ -161,6 +157,10 @@ impl CheckpointReport {
 /// around it, or its failure as [`CheckpointAnswer`]'s.
 pub(crate) type MeasuredCheckpointAnswer =
     Result<Measured<CheckpointReport>, CleanupFailures<rusqlite::Error>>;
+
+/// The thread's answer to one requested `PRAGMA optimize`: the thread's processor time around it,
+/// or SQLite's failure.
+pub(crate) type MeasuredOptimizeAnswer = Result<Measured<()>, CleanupFailures<rusqlite::Error>>;
 
 /// The thread's last answer, as it exits: its connection's close, or why that failed, beside the
 /// close's own failure when turning off an ended writer's closing checkpoint failed first.
@@ -183,6 +183,11 @@ pub(crate) enum ThreadRequest {
         mode: CheckpointMode,
         /// Where the answer goes.
         reply: oneshot::Sender<MeasuredCheckpointAnswer>,
+    },
+    /// Run `PRAGMA optimize`, which analyzes the tables whose statistics have gone stale.
+    Optimize {
+        /// Where the answer goes.
+        reply: oneshot::Sender<MeasuredOptimizeAnswer>,
     },
     /// Repack the file: truncate the log, then `VACUUM`; a canceled repack does not start, and
     /// one the queue interrupts once it is canceled rolls back.

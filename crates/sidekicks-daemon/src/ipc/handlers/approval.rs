@@ -27,13 +27,6 @@ mod tests;
 
 /// The statements `approval.list` prepares on a read connection: whether the session exists, and
 /// its asks.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start registers the approval methods"
-    )
-)]
 pub(crate) const APPROVAL_METHODS_STATEMENT_CAPACITY: usize = 2;
 
 /// What the approval methods read and act through.

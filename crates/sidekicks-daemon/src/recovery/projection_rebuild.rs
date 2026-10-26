@@ -50,7 +50,6 @@ pub(crate) const REBUILD_PAGE_SIZE: u32 = 1_000;
 
 /// The statements the rebuild's own reads run: the sessions to rebuild, a session's cursor and its
 /// log's head. Its pages are read through the session service, whose set counts those.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) const PROJECTION_REBUILD_STATEMENT_CAPACITY: usize = 3;
 
 // Every session with events has a cursor, written with each event, and a current one is at its
