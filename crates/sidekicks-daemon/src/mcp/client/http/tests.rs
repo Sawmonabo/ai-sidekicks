@@ -370,8 +370,8 @@ async fn a_server_refusing_with_a_403_asks_for_the_scope_its_challenge_names() {
     );
 }
 
-// Mutation: in `is_dpop_nonce_challenge`, match the parameter's name with case, read only a
-// quoted value, or take any scheme.
+// Mutation: in `read_auth_param`, match the parameter's name with case, read only a quoted value,
+// take any scheme, or keep the first scheme for every challenge after it.
 #[rstest]
 #[case::a_bare_token("DPoP error=use_dpop_nonce", true)]
 #[case::a_name_in_capitals("DPoP ERROR=\"use_dpop_nonce\"", true)]
@@ -381,6 +381,14 @@ async fn a_server_refusing_with_a_403_asks_for_the_scope_its_challenge_names() {
 )]
 #[case::another_scheme("Bearer error=\"use_dpop_nonce\"", false)]
 #[case::another_error("DPoP error=\"invalid_dpop_proof\"", false)]
+#[case::a_dpop_challenge_after_a_bearer_one(
+    "Bearer realm=\"x\", DPoP error=\"use_dpop_nonce\"",
+    true
+)]
+#[case::the_error_of_a_bearer_challenge_after_a_dpop_one(
+    "DPoP algs=\"ES256\", Bearer error=\"use_dpop_nonce\"",
+    false
+)]
 fn a_dpop_challenge_asks_for_the_nonce_by_its_error_parameter(
     #[case] challenge: &str,
     #[case] expected: bool,

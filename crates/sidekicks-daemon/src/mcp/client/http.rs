@@ -320,14 +320,10 @@ fn asks_for_dpop_nonce(response: &reqwest::Response) -> bool {
             .any(is_dpop_nonce_challenge)
 }
 
-/// Whether `challenge` is a `DPoP` challenge whose `error` is `use_dpop_nonce`, the scheme and the
-/// parameter's name matched without case.
+/// Whether `challenge` holds a `DPoP` challenge whose `error` is `use_dpop_nonce`, the scheme and
+/// the parameter's name matched without case.
 fn is_dpop_nonce_challenge(challenge: &str) -> bool {
-    challenge
-        .split_ascii_whitespace()
-        .next()
-        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("DPoP"))
-        && read_auth_param(challenge, "error").as_deref() == Some("use_dpop_nonce")
+    read_auth_param(challenge, "DPoP", "error").as_deref() == Some("use_dpop_nonce")
 }
 
 /// The challenge of a 401 or 403 the server sent with one, as rmcp's own client reads it: a 401
@@ -348,30 +344,32 @@ fn auth_challenge(response: &reqwest::Response) -> Option<StreamableHttpError<Mc
     })
 }
 
-/// The `scope` a challenge names, quoted or bare.
+/// The `scope` a `Bearer` challenge names, quoted or bare.
 fn required_scope(challenge: &str) -> Option<String> {
-    read_auth_param(challenge, "scope")
+    read_auth_param(challenge, "Bearer", "scope")
 }
 
-/// The value of the parameter `name` in `challenge`, as RFC 9110 §11.2 writes one: its name
-/// matched without case, its value a token or a quoted string with its escapes undone. `None` when
-/// the challenge has no such parameter.
-fn read_auth_param(challenge: &str, name: &str) -> Option<String> {
+/// The value of the parameter `name` of the `scheme` challenge in `challenge`, a header value that
+/// may hold several, as RFC 9110 §11.2 writes one: the scheme and the name matched without case,
+/// the value a token or a quoted string with its escapes undone. `None` when no such challenge has
+/// such a parameter.
+fn read_auth_param(challenge: &str, scheme: &str, name: &str) -> Option<String> {
     let mut rest = challenge;
+    let mut current_scheme = "";
     while !rest.is_empty() {
         let name_end = rest.find(['=', ',', ' ', '\t']).unwrap_or(rest.len());
         let candidate = &rest[..name_end];
         let after_name = rest[name_end..].trim_start_matches([' ', '\t']);
-        rest = match after_name.strip_prefix('=') {
-            Some(value) => {
-                let (read, after_value) = read_param_value(value.trim_start_matches([' ', '\t']));
-                if candidate.eq_ignore_ascii_case(name) {
-                    return read;
-                }
-                after_value
+        rest = if let Some(value) = after_name.strip_prefix('=') {
+            let (read, after_value) = read_param_value(value.trim_start_matches([' ', '\t']));
+            if current_scheme.eq_ignore_ascii_case(scheme) && candidate.eq_ignore_ascii_case(name) {
+                return read;
             }
-            // The scheme, or a token68 credential, has no `=` after its name.
-            None => &rest[name_end..],
+            after_value
+        } else {
+            // A scheme, or a token68 credential, has no `=` after it, and starts a challenge.
+            current_scheme = candidate;
+            &rest[name_end..]
         };
         rest = rest.trim_start_matches([',', ' ', '\t']);
     }
