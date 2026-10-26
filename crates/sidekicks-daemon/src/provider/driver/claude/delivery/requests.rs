@@ -75,7 +75,7 @@ use crate::provider::port::permission_ask::{
 use crate::provider::port::plan::{PlanPort, ProviderPlan};
 use crate::provider::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort,
-    QuestionTurnError, take_question_in_turn,
+    take_question_in_turn,
 };
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::record_readers::read_non_empty_string;
@@ -603,10 +603,6 @@ impl ClaudeInboundRequests {
         // ended with its run meanwhile, it is never taken, and once Claude Code let it go its take
         // withdraws it after its record's write.
         let place = QuestionLinePlace::line_up(question.run_id);
-        let withdrawal = ProviderQuestionWithdrawal {
-            session_id,
-            request_id: question.request_id.clone(),
-        };
         tokio::spawn(async move {
             let taken = take_question_in_turn(
                 port.as_ref(),
@@ -617,12 +613,6 @@ impl ClaudeInboundRequests {
             )
             .await;
             if let Err(error) = taken {
-                // A failed take may leave its record waiting with no take left to open it.
-                if let QuestionTurnError::Take(_) = error
-                    && let Err(withdrawal_error) = port.withdraw_question(withdrawal).await
-                {
-                    record_hand_off_failure(session_id, admitted, withdrawal_error.as_ref());
-                }
                 record_hand_off_failure(session_id, admitted, &error);
             }
         });

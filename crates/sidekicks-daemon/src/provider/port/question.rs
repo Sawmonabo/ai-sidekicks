@@ -81,13 +81,23 @@ pub(crate) enum QuestionTurnEnd {
     AskerLeft,
 }
 
-/// Why a question taken in its run's turn failed: its take, the question perhaps left recorded, or
-/// the withdrawal its asker's leaving asked for, so a caller never withdraws it a second time.
+/// Why a question taken in its run's turn failed: its take, after which it was withdrawn, or the
+/// withdrawal its asker's leaving asked for, so a caller never withdraws it a second time.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum QuestionTurnError {
-    /// A write or the run's read failed before the question ended its turn.
-    #[error("the question was not taken in its run's turn")]
-    Take(#[source] Box<dyn Error + Send + Sync>),
+    /// A write or the run's read failed before the question ended its turn; it was then withdrawn
+    /// by its request id, or `withdrawal` says why not.
+    #[error(
+        "the question was not taken in its run's turn{}",
+        describe_withdrawal_failure(.withdrawal.as_deref())
+    )]
+    Take {
+        /// Why the take failed.
+        #[source]
+        take: Box<dyn Error + Send + Sync>,
+        /// Why the withdrawal after it failed, when it did.
+        withdrawal: Option<Box<dyn Error + Send + Sync>>,
+    },
     /// Its asker left and its withdrawal failed.
     #[error("the question its asker left was not withdrawn")]
     Withdrawal(#[source] Box<dyn Error + Send + Sync>),
@@ -167,8 +177,9 @@ pub(crate) trait QuestionPort: Send + Sync {
 /// then taken in the line's order once the run reads running, never refused for asking while the
 /// run waits on something else. When `asker_left` resolves before its turn, or by the time it
 /// opened, it is withdrawn in this same task, after its record's write, so no record lands after
-/// its withdrawal. Fails with [`QuestionTurnError::Take`] when a write or the run's read fails, and
-/// with [`QuestionTurnError::Withdrawal`] when that withdrawal fails.
+/// its withdrawal. Fails with [`QuestionTurnError::Take`] when a write or the run's read fails,
+/// the question then withdrawn so no record is left with no take to open it, and with
+/// [`QuestionTurnError::Withdrawal`] when its asker's withdrawal fails.
 pub(crate) async fn take_question_in_turn(
     port: &dyn QuestionPort,
     question: ProviderQuestion,
@@ -181,9 +192,13 @@ pub(crate) async fn take_question_in_turn(
         session_id: question.session_id,
         request_id: question.request_id.clone(),
     };
-    let mut ended = take_in_turn(port, question, answer, place, asker_left.as_mut())
-        .await
-        .map_err(QuestionTurnError::Take)?;
+    let mut ended = match take_in_turn(port, question, answer, place, asker_left.as_mut()).await {
+        Ok(ended) => ended,
+        Err(take) => {
+            let withdrawal = port.withdraw_question(withdrawal).await.err();
+            return Err(QuestionTurnError::Take { take, withdrawal });
+        }
+    };
     if ended == QuestionTurnEnd::Taken && asker_left.as_mut().now_or_never().is_some() {
         ended = QuestionTurnEnd::AskerLeft;
     }
@@ -252,4 +267,11 @@ async fn take_in_turn(
             },
         }
     }
+}
+
+// The words a take's error adds when the withdrawal after it failed too.
+fn describe_withdrawal_failure(withdrawal: Option<&(dyn Error + Send + Sync)>) -> String {
+    withdrawal
+        .map(|error| format!(", nor withdrawn: {error}"))
+        .unwrap_or_default()
 }

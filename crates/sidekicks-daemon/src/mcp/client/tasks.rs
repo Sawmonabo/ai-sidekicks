@@ -477,15 +477,7 @@ impl TaskWatches {
                                 );
                                 return;
                             }
-                            Err(QuestionTurnError::Take(error)) => {
-                                withdraw_questions(
-                                    port.as_ref(),
-                                    session_id,
-                                    vec![request_id.clone()],
-                                )
-                                .await;
-                                Err(error)
-                            }
+                            Err(error @ QuestionTurnError::Take { .. }) => Err(Box::new(error)),
                         }
                     }
                 };
