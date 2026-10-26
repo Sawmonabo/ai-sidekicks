@@ -10,7 +10,8 @@ use sidekicks_contracts::question::QuestionId;
 
 use super::{Fixture, HandedAnswers, RecordingTaskAnswer, choice_page, failed};
 use crate::provider::port::question::{
-    QuestionTurn, QuestionTurnEnd, ToolServerQuestionAnswer, take_question_in_turn,
+    ProviderQuestionWithdrawal, QuestionTurn, QuestionTurnEnd, ToolServerQuestionAnswer,
+    take_question_in_turn,
 };
 use crate::questions::service::HeldRequestAnswerer;
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
@@ -165,4 +166,46 @@ async fn a_question_whose_asker_left_is_withdrawn_after_its_record(
     assert_eq!(canceled.len(), 1);
     assert_eq!(canceled[0]["reason"], "withdrawn");
     assert_eq!(fixture.run_state(), run_state);
+}
+
+// A driver's question its provider withdraws while it waits for its run ends its take at once,
+// settled, the run still waiting on the first question, so the run's line moves on. Killed by
+// leaving out the wake of the run's waiters in the withdrawal.
+#[tokio::test]
+async fn a_waiting_question_its_provider_withdraws_ends_its_turn_at_once() {
+    let fixture = Fixture::new().await;
+    fixture.ask("request-1", json!([choice_page()]), true).await;
+    let second = take_question_in_turn(
+        &fixture.questions,
+        fixture.question("request-2", json!([choice_page()]), true),
+        None,
+        QuestionTurn::line_up(fixture.run_id),
+        std::future::pending(),
+    );
+    tokio::pin!(second);
+    while fixture.payloads("question.asked").len() < 2 {
+        tokio::select! {
+            _ = &mut second => panic!("the second question was taken while its run waited"),
+            () = tokio::time::sleep(Duration::from_millis(10)) => {}
+        }
+    }
+
+    let (withdrawn, ended) = tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::join!(
+            fixture
+                .questions
+                .withdraw_question(ProviderQuestionWithdrawal {
+                    session_id: fixture.session_id,
+                    request_id: "request-2".to_owned(),
+                }),
+            &mut second
+        )
+    })
+    .await
+    .expect("the withdrawn question's turn ends");
+
+    withdrawn.expect("the withdrawal is taken");
+    assert_eq!(ended.expect("the turn ends"), QuestionTurnEnd::Settled);
+    assert_eq!(fixture.state(asked_id(&fixture, 1)), "canceled");
+    assert_eq!(fixture.run_state(), "waitingForInput");
 }

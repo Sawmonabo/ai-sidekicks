@@ -473,15 +473,12 @@ impl QuestionPort for QuestionCard {
         run_id: RunId,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async move {
-            loop {
-                let mut closed = std::pin::pin!(self.closed.notified());
-                closed.as_mut().enable();
-                if !Self::is_waiting_on_question(&self.open.lock().expect("never poisoned"), run_id)
-                {
-                    return Ok(());
-                }
+            let mut closed = std::pin::pin!(self.closed.notified());
+            closed.as_mut().enable();
+            if Self::is_waiting_on_question(&self.open.lock().expect("never poisoned"), run_id) {
                 closed.await;
             }
+            Ok(())
         }
         .boxed()
     }

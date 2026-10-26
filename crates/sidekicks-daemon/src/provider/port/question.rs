@@ -130,8 +130,9 @@ pub(crate) trait QuestionPort: Send + Sync {
         request_id: String,
     ) -> BoxFuture<'_, Result<WaitingQuestionOpening, Box<dyn Error + Send + Sync>>>;
 
-    /// Waits, with no timer, until `run_id` reads running or has ended. An error when the run has
-    /// no row or its read fails.
+    /// Waits, with no timer, until `run_id` reads running or has ended, or a question waiting for
+    /// it settled; the caller reads again what it waits on. An error when the run has no row or
+    /// its read fails.
     fn wait_until_running(
         &self,
         run_id: RunId,

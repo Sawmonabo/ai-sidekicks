@@ -1,6 +1,7 @@
 //! The wait for a run to read `running` again, which a question asked while its run waits on
 //! another question, on an approval or in a pause takes before it is answerable: woken where a
-//! write moves the run to `running` and where its end lands, with no timer.
+//! write moves the run to `running`, where its end lands and where a question waiting for it
+//! settles, with no timer.
 
 use std::pin::pin;
 use std::sync::{Arc, Mutex};
@@ -15,29 +16,25 @@ use crate::session::run::engine::live::LiveRuns;
 use crate::session::run::engine::{RunEngine, RunEngineError};
 
 impl RunEngine {
-    /// Waits until `run_id` reads `running`, answering true, or has ended, answering false. Fails
-    /// with [`crate::session::run::refusals::RunRefusal::NotFound`] for a run with no row, and as
-    /// the read fails.
-    pub(crate) async fn wait_until_running(&self, run_id: RunId) -> Result<bool, RunEngineError> {
+    /// Waits until `run_id` reads `running` or has ended, or until its waiters are woken for a
+    /// question waiting for it that settled; the caller reads again what it waits on. Fails with
+    /// [`crate::session::run::refusals::RunRefusal::NotFound`] for a run with no row, and as the
+    /// read fails.
+    pub(crate) async fn wait_until_running(&self, run_id: RunId) -> Result<(), RunEngineError> {
         let waiter = RunningWaiter::enter(&self.live, run_id);
-        loop {
-            // Enabled before the read, so a write that lands between the read and the wait wakes it.
-            let mut woken = pin!(waiter.wake.notified());
-            woken.as_mut().enable();
-            let run = self.require_run(run_id).await?;
-            if run.state == RunState::Running {
-                return Ok(true);
-            }
-            if run.state.is_terminal() {
-                return Ok(false);
-            }
+        // Enabled before the read, so a write that lands between the read and the wait wakes it.
+        let mut woken = pin!(waiter.wake.notified());
+        woken.as_mut().enable();
+        let run = self.require_run(run_id).await?;
+        if run.state != RunState::Running && !run.state.is_terminal() {
             woken.await;
         }
+        Ok(())
     }
 
     /// Wakes whoever waits for `run_id` to read `running` again, once a write moved it to
-    /// `running` or ended it.
-    pub(super) fn wake_running_waiters(&self, run_id: &RunId) {
+    /// `running` or ended it, or a question waiting for it settled.
+    pub(crate) fn wake_running_waiters(&self, run_id: &RunId) {
         if let Some(wake) = lock(&self.live).running_waits.get(run_id) {
             wake.notify_waiters();
         }

@@ -330,6 +330,8 @@ impl QuestionsService {
                 return Err(failure);
             }
             self.forget_held_request(&question_id);
+            // Its take, waiting for the run, reads it settled and lets the run's line move on.
+            self.engine.wake_running_waiters(&run_id);
             return Ok(());
         }
         let canceled = canceled_event(held.session_id, question_id, reason)?;
@@ -473,7 +475,6 @@ impl QuestionPort for QuestionsService {
             self.engine
                 .wait_until_running(run_id)
                 .await
-                .map(drop)
                 .map_err(Into::into)
         }
         .boxed()
