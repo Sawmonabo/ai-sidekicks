@@ -36,6 +36,7 @@ use crate::bootstrap::secure_defaults::{
 use crate::cleanup_failures::CleanupFailures;
 use crate::credential_store::items::{SecretItems, SecretItemsStart};
 use crate::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, SystemCredentialStore};
+use crate::daemon::backup::run::{backup_folder, default_backup_folder};
 use crate::daemon::crash::monitor::{
     CRASH_MONITOR_MODE, CrashMonitorError, attach_crash_handler, connect_crash_monitor,
     crash_monitor_socket_path, remove_dead_monitor_sockets,
@@ -43,8 +44,11 @@ use crate::daemon::crash::monitor::{
 use crate::daemon::data_folder::data_folder;
 use crate::daemon::data_folder_lock::DataFolderLock;
 use crate::daemon::login_shell_environment::capture_provider_base_environment;
+use crate::daemon::machine::settings::file::{MACHINE_SETTINGS_FILE_NAME, MachineSettingsFile};
 use crate::daemon::panic_hook::send_panics_to_monitor;
-use crate::daemon::process::database::{DatabaseFile, DatabaseFileOpenError};
+use crate::daemon::process::database::{
+    DatabaseFile, DatabaseFileOpenError, DatabaseFileStart, open_database_file,
+};
 use crate::daemon::process::jobs::IdleMemoryCollect;
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
 use crate::daemon::process::stop::{
@@ -57,6 +61,9 @@ use crate::daemon::run_folder::{
 use crate::daemon::service_status::remove_service_status;
 use crate::daemon::start_stopped_error::DaemonStartStoppedError;
 use crate::data_acts::erase::EraseStep;
+use crate::database::connection::writer_open::{
+    DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
+};
 use crate::git::process::find_git_executable;
 use crate::helper_mode::child::start_helper_mode_child;
 use crate::ipc::caller_process::contract::CallerProcessReader;
@@ -70,7 +77,9 @@ use crate::policy::authorizer::{Authorizer, RulesLoadError};
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::pty::orphan::guard::{OrphanGuard, OrphanGuardError, open_orphan_guard};
+use crate::recovery::database_file::copy::DatabaseFileCopier;
 use crate::recovery::database_file::damage::DatabaseDamageWatch;
+use crate::recovery::database_file::sqlite_shell::SqliteShell;
 use crate::settle_all::{SettleFailures, settle_all};
 
 /// The longest the stop's drain runs, the work ending and the data folder closing together.
@@ -418,6 +427,44 @@ impl DaemonProcess {
             tokio::join!(capture, open_orphan_guard(&data_folder));
         self.orphan_guard = Some(orphan_guard.map_err(DaemonStartError::OrphanGuard)?);
         let base_environment = base_environment.map_err(DaemonStartError::BaseEnvironment)?;
+        let settings = Arc::new(MachineSettingsFile::new(
+            data_folder.join(MACHINE_SETTINGS_FILE_NAME),
+        ));
+        // The repair reads the newest backup, which a failed settings read still finds in the
+        // default folder.
+        let backup_folder = match backup_folder(&settings, home_folder).await {
+            Ok(folder) => folder,
+            Err(error) => {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "the backup settings could not be read, so the repair reads the default \
+                     backups folder"
+                );
+                default_backup_folder(home_folder)
+            }
+        };
+        let shell = SqliteShell::new(daemon_program.to_path_buf(), self.spawner.clone());
+        let copier = DatabaseFileCopier::new(daemon_program.to_path_buf(), self.spawner.clone());
+        let secure_defaults = SecureDefaults::load(SecureDefaultsConfig {
+            local_ipc_path: run_folder.socket_path.clone(),
+        })?;
+        self.database = Some(
+            open_database_file(DatabaseFileStart {
+                database_path: data_folder.join(DAEMON_DATABASE_FILE_NAME),
+                data_folder: data_folder.clone(),
+                index_folder_path: data_folder.join(SEARCH_INDEX_FOLDER_NAME),
+                shell: &shell,
+                copier: &copier,
+                now: Timestamp::now(),
+                backup_folder: Some(backup_folder),
+                run_folder,
+                secure_defaults: &secure_defaults,
+                caller_process_reader: Arc::clone(&caller_process_reader),
+                process_state: Arc::clone(&self.process_state),
+                stop: &self.work_stop,
+            })
+            .await?,
+        );
         self.check_stop("capturing the providers' base environment")?;
         let git_executable = find_git_executable(&base_environment);
         let authorizer = Arc::new(Authorizer::load_built_in()?);
@@ -439,8 +486,13 @@ impl DaemonProcess {
             secret_items,
         });
         self.gateway = Some(
-            self.bind_serving_socket(run_folder, caller_process_reader, session_token)
-                .await?,
+            self.bind_serving_socket(
+                run_folder,
+                caller_process_reader,
+                session_token,
+                &secure_defaults,
+            )
+            .await?,
         );
         let status_run_folder = run_folder.clone();
         tokio::task::spawn_blocking(move || remove_service_status(&status_run_folder))
@@ -466,12 +518,13 @@ impl DaemonProcess {
     }
 
     // Registers the handshake and the subscriptions' cancel, freezes the registry and binds the
-    // serving socket with `session_token`.
+    // serving socket with `session_token` at the path `secure_defaults` checked.
     async fn bind_serving_socket(
         &self,
         run_folder: &DaemonRunFolder,
         caller_process_reader: Arc<dyn CallerProcessReader>,
         session_token: String,
+        secure_defaults: &SecureDefaults,
     ) -> Result<LocalGateway, DaemonStartError> {
         let caller_check = CallerCheck::new(
             Arc::clone(&caller_process_reader),
@@ -498,11 +551,8 @@ impl DaemonProcess {
                 process_state: Arc::clone(&self.process_state),
             }),
         };
-        let secure_defaults = SecureDefaults::load(SecureDefaultsConfig {
-            local_ipc_path: run_folder.socket_path.clone(),
-        })?;
         Ok(bind_socket(
-            || LocalGateway::start(services, caller_process_reader, &secure_defaults),
+            || LocalGateway::start(services, caller_process_reader, secure_defaults),
             run_folder,
             session_token,
         )

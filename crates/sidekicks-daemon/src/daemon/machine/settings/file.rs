@@ -70,10 +70,6 @@ struct Listeners {
 impl MachineSettingsFile {
     /// The settings file at `file_path`, `<home>/.ai-sidekicks/machine-settings.json` in the
     /// daemon.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start opens the settings file")
-    )]
     pub(crate) fn new(file_path: PathBuf) -> Self {
         Self {
             file_path,

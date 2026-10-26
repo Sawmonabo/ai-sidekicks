@@ -114,9 +114,15 @@ pub(crate) async fn backup_folder(
 // The backups folder `Back up to` names in `backup`, or the default one under `home_folder`.
 fn backup_folder_of(backup: &BackupSettings, home_folder: &Path) -> PathBuf {
     backup.folder.as_ref().map_or_else(
-        || data_folder(home_folder).join(BACKUP_DEFAULT_FOLDER_NAME),
+        || default_backup_folder(home_folder),
         |folder| PathBuf::from(folder.as_str()),
     )
+}
+
+/// The backups folder used when `Back up to` names none: the default one in the data folder under
+/// `home_folder`.
+pub(crate) fn default_backup_folder(home_folder: &Path) -> PathBuf {
+    data_folder(home_folder).join(BACKUP_DEFAULT_FOLDER_NAME)
 }
 
 /// What asked for a run, weakest first: a request joining a queued run keeps the stronger.

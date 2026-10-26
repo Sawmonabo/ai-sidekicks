@@ -324,13 +324,6 @@ pub(crate) struct DatabaseFile {
 /// another build's schema, with [`DatabaseFileOpenError::Damaged`] when it is too damaged to open,
 /// which is recorded so the next start repairs it, and with [`DatabaseFileOpenError::Stopped`]
 /// when a stop ended the repair.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which opens the database file"
-    )
-)]
 pub(crate) async fn open_database_file(
     start: DatabaseFileStart<'_>,
 ) -> Result<DatabaseFile, DatabaseFileOpenError> {
