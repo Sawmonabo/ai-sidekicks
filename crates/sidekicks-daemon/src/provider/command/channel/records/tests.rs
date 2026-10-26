@@ -186,9 +186,11 @@ async fn a_wrapper_killed_after_its_start_is_let_go() {
     let party_id = ready_parties(&mut lines, 1)[0];
     let channel = Arc::new(open_channel(folder.path(), std::process::id()));
     let sets = sets();
+    let watch = channel.watch().await.expect("the channel is watched");
     let follower = tokio::spawn(follow_channel_records(
         session(),
         Arc::clone(&channel),
+        watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
     ));
@@ -199,16 +201,16 @@ async fn a_wrapper_killed_after_its_start_is_let_go() {
         stdout_path: Some(stdout_path),
         process: None,
     };
-    // The follower's watch may start after the record lands; the record is written until it is
-    // taken.
-    let mut sequence = 0;
-    while sets.unpaired_count(session()) == 0 {
-        sequence += 1;
-        let record = sealed(&channel, &keys, party_id, sequence, &starting);
-        write_record(&channel.folder, &record_name(party_id, sequence), &record)
-            .expect("the record is written");
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    let record = sealed(&channel, &keys, party_id, 1, &starting);
+    write_record(&channel.folder, &record_name(party_id, 1), &record)
+        .expect("the record is written");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while sets.unpaired_count(session()) == 0 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the wrapper is taken");
     party.kill().expect("the wrapper is killed");
     tokio::time::timeout(Duration::from_secs(5), async {
         while sets.unpaired_count(session()) > 0 || channel.party_process(party_id).is_some() {
@@ -240,9 +242,11 @@ async fn a_nested_wrapper_is_answered_go_and_let_go_at_its_end() {
         .expect("the nested party is ready");
     let channel = Arc::new(open_channel(folder.path(), std::process::id()));
     let sets = sets();
+    let watch = channel.watch().await.expect("the channel is watched");
     let follower = tokio::spawn(follow_channel_records(
         session(),
         Arc::clone(&channel),
+        watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
     ));
@@ -256,15 +260,14 @@ async fn a_nested_wrapper_is_answered_go_and_let_go_at_its_end() {
         write_record(&channel.folder, &record_name(party, sequence), &record)
             .expect("the record is written");
     };
-    // The follower's watch may start after the record lands; the record is written until it is
-    // taken.
-    let mut sequence = 0;
-    while sets.unpaired_count(session()) == 0 {
-        sequence += 1;
-        write(&outer_keys, outer_id, sequence);
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    let outer_unpaired = sets.unpaired_count(session());
+    write(&outer_keys, outer_id, 1);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while sets.unpaired_count(session()) == 0 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the outer wrapper is taken");
     write(&nested_keys, nested_id, 1);
     let requests = channel.folder.join(REQUESTS_FOLDER);
     let go = record_name(nested_id, 1);
@@ -277,7 +280,7 @@ async fn a_nested_wrapper_is_answered_go_and_let_go_at_its_end() {
     .expect("the nested wrapper is answered go");
     assert_eq!(
         sets.unpaired_count(session()),
-        outer_unpaired,
+        1,
         "the nested wrapper waits for a row"
     );
     end_party(outer);

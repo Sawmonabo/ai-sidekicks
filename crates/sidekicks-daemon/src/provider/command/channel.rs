@@ -358,8 +358,9 @@ impl CommandChannel {
         ]
     }
 
-    /// A watch on the channel's records. Fails with the system's error when the folder cannot be
-    /// watched.
+    /// A watch on the channel's records, made before the provider starts so no record lands
+    /// before it, since the records already in the folder are no arrivals. Fails with the system's
+    /// error when the folder cannot be watched.
     pub(crate) async fn watch(&self) -> io::Result<FolderArrivalWatch> {
         FolderArrivalWatch::watch(&self.folder).await
     }

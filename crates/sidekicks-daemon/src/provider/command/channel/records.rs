@@ -15,7 +15,7 @@ use sidekicks_contracts::command::ExitCode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeSignedInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_platforms::{FileAppendWatch, InputTerminal};
+use sidekicks_platforms::{FileAppendWatch, FolderArrivalWatch, InputTerminal};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
@@ -41,8 +41,9 @@ struct FollowedWrapper {
     process_end: Option<JoinHandle<()>>,
 }
 
-/// Follows `channel`'s records into `session_id`'s rows in `set`, the waiting checks reading
-/// through `waits`, until the channel's watch fails, with its error.
+/// Follows `channel`'s records, which `watch` made before the provider started reports, into
+/// `session_id`'s rows in `set`, the waiting checks reading through `waits`, until the watch fails,
+/// with its error.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "each driver follows its conversations' channels")
@@ -50,10 +51,10 @@ struct FollowedWrapper {
 pub(crate) async fn follow_channel_records(
     session_id: SessionId,
     channel: Arc<CommandChannel>,
+    mut watch: FolderArrivalWatch,
     set: Arc<RunningCommandSets>,
     waits: Arc<dyn InputWaitReader>,
 ) -> io::Result<()> {
-    let mut watch = channel.watch().await?;
     let (process_ended, mut ended_parties) = mpsc::unbounded_channel();
     let mut follower = RecordFollower {
         session_id,
