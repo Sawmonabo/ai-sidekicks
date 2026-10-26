@@ -1,42 +1,42 @@
-//! When a due job may run: at once, or only while no run is live, and then at the latest at an
-//! instant on the wall clock, which keeps running while the machine sleeps. A job whose condition
-//! fails is parked beside the queue, never holding the scheduler's one task, and taken up when the
-//! count of live runs reaches zero or its latest instant passes, whichever comes first; the count
-//! is followed, never polled.
+//! When a due job may run: at once, or only while the busy count the scheduler was started with is
+//! zero, and then at the latest at an instant on the wall clock, which keeps running while the
+//! machine sleeps. A job whose condition fails is parked beside the queue, never holding the
+//! scheduler's one task, and taken up when the busy count reaches zero or its latest instant
+//! passes, whichever comes first; the count is followed, never polled.
 
 use std::time::SystemTime;
 
 use super::PendingRun;
 
-/// When a due job may run, read against the count of live runs.
+/// When a due job may run, read against the busy count.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum JobCondition {
     /// Whenever it falls due.
     Always,
-    /// Only while no run is live.
+    /// Only while the busy count is zero.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the repack `Delete old data` schedules")
     )]
-    NoTurnRunning,
-    /// While no run is live, or once the wall clock reaches this instant, whatever runs.
-    NoTurnRunningUntil(SystemTime),
+    WhileIdle,
+    /// While the busy count is zero, or once the wall clock reaches this instant, however busy.
+    WhileIdleUntil(SystemTime),
 }
 
 impl JobCondition {
-    /// Whether a job under this condition may run while `live_runs` runs are live.
-    pub(super) fn allows(self, live_runs: u32) -> bool {
+    /// Whether a job under this condition may run while the busy count is `busy`.
+    pub(super) fn allows(self, busy: u32) -> bool {
         match self {
             Self::Always => true,
-            Self::NoTurnRunning | Self::NoTurnRunningUntil(_) => live_runs == 0,
+            Self::WhileIdle | Self::WhileIdleUntil(_) => busy == 0,
         }
     }
 
-    // The instant a parked job runs whatever runs.
+    // The instant a parked job runs however busy.
     fn latest(self) -> Option<SystemTime> {
         match self {
-            Self::Always | Self::NoTurnRunning => None,
-            Self::NoTurnRunningUntil(latest) => Some(latest),
+            Self::Always | Self::WhileIdle => None,
+            Self::WhileIdleUntil(latest) => Some(latest),
         }
     }
 }
@@ -53,18 +53,18 @@ impl ParkedRuns {
         self.runs.push((run.condition.latest(), run));
     }
 
-    /// The first parked run that may now go: any, once no run is live, else the first whose
-    /// latest instant the wall clock, read by `now` only while one has such an instant, has
-    /// reached.
+    /// The first parked run that may now go: any, once the busy count `busy` is zero, else the
+    /// first whose latest instant the wall clock, read by `now` only while one has such an
+    /// instant, has reached.
     pub(super) fn take_released(
         &mut self,
-        live_runs: u32,
+        busy: u32,
         now: impl FnOnce() -> SystemTime,
     ) -> Option<PendingRun> {
-        let index = if live_runs == 0 {
+        let index = if busy == 0 {
             self.runs
                 .iter()
-                .position(|(_, run)| run.condition.allows(live_runs))
+                .position(|(_, run)| run.condition.allows(busy))
         } else {
             self.first_latest()?;
             let now = now();
@@ -75,14 +75,14 @@ impl ParkedRuns {
         Some(self.runs.remove(index).1)
     }
 
-    /// The earliest instant a parked run goes whatever runs, which the wall clock's timer is armed
+    /// The earliest instant a parked run goes however busy, which the wall clock's timer is armed
     /// for.
     pub(super) fn first_latest(&self) -> Option<SystemTime> {
         self.runs.iter().filter_map(|(latest, _)| *latest).min()
     }
 
-    /// Lets the parked run with the earliest latest instant wait for no run to be live only,
-    /// answering its job's name, as when the timer refuses that instant.
+    /// Lets the parked run with the earliest latest instant wait only for the busy count to reach
+    /// zero, answering its job's name, as when the timer refuses that instant.
     pub(super) fn forget_first_latest(&mut self) -> &'static str {
         let first_latest = self.first_latest();
         let (latest, run) = self

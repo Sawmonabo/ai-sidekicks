@@ -351,7 +351,7 @@ impl Backups {
         let condition = match trigger {
             BackupTrigger::Now => JobCondition::Always,
             BackupTrigger::Daily | BackupTrigger::AfterPurge => {
-                JobCondition::NoTurnRunningUntil(SystemTime::now() + REQUESTED_LATEST_WAIT)
+                JobCondition::WhileIdleUntil(SystemTime::now() + REQUESTED_LATEST_WAIT)
             }
         };
         let backups = Arc::clone(self);

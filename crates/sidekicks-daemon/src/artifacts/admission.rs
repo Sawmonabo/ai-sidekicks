@@ -4,7 +4,6 @@
 //! uploads have yet to write. A release only lowers those totals, so one landing during an
 //! admission only makes it more careful.
 
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -13,13 +12,11 @@ use crate::artifacts::ingest::limits::MAX_ACTIVE_INGEST_STREAMS;
 use crate::artifacts::refusals::{
     ArtifactError, artifact_too_large_for_volume, ingest_capacity_exhausted,
 };
+use crate::database::writer::repack::VolumeFreeBytesReader;
 use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::mutex_lock::lock;
 #[cfg(test)]
 use crate::pause_point::PausePoint;
-
-/// Reads the free bytes on the volume holding a folder; the daemon's is the platform's.
-pub(crate) type VolumeFreeBytesReader = fn(&Path) -> io::Result<u64>;
 
 // Each open upload's room yet to write, shared with the guard that releases it.
 type OpenUploads = Arc<Mutex<Vec<Arc<AtomicU64>>>>;

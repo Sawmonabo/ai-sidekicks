@@ -129,7 +129,7 @@ fn schedule_daily_at(
     scheduler
         .schedule_at(
             "daily backup",
-            JobCondition::NoTurnRunningUntil(cadence.latest),
+            JobCondition::WhileIdleUntil(cadence.latest),
             cadence.due,
             job,
         )
