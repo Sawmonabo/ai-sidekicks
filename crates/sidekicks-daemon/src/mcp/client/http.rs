@@ -359,9 +359,7 @@ fn required_scope(challenge: &str) -> Option<String> {
 fn read_auth_param(challenge: &str, name: &str) -> Option<String> {
     let mut rest = challenge;
     while !rest.is_empty() {
-        let name_end = rest
-            .find(|character: char| matches!(character, '=' | ',' | ' ' | '\t'))
-            .unwrap_or(rest.len());
+        let name_end = rest.find(['=', ',', ' ', '\t']).unwrap_or(rest.len());
         let candidate = &rest[..name_end];
         let after_name = rest[name_end..].trim_start_matches([' ', '\t']);
         rest = match after_name.strip_prefix('=') {
@@ -398,9 +396,7 @@ fn read_param_value(value: &str) -> (Option<String>, &str) {
         }
         return (None, "");
     }
-    let end = value
-        .find(|character: char| matches!(character, ',' | ' ' | '\t'))
-        .unwrap_or(value.len());
+    let end = value.find([',', ' ', '\t']).unwrap_or(value.len());
     ((end > 0).then(|| value[..end].to_owned()), &value[end..])
 }
 

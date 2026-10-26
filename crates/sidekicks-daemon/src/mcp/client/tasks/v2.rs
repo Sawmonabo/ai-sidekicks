@@ -207,7 +207,7 @@ async fn poll_once(
     for (key, request) in input_requests.into_iter().take(MAX_TASK_INPUT_REQUESTS) {
         match request {
             InputRequest::Elicitation(elicitation) => {
-                taken.push((key, TaskInput::Elicitation(elicitation)));
+                taken.push((key, TaskInput::Elicitation(Box::new(elicitation))));
             }
             InputRequest::ListRoots(_) => taken.push((key, TaskInput::Roots)),
             // Sampling, and any request a later rmcp adds: the task is canceled before anything
@@ -236,7 +236,7 @@ async fn poll_once(
 /// One input request of a task the client takes.
 enum TaskInput {
     /// An elicitation, asked on the questions card.
-    Elicitation(ElicitRequest),
+    Elicitation(Box<ElicitRequest>),
     /// A roots request, answered with an empty list.
     Roots,
 }
