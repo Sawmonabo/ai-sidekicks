@@ -165,6 +165,8 @@ pub use linux::caller_process::{
 pub use linux::descriptor_path::read_descriptor_path;
 #[cfg(target_os = "linux")]
 pub use linux::input_wait::{may_wait_for_input, read_input_wait};
+#[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
+pub use linux::memory::process_footprint;
 #[cfg(target_os = "linux")]
 pub use linux::memory::{
     available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
@@ -175,8 +177,6 @@ pub use linux::pinned_process::this_process;
 pub use linux::pinned_process::{PinnedProcess, pin_child_process, pin_running_process};
 #[cfg(target_os = "linux")]
 pub use linux::power_source::PowerSourceWatch;
-#[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
-pub use linux::process_footprint;
 #[cfg(target_os = "linux")]
 pub use linux::process_start::{read_process_environment, read_process_start};
 #[cfg(target_os = "linux")]

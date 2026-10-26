@@ -25,13 +25,6 @@ use crate::workflow::definitions::library::live_definition_statement;
 use crate::workflow::not_found::WorkflowNotFound;
 
 /// The statements the store's reads run: the held draft.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start sums the read pool's statement set"
-    )
-)]
 pub(crate) const WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY: usize = 1;
 
 // The key of the new workflow's draft, which names no definition.

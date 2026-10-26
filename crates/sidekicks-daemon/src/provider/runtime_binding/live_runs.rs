@@ -18,10 +18,6 @@ use crate::session::run::read::{RunStateReader, read_run_provider, read_session_
 /// The statements live-binding reads prepare on a read connection: the run's row and its
 /// bindings, and for an agent's bindings the session's live runs, each run's provider, a binding
 /// and whether the log names the agent.
-#[expect(
-    dead_code,
-    reason = "the daemon's start sizes the read connections' statement caches with it"
-)]
 pub(crate) const LIVE_RUN_BINDINGS_STATEMENT_CAPACITY: usize = 6;
 
 /// One run's live binding as the addressed session sees it.

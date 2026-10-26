@@ -223,13 +223,6 @@ static INSERT_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // A rebuild's write of an ask: a row a workflow gate's answer names outlives the rebuild's clear,
 // since no rebuild writes the gate's rows, and is written over with what the log says.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which registers the approvals projection with the rebuild"
-    )
-)]
 static REWRITE_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "{}
@@ -262,13 +255,6 @@ const INSERT_RESOLUTION_SQL: &str = "INSERT INTO approval_resolutions
 // A rebuild's write of an answer: the answer of an ask a workflow gate names outlives the
 // rebuild's clear with its ask, and is written over with what the log says, the rule asked for
 // from the answer's event and the rule made cleared until the log's own rule event writes it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which registers the approvals projection with the rebuild"
-    )
-)]
 static REWRITE_RESOLUTION_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "{INSERT_RESOLUTION_SQL}
@@ -415,13 +401,6 @@ pub(crate) fn insert_request_statement(request: &InsertedApprovalRequest) -> Wri
 
 /// The statement a rebuild records an ask with: the live one's row, written over a row the
 /// rebuild kept because a workflow gate's answer names it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which registers the approvals projection with the rebuild"
-    )
-)]
 pub(crate) fn rewrite_request_statement(request: &InsertedApprovalRequest) -> WriteStatement {
     request_statement(&REWRITE_REQUEST_SQL, request)
 }
@@ -453,13 +432,6 @@ pub(crate) fn insert_resolution_statement(
 
 /// The statement a rebuild records an answer with: the live one's row, written over the answer
 /// the rebuild kept with its ask because a workflow gate's answer names it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which registers the approvals projection with the rebuild"
-    )
-)]
 pub(crate) fn rewrite_resolution_statement(
     resolution: &InsertedApprovalResolution,
 ) -> WriteStatement {
@@ -467,14 +439,6 @@ pub(crate) fn rewrite_resolution_statement(
 }
 
 // The insert and the rebuild's rewrite bind the same values.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "an answer's live write, and the daemon's start, which registers the approvals \
-                  projection with the rebuild"
-    )
-)]
 fn resolution_statement(
     sql: &'static str,
     resolution: &InsertedApprovalResolution,

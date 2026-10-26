@@ -34,6 +34,7 @@ use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
 use sidekicks_contracts::event::envelope::{DAEMON_SCOPE_SENTINEL_SESSION_ID, EventOccurredAt};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::machine::settings::BackupSettings;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -72,10 +73,6 @@ use crate::text_cut::cut_to_code_points;
 pub(crate) const BACKUP_LOCK_FILE_NAME: &str = "backup.lock";
 
 /// The statements the last run's read prepares, counted into the read pool's capacity.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start, sizing its read connections")
-)]
 pub(crate) const BACKUP_STATEMENT_CAPACITY: usize = 1;
 
 /// A run's processor budget, and a repack's, since a `VACUUM` copies the store too: one second
@@ -102,6 +99,31 @@ static LAST_RUN_SQL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
         SessionEventType::DaemonBackupFailed.as_str(),
     )
 });
+
+/// The backups folder `Back up to` names in `settings`, or the default one in the data folder under
+/// `home_folder`; the start reads it before the database file opens, for the repair. Fails when
+/// the settings file does not read.
+pub(crate) async fn backup_folder(
+    settings: &MachineSettingsFile,
+    home_folder: &Path,
+) -> Result<PathBuf, MachineSettingsFileError> {
+    let settings = settings.read().await?.settings.backup;
+    Ok(backup_folder_of(&settings, home_folder))
+}
+
+// The backups folder `Back up to` names in `backup`, or the default one under `home_folder`.
+fn backup_folder_of(backup: &BackupSettings, home_folder: &Path) -> PathBuf {
+    backup.folder.as_ref().map_or_else(
+        || default_backup_folder(home_folder),
+        |folder| PathBuf::from(folder.as_str()),
+    )
+}
+
+/// The backups folder used when `Back up to` names none: the default one in the data folder under
+/// `home_folder`.
+pub(crate) fn default_backup_folder(home_folder: &Path) -> PathBuf {
+    data_folder(home_folder).join(BACKUP_DEFAULT_FOLDER_NAME)
+}
 
 /// What asked for a run, weakest first: a request joining a queued run keeps the stronger.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -285,11 +307,7 @@ impl Backups {
     /// The backups folder `Back up to` names, or the default one in the data folder. Fails when
     /// the settings file does not read.
     pub(crate) async fn folder(&self) -> Result<PathBuf, MachineSettingsFileError> {
-        let settings = self.deps.settings.read().await?.settings.backup;
-        Ok(settings.folder.map_or_else(
-            || self.data_folder().join(BACKUP_DEFAULT_FOLDER_NAME),
-            |folder| PathBuf::from(folder.as_str()),
-        ))
+        backup_folder(&self.deps.settings, &self.deps.home_folder).await
     }
 
     /// The service's data folder.
@@ -375,7 +393,7 @@ impl Backups {
         if is_skipped {
             return Ok(None);
         }
-        let folder = self.folder().await?;
+        let folder = backup_folder_of(&settings, &self.deps.home_folder);
         let written = self.write_backup(&folder, stop, meter, &mut joined).await;
         let mut copied = None;
         let event = match written {

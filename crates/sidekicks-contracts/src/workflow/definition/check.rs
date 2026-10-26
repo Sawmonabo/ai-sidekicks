@@ -6,65 +6,27 @@
 
 use std::collections::HashMap;
 
-use serde::Deserialize;
-use serde_json::{Map, Value};
 use wasm_bindgen::JsError;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::workflow::definition::document::{
-    WorkflowEdge, WorkflowNode, WorkflowNodeId, WorkflowTriggerNode,
+use crate::workflow::definition::document::WorkflowNode;
+use crate::workflow::definition::params::{
+    WorkflowNodeParamsCheckInput, check_workflow_node_params,
 };
-use crate::workflow::definition::params::check_workflow_node_params;
 use crate::workflow::definition::refusals::{
-    WorkflowNodeHandles, check_workflow_connection, check_workflow_graph,
+    WorkflowConnectionCheckInput, WorkflowGraphCheckInput, check_workflow_connection,
+    check_workflow_graph,
 };
-use crate::workflow::kind::WorkflowParamSpec;
-
-/// The graph check's arguments: the document's trigger, its other nodes and edges, and each node's
-/// handles by node id, built from the kinds table.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct GraphCheckInput {
-    #[serde(default, deserialize_with = "crate::wire::present")]
-    trigger: Option<WorkflowTriggerNode>,
-    nodes: Vec<WorkflowNode>,
-    edges: Vec<WorkflowEdge>,
-    node_handles: HashMap<WorkflowNodeId, WorkflowNodeHandles>,
-}
-
-/// The connection check's arguments: the document's trigger, its other nodes and edges, each
-/// node's handles, and the one connection being drawn.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ConnectionCheckInput {
-    #[serde(default, deserialize_with = "crate::wire::present")]
-    trigger: Option<WorkflowTriggerNode>,
-    nodes: Vec<WorkflowNode>,
-    edges: Vec<WorkflowEdge>,
-    edge: WorkflowEdge,
-    node_handles: HashMap<WorkflowNodeId, WorkflowNodeHandles>,
-}
-
-/// The parameter check's arguments: one node's parameters and its kind's parameter list.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct NodeParamsCheckInput {
-    params: Map<String, Value>,
-    specs: Vec<WorkflowParamSpec>,
-}
 
 /// Runs the graph check over `{trigger?, nodes, edges, nodeHandles}` and answers its findings as a
 /// JSON array, empty when the graph is accepted; throws when the input does not read.
 #[wasm_bindgen(js_name = checkWorkflowGraph)]
 pub fn check_workflow_graph_json(input: &str) -> Result<String, JsError> {
-    let input: GraphCheckInput = serde_json::from_str(input)?;
+    let input: WorkflowGraphCheckInput = serde_json::from_str(input)?;
     let trigger = input.trigger.as_ref().map(WorkflowNode::from);
-    let findings = check_workflow_graph(
-        trigger.as_ref(),
-        &input.nodes,
-        &input.edges,
-        &input.node_handles,
-    );
+    let node_handles: HashMap<_, _> = input.node_handles.into_map().into_iter().collect();
+    let findings =
+        check_workflow_graph(trigger.as_ref(), &input.nodes, &input.edges, &node_handles);
     Ok(serde_json::to_string(&findings)?)
 }
 
@@ -74,14 +36,15 @@ pub fn check_workflow_graph_json(input: &str) -> Result<String, JsError> {
 /// reconnect, `edges` are the document's edges without the edge being moved.
 #[wasm_bindgen(js_name = checkWorkflowConnection)]
 pub fn check_workflow_connection_json(input: &str) -> Result<String, JsError> {
-    let input: ConnectionCheckInput = serde_json::from_str(input)?;
+    let input: WorkflowConnectionCheckInput = serde_json::from_str(input)?;
     let trigger = input.trigger.as_ref().map(WorkflowNode::from);
+    let node_handles: HashMap<_, _> = input.node_handles.into_map().into_iter().collect();
     let findings = check_workflow_connection(
         trigger.as_ref(),
         &input.nodes,
         &input.edges,
         &input.edge,
-        &input.node_handles,
+        &node_handles,
     );
     Ok(serde_json::to_string(&findings)?)
 }
@@ -90,7 +53,7 @@ pub fn check_workflow_connection_json(input: &str) -> Result<String, JsError> {
 /// of `{path, message}`, empty when every value is accepted; throws when the input does not read.
 #[wasm_bindgen(js_name = checkWorkflowNodeParams)]
 pub fn check_workflow_node_params_json(input: &str) -> Result<String, JsError> {
-    let input: NodeParamsCheckInput = serde_json::from_str(input)?;
+    let input: WorkflowNodeParamsCheckInput = serde_json::from_str(input)?;
     let issues = check_workflow_node_params(&input.params, &input.specs);
     Ok(serde_json::to_string(&issues)?)
 }

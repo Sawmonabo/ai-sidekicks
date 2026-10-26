@@ -44,10 +44,6 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The statements the binding reads prepare on a read connection: one binding, a run's, many
 /// runs', and every resumable one.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start sizes read caches with it")
-)]
 pub(crate) const RUNTIME_BINDING_STORE_STATEMENT_CAPACITY: usize = 4;
 
 // The stored spawn record's member naming the build that ran: written from the spawned build's

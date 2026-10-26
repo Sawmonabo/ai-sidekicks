@@ -49,7 +49,6 @@ mod tests;
 
 /// The statements [`QuestionsService`] prepares on a read connection: a record, its pages,
 /// whether its run has an interrupt recorded, and which held questions are still open.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) const QUESTION_STATEMENT_CAPACITY: usize = 4;
 
 // Whether a person's or the daemon's interrupt of the run was asked for or carried out.

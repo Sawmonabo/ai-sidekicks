@@ -54,13 +54,6 @@ use crate::session::review_note::diff_line::{NoteLocation, NotedLineError, Noted
 
 /// The statements the store's reads prepare on a read connection: the session's notes, one note,
 /// and whether the session has a row.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start sizes the read connections' statement caches with it"
-    )
-)]
 pub(crate) const REVIEW_NOTE_STORE_STATEMENT_CAPACITY: usize = 3;
 
 // The note columns every read takes, in the order `stored_note_of` reads them.

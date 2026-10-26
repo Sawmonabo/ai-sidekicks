@@ -21,10 +21,6 @@ use crate::session::records::SessionDirectoryRow;
 
 /// The `sessions` row as a rebuild replaces it. Almost every event moves the row's last activity,
 /// so the fold reads every registered event type.
-#[expect(
-    dead_code,
-    reason = "the daemon's start, which registers the projection with the rebuild"
-)]
 pub(crate) struct SessionDirectoryProjection;
 
 impl SessionProjection for SessionDirectoryProjection {
@@ -47,10 +43,6 @@ impl SessionProjection for SessionDirectoryProjection {
 }
 
 // The row as folded so far; `None` until the log's `session.created`.
-#[expect(
-    dead_code,
-    reason = "the daemon's start, which registers the projection with the rebuild"
-)]
 struct DirectoryFold {
     row: Option<SessionDirectoryRow>,
 }

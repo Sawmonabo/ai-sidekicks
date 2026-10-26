@@ -45,7 +45,6 @@ use crate::provider::service_log::{
 };
 
 /// How often the expiry runs: hourly, so no log outlives its bound by more than an hour.
-#[expect(dead_code, reason = "the daemon's start registers the hourly expiry")]
 pub(crate) const DIAGNOSTIC_LOG_EXPIRY_INTERVAL: Duration = Duration::from_hours(1);
 
 const DAY: Duration = Duration::from_hours(24);
@@ -100,10 +99,6 @@ struct ExpiryCount {
 /// `Keep diagnostic logs for` as it stands at each pass and metered against its processor budget.
 /// Never fails: account homes that cannot be read are told in the service log and the rest is
 /// expired.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start registers the hourly expiry")
-)]
 pub(crate) fn diagnostic_expiry_job(
     deps: Arc<DiagnosticExpiryDeps>,
 ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static {

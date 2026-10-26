@@ -28,6 +28,7 @@ use sidekicks_contracts::worktree::events::SessionBranchChangedPayload;
 
 use crate::database::statement::{StatementBindings, WriteStatement, place_value, text_binding};
 use crate::events::canonicalizer::{OccurredAtNormalizationRefusal, normalize_occurred_at};
+use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::session::directory::run_activity::run_outcome_of;
 use crate::session::records::SessionDirectoryRow;
 use crate::text_cut::cut_to_code_points;
@@ -37,7 +38,7 @@ use crate::text_cut::cut_to_code_points;
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct DirectoryEvent<'event> {
     /// The session the event belongs to.
-    pub(crate) session_id: &'event SessionId,
+    pub(crate) session_id: SessionId,
     /// When it occurred, as the event carries it.
     pub(crate) occurred_at: &'event str,
     /// The event's category.
@@ -51,11 +52,23 @@ pub(crate) struct DirectoryEvent<'event> {
 impl<'event> From<&'event EventEnvelope> for DirectoryEvent<'event> {
     fn from(envelope: &'event EventEnvelope) -> Self {
         Self {
-            session_id: &envelope.session_id,
+            session_id: envelope.session_id,
             occurred_at: envelope.occurred_at.as_str(),
             category: envelope.category,
             event_type: envelope.event_type.as_str(),
             payload: &envelope.payload,
+        }
+    }
+}
+
+impl<'event> From<&'event UnsequencedEventEnvelope> for DirectoryEvent<'event> {
+    fn from(envelope: &'event UnsequencedEventEnvelope) -> Self {
+        Self {
+            session_id: envelope.session_id(),
+            occurred_at: envelope.occurred_at.as_str(),
+            category: envelope.category(),
+            event_type: envelope.event_type().as_str(),
+            payload: envelope.payload(),
         }
     }
 }
@@ -468,7 +481,7 @@ pub(crate) fn open_directory_row(
         });
     };
     Ok(SessionDirectoryRow {
-        session_id: *created.session_id,
+        session_id: created.session_id,
         shape,
         state: SessionState::Provisioning,
         name: None,
@@ -532,7 +545,7 @@ static INSERT_CREATED_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
 pub(crate) fn directory_statements_for(
     event: &DirectoryEvent<'_>,
 ) -> Result<Vec<WriteStatement>, DirectoryRowError> {
-    if *event.session_id == *DAEMON_SCOPE_SENTINEL_SESSION_ID {
+    if event.session_id == *DAEMON_SCOPE_SENTINEL_SESSION_ID {
         return Ok(Vec::new());
     }
     let update = describe_directory_update(event)?;

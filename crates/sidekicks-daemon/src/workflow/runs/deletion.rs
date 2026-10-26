@@ -54,13 +54,6 @@ use crate::workflow::runs::record::{
 
 /// The statements the deletion's reads run: the run a delete removes, the runs a bulk delete
 /// removes, the bulk delete's preview, and a refused run's status.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start sums the read pool's statement set"
-    )
-)]
 pub(crate) const WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY: usize = 4;
 
 /// The most runs one page of bulk delete reads, and so the most one of its writes removes. Bulk

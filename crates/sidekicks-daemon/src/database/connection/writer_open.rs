@@ -17,6 +17,12 @@ const BUSY_WAIT: Duration = Duration::from_secs(5);
 // How long the switch to WAL waits between its retries.
 const WAL_SWITCH_RETRY_WAIT: Duration = Duration::from_millis(10);
 
+/// The optimize the writer runs at open and daily after: its mask has SQLite weigh every table,
+/// not only those this connection's own statements planned, since the reads plan on the read
+/// pool's connections, and analyze each under SQLite's temporary limit of 2000 rows, so no run
+/// scans a whole table while the writer waits on it.
+pub(crate) const OPTIMIZE_SQL: &str = "PRAGMA optimize = 0x10012";
+
 // Whether the file holds the schema; it is created whole, so its event log stands for every table.
 const HAS_SCHEMA_SQL: &str =
     "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)";
@@ -63,7 +69,7 @@ pub(crate) fn open_database(
         create_schema_once(connection, database_path)?;
         // Once at open, as SQLite advises for a long-lived connection; the daily run is the
         // scheduler's.
-        connection.execute_batch("PRAGMA optimize = 0x10002")?;
+        connection.execute_batch(OPTIMIZE_SQL)?;
         Ok(())
     })
 }

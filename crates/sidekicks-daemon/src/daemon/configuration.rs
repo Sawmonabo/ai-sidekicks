@@ -23,10 +23,6 @@ use crate::database::stored_column::safe_int_column;
 use crate::database::writer::{DatabaseWriter, WriteError};
 
 /// The statements the store's read prepares, counted into the read pool's statement capacity.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start, sizing its read connections")
-)]
 pub(crate) const DAEMON_CONFIGURATION_STATEMENT_CAPACITY: usize = 1;
 
 const READ_ROW_SQL: &str = "SELECT keep_diagnostic_logs_days, keep_sessions_days,

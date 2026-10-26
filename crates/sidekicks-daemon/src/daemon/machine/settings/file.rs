@@ -20,13 +20,9 @@ use sidekicks_platforms::create_private_folder;
 use tokio::sync::watch;
 
 use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
-use crate::ipc::stream::latest_value::LatestValueOutlet;
+use crate::ipc::stream::latest_value::{LatestValueOutlet, LatestValueOutlets};
 
 /// The settings file's name in the daemon's data folder.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start opens the settings file by it")
-)]
 pub(crate) const MACHINE_SETTINGS_FILE_NAME: &str = "machine-settings.json";
 
 // Readable and writable by the person alone: an environment row's value can carry a proxy's
@@ -55,14 +51,13 @@ pub(crate) struct MachineSettingsFile {
     file_path: PathBuf,
     /// The repair made since the last change; the lock runs every operation one at a time.
     repair: tokio::sync::Mutex<Option<SettingsFileRepair>>,
-    /// Every listener's outlet, by the id its detach removes it with.
+    /// Every listener's outlet and in-process reader's channel.
     listeners: Mutex<Listeners>,
 }
 
 #[derive(Default)]
 struct Listeners {
-    next_id: u64,
-    outlets: Vec<(u64, LatestValueOutlet<MachineSettingsReading>)>,
+    outlets: LatestValueOutlets<MachineSettingsReading>,
     /// Every in-process reader's channel, dropped once its last receiver goes.
     watchers: Vec<watch::Sender<MachineSettings>>,
 }
@@ -70,10 +65,6 @@ struct Listeners {
 impl MachineSettingsFile {
     /// The settings file at `file_path`, `<home>/.ai-sidekicks/machine-settings.json` in the
     /// daemon.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start opens the settings file")
-    )]
     pub(crate) fn new(file_path: PathBuf) -> Self {
         Self {
             file_path,
@@ -116,19 +107,11 @@ impl MachineSettingsFile {
     ) -> Result<impl FnOnce() + Send + use<>, MachineSettingsFileError> {
         let mut repair = self.repair.lock().await;
         outlet.send(self.read_from_disk(&mut repair).await?);
-        let id = {
-            let mut listeners = self.lock_listeners();
-            let id = listeners.next_id;
-            listeners.next_id += 1;
-            listeners.outlets.push((id, outlet));
-            id
-        };
+        let id = self.lock_listeners().outlets.attach(outlet);
         let file: Weak<Self> = Arc::downgrade(self);
         Ok(move || {
             if let Some(file) = file.upgrade() {
-                file.lock_listeners()
-                    .outlets
-                    .retain(|(listener_id, _)| *listener_id != id);
+                file.lock_listeners().outlets.detach(id);
             }
         })
     }
@@ -198,9 +181,7 @@ impl MachineSettingsFile {
 
     fn announce(&self, reading: &MachineSettingsReading) {
         let mut listeners = self.lock_listeners();
-        for (_, outlet) in &listeners.outlets {
-            outlet.send(reading.clone());
-        }
+        listeners.outlets.send(reading);
         listeners
             .watchers
             .retain(|watcher| watcher.send(reading.settings.clone()).is_ok());

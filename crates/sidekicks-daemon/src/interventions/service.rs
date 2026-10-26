@@ -86,7 +86,6 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The statements the service's reads prepare on its pooled connection: the run's row, its
 /// provider, and an intervention's row by its id and under a reused key.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) const INTERVENTION_SERVICE_STATEMENT_CAPACITY: usize = 4;
 
 // The insert of a request is the first statement of its write.

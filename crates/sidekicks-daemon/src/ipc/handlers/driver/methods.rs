@@ -50,7 +50,6 @@ mod tests;
 /// The statements the driver methods prepare on a read connection: the session's row, the lead's
 /// binding, the run's row, its bindings and its provider, the session's live runs, a binding's row
 /// and whether the log names an agent.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) const DRIVER_METHODS_STATEMENT_CAPACITY: usize = 8;
 
 /// What the driver methods read and act through.

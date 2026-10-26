@@ -20,13 +20,6 @@ use crate::settle_all::{SettleFailures, settle_all};
 
 /// The statements the purge's read prepares on a read connection: the session's runs, their
 /// bindings and the conversations the session left.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start sizes the read connections' statement caches with it"
-    )
-)]
 pub(crate) const CONVERSATION_PURGE_STATEMENT_CAPACITY: usize = 3;
 
 /// Why a session's provider conversations were not all deleted.

@@ -29,7 +29,6 @@ impl Backups {
     /// before the first, with no run live and at the latest 25 hours after that run; each daily
     /// run schedules the next. Fails when the last run does not read or the scheduler refuses the
     /// run.
-    #[expect(dead_code, reason = "the daemon's start schedules the daily backup")]
     pub(crate) async fn schedule_daily(
         self: &Arc<Self>,
         scheduler: &Arc<Scheduler>,

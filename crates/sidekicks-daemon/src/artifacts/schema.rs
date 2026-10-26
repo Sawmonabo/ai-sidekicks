@@ -15,7 +15,6 @@ use crate::database::sql_list::sql_list_of_every;
 /// a client publish's lookup by its key, an attachment's payload read, the list's two, a read's
 /// four, the chat versions' read of a path's newest hash, and the payload store's reference count
 /// and referenced keys.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) const ARTIFACT_STATEMENT_CAPACITY: usize = 13;
 
 /// The SQL of the artifact tables and their indexes, run as part of the daemon schema's script.

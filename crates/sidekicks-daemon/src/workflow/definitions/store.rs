@@ -55,13 +55,6 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The statements the store's reads run on a read connection beyond the library's: the latest
 /// version a refused save is told about.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start sums the read pool's statement set"
-    )
-)]
 pub(crate) const WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY: usize = 1;
 
 // A permission level is left to the column's default, so a new workflow starts at `yolo`.

@@ -2,6 +2,9 @@
 //! stop, in the reverse order, carrying why it stops. A start that fails releases what it took,
 //! in the stop's order, and names the step that failed.
 
+pub(crate) mod database;
+pub(crate) mod jobs;
+mod projections;
 pub(crate) mod start_options;
 pub(crate) mod stop;
 pub(crate) mod supervision;
@@ -33,6 +36,7 @@ use crate::bootstrap::secure_defaults::{
 use crate::cleanup_failures::CleanupFailures;
 use crate::credential_store::items::{SecretItems, SecretItemsStart};
 use crate::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, SystemCredentialStore};
+use crate::daemon::backup::run::{backup_folder, default_backup_folder};
 use crate::daemon::crash::monitor::{
     CRASH_MONITOR_MODE, CrashMonitorError, attach_crash_handler, connect_crash_monitor,
     crash_monitor_socket_path, remove_dead_monitor_sockets,
@@ -40,7 +44,12 @@ use crate::daemon::crash::monitor::{
 use crate::daemon::data_folder::data_folder;
 use crate::daemon::data_folder_lock::DataFolderLock;
 use crate::daemon::login_shell_environment::capture_provider_base_environment;
+use crate::daemon::machine::settings::file::{MACHINE_SETTINGS_FILE_NAME, MachineSettingsFile};
 use crate::daemon::panic_hook::send_panics_to_monitor;
+use crate::daemon::process::database::{
+    DatabaseFile, DatabaseFileOpenError, DatabaseFileStart, open_database_file,
+};
+use crate::daemon::process::jobs::IdleMemoryCollect;
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
 use crate::daemon::process::stop::{
     CrashMonitorEndFailure, DaemonStopFailure, close_data_folder, stop_work,
@@ -52,6 +61,9 @@ use crate::daemon::run_folder::{
 use crate::daemon::service_status::remove_service_status;
 use crate::daemon::start_stopped_error::DaemonStartStoppedError;
 use crate::data_acts::erase::EraseStep;
+use crate::database::connection::writer_open::{
+    DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
+};
 use crate::git::process::find_git_executable;
 use crate::helper_mode::child::start_helper_mode_child;
 use crate::ipc::caller_process::contract::CallerProcessReader;
@@ -65,8 +77,9 @@ use crate::policy::authorizer::{Authorizer, RulesLoadError};
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::pty::orphan::guard::{OrphanGuard, OrphanGuardError, open_orphan_guard};
+use crate::recovery::database_file::copy::DatabaseFileCopier;
 use crate::recovery::database_file::damage::DatabaseDamageWatch;
-use crate::recovery::database_file::repair::DatabaseFileRepairFailure;
+use crate::recovery::database_file::sqlite_shell::SqliteShell;
 use crate::settle_all::{SettleFailures, settle_all};
 
 /// The longest the stop's drain runs, the work ending and the data folder closing together.
@@ -139,27 +152,10 @@ pub(crate) enum DaemonStartError {
     /// A stop came before the daemon was ready.
     #[error(transparent)]
     Stopped(#[from] DaemonStartStoppedError),
-    /// The database file is damaged and its repair could not heal it; it is left as it was.
-    #[expect(dead_code, reason = "the database file's open raises it")]
-    #[error(
-        "The database file is damaged and could not be repaired: {failure}. Its files are copied \
-         aside in {}.",
-        aside_folder.display()
-    )]
-    SavedSessionsUnrepaired {
-        /// The folder the damaged files are copied aside in.
-        aside_folder: PathBuf,
-        /// Why the repair failed.
-        #[source]
-        failure: DatabaseFileRepairFailure,
-    },
-    /// The database file holds another build's schema, which this build never migrates.
-    #[expect(dead_code, reason = "the database file's open raises it")]
-    #[error("the database at {} holds the schema of another build", path.display())]
-    SavedSessionsFromAnotherVersion {
-        /// The database file.
-        path: PathBuf,
-    },
+    /// The database file could not be opened, damaged past repair or from another build among
+    /// the reasons.
+    #[error(transparent)]
+    DatabaseFile(#[from] DatabaseFileOpenError),
 }
 
 /// A start that failed: its error beside every failure of its release, and when the release
@@ -306,6 +302,14 @@ pub(crate) struct DaemonProcess {
     pub(crate) crash_monitor: Option<CrashMonitor>,
     /// The hold on the data folder, let go last.
     pub(crate) data_folder_lock: Option<DataFolderLock>,
+    /// The database file, closed first as the data folder closes.
+    pub(crate) database: Option<DatabaseFile>,
+    /// When the stop began, from which what is left of the drain bound is counted.
+    pub(crate) stop_started: Option<Instant>,
+    /// Whether a step of the stop failed, so no clean stop is recorded.
+    pub(crate) has_stop_failed: bool,
+    /// Hands freed memory back once the work goes quiet; ends with the work.
+    idle_memory: Option<Arc<IdleMemoryCollect>>,
 }
 
 // What a failed start's release is called in its error.
@@ -357,6 +361,10 @@ impl DaemonProcess {
             orphan_guard: None,
             crash_monitor: None,
             data_folder_lock: Some(data_folder_lock),
+            database: None,
+            stop_started: None,
+            has_stop_failed: false,
+            idle_memory: None,
         };
         let started = process
             .run_start(
@@ -415,6 +423,49 @@ impl DaemonProcess {
             tokio::join!(capture, open_orphan_guard(&data_folder));
         self.orphan_guard = Some(orphan_guard.map_err(DaemonStartError::OrphanGuard)?);
         let base_environment = base_environment.map_err(DaemonStartError::BaseEnvironment)?;
+        let settings = Arc::new(MachineSettingsFile::new(
+            data_folder.join(MACHINE_SETTINGS_FILE_NAME),
+        ));
+        // The repair reads the newest backup, which a failed settings read still finds in the
+        // default folder.
+        let backup_folder = match backup_folder(&settings, home_folder).await {
+            Ok(folder) => folder,
+            Err(error) => {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "the backup settings could not be read, so the repair reads the default \
+                     backups folder"
+                );
+                default_backup_folder(home_folder)
+            }
+        };
+        let shell = SqliteShell::new(daemon_program.to_path_buf(), self.spawner.clone());
+        let copier = DatabaseFileCopier::new(daemon_program.to_path_buf(), self.spawner.clone());
+        let secure_defaults = SecureDefaults::load(SecureDefaultsConfig {
+            local_ipc_path: run_folder.socket_path.clone(),
+        })?;
+        let database = self.database.insert(
+            open_database_file(DatabaseFileStart {
+                database_path: data_folder.join(DAEMON_DATABASE_FILE_NAME),
+                data_folder: data_folder.clone(),
+                index_folder_path: data_folder.join(SEARCH_INDEX_FOLDER_NAME),
+                shell: &shell,
+                copier: &copier,
+                now: Timestamp::now(),
+                backup_folder: Some(backup_folder),
+                run_folder,
+                secure_defaults: &secure_defaults,
+                caller_process_reader: Arc::clone(&caller_process_reader),
+                process_state: Arc::clone(&self.process_state),
+                stop: &self.work_stop,
+            })
+            .await?,
+        );
+        let damage = Arc::clone(&database.damage);
+        self.idle_memory = Some(Arc::new(IdleMemoryCollect::start(
+            database.live_runs.clone(),
+            self.work_stop.clone(),
+        )));
         self.check_stop("capturing the providers' base environment")?;
         let git_executable = find_git_executable(&base_environment);
         let authorizer = Arc::new(Authorizer::load_built_in()?);
@@ -436,8 +487,14 @@ impl DaemonProcess {
             secret_items,
         });
         self.gateway = Some(
-            self.bind_serving_socket(run_folder, caller_process_reader, session_token)
-                .await?,
+            self.bind_serving_socket(
+                run_folder,
+                caller_process_reader,
+                session_token,
+                &secure_defaults,
+                damage,
+            )
+            .await?,
         );
         let status_run_folder = run_folder.clone();
         tokio::task::spawn_blocking(move || remove_service_status(&status_run_folder))
@@ -463,12 +520,15 @@ impl DaemonProcess {
     }
 
     // Registers the handshake and the subscriptions' cancel, freezes the registry and binds the
-    // serving socket with `session_token`.
+    // serving socket with `session_token` at the path `secure_defaults` checked; a feed's failure
+    // is told to `damage`.
     async fn bind_serving_socket(
         &self,
         run_folder: &DaemonRunFolder,
         caller_process_reader: Arc<dyn CallerProcessReader>,
         session_token: String,
+        secure_defaults: &SecureDefaults,
+        damage: Arc<DatabaseDamageWatch>,
     ) -> Result<LocalGateway, DaemonStartError> {
         let caller_check = CallerCheck::new(
             Arc::clone(&caller_process_reader),
@@ -477,7 +537,7 @@ impl DaemonProcess {
         );
         let negotiator =
             ProtocolNegotiator::new(session_token.clone(), caller_check.admission_check());
-        let subscriptions = Subscriptions::new(Arc::new(DatabaseDamageWatch::new()));
+        let subscriptions = Subscriptions::new(damage);
         let mut builder = MethodRegistryBuilder::new();
         negotiator.register_handshake(&mut builder)?;
         subscriptions.register_cancel(&mut builder)?;
@@ -495,11 +555,8 @@ impl DaemonProcess {
                 process_state: Arc::clone(&self.process_state),
             }),
         };
-        let secure_defaults = SecureDefaults::load(SecureDefaultsConfig {
-            local_ipc_path: run_folder.socket_path.clone(),
-        })?;
         Ok(bind_socket(
-            || LocalGateway::start(services, caller_process_reader, &secure_defaults),
+            || LocalGateway::start(services, caller_process_reader, secure_defaults),
             run_folder,
             session_token,
         )
@@ -573,12 +630,25 @@ impl DaemonProcess {
     }
 
     /// Runs the erase's steps as they come, until the first stop asked for: the system's stop
-    /// request, which stops, or a stop or restart over the socket, which the erase's end asks for.
+    /// request, which stops, damage found in the database file, which restarts so the next start
+    /// repairs it, or a stop or restart over the socket, which the erase's end asks for.
     pub(crate) async fn wait_for_stop(&mut self) -> DaemonStopIntent {
         let mut stop_asked = self.stop_asked.subscribe();
+        let damage = self
+            .database
+            .as_ref()
+            .map(|database| Arc::clone(&database.damage));
         loop {
             let command = tokio::select! {
                 () = self.system_stop.cancelled() => return DaemonStopIntent::Stop,
+                () = async {
+                    match &damage {
+                        Some(damage) => {
+                            damage.when_found().await;
+                        }
+                        None => std::future::pending().await,
+                    }
+                } => return DaemonStopIntent::Restart,
                 asked = stop_asked.wait_for(Option::is_some) => return match asked.as_deref() {
                     Ok(Some(intent)) => *intent,
                     // The process holds the sender, so the wait ends only with an ask.

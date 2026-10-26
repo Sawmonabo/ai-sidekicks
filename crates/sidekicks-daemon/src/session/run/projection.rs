@@ -71,10 +71,6 @@ static ADVANCE_RUN_VERSION_SQL: LazyLock<String> = LazyLock::new(|| {
 // Each live run of the session moves to the highest run version any row of the skipped range
 // stored for it, if that is past its own. The run and its version are read from the row's own
 // columns, which the append set from the typed event, so a damaged payload is never parsed.
-#[expect(
-    dead_code,
-    reason = "the daemon's start, which registers the projection with the rebuild"
-)]
 static ADVANCE_PAST_SKIPPED_VERSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE runs
@@ -89,18 +85,10 @@ static ADVANCE_PAST_SKIPPED_VERSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-#[expect(
-    dead_code,
-    reason = "the daemon's start, which registers the projection with the rebuild"
-)]
 const DELETE_SESSION_RUNS_SQL: &str = "DELETE FROM runs WHERE session_id = ?";
 
 // Every type the runs fold reads: a run's creation, a skipped range, an intervention's verdict and
 // each state change.
-#[expect(
-    dead_code,
-    reason = "the daemon's start, which registers the projection with the rebuild"
-)]
 static RUNS_EVENT_TYPES: LazyLock<Vec<SessionEventType>> = LazyLock::new(|| {
     [
         SessionEventType::AgentRunQueued,
@@ -224,10 +212,6 @@ macro_rules! state_change_swap {
     }};
 }
 
-#[expect(
-    dead_code,
-    reason = "the daemon's start, which registers the projection with the rebuild"
-)]
 fn state_change_swap_of(event: &SessionEvent) -> Option<RunStateSwap> {
     state_change_swap!(
         event,
@@ -245,10 +229,6 @@ fn state_change_swap_of(event: &SessionEvent) -> Option<RunStateSwap> {
 }
 
 /// The `runs` rows as a rebuild replaces them: one per run, at its last state and version.
-#[expect(
-    dead_code,
-    reason = "the daemon's start, which registers the projection with the rebuild"
-)]
 pub(crate) struct RunsProjection;
 
 impl SessionProjection for RunsProjection {
@@ -278,10 +258,6 @@ impl SessionProjection for RunsProjection {
 }
 
 // Each terminal event already folded, by its run and run version, with its envelope id.
-#[expect(
-    dead_code,
-    reason = "the daemon's start, which registers the projection with the rebuild"
-)]
 struct RunsFold {
     terminal_event_ids: HashMap<(RunId, i64), String>,
 }
