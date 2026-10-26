@@ -36,6 +36,7 @@ use crate::events::session::appender::SessionEventAppender;
 use crate::events::session::followers::CommittedEvent;
 use crate::events::session::read::DamagedFromSequenceReader;
 use crate::events::session::version::SESSION_EVENT_VERSION;
+use crate::git::process::{GitLimits, GitRunner};
 use crate::git::worktree::watch::WorkingFolderWatcher;
 use crate::policy::authorizer::Authorizer;
 use crate::policy::execution_posture_service::ExecutionPostureService;
@@ -106,13 +107,12 @@ async fn fixture() -> Fixture {
         owner_user_id: UserId::try_from(mint_uuid_v7()).expect("a user id"),
         name: "desk".to_owned(),
     };
+    let git = GitRunner::new(spawner.clone(), None, Arc::from([]), GitLimits::DAEMON);
     let repo = build_repo_services(RepoServiceStart {
         home_folder: home.path().to_path_buf(),
         run_folder: home.path().join("run"),
         daemon_program: daemon_program.clone(),
-        spawner: spawner.clone(),
-        git_executable: None,
-        base_environment: Arc::from([]),
+        git: git.clone(),
         reads: Arc::clone(&reads),
         writer: Arc::clone(&log.writer),
         event_log: Arc::clone(&log.service),
@@ -125,7 +125,6 @@ async fn fixture() -> Fixture {
     let RepoServices {
         folder_watch,
         workspaces,
-        git,
         ..
     } = repo;
     let (writes, workspace_writes) = mpsc::channel(8);
