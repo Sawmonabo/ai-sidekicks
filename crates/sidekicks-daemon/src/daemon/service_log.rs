@@ -33,10 +33,8 @@ use tracing_subscriber::fmt::writer::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::{SubscriberInitExt, TryInitError};
 
+use crate::daemon::data_folder::service_log_folder;
 use crate::mutex_lock::lock;
-
-// The folder in the data folder that holds the service log files.
-const SERVICE_LOG_FOLDER_NAME: &str = "logs";
 
 /// The folder in the data folder that holds the service's crash reports, one file per crash.
 pub(crate) const CRASH_REPORTS_FOLDER_NAME: &str = "crash-reports";
@@ -205,11 +203,6 @@ where
         file_handle,
         open_failure,
     }
-}
-
-/// The folder in `data_folder` that holds the service log files.
-pub(crate) fn service_log_folder(data_folder: &Path) -> PathBuf {
-    data_folder.join(SERVICE_LOG_FOLDER_NAME)
 }
 
 /// Whether `file_name` names a service log file, `service-<time begun>.log` with or without its
@@ -534,8 +527,9 @@ mod tests {
 
     use super::{
         FILE_FAILED_NOTICE, STANDARD_ERROR_GONE_NOTICE, ServiceLogFiles, is_service_log_file_name,
-        open_service_log, service_log_folder,
+        open_service_log,
     };
+    use crate::daemon::data_folder::service_log_folder;
 
     // Each run of failed writes to the file, two in a row, says so once on standard error, and the
     // next line lands in the file again: on a line of its own after a write that failed halfway,

@@ -179,7 +179,7 @@ mod tests {
     };
 
     use super::IndexBatchBuilder;
-    use crate::session::directory::test_rows::insert_session_row;
+    use crate::database::schema::session_directory::insert_session_row;
     use crate::session::search::hits::HitLineReader;
     use crate::session::search::index::applier::SearchIndexApplyError;
     use crate::session::search::index::rows::{
@@ -217,7 +217,7 @@ mod tests {
     // batch, and by a hit read without the tail.
     #[test]
     fn a_long_row_applied_over_two_batches_reads_back_as_one_row() {
-        let log = TranscriptTestLog::new();
+        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
         insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
         let reply = [
             page_text("zebra ", ""),
@@ -302,7 +302,7 @@ mod tests {
     // text they charged, and by leaving the key in the index.
     #[test]
     fn a_row_damaged_after_its_batch_was_handed_over_leaves_nothing_in_the_next() {
-        let log = TranscriptTestLog::new();
+        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
         insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
         log.reply("m1", None, &"alpha ".repeat(PAGE_MAX_BYTES / 5));
         let (damaged, _) = log.reply("m2", None, &"words ".repeat(PAGE_MAX_BYTES));

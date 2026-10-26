@@ -33,7 +33,7 @@ fn plant_row(log: &TranscriptTestLog, sequence: i64, payload: &str, body: &[u8])
 // no body.
 #[test]
 fn a_body_with_no_stated_length_is_refused() {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
     plant_row(&log, 0, "{}", b"a body with no stated length");
     let reader = log.reader();
     let Err(rusqlite::Error::FromSqlConversionFailure(_, _, cause)) =
@@ -54,7 +54,7 @@ fn a_body_with_no_stated_length_is_refused() {
 // sequence. Killed by answering SQLite's bare failure, which names no row.
 #[test]
 fn a_payload_that_is_no_json_is_named_as_damage() {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
     plant_row(&log, 0, "{\"contentLength\": 4}", b"good");
     plant_row(&log, 1, "{not json", b"damaged");
     let reader = log.reader();

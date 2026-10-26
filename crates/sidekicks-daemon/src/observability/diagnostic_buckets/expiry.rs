@@ -25,12 +25,13 @@ use walkdir::WalkDir;
 
 use crate::daemon::configuration::ConfigurationStore;
 use crate::daemon::crash::monitor::{CRASH_DUMPS_FOLDER_NAME, is_partial_dump_name};
+use crate::daemon::data_folder::service_log_folder;
 use crate::daemon::scheduler::ScheduledJobOutcome;
 use crate::daemon::scheduler::budget::{
     BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
 };
 use crate::daemon::service_log::{
-    CRASH_REPORTS_FOLDER_NAME, ServiceLogFiles, is_service_log_file_name, service_log_folder,
+    CRASH_REPORTS_FOLDER_NAME, ServiceLogFiles, is_service_log_file_name,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::missing_entry::{MissingEntry, is_gone};
@@ -367,10 +368,10 @@ mod tests {
     use crate::database::writer::test_file::TestDatabase;
     use crate::events::log_service::tests::open_log;
     use crate::observability::diagnostic_buckets::recorders::diagnostic_bucket_folders;
-    use crate::provider::account_homes::account_home_diagnostic_folders;
     use crate::provider::driver::PROVIDERS;
     use crate::provider::driver::contract::{MockProviderDriver, ProviderDriver};
     use crate::provider::driver::test_registry::registry_of_first_providers;
+    use crate::remote::shared_ports::schema::schema_parts;
 
     // Past the default bound of seven days.
     const OLD: Duration = Duration::from_hours(24 * 8);
@@ -394,14 +395,16 @@ mod tests {
     // the service log, each bucket, the crash dumps and reports, and every folder each provider's
     // descriptor names in its account home, where a session's file of the same age stays; a file in
     // `logs/` that is no log stays too, and so do a partial dump and a write's temporary file, the
-    // crash pass's; and each account home's driver is asked once to expire what its provider keeps
-    // there, with the bound's cutoff. Killed by a per-session folder in a descriptor's list, by a
-    // bucket or crash folder left out of the pass, by a partial dump or a crash folder's temporary
-    // file expired, by the account homes left unread, by the driver never asked or asked about
-    // another home, and by a cutoff off the bound.
+    // crash pass's; each account home's driver is asked once to expire what its provider keeps
+    // there, with the bound's cutoff; and an account whose provider no driver answers keeps its
+    // folders whole. Killed by a per-session folder in a descriptor's list, by a bucket or crash
+    // folder left out of the pass, by a partial dump or a crash folder's temporary file expired, by
+    // the account homes left unread, by a descriptor's folders not read, by folders read for a
+    // provider no driver answers, by the driver never asked or asked about another home, and by a
+    // cutoff off the bound.
     #[tokio::test]
     async fn a_pass_deletes_every_diagnostic_past_the_bound_and_no_session_file() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
         let reads = Arc::new(DatabaseReadPool::new(
             database.path(),
@@ -435,9 +438,11 @@ mod tests {
             .iter()
             .map(|_| tempfile::tempdir().expect("an account home is made"))
             .collect();
+        // The last provider has no driver in the registry.
+        let driven_count = PROVIDERS.len() - 1;
         let started = SystemTime::now();
         let mut drivers: Vec<Arc<dyn ProviderDriver>> = Vec::new();
-        for (descriptor, home) in PROVIDERS.iter().zip(&homes) {
+        for (index, (descriptor, home)) in PROVIDERS.iter().zip(&homes).enumerate() {
             let home = home.path();
             log.writer
                 .write(vec![WriteStatement {
@@ -458,6 +463,22 @@ mod tests {
                 .expect("the account is written");
             kept_old.push(home.join("session.jsonl"));
             kept_old.push(home.join("projects").join("project").join("session.jsonl"));
+            let folders = descriptor
+                .account_home_diagnostic_folders
+                .iter()
+                .map(|components| {
+                    components
+                        .iter()
+                        .fold(home.to_path_buf(), |path, part| path.join(part))
+                });
+            if index == driven_count {
+                kept_old.extend(folders.map(|folder| folder.join("old").join("diagnostic")));
+                continue;
+            }
+            for folder in folders {
+                expired.push(folder.join("old").join("diagnostic"));
+                kept_new.push(folder.join("fresh"));
+            }
             let expected_home = home.to_path_buf();
             let mut driver = MockProviderDriver::new();
             driver
@@ -472,12 +493,6 @@ mod tests {
             drivers.push(Arc::new(driver));
         }
         let drivers = Arc::new(registry_of_first_providers(drivers));
-        for (descriptor, home) in PROVIDERS.iter().zip(&homes) {
-            for folder in account_home_diagnostic_folders(&drivers, descriptor.id, home.path()) {
-                expired.push(folder.join("old").join("diagnostic"));
-                kept_new.push(folder.join("fresh"));
-            }
-        }
         for path in expired.iter().chain(&kept_old) {
             write_aged(path, OLD);
         }
@@ -508,7 +523,7 @@ mod tests {
     // which log is still written. Killed by passing over the failed listing as no live log.
     #[tokio::test]
     async fn a_pass_that_cannot_name_the_live_logs_deletes_nothing() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
         let reads = Arc::new(DatabaseReadPool::new(
             database.path(),

@@ -46,7 +46,7 @@ fn read_part(
 #[test]
 fn an_ended_replies_later_part_reads_only_its_frames() {
     for is_ended in [true, false] {
-        let log = TranscriptTestLog::new();
+        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
         let block_cuts = BlockCuts::default();
         let (sequence, row_id) = log.reply("m1", None, &long_reply());
         if is_ended {

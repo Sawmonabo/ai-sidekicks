@@ -25,6 +25,7 @@ use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::stored_column::text_column;
 use crate::database::writer::{DatabaseWriter, WriteError};
+use crate::events::projection::ProjectionFailure;
 use crate::events::session::append_lock::{SESSION_APPEND_LOCK, SessionAppendHold};
 use crate::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
@@ -38,8 +39,8 @@ use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::keyed_lock::KeyedLock;
 use crate::recovery::projection_rebuild::{
-    ProjectionFailure, ProjectionRebuildError, ProjectionRebuildRequest, ProjectionRebuildService,
-    REBUILD_PAGE_SIZE, mark_stale_statement,
+    ProjectionRebuildError, ProjectionRebuildRequest, ProjectionRebuildService, REBUILD_PAGE_SIZE,
+    mark_stale_statement,
 };
 use crate::recovery::restart_settle::{RestartSettle, RestartSettleError};
 use crate::recovery::status::{LastGoodPoint, RecoveryStatusTracker};

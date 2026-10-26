@@ -276,9 +276,10 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
 
+    use crate::database::schema::schema_parts;
     use crate::events::session::read::SessionEventReads;
+    use crate::events::test_log::{AT, SessionTestLog};
     use crate::transcript::rejoin::{RowReads, RowScope};
-    use crate::transcript::test_log::{AT, TranscriptTestLog};
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // Killed by a piece after its run's turn end or rollback joining the row that event closed, by
@@ -306,7 +307,7 @@ mod tests {
         #[case] mut ending_payload: Value,
         #[case] is_row_ending: bool,
     ) {
-        let log = TranscriptTestLog::new();
+        let log = SessionTestLog::new(schema_parts());
         let other_run = RunId::try_from(mint_uuid_v7()).expect("a run id");
         let (anchor, _) = log.reply("m1", Some(0), "Before ");
         let (joined, _) = log.reply("m1", Some(0), "the end.");

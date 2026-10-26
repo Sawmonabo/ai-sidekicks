@@ -1,20 +1,19 @@
-//! A session's log for the transcript's tests: its runs, and the pieces and rows they write,
-//! each through the daemon's insert so its join and run stamps are the ones a live append makes.
+//! A session's log for the transcript's tests: the store's session test log with its runs stored
+//! beside its events, the run and turn events the transcript reads, and the rows it damages.
 
-use rusqlite::{Connection, ToSql, params};
+use std::ops::Deref;
+
+use rusqlite::{ToSql, params};
 use serde::Serialize;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::attachment::write;
-use zstd::zstd_safe;
 
-use crate::database::writer::test_file::{TestDatabase, insert_test_event, test_session_id};
+use crate::database::schema::SchemaParts;
+pub(crate) use crate::events::test_log::AT;
+use crate::events::test_log::SessionTestLog;
 use crate::transcript::block_cut::{ChildStartsParse, MARKDOWN_PARSE};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-
-/// The instant every test row occurs at unless a test names another.
-pub(crate) const AT: &str = "2026-10-14T09:00:00.000Z";
 
 /// A text [`stalling_parse`] stalls on.
 pub(crate) const STALLING_TEXT: &str = "THE-BLOCK-CUT-STALLS-HERE";
@@ -32,28 +31,25 @@ pub(crate) fn stalling_parse() -> ChildStartsParse {
     })
 }
 
-/// A test database holding one session and its lead run.
+/// A session's log whose lead run is stored in the runs table, in a database holding the session's
+/// tables; it reads as the [`SessionTestLog`] it wraps.
 pub(crate) struct TranscriptTestLog {
-    /// The database.
-    pub(crate) database: TestDatabase,
-    /// The connection rows are written on.
-    pub(crate) writer: Connection,
-    /// The session.
-    pub(crate) session_id: SessionId,
-    /// The session's lead run, running.
-    pub(crate) run_id: RunId,
+    log: SessionTestLog,
+}
+
+impl Deref for TranscriptTestLog {
+    type Target = SessionTestLog;
+
+    fn deref(&self) -> &SessionTestLog {
+        &self.log
+    }
 }
 
 impl TranscriptTestLog {
-    /// A fresh session with its lead run.
-    pub(crate) fn new() -> Self {
-        let database = TestDatabase::new();
-        let writer = database.opener()().expect("the test creates its database");
+    /// A fresh session with its lead run, in a database of `parts`, which hold the runs table.
+    pub(crate) fn new(parts: SchemaParts) -> Self {
         let log = Self {
-            database,
-            writer,
-            session_id: test_session_id(),
-            run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+            log: SessionTestLog::new(parts),
         };
         log.store_run(log.run_id, None, "running");
         log
@@ -95,75 +91,6 @@ impl TranscriptTestLog {
             None,
         );
         run_id
-    }
-
-    /// Writes `event`, its `type` and `payload` as JSON, with `body`, occurring at [`AT`]; returns
-    /// its sequence and event id.
-    pub(crate) fn write(&self, event: Value, body: Option<&str>) -> (i64, String) {
-        insert_test_event(&self.writer, self.session_id, event, body, AT)
-    }
-
-    /// Writes a piece of `event_type` (`agent.message.sent` or `agent.thinking.updated`) of
-    /// `run_id`'s provider message `message_id`, in its block `block` where it names one.
-    pub(crate) fn piece(
-        &self,
-        event_type: &str,
-        run_id: RunId,
-        message_id: &str,
-        block: Option<u64>,
-        body: &str,
-        occurred_at: &str,
-    ) -> (i64, String) {
-        let mut payload = json!({
-            "sessionId": self.session_id,
-            "runId": run_id,
-            "providerMessageId": message_id,
-        });
-        if let Some(index) = block {
-            payload["providerBlock"] = json!({ "index": index, "attempt": 1 });
-        }
-        insert_test_event(
-            &self.writer,
-            self.session_id,
-            json!({ "type": event_type, "payload": payload }),
-            Some(body),
-            occurred_at,
-        )
-    }
-
-    /// Writes a reply piece of the lead run at [`AT`].
-    pub(crate) fn reply(&self, message_id: &str, block: Option<u64>, body: &str) -> (i64, String) {
-        self.piece(
-            "agent.message.sent",
-            self.run_id,
-            message_id,
-            block,
-            body,
-            AT,
-        )
-    }
-
-    /// Writes a completed call of `tool_name` on `run_id`, `tool_call_id` naming it, with `body`.
-    pub(crate) fn tool_completion(
-        &self,
-        run_id: RunId,
-        tool_call_id: &str,
-        omitted_patches: Option<Value>,
-        body: Option<&str>,
-    ) -> (i64, String) {
-        let mut payload = json!({
-            "sessionId": self.session_id,
-            "runId": run_id,
-            "toolName": "edit",
-            "toolCallId": tool_call_id,
-        });
-        if let Some(omitted_patches) = omitted_patches {
-            payload["omittedPatches"] = omitted_patches;
-        }
-        self.write(
-            json!({ "type": "agent.toolCall.completed", "payload": payload }),
-            body,
-        )
     }
 
     /// Writes an intervention on `target_run_id` in `state`, one of its seven event types.
@@ -214,36 +141,6 @@ impl TranscriptTestLog {
             }),
             None,
         )
-    }
-
-    /// A second connection, to read what the writer committed.
-    pub(crate) fn reader(&self) -> Connection {
-        self.database.reader()
-    }
-
-    /// Flips the checksum, its last byte, of the frame at `frame`, counted from 0, of the body
-    /// stored at `sequence`, so decoding that frame fails.
-    pub(crate) fn damage_frame(&self, sequence: i64, frame: usize) {
-        let mut stored: Vec<u8> = self
-            .writer
-            .query_row(
-                "SELECT content_payload FROM session_events WHERE sequence = ?1",
-                [sequence],
-                |row| row.get(0),
-            )
-            .expect("the body reads");
-        let mut frame_end = 0;
-        for _ in 0..=frame {
-            frame_end += zstd_safe::find_frame_compressed_size(&stored[frame_end..])
-                .expect("the stored frames are whole");
-        }
-        stored[frame_end - 1] ^= 0xff;
-        self.writer
-            .execute(
-                "UPDATE session_events SET content_payload = ?1 WHERE sequence = ?2",
-                rusqlite::params![stored, sequence],
-            )
-            .expect("the damaged body is written");
     }
 
     /// Damages the row at `sequence` as `damage` says, its payload still valid JSON.

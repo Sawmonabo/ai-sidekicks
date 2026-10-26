@@ -528,6 +528,7 @@ mod tests {
         CanonicalTranscriptSegment, CanonicalTranscriptTurn, TranscriptExportBound,
         fold_canonical_transcript,
     };
+    use crate::database::schema::provider_drivers::schema_parts;
     use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
     use crate::events::content::codec::BodyEncoder;
     use crate::events::session::insert::{SessionEventRow, insert_session_event, monotonic_ns_now};
@@ -563,7 +564,7 @@ mod tests {
 
     #[test]
     fn a_turn_whose_body_cannot_be_read_keeps_its_place_and_another_run_stays_out() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let writer = database.opener()().expect("the test creates its database");
         let session_id = test_session_id();
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
@@ -664,7 +665,7 @@ mod tests {
     // which would hand a provider a reply cut where the wire cut it or a result once per file.
     #[test]
     fn a_row_stored_in_pieces_folds_as_one_segment_with_its_whole_body() {
-        let log = TranscriptTestLog::new();
+        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
         let (reply, _) = log.reply("m1", Some(0), "Hello, ");
         log.reply("m1", Some(0), "world.");
         let files = json!([

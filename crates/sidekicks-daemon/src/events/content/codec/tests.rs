@@ -12,7 +12,8 @@ use super::{
     BodyDecodeError, BodyEncoder, BodyStreamError, StoredBody, StoredBodyPlace, decode_body,
     decode_body_stretch, decode_failure, stored_body_place_sql, stream_frames,
 };
-use crate::transcript::test_log::TranscriptTestLog;
+use crate::database::schema::schema_parts;
+use crate::events::test_log::SessionTestLog;
 
 // A body of `length` UTF-8 bytes whose characters are one, two and three bytes wide, so a frame
 // cut by bytes alone would split one.
@@ -259,7 +260,7 @@ fn a_part_read_decodes_only_the_frames_it_covers() {
 // damaged frame handed over or answered as a read SQLite refused.
 #[test]
 fn a_long_body_streams_from_its_column_a_frame_at_a_time_until_a_damaged_frame() {
-    let log = TranscriptTestLog::new();
+    let log = SessionTestLog::new(schema_parts());
     let text = mixed_text(2 * PAGE_MAX_BYTES + 300 * 1024);
     let (sequence, _) = log.reply("m1", None, &text);
     let reader = log.reader();

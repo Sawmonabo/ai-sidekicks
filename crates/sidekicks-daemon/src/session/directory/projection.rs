@@ -11,7 +11,7 @@ use sidekicks_contracts::session::id::SessionId;
 
 use crate::database::statement::WriteStatement;
 use crate::error_description::describe_error;
-use crate::recovery::projection_rebuild::{
+use crate::events::projection::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
 use crate::session::directory::row::{

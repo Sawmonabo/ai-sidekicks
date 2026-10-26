@@ -431,7 +431,7 @@ mod tests {
     // dropped.
     #[test]
     fn a_child_run_summary_counts_its_readable_events_and_marks_skipped_ones() {
-        let log = TranscriptTestLog::new();
+        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
         let child = log.child_run(log.run_id, "completed");
         log.piece("agent.message.sent", child, "m1", Some(0), "One ", AT);
         let (skipped, _) = log.piece("agent.message.sent", child, "m1", Some(0), "row.", AT);
@@ -464,7 +464,7 @@ mod tests {
     // cannot be read either.
     #[test]
     fn an_uncounted_child_is_marked_incomplete_and_an_unread_state_fails_the_page() {
-        let log = TranscriptTestLog::new();
+        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
         let child = log.child_run(log.run_id, "completed");
         log.piece("agent.message.sent", child, "m1", Some(0), "One row.", AT);
         let request = serde_json::from_value(json!({ "sessionId": log.session_id }))
@@ -525,7 +525,7 @@ mod tests {
     // that leaves more without saying so, and by a lead run or an unknown run expanded.
     #[test]
     fn a_child_run_expands_to_its_rows_interventions_and_children_in_pages() {
-        let log = TranscriptTestLog::new();
+        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
         let child = log.child_run(log.run_id, "completed");
         log.reply("lead", Some(0), "The lead's own row.");
         for index in 0..TRANSCRIPT_READ_LIMIT_MAX {

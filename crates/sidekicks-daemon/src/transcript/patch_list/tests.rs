@@ -149,7 +149,7 @@ fn pages_of(log: &TranscriptTestLog, tool_call_id: &str, file_index: u64) -> Vec
 // and by a call the session does not hold read as one with no patches.
 #[test]
 fn patch_list_reads_a_file_over_the_cap_across_pages_loading_only_the_parts_each_answers() {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
     let patch = "@@ -1 +1 @@\n-old\n+new\n";
     // Fifteen bytes stored per five characters: an astral one, two short escapes and a six-byte
     // one; several parts past a page.
@@ -306,7 +306,7 @@ fn patch_list_reads_a_file_over_the_cap_across_pages_loading_only_the_parts_each
 // and by its path taken from anywhere but the completion's list.
 #[test]
 fn patch_list_answers_a_file_with_a_skipped_part_as_damaged_in_its_place() {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
     let files = [
         json!({ "path": "/repo/a.rs", "patch": "@@ a", "additions": 0, "deletions": 0 }),
         json!({
@@ -349,7 +349,7 @@ fn patch_list_answers_a_file_with_a_skipped_part_as_damaged_in_its_place() {
 // the same call in the turn would then join the first, and its parts with it.
 #[test]
 fn patch_list_keeps_two_completions_of_one_call_in_one_turn_apart() {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
     let file = |path: &str| json!({ "path": path, "unavailable": "absent" });
     let (first, _) = completion_of(&log, "call-1", &[file("/repo/a.rs")]);
     let (second, _) = completion_of(&log, "call-1", &[file("/repo/b.rs"), file("/repo/c.rs")]);
@@ -387,7 +387,7 @@ fn patch_list_keeps_two_completions_of_one_call_in_one_turn_apart() {
     "a".repeat(TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES)
 ))]
 fn a_completion_naming_no_files_stores_its_body_whole(#[case] body: String) {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
     let (completion, row_id) =
         log.tool_completion(log.run_id, "call-1", Some(json!([])), Some(&body));
 

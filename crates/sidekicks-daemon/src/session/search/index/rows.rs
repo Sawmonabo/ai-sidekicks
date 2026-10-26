@@ -533,8 +533,8 @@ mod tests {
     use sidekicks_search::index::IndexRowKind;
 
     use super::{IndexRowReader, SourceRow, SourceRowRead, damage_of, empty_index_batch_room};
+    use crate::database::schema::session_directory::insert_session_row;
     use crate::events::content::codec::out_of_memory_read_failure;
-    use crate::session::directory::test_rows::insert_session_row;
     use crate::transcript::test_log::TranscriptTestLog;
 
     // Every page of the whole row `read`'s text, in order.
@@ -597,7 +597,7 @@ mod tests {
     // or a body cut short.
     #[test]
     fn the_index_takes_a_compressed_body_as_its_whole_text() {
-        let log = TranscriptTestLog::new();
+        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
         insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
         let reply = format!("{} quokka", "words ".repeat(400));
         log.reply("m1", None, &reply);
@@ -637,7 +637,7 @@ mod tests {
     // reads past.
     #[test]
     fn a_long_body_is_read_as_pages_that_end_between_words() {
-        let log = TranscriptTestLog::new();
+        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
         insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
         let reply = format!(
             "{}quokka",

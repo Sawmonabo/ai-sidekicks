@@ -10,11 +10,12 @@ use sidekicks_contracts::event::envelope::{
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::{MalformedStoredEventFault, SessionEventReads, SessionLogReadError, body_read_error};
+use crate::database::schema::schema_parts;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::content::codec::{
     BodyDecodeError, BodyStreamError, ZSTD_OUT_OF_MEMORY, stream_read_failure,
 };
-use crate::transcript::test_log::TranscriptTestLog;
+use crate::events::test_log::SessionTestLog;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use zstd::zstd_safe;
 
@@ -41,7 +42,7 @@ fn a_malformed_stored_row_is_refused_naming_its_event_and_session(
     #[case] payload: &str,
     #[case] faulty_member: &str,
 ) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let writer = database.opener()().expect("the test creates its database");
     let (session_id, event_id) = (test_session_id(), mint_uuid_v7().to_string());
     writer
@@ -86,7 +87,7 @@ fn a_malformed_stored_row_is_refused_naming_its_event_and_session(
 // an empty one.
 #[test]
 fn a_hydrated_read_joins_each_rows_decoded_bodies() {
-    let log = TranscriptTestLog::new();
+    let log = SessionTestLog::new(schema_parts());
     let opening = "\u{e9}".repeat(1_500);
     let (row, _) = log.reply("m1", Some(0), &opening);
     log.reply("m1", Some(0), " and the rest.");
@@ -143,7 +144,7 @@ fn a_hydrated_read_joins_each_rows_decoded_bodies() {
 #[test]
 fn a_hydrated_page_stays_within_its_text() {
     const MEBIBYTE: usize = 1024 * 1024;
-    let log = TranscriptTestLog::new();
+    let log = SessionTestLog::new(schema_parts());
     let (first, _) = log.reply("m1", None, &"a".repeat(3 * MEBIBYTE));
     let (second, _) = log.reply("m2", None, &"b".repeat(3 * MEBIBYTE));
     let (long, _) = log.reply("m3", None, &"c".repeat(9 * MEBIBYTE));
@@ -193,7 +194,7 @@ fn a_body_that_cannot_be_read_is_a_failed_read_or_a_malformed_row(
     #[case] error: BodyStreamError,
     #[case] is_failed_read: bool,
 ) {
-    let log = TranscriptTestLog::new();
+    let log = SessionTestLog::new(schema_parts());
     log.reply("m1", None, "a reply");
     let reader = log.reader();
     let page = SessionEventReads::new(&reader, |_: &SessionId| None)

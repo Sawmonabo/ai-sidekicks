@@ -15,13 +15,13 @@ use sidekicks_contracts::question::QuestionSettledState;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::database::statement::{StatementBindings, WriteStatement};
+use crate::events::projection::{
+    ProjectionContradiction, SessionProjection, SessionProjectionFold,
+};
 use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::questions::store::{
     insert_question_statement, open_waiting_question_statement, queued_answer_statements,
     settle_question_statement,
-};
-use crate::recovery::projection_rebuild::{
-    ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
 
 const CLEAR_ANSWER_ITEMS_SQL: &str = "DELETE FROM question_answer_items

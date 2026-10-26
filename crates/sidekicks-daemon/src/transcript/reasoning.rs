@@ -254,7 +254,7 @@ mod tests {
     // by its first piece, and by a row's entries named by another row.
     #[test]
     fn reasoning_entries_group_a_rows_consecutive_pieces_up_to_one_entry() {
-        let log = TranscriptTestLog::new();
+        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
         let piece = "a".repeat(6_000);
         let (_, row_id) = log.piece(THINKING, log.run_id, "m1", Some(0), &piece, AT);
         let (second, _) = log.piece(THINKING, log.run_id, "m1", Some(0), &piece, AT);
@@ -294,7 +294,7 @@ mod tests {
     // continuation at the end answering `unavailable`.
     #[test]
     fn reasoning_is_unavailable_only_on_a_first_read_of_a_run_with_none() {
-        let log = TranscriptTestLog::new();
+        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
         let (head, _) = log.reply("m1", Some(0), "No reasoning here.");
 
         assert_eq!(read(&log, log.run_id, None)["availability"], "unavailable");
