@@ -108,7 +108,7 @@ pub fn blocking_terminal_master(_pty: &Pty) -> io::Result<File> {
 }
 
 /// Reads no master. Always fails with `Unsupported`.
-pub fn has_unread_output(_pty: &Pty) -> io::Result<bool> {
+pub fn wait_for_unread_output(_master: &File, _wait: Duration) -> io::Result<bool> {
     Err(unwrapped())
 }
 

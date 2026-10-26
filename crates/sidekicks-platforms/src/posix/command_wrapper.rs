@@ -8,6 +8,7 @@ use std::io::{self, ErrorKind, Read as _, Write as _};
 use std::os::fd::AsRawFd as _;
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::process::{Command, ExitCode, ExitStatus};
+use std::time::Duration;
 
 use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::tty::Pty;
@@ -241,21 +242,27 @@ pub fn blocking_terminal_master(pty: &Pty) -> io::Result<File> {
     Ok(File::from(master))
 }
 
-/// Whether the master of `pty` holds output its terminal's program wrote that no read has taken
-/// yet, asked with no wait; a terminal whose program side all closed reads as holding some, since
-/// a read of it then answers at once. Fails with the system's error.
-pub fn has_unread_output(pty: &Pty) -> io::Result<bool> {
+/// Whether `master`, a terminal's master, holds output its program wrote that no read has taken
+/// yet, or gets some within `wait`; a terminal whose program side all closed reads as holding
+/// some, since a read of it then answers at once. Fails with the system's error.
+pub fn wait_for_unread_output(master: &File, wait: Duration) -> io::Result<bool> {
     let mut watched = libc::pollfd {
-        fd: pty.file().as_raw_fd(),
+        fd: master.as_raw_fd(),
         events: libc::POLLIN,
         revents: 0,
     };
-    // SAFETY: `watched` is one live, writable `pollfd` on the master `pty` keeps open.
-    let ready = unsafe { libc::poll(&raw mut watched, 1, 0) };
-    if ready < 0 {
-        return Err(io::Error::last_os_error());
+    let timeout = libc::c_int::try_from(wait.as_millis()).unwrap_or(libc::c_int::MAX);
+    loop {
+        // SAFETY: `watched` is one live, writable `pollfd` on the master `master` keeps open.
+        let ready = unsafe { libc::poll(&raw mut watched, 1, timeout) };
+        if ready >= 0 {
+            return Ok(ready > 0);
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != ErrorKind::Interrupted {
+            return Err(error);
+        }
     }
-    Ok(ready > 0)
 }
 
 /// Waits for the command `pty` started to exit and answers its status; the PTY's own drop then

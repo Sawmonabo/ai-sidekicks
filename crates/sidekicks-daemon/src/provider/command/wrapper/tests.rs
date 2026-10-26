@@ -422,9 +422,9 @@ async fn a_command_that_stopped_itself_still_takes_the_daemon_s_stop() {
     }
 }
 
-// Fails when a terminal command's last output is cut off because the wrapper stops waiting while
-// the copier still writes to a slow provider terminal or the master still holds bytes. Mutation:
-// in `wait_for_last_output`, stop at the first quiet look whatever `is_output_copied` answers.
+// Fails when a terminal command's last output is cut off because the copier ends at the command's
+// exit while it still writes to a slow provider terminal and the master still holds bytes.
+// Mutation: in `copy_output`, end once the command exited without waiting for the master's quiet.
 #[test]
 fn a_terminal_command_s_last_output_all_reaches_a_slow_provider_terminal() {
     const OUTPUT_BYTES: usize = 1024 * 1024;

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, Read as _, Write as _};
 use std::process::ExitCode;
-use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex, Once, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -14,9 +14,9 @@ use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::tty::Pty;
 use sidekicks_platforms::{
     InnerTerminal, RawStandardInput, blocking_terminal_master, end_terminal_session,
-    has_unread_output, pass_on_stop_signals, read_standard_input_window_size, read_terminal_master,
+    pass_on_stop_signals, read_standard_input_window_size, read_terminal_master,
     signal_foreground_group, start_inner_terminal, terminal_options, wait_for_exit,
-    wait_for_terminal_command,
+    wait_for_terminal_command, wait_for_unread_output,
 };
 
 use super::{
@@ -41,22 +41,21 @@ const FALLBACK_WINDOW: WindowSize = WindowSize {
 /// than the last line of a terminal's screen holds, which is where a prompt sits.
 const OUTPUT_TAIL_BYTES: usize = 1024;
 
-/// How often the wrapper looks, once the terminal's command exited, whether the master still holds
-/// output and the copier still copies: 10 ms, a wait short enough that no one sees it.
+/// How long the output copier waits for more output, once the terminal's command exited, before it
+/// takes the output as ended: 10 ms, a wait short enough that no one sees it.
 const OUTPUT_QUIET: Duration = Duration::from_millis(10);
 
 /// The longest the wrapper drains a terminal whose output keeps coming after its command exited, as
 /// a background process holding the terminal open can make it: 2 s.
 const OUTPUT_DRAIN_CAP: Duration = Duration::from_secs(2);
 
-/// What the terminal's output thread shares with the reporter and the drain: the output's last
-/// bytes and when the last came, with the signal each new piece raises, and whether the copier
-/// waits in its read of the master and how many of its reads have returned.
+/// What the terminal's output thread shares with the reporter and the wrapper: the output's last
+/// bytes and when the last came, with the signal each new piece raises, and whether the command
+/// exited, after which the copier ends at the first quiet `OUTPUT_QUIET`.
 struct OutputTail {
     bytes: Vec<u8>,
     last_output: Instant,
-    is_reading: bool,
-    reads_returned: u64,
+    has_command_exited: bool,
 }
 
 /// The output's tail and the signal its thread raises on each piece.
@@ -116,8 +115,7 @@ pub(super) fn run_in_terminal(
         Mutex::new(OutputTail {
             bytes: Vec::new(),
             last_output: Instant::now(),
-            is_reading: false,
-            reads_returned: 0,
+            has_command_exited: false,
         }),
         Condvar::new(),
     ));
@@ -159,11 +157,21 @@ pub(super) fn run_in_terminal(
     }
     // The command stays unreaped until its state reads reaped, so no stop reaches a reused id.
     let exited = wait_for_exit(pty.child().id(), None);
+    tail.0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .has_command_exited = true;
     let mut state = lock_state(state);
     *state = CommandState::Reaped;
     let status = exited.and_then(|_| wait_for_terminal_command(&pty));
     // The output a command printed just before it exited is still on its way to the provider.
-    wait_for_last_output(&pty, &output_ended, &tail, records);
+    match output_ended.recv_timeout(OUTPUT_DRAIN_CAP) {
+        Ok(Err(error)) => note(
+            records,
+            &format!("could not tell whether its command's output is all copied: {error}"),
+        ),
+        Ok(Ok(())) | Err(_) => {}
+    }
     if let Some(raw_input) = raw_input
         && let Err(error) = raw_input.leave()
     {
@@ -183,58 +191,6 @@ pub(super) fn run_in_terminal(
             ExitCode::FAILURE
         }
     }
-}
-
-/// Waits for the output copier to end, which it does once every descriptor on the terminal's
-/// program side closed; stops once, at an `OUTPUT_QUIET` look, the master holds no unread output
-/// while the copier waits in its read with every byte it read written, as a background process
-/// holding the terminal open keeps the copier from ending, and at `OUTPUT_DRAIN_CAP` past the
-/// command's exit whatever comes.
-fn wait_for_last_output(
-    pty: &Pty,
-    output_ended: &mpsc::Receiver<()>,
-    tail: &SharedTail,
-    records: &SharedRecords,
-) {
-    let cap = Instant::now() + OUTPUT_DRAIN_CAP;
-    loop {
-        let left = cap.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            return;
-        }
-        match output_ended.recv_timeout(OUTPUT_QUIET.min(left)) {
-            Ok(()) | Err(RecvTimeoutError::Disconnected) => return,
-            Err(RecvTimeoutError::Timeout) => match is_output_copied(pty, tail) {
-                Ok(true) => return,
-                Ok(false) => {}
-                Err(error) => {
-                    note(
-                        records,
-                        &format!(
-                            "could not tell whether its command's output is all copied: {error}"
-                        ),
-                    );
-                    return;
-                }
-            },
-        }
-    }
-}
-
-/// Whether the copier waits in its read with nothing left on the master: no read of it returned
-/// between the two looks at the copier, so nothing the master held was taken meanwhile.
-fn is_output_copied(pty: &Pty, tail: &SharedTail) -> io::Result<bool> {
-    let reads_returned = |tail: &SharedTail| {
-        let kept = tail.0.lock().unwrap_or_else(PoisonError::into_inner);
-        kept.is_reading.then_some(kept.reads_returned)
-    };
-    let Some(before) = reads_returned(tail) else {
-        return Ok(false);
-    };
-    if has_unread_output(pty)? {
-        return Ok(false);
-    }
-    Ok(reads_returned(tail) == Some(before))
 }
 
 /// Copies what is typed into the provider's terminal into the command's, on a thread of its own.
@@ -273,8 +229,11 @@ fn copy_input(master: &std::fs::File) {
 }
 
 /// Copies the command's output into the provider's terminal on a thread of its own, keeping its last
-/// bytes in `tail`; the receiver hears once the output has ended.
-fn copy_output(mut master: std::fs::File, tail: SharedTail) -> mpsc::Receiver<()> {
+/// bytes in `tail`, until every descriptor on the terminal's program side closed or, once the
+/// command exited, no output comes for `OUTPUT_QUIET`, as a background process holding the
+/// terminal open keeps it from closing; the receiver hears once the output has ended, with the
+/// error that kept the copier from telling whether more was coming.
+fn copy_output(mut master: std::fs::File, tail: SharedTail) -> mpsc::Receiver<io::Result<()>> {
     let (ended, output_ended) = mpsc::channel();
     let copied = thread::Builder::new()
         .name("command output".to_owned())
@@ -282,18 +241,26 @@ fn copy_output(mut master: std::fs::File, tail: SharedTail) -> mpsc::Receiver<()
             let mut output = io::stdout().lock();
             let mut buffer = [0_u8; 4096];
             let (kept, piece_came) = &*tail;
+            let mut copied = Ok(());
             loop {
-                kept.lock()
+                let has_command_exited = kept
+                    .lock()
                     .unwrap_or_else(PoisonError::into_inner)
-                    .is_reading = true;
-                let read = master.read(&mut buffer);
-                {
-                    let mut kept = kept.lock().unwrap_or_else(PoisonError::into_inner);
-                    kept.is_reading = false;
-                    kept.reads_returned += 1;
+                    .has_command_exited;
+                if has_command_exited {
+                    match wait_for_unread_output(&master, OUTPUT_QUIET) {
+                        Ok(true) => {}
+                        Ok(false) => break,
+                        Err(error) => {
+                            copied = Err(error);
+                            break;
+                        }
+                    }
                 }
                 // The master answers an error once the command's side has closed.
-                let Ok(count) = read else { break };
+                let Ok(count) = master.read(&mut buffer) else {
+                    break;
+                };
                 if count == 0 {
                     break;
                 }
@@ -313,7 +280,7 @@ fn copy_output(mut master: std::fs::File, tail: SharedTail) -> mpsc::Receiver<()
                 piece_came.notify_one();
             }
             // The receiver is gone once the wrapper stopped waiting, which leaves no one to tell.
-            ended.send(()).unwrap_or_default();
+            ended.send(copied).unwrap_or_default();
         });
     if let Err(error) = copied {
         write_error_line(&format!(
