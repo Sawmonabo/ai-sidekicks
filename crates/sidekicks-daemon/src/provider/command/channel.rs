@@ -246,7 +246,8 @@ struct AdmittedParty {
 
 impl AdmittedParty {
     /// Opens the record `party` sealed under `sequence` to `daemon`; `None`, the record dropped,
-    /// when it does not open under this party's context, its number is not past the last one
+    /// when it does not open under this party's context, opens but does not parse, which is
+    /// logged, its number is not past the last one
     /// opened, or the party is nested and the record is neither `starting` nor `asking`. A number
     /// past the next one skips those between.
     fn open_record(
@@ -261,7 +262,17 @@ impl AdmittedParty {
         }
         let context = record_context(Direction::ToDaemon, party, sequence);
         let plaintext = open(daemon, &self.public_key, &context, sealed)?;
-        let record = serde_json::from_slice(&plaintext).ok()?;
+        let record = match serde_json::from_slice(&plaintext) {
+            Ok(record) => record,
+            Err(error) => {
+                tracing::warn!(
+                    record = record_name(party, sequence),
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a command channel's record opened but did not parse"
+                );
+                return None;
+            }
+        };
         self.last_sequence = sequence;
         if self.is_nested
             && !matches!(
