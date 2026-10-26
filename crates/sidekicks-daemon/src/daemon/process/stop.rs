@@ -4,7 +4,7 @@
 
 use std::io;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::daemon::process::DaemonProcess;
 use crate::daemon::process::database::DatabaseFileCloseFailure;
@@ -49,6 +49,7 @@ pub(crate) async fn stop_work(
     intent: DaemonStopIntent,
     bound: Duration,
 ) -> Vec<DaemonStopFailure> {
+    process.stop_started.get_or_insert_with(Instant::now);
     tracing::info!(
         ?intent,
         drain_bound_ms = bound.as_millis(),
@@ -61,7 +62,9 @@ pub(crate) async fn stop_work(
     }
     // After the drain, so every child it ended is still retired.
     drop(process.orphan_guard.take());
-    Vec::new()
+    let failures = Vec::new();
+    process.has_stop_failed |= !failures.is_empty();
+    failures
 }
 
 /// Closes everything that holds a file in the data folder: ends the crash monitor, waiting for its
