@@ -4,11 +4,11 @@ use std::io;
 
 use crate::footprint::ProcessFootprint;
 
-/// This process's footprint, which only macOS reports. Always fails with `Unsupported`.
+/// This process's footprint, which Windows does not report. Always fails with `Unsupported`.
 pub fn process_footprint() -> io::Result<ProcessFootprint> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
-        "only macOS reports a process's footprint",
+        "Windows reports no process footprint",
     ))
 }
 

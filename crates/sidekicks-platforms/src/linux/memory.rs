@@ -1,5 +1,6 @@
 //! A process's peak memory and the machine's available memory as Linux reports them, its control
-//! group's limits counted, and the switch that keeps transparent huge pages off the daemon.
+//! group's limits counted, the switch that keeps transparent huge pages off the daemon, and the
+//! measurement tests' footprint read.
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -8,6 +9,8 @@ use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(any(test, feature = "test-support"))]
+use crate::footprint::ProcessFootprint;
 use crate::linux::read_process_file;
 use crate::posix::memory::page_bytes;
 
@@ -55,6 +58,29 @@ pub fn read_process_peak_bytes(process_id: u32) -> io::Result<Option<u64>> {
         .checked_mul(KIBIBYTE)
         .map(Some)
         .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "the peak passes the largest size"))
+}
+
+/// This process's footprint as Linux reports it, from one read of `/proc/self/status`: its
+/// resident set now (`VmRSS`) and at its peak (`VmHWM`). Fails with `InvalidData` naming the line
+/// when either is missing, unparsable or past the largest size, and with the read's error
+/// otherwise.
+#[cfg(any(test, feature = "test-support"))]
+pub fn process_footprint() -> io::Result<ProcessFootprint> {
+    let status = std::fs::read("/proc/self/status")?;
+    let bytes_on = |name: &str| {
+        status
+            .split(|byte| *byte == b'\n')
+            .find_map(|line| kibibytes_after(line, name.as_bytes()))
+            .and_then(|kibibytes| kibibytes.checked_mul(KIBIBYTE))
+            .ok_or_else(|| {
+                io::Error::new(ErrorKind::InvalidData, format!("no readable `{name}` line"))
+            })
+    };
+    Ok(ProcessFootprint {
+        current_bytes: bytes_on("VmRSS:")?,
+        peak_bytes: bytes_on("VmHWM:")?,
+        tool_line: "no footprint tool on Linux".to_string(),
+    })
 }
 
 /// The memory the machine can give this process, in bytes: when its control group sets a limit no

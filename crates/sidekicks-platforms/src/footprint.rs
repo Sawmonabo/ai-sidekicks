@@ -1,7 +1,7 @@
-//! The process's memory footprint the measurement tests read, as macOS accounts it.
+//! The process's memory footprint the measurement tests read, as macOS and Linux account it.
 
-/// The process's footprint as macOS accounts it: the memory the system charges the process now and
-/// at its peak, with the line the `footprint` tool prints for it.
+/// The process's footprint: the memory the system charges the process now and at its peak (macOS's
+/// physical footprint, Linux's resident set), with the line the `footprint` tool prints for it.
 #[derive(Debug)]
 pub struct ProcessFootprint {
     /// The bytes charged now.
