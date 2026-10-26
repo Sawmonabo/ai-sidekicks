@@ -5,8 +5,8 @@
 //! to the transport's size bound.
 //!
 //! - A server that wants a `DPoP` proof bound to its own nonce sends the nonce with any response;
-//!   the last one is handed to the authorizer with each request, and a 401 asking for it
-//!   (`error="use_dpop_nonce"`) is sent again once with the new nonce.
+//!   the last one is handed to the authorizer with each request, and a 401 whose `DPoP` challenge
+//!   asks for it (`error="use_dpop_nonce"`, quoted or bare) is sent again once with the new nonce.
 //! - rmcp ends a stream past the bound only on its own bound's error, which it keeps private, and
 //!   reconnects on any other; so a stream cut past the bound after an event id is marked, and
 //!   rmcp's resume of it is refused here rather than fetching the same event again, within a
@@ -317,7 +317,17 @@ fn asks_for_dpop_nonce(response: &reqwest::Response) -> bool {
             .get_all(WWW_AUTHENTICATE)
             .iter()
             .filter_map(|challenge| challenge.to_str().ok())
-            .any(|challenge| challenge.contains("error=\"use_dpop_nonce\""))
+            .any(is_dpop_nonce_challenge)
+}
+
+/// Whether `challenge` is a `DPoP` challenge whose `error` is `use_dpop_nonce`, the scheme and the
+/// parameter's name matched without case.
+fn is_dpop_nonce_challenge(challenge: &str) -> bool {
+    challenge
+        .split_ascii_whitespace()
+        .next()
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("DPoP"))
+        && read_auth_param(challenge, "error").as_deref() == Some("use_dpop_nonce")
 }
 
 /// The challenge of a 401 or 403 the server sent with one, as rmcp's own client reads it: a 401
@@ -338,17 +348,60 @@ fn auth_challenge(response: &reqwest::Response) -> Option<StreamableHttpError<Mc
     })
 }
 
-/// The `scope` a challenge names, quoted or bare, as rmcp's own client reads it.
+/// The `scope` a challenge names, quoted or bare.
 fn required_scope(challenge: &str) -> Option<String> {
-    let start = challenge.to_ascii_lowercase().find("scope=")? + "scope=".len();
-    let value = &challenge[start..];
+    read_auth_param(challenge, "scope")
+}
+
+/// The value of the parameter `name` in `challenge`, as RFC 9110 §11.2 writes one: its name
+/// matched without case, its value a token or a quoted string with its escapes undone. `None` when
+/// the challenge has no such parameter.
+fn read_auth_param(challenge: &str, name: &str) -> Option<String> {
+    let mut rest = challenge;
+    while !rest.is_empty() {
+        let name_end = rest
+            .find(|character: char| matches!(character, '=' | ',' | ' ' | '\t'))
+            .unwrap_or(rest.len());
+        let candidate = &rest[..name_end];
+        let after_name = rest[name_end..].trim_start_matches([' ', '\t']);
+        rest = match after_name.strip_prefix('=') {
+            Some(value) => {
+                let (read, after_value) = read_param_value(value.trim_start_matches([' ', '\t']));
+                if candidate.eq_ignore_ascii_case(name) {
+                    return read;
+                }
+                after_value
+            }
+            // The scheme, or a token68 credential, has no `=` after its name.
+            None => &rest[name_end..],
+        };
+        rest = rest.trim_start_matches([',', ' ', '\t']);
+    }
+    None
+}
+
+/// One parameter's value at the start of `value`, a quoted string or a token, and what follows
+/// it; `None` for an empty token or an unclosed quoted string.
+fn read_param_value(value: &str) -> (Option<String>, &str) {
     if let Some(quoted) = value.strip_prefix('"') {
-        return quoted.find('"').map(|end| quoted[..end].to_owned());
+        let mut text = String::new();
+        let mut characters = quoted.char_indices();
+        while let Some((offset, character)) = characters.next() {
+            match character {
+                '"' => return (Some(text), &quoted[offset + 1..]),
+                '\\' => match characters.next() {
+                    Some((_, escaped)) => text.push(escaped),
+                    None => break,
+                },
+                _ => text.push(character),
+            }
+        }
+        return (None, "");
     }
     let end = value
-        .find(|character: char| character == ',' || character == ';' || character.is_whitespace())
+        .find(|character: char| matches!(character, ',' | ' ' | '\t'))
         .unwrap_or(value.len());
-    (end > 0).then(|| value[..end].to_owned())
+    ((end > 0).then(|| value[..end].to_owned()), &value[end..])
 }
 
 impl StreamableHttpClient for McpHttpClient {

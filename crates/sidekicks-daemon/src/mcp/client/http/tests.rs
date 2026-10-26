@@ -1,5 +1,6 @@
-//! The HTTP side: a server entry's reserved header, and against axum fakes on a loopback port an
-//! event past the size bound and a server that asks for a `DPoP` proof bound to its nonce.
+//! The HTTP side: a server entry's reserved header, a `DPoP` challenge's parameters, and against
+//! axum fakes on a loopback port an event past the size bound before and after an event id, a
+//! server that asks for a `DPoP` proof bound to its nonce, and one that asks for a wider scope.
 
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -16,6 +17,8 @@ use bytes::Bytes;
 use futures::future::BoxFuture;
 use reqwest::Method;
 use reqwest::header::{AUTHORIZATION, HeaderName, HeaderValue};
+use rmcp::service::ClientInitializeError;
+use rmcp::transport::streamable_http_client::InsufficientScopeError;
 use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::sync::Notify;
@@ -24,6 +27,7 @@ use tokio::time::timeout;
 use crate::mcp::client::connection::{McpConnectionError, McpServerConnection};
 use crate::mcp::client::http::{
     AuthorizationResult, DEFAULT_MAX_SSE_EVENT_SIZE, McpRequestAuthorizer, NoAuthorization,
+    is_dpop_nonce_challenge,
 };
 use crate::mcp::client::requests::RequestWait;
 use crate::mcp::client::test_server::{test_client, test_scope};
@@ -301,6 +305,83 @@ async fn a_server_asking_for_a_dpop_nonce_gets_the_request_again_bound_to_it() {
             .all(|nonce| nonce.as_deref() == Some("n1"))
     );
     connection.close().await;
+}
+
+/// A server at an address that refuses every request with a 403 asking for the `tracker:write`
+/// scope.
+async fn serve_insufficient_scope() -> String {
+    let router = Router::new().route(
+        "/mcp",
+        post(|| async {
+            Response::builder()
+                .status(StatusCode::FORBIDDEN)
+                .header(
+                    header::WWW_AUTHENTICATE,
+                    "Bearer error=\"insufficient_scope\", scope=\"tracker:write\"",
+                )
+                .body(Body::empty())
+                .expect("a refusal")
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("a local port");
+    let address = listener.local_addr().expect("the port's address");
+    tokio::spawn(async move { axum::serve(listener, router).await });
+    format!("http://{address}/mcp")
+}
+
+// Mutations: in `auth_challenge`, leave out the 403 arm, or read no scope in `required_scope`.
+#[tokio::test]
+async fn a_server_refusing_with_a_403_asks_for_the_scope_its_challenge_names() {
+    let (client, _card) = test_client();
+    let uri = serve_insufficient_scope().await;
+
+    let opened = McpServerConnection::connect_http(
+        &uri,
+        HashMap::new(),
+        Arc::new(NoAuthorization),
+        None,
+        test_scope(&client),
+    )
+    .await;
+
+    let Err(McpConnectionError::Initialize(error)) = opened else {
+        panic!("the start fails");
+    };
+    let ClientInitializeError::TransportError { error, .. } = *error else {
+        panic!("the transport fails the start, not {error}");
+    };
+    let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(&*error.error);
+    let insufficient = loop {
+        let current = cause.expect("the chain carries the insufficient scope");
+        if let Some(insufficient) = current.downcast_ref::<InsufficientScopeError>() {
+            break insufficient;
+        }
+        cause = current.source();
+    };
+    assert_eq!(
+        insufficient.required_scope.as_deref(),
+        Some("tracker:write")
+    );
+}
+
+// Mutation: in `is_dpop_nonce_challenge`, match the parameter's name with case, read only a
+// quoted value, or take any scheme.
+#[rstest]
+#[case::a_bare_token("DPoP error=use_dpop_nonce", true)]
+#[case::a_name_in_capitals("DPoP ERROR=\"use_dpop_nonce\"", true)]
+#[case::a_quoted_value_beside_a_description(
+    "dpop error_description=\"say error=x\", error = \"use_dpop_nonce\"",
+    true
+)]
+#[case::another_scheme("Bearer error=\"use_dpop_nonce\"", false)]
+#[case::another_error("DPoP error=\"invalid_dpop_proof\"", false)]
+fn a_dpop_challenge_asks_for_the_nonce_by_its_error_parameter(
+    #[case] challenge: &str,
+    #[case] expected: bool,
+) {
+    assert_eq!(is_dpop_nonce_challenge(challenge), expected);
 }
 
 // Mutation: in `connect_http`, leave out the reserved-header check, or compare names with case.
