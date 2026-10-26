@@ -1,6 +1,7 @@
 //! A questions card for tests: it takes one open question per run at a time, as a run waiting on
 //! one does, keeps the rest waiting for their run until it reads running again, and can hold back
-//! its record writes, its takes' outcomes and its withdrawals, or lose its record writes' answers.
+//! its record writes, its takes' outcomes and its withdrawals, or fail the run's read that opens a
+//! question waiting for its run.
 
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -40,8 +41,8 @@ pub(crate) struct QuestionCard {
     /// card, counted in `held_records`.
     record_gate: Mutex<Option<Arc<Semaphore>>>,
     held_records: Mutex<usize>,
-    /// Set by [`Self::lose_record_answers`].
-    is_record_answer_lost: AtomicBool,
+    /// Set by [`Self::fail_run_reads`].
+    is_run_read_failing: AtomicBool,
     /// The request id of every withdrawal taken, in order.
     withdrawals: Mutex<Vec<String>>,
 }
@@ -87,6 +88,7 @@ impl QuestionCard {
     ) -> Result<QuestionAskedState, Box<dyn Error + Send + Sync>> {
         let taking = {
             let mut open = self.open.lock().expect("never poisoned");
+            let may_open = may_open && !self.is_run_read_failing.load(Ordering::SeqCst);
             if may_open && !Self::is_waiting_on_question(&open, question.run_id) {
                 self.open_question(&mut open, question, answer);
                 QuestionAskedState::Open
@@ -181,9 +183,10 @@ impl QuestionCard {
         }
     }
 
-    /// Makes each later record write land on the card, then fail, as a write whose answer is lost.
-    pub(crate) fn lose_record_answers(&self) {
-        self.is_record_answer_lost.store(true, Ordering::SeqCst);
+    /// Records each later question waiting for its run, as one asked while its run waits on
+    /// something else, and fails the run's read that would open it.
+    pub(crate) fn fail_run_reads(&self) {
+        self.is_run_read_failing.store(true, Ordering::SeqCst);
     }
 
     /// Waits until `count` record writes wait at the gate of [`Self::hold_records`]; fails the
@@ -280,11 +283,7 @@ impl QuestionPort for QuestionCard {
                 let landed = gate.acquire().await;
                 assert!(landed.is_err(), "the gate only ever closes");
             }
-            let recorded = self.record(question, answer, may_open).await;
-            if self.is_record_answer_lost.load(Ordering::SeqCst) {
-                return Err("the record's answer was lost".into());
-            }
-            recorded
+            self.record(question, answer, may_open).await
         }
         .boxed()
     }
@@ -294,6 +293,9 @@ impl QuestionPort for QuestionCard {
         _session_id: SessionId,
         request_id: String,
     ) -> BoxFuture<'_, Result<WaitingQuestionOpening, Box<dyn Error + Send + Sync>>> {
+        if self.is_run_read_failing.load(Ordering::SeqCst) {
+            return async { Err("the run's read failed".into()) }.boxed();
+        }
         let opening = {
             let mut open = self.open.lock().expect("never poisoned");
             let mut waiting = self.waiting.lock().expect("never poisoned");

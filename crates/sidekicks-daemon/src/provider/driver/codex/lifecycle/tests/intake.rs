@@ -728,14 +728,15 @@ async fn a_question_its_turn_let_go_before_its_record_landed_is_withdrawn_once_i
     card.wait_until_none_open().await;
 }
 
-// Real time under a timeout, as above. A question whose take fails after its record landed is
-// withdrawn by its request id, so no record is left with no take to open it. Killed by leaving out
-// the withdrawal on a failed take.
+// Real time under a timeout, as above. A question recorded waiting for its run whose take fails is
+// withdrawn from the card by its request id, and Codex's request is answered with no answers, its
+// refusal, so the agent never waits on a request no card holds. Killed by leaving out the take's
+// withdrawal or the driver's refusal.
 #[tokio::test]
-async fn a_question_whose_take_failed_is_withdrawn() {
-    let session = LiveCodexSession::start(&[]).await;
+async fn a_question_whose_take_failed_is_withdrawn_and_refused() {
+    let mut session = LiveCodexSession::start(&[]).await;
     let card = Arc::new(QuestionCard::default());
-    card.lose_record_answers();
+    card.fail_run_reads();
     let port: Arc<dyn QuestionPort> = card.clone();
     assert!(session.questions.register(port).is_ok());
     session.scripted.script.send(&json!({
@@ -749,9 +750,18 @@ async fn a_question_whose_take_failed_is_withdrawn() {
             "questions": [{"id": "name", "header": "Name", "question": "Which name?"}],
         },
     }));
-    card.wait_until_withdrawals(1).await;
+    let answer = loop {
+        let sent =
+            tokio::time::timeout(Duration::from_secs(10), session.scripted.script.next_sent())
+                .await
+                .expect("the session answers the question");
+        if sent["id"] == "question-1" {
+            break sent;
+        }
+    };
 
     assert_eq!(card.withdrawals(), [r#""question-1""#]);
-    assert_eq!(card.taken().len(), 1, "the record landed");
-    card.wait_until_none_open().await;
+    assert!(card.taken().is_empty(), "it never opened");
+    card.wait_until_none_waiting().await;
+    assert_eq!(answer["result"], json!({"answers": {}}));
 }

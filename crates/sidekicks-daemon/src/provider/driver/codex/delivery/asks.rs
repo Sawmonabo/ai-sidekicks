@@ -55,6 +55,7 @@ use crate::provider::driver::codex::transport::diagnostics::{
 use crate::provider::driver::contract::{
     DriverError, ProviderRequestAnswer, RespondToRequestParams,
 };
+use crate::provider::driver::question_answers::QUESTION_UNSHOWN_REASON;
 use crate::provider::inbound_json::decode_inbound_json;
 use crate::provider::port::permission_ask::{
     PermissionAskPort, ProviderAskAction, ProviderAskRule, ProviderPermissionAnswer,
@@ -62,7 +63,7 @@ use crate::provider::port::permission_ask::{
 };
 use crate::provider::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort,
-    take_question_in_turn,
+    QuestionTurnError, take_question_in_turn,
 };
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::project_rule_folders::write_into_project_folders;
@@ -134,6 +135,21 @@ struct CodexAskState {
     pending_questions: HashMap<SessionId, HashMap<String, PendingQuestion>>,
 }
 
+impl CodexAskState {
+    // Forgets a question Codex let go of, answered or withdrawn, its take told so.
+    fn forget_question(&mut self, session_id: SessionId, request_id: &str) {
+        let Some(pending) = self.pending_questions.get_mut(&session_id) else {
+            return;
+        };
+        if let Some(question) = pending.remove(request_id) {
+            question.let_go.cancel();
+        }
+        if pending.is_empty() {
+            self.pending_questions.remove(&session_id);
+        }
+    }
+}
+
 /// A question held for its card, and Codex's letting go of it, which ends its take.
 struct PendingQuestion {
     /// The turn a user-input question is pending on, where Codex keeps one, so a later one there
@@ -148,7 +164,7 @@ struct PendingQuestion {
 /// answers back.
 pub(crate) struct CodexAskHandOff {
     dependencies: CodexAskHandOffDependencies,
-    state: Mutex<CodexAskState>,
+    state: Arc<Mutex<CodexAskState>>,
 }
 
 impl CodexAskHandOff {
@@ -156,7 +172,7 @@ impl CodexAskHandOff {
     pub(crate) fn new(dependencies: CodexAskHandOffDependencies) -> Self {
         Self {
             dependencies,
-            state: Mutex::new(CodexAskState::default()),
+            state: Arc::new(Mutex::new(CodexAskState::default())),
         }
     }
 
@@ -236,7 +252,7 @@ impl CodexAskHandOff {
         let connection = service.connection()?;
         let answer = match params.response {
             ProviderRequestAnswer::Question { answers } => {
-                self.forget_question(session_id, &params.request_id);
+                lock(&self.state).forget_question(session_id, &params.request_id);
                 connection
                     .answer_held_request(
                         &params.request_id,
@@ -304,7 +320,7 @@ impl CodexAskHandOff {
                 self.withdraw_approval_card(session_id, provider_account_id, request_id.to_owned());
             }
             CodexAskKind::Question => {
-                self.forget_question(session_id, request_id);
+                lock(&self.state).forget_question(session_id, request_id);
                 self.withdraw_question_card(session_id, provider_account_id, request_id.to_owned());
             }
             CodexAskKind::CallbackTool => {}
@@ -461,8 +477,9 @@ impl CodexAskHandOff {
 
     // Holds a question for the questions card, taken in its run's turn until Codex lets go of it,
     // which its take reads as its asker leaving: its own take withdraws it once its record is
-    // written, and its card is withdrawn where it is let go, for a take that already ended. Codex
-    // keeps one user-input question pending per turn, so a second there lets the first go.
+    // written, and its card is withdrawn where it is let go, for a take that already ended; a take
+    // that failed is answered refused. Codex keeps one user-input question pending per turn, so a
+    // second there lets the first go.
     fn hand_question(
         &self,
         record: &CodexSessionRecord,
@@ -512,6 +529,8 @@ impl CodexAskHandOff {
             questions: read_codex_question_prompts(request.method, &Value::Object(params.clone())),
             is_agent_waiting: true,
         };
+        let request_id = question.request_id.clone();
+        let (state, service) = (Arc::clone(&self.state), Arc::clone(&record.service));
         let tasks = self.dependencies.tasks.clone();
         // Asked while the run waits on something else, the question waits on the card for the
         // run; let go meanwhile, it is withdrawn.
@@ -527,13 +546,37 @@ impl CodexAskHandOff {
                     let_go.cancelled_owned(),
                 )
                 .await;
-                if let Err(error) = taken {
-                    report_owner_failure(
-                        provider_account_id,
-                        CodexDeliveryPort::Question,
-                        session_id,
-                        Box::new(error),
-                    );
+                let Err(error) = taken else {
+                    return;
+                };
+                let is_withdrawn_by_take = matches!(error, QuestionTurnError::Take { .. });
+                report_owner_failure(
+                    provider_account_id.clone(),
+                    CodexDeliveryPort::Question,
+                    session_id,
+                    Box::new(error),
+                );
+                // Withdrawn from the card by its take, so the agent is answered refused rather
+                // than left waiting on a request no card holds.
+                if is_withdrawn_by_take {
+                    lock(&state).forget_question(session_id, &request_id);
+                    let refusal = CodexServerRequestAnswer::Refuse {
+                        reason: QUESTION_UNSHOWN_REASON.to_owned(),
+                    };
+                    let refused = match service.connection() {
+                        Ok(connection) => {
+                            connection.answer_held_request(&request_id, &refusal).await
+                        }
+                        Err(error) => Err(error),
+                    };
+                    if let Err(error) = refused {
+                        report_owner_failure(
+                            provider_account_id,
+                            CodexDeliveryPort::Question,
+                            session_id,
+                            Box::new(error),
+                        );
+                    }
                 }
             });
         };
@@ -598,20 +641,6 @@ impl CodexAskHandOff {
             state.held_approvals.remove(&session_id);
         }
         approval
-    }
-
-    // Forgets a question Codex let go of, answered or withdrawn, its take told so.
-    fn forget_question(&self, session_id: SessionId, request_id: &str) {
-        let mut state = lock(&self.state);
-        let Some(pending) = state.pending_questions.get_mut(&session_id) else {
-            return;
-        };
-        if let Some(question) = pending.remove(request_id) {
-            question.let_go.cancel();
-        }
-        if pending.is_empty() {
-            state.pending_questions.remove(&session_id);
-        }
     }
 
     fn withdraw_approval_card(

@@ -175,14 +175,15 @@ async fn a_question_withdrawn_before_its_record_landed_is_withdrawn_once_it_land
     card.wait_until_none_open().await;
 }
 
-// A question whose take fails after its record landed is withdrawn by its request id, so no record
-// is left with no take to open it. Killed by leaving out the withdrawal on a failed take.
+// A question recorded waiting for its run whose take fails is withdrawn from the card by its
+// request id, and Claude Code's request is answered denied, so the agent never waits on a request
+// no card holds. Killed by leaving out the take's withdrawal or the driver's refusal.
 #[tokio::test(start_paused = true)]
-async fn a_question_whose_take_failed_is_withdrawn() {
+async fn a_question_whose_take_failed_is_withdrawn_and_refused() {
     let session = ScriptedSession::new().await;
     session.hold_lead_turn("lead");
     let card = Arc::new(QuestionCard::default());
-    card.lose_record_answers();
+    card.fail_run_reads();
     let port: Arc<dyn QuestionPort> = card.clone();
     assert!(
         session
@@ -202,8 +203,21 @@ async fn a_question_whose_take_failed_is_withdrawn() {
         }),
     );
     card.wait_until_withdrawals(1).await;
+    settle().await;
 
     assert_eq!(card.withdrawals(), ["question"]);
-    assert_eq!(card.taken().len(), 1, "the record landed");
-    card.wait_until_none_open().await;
+    assert!(card.taken().is_empty(), "it never opened");
+    card.wait_until_none_waiting().await;
+    let answers: Vec<_> = session
+        .channel
+        .writes()
+        .into_iter()
+        .filter_map(|write| match write {
+            ScriptedWrite::Answer { request_id, answer } => Some((request_id, answer)),
+            ScriptedWrite::Control(_) | ScriptedWrite::User(_) | ScriptedWrite::Terminate => None,
+        })
+        .collect();
+    assert_eq!(answers.len(), 1);
+    assert_eq!(answers[0].0, "question");
+    assert_eq!(answers[0].1["behavior"], "deny");
 }
