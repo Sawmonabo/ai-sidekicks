@@ -71,15 +71,22 @@ fn a_wrapper_process_runs_its_arguments() {
 }
 
 /// A script standing in for the wrapper's link inside a command's terminal: it starts this binary
-/// as a wrapper over the arguments the terminal gives it.
-fn write_stand_in(folder: &Path) -> std::path::PathBuf {
+/// as a wrapper over the arguments the terminal gives it, with the harness's own output and the
+/// command's sent to `/dev/null` where `is_output_dropped`, so only what the command writes to
+/// `/dev/tty` reaches the terminal.
+fn write_stand_in(folder: &Path, is_output_dropped: bool) -> std::path::PathBuf {
     let path = folder.join("sidekicks-command-wrapper");
     let program = std::env::current_exe().expect("the test program");
     let script = format!(
         "#!/bin/sh\n{WRAPPER_ARGUMENTS_VARIABLE}=$(printf '%s\\037' \"$@\")\nexport \
-         {WRAPPER_ARGUMENTS_VARIABLE}\nexec '{}' {}\n",
+         {WRAPPER_ARGUMENTS_VARIABLE}\nexec '{}' {}{}\n",
         program.display(),
         harness_arguments().join(" "),
+        if is_output_dropped {
+            " >/dev/null 2>&1"
+        } else {
+            ""
+        },
     );
     create_file_atomically(&path, script.as_bytes(), 0o755, LeftoverSweep::Unswept)
         .expect("the stand-in is written");
@@ -176,9 +183,13 @@ fn ended_by(child: &mut Child) -> Option<String> {
     read_child_exit(&child.wait().expect("the wrapper ends"), None).signal_name
 }
 
-/// Types Ctrl+Z into a terminal command whose lines `output` reads and fails unless its lines stop
-/// within 3 s, a 500 ms quiet standing for the stop.
-fn type_ctrl_z_until_quiet(input: &mut ChildStdin, output: BufReader<ChildStdout>) {
+/// Types Ctrl+Z into a terminal command whose lines `output` reads and fails, killing the wrapper
+/// `child` first, unless its lines stop within 3 s, a 500 ms quiet standing for the stop.
+fn type_ctrl_z_until_quiet(
+    child: &mut Child,
+    input: &mut ChildStdin,
+    output: BufReader<ChildStdout>,
+) {
     // The lines are read on a thread of their own, so a quiet shows as no line in time.
     let (line_sent, line_came) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -195,10 +206,11 @@ fn type_ctrl_z_until_quiet(input: &mut ChildStdin, output: BufReader<ChildStdout
         match line_came.recv_timeout(Duration::from_millis(500)) {
             Err(RecvTimeoutError::Timeout) => break,
             Err(RecvTimeoutError::Disconnected) => panic!("the output ended"),
-            Ok(_) => assert!(
-                typed_at.elapsed() < Duration::from_secs(3),
-                "the typed ctrl+z left the command running"
-            ),
+            Ok(_) if typed_at.elapsed() >= Duration::from_secs(3) => {
+                child.kill().expect("the wrapper is killed");
+                panic!("the typed ctrl+z left the command running");
+            }
+            Ok(_) => {}
         }
     }
 }
@@ -308,7 +320,7 @@ async fn a_hook_line_runs_unchanged_and_a_bash_line_waits_for_go_both_with_sigpi
 #[tokio::test]
 async fn a_terminal_command_takes_ctrl_c_the_interrupt_and_a_stop_past_an_ignored_hangup() {
     let folder = tempfile::tempdir().expect("a folder");
-    let stand_in = write_stand_in(folder.path());
+    let stand_in = write_stand_in(folder.path(), false);
     let relayed = |command: &'static str| {
         [
             "--conversation",
@@ -431,7 +443,7 @@ async fn a_relayed_command_takes_one_interrupt_and_a_stop_ends_its_whole_group()
 #[tokio::test]
 async fn a_stopped_command_still_takes_the_daemon_s_stop() {
     let folder = tempfile::tempdir().expect("a folder");
-    let stand_in = write_stand_in(folder.path());
+    let stand_in = write_stand_in(folder.path(), false);
     let channel = open_channel(folder.path());
     let mut watch = channel.watch().await.expect("the channel is watched");
     for is_tty in [false, true] {
@@ -449,7 +461,7 @@ async fn a_stopped_command_still_takes_the_daemon_s_stop() {
         // The input stays open until the wrapper ended, as a provider's terminal does.
         let mut input = child.stdin.take().expect("its input");
         if is_tty {
-            type_ctrl_z_until_quiet(&mut input, output);
+            type_ctrl_z_until_quiet(&mut child, &mut input, output);
         }
         stop_in_order(&channel, &mut watch, party).await;
         assert_eq!(
@@ -466,7 +478,7 @@ async fn a_stopped_command_still_takes_the_daemon_s_stop() {
 #[test]
 fn a_passed_on_hangup_ends_a_command_a_typed_ctrl_z_stopped() {
     let folder = tempfile::tempdir().expect("a folder");
-    let stand_in = write_stand_in(folder.path());
+    let stand_in = write_stand_in(folder.path(), false);
     let mut child = wrapper(
         &[
             "--conversation",
@@ -486,7 +498,7 @@ fn a_passed_on_hangup_ends_a_command_a_typed_ctrl_z_stopped() {
     let output = read_until(&mut child, "ready");
     // The input stays open until the wrapper ended, as a provider's terminal does.
     let mut input = child.stdin.take().expect("its input");
-    type_ctrl_z_until_quiet(&mut input, output);
+    type_ctrl_z_until_quiet(&mut child, &mut input, output);
     send_signal(child.id(), TerminalSignal::Hangup).expect("the hangup is sent");
     // Past the job's end the wrapper drains its output for up to 2 s.
     if !wait_for_exit(child.id(), Some(Duration::from_secs(10))).expect("the wrapper is watched") {
@@ -503,7 +515,7 @@ fn a_passed_on_hangup_ends_a_command_a_typed_ctrl_z_stopped() {
 fn a_terminal_command_s_last_output_all_reaches_a_slow_provider_terminal() {
     const OUTPUT_BYTES: usize = 1024 * 1024;
     let folder = tempfile::tempdir().expect("a folder");
-    let stand_in = write_stand_in(folder.path());
+    let stand_in = write_stand_in(folder.path(), false);
     let mut child = wrapper(
         &[
             "--conversation",
@@ -540,12 +552,16 @@ fn a_terminal_command_s_last_output_all_reaches_a_slow_provider_terminal() {
 // Fails when a terminal command's exit leaves the output copier blocked while a background
 // process that ignores its hangup holds the terminal open, so the wrapper waits out the drain's
 // cap: Linux sends no hangup to a terminal at its leader's exit, where macOS revokes it. Mutation:
-// drop the wake at the command's exit. Run on Linux, in the container leg.
+// drop the wake at the command's exit. The harness inside writes nothing to the terminal, so no
+// late output of its own can keep the copier reading past the exit. Run on Linux, in the container
+// leg.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_terminal_command_s_exit_wakes_the_output_copier_past_a_background_holder() {
     let folder = tempfile::tempdir().expect("a folder");
-    let stand_in = write_stand_in(folder.path());
+    let stand_in = write_stand_in(folder.path(), true);
+    // A shell without job control gives a background command `/dev/null` for its input, so the
+    // holder opens the terminal itself.
     let mut child = wrapper(
         &[
             "--conversation",
@@ -556,7 +572,7 @@ fn a_terminal_command_s_exit_wakes_the_output_copier_past_a_background_holder() 
             "--",
             "/bin/sh",
             "-c",
-            "(trap '' HUP; exec sleep 5) & echo \"done $!\"",
+            "(trap '' HUP; exec sleep 5) </dev/tty & echo \"done $!\" >/dev/tty",
         ],
         Some(&stand_in),
     )
@@ -572,11 +588,15 @@ fn a_terminal_command_s_exit_wakes_the_output_copier_past_a_background_holder() 
             break id.parse::<u32>().expect("a process id");
         }
     };
+    // Pinned at once, so its stop below reaches no process given its id later.
+    let holder = pin_running_process(holder)
+        .expect("the holder reads")
+        .expect("the holder runs");
     let done_at = Instant::now();
     let status = child.wait().expect("the wrapper ends");
     let waited = done_at.elapsed();
-    // Killed before the checks, so no failure leaves it running.
-    send_signal(holder, TerminalSignal::Kill).expect("the holder is killed");
+    // Stopped before the checks, so no failure leaves it running.
+    holder.stop(Duration::ZERO).expect("the holder is stopped");
     assert!(status.success());
     assert!(
         waited < Duration::from_secs(1),

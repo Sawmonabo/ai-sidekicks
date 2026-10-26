@@ -104,11 +104,11 @@ pub(super) fn run_in_terminal(
     let pty = Arc::new(pty);
     let master = match blocking_terminal_master(&pty) {
         Ok(master) => master,
-        Err(error) => return exec_failed(&error),
+        Err(error) => return abandon_terminal(&pty, &error),
     };
     let output_watch = match TerminalOutputWatch::new(&master) {
         Ok(output_watch) => Arc::new(output_watch),
-        Err(error) => return exec_failed(&error),
+        Err(error) => return abandon_terminal(&pty, &error),
     };
     // Nothing returns before the input is left as it was, below.
     let raw_input = RawStandardInput::enter().unwrap_or_else(|error| {
@@ -202,6 +202,17 @@ pub(super) fn run_in_terminal(
             ExitCode::FAILURE
         }
     }
+}
+
+/// Ends the session of a terminal whose command already started, which the wrapper cannot relay
+/// for `failure`, and answers that failure's exit.
+fn abandon_terminal(pty: &Pty, failure: &io::Error) -> ExitCode {
+    if let Err(error) = end_terminal_session(pty) {
+        write_error_line(&format!(
+            "sidekicks-command-wrapper could not end its command's terminal: {error}"
+        ));
+    }
+    exec_failed(failure)
 }
 
 /// Copies what is typed into the provider's terminal into the command's, on a thread of its own.
