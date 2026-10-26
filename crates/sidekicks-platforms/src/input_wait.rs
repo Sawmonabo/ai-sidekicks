@@ -67,6 +67,7 @@ mod tests {
     use super::{
         InputTerminal, InputWaitReading, PIPE_HOLDING_SELECT_READER_SCRIPT, SELECT_READER_SCRIPT,
     };
+    use crate::posix::process::exit::wait_for_stop;
     use crate::posix::terminal::inner::{
         TEST_WINDOW_SIZE, end_inner_terminal, read_until_marker, start_inner_terminal,
     };
@@ -79,7 +80,8 @@ mod tests {
     // that waits on nothing keeps reading as not waiting.
     const WAIT_BOUND: Duration = Duration::from_millis(500);
 
-    // How long a command that waits on nothing settles before it is read.
+    // How long a command that waits on nothing settles before it is read, where the test cannot
+    // wait for what it did to land.
     const SETTLE: Duration = Duration::from_millis(300);
 
     // Fails when a thread's run state is taken as a wait (`sleep 30` and the shell waiting on it
@@ -241,7 +243,7 @@ mod tests {
         let prompt = read_until_marker(&terminal.pty, marker, Duration::from_secs(20));
         let acting = prompt.is_ok().then(|| at_prompt.apply(&terminal));
         let is_marked = expected.is_waiting || expected.is_waiting_in_select;
-        if prompt.is_ok() && !is_marked {
+        if prompt.is_ok() && !is_marked && !matches!(at_prompt, AtPrompt::Stop) {
             tokio::time::sleep(SETTLE).await;
         }
         let peer_failure_noted = Once::new();
@@ -373,7 +375,7 @@ mod tests {
         Nothing,
         // Types these bytes.
         Type(&'static str),
-        // Stops the command's group, as Ctrl+Z does.
+        // Stops the command's group, as Ctrl+Z does, and waits for the stop to land.
         Stop,
     }
 
@@ -383,8 +385,11 @@ mod tests {
                 Self::Nothing => Ok(()),
                 Self::Type(typed) => terminal.pty.file().write_all(typed.as_bytes()),
                 Self::Stop => {
-                    let leader = i32::try_from(terminal.pty.child().id()).expect("a process id");
-                    killpg(Pid::from_raw(leader), Signal::SIGSTOP).map_err(std::io::Error::from)
+                    let leader = terminal.pty.child().id();
+                    let group = Pid::from_raw(i32::try_from(leader).expect("a process id"));
+                    killpg(group, Signal::SIGSTOP).map_err(std::io::Error::from)?;
+                    // The test is the leader's parent; the wait leaves the stop for the reader.
+                    wait_for_stop(leader)
                 }
             }
         }
