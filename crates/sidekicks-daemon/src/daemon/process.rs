@@ -2,12 +2,15 @@
 //! stop, in the reverse order, carrying why it stops. A start that fails releases what it took,
 //! in the stop's order, and names the step that failed.
 
+mod approvals;
 mod crash_monitor;
 pub(crate) mod database;
 pub(crate) mod jobs;
 pub(crate) mod method_tables;
 mod projections;
 pub(crate) mod providers;
+mod repo_services;
+mod session_services;
 pub(crate) mod start_options;
 pub(crate) mod stop;
 pub(crate) mod supervision;
@@ -64,6 +67,10 @@ use crate::daemon::process::providers::{
     ProviderStart, Providers, ProvidersRegistration, build_providers, hydrate_capabilities,
     register_providers, sweep_left_staged_worktrees,
 };
+use crate::daemon::process::repo_services::{
+    RepoAttachmentStartError, RepoAttachments, RepoServiceStart, RepoServiceStartError,
+    RepoServices, build_repo_services, start_repo_attachments,
+};
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
 use crate::daemon::process::stop::{DaemonStopFailure, close_data_folder, stop_work};
 use crate::daemon::process::supervision::{ProcessStateTracker, ServingSocketHooks};
@@ -96,6 +103,7 @@ use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::pty::orphan::guard::{OrphanGuard, OrphanGuardError, open_orphan_guard};
 use crate::recovery::database_file::copy::DatabaseFileCopier;
 use crate::recovery::database_file::sqlite_shell::SqliteShell;
+use crate::session::directory::list_feed::SessionListFeed;
 use crate::session::search::index::live::{LiveIndex, LiveIndexOptions};
 use crate::settle_all::{SettleFailures, settle_all};
 
@@ -193,6 +201,13 @@ pub(crate) enum DaemonStartError {
     /// The providers' registration ended abnormally.
     #[error("the providers' registration ended abnormally")]
     ProvidersRegistration(#[source] JoinError),
+    /// The repository services could not be built, another daemon's askpass socket among the
+    /// reasons.
+    #[error(transparent)]
+    RepoServices(#[from] RepoServiceStartError),
+    /// The repository services' background work could not begin.
+    #[error(transparent)]
+    RepoAttachments(#[from] RepoAttachmentStartError),
 }
 
 /// A start that failed: its error beside every failure of its release, and when the release
@@ -209,7 +224,7 @@ pub(crate) struct DaemonStartFailure {
 /// take it.
 #[expect(
     dead_code,
-    reason = "the providers', the session services' and the repository services' builds take them"
+    reason = "the session services' build and the method tables take them"
 )]
 struct ServiceInputs {
     /// The providers' base environment.
@@ -282,6 +297,10 @@ pub(crate) struct DaemonProcess {
     pub(crate) providers: Option<Providers>,
     /// The providers' first reads and row values, ended by the stop before the drivers.
     pub(crate) providers_registration: Option<ProvidersRegistration>,
+    /// The repository services, whose watch, fetches and askpass broker the stop ends.
+    pub(crate) repo: Option<RepoServices>,
+    /// The repository services' background work, ended by the stop before the scheduler.
+    pub(crate) repo_attachments: Option<RepoAttachments>,
 }
 
 // What a failed start's release is called in its error.
@@ -343,6 +362,8 @@ impl DaemonProcess {
             in_flight: None,
             providers: None,
             providers_registration: None,
+            repo: None,
+            repo_attachments: None,
         };
         let started = process
             .run_start(
@@ -447,6 +468,7 @@ impl DaemonProcess {
         let reads = Arc::clone(&database.pool);
         let event_log = Arc::clone(&database.event_log);
         let truncation = Arc::clone(&database.truncation);
+        let followers = Arc::clone(&database.followers);
         let status = Arc::clone(&database.status);
         let damage = Arc::clone(&database.damage);
         let live_runs = database.live_runs.clone();
@@ -494,6 +516,24 @@ impl DaemonProcess {
             Arc::clone(&base_environment),
             GitLimits::DAEMON,
         );
+        let list_feed = Arc::new(SessionListFeed::new(
+            Arc::clone(&reads),
+            &followers,
+            Arc::clone(&scheduler),
+        ));
+        self.repo = Some(build_repo_services(RepoServiceStart {
+            home_folder: home_folder.to_path_buf(),
+            run_folder: run_folder.folder_path.clone(),
+            daemon_program: daemon_program.to_path_buf(),
+            git: git.clone(),
+            reads: Arc::clone(&reads),
+            writer: Arc::clone(&writer),
+            event_log: Arc::clone(&event_log),
+            machine_id: machine.machine_id.clone(),
+            scheduler: Arc::clone(&scheduler),
+            list_feed,
+            stop: self.work_stop.clone(),
+        })?);
         let authorizer = Arc::new(Authorizer::load_built_in()?);
         let secret_items = SecretItems::new(SecretItemsStart {
             data_folder: data_folder.clone(),
@@ -604,6 +644,11 @@ impl DaemonProcess {
             Arc::clone(&settings),
         ));
         self.providers = Some(providers);
+        let repo = self
+            .repo
+            .as_ref()
+            .expect("the repository services are built before their work begins");
+        self.repo_attachments = Some(start_repo_attachments(repo, &followers).await?);
         schedule_jobs(
             &scheduler,
             JobDeps {

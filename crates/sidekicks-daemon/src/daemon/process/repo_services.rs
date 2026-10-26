@@ -1,4 +1,4 @@
-//! The repository services the daemon's start builds once: its git, the repository mounts, the
+//! The repository services the daemon's start builds once on its git: the repository mounts, the
 //! chats' managed workspaces, the broker git's questions reach the person through, the watch over
 //! each working folder, the live sessions' folders and their projects' fetches, the branch lists,
 //! the worktrees, the turn snapshots and the mounts' health re-probe. Their background work begins
@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use futures::FutureExt as _;
 use sidekicks_contracts::machine::id::MachineId;
-use sidekicks_platforms::{Spawner, askpass_socket_path, inotify_watch_ceiling};
+use sidekicks_platforms::{askpass_socket_path, inotify_watch_ceiling};
 use tokio::sync::{Notify, broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -25,7 +25,7 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::DatabaseWriter;
 use crate::events::log_service::EventLogService;
 use crate::events::session::followers::SessionEventFollowers;
-use crate::git::process::{GitLimits, GitRunner};
+use crate::git::process::GitRunner;
 use crate::git::turn_snapshot::service::TurnSnapshotService;
 use crate::git::worktree::branch_list::BranchListReader;
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
@@ -61,12 +61,8 @@ pub(crate) struct RepoServiceStart {
     pub(crate) run_folder: PathBuf,
     /// The daemon's own program, which git's askpass program sits beside.
     pub(crate) daemon_program: PathBuf,
-    /// The thread every git child starts on.
-    pub(crate) spawner: Spawner,
-    /// Git along the person's search path, when the start found it.
-    pub(crate) git_executable: Option<PathBuf>,
-    /// The login shell's environment, which every git call starts from.
-    pub(crate) base_environment: Arc<[(String, String)]>,
+    /// The daemon's one git, whose failed calls' trees the stop waits for.
+    pub(crate) git: GitRunner,
     /// The daemon's one read pool.
     pub(crate) reads: Arc<DatabaseReadPool>,
     /// The daemon's one writer.
@@ -84,17 +80,13 @@ pub(crate) struct RepoServiceStart {
 }
 
 /// The repository services, each built once for the daemon's life.
-#[expect(
-    dead_code,
-    reason = "the daemon's start, its method tables and its stop"
-)]
 pub(crate) struct RepoServices {
-    /// The daemon's git; the stop waits for the trees its failed calls left ending.
-    pub(crate) git: GitRunner,
     /// The repository mounts of this machine.
+    #[expect(dead_code, reason = "the daemon's method tables")]
     pub(crate) mounts: Arc<RepoMountService>,
     /// The chats' managed workspaces and the watch of their writes; the stop ends both through
     /// [`ManagedWorkspaceService::stop`].
+    #[expect(dead_code, reason = "the session services and the daemon's stop")]
     pub(crate) workspaces: Arc<ManagedWorkspaceService>,
     /// The broker git's questions go through, `None` where the system has no private askpass
     /// socket, which leaves clones unavailable; the stop closes it.
@@ -106,10 +98,13 @@ pub(crate) struct RepoServices {
     /// Each live session's working folder held watched and its repository fetched.
     pub(crate) live_folders: Arc<LiveSessionFolders>,
     /// A repository's branches, for the new-worktree form.
+    #[expect(dead_code, reason = "the daemon's method tables")]
     pub(crate) branches: Arc<BranchListReader>,
     /// Every worktree transition and worktree-scoped git call.
+    #[expect(dead_code, reason = "the worktree methods")]
     pub(crate) worktrees: Arc<WorktreeService>,
     /// Each turn's checkout snapshot and the prune of a run's snapshot refs.
+    #[expect(dead_code, reason = "the session purge and the checkpoints")]
     pub(crate) snapshots: Arc<TurnSnapshotService>,
     /// The mounts' health, re-probed on the slow tick, a wake and a repository's change.
     pub(crate) mount_health: Arc<RepoMountHealthReprobe>,
@@ -119,6 +114,7 @@ pub(crate) struct RepoServices {
     pub(crate) stop: CancellationToken,
     /// The chats' writes the managed workspaces' watch reports, for a chat's file versions; the
     /// start takes it for the session services before the repository attachments start.
+    #[expect(dead_code, reason = "the session services' build")]
     pub(crate) workspace_writes: Option<mpsc::Receiver<ManagedWorkspaceWrite>>,
 }
 
@@ -136,7 +132,6 @@ pub(crate) enum RepoServiceStartError {
 /// Builds the repository services from `start`. Fails when the askpass broker cannot start for
 /// any reason but a system with no private askpass socket, which leaves it unstarted. Runs inside
 /// the daemon's runtime.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) fn build_repo_services(
     start: RepoServiceStart,
 ) -> Result<RepoServices, RepoServiceStartError> {
@@ -144,9 +139,7 @@ pub(crate) fn build_repo_services(
         home_folder,
         run_folder,
         daemon_program,
-        spawner,
-        git_executable,
-        base_environment,
+        git,
         reads,
         writer,
         event_log,
@@ -155,7 +148,6 @@ pub(crate) fn build_repo_services(
         list_feed,
         stop,
     } = start;
-    let git = GitRunner::new(spawner, git_executable, base_environment, GitLimits::DAEMON);
     let workspace_events = Arc::new(WorkspaceEventEmitter::new(Arc::clone(&event_log)));
     let mounts = Arc::new(RepoMountService::new(
         Arc::clone(&writer),
@@ -200,11 +192,11 @@ pub(crate) fn build_repo_services(
         watcher: Arc::clone(&folder_watch),
         fetch: Arc::clone(&fetch),
     }));
-    let execution_roots_folder = worktrees_folder(&home_folder);
+    let worktrees_folder = worktrees_folder(&home_folder);
     let snapshots = Arc::new(TurnSnapshotService::new(
         git.clone(),
         Arc::clone(&reads),
-        &execution_roots_folder,
+        &worktrees_folder,
     ));
     let worktrees = Arc::new(WorktreeService::new(WorktreeServiceDeps {
         git: git.clone(),
@@ -212,7 +204,7 @@ pub(crate) fn build_repo_services(
         writer,
         events: worktree_events,
         occupancy,
-        worktrees_folder: execution_roots_folder,
+        worktrees_folder,
     }));
     let mount_health = Arc::new(RepoMountHealthReprobe::new(
         Arc::clone(&reads),
@@ -221,8 +213,7 @@ pub(crate) fn build_repo_services(
         stop.clone(),
     ));
     Ok(RepoServices {
-        branches: Arc::new(BranchListReader::new(git.clone(), reads)),
-        git,
+        branches: Arc::new(BranchListReader::new(git, reads)),
         mounts,
         workspaces,
         askpass,
@@ -259,7 +250,6 @@ pub(crate) struct RepoAttachments {
 /// `followers`, and the mounts' health probed now, then re-probed on the slow tick, on a wake and
 /// on a repository's change. Called once the start's recovery pass has settled the runs, inside
 /// the daemon's runtime. Fails when the live sessions cannot be read or the scheduler has stopped.
-#[expect(dead_code, reason = "the daemon's start")]
 pub(crate) async fn start_repo_attachments(
     services: &RepoServices,
     followers: &Arc<SessionEventFollowers>,
@@ -299,7 +289,6 @@ impl RepoAttachments {
     /// folders and the fetches, waiting for the work under way. Run after the daemon's stop was
     /// canceled and before the scheduler and the working-folder watch stop; answers the triggers'
     /// task when it ended abnormally.
-    #[expect(dead_code, reason = "the daemon's stop")]
     pub(crate) async fn stop(self, services: &RepoServices) -> Option<TaskStopFailure> {
         self.health_tick.cancel();
         let (triggers, (), ()) = tokio::join!(
