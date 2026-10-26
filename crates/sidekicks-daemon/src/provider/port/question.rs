@@ -154,12 +154,10 @@ pub(crate) async fn take_question_in_turn(
         session_id: question.session_id,
         request_id: question.request_id.clone(),
     };
-    let ended = match take_in_turn(port, question, answer, turn, asker_left.as_mut()).await? {
-        QuestionTurnEnd::Taken if asker_left.as_mut().now_or_never().is_some() => {
-            QuestionTurnEnd::AskerLeft
-        }
-        ended => ended,
-    };
+    let mut ended = take_in_turn(port, question, answer, turn, asker_left.as_mut()).await?;
+    if ended == QuestionTurnEnd::Taken && asker_left.as_mut().now_or_never().is_some() {
+        ended = QuestionTurnEnd::AskerLeft;
+    }
     if ended == QuestionTurnEnd::AskerLeft {
         port.withdraw_question(withdrawal).await?;
     }
