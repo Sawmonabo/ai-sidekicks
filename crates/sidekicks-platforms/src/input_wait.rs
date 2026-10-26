@@ -18,8 +18,8 @@ pub struct InputTerminal {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[expect(
     clippy::struct_excessive_bools,
-    reason = "each is a separate fact the command's line reads: its two waits, its input, its echo \
-              and its masking"
+    reason = "each is a separate fact the command's line reads: its two waits, its input and its \
+              echo"
 )]
 pub struct InputWaitReading {
     /// Whether a process of the terminal's foreground group is blocked reading the terminal.
@@ -39,9 +39,6 @@ pub struct InputWaitReading {
     /// typed: a prompt in raw mode, as a Node or Inquirer password prompt reads, clears the line
     /// setting with the echo, so a full-screen program with echo off is masked too.
     pub is_echo_off: bool,
-    /// Whether the terminal is set as a classic password prompt, a line at a time with echo off;
-    /// the input-wait reads take it as a prompt's evidence, and nothing masks by it.
-    pub is_password_prompt: bool,
 }
 
 /// A Python reader the tests start, which prints `ready` and waits in `select` on the terminal.
@@ -213,7 +210,7 @@ mod tests {
         "echo ready; exec /bin/bash -c 'read -s line'",
         "ready",
         AtPrompt::Nothing,
-        reading(Wait::OnTerminal, Echo::OffAtPasswordPrompt)
+        reading(Wait::OnTerminal, Echo::Off)
     )]
     #[case::vim(
         "exec vim -u NONE -N -n",
@@ -405,10 +402,7 @@ mod tests {
     #[derive(Clone, Copy)]
     enum Echo {
         On,
-        // Off with line input off too, as a full-screen program sets it.
         Off,
-        // Off with line input on, as a password prompt sets it.
-        OffAtPasswordPrompt,
     }
 
     // How a `select` or `poll` reader on the terminal reads: on the terminal where Linux reads the
@@ -428,8 +422,7 @@ mod tests {
             is_waiting: wait == Wait::OnTerminal,
             is_waiting_in_select: wait == Wait::InSelect,
             accepts_input: true,
-            is_echo_off: !matches!(echo, Echo::On),
-            is_password_prompt: matches!(echo, Echo::OffAtPasswordPrompt),
+            is_echo_off: matches!(echo, Echo::Off),
         }
     }
 }
