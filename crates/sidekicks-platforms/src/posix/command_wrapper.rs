@@ -148,11 +148,24 @@ fn standard_input() -> BorrowedFd<'static> {
 }
 
 /// Sends `signal` to every process of the group `group` leads, a kill on macOS again until no
-/// member is left, so a child forked as it is killed ends too; a group already gone is no failure.
-/// Fails with `InvalidInput` for a group of 0 or past `i32::MAX`, with `TimedOut` when a macOS kill
-/// leaves members past its bound, and with the system's error when the send is refused.
+/// member is left, so a child forked as it is killed ends too, and after a hangup or a terminate
+/// `SIGCONT` too, so a stopped job takes it; a group already gone is no failure. Fails with
+/// `InvalidInput` for a group of 0 or past `i32::MAX`, with `TimedOut` when a macOS kill leaves
+/// members past its bound, and with the system's error when a send is refused.
 pub fn signal_command_group(group: u32, signal: TerminalSignal) -> io::Result<()> {
-    signal_group(group, posix_signal(signal))?;
+    if signal_group(group, posix_signal(signal))? {
+        continue_stopped_after(group, signal)?;
+    }
+    Ok(())
+}
+
+/// Continues `group` after a hangup or a terminate, which a stopped process holds until it is
+/// continued; an interrupt is left pending, as a shell leaves it. A group that has ended takes
+/// nothing. Fails with the system's error when the send is refused.
+fn continue_stopped_after(group: u32, signal: TerminalSignal) -> io::Result<()> {
+    if matches!(signal, TerminalSignal::Hangup | TerminalSignal::Terminate) {
+        signal_group_once(group, Signal::SIGCONT)?;
+    }
     Ok(())
 }
 
@@ -248,17 +261,14 @@ impl RawStandardInput {
 }
 
 /// Sends `signal` to the foreground process group of the terminal `pty` is the master of, and
-/// after a hangup or a terminate `SIGCONT` too, as a shell continues a stopped job it ends. Fails
+/// after a hangup or a terminate `SIGCONT` too, stopped or not, so a stopped job takes it. Fails
 /// with the system's error when the group cannot be read or a signal is refused; a group that has
 /// ended takes nothing and is no failure.
 pub fn signal_foreground_group(pty: &Pty, signal: TerminalSignal) -> io::Result<()> {
     let group = tcgetpgrp(pty.file()).map_err(io::Error::from)?;
     let group = u32::try_from(group.as_raw()).map_err(io::Error::other)?;
-    let is_signaled = signal_group_once(group, posix_signal(signal))?;
-    // A stopped process holds every signal but a kill until it is continued; an interrupt is left
-    // pending, as a shell leaves it.
-    if is_signaled && matches!(signal, TerminalSignal::Hangup | TerminalSignal::Terminate) {
-        signal_group_once(group, Signal::SIGCONT)?;
+    if signal_group_once(group, posix_signal(signal))? {
+        continue_stopped_after(group, signal)?;
     }
     Ok(())
 }
@@ -332,8 +342,7 @@ impl TerminalOutputWatch {
             if events.iter().any(|event| event.key == MASTER_KEY) {
                 return Ok(true);
             }
-            // With no bound a wake or a spurious return comes here; with one, an early return waits
-            // on.
+            // Unbounded, a wake or a spurious return comes here; bounded, an early return waits on.
             if give_up_at.is_none_or(|give_up_at| Instant::now() >= give_up_at) {
                 return Ok(false);
             }

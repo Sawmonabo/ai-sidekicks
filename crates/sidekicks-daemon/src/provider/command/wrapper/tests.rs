@@ -21,6 +21,9 @@ use crate::provider::driver::PROVIDERS;
 /// A command that prints `ready` and then a line every 50 ms until it is stopped.
 const TICKING_COMMAND: &str = "echo ready; while :; do echo tick; sleep 0.05; done";
 
+/// A command that prints `ready` and then stops itself, as a job control stop does.
+const SELF_STOPPING_COMMAND: &str = "echo ready; kill -STOP $$; sleep 30";
+
 /// The variable a started wrapper reads its own arguments from, joined by the unit separator.
 const WRAPPER_ARGUMENTS_VARIABLE: &str = "SIDEKICKS_TEST_WRAPPER_ARGUMENTS";
 
@@ -451,7 +454,7 @@ async fn a_stopped_command_still_takes_the_daemon_s_stop() {
         if is_tty {
             own.extend(["--tty", "--", "/bin/sh", "-c", TICKING_COMMAND]);
         } else {
-            own.extend(["--", "/bin/sh", "-c", "echo ready; kill -STOP $$; sleep 30"]);
+            own.extend(["--", "/bin/sh", "-c", SELF_STOPPING_COMMAND]);
         }
         let mut command = wrapper(&own, is_tty.then_some(stand_in.as_path()));
         with_channel(&mut command, &channel);
@@ -472,40 +475,44 @@ async fn a_stopped_command_still_takes_the_daemon_s_stop() {
     }
 }
 
-// Fails when a hangup the wrapper passes on never reaches a command a typed Ctrl+Z stopped, which
-// holds every signal but a kill until it is continued, so the wrapper and its stopped command are
-// left for good. Mutation: the `SIGCONT` dropped after a passed-on hangup or terminate.
+// Fails when a hangup the wrapper passes on never reaches a stopped command, one a typed Ctrl+Z
+// stopped in a terminal or one that stopped itself outside one, which holds every signal but a
+// kill until it is continued, so the wrapper and its stopped command are left for good. Mutation:
+// the `SIGCONT` dropped after a passed-on hangup or terminate on either path.
 #[test]
-fn a_passed_on_hangup_ends_a_command_a_typed_ctrl_z_stopped() {
+fn a_passed_on_hangup_ends_a_stopped_command() {
     let folder = tempfile::tempdir().expect("a folder");
     let stand_in = write_stand_in(folder.path(), false);
-    let mut child = wrapper(
-        &[
-            "--conversation",
-            "conversation",
-            "--process",
-            "process-1",
-            "--tty",
-            "--",
-            "/bin/sh",
-            "-c",
-            TICKING_COMMAND,
-        ],
-        Some(&stand_in),
-    )
-    .spawn()
-    .expect("the wrapper starts");
-    let output = read_until(&mut child, "ready");
-    // The input stays open until the wrapper ended, as a provider's terminal does.
-    let mut input = child.stdin.take().expect("its input");
-    type_ctrl_z_until_quiet(&mut child, &mut input, output);
-    send_signal(child.id(), TerminalSignal::Hangup).expect("the hangup is sent");
-    // Past the job's end the wrapper drains its output for up to 2 s.
-    if !wait_for_exit(child.id(), Some(Duration::from_secs(10))).expect("the wrapper is watched") {
-        child.kill().expect("the wrapper is killed");
-        panic!("the hangup left the stopped command and its wrapper running");
+    for is_tty in [false, true] {
+        let mut own = vec!["--conversation", "conversation", "--process", "process-1"];
+        if is_tty {
+            own.extend(["--tty", "--", "/bin/sh", "-c", TICKING_COMMAND]);
+        } else {
+            own.extend(["--", "/bin/sh", "-c", SELF_STOPPING_COMMAND]);
+        }
+        let mut child = wrapper(&own, is_tty.then_some(stand_in.as_path()))
+            .spawn()
+            .expect("the wrapper starts");
+        let output = read_until(&mut child, "ready");
+        // The input stays open until the wrapper ended, as a provider's terminal does.
+        let mut input = child.stdin.take().expect("its input");
+        if is_tty {
+            type_ctrl_z_until_quiet(&mut child, &mut input, output);
+        }
+        send_signal(child.id(), TerminalSignal::Hangup).expect("the hangup is sent");
+        // Past the job's end the wrapper drains its output for up to 2 s.
+        if !wait_for_exit(child.id(), Some(Duration::from_secs(10)))
+            .expect("the wrapper is watched")
+        {
+            child.kill().expect("the wrapper is killed");
+            panic!("the hangup left the stopped command and its wrapper running: tty {is_tty}");
+        }
+        assert_eq!(
+            ended_by(&mut child).as_deref(),
+            Some("SIGHUP"),
+            "with a terminal: {is_tty}"
+        );
     }
-    assert_eq!(ended_by(&mut child).as_deref(), Some("SIGHUP"));
 }
 
 // Fails when a terminal command's last output is cut off because the copier ends at the command's
