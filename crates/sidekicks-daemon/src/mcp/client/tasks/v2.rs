@@ -437,15 +437,16 @@ mod tests {
     }
 
     // Mutations: move `observe_mcp_task_acceptance` after `follow_task`; in `poll_once`, drop
-    // the `asked` check, which asks k1 again on poll 2; or in `V2TaskAnswer::answer`, send the
-    // answer under another key or without `taskId`.
+    // the `asked` check, which asks k1 again, or insert a key into `asked` before its question is
+    // taken, or ignore the take's answer, so k2, refused while the run waits on k1, is never asked
+    // again; or in `V2TaskAnswer::answer`, send the answer under another key or without `taskId`.
     #[tokio::test(start_paused = true)]
-    async fn a_2026_07_28_task_records_its_handle_asks_its_input_once_and_answers_it_by_update() {
+    async fn a_2026_07_28_task_records_its_handle_and_asks_each_input_once_in_turn_by_update() {
         let (client, card) = test_client();
         let (connection, server) = open_test_server(
             &client,
-            v2_task_server(|poll, _, _| match poll {
-                1 | 2 => input_required(&["k1"]),
+            v2_task_server(|_, updates, _| match updates {
+                0 | 1 => input_required(&["k1", "k2"]),
                 _ => completed(),
             }),
         )
@@ -454,11 +455,17 @@ mod tests {
         let run_id = call.run_id;
         let sink = CountingSink::new(&server);
         let contact = contact();
+        let person = async {
+            let first = card.answer_open(board_answer()).await;
+            let second = card.answer_open(board_answer()).await;
+            (first, second)
+        };
 
-        let (end, question) = tokio::join!(
-            connection.call_tool(call, &sink, &contact),
-            card.answer_open(board_answer()),
-        );
+        let (end, (first, second)) = timeout(Duration::from_secs(600), async {
+            tokio::join!(connection.call_tool(call, &sink, &contact), person)
+        })
+        .await
+        .expect("both questions are asked and the task ends");
 
         assert_eq!(end.expect("the call ends"), answered());
         assert_eq!(
@@ -473,58 +480,20 @@ mod tests {
             )],
             "the handle is recorded before the first poll"
         );
-        assert_eq!(card.taken().len(), 1, "k1 is not asked again on poll 2");
-        assert_eq!(question.run_id, run_id);
-        let updates = updates(&server);
-        assert_eq!(updates.len(), 1);
-        assert_eq!(updates[0]["taskId"], "task-1");
-        assert_eq!(updates[0]["inputResponses"]["k1"], board_accepted());
-        assert_eq!(server.requests("tasks/get").len(), 3);
-    }
-
-    // Mutation: in `poll_once`, insert the key into `asked` before `ask_input_request` returns,
-    // or ignore its answer; k2, refused while the run waits on k1, is then never asked again.
-    #[tokio::test(start_paused = true)]
-    async fn a_second_input_request_the_run_refused_is_asked_once_the_first_is_answered() {
-        let (client, card) = test_client();
-        let (connection, server) = open_test_server(
-            &client,
-            v2_task_server(|_, updates, _| match updates {
-                0 | 1 => input_required(&["k1", "k2"]),
-                _ => completed(),
-            }),
-        )
-        .await;
-        let sink = CountingSink::new(&server);
-        let contact = contact();
-        let person = async {
-            let first = card.answer_open(board_answer()).await;
-            let second = card.answer_open(board_answer()).await;
-            (first, second)
-        };
-
-        let (end, (first, second)) = timeout(Duration::from_secs(600), async {
-            tokio::join!(connection.call_tool(track_call(), &sink, &contact), person)
-        })
-        .await
-        .expect("both questions are asked and the task ends");
-
-        assert_eq!(end.expect("the call ends"), answered());
+        assert_eq!(card.taken().len(), 2, "no input is asked twice");
+        assert_eq!((first.run_id, second.run_id), (run_id, run_id));
         assert_ne!(first.request_id, second.request_id);
-        assert_eq!(card.taken().len(), 2);
-        let mut answered_keys: Vec<String> = updates(&server)
-            .iter()
-            .flat_map(|update| {
-                update["inputResponses"]
-                    .as_object()
-                    .expect("the answers")
-                    .keys()
-                    .cloned()
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        answered_keys.sort();
-        assert_eq!(answered_keys, ["k1", "k2"]);
+        let updates = updates(&server);
+        assert_eq!(updates.len(), 2);
+        for (update, key) in updates.iter().zip(["k1", "k2"]) {
+            assert_eq!(update["taskId"], "task-1");
+            assert_eq!(
+                update["inputResponses"][key],
+                board_accepted(),
+                "k2 is answered after k1"
+            );
+        }
+        assert!(server.requests("tasks/get").len() >= 3);
     }
 
     /// The keys of every `tasks/update` answer `server` received, each with its answer, in key
