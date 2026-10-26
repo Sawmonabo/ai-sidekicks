@@ -284,8 +284,10 @@ fn statement_write(sql: &'static str) -> WriteJob {
 // Damage a write meets during the stop's own drain ends the writer before the close's checkpoint
 // and is recorded after the close: the log stays, the damage record reads and no clean stop is
 // recorded. A slow write queued first keeps the damaged one in the drain; the damage is a page the
-// write itself zeroes, on a new file, which no check reads. Killed by dropping the record after the
-// close (no record reads).
+// write itself zeroes, on a new file, which no check reads. The damage follower is stopped first,
+// so the write failure's listener is the only end. Killed by dropping the listener's end (the
+// close checkpoints and deletes the log) and by dropping the record after the close (no record
+// reads).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn damage_a_write_meets_in_the_stops_drain_ends_the_writer_and_is_recorded() {
     let harness = Harness::new();
@@ -301,6 +303,7 @@ async fn damage_a_write_meets_in_the_stops_drain_ends_the_writer_and_is_recorded
         .expect("the run's writes are in the log")
         .len();
     assert!(log_length > 0, "the run's writes are in the log");
+    file.damage_follower.abort();
 
     let slow = file
         .writer
