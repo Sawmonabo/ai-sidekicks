@@ -489,9 +489,17 @@ impl TaskWatches {
                         }
                     }
                 };
-                // The asker stopped waiting while the card took the question.
-                if let Err(Ok(())) = sender.send(took) {
-                    withdraw_questions(port.as_ref(), session_id, vec![request_id]).await;
+                match sender.send(took) {
+                    Ok(()) => {}
+                    // The asker stopped waiting while the card took the question.
+                    Err(Ok(())) => {
+                        withdraw_questions(port.as_ref(), session_id, vec![request_id]).await;
+                    }
+                    // Its asker gone, so no one else logs it.
+                    Err(Err(error)) => tracing::warn!(
+                        error = &*error as &(dyn Error + 'static),
+                        "the questions card did not take a tool server's question"
+                    ),
                 }
             }
         });
