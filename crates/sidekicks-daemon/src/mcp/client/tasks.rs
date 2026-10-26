@@ -262,7 +262,10 @@ impl McpServerConnection {
 type WatchKey = (SessionId, String, String);
 
 /// The tasks a client follows, across its connections, each one's early-poll wake and the run its
-/// questions are asked in; and the questions card every tool-server question goes to.
+/// questions are asked in; and the questions card every tool-server question goes to. It holds
+/// one entry per followed task, each until the task's poll ends, and in it each of the task's
+/// questions still open: a 2025-11-25 one until it settles, a 2026-07-28 one, at most 16 a poll,
+/// until the task ends.
 pub(crate) struct TaskWatches {
     questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
     watched: Mutex<HashMap<WatchKey, WatchedTask>>,
@@ -347,11 +350,14 @@ impl TaskWatches {
         let Some(request_id) = self.ask(scope, mcp_task_id, &params, answer).await? else {
             return Some(QuestionOutcome::Withdrawn);
         };
-        Some(
-            AwaitedQuestion::hold(self, scope.session_id, request_id)
-                .answer(answered)
-                .await,
-        )
+        let outcome = AwaitedQuestion::hold(self, scope.session_id, request_id.clone())
+            .answer(answered)
+            .await;
+        // Settled, it is no longer open, so the task's end has nothing to withdraw for it.
+        if let Some(task) = lock(&self.watched).get_mut(&watch_key(scope, mcp_task_id)) {
+            task.open_questions.retain(|open| *open != request_id);
+        }
+        Some(outcome)
     }
 
     /// Hands the card one question of `scope`'s task `mcp_task_id`, answered through `answer`.

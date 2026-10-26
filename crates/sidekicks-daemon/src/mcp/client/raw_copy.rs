@@ -148,8 +148,8 @@ const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
 
 /// A stdio server's standard output as rmcp reads it, one whole line at a time: each line repaired
 /// as text a provider sends is, kept in the raw copy, and handed on with its newline. A line past
-/// rmcp's own line bound, its newline counted as rmcp counts it, is dropped, since rmcp drops it
-/// too.
+/// rmcp's own line bound of 16 MiB, its newline counted as rmcp counts it, is dropped, since rmcp
+/// drops it too.
 pub(super) struct RawLineTee<R> {
     inner: R,
     raw: RawReplyCopy,

@@ -47,7 +47,8 @@ const ERROR_OUTPUT_DRAIN: Duration = Duration::from_millis(250);
 /// The longest error-output line the service log takes; the rest of the line is left out.
 const LOGGED_LINE_MAX_BYTES: usize = 4 * 1024;
 
-/// The tail of a server's error output a failed start or an exit carries.
+/// The tail of a server's error output a failed start or an exit carries: its last 32,768 code
+/// points.
 type ErrorOutputTail = OutputTail<PROVIDER_FAILURE_DETAIL_MAX_LEN>;
 
 /// How a stdio server's process ended: its exit with its error output's tail, or why its end

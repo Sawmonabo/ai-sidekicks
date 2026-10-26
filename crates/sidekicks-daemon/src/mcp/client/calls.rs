@@ -15,7 +15,8 @@ use crate::mcp::client::tasks::{
 };
 use crate::mutex_lock::lock;
 
-/// The calls in flight on one connection.
+/// The calls in flight on one connection: one entry per call until it ends or is dropped, each
+/// holding its questions until they settle.
 #[derive(Default)]
 pub(super) struct CallsInFlight {
     calls: Mutex<Vec<CallInFlight>>,
@@ -94,9 +95,17 @@ impl CallsInFlight {
                 .await;
             return QuestionOutcome::Withdrawn;
         }
-        AwaitedQuestion::hold(watches, scope.session_id, request_id)
+        let outcome = AwaitedQuestion::hold(watches, scope.session_id, request_id.clone())
             .answer(answered)
-            .await
+            .await;
+        // Settled, it is no longer open, so the call's end has nothing to withdraw for it.
+        if let Some(call) = lock(&self.calls)
+            .iter_mut()
+            .find(|call| call.number == number)
+        {
+            call.open_questions.retain(|open| *open != request_id);
+        }
+        outcome
     }
 
     fn run_of(&self, number: u64) -> Option<RunId> {
