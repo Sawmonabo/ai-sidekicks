@@ -3,8 +3,9 @@
 # checkout so parallel worktrees share the machine instead of multiplying its load.
 
 [scheduler]
-# Leave one core and a third of the memory for the editor, the desktop and the Linux container.
+# Leave one core, and 6 GiB of the 16 for the Linux container's VM with about 4 GiB for macOS and the
+# editor: three daemon-sized compilers at 1.7 GiB each fit in 6 GiB without swapping.
 reserve_cpus = 1
-memory = "10GiB"
+memory = "6GiB"
 # nextest tests take permits one at a time, so several suites at once cannot start a thread storm.
 tests = true
