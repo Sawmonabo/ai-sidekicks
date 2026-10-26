@@ -91,24 +91,7 @@ pub(crate) async fn follow_channel_records(
                 }
             }
             Some((party, following)) = ended_parties.recv() => {
-                // The records it wrote before its end are in the folder by now: they go first.
-                for received in follower.channel.take_records(watch.arrivals_now().await?).await {
-                    follower.take_record(received).await;
-                }
-                // A party its `Exited` let go is no longer followed, and its id may be another's.
-                if follower
-                    .wrappers
-                    .get(&party)
-                    .is_some_and(|wrapper| wrapper.following == following)
-                {
-                    follower.release(party).await;
-                } else if follower
-                    .askpasses
-                    .get(&party)
-                    .is_some_and(|askpass| askpass.following == following)
-                {
-                    follower.askpass_ended(party).await;
-                }
+                follower.process_ended(&mut watch, party, following).await?;
             }
         }
     }
@@ -232,6 +215,35 @@ impl RecordFollower {
                 }
             }
         }
+    }
+
+    // Lets `party` go once the process of its following numbered `following` ended, after the
+    // records it wrote before its end, which are in the folder by now. Fails when `watch` cannot
+    // read the folder.
+    async fn process_ended(
+        &mut self,
+        watch: &mut FolderArrivalWatch,
+        party: PartyId,
+        following: u64,
+    ) -> io::Result<()> {
+        for received in self.channel.take_records(watch.arrivals_now().await?).await {
+            self.take_record(received).await;
+        }
+        // A party its `Exited` let go is no longer followed, and its id may be another's.
+        if self
+            .wrappers
+            .get(&party)
+            .is_some_and(|wrapper| wrapper.following == following)
+        {
+            self.release(party).await;
+        } else if self
+            .askpasses
+            .get(&party)
+            .is_some_and(|askpass| askpass.following == following)
+        {
+            self.askpass_ended(party).await;
+        }
+        Ok(())
     }
 
     // Numbers a new following of `party` and sends its id with that number to the follower once

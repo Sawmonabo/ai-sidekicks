@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,7 +18,7 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_platforms::{InputTerminal, InputWaitReading, TerminalSignal, send_signal};
 use tokio::sync::watch;
 
-use super::{follow_channel_records, tail_output};
+use super::{RecordFollower, follow_channel_records, tail_output};
 use crate::ipc::stream::feed::{CreditGate, Feed as _};
 use crate::provider::command::channel::tests::{
     end_party, names_in, open_channel, party_command, ready_parties, sealed,
@@ -424,8 +425,7 @@ async fn an_askpass_s_answer_waits_for_it_and_its_end_closes_its_prompt() {
 
 // Fails when a wrapper whose process ends just after its `Exited` is let go before that record is
 // read, so its row ends with no exit code where the provider gives none. Mutation: drop the
-// `arrivals_now` pass before a process end's release, which `select!` then loses about half the
-// time.
+// `arrivals_now` pass in `process_ended`.
 #[tokio::test]
 async fn a_wrapper_s_exit_written_just_before_its_end_settles_its_row() {
     let folder = tempfile::tempdir().expect("a folder");
@@ -443,14 +443,18 @@ async fn a_wrapper_s_exit_written_just_before_its_end_settles_its_row() {
         Arc::new(SentEndings(sender)),
     ));
     sets.command_started(row_start("npm test"));
-    let watch = channel.watch().await.expect("the channel is watched");
-    let follower = tokio::spawn(follow_channel_records(
-        session(),
-        Arc::clone(&channel),
-        watch,
-        Arc::clone(&sets),
-        Arc::new(NoTerminals),
-    ));
+    let mut watch = channel.watch().await.expect("the channel is watched");
+    let (process_ended, _ended_parties) = tokio::sync::mpsc::unbounded_channel();
+    let mut follower = RecordFollower {
+        session_id: session(),
+        channel: Arc::clone(&channel),
+        set: Arc::clone(&sets),
+        waits: Arc::new(NoTerminals),
+        wrappers: HashMap::new(),
+        askpasses: HashMap::new(),
+        process_ended,
+        followings: 0,
+    };
     let write = |sequence, record: &PartyRecord| {
         let sealed = sealed(&channel, &keys, party_id, sequence, record);
         write_record(&channel.folder, &record_name(party_id, sequence), &sealed)
@@ -464,11 +468,12 @@ async fn a_wrapper_s_exit_written_just_before_its_end_settles_its_row() {
             process: None,
         },
     );
-    let requests = channel.folder.join(REQUESTS_FOLDER);
-    until("the wrapper is answered go", || {
-        !names_in(&requests).is_empty()
-    })
-    .await;
+    let arrivals = watch.arrivals_now().await.expect("the folder reads");
+    for received in channel.take_records(arrivals).await {
+        follower.take_record(received).await;
+    }
+    let following = follower.wrappers[&party_id].following;
+    // The `Exited` is in the folder, unread, as the wrapper's process end is taken.
     write(
         2,
         &PartyRecord::Exited {
@@ -476,16 +481,19 @@ async fn a_wrapper_s_exit_written_just_before_its_end_settles_its_row() {
             signal: None,
         },
     );
-    end_party(party);
-    until("the wrapper is let go", || {
-        channel.party_process(party_id).is_none()
-    })
-    .await;
+    follower
+        .process_ended(&mut watch, party_id, following)
+        .await
+        .expect("the folder reads");
+    assert!(
+        channel.party_process(party_id).is_none(),
+        "the wrapper is let go"
+    );
     sets.provider_exited(session());
     let ending = tokio::time::timeout(Duration::from_secs(5), endings.recv())
         .await
         .expect("the ending comes")
         .expect("the endings stay open");
     assert_eq!(ending.exit_code.map(BoundedInt::get), Some(3));
-    follower.abort();
+    end_party(party);
 }
