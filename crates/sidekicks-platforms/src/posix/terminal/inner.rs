@@ -6,6 +6,7 @@ use std::io;
 
 use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::tty::{self, Options};
+use nix::fcntl::{FcntlArg, FdFlag, fcntl};
 use nix::pty::{OpenptyResult, Winsize, openpty};
 use nix::sys::stat::fstat;
 
@@ -29,6 +30,11 @@ pub fn start_inner_terminal(
             .saturating_mul(window_size.cell_height),
     };
     let OpenptyResult { master, slave } = openpty(&size, None).map_err(io::Error::from)?;
+    // `openpty` opens both without close-on-exec, so a child another thread starts meanwhile would
+    // inherit them and hold the terminal open past its program's end; they are marked at once.
+    for descriptor in [&master, &slave] {
+        fcntl(descriptor, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)).map_err(io::Error::from)?;
+    }
     let device = terminal_device(fstat(&slave).map_err(io::Error::from)?.st_rdev)?;
     // Close-on-exec, so the command inherits only the descriptors the PTY gives it.
     let program_side = slave.try_clone()?;
