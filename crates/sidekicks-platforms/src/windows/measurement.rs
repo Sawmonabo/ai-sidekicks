@@ -1,14 +1,14 @@
-//! The measurement tests' readings, neither of which Windows reports.
+//! The measurement tests' readings, neither of which is read on Windows.
 
 use std::io;
 
 use crate::footprint::ProcessFootprint;
 
-/// This process's footprint, which Windows does not report. Always fails with `Unsupported`.
+/// This process's footprint, not read on Windows. Always fails with `Unsupported`.
 pub fn process_footprint() -> io::Result<ProcessFootprint> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
-        "Windows reports no process footprint",
+        "the process footprint is not read on Windows",
     ))
 }
 

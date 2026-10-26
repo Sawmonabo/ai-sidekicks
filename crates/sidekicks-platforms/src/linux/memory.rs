@@ -20,6 +20,10 @@ const PROCESS_CGROUP_PATH: &str = "/proc/self/cgroup";
 // The kernel's memory counters, one `Name:   value kB` line each.
 const MEMORY_INFO_PATH: &str = "/proc/meminfo";
 
+// This process's status, one `Name:   value` line each.
+#[cfg(any(test, feature = "test-support"))]
+const PROCESS_STATUS_PATH: &str = "/proc/self/status";
+
 // Where the unified (version 2) hierarchy and the version 1 memory controller are mounted.
 const CGROUP2_ROOT: &[u8] = b"/sys/fs/cgroup";
 const CGROUP1_MEMORY_ROOT: &[u8] = b"/sys/fs/cgroup/memory";
@@ -48,10 +52,7 @@ pub fn read_process_peak_bytes(process_id: u32) -> io::Result<Option<u64>> {
     let Some(status) = read_process_file(process_id, "status")? else {
         return Ok(None);
     };
-    let Some(kibibytes) = status
-        .split(|byte| *byte == b'\n')
-        .find_map(|line| kibibytes_after(line, b"VmHWM:"))
-    else {
+    let Some(kibibytes) = status_kibibytes(&status, b"VmHWM:") else {
         return Ok(None);
     };
     kibibytes
@@ -61,16 +62,14 @@ pub fn read_process_peak_bytes(process_id: u32) -> io::Result<Option<u64>> {
 }
 
 /// This process's footprint as Linux reports it, from one read of `/proc/self/status`: its
-/// resident set now (`VmRSS`) and at its peak (`VmHWM`). Fails with `InvalidData` naming the line
-/// when either is missing, unparsable or past the largest size, and with the read's error
-/// otherwise.
+/// approximate resident set now (`VmRSS`) and at its peak (`VmHWM`). Fails with `InvalidData`
+/// naming the line when either is missing, unparsable or past the largest size, and with the
+/// read's error otherwise.
 #[cfg(any(test, feature = "test-support"))]
 pub fn process_footprint() -> io::Result<ProcessFootprint> {
-    let status = std::fs::read("/proc/self/status")?;
+    let status = std::fs::read(PROCESS_STATUS_PATH)?;
     let bytes_on = |name: &str| {
-        status
-            .split(|byte| *byte == b'\n')
-            .find_map(|line| kibibytes_after(line, name.as_bytes()))
+        status_kibibytes(&status, name.as_bytes())
             .and_then(|kibibytes| kibibytes.checked_mul(KIBIBYTE))
             .ok_or_else(|| {
                 io::Error::new(ErrorKind::InvalidData, format!("no readable `{name}` line"))
@@ -274,6 +273,13 @@ fn leading_number(text: &[u8]) -> Option<u64> {
             .saturating_mul(10)
             .saturating_add(u64::from(digit - b'0'))
     }))
+}
+
+// The kibibytes on the first line `name` of the status file `status`; `None` when no line reads.
+fn status_kibibytes(status: &[u8], name: &[u8]) -> Option<u64> {
+    status
+        .split(|byte| *byte == b'\n')
+        .find_map(|line| kibibytes_after(line, name))
 }
 
 // The kibibytes on a status line `name`, whitespace, digits and ` kB`; `None` for any other line.
