@@ -8,8 +8,10 @@
 //!   the last one is handed to the authorizer with each request, and a 401 asking for it
 //!   (`error="use_dpop_nonce"`) is sent again once with the new nonce.
 //! - rmcp ends a stream past the bound only on its own bound's error, which it keeps private, and
-//!   reconnects on any other; so a stream cut past the bound is marked, and rmcp's resume of it
-//!   is refused here rather than fetching the same event again, within a bounded retry.
+//!   reconnects on any other; so a stream cut past the bound after an event id is marked, and
+//!   rmcp's resume of it is refused here rather than fetching the same event again, within a
+//!   bounded retry. A cut before any id is never resumed, since a resume without an id replays
+//!   nothing, so it is not marked.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -67,7 +69,7 @@ const DPOP_NONCE: &str = "dpop-nonce";
 
 /// A stream cut past the bound: its session and the last event id before the cut, which a resume
 /// of it names.
-type CutStream = (Option<String>, Option<String>);
+type CutStream = (Option<String>, String);
 
 /// The headers that authorize one request, or why they could not be made.
 pub(crate) type AuthorizationResult =
@@ -132,7 +134,8 @@ pub(super) struct McpHttpClient {
     http: reqwest::Client,
     authorizer: Arc<dyn McpRequestAuthorizer>,
     raw: RawReplyCopy,
-    /// The streams cut past the size bound, whose resumes are refused.
+    /// The streams cut past the size bound after an event id, whose resumes are refused: one
+    /// entry per such cut on the connection, kept for its life.
     cut_streams: Arc<Mutex<HashSet<CutStream>>>,
     /// The last `DPoP` nonce the server at the connection's one address sent.
     dpop_nonce: Arc<Mutex<Option<String>>>,
@@ -234,8 +237,8 @@ impl McpHttpClient {
     }
 
     /// The SSE events of `response` on `session_id`'s stream, each held to `max_event_size`, its
-    /// data repaired and kept in the raw copy. A stream cut past the bound is marked, by its
-    /// session and the last event id before the cut, so its resume is refused.
+    /// data repaired and kept in the raw copy. A stream cut past the bound after an event id is
+    /// marked, by its session and that id, so its resume is refused.
     fn events(
         &self,
         response: reqwest::Response,
@@ -265,7 +268,9 @@ impl McpHttpClient {
                     Ok(rmcp_event(event))
                 }
                 Err(error) => {
-                    if is_cut_past_bound(&error) {
+                    if let Some(last_event_id) = &last_event_id
+                        && is_cut_past_bound(&error)
+                    {
                         lock(&cut_streams).insert((session_id.clone(), last_event_id.clone()));
                     }
                     Err(SseError::Body(Box::new(error)))
@@ -276,9 +281,12 @@ impl McpHttpClient {
 
     /// Whether `session_id`'s stream resumed after `last_event_id` was cut past the bound.
     fn is_cut(&self, session_id: Option<&Arc<str>>, last_event_id: Option<&String>) -> bool {
+        let Some(last_event_id) = last_event_id else {
+            return false;
+        };
         let key = (
             session_id.map(|session_id| session_id.as_ref().to_owned()),
-            last_event_id.cloned(),
+            last_event_id.clone(),
         );
         lock(&self.cut_streams).contains(&key)
     }

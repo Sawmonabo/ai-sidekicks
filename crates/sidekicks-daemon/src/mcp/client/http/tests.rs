@@ -2,6 +2,7 @@
 //! event past the size bound and a server that asks for a `DPoP` proof bound to its nonce.
 
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -11,16 +12,20 @@ use axum::body::Body;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse as _, Response};
 use axum::routing::post;
+use bytes::Bytes;
 use futures::future::BoxFuture;
 use reqwest::Method;
 use reqwest::header::{AUTHORIZATION, HeaderName, HeaderValue};
 use rstest::rstest;
 use serde_json::{Value, json};
+use tokio::sync::Notify;
+use tokio::time::timeout;
 
 use crate::mcp::client::connection::{McpConnectionError, McpServerConnection};
 use crate::mcp::client::http::{
     AuthorizationResult, DEFAULT_MAX_SSE_EVENT_SIZE, McpRequestAuthorizer, NoAuthorization,
 };
+use crate::mcp::client::requests::RequestWait;
 use crate::mcp::client::test_server::{test_client, test_scope};
 
 /// A 2025-11-25 server at an address whose event stream sends one small event with an id,
@@ -119,6 +124,91 @@ async fn an_event_past_the_bound_ends_the_stream_without_a_resume() {
     tokio::time::sleep(Duration::from_millis(3_500)).await;
 
     assert_eq!(stream_requests.load(Ordering::SeqCst), 1);
+    connection.close().await;
+}
+
+/// A 2025-11-25 server at an address whose `tasks/get` reply streams one event past the bound
+/// before any id, and whose standalone stream sends nothing: the first closes once `release` is
+/// notified, every later one stays open. The stream requests it received are counted.
+async fn serve_id_less_cut(stream_requests: Arc<AtomicUsize>, release: Arc<Notify>) -> String {
+    let router = Router::new().route(
+        "/mcp",
+        post(|body: String| async move {
+            let message: Value = serde_json::from_str(&body).expect("the client posts JSON");
+            if message["method"] != "tasks/get" {
+                return answer_post(&body);
+            }
+            let oversized = format!("data: {}\n\n", "x".repeat(DEFAULT_MAX_SSE_EVENT_SIZE + 1));
+            Response::builder()
+                .header(header::CONTENT_TYPE, "text/event-stream")
+                .header("mcp-session-id", "session-1")
+                .body(Body::from(oversized))
+                .expect("a stream response")
+        })
+        .get(move || async move {
+            let body = if stream_requests.fetch_add(1, Ordering::SeqCst) == 0 {
+                let closed = async move {
+                    release.notified().await;
+                    Ok::<_, Infallible>(Bytes::from_static(b": closing\n\n"))
+                };
+                Body::from_stream(futures::stream::once(closed))
+            } else {
+                Body::from_stream(futures::stream::pending::<Result<Bytes, Infallible>>())
+            };
+            Response::builder()
+                .header(header::CONTENT_TYPE, "text/event-stream")
+                .body(body)
+                .expect("a stream response")
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("a local port");
+    let address = listener.local_addr().expect("the port's address");
+    tokio::spawn(async move { axum::serve(listener, router).await });
+    format!("http://{address}/mcp")
+}
+
+// Mutation: in `McpHttpClient::events`, mark a stream cut before any event id; the standalone
+// stream's resume, which names no id either, is then refused and the stream given up.
+#[tokio::test]
+async fn a_cut_before_any_event_id_leaves_the_standalone_stream_resuming() {
+    let (client, _card) = test_client();
+    let stream_requests = Arc::new(AtomicUsize::new(0));
+    let release = Arc::new(Notify::new());
+    let uri = serve_id_less_cut(Arc::clone(&stream_requests), Arc::clone(&release)).await;
+
+    let connection = McpServerConnection::connect_http(
+        &uri,
+        HashMap::new(),
+        Arc::new(NoAuthorization),
+        None,
+        test_scope(&client),
+    )
+    .await
+    .expect("the connection opens");
+    let cut = timeout(
+        Duration::from_millis(500),
+        connection.requests.send_raw(
+            "tasks/get",
+            Some(json!({ "taskId": "task-1" })),
+            RequestWait::Ordinary,
+        ),
+    )
+    .await;
+    assert!(
+        !matches!(cut, Ok(Ok(_))),
+        "a reply cut past the bound is never read"
+    );
+    release.notify_one();
+
+    timeout(Duration::from_secs(10), async {
+        while stream_requests.load(Ordering::SeqCst) < 2 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the standalone stream closed with no id is opened again");
     connection.close().await;
 }
 
