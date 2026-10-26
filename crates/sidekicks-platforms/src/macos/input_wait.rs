@@ -186,7 +186,6 @@ pub async fn read_input_wait(
         is_waiting_in_select: is_waiting_in_select && !is_waiting,
         accepts_input: survey.accepts_input,
         is_echo_off: !terminal.master.is_echo_on,
-        is_password_prompt: terminal.master.is_password_prompt(),
     })
 }
 

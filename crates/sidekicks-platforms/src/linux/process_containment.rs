@@ -62,13 +62,19 @@ const CGROUP_END_BOUND: Duration = Duration::from_secs(5);
 /// none.
 static SHELL_CGROUP_PARENT: OnceLock<PathBuf> = OnceLock::new();
 
+/// Makes this process a child subreaper, so an orphan below it becomes its child rather than
+/// init's. Fails with the system's error.
+pub(crate) fn take_in_orphans() -> io::Result<()> {
+    Ok(set_child_subreaper(true)?)
+}
+
 /// Makes the daemon a child subreaper, so an orphan below it is its child rather than init's and
 /// the start confirmation's writer check, not the parent check alone, refuses a `shell` mode whose
 /// parent ended; marks it not dumpable, so another process of the account cannot read its memory;
 /// and takes its delegated cgroup for the shells' cgroups, where it has one, logging why it has
 /// none. Called once, at the start. Fails with the system's error from the first two.
 pub(crate) fn contain_daemon_descendants() -> io::Result<()> {
-    set_child_subreaper(true)?;
+    take_in_orphans()?;
     set_dumpable(false)?;
     let taken = fs::read_to_string(MOUNT_INFO_PATH)
         .and_then(|mount_info| Ok((mount_info, fs::read_to_string(OWN_CGROUP_PATH)?)))

@@ -10,13 +10,12 @@ use std::ffi::OsStr;
 use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
 use interprocess::local_socket::tokio::{Listener, Stream};
 use interprocess::local_socket::traits::tokio::Listener as _;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -28,15 +27,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 use super::program::{ASKPASS_OWNER_VARIABLE, ASKPASS_SOCKET_VARIABLE};
+use crate::askpass_prompt::is_masked_prompt;
 use crate::ipc::domain_error::DomainError;
 use crate::random_hex::random_hex;
-
-// Every answer is typed out of sight but git's `Username for '…': ` and ssh's host-key question,
-// `Are you sure you want to continue connecting (yes/no/[fingerprint])? `, since a question no rule
-// knows may ask for a secret. Case folds as ASCII only.
-static UNMASKED_PROMPT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?i-u:Username for )|\((?i-u:yes/no)[^)]*\)\? ?$").expect("the pattern is valid")
-});
 
 // The bytes of an owner's id: random, so one owner's id never tells another's.
 const OWNER_ID_BYTES: usize = 16;
@@ -353,10 +346,6 @@ fn parse_request(line: &[u8]) -> Result<AskpassRequest, serde_json::Error> {
     serde_json::from_value(request)
 }
 
-fn is_masked_prompt(prompt: &str) -> bool {
-    !UNMASKED_PROMPT.is_match(prompt)
-}
-
 // Waits until the program goes away: it writes nothing after its question, so any end of the
 // read, an error included, means it closed.
 async fn wait_for_close(receiver: &mut (impl AsyncRead + Unpin)) {
@@ -381,7 +370,6 @@ mod tests {
 
     use super::{
         ASKPASS_OWNER_VARIABLE, AskpassBroker, AskpassOwner, AskpassRequest, REQUEST_MAX_BYTES,
-        is_masked_prompt,
     };
 
     const WAIT: Duration = Duration::from_secs(10);
@@ -424,22 +412,6 @@ mod tests {
         // reset rather than an end of stream.
         assert!(ended.is_ok() || received.is_empty());
         received
-    }
-
-    #[rstest]
-    #[case::password("Password for 'https://ana@github.com': ", true)]
-    #[case::key_passphrase("Enter passphrase for key '/home/ana/.ssh/id_ed25519': ", true)]
-    #[case::user_name("Username for 'https://github.com': ", false)]
-    #[case::user_name_any_case("USERNAME FOR 'https://github.com': ", false)]
-    #[case::host_key(
-        "Are you sure you want to continue connecting (yes/no/[fingerprint])? ",
-        false
-    )]
-    fn masks_every_answer_but_a_user_name_or_a_host_key_choice(
-        #[case] prompt: &str,
-        #[case] is_masked: bool,
-    ) {
-        assert_eq!(is_masked_prompt(prompt), is_masked);
     }
 
     #[tokio::test]

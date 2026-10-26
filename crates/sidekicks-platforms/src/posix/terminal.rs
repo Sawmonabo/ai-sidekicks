@@ -263,6 +263,8 @@ pub struct TerminalWatch {
     events: Events,
     /// The interest the terminal is registered with.
     interest: Event,
+    /// Set once a master reading has logged that its program's side could not be opened.
+    peer_failure_noted: Once,
 }
 
 impl TerminalWatch {
@@ -310,7 +312,21 @@ impl TerminalWatch {
             input_refusal: input_refusal.clone(),
             events: Events::new(),
             interest,
+            peer_failure_noted: Once::new(),
         })
+    }
+
+    /// What the terminal's master shows of it now, as [`read_terminal_master`] reads it. Fails
+    /// with `NotFound` once the program is reaped and its PTY gone, and otherwise as that read
+    /// fails.
+    pub fn read_master(&self) -> io::Result<TerminalMasterReading> {
+        let pty = self.pty.as_ref().ok_or_else(|| {
+            io::Error::new(
+                ErrorKind::NotFound,
+                "the terminal's program has been reaped",
+            )
+        })?;
+        read_terminal_master(pty, &self.peer_failure_noted)
     }
 
     /// Waits until the terminal has output for `read_into`, takes some of `write_from`, the
@@ -676,7 +692,8 @@ fn signal_process_group(pid: u32, signal: TerminalSignal) -> io::Result<ProcessT
     })
 }
 
-fn posix_signal(signal: TerminalSignal) -> Signal {
+/// The POSIX signal `signal` names.
+pub(crate) fn posix_signal(signal: TerminalSignal) -> Signal {
     match signal {
         TerminalSignal::Interrupt => Signal::SIGINT,
         TerminalSignal::Terminate => Signal::SIGTERM,
@@ -780,5 +797,52 @@ fn shell_script(script: &str) -> TestProgram {
     TestProgram {
         program: "/bin/sh".to_owned(),
         arguments: vec!["-c".to_owned(), script.to_owned()],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
+
+    use super::{RELEASE_HANGUP_GRACE, release_terminal, terminal_options};
+    use crate::posix::process::exit::wait_for_stop;
+    use crate::posix::terminal::inner::{
+        TEST_WINDOW_SIZE, end_inner_terminal, read_until_marker, start_inner_terminal,
+    };
+
+    // Fails when a program stopped as its terminal is released reads as exited, so it is never
+    // killed and the PTY's drop waits on it for good. It ignores the hangup, which macOS otherwise
+    // lets end a stopped session leader. Mutation: `is_exit` answering true for any code but 0; or
+    // `release_terminal`'s kill after the grace deleted.
+    #[test]
+    fn a_stopped_program_is_killed_within_the_release_s_grace() {
+        let options = terminal_options(
+            "/bin/sh".to_owned(),
+            vec![
+                "-c".to_owned(),
+                "trap '' HUP; echo ready; kill -STOP $$; sleep 30".to_owned(),
+            ],
+            None,
+            HashMap::new(),
+        );
+        let terminal =
+            start_inner_terminal(&options, TEST_WINDOW_SIZE).expect("the terminal starts");
+        let process_id = terminal.pty.child().id();
+        if let Err(output) = read_until_marker(&terminal.pty, "ready", Duration::from_secs(20)) {
+            end_inner_terminal(terminal);
+            panic!("the program did not print ready: {output}");
+        }
+        wait_for_stop(process_id).expect("the program stops");
+        let (released, was_released) = mpsc::channel();
+        thread::spawn(move || {
+            release_terminal(terminal.pty, || {});
+            released.send(()).expect("the test waits for the release");
+        });
+        was_released
+            .recv_timeout(RELEASE_HANGUP_GRACE + Duration::from_secs(5))
+            .expect("the release ends within its grace");
     }
 }

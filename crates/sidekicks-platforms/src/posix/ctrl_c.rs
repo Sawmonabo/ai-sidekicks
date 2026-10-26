@@ -33,9 +33,16 @@ pub fn ctrl_c() -> io::Result<CtrlCListener> {
 /// runs. Returns only on failure, with the error that kept SIGINT's default action from being put
 /// back.
 pub fn end_as_ctrl_c() -> io::Error {
-    match signal_hook::low_level::emulate_default_handler(libc::SIGINT) {
-        // SIGINT's default action ends the process, and the call aborts if it somehow survives.
-        Ok(()) => io::Error::other("SIGINT's default action did not end the process"),
+    end_by_default_action(libc::SIGINT)
+}
+
+/// Ends this process by the default action of the signal numbered `number`, put back and raised,
+/// as a process that took it with no handler ends. Returns only on failure, with the error that
+/// kept the default action from being put back.
+pub(crate) fn end_by_default_action(number: libc::c_int) -> io::Error {
+    match signal_hook::low_level::emulate_default_handler(number) {
+        // An ending signal's default action ends the process, and the call aborts if it survives.
+        Ok(()) => io::Error::other("the signal's default action did not end the process"),
         Err(error) => error,
     }
 }

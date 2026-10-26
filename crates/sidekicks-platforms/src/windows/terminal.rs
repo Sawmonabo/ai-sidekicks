@@ -26,9 +26,9 @@ use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 use windows_sys::Win32::System::Console::{
-    AttachConsole, CONSOLE_MODE, CTRL_BREAK_EVENT, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT,
-    FreeConsole, GenerateConsoleCtrlEvent, GetConsoleMode, GetConsoleProcessList,
-    GetNumberOfConsoleInputEvents, SetConsoleCtrlHandler,
+    AttachConsole, CONSOLE_MODE, CTRL_BREAK_EVENT, ENABLE_ECHO_INPUT, FreeConsole,
+    GenerateConsoleCtrlEvent, GetConsoleMode, GetConsoleProcessList, GetNumberOfConsoleInputEvents,
+    SetConsoleCtrlHandler,
 };
 use windows_sys::Win32::System::LibraryLoader::{
     LOAD_LIBRARY_SEARCH_SYSTEM32, SetDefaultDllDirectories,
@@ -208,7 +208,6 @@ pub fn read_console(pid: u32) -> io::Result<ConsoleReading> {
     Ok(ConsoleReading {
         process_ids,
         is_echo_input: mode & ENABLE_ECHO_INPUT != 0,
-        is_line_input: mode & ENABLE_LINE_INPUT != 0,
     })
 }
 
@@ -319,6 +318,11 @@ pub struct TerminalWatch {
 }
 
 impl TerminalWatch {
+    /// Reads no master, which a pseudo console has not. Always fails with `Unsupported`.
+    pub fn read_master(&self) -> io::Result<TerminalMasterReading> {
+        read_terminal_master(&self.pty, &Once::new())
+    }
+
     /// Makes the watch over `pty`, woken by `waker`, keeping `input_refusal` set while the
     /// terminal's input pipe refuses a waiting write; never fails on Windows.
     pub fn new(

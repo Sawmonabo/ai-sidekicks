@@ -29,7 +29,8 @@
               the available-memory reads (macOS's `mach_host_self` and \
               `host_statistics64`, Windows' `GlobalMemoryStatusEx`), macOS's process list \
               (`proc_listpids`) and process start read (`sysctl` of `KERN_ARGMAX` and \
-              `KERN_PROCARGS2`), its descriptor path read (`fcntl` of `F_GETPATH`), a released \
+              `KERN_PROCARGS2`), its descriptor path read (`fcntl` of `F_GETPATH`), a command \
+              wrapper's read of its standard input's window size (`TIOCGWINSZ`), a released \
               terminal's wait for its program (`waitid`, and its exit event's registration), \
               mimalloc's `mi_collect`, tree-sitter's `set_allocator`, and the power notifications \
               and wall-clock timers of macOS and Windows are C interfaces, and tokio's watch of \
@@ -151,6 +152,8 @@ pub use file_watch::{WATCHES_TREES, inotify_watch_ceiling};
 pub use footprint::ProcessFootprint;
 pub use held_file::{create_held_file, is_held, remove_unless_held};
 pub use hidden_entry::is_hidden_entry;
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use input_wait::SELECT_READER_SCRIPT;
 pub use input_wait::{InputTerminal, InputWaitReading};
 pub use keep_awake::{KeepAwakeHold, KeepAwakePurpose, KeepAwakeRefused};
 pub use lasting_child::{LastingChild, LastingCommand};
@@ -178,7 +181,7 @@ pub use linux::pinned_process::{PinnedProcess, pin_child_process, pin_running_pr
 #[cfg(target_os = "linux")]
 pub use linux::power_source::PowerSourceWatch;
 #[cfg(target_os = "linux")]
-pub use linux::process_start::{read_process_environment, read_process_start};
+pub use linux::process_start::read_process_start;
 #[cfg(target_os = "linux")]
 pub use linux::processes::list_user_process_ids;
 #[cfg(target_os = "linux")]
@@ -218,7 +221,7 @@ pub use macos::pinned_process::{PinnedProcess, pin_child_process, pin_running_pr
 #[cfg(target_os = "macos")]
 pub use macos::power_source::PowerSourceWatch;
 #[cfg(target_os = "macos")]
-pub use macos::process_start::{read_process_environment, read_process_start};
+pub use macos::process_start::read_process_start;
 #[cfg(target_os = "macos")]
 pub use macos::processes::list_user_process_ids;
 #[cfg(target_os = "macos")]
@@ -250,6 +253,14 @@ pub use posix::askpass::askpass_listener;
 pub use posix::child_command::{
     CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
     prepare_child_command, spawn_lasting_child, wrap_child_command, wrap_session_child_command,
+};
+#[cfg(unix)]
+pub use posix::command_wrapper::{
+    RawStandardInput, TerminalOutputWatch, blocking_terminal_master, end_as_child_ended,
+    end_by_stop_signal, end_terminal_session, exec_command, exec_with_secret, name_program,
+    pass_on_stop_signals, read_standard_input_window_size, run_foreground_job,
+    signal_command_group, signal_foreground_group, start_in_own_group, stop_signal_number,
+    take_inherited_secret, wait_for_terminal_command,
 };
 #[cfg(unix)]
 pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
@@ -290,6 +301,8 @@ pub use posix::os_text::os_text_bytes;
 pub use posix::private_folder::{
     create_missing_private_folders, create_new_private_folder, create_private_folder,
 };
+#[cfg(unix)]
+pub use posix::process::exit::wait_for_exit;
 #[cfg(unix)]
 pub use posix::real_path::real_path;
 #[cfg(unix)]
@@ -344,7 +357,7 @@ pub use posix::uptime::uptime_line;
 pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
 pub use process_containment::{
     ShellContainment, contain_daemon_descendants, end_leftover_shell_containments,
-    stable_working_folder,
+    stable_working_folder, take_in_orphans,
 };
 pub use process_identity::process_identity;
 pub use process_start::ProcessStart;
@@ -376,13 +389,13 @@ pub use terminal::{
     TerminalSignalRoute, TerminalWake, TerminalWaker,
 };
 #[cfg(any(test, feature = "test-support"))]
-pub use test_program::pass_through_start;
+pub use test_program::{harness_test_name, pass_through_start};
 pub use tool_memory_cap::TOOL_MEMORY_CAP_ENFORCEABLE;
 #[cfg(not(target_os = "linux"))]
 pub use user_namespace::can_create_user_namespace;
 pub use wake_watch::WakeWatchError;
 pub use wall_clock::{WallClock, WallClockWait};
-pub use watch::{FileAppendWatch, FolderArrivalWatch};
+pub use watch::{FileAppendWatch, FolderArrivalWait, FolderArrivalWatch};
 #[cfg(target_os = "windows")]
 pub use windows::allocator::{
     GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
@@ -400,6 +413,14 @@ pub use windows::child_command::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
+#[cfg(target_os = "windows")]
+pub use windows::command_wrapper::{
+    RawStandardInput, TerminalOutputWatch, blocking_terminal_master, end_as_child_ended,
+    end_by_stop_signal, end_terminal_session, exec_command, exec_with_secret, name_program,
+    pass_on_stop_signals, read_standard_input_window_size, run_foreground_job,
+    signal_command_group, signal_foreground_group, start_in_own_group, stop_signal_number,
+    take_inherited_secret, wait_for_exit, wait_for_terminal_command,
+};
 #[cfg(target_os = "windows")]
 pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(target_os = "windows")]
@@ -460,7 +481,7 @@ pub use windows::private_folder::{
     create_missing_private_folders, create_new_private_folder, create_private_folder,
 };
 #[cfg(target_os = "windows")]
-pub use windows::process_start::{read_process_environment, read_process_start};
+pub use windows::process_start::read_process_start;
 #[cfg(target_os = "windows")]
 pub use windows::processes::list_user_process_ids;
 #[cfg(target_os = "windows")]

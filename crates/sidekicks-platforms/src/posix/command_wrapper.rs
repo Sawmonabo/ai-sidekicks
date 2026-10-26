@@ -1,0 +1,373 @@
+//! What a command's wrapper asks of macOS and Linux: running a program in its own place, handing a
+//! secret across that start, passing its stop signals on and its child's end on as its own, and
+//! driving the terminal of its own it starts a command in from its standard input.
+
+use std::ffi::OsStr;
+use std::fs::File;
+use std::io::{self, ErrorKind, Read as _, Write as _};
+use std::num::NonZeroUsize;
+use std::os::fd::{AsRawFd as _, BorrowedFd};
+use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
+use std::process::{Command, ExitCode, ExitStatus};
+use std::time::{Duration, Instant};
+
+use alacritty_terminal::event::WindowSize;
+use alacritty_terminal::tty::Pty;
+use nix::fcntl::{FcntlArg, OFlag, fcntl};
+use nix::sys::signal::{SigSet, SigmaskHow, Signal, pthread_sigmask};
+use nix::sys::termios::{SetArg, Termios, cfmakeraw, tcgetattr, tcgetsid, tcsetattr};
+use nix::sys::wait::{WaitStatus, waitpid};
+use nix::unistd::{Pid, isatty, pipe, tcgetpgrp, tcsetpgrp};
+use polling::{Event, Events, PollMode, Poller};
+use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+use signal_hook::iterator::Signals;
+
+use crate::posix::ctrl_c::end_by_default_action;
+use crate::posix::process::group::{signal_group, signal_group_once};
+use crate::posix::terminal::posix_signal;
+use crate::terminal::TerminalSignal;
+
+/// Replaces this process with the program `command` starts, which takes the signal actions a
+/// started program takes (`SIGPIPE` back at its default); returns only on failure, with the exec's
+/// error.
+pub fn exec_command(command: &mut Command) -> io::Error {
+    command.exec()
+}
+
+/// Replaces this process with the program `command` starts as [`exec_command`] does, `secret`
+/// waiting for it on a pipe whose descriptor `secret_variable` names in its environment, so the
+/// secret shows in no argument and no environment another process reads. Returns only on failure,
+/// with the pipe's or the exec's error.
+pub fn exec_with_secret(command: &mut Command, secret_variable: &str, secret: &[u8]) -> io::Error {
+    let handed = (|| -> io::Result<_> {
+        // The pipe's ends are made without close-on-exec, so the read end stays open across the
+        // exec; a pipe holds far more than a key, so the write never waits for the reader.
+        let (reader, writer) = pipe().map_err(io::Error::from)?;
+        File::from(writer).write_all(secret)?;
+        Ok(reader)
+    })();
+    match handed {
+        Ok(reader) => {
+            command.env(secret_variable, reader.as_raw_fd().to_string());
+            command.exec()
+        }
+        Err(error) => error,
+    }
+}
+
+/// Reads to its end and closes the descriptor a start through [`exec_with_secret`] left open,
+/// named by `descriptor` as its variable holds it. Fails with `InvalidInput` for a value that names
+/// no descriptor, else with the read's error.
+pub fn take_inherited_secret(descriptor: &OsStr) -> io::Result<Vec<u8>> {
+    let number: i32 = descriptor
+        .to_str()
+        .and_then(|text| text.parse().ok())
+        .filter(|number| *number > 2)
+        .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "no secret descriptor named"))?;
+    // Opening the descriptor's own path makes a second descriptor on the pipe, so the inherited
+    // one is closed by its number without taking it as owned.
+    let mut secret = Vec::new();
+    File::open(format!("/dev/fd/{number}"))?.read_to_end(&mut secret)?;
+    nix::unistd::close(number).map_err(io::Error::from)?;
+    Ok(secret)
+}
+
+/// Starts `command` under `name` as the name its program reads as its own. Never fails on macOS
+/// and Linux.
+pub fn name_program(command: &mut Command, name: &OsStr) -> io::Result<()> {
+    command.arg0(name);
+    Ok(())
+}
+
+/// Hands each `SIGINT`, `SIGTERM` and `SIGHUP` this process receives to `pass_on` on a thread of
+/// its own, in place of the signal's own action, for the process's whole life. Fails when the
+/// handlers or the thread cannot be made.
+pub fn pass_on_stop_signals(
+    mut pass_on: impl FnMut(TerminalSignal) + Send + 'static,
+) -> io::Result<()> {
+    let mut signals = Signals::new([SIGINT, SIGTERM, SIGHUP])?;
+    std::thread::Builder::new()
+        .name("stop signals".to_owned())
+        .spawn(move || {
+            for signal in signals.forever() {
+                let signal = match signal {
+                    SIGINT => TerminalSignal::Interrupt,
+                    SIGTERM => TerminalSignal::Terminate,
+                    _ => TerminalSignal::Hangup,
+                };
+                pass_on(signal);
+            }
+        })?;
+    Ok(())
+}
+
+/// Starts the child `command` makes in a process group of its own, which it leads, so a signal the
+/// wrapper's own group takes reaches it only as the wrapper passes it on.
+pub fn start_in_own_group(command: &mut Command) {
+    command.process_group(0);
+}
+
+/// Runs the program `command` starts as the foreground job of the terminal on this process's
+/// standard input, as a job-control shell runs one: in a process group of its own, which it leads,
+/// made the terminal's foreground group by the child before its exec, so a typed stop stops it
+/// where this process leads the session. Waits past a stop and answers the job's exit. Fails with
+/// the system's error when the group or the terminal cannot be set, or the program cannot start.
+pub fn run_foreground_job(command: &mut Command) -> io::Result<ExitStatus> {
+    // Blocked, never ignored, since an ignored action would outlive the exec; the child inherits
+    // the block for its own call and puts the mask back before its exec.
+    let saved = block_terminal_output_stop()?;
+    start_in_own_group(command);
+    // SAFETY: the closure runs in the forked child before its exec and makes only
+    // async-signal-safe calls, `getpid`, `tcsetpgrp` and `pthread_sigmask`, on its stack alone.
+    unsafe {
+        command.pre_exec(move || {
+            let taken = tcsetpgrp(standard_input(), Pid::this());
+            pthread_sigmask(SigmaskHow::SIG_SETMASK, Some(&saved), None)?;
+            taken.map_err(io::Error::from)
+        });
+    }
+    let spawned = command.spawn();
+    pthread_sigmask(SigmaskHow::SIG_SETMASK, Some(&saved), None).map_err(io::Error::from)?;
+    // Std's wait reports no stop, so a stopped job keeps the wait and the terminal.
+    spawned?.wait()
+}
+
+/// Blocks `SIGTTOU` on the calling thread, which a group outside the terminal's foreground draws by
+/// setting it, and answers the mask it had. Fails with the system's error.
+fn block_terminal_output_stop() -> io::Result<SigSet> {
+    let mut blocked = SigSet::empty();
+    blocked.add(Signal::SIGTTOU);
+    let mut saved = SigSet::empty();
+    pthread_sigmask(SigmaskHow::SIG_BLOCK, Some(&blocked), Some(&mut saved))?;
+    Ok(saved)
+}
+
+fn standard_input() -> BorrowedFd<'static> {
+    // SAFETY: descriptor 0 is the process's standard input, which nothing here closes.
+    unsafe { BorrowedFd::borrow_raw(libc::STDIN_FILENO) }
+}
+
+/// Sends `signal` to every process of the group `group` leads, a kill on macOS again until no
+/// member is left, so a child forked as it is killed ends too, and after a hangup or a terminate
+/// `SIGCONT` too, so a stopped job takes it; a group already gone is no failure. Fails with
+/// `InvalidInput` for a group of 0 or past `i32::MAX`, with `TimedOut` when a macOS kill leaves
+/// members past its bound, and with the system's error when a send is refused.
+pub fn signal_command_group(group: u32, signal: TerminalSignal) -> io::Result<()> {
+    if signal_group(group, posix_signal(signal))? {
+        continue_stopped_after(group, signal)?;
+    }
+    Ok(())
+}
+
+/// Continues `group` after a hangup or a terminate, which a stopped process holds until it is
+/// continued; an interrupt is left pending, as a shell leaves it. A group that has ended takes
+/// nothing. Fails with the system's error when the send is refused.
+fn continue_stopped_after(group: u32, signal: TerminalSignal) -> io::Result<()> {
+    if matches!(signal, TerminalSignal::Hangup | TerminalSignal::Terminate) {
+        signal_group_once(group, Signal::SIGCONT)?;
+    }
+    Ok(())
+}
+
+/// The number the system gives `signal`, as a child's end by it reads.
+pub fn stop_signal_number(signal: TerminalSignal) -> Option<i32> {
+    Some(posix_signal(signal) as i32)
+}
+
+/// Ends this process by `signal`'s default action, as a process that took it with no handler
+/// ends. Returns only when the action could not be taken, with the system's error.
+pub fn end_by_stop_signal(signal: TerminalSignal) -> io::Error {
+    end_by_default_action(posix_signal(signal) as i32)
+}
+
+/// Ends this process the way its child whose exit is `status` ended: a signal's end raised again
+/// as that signal's default action, else the child's own code. Answers the code to exit with, and
+/// where the raise did not end the process the error that kept it from doing so, the code then 128
+/// and the signal's number, as a shell reads it.
+pub fn end_as_child_ended(status: ExitStatus) -> (ExitCode, Option<io::Error>) {
+    if let Some(number) = status.signal() {
+        let failure = end_by_default_action(number);
+        return (
+            ExitCode::from(u8::try_from(128 + number).unwrap_or(u8::MAX)),
+            Some(failure),
+        );
+    }
+    let code = status
+        .code()
+        .and_then(|code| u8::try_from(code).ok())
+        .map_or(ExitCode::FAILURE, ExitCode::from);
+    (code, None)
+}
+
+/// The window size of the terminal this process's standard input is, read once; `None` when its
+/// standard input is no terminal. Fails with the system's error on any other refusal.
+pub fn read_standard_input_window_size() -> io::Result<Option<WindowSize>> {
+    let mut size = libc::winsize {
+        ws_row: 0,
+        ws_col: 0,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    // SAFETY: `TIOCGWINSZ` writes one `winsize` into the live value, which nothing else reads
+    // until the call returns.
+    let status = unsafe {
+        libc::ioctl(
+            libc::STDIN_FILENO,
+            libc::c_ulong::from(libc::TIOCGWINSZ),
+            &raw mut size,
+        )
+    };
+    if status != 0 {
+        let error = io::Error::last_os_error();
+        return match error.raw_os_error() {
+            Some(libc::ENOTTY) => Ok(None),
+            _ => Err(error),
+        };
+    }
+    Ok(Some(WindowSize {
+        num_lines: size.ws_row,
+        num_cols: size.ws_col,
+        cell_width: size.ws_xpixel.checked_div(size.ws_col).unwrap_or(0),
+        cell_height: size.ws_ypixel.checked_div(size.ws_row).unwrap_or(0),
+    }))
+}
+
+/// This process's standard input set raw, every byte passed through as typed, until
+/// [`RawStandardInput::leave`] puts back the settings it had.
+#[must_use = "the standard input stays raw until it is left"]
+pub struct RawStandardInput {
+    settings: Termios,
+}
+
+impl RawStandardInput {
+    /// Sets this process's standard input raw; `None` when it is no terminal. Fails with the
+    /// system's error when its settings cannot be read or set.
+    pub fn enter() -> io::Result<Option<Self>> {
+        let input = io::stdin();
+        if !isatty(&input).map_err(io::Error::from)? {
+            return Ok(None);
+        }
+        let settings = tcgetattr(&input).map_err(io::Error::from)?;
+        let mut raw = settings.clone();
+        cfmakeraw(&mut raw);
+        tcsetattr(&input, SetArg::TCSANOW, &raw).map_err(io::Error::from)?;
+        Ok(Some(Self { settings }))
+    }
+
+    /// Puts back the settings the standard input had. Fails with the system's error.
+    pub fn leave(self) -> io::Result<()> {
+        tcsetattr(io::stdin(), SetArg::TCSANOW, &self.settings).map_err(io::Error::from)
+    }
+}
+
+/// Sends `signal` to the foreground process group of the terminal `pty` is the master of, and
+/// after a hangup or a terminate `SIGCONT` too, stopped or not, so a stopped job takes it. Fails
+/// with the system's error when the group cannot be read or a signal is refused; a group that has
+/// ended takes nothing and is no failure.
+pub fn signal_foreground_group(pty: &Pty, signal: TerminalSignal) -> io::Result<()> {
+    let group = tcgetpgrp(pty.file()).map_err(io::Error::from)?;
+    let group = u32::try_from(group.as_raw()).map_err(io::Error::other)?;
+    if signal_group_once(group, posix_signal(signal))? {
+        continue_stopped_after(group, signal)?;
+    }
+    Ok(())
+}
+
+/// Kills every process of the session the terminal `pty` is the master of started, its foreground
+/// group and its leader's group, whatever signal they ignore. Fails with the system's error when
+/// the terminal's groups cannot be read or a kill is refused.
+pub fn end_terminal_session(pty: &Pty) -> io::Result<()> {
+    let master = pty.file();
+    let foreground = tcgetpgrp(master).map_err(io::Error::from)?;
+    let session = tcgetsid(master).map_err(io::Error::from)?;
+    for group in [foreground, session] {
+        signal_group(
+            u32::try_from(group.as_raw()).map_err(io::Error::other)?,
+            Signal::SIGKILL,
+        )?;
+    }
+    Ok(())
+}
+
+/// A second handle on the master of `pty` whose reads and writes wait, for a caller copying bytes
+/// on threads of its own; the master's one open file is shared, so `pty`'s own handle waits too.
+/// Fails with the system's error.
+pub fn blocking_terminal_master(pty: &Pty) -> io::Result<File> {
+    let master = pty.file().try_clone()?;
+    let flags =
+        OFlag::from_bits_retain(fcntl(&master, FcntlArg::F_GETFL).map_err(io::Error::from)?);
+    fcntl(&master, FcntlArg::F_SETFL(flags - OFlag::O_NONBLOCK)).map_err(io::Error::from)?;
+    Ok(master)
+}
+
+/// A watch on a terminal's master for output its program wrote that no read has taken yet, which
+/// another thread can wake; one poller, so a wait costs no thread and no spin.
+pub struct TerminalOutputWatch {
+    // Declared before the master, so it drops first, while the master it watches is still open.
+    poller: Poller,
+    // Held only to keep the registered handle open.
+    _master: File,
+}
+
+/// The key the master is registered under, the only source the watch's poller holds.
+const MASTER_KEY: usize = 0;
+
+impl TerminalOutputWatch {
+    /// Watches `master`, a terminal's master, through a handle of its own. Fails with the system's
+    /// error.
+    pub fn new(master: &File) -> io::Result<Self> {
+        let master = master.try_clone()?;
+        let poller = Poller::new()?;
+        // SAFETY: the watch owns the master's handle and drops it after the poller, so the handle
+        // stays open while it is registered.
+        unsafe { poller.add_with_mode(&master, Event::readable(MASTER_KEY), PollMode::Level) }?;
+        Ok(Self {
+            poller,
+            _master: master,
+        })
+    }
+
+    /// Waits until the master holds unread output, answering true, or else, answering false, with
+    /// no timeout until [`TerminalOutputWatch::wake`] is called and with one until it passes. A
+    /// terminal whose program side all closed reads as holding some, since a read of it then
+    /// answers at once. Fails with the system's error.
+    pub fn wait(&self, timeout: Option<Duration>) -> io::Result<bool> {
+        let give_up_at = timeout.map(|timeout| Instant::now() + timeout);
+        let mut events = Events::with_capacity(NonZeroUsize::MIN);
+        loop {
+            events.clear();
+            let remaining =
+                give_up_at.map(|give_up_at| give_up_at.saturating_duration_since(Instant::now()));
+            self.poller.wait(&mut events, remaining)?;
+            if events.iter().any(|event| event.key == MASTER_KEY) {
+                return Ok(true);
+            }
+            // Unbounded, a wake or a spurious return comes here; bounded, an early return waits on.
+            if give_up_at.is_none_or(|give_up_at| Instant::now() >= give_up_at) {
+                return Ok(false);
+            }
+        }
+    }
+
+    /// Wakes the current wait, or the next one where none is under way. Fails with the system's
+    /// error.
+    pub fn wake(&self) -> io::Result<()> {
+        self.poller.notify()
+    }
+}
+
+/// Waits for the command `pty` started to exit and answers its status; the PTY's own drop then
+/// finds it reaped. Blocks; fails with the system's error.
+pub fn wait_for_terminal_command(pty: &Pty) -> io::Result<ExitStatus> {
+    let pid = Pid::from_raw(i32::try_from(pty.child().id()).map_err(io::Error::other)?);
+    loop {
+        // A stop or a continue is no exit, so the wait goes on past either.
+        let status = waitpid(pid, None).map_err(io::Error::from)?;
+        if let WaitStatus::Exited(_, code) = status {
+            return Ok(ExitStatus::from_raw(code << 8));
+        }
+        if let WaitStatus::Signaled(_, signal, _) = status {
+            return Ok(ExitStatus::from_raw(signal as i32));
+        }
+    }
+}
