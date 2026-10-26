@@ -200,10 +200,15 @@ impl QuestionCard {
     /// past 60 s.
     pub(crate) async fn wait_until_withdrawals(&self, count: usize) {
         self.wait_until(
-            |card| card.withdrawals.lock().expect("never poisoned").len() >= count,
+            |card| card.withdrawals().len() >= count,
             "the card takes the withdrawals",
         )
         .await;
+    }
+
+    /// The request id of every withdrawal the card took, in order.
+    pub(crate) fn withdrawals(&self) -> Vec<String> {
+        self.withdrawals.lock().expect("never poisoned").clone()
     }
 
     /// Holds back each later withdrawal until the returned gate is notified, the question still

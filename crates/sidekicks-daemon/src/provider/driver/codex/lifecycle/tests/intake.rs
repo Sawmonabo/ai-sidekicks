@@ -723,6 +723,7 @@ async fn a_question_its_turn_let_go_before_its_record_landed_is_withdrawn_once_i
     card.land_records();
     card.wait_until_withdrawals(2).await;
 
+    assert_eq!(card.withdrawals(), [r#""question-1""#, r#""question-1""#]);
     assert_eq!(card.taken().len(), 1, "the record landed");
     card.wait_until_none_open().await;
 }
@@ -750,6 +751,7 @@ async fn a_question_whose_take_failed_is_withdrawn() {
     }));
     card.wait_until_withdrawals(1).await;
 
+    assert_eq!(card.withdrawals(), [r#""question-1""#]);
     assert_eq!(card.taken().len(), 1, "the record landed");
     card.wait_until_none_open().await;
 }
