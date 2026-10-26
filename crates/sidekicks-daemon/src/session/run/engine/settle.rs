@@ -27,6 +27,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::connection::read_pool::ReadLength;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
+use crate::events::session::append_lock::SessionAppendHold;
 use crate::provider::driver::contract::bound_failure_detail;
 use crate::session::run::engine::limits::limit_run_end;
 use crate::session::run::engine::turns::{TurnEnd, TurnOutcome};
@@ -99,7 +100,7 @@ impl RunEngine {
                     intended_close: None,
                     trigger: None,
                 };
-                self.change(RunStateChange::new(run_id, interrupted), companions)
+                self.change(RunStateChange::new(run_id, interrupted), companions, None)
                     .await
             }
             Some(limit) => {
@@ -122,6 +123,7 @@ impl RunEngine {
                     companions,
                     &run,
                     turn_end,
+                    None,
                 )
                 .await
             }
@@ -239,10 +241,18 @@ impl RunEngine {
             let turn_cuts = self.read_run_turn_cuts(run_id).await?;
             if run.state.is_terminal() || run.state == RunState::Queued {
                 if let Some(turn_end) = self
-                    .end_open_turns(run_id, &run, &open_turns, &turn_cuts, uncut_end, false)
+                    .end_open_turns(
+                        run_id,
+                        &run,
+                        &open_turns,
+                        &turn_cuts,
+                        uncut_end,
+                        false,
+                        None,
+                    )
                     .await?
                 {
-                    self.record_turn_end_alone(run_id, &run, turn_end, false)
+                    self.record_turn_end_alone(run_id, &run, turn_end, false, None)
                         .await?;
                 }
                 return Ok(());
@@ -285,10 +295,18 @@ impl RunEngine {
                 .statements
                 .push(no_pending_interrupt_statement(&run_id));
             let turn_end = self
-                .end_open_turns(run_id, &run, &open_turns, &turn_cuts, uncut_end, false)
+                .end_open_turns(
+                    run_id,
+                    &run,
+                    &open_turns,
+                    &turn_cuts,
+                    uncut_end,
+                    false,
+                    None,
+                )
                 .await?;
             match self
-                .change_with_turn_end(change, companions, &run, turn_end)
+                .change_with_turn_end(change, companions, &run, turn_end, None)
                 .await
             {
                 // An interrupt moved or asked for since the read: read the run and its stops
@@ -307,33 +325,55 @@ impl RunEngine {
     /// [`decide_restart_settlement`] decides, a run it leaves returned as it is: its end, every
     /// pending interrupt applied, and its open turns' ends, each a limit's row names with that
     /// limit and every other with `daemonRestart`, guarded on no interrupt appearing since, a
-    /// `failed` end carrying `failure_detail`. Fails as [`RunEngine::transition`] does.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's recovery pass at start")
-    )]
+    /// `failed` end carrying `failure_detail`. An interrupt that moved or appeared since the facts
+    /// were read refuses the write, and the run and its facts are read again once. Every write goes
+    /// under `hold` where the caller holds the run's session. Fails as [`RunEngine::transition`]
+    /// does, the second refusal returned.
     pub(crate) async fn settle_run_after_restart(
         &self,
         run: &LiveRun,
         failure_detail: &str,
+        hold: Option<&SessionAppendHold>,
     ) -> Result<RunRead, RunEngineError> {
-        let read = run.clone();
-        let facts = self
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, RunEngineError>(read_restart_facts(reader, &read)?)
-            })
-            .await?;
-        self.settle_run_from_facts(run, &facts, failure_detail)
-            .await
+        let mut read = run.clone();
+        let mut is_read_again = false;
+        loop {
+            let facts_of = read.clone();
+            let facts = self
+                .pool
+                .read(ReadLength::Short, move |reader| {
+                    Ok::<_, RunEngineError>(read_restart_facts(reader, &facts_of)?)
+                })
+                .await?;
+            #[cfg(test)]
+            self.restart_facts_pause.pass().await;
+            match self
+                .settle_run_from_facts(&read, &facts, failure_detail, hold)
+                .await
+            {
+                Err(RunEngineError::Change(RunStateChangeError::CompanionRefused { .. }))
+                    if !is_read_again =>
+                {
+                    is_read_again = true;
+                    let now = self.require_run(read.run_id).await?;
+                    if now.state.is_terminal() {
+                        return Ok(now);
+                    }
+                    read.run = now;
+                }
+                settled => return settled,
+            }
+        }
     }
 
-    // The settle of `run` as `facts`, read before its write, decide it.
+    // The settle of `run` as `facts`, read before its write, decide it, written from the state
+    // `run` read: a run that moved since is left as it now is.
     async fn settle_run_from_facts(
         &self,
         run: &LiveRun,
         facts: &RestartFacts,
         failure_detail: &str,
+        hold: Option<&SessionAppendHold>,
     ) -> Result<RunRead, RunEngineError> {
         let Some(decision) = decide_restart_settlement(run, facts) else {
             return Ok(run.run.clone());
@@ -356,6 +396,10 @@ impl RunEngine {
                     },
                 )
             });
+        let change = RunStateChange {
+            expected_state: Some(run.run.state),
+            ..change
+        };
         // Every pending interrupt the settle read is applied by this end, and one that arrived
         // since refuses it.
         let mut companions =
@@ -379,13 +423,14 @@ impl RunEngine {
                     &facts.turn_cuts,
                     daemon_restart_outcome(uncut_end),
                     false,
+                    hold,
                 )
                 .await?
             }
             None => None,
         };
         match self
-            .change_with_turn_end(change, companions, &run.run, turn_end)
+            .change_with_turn_end(change, companions, &run.run, turn_end, hold)
             .await
         {
             // A message queued for the run since its facts were read starts it, so it is left.
@@ -393,6 +438,14 @@ impl RunEngine {
                 companion_index: QUEUED_RUN_WAITING_ITEM_GUARD_COMPANION_INDEX,
                 ..
             })) if is_queued => Ok(run.run.clone()),
+            // The run moved from the state its facts were read in, so it is left as it is now; a
+            // move the table refuses from that very state is the settle's own failure.
+            Err(RunEngineError::Refused(RunRefusal::InvalidTransition { from_state, .. }))
+                if from_state != run.run.state =>
+            {
+                Ok(run.run.clone())
+            }
+            Err(RunEngineError::Refused(RunRefusal::AlreadyEnded { .. })) => Ok(run.run.clone()),
             settled => settled,
         }
     }
@@ -401,10 +454,6 @@ impl RunEngine {
     /// its own as the daemon's report held to its run's version, interrupted with the limit of a
     /// row naming it else `daemonRestart`, a run that reads live left to its own ends. Every run
     /// is tried before the failures, from the reads and the writes, return together.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's recovery pass at start")
-    )]
     pub(crate) async fn end_open_turns_of_ended_runs(
         &self,
         run_ids: &[RunId],
@@ -437,10 +486,10 @@ impl RunEngine {
         let open_turns = self.read_open_turns(run_id).await?;
         let uncut_end = daemon_restart_outcome(RestartTurnEnd::Interrupted);
         if let Some(turn_end) = self
-            .end_open_turns(run_id, run, &open_turns, &turn_cuts, uncut_end, true)
+            .end_open_turns(run_id, run, &open_turns, &turn_cuts, uncut_end, true, None)
             .await?
         {
-            self.record_turn_end_alone(run_id, run, turn_end, true)
+            self.record_turn_end_alone(run_id, run, turn_end, true, None)
                 .await?;
         }
         Ok(())

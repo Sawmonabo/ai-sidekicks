@@ -29,7 +29,7 @@ use crate::artifacts::schema::ARTIFACT_STATEMENT_CAPACITY;
 use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, session_event_row, test_envelope};
-use crate::events::log_service::tests::{TestLog, open_log};
+use crate::events::log_service::tests::TestLog;
 use crate::events::log_service::{EVENT_LOG_STATEMENT_CAPACITY, EventLogAppendOptions};
 use crate::events::session::appender::SessionEventAppender;
 use crate::events::session::version::SESSION_EVENT_VERSION;
@@ -47,10 +47,13 @@ use crate::provider::driver::registry::{ProviderRegistry, test_provider};
 use crate::provider::driver::test_registry::test_driver_services;
 use crate::provider::driver::{PROVIDERS, ProviderRegistration};
 use crate::pty::shell::test_table::{TableFixture, table_fixture};
+use crate::recovery::status::RecoveryStatusTracker;
 use crate::session::directory::list_feed::SessionListFeed;
 use crate::session::directory::test_rows::insert_session_row;
 use crate::session::related::ranking::SessionRelatedRanking;
 use crate::session::run::engine::tests::insert_running_run;
+use crate::session::run::live_count::tests::counted_log;
+use crate::session::service::SessionService;
 use crate::workflow::test_rows::{
     TEST_SESSION_ID, TestStep, insert_run, insert_step, insert_workflow_version,
 };
@@ -73,6 +76,10 @@ pub(crate) struct PurgeFixture {
     pub(crate) log: TestLog,
     pub(crate) purge: SessionPurge,
     pub(crate) truncation: Arc<WriteAheadLogTruncation>,
+    /// The writer's count of live runs.
+    pub(crate) live_runs: watch::Receiver<u32>,
+    /// The recovery state the purge clears a removed session from.
+    pub(crate) recovery: Arc<RecoveryStatusTracker>,
     pub(crate) _shells: TableFixture,
     pub(crate) _home: TempDir,
 }
@@ -80,7 +87,41 @@ pub(crate) struct PurgeFixture {
 /// A purge over a fresh database; a provider driver it calls fails the test.
 pub(crate) async fn purge_fixture() -> PurgeFixture {
     let database = TestDatabase::new();
-    let log = open_log(&database, None).await;
+    let (log, live_runs) = counted_log(&database).await;
+    let recovery = Arc::new(RecoveryStatusTracker::new());
+    let TestPurge {
+        purge,
+        truncation,
+        shells,
+        home,
+    } = test_purge(&database, &log, Arc::clone(&recovery)).await;
+    PurgeFixture {
+        database,
+        log,
+        purge,
+        truncation,
+        live_runs,
+        recovery,
+        _shells: shells,
+        _home: home,
+    }
+}
+
+/// A purge, the truncation it starts, and the shell table and home folder it works in.
+pub(crate) struct TestPurge {
+    pub(crate) purge: SessionPurge,
+    pub(crate) truncation: Arc<WriteAheadLogTruncation>,
+    pub(crate) shells: TableFixture,
+    pub(crate) home: TempDir,
+}
+
+/// A purge on `database` through `log`, clearing removed sessions from `recovery`; a provider
+/// driver it calls fails the test.
+pub(crate) async fn test_purge(
+    database: &TestDatabase,
+    log: &TestLog,
+    recovery: Arc<RecoveryStatusTracker>,
+) -> TestPurge {
     let reads = Arc::new(DatabaseReadPool::new(
         database.path(),
         EVENT_LOG_STATEMENT_CAPACITY
@@ -110,7 +151,7 @@ pub(crate) async fn purge_fixture() -> PurgeFixture {
         Arc::new(ProviderRegistry::register_from(&table, &services)),
     ));
 
-    let list_feed = SessionListFeed::for_test(&database, &log.followers);
+    let list_feed = SessionListFeed::for_test(database, &log.followers);
     let repo_mounts = Arc::new(RepoMountService::new(
         Arc::clone(&log.writer),
         Arc::clone(&reads),
@@ -154,19 +195,22 @@ pub(crate) async fn purge_fixture() -> PurgeFixture {
         )),
         project_rules,
         list_feed,
-        ranking: Arc::new(SessionRelatedRanking::new(reads, Arc::clone(&log.writer))),
+        ranking: Arc::new(SessionRelatedRanking::new(
+            Arc::clone(&reads),
+            Arc::clone(&log.writer),
+        )),
         payloads: Arc::new(
             PayloadStore::new(home.path().join("objects")).expect("the payload store opens"),
         ),
         truncation: Arc::clone(&truncation),
+        recovery,
+        sessions: Arc::new(SessionService::new(reads, Arc::new(|_: &SessionId| None))),
     });
-    PurgeFixture {
-        database,
-        log,
+    TestPurge {
         purge,
         truncation,
-        _shells: shells,
-        _home: home,
+        shells,
+        home,
     }
 }
 
@@ -271,8 +315,9 @@ fn contains(bytes: &[u8], text: &str) -> bool {
 
 // Kills: the workflow runs' rows left out of the write (the run's foreign keys refuse it or its
 // steps stay), an unsettled release or a spent `Send now` key of the lead run left behind,
-// `secure_delete` off or the truncation skipped (the marker stays in the file or its log), and a
-// receipt outside the delete's write or naming another range.
+// `secure_delete` off or the truncation skipped (the marker stays in the file or its log), a
+// receipt outside the delete's write or naming another range, and a count of live runs that only
+// run state changes move (the purged run stays counted).
 #[tokio::test]
 async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log() {
     let fixture = purge_fixture().await;
@@ -281,6 +326,8 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
     let survivor = SessionId::try_from(mint_uuid_v7()).expect("a session id");
     store_session(&reader, session_id, SessionState::Archived);
     store_session(&reader, survivor, SessionState::Active);
+    let lead_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&fixture.database, session_id, lead_run_id);
     append_event(&fixture.log, session_id, "Read").await;
     append_event(&fixture.log, session_id, MARKER).await;
     append_event(&fixture.log, survivor, "Write").await;
@@ -327,8 +374,6 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
             ],
         )
         .expect("the test stores a form draft");
-    let lead_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-    insert_running_run(&fixture.database, session_id, lead_run_id);
     reader
         .execute(
             "INSERT INTO interventions (id, target_run_id, type, state, payload,
@@ -352,6 +397,11 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
             ],
         )
         .expect("the test records a key a `Send now` spent");
+    assert_eq!(
+        *fixture.live_runs.borrow(),
+        1,
+        "the appends' commits count the run"
+    );
 
     let report = fixture
         .purge
@@ -378,6 +428,11 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
         .expect("the truncation ends");
     assert_eq!(state_of(&reader, session_id), None);
     assert_eq!(event_count(&reader, session_id), 0);
+    assert_eq!(
+        *fixture.live_runs.borrow(),
+        0,
+        "the purge's commit uncounts the run"
+    );
     for table in ["workflow_steps", "human_phase_form_state", "workflow_runs"] {
         let column = if table == "workflow_runs" {
             "id"
@@ -428,7 +483,9 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
     );
 }
 
-// Kills: a caller's from-states widened or narrowed, and a refused mark that changes the row.
+// Each session is damaged, so a removed one must leave the recovery state too. Kills: a caller's
+// from-states widened or narrowed, a refused mark that changes the row, and the recovery state not
+// cleared after the rows went.
 #[rstest]
 #[case::retention_of_an_archived_session(PurgeCaller::Retention, SessionState::Archived, true)]
 #[case::retention_of_an_active_session(PurgeCaller::Retention, SessionState::Active, false)]
@@ -453,6 +510,7 @@ async fn a_purge_marks_a_session_only_from_its_callers_states(
     let session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
     store_session(&reader, session_id, state);
     append_event(&fixture.log, session_id, "Read").await;
+    fixture.recovery.mark_session_unreadable(&session_id);
 
     let outcome = only_outcome(
         fixture
@@ -468,6 +526,7 @@ async fn a_purge_marks_a_session_only_from_its_callers_states(
         );
         assert_eq!(state_of(&reader, session_id), None);
         assert_eq!(event_count(&reader, session_id), 0);
+        assert_eq!(fixture.recovery.read().sessions, Vec::new());
     } else {
         let SessionPurgeOutcome::Refused(SessionPurgeError::NotMarkable { state: refused }) =
             outcome
@@ -480,6 +539,12 @@ async fn a_purge_marks_a_session_only_from_its_callers_states(
             Some(<&'static str>::from(state))
         );
         assert_eq!(event_count(&reader, session_id), 1);
+        assert!(
+            fixture
+                .recovery
+                .read_session_write_refusal(&session_id)
+                .is_some()
+        );
     }
 }
 

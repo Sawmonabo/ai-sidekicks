@@ -6,14 +6,9 @@ use std::path::Path;
 
 use interprocess::local_socket::tokio::Listener;
 
-use crate::socket::listener::ExistingSocket;
-
 /// Binds no listener: Windows has no local socket limited to this account yet. Always fails with
 /// `Unsupported`.
-pub fn bind_socket_listener(
-    _socket_path: &Path,
-    _existing: ExistingSocket,
-) -> io::Result<Listener> {
+pub fn bind_socket_listener(_socket_path: &Path) -> io::Result<Listener> {
     Err(io::Error::new(
         ErrorKind::Unsupported,
         "Windows has no local socket limited to this account yet",

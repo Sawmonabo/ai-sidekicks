@@ -31,7 +31,7 @@ use crate::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
 };
 use crate::events::session::appender::{
-    SessionEventAppender, SessionEventDraft, SessionEventLinkage,
+    SessionEventAppender, SessionEventDraft, SessionEventLinkage, UnsequencedEventEnvelope,
 };
 use crate::events::session::followers::SessionEventFollowers;
 use crate::events::session::read::DamagedFromSequenceReader;
@@ -112,7 +112,9 @@ impl Fixture {
                 EVENT_LOG_STATEMENT_CAPACITY,
             )),
             followers: Arc::new(SessionEventFollowers::default()),
-            projection_statements: Some(Box::new(question_projection_statements)),
+            projection_statements: Some(Box::new(|envelope: &UnsequencedEventEnvelope| {
+                Ok(question_projection_statements(envelope))
+            })),
             refuse_session_write: None,
             read_damaged_from_sequence: None,
         }));
@@ -618,6 +620,7 @@ async fn a_held_question_ends_canceled_with_its_runs_reason(
                         reached_by: None,
                     },
                     "not resumed",
+                    None,
                 )
                 .await
                 .expect("the restart ends the run");
@@ -795,12 +798,15 @@ async fn queued_answers_settle_a_question_its_agent_does_not_wait_for_and_rebuil
         Arc::new(DatabaseDamageWatch::new()),
         vec![Box::new(QuestionsProjection)],
     )
-    .rebuild(ProjectionRebuildRequest {
-        session_id: fixture.session_id,
-        is_forced: true,
-        before_sequence: None,
-        stop: None,
-    })
+    .rebuild(
+        ProjectionRebuildRequest {
+            session_id: fixture.session_id,
+            is_forced: true,
+            before_sequence: None,
+            stop: None,
+        },
+        None,
+    )
     .await
     .expect("the session's questions are rebuilt");
 

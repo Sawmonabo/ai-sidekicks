@@ -80,10 +80,6 @@ pub(crate) enum StreamedGitError {
 /// has exited and what it wrote before is read, without waiting on a process it left behind that
 /// holds its standard error open. Fails with the start's, the read's, the wait's or the stop's
 /// error.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the clone service's git and the background fetch")
-)]
 pub(crate) async fn run_streamed_git(
     git: &GitRunner,
     place: Option<&Place>,

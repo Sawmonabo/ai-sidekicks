@@ -120,6 +120,14 @@ pub(crate) enum ServiceLogFileError {
 }
 
 impl ServiceLog {
+    /// The files of this log, never installed, for a test that starts the daemon over it.
+    #[cfg(test)]
+    pub(crate) fn files(&self) -> ServiceLogFiles {
+        ServiceLogFiles {
+            sides: Arc::clone(&self.sides),
+        }
+    }
+
     /// Installs the service log as the process's subscriber, `log` records included, and says once
     /// on standard error when the file could not be opened. Fails when a subscriber or a `log`
     /// logger is already installed.
@@ -161,13 +169,6 @@ impl ServiceLogGuard {
 impl ServiceLogFiles {
     /// The file the service log writes now, which the expiry never deletes; it stays the live file
     /// through a failed write, which the next line reopens; `None` when it never opened.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the diagnostic-log expiry leaves the live file alone"
-        )
-    )]
     pub(crate) fn live_file(&self) -> Option<PathBuf> {
         Some(lock(self.sides.file.as_ref()?).live_file.clone())
     }

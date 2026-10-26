@@ -28,10 +28,6 @@ use crate::session::run::read::{RunRead, RunStateReader};
 use crate::session::run::stored_state_change::read_stored_run_state_change;
 
 /// The statements the cursors prepare on a pooled connection: a run's row and a binding's row.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start sizes the read pool with it")
-)]
 pub(crate) const RUN_BINDING_CURSORS_STATEMENT_CAPACITY: usize = 2;
 
 /// Why a binding was not recorded or its cursor not opened; a binding whose cursor did not open
@@ -83,13 +79,6 @@ pub(crate) struct RunBindingCursors {
 impl RunBindingCursors {
     /// Cursors over `epochs`, the ones the inbound dispatch attributes on, reading runs and
     /// bindings through `pool` and recording bindings through `store`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the one set of binding cursors"
-        )
-    )]
     pub(crate) fn new(
         pool: Arc<DatabaseReadPool>,
         store: Arc<RuntimeBindingStore>,
@@ -183,13 +172,6 @@ impl RunBindingCursors {
     /// Takes a committed session event, on the writer's pump: a run's end marks its cursors to
     /// drop and its continue unmarks them; a close drops all. Fails when a run state change's
     /// payload does not read as its type's, changing nothing.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start follows every session's committed events with it"
-        )
-    )]
     pub(crate) fn observe(&self, event: &CommittedEvent) -> Result<(), SessionEventReadError> {
         let envelope = &event.envelope;
         let mut sessions = self.lock_sessions();

@@ -22,7 +22,7 @@ use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::scheduler::budget::{Measured, ThreadProcessorTime};
 use crate::database::writer::ThreadStop;
 use crate::database::writer::messages::ThreadRequest;
-use crate::database::writer::thread::serve_request;
+use crate::database::writer::thread::{ThreadCommits, serve_request};
 use crate::events::content::codec::BodyEncoder;
 
 /// The pages one step copies, rusqlite's own step size.
@@ -103,8 +103,8 @@ pub(super) struct ThreadServing<'serving> {
     pub(super) stop: &'serving ThreadStop,
     /// The runtime the thread waits on while a step's lock holds.
     pub(super) runtime: &'serving Handle,
-    /// The thread's count of the batches that committed a write.
-    pub(super) commit_count: &'serving mut u64,
+    /// The batches that committed a write.
+    pub(super) commits: &'serving mut ThreadCommits,
 }
 
 /// Copies the writer's database into `order`'s file, serving each request that waits between
@@ -190,7 +190,7 @@ fn step_until_done(
                     Ok(BackupCopy::Copied {
                         page_count,
                         step_count,
-                        copied_through: *serving.commit_count,
+                        copied_through: serving.commits.count,
                     }),
                     false,
                 );
@@ -230,7 +230,7 @@ fn step_until_done(
                 serving.requests,
                 serving.stop,
                 serving.runtime,
-                serving.commit_count,
+                serving.commits,
             )
         {
             return (Ok(BackupCopy::Stopped), true);

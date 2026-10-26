@@ -123,10 +123,6 @@ struct OpenList {
 impl SessionListFeed {
     /// The list read through `reads`, kept current from `followers`' committed events and renewed
     /// on `scheduler`'s wakes.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start builds the sessions list")
-    )]
     pub(crate) fn new(
         reads: Arc<DatabaseReadPool>,
         followers: &Arc<SessionEventFollowers>,
@@ -174,7 +170,7 @@ impl SessionListFeed {
         let scheduler = Arc::new(Scheduler::start(
             Arc::new(sidekicks_platforms::WallClockTimer::new().expect("the timer is made")),
             None,
-            crate::session::run::live_count::LiveRunCount::default().follow(),
+            tokio::sync::watch::channel(0).1,
         ));
         Arc::new(Self::new(reads, followers, scheduler))
     }

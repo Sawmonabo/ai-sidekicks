@@ -23,6 +23,7 @@ use crate::session::run::engine::tests::{
     stored_events, stored_run_state, test_engine, token_limit, turn_completed_at, turn_started_at,
 };
 use crate::session::run::read::{LiveRun, RunRead};
+use crate::session::run::refusals::RunRefusal;
 use crate::session::run::restart::{RestartFacts, read_restart_facts};
 use crate::session::run::state_change::{RunStateChangeCompanions, RunStateChangeError};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -104,7 +105,7 @@ async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
     .await;
 
     engine
-        .settle_run_after_restart(&running_at(session_id, run_id, 1), "not resumed")
+        .settle_run_after_restart(&running_at(session_id, run_id, 1), "not resumed", None)
         .await
         .expect("the restart settles the run");
 
@@ -414,7 +415,7 @@ async fn a_restart_ends_each_turn_a_limits_row_names_with_the_limit(
     expected.extend_from_slice(settled_events);
 
     engine
-        .settle_run_after_restart(&running_at(session_id, run_id, 1), "not resumed")
+        .settle_run_after_restart(&running_at(session_id, run_id, 1), "not resumed", None)
         .await
         .expect("the restart settles the run");
 
@@ -473,7 +474,7 @@ async fn a_restart_after_an_overtaken_token_stop_and_a_continue_stops_the_run() 
     let restarted = test_engine(&database, log.service, home.path());
 
     restarted
-        .settle_run_after_restart(&running_at(session_id, run_id, 3), "not resumed")
+        .settle_run_after_restart(&running_at(session_id, run_id, 3), "not resumed", None)
         .await
         .expect("the restart settles the run");
 
@@ -548,6 +549,7 @@ async fn a_message_queued_while_a_restart_settles_a_queued_run_leaves_it_queued(
                 has_queued_item: false,
             },
             "the run could not be resumed",
+            None,
         )
         .await
         .expect("a run its queue still starts is left");
@@ -600,7 +602,7 @@ async fn a_restart_settle_is_refused_by_an_interrupt_asked_for_after_its_read() 
     );
 
     let settled = engine
-        .settle_run_from_facts(&run, &facts, "not resumed")
+        .settle_run_from_facts(&run, &facts, "not resumed", None)
         .await;
 
     let rows_read = facts.pending_interrupts.len();
@@ -620,4 +622,171 @@ async fn a_restart_settle_is_refused_by_an_interrupt_asked_for_after_its_read() 
         ("running".to_owned(), 1)
     );
     assert!(stored_events(&database, &run_id).is_empty());
+}
+
+// Killed by dropping the `from_state != run.run.state` guard on the settle's refusal arm, which
+// answers a run the table refused to move as settled.
+#[tokio::test]
+async fn a_restart_settle_the_table_refuses_from_the_state_read_is_an_error() {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let connection = database.reader();
+    connection
+        .execute(
+            "UPDATE runs SET state = 'starting' WHERE run_id = ?1",
+            params![run_id.text().as_str()],
+        )
+        .expect("the test leaves the run starting");
+    let engine = test_engine(&database, log.service, home.path());
+    // The log owes a token stop whose interrupt failed, so the settle decides `stopped`, which the
+    // table does not let a starting run reach.
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 1, 1),
+    )
+    .await;
+    append(
+        &engine,
+        session_id,
+        &token_limit_reached(session_id, run_id),
+    )
+    .await;
+    connection
+        .execute(
+            "INSERT INTO interventions (id, target_run_id, type, state, payload, device_id,
+               expected_run_version, client_idempotency_key, created_at)
+             VALUES (?1, ?2, 'interrupt', 'failed', ?3, NULL, 1, ?1, '2026-01-01T00:00:00.000Z')",
+            params![
+                LIMIT_INTERRUPT_ID,
+                run_id.text().as_str(),
+                limit_record("tokenLimit", 1)
+            ],
+        )
+        .expect("the test records the limit's failed interrupt");
+    let run = LiveRun {
+        run_id,
+        run: RunRead {
+            version: 1,
+            session_id,
+            state: RunState::Starting,
+        },
+        parent_run_id: None,
+        reached_by: None,
+    };
+
+    let settled = engine
+        .settle_run_after_restart(&run, "not resumed", None)
+        .await;
+
+    assert!(
+        matches!(
+            settled,
+            Err(RunEngineError::Refused(RunRefusal::InvalidTransition {
+                from_state: RunState::Starting,
+                ..
+            }))
+        ),
+        "the settle answers {settled:?}"
+    );
+    assert_eq!(
+        stored_run_state(&database, &run_id),
+        ("starting".to_owned(), 1)
+    );
+}
+
+// What lands between a restart settle's read of a run's facts and its write.
+#[derive(Clone, Copy, Debug)]
+enum LandedMeanwhile {
+    // The person asks to interrupt the running run.
+    PersonsInterrupt,
+    // A message starts the queued run.
+    QueuedRunStarted,
+}
+
+// Killed by the settle answering its first refusal rather than reading the run and its facts
+// again, which answers the interrupt asked meanwhile with an error (`interrupt_asked`), and by its
+// change written from whatever state the run has moved to, which fails the run a message started
+// meanwhile (`queued_run_started`).
+#[rstest]
+#[case::interrupt_asked(LandedMeanwhile::PersonsInterrupt, ("interrupted", 2), 1)]
+#[case::queued_run_started(LandedMeanwhile::QueuedRunStarted, ("starting", 0), 0)]
+#[tokio::test]
+async fn a_restart_settle_meets_what_landed_after_its_read(
+    #[case] landed: LandedMeanwhile,
+    #[case] expected_state: (&str, i64),
+    #[case] expected_event_count: usize,
+) {
+    let database = TestDatabase::new();
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    let run = match landed {
+        LandedMeanwhile::PersonsInterrupt => {
+            insert_running_run(&database, session_id, run_id);
+            running_at(session_id, run_id, 1)
+        }
+        LandedMeanwhile::QueuedRunStarted => {
+            database
+                .reader()
+                .execute(
+                    "INSERT INTO runs (run_id, session_id, state, run_version)
+                     VALUES (?1, ?2, 'queued', 0)",
+                    params![run_id.text().as_str(), session_id.text().as_str()],
+                )
+                .expect("the test queues the run");
+            LiveRun {
+                run: RunRead {
+                    state: RunState::Queued,
+                    ..running_at(session_id, run_id, 0).run
+                },
+                ..running_at(session_id, run_id, 0)
+            }
+        }
+    };
+    let engine = test_engine(&database, log.service, home.path());
+    let paused = engine.restart_facts_pause().arm();
+    let mut settling = Box::pin(engine.settle_run_after_restart(&run, "not resumed", None));
+
+    tokio::select! {
+        settled = &mut settling => panic!("the settle passed its pause: {settled:?}"),
+        reached = paused.reached => reached.expect("the settle holds after its read"),
+    }
+    match landed {
+        LandedMeanwhile::PersonsInterrupt => {
+            record_interrupt(
+                &database,
+                run_id,
+                r#"{"pending":"nextTurn"}"#,
+                "accepted",
+                true,
+            );
+        }
+        LandedMeanwhile::QueuedRunStarted => {
+            database
+                .reader()
+                .execute(
+                    "UPDATE runs SET state = 'starting' WHERE run_id = ?1",
+                    [run_id.text().as_str()],
+                )
+                .expect("the test starts the run");
+        }
+    }
+    paused.release.send(()).expect("the settle waits");
+    settling.await.expect("the settle meets what landed");
+
+    let (state, version) = expected_state;
+    assert_eq!(
+        stored_run_state(&database, &run_id),
+        (state.to_owned(), version)
+    );
+    assert_eq!(
+        stored_events(&database, &run_id).len(),
+        expected_event_count
+    );
 }

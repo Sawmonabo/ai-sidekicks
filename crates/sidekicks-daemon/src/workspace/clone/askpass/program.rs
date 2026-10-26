@@ -23,10 +23,10 @@ pub(crate) const ASKPASS_SOCKET_VARIABLE: &str = "SIDEKICKS_ASKPASS_SOCKET";
 /// The environment variable naming a question's owner to the askpass mode.
 pub(crate) const ASKPASS_OWNER_VARIABLE: &str = "SIDEKICKS_ASKPASS_OWNER";
 
-/// The askpass mode's path, beside the running daemon's program with the system's program suffix.
-/// Fails when the system cannot tell the running program's path.
-pub(crate) fn git_askpass_program_path() -> io::Result<PathBuf> {
-    Ok(env::current_exe()?.with_file_name(format!("{GIT_ASKPASS_PROGRAM_NAME}{EXE_SUFFIX}")))
+/// The askpass mode's path, beside `daemon_program`, the running daemon's own program, with the
+/// system's program suffix.
+pub(crate) fn git_askpass_program_path(daemon_program: &Path) -> PathBuf {
+    daemon_program.with_file_name(format!("{GIT_ASKPASS_PROGRAM_NAME}{EXE_SUFFIX}"))
 }
 
 /// Runs the askpass mode: the question is git's or ssh's first argument, the socket and owner come

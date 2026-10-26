@@ -24,7 +24,7 @@ use crate::database::statement::{StatementBindings, WriteStatement, text_binding
 use crate::database::writer::DatabaseWriter;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::EventLogService;
-use crate::events::log_service::tests::open_log;
+use crate::events::log_service::tests::{TestLog, open_log};
 use crate::events::session::appender::SessionEventAppender;
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::session::directory::test_rows::insert_session_row;
@@ -61,9 +61,14 @@ impl ArtifactTestStore {
     /// Opens the store with its session and run written.
     pub(crate) async fn open() -> Self {
         let database = TestDatabase::new();
+        let log = open_log(&database, None).await;
+        Self::open_on(database, log)
+    }
+
+    /// The store on `database` and its event log `log`, with its session and run written.
+    pub(crate) fn open_on(database: TestDatabase, log: TestLog) -> Self {
         let session_id = test_session_id();
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        let log = open_log(&database, None).await;
         seed_owner(
             &database.reader(),
             session_id.text().as_str(),

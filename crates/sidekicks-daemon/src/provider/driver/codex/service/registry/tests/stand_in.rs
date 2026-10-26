@@ -11,8 +11,8 @@ use futures::future::BoxFuture;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
-    ExistingSocket, LeftoverSweep, bind_socket_listener, pin_running_process,
-    replace_file_atomically, replace_socket_link,
+    LeftoverSweep, bind_socket_listener, pin_running_process, replace_file_atomically,
+    replace_socket_link,
 };
 use tokio::sync::mpsc;
 
@@ -68,8 +68,7 @@ async fn an_app_server_stand_in() {
     std::fs::create_dir_all(link.parent().expect("the link has a folder"))
         .expect("the link's folder is made");
     let real_socket = codex_home.join(format!("real-{}.sock", std::process::id()));
-    let listener = bind_socket_listener(&real_socket, ExistingSocket::Refuse)
-        .expect("the real socket listens");
+    let listener = bind_socket_listener(&real_socket).expect("the real socket listens");
     replace_socket_link(&link, &real_socket).expect("the link names the real socket");
     while let Ok(stream) = listener.accept().await {
         tokio::spawn(answer_as_codex_service(stream));

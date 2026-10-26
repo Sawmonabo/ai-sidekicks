@@ -22,7 +22,8 @@ use crate::daemon::panic_hook::{install_panic_hook, send_panics_to_monitor};
 use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
 
-// The child's crash, its monitor's socket and its data folder, passed to the child.
+// The child's crash, its monitor's socket and its data folder, passed to the crashing child; the
+// socket alone marks the monitor child, which serves it as the daemon's own monitor process does.
 const CHILD_CRASH: &str = "SIDEKICKS_TEST_CRASH";
 const CHILD_SOCKET: &str = "SIDEKICKS_TEST_CRASH_SOCKET";
 const CHILD_DATA_FOLDER: &str = "SIDEKICKS_TEST_CRASH_DATA_FOLDER";
@@ -68,36 +69,45 @@ fn crash_as_the_child(crash: &str) -> ! {
     );
 }
 
-// Serves a monitor and runs this test's binary as a child that crashes as `crash`, then waits
-// for the monitor to write its dump.
-fn crash_a_child(crash: &str, data_folder: &Path) {
-    // A folder per child: the in-process monitor's port name lives as long as this process.
-    let run_folder = data_folder.join(crash);
-    fs::create_dir_all(&run_folder).expect("the run folder is made");
-    let socket = crash_monitor_socket_path(&run_folder, std::process::id());
-    let dumps = data_folder.join(CRASH_DUMPS_FOLDER_NAME);
-    let monitor_socket = socket.clone();
-    let monitor = std::thread::spawn(move || serve_crash_monitor(&monitor_socket, &dumps));
+// This test's binary run again as one of its children, the test picked by name.
+fn child_command() -> Command {
     let test_path = module_path!()
         .split_once("::")
         .map(|(_crate, path)| path)
         .expect("the module path names its crate");
-    let status = Command::new(std::env::current_exe().expect("the test knows its binary"))
-        .args([
-            "--exact",
-            &format!("{test_path}::crashes_become_stripped_reports_and_none_while_off"),
-            "--nocapture",
-        ])
+    let mut command = Command::new(std::env::current_exe().expect("the test knows its binary"));
+    command.args([
+        "--exact",
+        &format!("{test_path}::crashes_become_stripped_reports_and_none_while_off"),
+        "--nocapture",
+    ]);
+    command
+}
+
+// Runs a monitor as a child of its own, as the daemon runs its monitor, then this test's binary as
+// a child that crashes as `crash`, and waits for the monitor to write its dump. The monitor is
+// never a thread of this process: on Linux it would ptrace a child this process waits on, and the
+// kernel hands a tracee's stop to a real parent in the tracer's thread group, so the wait for the
+// child's end would take the stop the monitor waits for and both would wait forever.
+fn crash_a_child(crash: &str, data_folder: &Path) {
+    // A folder per child, so each monitor has its own socket.
+    let run_folder = data_folder.join(crash);
+    fs::create_dir_all(&run_folder).expect("the run folder is made");
+    let socket = crash_monitor_socket_path(&run_folder, std::process::id());
+    let mut monitor = child_command()
+        .env(CHILD_SOCKET, &socket)
+        .env(CHILD_DATA_FOLDER, data_folder)
+        .spawn()
+        .expect("the monitor runs");
+    let status = child_command()
         .env(CHILD_CRASH, crash)
         .env(CHILD_SOCKET, &socket)
         .env(CHILD_DATA_FOLDER, data_folder)
         .status()
         .expect("the child runs");
     assert!(!status.success(), "the child crashed");
-    monitor
-        .join()
-        .expect("the monitor's thread ends")
-        .expect("the monitor served its child");
+    let monitor_status = monitor.wait().expect("the monitor ends");
+    assert!(monitor_status.success(), "the monitor served its child");
 }
 
 // A panic and a bad read in a child each leave one report of module file names and offsets;
@@ -113,6 +123,16 @@ fn crash_a_child(crash: &str, data_folder: &Path) {
 async fn crashes_become_stripped_reports_and_none_while_off() {
     if let Ok(crash) = std::env::var(CHILD_CRASH) {
         crash_as_the_child(&crash);
+    }
+    if let Some(socket) = std::env::var_os(CHILD_SOCKET) {
+        let data_folder =
+            PathBuf::from(std::env::var_os(CHILD_DATA_FOLDER).expect("the folder is passed"));
+        serve_crash_monitor(
+            Path::new(&socket),
+            &data_folder.join(CRASH_DUMPS_FOLDER_NAME),
+        )
+        .expect("the monitor serves its child");
+        return;
     }
     let scratch = tempfile::tempdir().expect("a scratch folder");
     let data_folder = scratch.path().join("data");

@@ -40,13 +40,6 @@ use crate::text_cut::cut_to_code_points;
 /// The statements the self-naming prepares on a read connection: the first completed lead run,
 /// the name and first message, the run's reply, the unnamed sessions, the session's working folder
 /// and the run's provider.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start sizes the read connections' statement caches with it"
-    )
-)]
 pub(crate) const SESSION_AUTO_TITLE_STATEMENT_CAPACITY: usize = 6;
 
 /// A fallback name reads as a few words: whole words up to this many code points.
@@ -149,10 +142,6 @@ pub(crate) struct SessionAutoTitling {
 impl SessionAutoTitling {
     /// Stops hearing committed events, cancels every pass under way, which then writes nothing,
     /// and settles once every naming task has ended.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's stop ends the session self-naming")
-    )]
     pub(crate) async fn stop(self) {
         let Self {
             attachment,
@@ -168,13 +157,6 @@ impl SessionAutoTitling {
 impl SessionAutoTitle {
     /// The self-naming reading through `pool`, writing each name through `changes` and running
     /// each pass on the session's driver among `providers`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the session self-naming"
-        )
-    )]
     pub(crate) fn new(
         pool: Arc<DatabaseReadPool>,
         changes: Arc<SessionChanges>,
@@ -193,10 +175,6 @@ impl SessionAutoTitle {
     /// Follows every committed completion and rename of `followers`, then names, one at a time,
     /// each session whose first exchange completed while none was followed. Called inside the
     /// daemon's runtime, whose handle every naming task is spawned on.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start runs the session self-naming")
-    )]
     pub(crate) fn start(
         self: &Arc<Self>,
         followers: &Arc<SessionEventFollowers>,

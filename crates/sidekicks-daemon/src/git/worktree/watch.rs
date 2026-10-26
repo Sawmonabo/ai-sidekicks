@@ -52,7 +52,6 @@ mod tests;
 
 /// How often a folder too large to watch is checked, and the mount-health re-probe's own tick:
 /// what it shows is minutes old at most, while git runs a few times an hour.
-#[expect(dead_code, reason = "the daemon's start")]
 pub(crate) const SLOW_TICK_INTERVAL: Duration = Duration::from_secs(180);
 
 // Repository changes a receiver may fall behind before it reads a lag, which it answers by
@@ -241,7 +240,6 @@ impl Drop for WatchSubscription {
 
 impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
     /// A watcher running with `deps`, watching nothing until a hold or a subscription.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(deps: WorkingFolderWatcherDeps) -> Self {
         Self {
             shared: Arc::new(WatcherShared {
@@ -258,10 +256,6 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
     /// started. Fails with [`WorkingFolderError::Folder`] when the folder cannot be resolved,
     /// [`WorkingFolderError::Start`] when its watches cannot start, and
     /// [`WorkingFolderError::Stopped`] after [`stop`](Self::stop).
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the live session folders and a worktree's setup")
-    )]
     pub(crate) async fn hold(&self, target: &WatchTarget) -> Result<WatchHold, WorkingFolderError> {
         let key = canonical_folder_path(&target.folder)
             .await
@@ -316,7 +310,6 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
 
     /// Moves `session_id`'s subscriptions to the folder it works in now, or parks them while it
     /// works in none; run after the session moves. Fails as [`subscribe`](Self::subscribe) does.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the live session folders"))]
     pub(crate) async fn follow(&self, session_id: &SessionId) -> Result<(), WorkingFolderError> {
         let target = self.read_target(session_id).await?;
         let key = match &target {
@@ -370,14 +363,12 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
 
     /// A receiver of each watched folder whose repository may have moved or gone, from now on;
     /// on a lag, every mount is to be probed, since a folder was missed.
-    #[expect(dead_code, reason = "the daemon's start")]
     pub(crate) fn on_repository_change(&self) -> broadcast::Receiver<PathBuf> {
         self.shared.repository_changes.subscribe()
     }
 
     /// Stops every folder's watches and drops every subscription, then waits for the folders'
     /// tasks to end; a later hold or subscription fails with [`WorkingFolderError::Stopped`].
-    #[expect(dead_code, reason = "the daemon's stop")]
     pub(crate) async fn stop(&self) {
         let (folders, subscriptions) = {
             let mut state = self.shared.lock_state();

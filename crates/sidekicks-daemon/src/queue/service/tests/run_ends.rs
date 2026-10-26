@@ -13,6 +13,7 @@ use tokio::time::{sleep, timeout};
 
 use super::{DriverCalls, Fixture, HELD_WATCH, WAIT, fixture, recording_driver};
 use crate::provider::driver::test_registry::bind_run_to_first_provider;
+use crate::queue::delivery::TEST_PROVIDER_PROCESS;
 use crate::queue::store::RecordedQueueItemState;
 
 /// How the session's lead runs stand when one of them ends with a message waiting.
@@ -111,6 +112,47 @@ async fn a_runs_end_moves_its_waiting_message_on(#[case] ended: EndedRun) {
             assert_eq!(calls.starts(), [(target, item_id)]);
         }
     }
+}
+
+// A message the provider's live process keeps past its run's end stays with that run through the
+// end, and once a driver tells the queue the process is gone it moves on as at the end, to a next
+// run, where it waits for the person's next send. Killed by a process-gone listener that tells the
+// run lifecycle nothing, which leaves it with the ended run.
+#[tokio::test]
+async fn a_message_a_gone_process_kept_moves_on_once_a_driver_tells_of_it() {
+    let calls = Arc::new(DriverCalls::default());
+    calls.is_kept_by_process.store(true, Ordering::SeqCst);
+    let fixture = fixture(recording_driver(&calls)).await;
+    fixture.process.set(Some(TEST_PROVIDER_PROCESS));
+    let run_id = fixture.insert_run("running");
+    bind_run_to_first_provider(&fixture.database, run_id);
+    let item_id = fixture.queue_message(run_id).await;
+    timeout(WAIT, fixture.queue.lifecycle.reconcile(fixture.session_id))
+        .await
+        .expect("the reconcile answers")
+        .expect("the reconcile is heard")
+        .expect("the reconcile hands the running run its message");
+    fixture.set_run_state(run_id, "completed");
+    fixture.settle_end(run_id).await;
+    let target_at_end = fixture.stored_item(item_id).target_run_id;
+
+    fixture.process.set(None);
+    fixture
+        .queue
+        .process_gone_listener()
+        .process_gone(fixture.session_id);
+    timeout(WAIT, fixture.queue.stop())
+        .await
+        .expect("the gone process's runs settle");
+
+    assert_eq!(calls.steers(), [(item_id, false)]);
+    assert_eq!(target_at_end, Some(run_id));
+    let next_run_id = fixture
+        .stored_item(item_id)
+        .target_run_id
+        .expect("the message waits for a run");
+    assert_ne!(next_run_id, run_id);
+    assert!(calls.starts().is_empty(), "{:?}", calls.starts());
 }
 
 // A run a limit interrupted rests with its message waiting: its end continues nothing, and a send

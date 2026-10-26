@@ -127,7 +127,6 @@ pub(crate) enum LiveFolderError {
 
 impl<W: Watcher + Send + 'static> LiveSessionFolders<W> {
     /// Live session folders running with `deps`, holding nothing until [`start`](Self::start).
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(deps: LiveSessionFoldersDeps<W>) -> Self {
         Self {
             deps,
@@ -145,7 +144,6 @@ impl<W: Watcher + Send + 'static> LiveSessionFolders<W> {
     /// Follows every session's committed events on `followers`, then syncs every session live
     /// now. Called inside the daemon's runtime, where each sync runs. Fails when the live sessions
     /// cannot be read.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) async fn start(
         self: &Arc<Self>,
         followers: &Arc<SessionEventFollowers>,
@@ -178,7 +176,6 @@ impl<W: Watcher + Send + 'static> LiveSessionFolders<W> {
     }
 
     /// Stops following the log, waits for the syncs under way, then lets every hold go.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's stop"))]
     pub(crate) async fn stop(&self) {
         self.stopping.cancel();
         let attachment = self

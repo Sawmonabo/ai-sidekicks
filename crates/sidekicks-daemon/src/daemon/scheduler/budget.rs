@@ -27,13 +27,6 @@ pub(crate) enum WorkUnit {
     /// Bytes of the store a run copied or repacked.
     StoreBytes,
     /// Bytes of write-ahead log a checkpoint moved into the store.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start schedules the passive checkpoint"
-        )
-    )]
     CheckpointedLogBytes,
     /// Entries an expiry examined.
     EntriesExamined,

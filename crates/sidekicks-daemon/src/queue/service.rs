@@ -39,6 +39,7 @@ use crate::events::session::read::DamagedFromSequenceReader;
 use crate::interventions::store::read_sessions_with_unreleased_interrupts;
 use crate::ipc::handlers::driver::resolution::read_session_driver;
 use crate::keyed_lock::KeyHold;
+use crate::provider::driver::ports::ProcessGoneListener;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::queue::admission::{
     QUEUE_DELIVERY_TIMEOUT, QueueAdmission, QueueAdmissionDeps, RunOpenings,
@@ -128,7 +129,6 @@ pub(crate) struct RunQueue {
 
 impl RunQueue {
     /// The queue over `deps`, following every session's committed events from now on.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(deps: RunQueueDeps) -> Arc<Self> {
         let RunQueueDeps {
             pool,
@@ -222,6 +222,38 @@ impl RunQueue {
                 _following: following,
             }
         })
+    }
+
+    /// The queue's delivery, which the drivers' ports tell of each message a provider took,
+    /// refused or gave back, and which holds the messages waiting for paused runs.
+    #[expect(
+        dead_code,
+        reason = "the daemon's start registers the drivers' ports with it"
+    )]
+    pub(crate) fn delivery(&self) -> QueueDelivery {
+        self.delivery.clone()
+    }
+
+    /// The queue's admission, which opens the binding of a turn the daemon starts.
+    #[expect(
+        dead_code,
+        reason = "the daemon's start registers the drivers' ports with it"
+    )]
+    pub(crate) fn admission(&self) -> Arc<QueueAdmission> {
+        Arc::clone(&self.admission)
+    }
+
+    /// The listener a driver tells of a session's provider process that ended, which moves on
+    /// what the process kept for runs that ended; it holds the queue's run lifecycle weakly.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start registers the drivers' ports with it"
+        )
+    )]
+    pub(crate) fn process_gone_listener(&self) -> Arc<dyn ProcessGoneListener> {
+        Arc::new(Arc::downgrade(&self.lifecycle))
     }
 
     /// Sends one message from `device_id` to the lead of `to`, else of `session_id`, and answers it

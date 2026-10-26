@@ -85,14 +85,6 @@ enum VersionReadError {
 
 impl ProviderCommandSearch {
     /// A search with no version read yet, starting each build's version read on `spawner`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start makes the one search each driver's command resolution \
-                      falls back to"
-        )
-    )]
     pub(crate) fn new(spawner: Spawner) -> Self {
         Self {
             spawner,

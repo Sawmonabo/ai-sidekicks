@@ -85,15 +85,12 @@ use crate::queue::delivery::ProviderProcessIds as _;
 const THREAD_START_METHOD: &str = "thread/start";
 const THREAD_RESUME_METHOD: &str = "thread/resume";
 
-/// The port names a failed read is reported under.
-const SPAWN_CONTEXT_PORT: &str = "spawn contexts";
-
 /// What the establishment reads and composes through, shared by every session of the driver.
 pub(crate) struct CodexSessionEstablishmentDependencies {
     /// The services, one per credential home.
     pub(crate) services: Arc<CodexServiceRegistry>,
     /// Where each session runs, resolved at every start and resume.
-    pub(crate) spawn_contexts: Arc<dyn SessionSpawnContextResolver>,
+    pub(crate) spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
     /// Resolves each posture's curated credential list.
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
     /// The login shell's environment captured at the daemon's start.
@@ -589,12 +586,14 @@ impl CodexSessionEstablishment {
     ) -> Result<CodexThreadSettings, CodexError> {
         let posture = require_execution_posture(request.execution_posture)?;
         let dependencies = &self.dependencies;
-        let context = dependencies
-            .spawn_contexts
+        let spawn_contexts = &dependencies.spawn_contexts;
+        let context = spawn_contexts
+            .require_port()
+            .map_err(|error| CodexError::Driver(DriverError::Internal(Box::new(error))))?
             .resolve_spawn_context(request.session_id, request.provider_account_id.cloned())
             .await
             .map_err(|cause| CodexError::PortFailed {
-                port: SPAWN_CONTEXT_PORT,
+                port: spawn_contexts.port_name(),
                 cause,
             })?;
         let credential_policy = dependencies

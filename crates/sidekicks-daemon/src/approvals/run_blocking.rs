@@ -28,6 +28,7 @@ use crate::approvals::permission_asks::PermissionAsks;
 use crate::approvals::service::ApprovalService;
 use crate::approvals::store::ApprovalRequestReader;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
+use crate::events::session::append_lock::SessionAppendHold;
 use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use crate::events::session::pending::PendingSessions;
 use crate::keyed_lock::KeyedLock;
@@ -70,13 +71,6 @@ pub(crate) struct ApprovalRunHolds {
 impl ApprovalRunHolds {
     /// Holds moving runs through `engine`, reading open asks through `reads`; nothing is followed
     /// until [`ApprovalRunHolds::start`].
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the run holds beside the run engine"
-        )
-    )]
     pub(crate) fn new(engine: Weak<RunEngine>, reads: Arc<DatabaseReadPool>) -> Self {
         Self {
             engine,
@@ -143,7 +137,6 @@ impl ApprovalRunHolds {
 
     /// Follows `followers` to reconcile, whenever a run of a session reports `running`, each run
     /// of that session holding an open ask, until the returned handle's stop.
-    #[expect(dead_code, reason = "the daemon's start follows the runs it holds")]
     pub(crate) fn start(
         self: &Arc<Self>,
         followers: &Arc<SessionEventFollowers>,
@@ -206,7 +199,6 @@ pub(crate) struct RunHoldFollowing {
 impl RunHoldFollowing {
     /// Stops hearing runs and settles once every reconcile under way is done. Fails only when the
     /// task itself ended abnormally.
-    #[expect(dead_code, reason = "the daemon's stop ends the run holds")]
     pub(crate) async fn stop(self) -> Result<(), JoinError> {
         let Self {
             attachment,
@@ -260,10 +252,6 @@ pub(crate) struct ApprovalRunEnd {
 impl ApprovalRunEnd {
     /// The gate letting go of a run's provider asks in `permission_asks` and canceling its cards
     /// through `service`.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start registers the run-end gate with the run engine"
-    )]
     pub(crate) fn new(service: Arc<ApprovalService>, permission_asks: Arc<PermissionAsks>) -> Self {
         Self {
             service,
@@ -283,11 +271,12 @@ impl RunSetupGate for ApprovalRunEnd {
     fn on_run_terminal<'a>(
         &'a self,
         context: &'a RunTerminalContext,
+        hold: Option<&'a SessionAppendHold>,
     ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
         Box::pin(async move {
             self.permission_asks.forget_run(context.run_id);
             self.service
-                .cancel_pending_for_run(context.run_id, None)
+                .cancel_pending_for_run(context.run_id, hold)
                 .await
                 .map_err(|failures| RunSetupGateError::Failed(Box::new(failures)))
         })

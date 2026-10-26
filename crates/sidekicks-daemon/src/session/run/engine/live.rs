@@ -339,55 +339,10 @@ impl Drop for ContinuingGuard<'_> {
     }
 }
 
-/// Lands a terminal write's link on every exit path of the write, its future dropped included,
-/// since a write once queued is not withdrawn.
-pub(super) struct EndingGuard<'engine> {
-    /// The engine's live runs.
-    pub(super) live: &'engine Mutex<LiveRuns>,
-    /// The run being ended.
-    pub(super) run_id: RunId,
-    /// The write's link.
-    pub(super) entry: Arc<EndingWrite>,
-}
-
-impl EndingGuard<'_> {
-    // Lands the write and steps the run's entry back, under the held lock `live`, so a newer
-    // write's guard walking back never puts this one back once this guard has run.
-    fn land(&self, live: &mut LiveRuns) {
-        settle(&self.entry.landed, ());
-        if live
-            .ending
-            .get(&self.run_id)
-            .is_some_and(|current| Arc::ptr_eq(current, &self.entry))
-        {
-            // An older write still in flight stays for a waiter: the newest that has not landed
-            // takes this one's place, and its own guard clears it once it lands.
-            let mut pending = self.entry.previous.clone();
-            while let Some(write) = pending.clone().filter(|write| write.landed.initialized()) {
-                pending.clone_from(&write.previous);
-            }
-            match pending {
-                Some(write) => {
-                    live.ending.insert(self.run_id, write);
-                }
-                None => {
-                    live.ending.remove(&self.run_id);
-                }
-            }
-        }
-    }
-}
-
-impl Drop for EndingGuard<'_> {
-    fn drop(&mut self) {
-        self.land(&mut lock(self.live));
-    }
-}
-
-// Sets an entry's settlement from its guard. Each entry has one guard and a guard drops once, so
-// the settlement is empty here; were it set, the first settlement would stand and `value` is
-// dropped.
-fn settle<Value>(settlement: &SetOnce<Value>, value: Value) {
+/// Sets an entry's settlement from its guard. Each entry has one guard and a guard drops once, so
+/// the settlement is empty here; were it set, the first settlement would stand and `value` is
+/// dropped.
+pub(super) fn settle<Value>(settlement: &SetOnce<Value>, value: Value) {
     if let Err(SetOnceError(later)) = settlement.set(value) {
         drop(later);
     }
@@ -401,60 +356,12 @@ pub(super) fn lock(live: &Mutex<LiveRuns>) -> MutexGuard<'_, LiveRuns> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc;
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::time::Duration;
-
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::intervention::RunLimit;
-    use tokio::sync::SetOnce;
 
-    use super::{EndingGuard, EndingWrite, LiveRuns, lock};
+    use super::LiveRuns;
     use crate::session::run::engine::tests::turn;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
-
-    // How long the live lock is held after the guard begins to drop, long enough for a guard that
-    // lands its write before taking the lock to have landed it.
-    const LOCK_HOLD: Duration = Duration::from_millis(200);
-
-    // Killed by the guard landing its write before it holds the live lock, which lets a newer
-    // write's guard walk past it while its map step is still to come.
-    #[test]
-    fn an_ending_write_lands_only_once_its_guard_holds_the_live_lock() {
-        let live = Mutex::new(LiveRuns::default());
-        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        let entry = Arc::new(EndingWrite {
-            previous: None,
-            landed: SetOnce::new(),
-        });
-        lock(&live).ending.insert(run_id, Arc::clone(&entry));
-        let guard = EndingGuard {
-            live: &live,
-            run_id,
-            entry: Arc::clone(&entry),
-        };
-
-        thread::scope(|scope| {
-            let held = lock(&live);
-            let (dropping, drop_begun) = mpsc::channel();
-            let dropped = scope.spawn(move || {
-                dropping.send(()).expect("the test waits for the drop");
-                drop(guard);
-            });
-            drop_begun.recv().expect("the guard begins to drop");
-            thread::sleep(LOCK_HOLD);
-            assert!(
-                !entry.landed.initialized(),
-                "the write landed while another held the live lock"
-            );
-            drop(held);
-            dropped.join().expect("the guard drops");
-        });
-
-        assert!(entry.landed.initialized());
-        assert!(lock(&live).ending.is_empty());
-    }
 
     // Killed by the withdrawal matching cuts by their limit, which removes the later token cut
     // with the earlier one, by one that takes the turn's newest cut off whoever made it, and by

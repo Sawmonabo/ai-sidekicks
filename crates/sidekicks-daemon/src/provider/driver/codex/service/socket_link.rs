@@ -102,7 +102,7 @@ pub(crate) fn clear_socket_link_of(
 #[cfg(all(test, unix))]
 mod tests {
     use sidekicks_platforms::{
-        ExistingSocket, ProcessRecord, bind_socket_listener, pin_running_process, read_socket_link,
+        ProcessRecord, bind_socket_listener, pin_running_process, read_socket_link,
         replace_socket_link,
     };
 
@@ -119,8 +119,7 @@ mod tests {
         let home_link = folder.path().join("home.sock");
         let held_socket = folder.path().join("held.sock");
         let real_socket = folder.path().join("real.sock");
-        let listener =
-            bind_socket_listener(&held_socket, ExistingSocket::Refuse).expect("the listener binds");
+        let listener = bind_socket_listener(&held_socket).expect("the listener binds");
         replace_socket_link(&home_link, &held_socket).expect("the link names the held socket");
         let own = pin_running_process(std::process::id())
             .expect("this process reads")

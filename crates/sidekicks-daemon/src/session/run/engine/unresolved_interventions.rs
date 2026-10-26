@@ -9,9 +9,11 @@ use std::sync::Weak;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::SetOnceError;
 
 use crate::database::connection::read_pool::ReadLength;
+use crate::events::session::append_lock::SessionAppendHold;
 use crate::interventions::interrupt_queue::{InterruptChoice, InterruptQueue};
 use crate::interventions::unresolved::{
     UnresolvedSettle, UnresolvedSettleMoment, read_ended_runs_with_unresolved,
@@ -29,13 +31,6 @@ impl RunEngine {
     /// Hands the engine the run queue whose hold of a person's interrupt a run's end or a turn's
     /// end lets go once it settles that interrupt, once, while the daemon wires its services and
     /// before any run can end. Fails with the handle when one was handed already.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which hands the engine the run queue"
-        )
-    )]
     pub(crate) fn set_interrupt_queue(
         &self,
         queue: Weak<dyn InterruptQueue>,
@@ -62,12 +57,13 @@ impl RunEngine {
 
     /// Writes `change`, a run's end, with `companions` and the settle of every intervention left
     /// with no outcome on the run but those the companions settle, read again once when one of
-    /// them moved since its read. Answers the run as the end left it and the choices whose queue
-    /// holds go; fails as the change's write does.
+    /// them moved since its read, under `hold` where the caller holds the session. Answers the run
+    /// as the end left it and the choices whose queue holds go; fails as the change's write does.
     pub(super) async fn write_run_end(
         &self,
         change: RunStateChange,
         companions: RunStateChangeCompanions,
+        hold: Option<&SessionAppendHold>,
     ) -> Result<(RunRead, Vec<(InterventionId, InterruptChoice)>), RunEngineError> {
         let run_id = change.run_id;
         let moment = UnresolvedSettleMoment::RunEnded(RunState::from(change.entry.state()));
@@ -85,7 +81,7 @@ impl RunEngine {
             with_settle.statements.extend(statements);
             with_settle.preceding_events.extend(events);
             settle_held_requests_at_run_end(&self.pool, &change, &mut with_settle).await?;
-            match self.changes.write(change.clone(), with_settle).await {
+            match self.changes.write(change.clone(), with_settle, hold).await {
                 Ok(run) => return Ok((run, released_choices)),
                 // A row the settle read moved since, by its own dispatch's outcome.
                 Err(RunStateChangeError::CompanionRefused {
@@ -125,7 +121,7 @@ impl RunEngine {
                 ..RunStateChangeCompanions::default()
             };
             match self
-                .change_with_turn_end(change.clone(), companions, run, turn_end)
+                .change_with_turn_end(change.clone(), companions, run, turn_end, None)
                 .await
             {
                 Ok(changed) => {
@@ -164,7 +160,7 @@ impl RunEngine {
             let Some(last) = events.pop() else {
                 return Ok(());
             };
-            match self.append(last, statements, events).await {
+            match self.append(last, statements, events, None).await {
                 Ok(_receipt) => {
                     return self.release_interrupt_holds(run_id, released_choices).await;
                 }
@@ -233,7 +229,7 @@ impl RunEngine {
             let Some(last) = events.pop() else {
                 return Ok(true);
             };
-            match self.append(last, statements, events).await {
+            match self.append(last, statements, events, None).await {
                 Ok(_receipt) => {
                     self.release_interrupt_holds(run_id, released_choices)
                         .await?;
@@ -247,23 +243,26 @@ impl RunEngine {
         }
     }
 
-    /// Settles, after a restart, every ended run that a daemon gone down between its end and the
-    /// settle left holding an intervention with no outcome, as its end would have. Every run is
-    /// tried before the failures return together.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's recovery pass at start")
-    )]
-    pub(crate) async fn settle_unresolved_of_ended_runs(&self) -> Result<(), RunEngineError> {
-        let run_ids = self
+    /// Settles, after a restart, every ended run of `session_id` that a daemon gone down between
+    /// its end and the settle left holding an intervention with no outcome, as its end would have.
+    /// Every run is tried before the failures return together.
+    pub(crate) async fn settle_unresolved_of_ended_runs(
+        &self,
+        session_id: SessionId,
+    ) -> Result<(), RunEngineError> {
+        let ended_runs = self
             .pool
-            .read(ReadLength::Short, |reader| {
-                Ok::<_, RunEngineError>(read_ended_runs_with_unresolved(reader)?)
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, RunEngineError>(read_ended_runs_with_unresolved(reader, Some(&session_id))?)
             })
             .await?;
-        let mut outcomes = Vec::with_capacity(run_ids.len());
-        for run_id in run_ids {
-            outcomes.push(self.settle_unresolved_of_ended_run(run_id).await.map(drop));
+        let mut outcomes = Vec::with_capacity(ended_runs.len());
+        for ended in ended_runs {
+            outcomes.push(
+                self.settle_unresolved_of_ended_run(ended.run_id)
+                    .await
+                    .map(drop),
+            );
         }
         settled(
             outcomes,

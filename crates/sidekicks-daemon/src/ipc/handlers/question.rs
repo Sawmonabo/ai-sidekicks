@@ -13,10 +13,6 @@ use crate::questions::service::QuestionsService;
 /// Registers `question.resolve`, answered through `questions`. A call with no calling device is a
 /// fault in the daemon, answered as an internal error. Fails the start when the method is already
 /// registered.
-#[expect(
-    dead_code,
-    reason = "the daemon's start, which registers the question methods"
-)]
 pub(crate) fn register_question_resolve(
     registry: &mut MethodRegistryBuilder,
     questions: Arc<QuestionsService>,

@@ -189,7 +189,7 @@ async fn compose_naming_legs(
 ) -> Result<ClaudeSpawnBoundLegs, DriverError> {
     let no_rows: ProviderRowValues = Record::default();
     let context = resolve_claude_spawn_context(
-        &*sources.spawn_contexts,
+        &sources.ports.spawn_contexts,
         &sources.pool,
         session_id,
         provider_account_id.clone(),

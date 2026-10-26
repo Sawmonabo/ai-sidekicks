@@ -168,7 +168,11 @@ async fn a_restart_ends_each_turn_of_a_log_with_the_cause_the_live_path_writes(
     // Restart: the daemon goes down before either, and the restart settles the same log.
     drop(before_restart);
     test_engine(&restart_database, restart_log.service, home.path())
-        .settle_run_after_restart(&running_at(session_id, run_id, run_version), "not resumed")
+        .settle_run_after_restart(
+            &running_at(session_id, run_id, run_version),
+            "not resumed",
+            None,
+        )
         .await
         .expect("the restart settles the run");
 
@@ -240,9 +244,12 @@ async fn a_restart_ends_the_open_turns_of_runs_that_had_ended() {
     assert!(ended);
     drop(engine);
     let restarted = test_engine(&database, log.service, home.path());
-    let ended_runs = RunStateReader::new(&connection)
-        .list_ended_runs_with_open_turns()
-        .expect("the restart lists the ended runs with open turns");
+    let ended_runs: Vec<RunId> = RunStateReader::new(&connection)
+        .list_ended_runs_with_open_turns(Some(&session_id))
+        .expect("the restart lists the ended runs with open turns")
+        .into_iter()
+        .map(|ended| ended.run_id)
+        .collect();
 
     restarted
         .end_open_turns_of_ended_runs(&ended_runs)

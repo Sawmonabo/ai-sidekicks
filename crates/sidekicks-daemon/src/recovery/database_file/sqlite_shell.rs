@@ -207,16 +207,6 @@ impl SqliteShell {
         Self { program, spawner }
     }
 
-    /// A shell run as the daemon's own running program, by its absolute path, started on
-    /// `spawner`'s thread. Fails when the system cannot name the running program.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start, which builds the shell its repair runs in"
-    )]
-    pub(crate) fn of_running_program(spawner: Spawner) -> io::Result<Self> {
-        Ok(Self::new(std::env::current_exe()?, spawner))
-    }
-
     /// Checks that the shell runs and has the page table its recovery reads through. Fails with
     /// [`UnfitSqliteShell`] naming which.
     pub(crate) async fn refuse_unfit(

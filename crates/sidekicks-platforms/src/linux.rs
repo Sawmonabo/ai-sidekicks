@@ -4,14 +4,16 @@
 //! pinned, the bound on a program's argument, a process's memory and the machine's available
 //! memory, one user's processes and the arguments and environment a process started with, an open
 //! descriptor's path, the wakes of a folder's and a file's watch, whether a terminal's program
-//! waits for input, the daemon's process containment and its shell start's writer check, the
-//! machine's wakes from sleep, a wall-clock timer and the shells the live test opens on a folder.
+//! waits for input, the daemon's process containment and its shell start's writer check, whether
+//! the machine runs on AC power, the machine's wakes from sleep, a wall-clock timer and the shells
+//! the live test opens on a folder.
 
 pub(crate) mod caller_process;
 pub(crate) mod descriptor_path;
 pub(crate) mod input_wait;
 pub(crate) mod memory;
 pub(crate) mod pinned_process;
+pub(crate) mod power_source;
 pub(crate) mod process_containment;
 pub(crate) mod process_start;
 pub(crate) mod processes;
@@ -27,8 +29,6 @@ use std::io::{self, ErrorKind};
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 
-#[cfg(any(test, feature = "test-support"))]
-use crate::footprint::ProcessFootprint;
 use crate::machine_name::{MachineNameError, require_machine_name};
 use crate::posix::memory::page_bytes;
 #[cfg(any(test, feature = "test-support"))]
@@ -172,15 +172,6 @@ pub(crate) fn read_process_file(process_id: u32, file: &str) -> io::Result<Optio
 /// before the open, or the process ending during the read (`ESRCH`).
 pub(crate) fn is_gone(error: &io::Error) -> bool {
     error.kind() == ErrorKind::NotFound || error.raw_os_error() == Some(libc::ESRCH)
-}
-
-/// This process's footprint, which only macOS reports. Always fails with `Unsupported`.
-#[cfg(any(test, feature = "test-support"))]
-pub fn process_footprint() -> io::Result<ProcessFootprint> {
-    Err(io::Error::new(
-        ErrorKind::Unsupported,
-        "only macOS reports a process's footprint",
-    ))
 }
 
 /// The shells the live test opens here, with no startup files and a prompt of its folder: Linux

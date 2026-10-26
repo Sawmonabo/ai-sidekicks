@@ -43,13 +43,6 @@ use crate::keyed_lock::KeyedLock;
 use crate::random_hex::random_hex;
 
 /// The statements the prune's context read prepares on a read connection: the one row read.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start sizes the read connections' statement caches with it"
-    )
-)]
 pub(crate) const TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY: usize = 1;
 
 const SELECT_RUN_CONTEXT_SQL: &str =
@@ -172,13 +165,6 @@ pub(crate) struct TurnSnapshotService {
 impl TurnSnapshotService {
     /// A service running `git`, reading run contexts through `reads`, and keeping scratch indexes
     /// under `execution_roots_folder`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start makes the turn snapshot service through it"
-        )
-    )]
     pub(crate) fn new(
         git: GitRunner,
         reads: Arc<DatabaseReadPool>,

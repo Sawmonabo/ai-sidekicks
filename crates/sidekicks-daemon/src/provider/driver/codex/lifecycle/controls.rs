@@ -3,6 +3,7 @@
 //! capabilities, sign-in and starting level read on a service; the terminal-reach row; and the
 //! expiry of an account home's log rows.
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::path::Path;
 use std::sync::Arc;
@@ -10,7 +11,7 @@ use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::machine::settings::ProviderRowValues;
+use sidekicks_contracts::machine::settings::{ProviderRowValue, ProviderRowValues};
 use sidekicks_contracts::provider::declaration::{
     ProviderDeclarationId, ProviderDeclarationText, ProviderPlaceSwitch, ProviderPlaceSwitches,
     ProviderRow, ProviderSettingControl, ProviderValue,
@@ -20,6 +21,7 @@ use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::record::Record;
 
 use super::CodexDriver;
 use crate::ipc::domain_error::DomainError;
@@ -315,6 +317,20 @@ impl CodexDriver {
                     .expect("one place is within the bounds"),
             },
         }]
+    }
+
+    /// Terminal reach on in the computer's own place, where the app stored no value.
+    pub(crate) fn row_defaults() -> ProviderRowValues {
+        let switches = ProviderPlaceSwitches::new(vec![ProviderPlaceSwitch {
+            place: None,
+            enabled: true,
+        }])
+        .expect("one place is within the bounds");
+        Record::new(BTreeMap::from([(
+            terminal_reach_row_id(),
+            ProviderRowValue::Places(switches),
+        )]))
+        .expect("a row id is never the prototype key")
     }
 
     /// Turns terminal reach on or off in `params.place`: on starts the terminal service on the

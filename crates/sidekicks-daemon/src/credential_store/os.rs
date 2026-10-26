@@ -27,7 +27,6 @@ use crate::credential_store::{KeychainRefusal, SecretKeychain};
 use crate::keyed_lock::KeyedLock;
 
 /// How long one keychain call may take, its waits and an unlock prompt included.
-#[expect(dead_code, reason = "the daemon's start passes it")]
 pub(crate) const KEYCHAIN_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How many times shorter than a keychain call the seal service's probe and the sealed file's open
@@ -47,13 +46,6 @@ pub(crate) trait CredentialStoreAccess: Send + Sync {
 }
 
 /// What this machine offers for the daemon's secrets.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start hands the machine's offer to the secret items"
-    )
-)]
 pub(crate) enum SecretsOffer {
     /// The operating system's credential store, which `StoreOpen` opens.
     OperatingSystem(StoreOpen),
@@ -67,10 +59,6 @@ pub(crate) type StoreOpen =
     Arc<dyn Fn() -> Result<CredentialStore, CredentialStoreError> + Send + Sync>;
 
 /// What this machine offers for the daemon's secrets, through the platforms crate.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start hands it to the secret items")
-)]
 pub(crate) struct SystemCredentialStore {
     /// The machine's offer, read once at the start.
     pub(crate) offer: SecretStoreOffer,

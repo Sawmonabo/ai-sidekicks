@@ -12,6 +12,7 @@ use sidekicks_contracts::run::queue::QueueItemSummary;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::events::session::append_lock::SessionAppendHold;
 use crate::ipc::domain_error::DomainError;
 use crate::settle_all::{SettleFailures, settle_all};
 
@@ -91,10 +92,12 @@ pub(crate) trait RunSetupGate: Send + Sync {
         context: &'a RunSetupContext,
     ) -> BoxFuture<'a, Result<(), RunSetupGateError>>;
 
-    /// Releases what the gate held for the run once it ended; holds nothing by default.
+    /// Releases what the gate held for the run once it ended, appending under `hold` where the
+    /// run's end was written under the caller's hold of its session; holds nothing by default.
     fn on_run_terminal<'a>(
         &'a self,
         _context: &'a RunTerminalContext,
+        _hold: Option<&'a SessionAppendHold>,
     ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
         Box::pin(std::future::ready(Ok(())))
     }
@@ -127,13 +130,15 @@ impl RunSetupGates {
 
     /// Runs every terminal hook in reverse registration order. A hook that fails does not stop the
     /// rest; once all have run, their failures return together, beside the run and how it ended.
+    /// Each hook appends under `hold` where the caller holds the run's session.
     pub(crate) async fn release_for_terminal(
         &self,
         context: &RunTerminalContext,
+        hold: Option<&SessionAppendHold>,
     ) -> Result<(), RunTerminalReleaseError> {
         let mut outcomes = Vec::with_capacity(self.gates.len());
         for gate in self.gates.iter().rev() {
-            outcomes.push(gate.on_run_terminal(context).await);
+            outcomes.push(gate.on_run_terminal(context, hold).await);
         }
         settle_all(
             outcomes,

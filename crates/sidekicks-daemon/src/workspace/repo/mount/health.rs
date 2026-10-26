@@ -60,10 +60,6 @@ use crate::workspace::row_guards::{
 use crate::workspace::trust_envelope::{components_equal, is_contained_within};
 
 /// The statements the re-probe's reads keep prepared on each read connection.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start, sizing its read connections")
-)]
 pub(crate) const REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY: usize = 5;
 
 // What every attached-mount read selects, in the order `attached_mount_of` reads it.
@@ -310,7 +306,6 @@ struct MountMemory {
 /// ([`start_probe`](Self::start_probe)) and on wake ([`reprobe`](Self::reprobe)), and only the
 /// mounts holding a folder that changed
 /// ([`reprobe_mounts_containing`](Self::reprobe_mounts_containing)). See the module doc.
-#[cfg_attr(not(test), expect(dead_code, reason = "the start's scheduler"))]
 pub(crate) struct RepoMountHealthReprobe {
     reads: Arc<DatabaseReadPool>,
     events: Arc<WorkspaceEventEmitter>,
@@ -324,7 +319,6 @@ pub(crate) struct RepoMountHealthReprobe {
 impl RepoMountHealthReprobe {
     /// The re-probe reading rows through `reads`, asking `resolver` for each root's repository and
     /// sending each change through `events`; canceling `stop` ends every pass and every send.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the start's scheduler"))]
     pub(crate) fn new(
         reads: Arc<DatabaseReadPool>,
         events: Arc<WorkspaceEventEmitter>,
@@ -344,7 +338,6 @@ impl RepoMountHealthReprobe {
 
     /// Probes every attached mount at the service's start; a mount whose probe runs out of time
     /// reads `unreachable`. Fails as [`reprobe`](Self::reprobe) does.
-    #[expect(dead_code, reason = "the start's scheduler")]
     pub(crate) async fn start_probe(&self) -> Result<(), ReprobeError> {
         let mounts = self.read_attached_mounts().await?;
         self.probe_each(
@@ -358,7 +351,6 @@ impl RepoMountHealthReprobe {
     /// Fails with [`ReprobeError::Read`] when the attached mounts cannot be read, and with
     /// [`ReprobeError::Passes`] once every pass has ended when any mount's pass failed, a send
     /// that did not reach a session among them.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the start's scheduler"))]
     pub(crate) async fn reprobe(&self) -> Result<(), ReprobeError> {
         let mounts = self.read_attached_mounts().await?;
         let attached: HashSet<RepoMountId> = mounts.iter().map(|mount| mount.id).collect();
@@ -374,7 +366,6 @@ impl RepoMountHealthReprobe {
     /// Re-probes only the attached mounts whose root, or a checkout a live workspace on it works
     /// in, holds `folder`, an absolute path with each link resolved, as the stored roots are.
     /// Fails as [`reprobe`](Self::reprobe) does.
-    #[expect(dead_code, reason = "the start's scheduler")]
     pub(crate) async fn reprobe_mounts_containing(
         &self,
         folder: &Path,

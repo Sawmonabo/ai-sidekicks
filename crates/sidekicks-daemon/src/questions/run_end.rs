@@ -1,9 +1,10 @@
 //! The provider requests a run's end lets go, settled in the write that ends the run, so no daemon
 //! death between the end and the settle leaves one open: each question the run holds open and its
-//! agent waits on is canceled, and each plan still waiting on a request the run's driver held is
-//! reopened. The reason is the end's own: `interrupted` for every interrupted end, `runEnded` for
-//! any other, a restart's among them. A question its agent does not wait for stays open, since a
-//! queued message answers it after the run.
+//! agent waits on is canceled, each plan still waiting on a request the run's driver held is
+//! reopened, and each choice its provider asked and no answer settled is settled with none. The
+//! reason is the end's own: `interrupted` (`canceled` for the retry-or-edit choice) for every
+//! interrupted end, `runEnded` for any other, a restart's among them. A question its agent does not
+//! wait for stays open, since a queued message answers it after the run.
 
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::plan::PlanHoldEndedReason;
@@ -17,23 +18,38 @@ use crate::events::session::appender::SessionEventDraft;
 use crate::plans::store::{hold_end_write, read_held_plans_of_run};
 use crate::questions::store::{read_open_held_questions, settle_question_statement};
 use crate::session::run::engine::RunEngineError;
+use crate::session::run::provider_choice::read_open_choice_settlements;
+use crate::session::run::read::RunStateReader;
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
-/// Adds to `companions`, the write of `change`, a run's end, the settle of every held question
-/// and holding plan of the run, each guarded on the state it was read in. Fails as the read fails
-/// or an event cannot be drafted.
+/// Adds to `companions`, the write of `change`, a run's end, the settle of every held question,
+/// holding plan and unsettled choice of the run but the choices the companions settle, each
+/// guarded on the state it was read in. Fails as the read fails or an event cannot be drafted.
 pub(crate) async fn settle_held_requests_at_run_end(
     pool: &DatabaseReadPool,
     change: &RunStateChange,
     companions: &mut RunStateChangeCompanions,
 ) -> Result<(), RunEngineError> {
     let run_id = change.run_id;
-    let is_interrupted = RunState::from(change.entry.state()) == RunState::Interrupted;
-    let (questions, plans) = pool
+    let end = RunState::from(change.entry.state());
+    let is_interrupted = end == RunState::Interrupted;
+    let settled_choices = companions.settled_choices.clone();
+    let (questions, plans, choices) = pool
         .read(ReadLength::Short, move |reader| {
+            let choices = match RunStateReader::new(reader).read_run(&run_id)? {
+                Some(run) => read_open_choice_settlements(
+                    reader,
+                    run.session_id,
+                    run_id,
+                    end,
+                    &settled_choices,
+                )?,
+                None => Vec::new(),
+            };
             Ok::<_, RunEngineError>((
                 read_open_held_questions(reader, &run_id)?,
                 read_held_plans_of_run(reader, &run_id)?,
+                choices,
             ))
         })
         .await?;
@@ -68,6 +84,10 @@ pub(crate) async fn settle_held_requests_at_run_end(
         let (statement, event) = hold_end_write(plan, plan_reason);
         companions.statements.push(statement);
         companions.preceding_events.push(event);
+    }
+    for choice in choices {
+        companions.statements.push(choice.guard);
+        companions.preceding_events.push(choice.event);
     }
     Ok(())
 }

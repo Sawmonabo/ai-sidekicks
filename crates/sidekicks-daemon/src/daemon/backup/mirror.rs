@@ -10,6 +10,8 @@
 //! renamed over its copy, so a copy whose size and time reached the disk holds its bytes too. Links
 //! are not followed and not copied.
 
+pub(crate) mod roots;
+
 use std::fs::{self, File};
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -106,13 +108,6 @@ impl MirrorRoot {
     /// The root named `name` keeping `source`, a path relative to the home folder. Fails when the
     /// name is not one plain path component, or the path is empty, absolute, not UTF-8 or holds a
     /// component other than a plain name, such as `..`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start lists the places the mirror keeps"
-        )
-    )]
     pub(crate) fn new(name: String, source: &Path) -> Result<Self, MirrorRootError> {
         let components = source
             .components()
@@ -128,6 +123,21 @@ impl MirrorRoot {
             name,
             source: components.join(&LISTED_PATH_SEPARATOR.to_string()),
         })
+    }
+
+    /// The root named `name` keeping `place`, a path under `home` as `home` is spelled. Fails as
+    /// [`new`] does, and when `place` is not under `home`.
+    ///
+    /// [`new`]: MirrorRoot::new
+    pub(crate) fn under_home(
+        name: String,
+        home: &Path,
+        place: &Path,
+    ) -> Result<Self, MirrorRootError> {
+        let source = place
+            .strip_prefix(home)
+            .map_err(|_outside| MirrorRootError::Source)?;
+        Self::new(name, source)
     }
 
     /// The copy's name in the mirror.

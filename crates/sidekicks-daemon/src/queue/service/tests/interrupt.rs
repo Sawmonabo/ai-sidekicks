@@ -392,7 +392,13 @@ impl Fixture {
 
     /// A run queue built again over the fixture's record, as the daemon's next start builds it.
     fn restart(&self, driver: MockProviderDriver) -> Arc<RunQueue> {
-        queue_over(&self.database, &self.log, &self.home, driver)
+        queue_over(
+            &self.database,
+            &self.log,
+            &self.home,
+            driver,
+            Arc::clone(&self.process) as _,
+        )
     }
 }
 

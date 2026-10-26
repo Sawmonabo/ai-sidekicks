@@ -45,10 +45,6 @@ use crate::workspace::schema::MountOrigin;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The statements the service's reads keep prepared on each read connection.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start, sizing its read connections")
-)]
 pub(crate) const REPO_MOUNT_SERVICE_STATEMENT_CAPACITY: usize = 4;
 
 // An attached mount of a repository the machine has no active mount of in that place, compared by

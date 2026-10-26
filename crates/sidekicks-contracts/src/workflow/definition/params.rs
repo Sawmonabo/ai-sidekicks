@@ -6,13 +6,15 @@
 //! lookup gives each kind's parameter list.
 
 use garde::Validate;
-use serde::Deserialize;
+use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::agent::definition::AgentDefinitionId;
 use crate::project::ProjectId;
 use crate::session::id::SessionId;
+use crate::typescript::{Definition, TypeScriptModule};
 use crate::workflow::definition::document::WorkflowToolBinding;
 use crate::workflow::kind::{
     WorkflowCollectionParamSpec, WorkflowLeafParamSpec, WorkflowParamSpec, WorkflowParamType,
@@ -25,13 +27,26 @@ const SECRET_SCHEME: &str = "secret://";
 /// One parameter value the check refused. `path` is the value's dotted place, its parameter's id
 /// first (`headers.0.token` inside a repeating collection), and `message` names the fault, such as
 /// a tool binding's `approvalMode`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "wasm", derive(serde::Serialize))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowParamIssue {
     /// The value's dotted place.
     pub path: String,
     /// The fault.
     pub message: String,
+}
+
+/// The parameter check's arguments as the builder sends them: one node's parameters and its
+/// kind's parameter list.
+#[derive(Clone, Debug, PartialEq, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkflowNodeParamsCheckInput {
+    /// The node's parameters by id.
+    #[serde(deserialize_with = "crate::wire::record::prototype_free")]
+    #[schemars(extend("propertyNames" = crate::wire::record::prototype_free_names()))]
+    pub params: Map<String, Value>,
+    /// The kind's parameter list.
+    pub specs: Vec<WorkflowParamSpec>,
 }
 
 /// Checks one node's parameters against its kind's parameter list, walking into collections, and
@@ -262,6 +277,18 @@ fn check_collection(
 fn is_expression(text: &str) -> bool {
     text.starts_with("={{") && text.ends_with("}}")
 }
+
+/// The TypeScript module of the parameter check's arguments and the values it refuses.
+pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
+    path: "workflow/definition/params",
+    doc: "The parameter check's arguments and the values it refuses.",
+    definitions: &[
+        Definition::read::<WorkflowParamIssue>(),
+        Definition::read::<WorkflowNodeParamsCheckInput>(),
+    ],
+    constants: &[],
+    method_tables: &[],
+};
 
 #[cfg(test)]
 mod tests {

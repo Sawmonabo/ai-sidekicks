@@ -165,6 +165,8 @@ pub use linux::caller_process::{
 pub use linux::descriptor_path::read_descriptor_path;
 #[cfg(target_os = "linux")]
 pub use linux::input_wait::{may_wait_for_input, read_input_wait};
+#[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
+pub use linux::memory::process_footprint;
 #[cfg(target_os = "linux")]
 pub use linux::memory::{
     available_memory, read_process_peak_bytes, turn_off_transparent_huge_pages,
@@ -173,8 +175,8 @@ pub use linux::memory::{
 pub use linux::pinned_process::this_process;
 #[cfg(target_os = "linux")]
 pub use linux::pinned_process::{PinnedProcess, pin_child_process, pin_running_process};
-#[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
-pub use linux::process_footprint;
+#[cfg(target_os = "linux")]
+pub use linux::power_source::PowerSourceWatch;
 #[cfg(target_os = "linux")]
 pub use linux::process_start::{read_process_environment, read_process_start};
 #[cfg(target_os = "linux")]
@@ -251,6 +253,8 @@ pub use posix::child_command::{
 };
 #[cfg(unix)]
 pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
+#[cfg(unix)]
+pub use posix::current_user::current_user_id;
 #[cfg(unix)]
 pub use posix::disk::{
     flush_file, flush_folder, flush_open_file, is_on_network_file_system, read_exact_at,
@@ -347,7 +351,7 @@ pub use process_start::ProcessStart;
 pub use program_install_folders::{ProgramFolder, program_install_folders};
 pub use program_start::{ProgramStart, program_start};
 pub use recreate_link::recreate_link;
-pub use run_folder::{DaemonRunFolder, RunFolderRefused};
+pub use run_folder::{DaemonRunFolder, RunFolderRefused, askpass_socket_path};
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_folder_start::ShellFolderProbe;
@@ -356,7 +360,6 @@ pub use shell_line_command::{command_shell, shell_line_command};
 pub use shell_start::SHELL_START_CONFIRMATION;
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
 pub use socket::connection::found_no_listener;
-pub use socket::listener::ExistingSocket;
 pub use socket::path::{SocketPathEntry, SocketPathRefused};
 pub use spawner::Spawner;
 pub use standard_streams::set_binary_standard_streams;
@@ -399,6 +402,8 @@ pub use windows::child_command::{
 pub use windows::command_argument_limit::read_command_argument_limit;
 #[cfg(target_os = "windows")]
 pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
+#[cfg(target_os = "windows")]
+pub use windows::current_user::current_user_id;
 #[cfg(target_os = "windows")]
 pub use windows::descriptor_path::read_descriptor_path;
 #[cfg(target_os = "windows")]
@@ -448,6 +453,8 @@ pub use windows::os_text::os_text_bytes;
 pub use windows::pinned_process::this_process;
 #[cfg(target_os = "windows")]
 pub use windows::pinned_process::{PinnedProcess, pin_child_process, pin_running_process};
+#[cfg(target_os = "windows")]
+pub use windows::power_source::PowerSourceWatch;
 #[cfg(target_os = "windows")]
 pub use windows::private_folder::{
     create_missing_private_folders, create_new_private_folder, create_private_folder,

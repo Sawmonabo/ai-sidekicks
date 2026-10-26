@@ -11,10 +11,6 @@ use crate::ipc::registry::{
 
 /// Registers `daemon.appDiagnostic.record`, writing each record to the service log as one line of
 /// JSON. Fails the start when the method is already registered.
-#[expect(
-    dead_code,
-    reason = "the daemon's start registers the app's diagnostics on its registry"
-)]
 pub(crate) fn register_app_diagnostic_methods(
     registry: &mut MethodRegistryBuilder,
 ) -> Result<(), RegistrationError> {

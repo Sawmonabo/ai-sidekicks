@@ -52,7 +52,6 @@ mod tests;
 
 /// The statements [`QuestionsService`] prepares on a read connection: a record, its pages,
 /// whether its run has an interrupt recorded, and which held questions are still open.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) const QUESTION_STATEMENT_CAPACITY: usize = 4;
 
 // Whether a person's or the daemon's interrupt of the run was asked for or carried out.
@@ -166,13 +165,6 @@ pub(crate) struct QuestionsService {
 impl QuestionsService {
     /// A service writing through `appender`, reading through `reads`, moving runs through
     /// `engine` and reaching each run's provider through its driver in `providers`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which registers the questions port"
-        )
-    )]
     pub(crate) fn new(
         appender: Arc<SessionEventAppender>,
         reads: Arc<DatabaseReadPool>,

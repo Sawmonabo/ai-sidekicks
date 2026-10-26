@@ -238,7 +238,6 @@ impl From<RunPauseError> for HandlerError {
 
 /// The statements [`RunPauseControl`] prepares on a read connection: the run's row and the provider
 /// it runs on.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) const RUN_PAUSE_STATEMENT_CAPACITY: usize = 2;
 
 /// Pauses and resumes runs. Calls on one run take turns, so a resume never reaches the driver
@@ -253,7 +252,6 @@ pub(crate) struct RunPauseControl {
 impl RunPauseControl {
     /// Pause and resume reading runs through `pool`, moving them through `engine` and reaching each
     /// run's provider through its driver in `providers`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(
         pool: Arc<DatabaseReadPool>,
         engine: Arc<RunEngine>,

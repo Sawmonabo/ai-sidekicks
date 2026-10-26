@@ -18,6 +18,7 @@ use crate::provider::driver::SessionSpawnContextResolver;
 use crate::provider::driver::claude::spawn::environment::ClaudeAccountFolders;
 use crate::provider::driver::claude::spawn::legs::ClaudeSpawnContext;
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::session_advisor_store::ClaudeSessionAdvisorStore;
 use crate::session::console_state::{read_session_advisor_model, read_session_max_steps_per_turn};
 
@@ -63,13 +64,15 @@ struct ClaudeStoredSettings {
 /// `row_values` being the Settings values the app stored for the provider. Fails as the place or
 /// the session's stored settings cannot be read.
 pub(crate) async fn resolve_claude_spawn_context(
-    spawn_contexts: &dyn SessionSpawnContextResolver,
+    spawn_contexts: &PortRegistration<Arc<dyn SessionSpawnContextResolver>>,
     pool: &DatabaseReadPool,
     session_id: SessionId,
     provider_account_id: Option<ProviderAccountId>,
     row_values: &ProviderRowValues,
 ) -> Result<ClaudeSpawnContext, ClaudeSpawnContextError> {
     let context = spawn_contexts
+        .require_port()
+        .map_err(|error| ClaudeSpawnContextError::Place(Box::new(error)))?
         .resolve_spawn_context(session_id, provider_account_id)
         .await
         .map_err(ClaudeSpawnContextError::Place)?;

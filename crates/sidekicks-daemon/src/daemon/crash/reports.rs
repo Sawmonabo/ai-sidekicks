@@ -145,10 +145,6 @@ enum DumpBuildError {
 /// The body of the pass the daemon's start schedules, metered against its processor budget:
 /// builds every finished dump's report, or, while `Keep crash reports` is off, deletes every dump,
 /// report and panic record. Fails when the settings, a folder or the key cannot be read or written.
-#[expect(
-    dead_code,
-    reason = "the daemon's start schedules the crash report pass"
-)]
 pub(crate) fn crash_report_job(
     deps: Arc<CrashReportDeps>,
 ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static {

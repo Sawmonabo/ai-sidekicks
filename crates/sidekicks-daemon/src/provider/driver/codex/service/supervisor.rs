@@ -185,6 +185,9 @@ pub(crate) struct CodexService {
     // The record file of the lasting process the last start brought up, which a former daemon's
     // service joined keeps under its own socket's name.
     process_record_file: Mutex<Option<LastingServiceRecordFile>>,
+    // The log of the lasting process a start named, which the diagnostic-log expiry leaves alone
+    // while the service runs.
+    lasting_log_file: Mutex<Option<PathBuf>>,
     // Whether the home's link was moved onto this service's own socket and it still holds it.
     holds_home_link: AtomicBool,
     // The ticket of the connection whose frames are routed; an older one's are not.
@@ -214,6 +217,7 @@ impl CodexService {
             live: Mutex::default(),
             physical_socket: Mutex::default(),
             process_record_file: Mutex::default(),
+            lasting_log_file: Mutex::default(),
             holds_home_link: AtomicBool::new(false),
             routed_dial: AtomicU64::new(0),
             threads: Arc::new(Mutex::new(CodexServiceThreads::new(
@@ -259,6 +263,16 @@ impl CodexService {
     /// and for a service with no lasting process.
     pub(crate) fn process_record_file(&self) -> Option<LastingServiceRecordFile> {
         self.lock_process_record_file().clone()
+    }
+
+    /// The log of the lasting process a start named; `None` before any such start.
+    pub(crate) fn lasting_log_file(&self) -> Option<PathBuf> {
+        self.lock_lasting_log_file().clone()
+    }
+
+    /// Records `log_file` as the log the lasting process a start launches writes.
+    pub(crate) fn set_lasting_log_file(&self, log_file: PathBuf) {
+        *self.lock_lasting_log_file() = Some(log_file);
     }
 
     /// Whether the home's link was moved onto this service's own socket and still belongs to it, so
@@ -495,14 +509,6 @@ impl CodexService {
     }
 
     /// The person's restart of a service left down: forgets the crash window and starts it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the `session.restart` handler brings back a service left down after a \
-                      crash loop through the driver"
-        )
-    )]
     pub(crate) fn restart(&self) {
         self.send(SupervisorEvent::Restart);
     }
@@ -723,6 +729,12 @@ impl CodexService {
 
     fn lock_process_record_file(&self) -> MutexGuard<'_, Option<LastingServiceRecordFile>> {
         self.process_record_file
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn lock_lasting_log_file(&self) -> MutexGuard<'_, Option<PathBuf>> {
+        self.lasting_log_file
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
     }

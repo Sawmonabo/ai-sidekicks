@@ -171,7 +171,6 @@ enum FetchOutcome {
 impl BackgroundFetch {
     /// A fetch running with `deps`, fetching nothing until a hold. Called inside the daemon's
     /// runtime, where its lane is spawned.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(deps: BackgroundFetchDeps) -> Self {
         let shared = Arc::new(FetchShared {
             deps,
@@ -191,7 +190,6 @@ impl BackgroundFetch {
     /// Keeps `repository` fetched until the returned hold drops: at once for the first hold on its
     /// mount, then an interval after each fetch ends; the last hold's drop cancels its next fetch,
     /// and a fetch under way then finishes and records.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the live session folders"))]
     pub(crate) fn keep_fresh(&self, repository: FetchedRepository) -> FetchHold {
         let repo_mount_id = repository.repo_mount_id;
         let mut state = self.shared.lock_state();
@@ -222,7 +220,6 @@ impl BackgroundFetch {
 
     /// Cancels every held repository's next fetch, ends the fetch under way, which records
     /// nothing, and waits for the lane to end; a later hold fetches nothing.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's stop"))]
     pub(crate) async fn stop(&self) {
         let held = {
             let mut state = self.shared.lock_state();

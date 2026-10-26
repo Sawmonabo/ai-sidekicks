@@ -13,6 +13,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::artifacts::manifest::ArtifactType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::plan::{PlanHoldEndedReason, PlanId};
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::JsonRecord;
 
 use crate::artifacts::manifest_write::{
@@ -36,10 +37,6 @@ mod tests;
 
 /// The statements [`PlansService`] prepares on a read connection: the plans of every run still
 /// waiting on a held request (`HELD_PLANS_SQL`).
-#[expect(
-    dead_code,
-    reason = "the daemon's start, which sizes the shared statement cache"
-)]
 pub(crate) const PLANS_STATEMENT_CAPACITY: usize = 1;
 
 /// The media type a plan's artifact is kept under.
@@ -75,13 +72,6 @@ pub(crate) struct PlansService {
 impl PlansService {
     /// A service keeping each plan's text through `publisher`, writing through `appender` and
     /// reading the plan rows through `reads`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which registers the plans port"
-        )
-    )]
     pub(crate) fn new(
         publisher: Arc<ArtifactPublishService>,
         appender: Arc<SessionEventAppender>,
@@ -171,9 +161,9 @@ impl PlansService {
         .await
     }
 
-    /// Reopens every plan still waiting on a held request, `runEnded`, since no held request
-    /// outlives the daemon; a plan that holds none stays waiting. Every plan is tried before the
-    /// failures return together.
+    /// Reopens every plan of `session_id` still waiting on a held request, `runEnded`, since no
+    /// held request outlives the daemon; a plan that holds none stays waiting. Every plan is tried
+    /// before the failures return together.
     #[cfg_attr(
         not(test),
         expect(
@@ -181,11 +171,14 @@ impl PlansService {
             reason = "the daemon's start, which sweeps the holds a restart lost"
         )
     )]
-    pub(crate) async fn end_holds_lost_at_restart(&self) -> Result<(), PlanError> {
+    pub(crate) async fn end_holds_lost_at_restart(
+        &self,
+        session_id: SessionId,
+    ) -> Result<(), PlanError> {
         let held = self
             .reads
-            .read(ReadLength::Short, |reader| {
-                Ok::<_, PlanError>(read_held_plans(reader)?)
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, PlanError>(read_held_plans(reader, Some(&session_id))?)
             })
             .await?;
         let mut outcomes = Vec::with_capacity(held.len());

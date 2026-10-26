@@ -54,7 +54,6 @@ mod tests;
 
 /// The statements the provider sessions' reads prepare: a session's runs, their bindings, its
 /// mode and its level.
-#[expect(dead_code, reason = "the daemon's start, sizing its read connections")]
 pub(crate) const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 4;
 
 /// What a session's provider session opens with, composed from the session's lead as its log
@@ -238,7 +237,6 @@ pub(crate) struct ProviderSessions {
 
 impl ProviderSessions {
     /// The provider sessions over `deps`, none open.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(deps: ProviderSessionsDeps) -> Self {
         Self {
             deps,

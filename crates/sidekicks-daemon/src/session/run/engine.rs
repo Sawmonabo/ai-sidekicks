@@ -6,6 +6,7 @@
 //! bound, stops a run at a limit, records the markers a provider reports on a live run, and tells
 //! a session when a run's provider does not run it at the fast output level it carried.
 
+mod ending;
 mod limits;
 mod live;
 mod settle;
@@ -38,6 +39,7 @@ use tokio::sync::{SetOnce, SetOnceError};
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
 use crate::database::statement::WriteStatement;
 use crate::events::log_service::{EventLogAppendReceipt, EventLogService};
+use crate::events::session::append_lock::SessionAppendHold;
 use crate::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
@@ -53,15 +55,14 @@ use crate::provider::driver::registry::ProviderRegistry;
 use crate::session::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError};
 use crate::session::run::daemon_turn::DaemonTurnQueueError;
 use crate::session::run::engine::live::{
-    ContinuingRun, EndingGuard, EndingWrite, LiveRuns, ProviderChangeGuard, StartingRun, lock,
+    ContinuingRun, LiveRuns, ProviderChangeGuard, StartingRun, lock,
 };
 use crate::session::run::engine::turns::{ProviderTurnEnd, TurnEnd, TurnOutcome, WriteWithResend};
 use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
-use crate::session::run::live_count::LiveRunCount;
 use crate::session::run::read::{RunRead, read_run_through, safe_run_version};
 use crate::session::run::refusals::{RunRefusal, ended_run_refusal};
 use crate::session::run::setup_gates::{
-    RunSetupGate, RunSetupGateError, RunSetupGates, RunTerminalContext, RunTerminalReleaseError,
+    RunSetupGate, RunSetupGateError, RunSetupGates, RunTerminalReleaseError,
 };
 use crate::session::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateChangeWriter,
@@ -74,11 +75,11 @@ use crate::settle_all::{SettleFailures, settle_all};
 /// and whether its interrupt at one limit is pending, the limit its log still owes, its open turns'
 /// cuts and the queued messages waiting for it, the number a run's next turn takes, its newest open
 /// turn and every open turn, its provider, whether it ended since a version, its interventions with
-/// no outcome and the ended runs still holding one, the two agent reads, and the run end's reads of
-/// its open held questions (`OPEN_HELD_OF_RUN_SQL`) and its plans still holding a request
-/// (`HELD_PLANS_OF_RUN_SQL`).
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
-pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 17 + RUN_AGENT_STATEMENT_CAPACITY;
+/// no outcome and one session's ended runs still holding one, the two agent reads, and the run
+/// end's reads of its open held questions (`OPEN_HELD_OF_RUN_SQL`), its plans still holding a
+/// request (`HELD_PLANS_OF_RUN_SQL`) and its open choices (the newest request of each dialog and
+/// whether it was settled since).
+pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 19 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;
@@ -287,7 +288,6 @@ impl From<RunStateChangeError> for RunEngineError {
 }
 
 /// What the run engine reads and writes through.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) struct RunEngineDeps {
     /// The read pool every run read borrows a connection from.
     pub(crate) pool: Arc<DatabaseReadPool>,
@@ -298,8 +298,6 @@ pub(crate) struct RunEngineDeps {
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
     /// The registered drivers: a provider's fixed facts and its driver, by the provider's id.
     pub(crate) providers: Arc<ProviderRegistry>,
-    /// The count of live runs, which every committed state change moves.
-    pub(crate) live_runs: Arc<LiveRunCount>,
 }
 
 // An interrupt that waits before it is routed: for a continue to settle, or for a start past its
@@ -340,18 +338,19 @@ pub(crate) struct RunEngine {
     // Where a test holds a resume's read of its run, once the run is held as being resumed.
     #[cfg(test)]
     resume_read_pause: PausePoint,
+    // Where a test holds a restart's settle of a run between its facts' read and its write.
+    #[cfg(test)]
+    restart_facts_pause: PausePoint,
 }
 
 impl RunEngine {
     /// An engine over `deps`, the posture gate registered as its first setup gate.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(deps: RunEngineDeps) -> Self {
         let RunEngineDeps {
             pool,
             event_log,
             execution_postures,
             providers,
-            live_runs,
         } = deps;
         let appender = Arc::new(SessionEventAppender::new(
             event_log,
@@ -360,7 +359,7 @@ impl RunEngine {
         let mut gates = RunSetupGates::default();
         gates.register(Arc::clone(&execution_postures) as Arc<dyn RunSetupGate>);
         Self {
-            changes: RunStateChangeWriter::new(Arc::clone(&pool), Arc::clone(&appender), live_runs),
+            changes: RunStateChangeWriter::new(Arc::clone(&pool), Arc::clone(&appender)),
             pool,
             appender,
             gates,
@@ -373,6 +372,8 @@ impl RunEngine {
             cut_pause: PausePoint::default(),
             #[cfg(test)]
             resume_read_pause: PausePoint::default(),
+            #[cfg(test)]
+            restart_facts_pause: PausePoint::default(),
         }
     }
 
@@ -382,16 +383,15 @@ impl RunEngine {
         &self.resume_read_pause
     }
 
+    /// Where a test holds a restart's settle of a run between its facts' read and its write.
+    #[cfg(test)]
+    pub(crate) fn restart_facts_pause(&self) -> &PausePoint {
+        &self.restart_facts_pause
+    }
+
     /// Hands the engine the interventions service that carries out each limit stop's interrupt,
     /// once, while the daemon wires its services and before any run can reach a limit. Fails with
     /// the handle when one was handed already.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which hands the engine the interventions service"
-        )
-    )]
     pub(crate) fn set_limit_interrupter(
         &self,
         limit_interrupter: Weak<dyn LimitInterrupter>,
@@ -401,10 +401,6 @@ impl RunEngine {
 
     /// Adds a setup gate after those already registered; its terminal hook runs before theirs.
     /// Gates are registered while the daemon wires its services, before the engine is shared.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start, which registers each feature's setup gate"
-    )]
     pub(crate) fn register_setup_gate(&mut self, gate: Arc<dyn RunSetupGate>) {
         self.gates.register(gate);
     }
@@ -476,7 +472,7 @@ impl RunEngine {
                 change.expected_state,
                 Some(RunState::WaitingForApproval | RunState::WaitingForInput | RunState::Pausing)
             );
-        let written = self.change(change, companions).await?;
+        let written = self.change(change, companions, None).await?;
         if is_back_to_running {
             self.hand_owed_limit_interrupts(run_id);
         }
@@ -557,8 +553,14 @@ impl RunEngine {
             self.change_with_uninterrupted_turn_end(change, &run, turn_end)
                 .await
         } else {
-            self.change_with_turn_end(change, RunStateChangeCompanions::default(), &run, turn_end)
-                .await
+            self.change_with_turn_end(
+                change,
+                RunStateChangeCompanions::default(),
+                &run,
+                turn_end,
+                None,
+            )
+            .await
         };
         drop(mark);
         let changed = changed?;
@@ -612,7 +614,7 @@ impl RunEngine {
                     origin: TurnEndOrigin::Provider,
                     outcome,
                 };
-                self.record_turn_end_alone(run_id, ended, turn_end, false)
+                self.record_turn_end_alone(run_id, ended, turn_end, false, None)
                     .await
             }
             Err(error) => Err(error),
@@ -686,79 +688,6 @@ impl RunEngine {
         Ok(())
     }
 
-    // Writes `change`. A terminal is kept in flight for a continue to wait on and carries the
-    // settle of every intervention left with no outcome on the run; once it has committed, the run
-    // queue's holds of the interrupts it settled go and the terminal hooks run, every failure
-    // returned after all have run, with the end kept.
-    async fn change(
-        &self,
-        change: RunStateChange,
-        companions: RunStateChangeCompanions,
-    ) -> Result<RunRead, RunEngineError> {
-        let run_id = change.run_id;
-        if !RunState::from(change.entry.state()).is_terminal() {
-            return Ok(self.changes.write(change, companions).await?);
-        }
-        // In flight before the settle reads the rows, so a dispatch that answers nothing after
-        // that read waits for this end and settles its own row.
-        let ending = self.track_ending(run_id);
-        let written = self.write_run_end(change, companions).await;
-        drop(ending);
-        let (run, released_choices) = written?;
-        self.forget_ended_run(&run_id);
-        let released = self.release_interrupt_holds(run_id, released_choices).await;
-        let hooks = self
-            .gates
-            .release_for_terminal(&RunTerminalContext {
-                run_id,
-                session_id: run.session_id,
-                terminal_state: run.state,
-                run_version: run.version,
-            })
-            .await
-            .map_err(RunEngineError::from);
-        settled(
-            vec![released, hooks],
-            "ending a run and letting go what it held",
-        )?;
-        Ok(run)
-    }
-
-    // Keeps a terminal write of `run_id` in flight, after any before it, until the guard drops.
-    fn track_ending(&self, run_id: RunId) -> EndingGuard<'_> {
-        let mut live = lock(&self.live);
-        let entry = Arc::new(EndingWrite {
-            previous: live.ending.get(&run_id).cloned(),
-            landed: SetOnce::new(),
-        });
-        live.ending.insert(run_id, Arc::clone(&entry));
-        EndingGuard {
-            live: &self.live,
-            run_id,
-            entry,
-        }
-    }
-
-    // Waits until every terminal write of `run_id` in flight now has landed or been refused.
-    async fn wait_for_ending_writes(&self, run_id: &RunId) {
-        let mut next = lock(&self.live).ending.get(run_id).cloned();
-        while let Some(write) = next.take() {
-            write.landed.wait().await;
-            next.clone_from(&write.previous);
-        }
-    }
-
-    // What the engine held for a run that has ended. A cut stays until its turn's end is written,
-    // which its provider can report after the run's end.
-    fn forget_ended_run(&self, run_id: &RunId) {
-        let mut live = lock(&self.live);
-        live.carried_output_speeds.remove(run_id);
-        live.step_counts.remove(run_id);
-        live.reached_limits
-            .retain(|(reached_run_id, _)| reached_run_id != run_id);
-        live.mark_starting_run_ended(run_id);
-    }
-
     /// Waits while `run_id` is being continued, since it reads ended until its continue is
     /// written; the wait ends when the continue's guard settles, on every exit of the continue.
     pub(crate) async fn wait_while_continuing(&self, run_id: &RunId) {
@@ -791,7 +720,7 @@ impl RunEngine {
             let mut transactional_prelude = vec![run_at_version_statement(&run_id, run.version)];
             transactional_prelude.extend(statements);
             match self
-                .append(draft, transactional_prelude, preceding_events)
+                .append(draft, transactional_prelude, preceding_events, None)
                 .await
             {
                 Ok(receipt) => return Ok(Some((run, receipt))),
@@ -805,23 +734,24 @@ impl RunEngine {
         }
     }
 
-    // One append of `draft` after `preceding_events`, with `transactional_prelude` in its write.
+    // One append of `draft` after `preceding_events`, with `transactional_prelude` in its write,
+    // under `hold` where the caller holds the session.
     async fn append(
         &self,
         draft: SessionEventDraft,
         transactional_prelude: Vec<WriteStatement>,
         preceding_events: Vec<SessionEventDraft>,
+        hold: Option<&SessionAppendHold>,
     ) -> Result<EventLogAppendReceipt, SessionEventAppendError> {
-        self.appender
-            .append(
-                draft,
-                SessionEventLinkage {
-                    transactional_prelude,
-                    preceding_events,
-                    ..SessionEventLinkage::default()
-                },
-            )
-            .await
+        let linkage = SessionEventLinkage {
+            transactional_prelude,
+            preceding_events,
+            ..SessionEventLinkage::default()
+        };
+        match hold {
+            Some(hold) => self.appender.append_held(hold, draft, linkage).await,
+            None => self.appender.append(draft, linkage).await,
+        }
     }
 
     async fn read_run(&self, run_id: RunId) -> Result<Option<RunRead>, RunEngineError> {

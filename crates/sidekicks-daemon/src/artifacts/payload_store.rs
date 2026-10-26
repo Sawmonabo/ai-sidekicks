@@ -196,13 +196,6 @@ impl PayloadStore {
     /// daemon's start and on the ingest reaper's cadence, its listing, reads and removals charged
     /// to `meter`. Answers the payloads it examined, each one stored. Fails when the store's folder
     /// cannot be listed or the referenced keys read.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start schedules the reaper, whose pass sweeps"
-        )
-    )]
     pub(crate) async fn sweep_orphans(
         &self,
         reads: &DatabaseReadPool,

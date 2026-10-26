@@ -25,10 +25,6 @@ use crate::workflow::definitions::library::{
 use crate::workflow::not_found::WorkflowNotFound;
 
 /// The statements the store's reads run: a workflow's kept values.
-#[expect(
-    dead_code,
-    reason = "the daemon's start sums the read pool's statement set"
-)]
 pub(crate) const WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY: usize = 1;
 
 const SELECT_KEPT_VALUES_SQL: &str = "SELECT key, value_json, kept_by_run_id, updated_at

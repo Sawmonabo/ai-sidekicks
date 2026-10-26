@@ -2,7 +2,7 @@
 //! binding never touches a remote provider.
 //!
 //! - `contract_version`, `resume_handle` and the CLI version pair are provider-declared: the SQL
-//!   CHECKs bound length and NULs, and each write checks them first. The version pair and the
+//!   `CHECK` constraints bound length and NULs, and each write checks them first. The version pair and the
 //!   build's path come from one reading of the spawned build, so every row names the build it ran.
 //! - `spawn_config` holds the spawn-bound legs and the build's path: recovery reads the legs back
 //!   to resume without the original request, and the path records what ran, which no start reads.
@@ -44,10 +44,6 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The statements the binding reads prepare on a read connection: one binding, a run's, many
 /// runs', and every resumable one.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start sizes read caches with it")
-)]
 pub(crate) const RUNTIME_BINDING_STORE_STATEMENT_CAPACITY: usize = 4;
 
 // The stored spawn record's member naming the build that ran: written from the spawned build's
@@ -395,10 +391,6 @@ pub(crate) struct RuntimeBindingStore {
 
 impl RuntimeBindingStore {
     /// A store reading through `reads` and writing through `writer`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start builds the one store")
-    )]
     pub(crate) fn new(reads: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
         Self { reads, writer }
     }

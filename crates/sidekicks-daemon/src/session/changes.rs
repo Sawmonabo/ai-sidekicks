@@ -49,13 +49,6 @@ use crate::text_cut::cut_to_code_points;
 
 /// The statements the session changes prepare on a read connection: the session's facts, its
 /// runs, and the providers their bindings name.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start sizes the read connections' statement caches with it"
-    )
-)]
 pub(crate) const SESSION_CHANGES_STATEMENT_CAPACITY: usize = 3;
 
 const SELECT_FACTS_SQL: &str =
@@ -156,14 +149,6 @@ pub(crate) struct SessionChanges {
 impl SessionChanges {
     /// The changes reading through `pool`, appending through `event_log` and reaching the
     /// session's providers through the drivers `providers` registered.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the session changes beside the other session \
-                      services"
-        )
-    )]
     pub(crate) fn new(
         pool: Arc<DatabaseReadPool>,
         event_log: Arc<EventLogService>,

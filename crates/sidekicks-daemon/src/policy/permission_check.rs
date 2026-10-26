@@ -177,13 +177,6 @@ struct AskReading {
 
 impl PermissionCheck {
     /// The check over `deps`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the permission check for the permission asks"
-        )
-    )]
     pub(crate) fn new(deps: PermissionCheckDeps) -> Self {
         Self { deps }
     }

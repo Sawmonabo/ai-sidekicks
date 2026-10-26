@@ -21,7 +21,6 @@ use crate::workspace::folder::canonical_path::canonical_folder_path;
 use crate::workspace::row_guards::CHECKOUT_ROOT_METADATA_PATH;
 
 /// The statements the occupancy read prepares on a pooled connection.
-#[expect(dead_code, reason = "the daemon's start sizes its read pool with it")]
 pub(crate) const MOUNT_OCCUPANCY_STATEMENT_CAPACITY: usize = 2;
 
 // A workspace's checkout is its working tree's top level, which the execution-root service records
@@ -106,7 +105,6 @@ struct OccupancyRows {
 
 impl MountOccupancyReader {
     /// A reader on the daemon's read pool.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(reads: Arc<DatabaseReadPool>) -> Self {
         Self { reads }
     }

@@ -36,7 +36,7 @@ ignored = [
   "hpke",
   "web-push-native",
   "x-wing",
-  # A machine's certificate and the forward to its shared ports.
+  # A machine's certificate and the HTTP forward to its shared ports.
   "hyper-util",
   "instant-acme",
   "tokio-rustls",

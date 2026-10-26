@@ -319,7 +319,10 @@ impl ClaudeDriver {
         let sources = &self.sources;
         let session_id = params.session_id;
         let context = sources
+            .ports
             .spawn_contexts
+            .require_port()
+            .map_err(internal)?
             .resolve_spawn_context(session_id, None)
             .await
             .map_err(DriverError::Internal)?;
@@ -347,7 +350,9 @@ impl ClaudeDriver {
     ) -> Result<Vec<(String, String)>, Box<dyn Error + Send + Sync>> {
         let sources = &self.sources;
         let context = sources
+            .ports
             .spawn_contexts
+            .require_port()?
             .resolve_spawn_context(session_id, provider_account_id.clone())
             .await?;
         let account = context.account_folders.zip(provider_account_id.as_ref());

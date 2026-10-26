@@ -256,7 +256,7 @@ async fn a_lost_hold_reopens_a_holding_plan_once_and_leaves_a_codex_plan(
             for _ in 0..2 {
                 fixture
                     .plans
-                    .end_holds_lost_at_restart()
+                    .end_holds_lost_at_restart(fixture.store.session_id)
                     .await
                     .expect("the sweep runs");
             }
@@ -378,12 +378,15 @@ async fn a_rebuild_writes_the_plan_rows_the_live_writes_wrote() {
         Arc::new(DatabaseDamageWatch::new()),
         vec![Box::new(PlansProjection)],
     )
-    .rebuild(ProjectionRebuildRequest {
-        session_id: fixture.store.session_id,
-        is_forced: true,
-        before_sequence: None,
-        stop: None,
-    })
+    .rebuild(
+        ProjectionRebuildRequest {
+            session_id: fixture.store.session_id,
+            is_forced: true,
+            before_sequence: None,
+            stop: None,
+        },
+        None,
+    )
     .await
     .expect("the session's plans are rebuilt");
 

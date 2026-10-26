@@ -1,66 +1,61 @@
 //! How many runs are live: in `starting`, `running` or `pausing`, the states in which a run does
-//! work. A run waiting on a person, paused or ended does none. The count is read once from the
-//! runs table at start, after every write the start's own recovery makes and before the engine
-//! takes a run, then moved by each run state change once its write commits; keep-awake and the
-//! scheduler's condition both follow it.
+//! work, in a session whose history the daemon trusts. A run waiting on a person, paused or ended
+//! does none, and neither does a run of a session whose projections are not current: the restart
+//! ended its process and only a rebuild or a delete settles it. The database writer counts after
+//! each commit, so the count moves in commit order; keep-awake, the scheduler's condition and the
+//! repack follow it.
+
+use std::sync::LazyLock;
 
 use rusqlite::Connection;
 use sidekicks_contracts::run::state::RunState;
+use strum::VariantArray as _;
 use tokio::sync::watch;
 
-// The live runs in the runs table, read once at start.
-const LIVE_RUNS_SQL: &str =
-    "SELECT count(*) FROM runs WHERE state IN ('starting', 'running', 'pausing')";
+use crate::database::schema::recovery::ProjectionCursorState;
+use crate::database::sql_list::sql_list_of;
+use crate::database::writer::CommitRead;
+use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
-/// The daemon's one count of live runs, which every committed run state change moves and any
-/// number of readers follow.
-#[derive(Debug)]
-pub(crate) struct LiveRunCount {
-    count: watch::Sender<u32>,
-}
+// The live runs of the sessions whose cursor is current. The terminal-state term lets the count
+// search the live runs' covering index rather than read the whole table.
+static LIVE_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
+    let live_states = sql_list_of(
+        RunState::VARIANTS
+            .iter()
+            .copied()
+            .filter(|state| is_live(*state))
+            .map(<&'static str>::from),
+    );
+    format!(
+        "SELECT count(*) FROM runs
+  WHERE state NOT IN ({terminal_states}) AND state IN ({live_states})
+    AND NOT EXISTS (
+      SELECT 1 FROM projection_cursors
+      WHERE session_id = runs.session_id AND state <> ?1
+    )",
+        terminal_states = *RUN_TERMINAL_STATES_SQL,
+    )
+});
 
-impl Default for LiveRunCount {
-    fn default() -> Self {
-        Self {
-            count: watch::Sender::new(0),
-        }
-    }
-}
-
-impl LiveRunCount {
-    /// Sets the count from the runs table on `reader`. Read at start once the runs projection's
-    /// rebuild and the restart's recovery have written, and before the engine takes a run, so no
-    /// move is counted twice; fails when SQLite refuses the read.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start, which seeds the count")
-    )]
-    pub(crate) fn seed(&self, reader: &Connection) -> rusqlite::Result<()> {
-        let count: u32 = reader.query_row(LIVE_RUNS_SQL, [], |row| row.get(0))?;
-        self.count.send_replace(count);
+/// The read the database writer runs after each commit to count the live runs, and a receiver of
+/// that count, which sees its current value and every change.
+pub(crate) fn count_live_runs_after_commits() -> (CommitRead, watch::Receiver<u32>) {
+    let (count, receiver) = watch::channel(0);
+    let read: CommitRead = Box::new(move |connection: &Connection| {
+        let live_runs: u32 = connection
+            .prepare_cached(LIVE_RUNS_SQL.as_str())?
+            .query_row([<&str>::from(ProjectionCursorState::Current)], |row| {
+                row.get(0)
+            })?;
+        count.send_if_modified(|counted| {
+            let is_moved = *counted != live_runs;
+            *counted = live_runs;
+            is_moved
+        });
         Ok(())
-    }
-
-    /// A receiver of the count, which sees its current value and every later one.
-    pub(crate) fn follow(&self) -> watch::Receiver<u32> {
-        self.count.subscribe()
-    }
-
-    /// Moves the count for one committed change of a run from `previous` to `new`: one more on
-    /// entering a live state, one fewer on leaving one, none between two of either.
-    pub(crate) fn record(&self, previous: RunState, new: RunState) {
-        match (is_live(previous), is_live(new)) {
-            (false, true) => {
-                self.count
-                    .send_modify(|count| *count = count.saturating_add(1));
-            }
-            (true, false) => {
-                self.count
-                    .send_modify(|count| *count = count.saturating_sub(1));
-            }
-            (true, true) | (false, false) => {}
-        }
-    }
+    });
+    (read, receiver)
 }
 
 /// Whether a run in `state` does work.
@@ -79,4 +74,4 @@ fn is_live(state: RunState) -> bool {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

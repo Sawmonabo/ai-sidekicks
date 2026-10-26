@@ -42,14 +42,9 @@ use crate::ipc::registry::{
 };
 use crate::ipc::stream::feed::Feed;
 use crate::ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
-use crate::session::service::SessionService;
 use crate::workflow::runs::record::{StoredInstantBound, stored_instant_bound};
 
 /// The statements the methods' reads prepare, counted into the read pool's statement capacity.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start, sizing its read connections")
-)]
 pub(crate) const RETENTION_STATEMENT_CAPACITY: usize = 2;
 
 const DAY: Duration = Duration::from_hours(24);
@@ -107,8 +102,6 @@ pub(crate) struct RetentionMethodsDeps {
     /// The backups, one of which runs after a purge that removed something while `Back up
     /// automatically` is on.
     pub(crate) backups: Arc<Backups>,
-    /// The session reads, which let go of what they kept for a purged session.
-    pub(crate) sessions: Arc<SessionService>,
 }
 
 /// Why the selection could not be read.
@@ -131,13 +124,6 @@ impl From<SelectionReadError> for HandlerError {
 
 /// Registers `daemon.retention.read`, `.update`, `.purge` and `.subscribe`. Fails the start when a
 /// method is already registered.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start registers the retention methods"
-    )
-)]
 pub(crate) fn register_retention_methods(
     registry: &mut MethodRegistryBuilder,
     deps: RetentionMethodsDeps,
@@ -254,7 +240,6 @@ async fn purge_old_data(
         match outcome {
             SessionPurgeOutcome::Removed { hand_out_failure } => {
                 deleted += 1;
-                deps.sessions.forget_session_block_cuts(session_id);
                 if let Some(failure) = hand_out_failure {
                     tracing::warn!(
                         %session_id,
@@ -371,7 +356,6 @@ mod tests {
         DaemonRetentionUpdate,
     };
     use sidekicks_contracts::method::Method as _;
-    use sidekicks_contracts::run::state::RunState;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::session::methods::SessionState;
     use sidekicks_platforms::WallClockTimer;
@@ -401,8 +385,6 @@ mod tests {
     };
     use crate::ipc::stream::feed::CreditGate;
     use crate::pty::shell::test_table::TableFixture;
-    use crate::session::run::live_count::LiveRunCount;
-    use crate::session::service::SessionService;
     use sidekicks_contracts::wire::instant::WireInstant;
 
     const WAIT: Duration = Duration::from_secs(10);
@@ -417,7 +399,7 @@ mod tests {
         registry: MethodRegistry,
         scheduler: Arc<Scheduler>,
         // Kept so the run stays live and the jobs a purge schedules stay parked.
-        _live_runs: LiveRunCount,
+        _live_runs: watch::Sender<u32>,
         _shells: TableFixture,
         _home: TempDir,
     }
@@ -431,6 +413,8 @@ mod tests {
             log,
             purge,
             truncation,
+            live_runs: _,
+            recovery: _,
             _shells: shells,
             _home: home,
         } = fixture;
@@ -443,16 +427,11 @@ mod tests {
                 .await
                 .expect("the configuration store opens"),
         );
-        let live_runs = LiveRunCount::default();
-        live_runs.record(RunState::Queued, RunState::Running);
+        let live_runs = watch::Sender::new(1);
         let scheduler = Arc::new(Scheduler::start(
             Arc::new(WallClockTimer::new().expect("the test arms a wall clock")),
             None,
-            live_runs.follow(),
-        ));
-        let sessions = Arc::new(SessionService::new(
-            Arc::clone(&reads),
-            Arc::new(|_: &SessionId| None),
+            live_runs.subscribe(),
         ));
         let mut builder = MethodRegistryBuilder::new();
         register_retention_methods(
@@ -467,15 +446,14 @@ mod tests {
                     &truncation,
                     &database.path(),
                     |_| Ok(u64::MAX),
-                    live_runs.follow(),
+                    live_runs.subscribe(),
                 ),
                 backups: test_backups(
                     &database,
                     &log,
                     home.path().to_path_buf(),
-                    Arc::new(|| async { Ok(Vec::new()) }.boxed()),
+                    Arc::new(|_meter| async { Ok(Vec::new()) }.boxed()),
                 ),
-                sessions,
             },
         )
         .expect("the retention methods register");

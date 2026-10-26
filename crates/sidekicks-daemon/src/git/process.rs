@@ -299,13 +299,6 @@ pub(crate) struct GitLimits {
 
 impl GitLimits {
     /// The daemon's bounds: [`GIT_COMMAND_TIMEOUT`] and [`GIT_OUTPUT_MAX_BYTES`].
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start makes its git runner with these bounds"
-        )
-    )]
     pub(crate) const DAEMON: Self = Self {
         timeout: GIT_COMMAND_TIMEOUT,
         output_bytes: GIT_OUTPUT_MAX_BYTES,
@@ -333,13 +326,6 @@ impl GitRunner {
     /// The runner for the git at `executable`, an absolute path, or for none found, when every
     /// call fails with [`GitError::NotFound`] where git is first needed rather than at start; each
     /// call's environment starts from `login_environment`, the login shell's captured at start.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start makes its git runner through it"
-        )
-    )]
     pub(crate) fn new(
         spawner: Spawner,
         executable: Option<PathBuf>,
@@ -359,10 +345,6 @@ impl GitRunner {
     /// Waits up to [`SHUTDOWN_STOP_GRACE`] for the end of every tree a failed call left, since a
     /// git the kernel holds may never be reaped, and logs how many are still ending past it. A call
     /// failing after this still ends its tree on a task of its own, which nothing waits for.
-    #[expect(
-        dead_code,
-        reason = "the daemon's stop waits for the git trees a failed call left ending"
-    )]
     pub(crate) async fn wait_for_tree_ends(&self) {
         self.tree_ends.close();
         if tokio::time::timeout(SHUTDOWN_STOP_GRACE, self.tree_ends.wait())
@@ -402,10 +384,6 @@ impl GitRunner {
     /// no bound on its time: the caller ends it, and dropping the tree before git exits ends it.
     /// Fails with `NotStartable` for a call given input or a time bound, else as
     /// [`run`](Self::run) does before git starts.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the clone service's git and the background fetch")
-    )]
     pub(crate) async fn start(
         &self,
         place: Option<&Place>,
@@ -620,13 +598,6 @@ impl GitRunner {
 /// shell's on macOS and Linux); a relative entry is passed over, since it would name the daemon's
 /// working folder. `None` when there is none. Reads the file system, so it runs on the spawner's
 /// thread or in `spawn_blocking`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start finds git along the person's search path through it"
-    )
-)]
 pub(crate) fn find_git_executable(environment: &[(String, String)]) -> Option<PathBuf> {
     find_executables("git", environment, Path::new(""), &[])
         .find(|candidate| candidate.is_absolute())

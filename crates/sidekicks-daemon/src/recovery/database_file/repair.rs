@@ -227,7 +227,7 @@ pub async fn prepare_database_file_repair(
 pub async fn repair_damaged_file(
     options: &DatabaseFileRepairOptions<'_>,
     damage: &str,
-    backup_folder: Option<&Path>,
+    backup_folder: &Path,
     progress: &watch::Sender<Option<DaemonRepairProgress>>,
     stop: &CancellationToken,
 ) -> Result<DatabaseFileRepair, DatabaseFileRepairError> {
@@ -314,7 +314,7 @@ enum ReadyingEnd {
 async fn ready_fresh_file(
     options: &DatabaseFileRepairOptions<'_>,
     fresh_path: &Path,
-    backup_folder: Option<&Path>,
+    backup_folder: &Path,
     progress: &watch::Sender<Option<DaemonRepairProgress>>,
     stop: &CancellationToken,
 ) -> Result<u64, ReadyingEnd> {
@@ -419,23 +419,19 @@ async fn recover_counting_events(
 async fn prepare_with_newest_backup(
     options: &DatabaseFileRepairOptions<'_>,
     fresh_path: &Path,
-    backup_folder: Option<&Path>,
+    backup_folder: &Path,
     stop: &CancellationToken,
 ) -> Result<u64, FreshFileError> {
     let backup_copy_path = sibling_path(options.database_path, BACKUP_COPY_SUFFIX);
-    let is_backup_copied = match backup_folder {
-        Some(backup_folder) => {
-            match copy_newest_backup(options, backup_folder, &backup_copy_path, stop).await {
-                Ok(is_copied) => is_copied,
-                Err(_) if stop.is_cancelled() => return Err(FreshFileError::Stopped),
-                Err(error) => {
-                    log_passed_over_backup(&error);
-                    false
-                }
+    let is_backup_copied =
+        match copy_newest_backup(options, backup_folder, &backup_copy_path, stop).await {
+            Ok(is_copied) => is_copied,
+            Err(_) if stop.is_cancelled() => return Err(FreshFileError::Stopped),
+            Err(error) => {
+                log_passed_over_backup(&error);
+                false
             }
-        }
-        None => false,
-    };
+        };
     prepare_fresh_file(
         &FreshFilePreparation {
             shell: options.shell,

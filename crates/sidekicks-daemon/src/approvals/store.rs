@@ -20,16 +20,18 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
 use crate::approvals::request_create::ApprovalResourceDescriptor;
+use crate::database::session_scope::SessionScopedSql;
 use crate::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use crate::database::stored_column::{closed_word, optional_text_column, text_column};
 use crate::session::directory::lookups::ENDED_SESSION_STATES_SQL;
+use crate::session::run::read::{SessionRun, session_run_of_row};
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 /// The distinct statements [`ApprovalRequestReader`] prepares, for the reading connection's
 /// statement cache.
-pub(crate) const APPROVAL_REQUEST_READER_STATEMENT_CAPACITY: usize = 7;
+pub(crate) const APPROVAL_REQUEST_READER_STATEMENT_CAPACITY: usize = 9;
 
 /// An ask as its rows hold it, with the answers its card may offer and its answer once it has one.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -221,13 +223,6 @@ static INSERT_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // A rebuild's write of an ask: a row a workflow gate's answer names outlives the rebuild's clear,
 // since no rebuild writes the gate's rows, and is written over with what the log says.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which registers the approvals projection with the rebuild"
-    )
-)]
 static REWRITE_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "{}
@@ -260,13 +255,6 @@ const INSERT_RESOLUTION_SQL: &str = "INSERT INTO approval_resolutions
 // A rebuild's write of an answer: the answer of an ask a workflow gate names outlives the
 // rebuild's clear with its ask, and is written over with what the log says, the rule asked for
 // from the answer's event and the rule made cleared until the log's own rule event writes it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which registers the approvals projection with the rebuild"
-    )
-)]
 static REWRITE_RESOLUTION_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "{INSERT_RESOLUTION_SQL}
@@ -358,6 +346,22 @@ static SELECT_ENDED_SESSIONS_WITH_PENDING_SQL: LazyLock<String> = LazyLock::new(
     )
 });
 
+// Every ended run holding an ask still pending, with its session.
+static SELECT_ENDED_RUNS_WITH_PENDING_SQL: LazyLock<SessionScopedSql> = LazyLock::new(|| {
+    SessionScopedSql::new("request.session_id", |session_condition| {
+        format!(
+            "SELECT DISTINCT request.run_id, request.session_id
+  FROM approval_requests AS request
+  JOIN runs ON runs.run_id = request.run_id
+  WHERE request.state = '{}'
+    AND runs.state IN ({})
+    {session_condition}",
+            pending(),
+            *RUN_TERMINAL_STATES_SQL
+        )
+    })
+});
+
 static SELECT_SESSION_ENDED_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT 1 FROM sessions
@@ -397,13 +401,6 @@ pub(crate) fn insert_request_statement(request: &InsertedApprovalRequest) -> Wri
 
 /// The statement a rebuild records an ask with: the live one's row, written over a row the
 /// rebuild kept because a workflow gate's answer names it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which registers the approvals projection with the rebuild"
-    )
-)]
 pub(crate) fn rewrite_request_statement(request: &InsertedApprovalRequest) -> WriteStatement {
     request_statement(&REWRITE_REQUEST_SQL, request)
 }
@@ -435,13 +432,6 @@ pub(crate) fn insert_resolution_statement(
 
 /// The statement a rebuild records an answer with: the live one's row, written over the answer
 /// the rebuild kept with its ask because a workflow gate's answer names it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which registers the approvals projection with the rebuild"
-    )
-)]
 pub(crate) fn rewrite_resolution_statement(
     resolution: &InsertedApprovalResolution,
 ) -> WriteStatement {
@@ -449,14 +439,6 @@ pub(crate) fn rewrite_resolution_statement(
 }
 
 // The insert and the rebuild's rewrite bind the same values.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "an answer's live write, and the daemon's start, which registers the approvals \
-                  projection with the rebuild"
-    )
-)]
 fn resolution_statement(
     sql: &'static str,
     resolution: &InsertedApprovalResolution,
@@ -655,6 +637,16 @@ impl<'connection> ApprovalRequestReader<'connection> {
             .prepare_cached(&SELECT_ENDED_SESSIONS_WITH_PENDING_SQL)?
             .query_map([], |row| text_column(row, 0, |text| SessionId::new(&text)))?
             .collect()
+    }
+
+    /// The runs of `session_id`, or of every session when it is `None`, that have ended while an
+    /// ask of theirs is still pending: what a daemon that went down between a run's end and the
+    /// cancel of its asks left.
+    pub(crate) fn list_ended_runs_with_pending(
+        &self,
+        session_id: Option<&SessionId>,
+    ) -> rusqlite::Result<Vec<SessionRun>> {
+        SELECT_ENDED_RUNS_WITH_PENDING_SQL.query(self.reader, session_id, session_run_of_row)
     }
 
     /// Whether the session is closed or being deleted.

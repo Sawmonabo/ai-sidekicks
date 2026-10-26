@@ -18,9 +18,11 @@ use sidekicks_platforms::{CAN_LINK_A_SOCKET, read_socket_link};
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
+use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::service::home::{
     CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
+use crate::provider::driver::codex::service::record::recorded_home_keys;
 use crate::provider::driver::codex::service::socket_link::{
     is_listening, point_socket_link_at_service,
 };
@@ -32,6 +34,7 @@ use crate::provider::driver::codex::service::supervisor::{
 use crate::provider::driver::codex::session::errors::CodexError;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::provider::service_log::provider_service_log_file_of_key;
 
 /// The folder under a Codex home that holds its control sockets.
 const CODEX_CONTROL_SOCKET_FOLDER: &str = "app-server-control";
@@ -370,6 +373,38 @@ impl CodexServiceRegistry {
             services.by_home.values().cloned().chain(replaced).collect()
         };
         join_all(services.iter().map(|service| service.shutdown(intent))).await;
+    }
+
+    /// The logs of the lasting services that may run now: each one the registry holds, a replaced
+    /// one included, that is serving, and the one on each Codex folder whose records' folder holds
+    /// a record, which a former daemon's service this daemon has not joined writes. Blocking: it
+    /// lists the records' folder. Fails when that listing fails, since a service it would name may
+    /// still write its log.
+    pub(crate) fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
+        let mut files: Vec<PathBuf> = {
+            let services = self.lock();
+            services
+                .by_home
+                .values()
+                .chain(&services.replaced)
+                .filter(|service| service.is_serving())
+                .filter_map(|service| service.lasting_log_file())
+                .collect()
+        };
+        files.extend(
+            recorded_home_keys(&self.dependencies.data_folder)?
+                .iter()
+                .map(|home_key| {
+                    provider_service_log_file_of_key(
+                        &self.dependencies.logs_folder,
+                        &DESCRIPTOR.provider_id(),
+                        home_key,
+                    )
+                }),
+        );
+        files.sort();
+        files.dedup();
+        Ok(files)
     }
 
     fn lock(&self) -> MutexGuard<'_, RegisteredServices> {
