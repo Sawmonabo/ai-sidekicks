@@ -613,7 +613,7 @@ impl ClaudeInboundRequests {
             )
             .await;
             if let Err(error) = taken {
-                record_hand_off_failure(session_id, admitted, error.as_ref());
+                record_hand_off_failure(session_id, admitted, &error);
             }
         });
     }

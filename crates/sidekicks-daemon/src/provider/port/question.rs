@@ -81,6 +81,18 @@ pub(crate) enum QuestionTurnEnd {
     AskerLeft,
 }
 
+/// Why a question taken in its run's turn failed: its take, the question perhaps left recorded, or
+/// the withdrawal its asker's leaving asked for, so a caller never withdraws it a second time.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum QuestionTurnError {
+    /// A write or the run's read failed before the question ended its turn.
+    #[error(transparent)]
+    Take(Box<dyn Error + Send + Sync>),
+    /// Its asker left and its withdrawal failed.
+    #[error(transparent)]
+    Withdrawal(Box<dyn Error + Send + Sync>),
+}
+
 /// A question's place in its run's line, taken where the question arrives, before any await, and
 /// handed to [`take_question_in_turn`].
 pub(crate) struct QuestionLinePlace(Result<KeyHold<'static, RunId>, KeyWait<'static, RunId>>);
@@ -144,25 +156,30 @@ pub(crate) trait QuestionPort: Send + Sync {
 /// line's order once the run reads running, never refused for asking while the run waits on
 /// something else. When `asker_left` resolves before its turn, or by the time it opened, it is
 /// withdrawn in this same task, after its record's write, so no record lands after its
-/// withdrawal. An error when a write or the run's read fails.
+/// withdrawal. Fails with [`QuestionTurnError::Take`] when a write or the run's read fails, and
+/// with [`QuestionTurnError::Withdrawal`] when that withdrawal fails.
 pub(crate) async fn take_question_in_turn(
     port: &dyn QuestionPort,
     question: ProviderQuestion,
     answer: Option<Arc<dyn ToolServerQuestionAnswer>>,
     place: QuestionLinePlace,
     asker_left: impl Future<Output = ()>,
-) -> Result<QuestionTurnEnd, Box<dyn Error + Send + Sync>> {
+) -> Result<QuestionTurnEnd, QuestionTurnError> {
     let mut asker_left = pin!(asker_left);
     let withdrawal = ProviderQuestionWithdrawal {
         session_id: question.session_id,
         request_id: question.request_id.clone(),
     };
-    let mut ended = take_in_turn(port, question, answer, place, asker_left.as_mut()).await?;
+    let mut ended = take_in_turn(port, question, answer, place, asker_left.as_mut())
+        .await
+        .map_err(QuestionTurnError::Take)?;
     if ended == QuestionTurnEnd::Taken && asker_left.as_mut().now_or_never().is_some() {
         ended = QuestionTurnEnd::AskerLeft;
     }
     if ended == QuestionTurnEnd::AskerLeft {
-        port.withdraw_question(withdrawal).await?;
+        port.withdraw_question(withdrawal)
+            .await
+            .map_err(QuestionTurnError::Withdrawal)?;
     }
     Ok(ended)
 }

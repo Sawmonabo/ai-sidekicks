@@ -532,7 +532,7 @@ impl CodexAskHandOff {
                         provider_account_id,
                         CodexDeliveryPort::Question,
                         session_id,
-                        error,
+                        Box::new(error),
                     );
                 }
             });

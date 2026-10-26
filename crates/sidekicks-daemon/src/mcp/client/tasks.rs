@@ -42,7 +42,7 @@ use crate::mcp::elicitation_form::{compose_elicitation_content, read_elicitation
 use crate::mutex_lock::lock;
 use crate::provider::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort, QuestionTurnEnd,
-    ToolServerQuestionAnswer, take_question_in_turn,
+    QuestionTurnError, ToolServerQuestionAnswer, take_question_in_turn,
 };
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::record_readers::read_non_empty_string;
@@ -469,7 +469,15 @@ impl TaskWatches {
                             }
                             // Withdrawn already, its asker gone.
                             Ok(QuestionTurnEnd::AskerLeft) => return,
-                            Err(error) => {
+                            // Its asker gone, so no one else logs it.
+                            Err(QuestionTurnError::Withdrawal(error)) => {
+                                tracing::warn!(
+                                    error = &*error as &(dyn Error + 'static),
+                                    "a tool server's question was not withdrawn"
+                                );
+                                return;
+                            }
+                            Err(QuestionTurnError::Take(error)) => {
                                 withdraw_questions(
                                     port.as_ref(),
                                     session_id,
