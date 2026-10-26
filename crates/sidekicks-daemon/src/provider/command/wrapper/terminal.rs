@@ -228,8 +228,8 @@ fn copy_input(master: &std::fs::File) {
     }
 }
 
-/// Copies the command's output into the provider's terminal on a thread of its own, keeping its last
-/// bytes in `tail`, until every descriptor on the terminal's program side closed or, once the
+/// Copies the command's output into the provider's terminal on a thread of its own, keeping its
+/// last bytes in `tail`, until every descriptor on the terminal's program side closed or, once the
 /// command exited, no output comes for `OUTPUT_QUIET`, as a background process holding the
 /// terminal open keeps it from closing; the receiver hears once the output has ended, with the
 /// error that kept the copier from telling whether more was coming.
