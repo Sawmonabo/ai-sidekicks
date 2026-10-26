@@ -597,7 +597,7 @@ impl ClaudeInboundRequests {
                 question,
                 None,
                 place,
-                let_go.cancelled_owned(),
+                let_go.clone().cancelled_owned(),
             )
             .await;
             let Err(error) = taken else {
@@ -605,8 +605,11 @@ impl ClaudeInboundRequests {
             };
             record_hand_off_failure(session_id, admitted, &error);
             // Withdrawn from the card by its take, so the agent is answered refused rather than
-            // left waiting on a request no card holds.
-            if let QuestionTurnError::Take { .. } = error {
+            // left waiting on a request no card holds; one Claude Code let go of meanwhile, its
+            // record failed, is not answered, since the id may already name a new request.
+            if let QuestionTurnError::Take { .. } = error
+                && !let_go.is_cancelled()
+            {
                 let refusal = compose_claude_question_refusal(route);
                 let refused =
                     write_answer(&tables, &*channel, session_id, &request_id, &refusal).await;

@@ -43,6 +43,8 @@ pub(crate) struct QuestionCard {
     held_records: Mutex<usize>,
     /// Set by [`Self::fail_run_reads`].
     is_run_read_failing: AtomicBool,
+    /// Set by [`Self::fail_records`].
+    is_record_failing: AtomicBool,
     /// The request id of every withdrawal taken, in order.
     withdrawals: Mutex<Vec<String>>,
 }
@@ -189,6 +191,11 @@ impl QuestionCard {
         self.is_run_read_failing.store(true, Ordering::SeqCst);
     }
 
+    /// Fails each later record write before it reaches the card, as a write the store refused.
+    pub(crate) fn fail_records(&self) {
+        self.is_record_failing.store(true, Ordering::SeqCst);
+    }
+
     /// Waits until `count` record writes wait at the gate of [`Self::hold_records`]; fails the
     /// test past 60 s.
     pub(crate) async fn wait_until_records_held(&self, count: usize) {
@@ -282,6 +289,9 @@ impl QuestionPort for QuestionCard {
                 *self.held_records.lock().expect("never poisoned") += 1;
                 let landed = gate.acquire().await;
                 assert!(landed.is_err(), "the gate only ever closes");
+            }
+            if self.is_record_failing.load(Ordering::SeqCst) {
+                return Err("the record's write failed".into());
             }
             self.record(question, answer, may_open).await
         }

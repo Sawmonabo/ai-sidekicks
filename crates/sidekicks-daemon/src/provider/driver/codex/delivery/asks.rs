@@ -543,13 +543,15 @@ impl CodexAskHandOff {
                     question,
                     None,
                     place,
-                    let_go.cancelled_owned(),
+                    let_go.clone().cancelled_owned(),
                 )
                 .await;
                 let Err(error) = taken else {
                     return;
                 };
-                let is_withdrawn_by_take = matches!(error, QuestionTurnError::Take { .. });
+                // One Codex let go of meanwhile, its record failed, is no longer held to answer.
+                let is_withdrawn_by_take =
+                    matches!(error, QuestionTurnError::Take { .. }) && !let_go.is_cancelled();
                 report_owner_failure(
                     provider_account_id.clone(),
                     CodexDeliveryPort::Question,
