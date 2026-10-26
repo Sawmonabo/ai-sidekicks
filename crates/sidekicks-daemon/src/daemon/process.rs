@@ -757,7 +757,8 @@ impl DaemonProcess {
                 let (reply, replied) = oneshot::channel();
                 if commands.send(command(reply)).await.is_err() || replied.await.is_err() {
                     tracing::info!(
-                        "the daemon's stop had begun before the erase's step, so the stop closes those parts"
+                        "the daemon's stop had begun before the erase's step, so the stop closes \
+                         those parts"
                     );
                 }
             }
