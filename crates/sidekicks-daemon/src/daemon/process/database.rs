@@ -14,6 +14,7 @@
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::pin::pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -30,6 +31,7 @@ use crate::approvals::rules::APPROVAL_RULES_STATEMENT_CAPACITY;
 use crate::approvals::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
 use crate::artifacts::schema::ARTIFACT_STATEMENT_CAPACITY;
 use crate::bootstrap::secure_defaults::SecureDefaults;
+use crate::bounded_wait::wait_within;
 use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::backup::run::BACKUP_STATEMENT_CAPACITY;
 use crate::daemon::configuration::DAEMON_CONFIGURATION_STATEMENT_CAPACITY;
@@ -256,6 +258,17 @@ pub(crate) enum DatabaseFileCloseFailure {
     /// The task that acts on the check's answer ended before it finished.
     #[error("the database file's check ended before its answer was acted on")]
     Check(#[source] JoinError),
+    /// The check had not ended within the stop's bound, so the writer closed beside its open
+    /// connection, which keeps the write-ahead log whole for the next open to replay.
+    #[error(
+        "the database file's check had not ended within the stop's bound, so its connection \
+         outlived the writer's"
+    )]
+    CheckStillRunning,
+    /// The log's truncation had not ended within the stop's bound, so the writer closed while it
+    /// still waited on it.
+    #[error("the write-ahead log's truncation had not ended within the stop's bound")]
+    TruncationStillRunning,
     /// The damage found could not be recorded, so the next start's check must find it again.
     #[error(
         "recording the damage to the database file failed, so the next start's check must find \
@@ -456,13 +469,14 @@ pub(crate) async fn open_database_file(
 }
 
 /// Closes the database file once the work that reads and writes it has ended: the check first,
-/// then the damage found recorded, its writer ended if the damage's follower has not yet; then the
-/// read pool before the writer, so the writer is the last to close the file and folds the
-/// write-ahead log into it, except an ended writer, which is joined first and skips that
-/// checkpoint, so a damaged file's log stays for the repair. The
-/// writer drains within `remaining`. The clean stop is recorded only for a file vouched for, with
-/// no damage found, no write left unfinished, no failure here and `is_stop_failed` false. Answers
-/// each step's failure, every step having run.
+/// then the damage found recorded, its writer ended if nothing has ended it yet, then the log's
+/// truncation stopped; then the read pool before the writer, so the writer is the last to close
+/// the file and folds the write-ahead log into it, except an ended writer, which is joined first
+/// and skips that checkpoint, so a damaged file's log stays for the repair. The check, the
+/// truncation and the writer's drain all end within `remaining`, counted from the call; a check or
+/// truncation still running then is a failure, and the close goes on without it. The clean stop is
+/// recorded only for a file vouched for, with no damage found, no write left unfinished, no
+/// failure here and `is_stop_failed` false. Answers each step's failure, every step having run.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the daemon's stop, which closes the data folder")
@@ -486,13 +500,18 @@ pub(crate) async fn close_database_file(
         ..
     } = file;
     drop(damage_follower);
+    let left = || remaining.saturating_sub(closing_started.elapsed());
     let mut failures = Vec::new();
     // The check's connection closes first, so the writer is the last to close the file. Writes
     // still held stay held until the writer has closed, which fails them as closed while held.
-    let writes_release = match check.stop().await {
-        Ok(writes_release) => writes_release,
-        Err(failure) => {
+    let writes_release = match wait_within(pin!(check.stop()), left(), None).await {
+        Some(Ok(writes_release)) => writes_release,
+        Some(Err(failure)) => {
             failures.push(DatabaseFileCloseFailure::Check(failure));
+            None
+        }
+        None => {
+            failures.push(DatabaseFileCloseFailure::CheckStillRunning);
             None
         }
     };
@@ -504,16 +523,20 @@ pub(crate) async fn close_database_file(
         }
     }
     // Before the writer closes, so no truncation waits on a closed writer.
-    truncation.stop().await;
+    if wait_within(pin!(truncation.stop()), left(), None)
+        .await
+        .is_none()
+    {
+        failures.push(DatabaseFileCloseFailure::TruncationStillRunning);
+    }
     let was_ended = writer.is_ended();
-    let drain_within = remaining.saturating_sub(closing_started.elapsed());
     let unfinished = if was_ended {
-        let unfinished = close_writer(&writer, drain_within, &mut failures).await;
+        let unfinished = close_writer(&writer, left(), &mut failures).await;
         close_pool(&pool, &mut failures).await;
         unfinished
     } else {
         close_pool(&pool, &mut failures).await;
-        close_writer(&writer, drain_within, &mut failures).await
+        close_writer(&writer, left(), &mut failures).await
     };
     drop(writes_release);
     let is_clean = is_vouched.load(Ordering::Acquire)
