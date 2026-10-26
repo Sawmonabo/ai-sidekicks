@@ -632,7 +632,7 @@ async fn a_stop_before_the_aside_copy_leaves_the_damaged_file_as_it_was() {
             now: jiff::Timestamp::now(),
         },
         "page 7 is damaged",
-        None,
+        &data_folder.path().join("backups"),
         &progress,
         &stop,
     ))
@@ -697,7 +697,7 @@ async fn a_backup_copy_an_earlier_repair_left_is_removed_before_any_work(
             now: jiff::Timestamp::now(),
         },
         "page 7 is damaged",
-        None,
+        &data_folder.path().join("backups"),
         &progress,
         &CancellationToken::new(),
     ))

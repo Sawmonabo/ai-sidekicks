@@ -78,8 +78,8 @@ pub(crate) enum RepairingSocketError {
 pub(crate) struct RepairingSocketDeps<'a> {
     /// The repair's files and programs.
     pub(crate) options: &'a DatabaseFileRepairOptions<'a>,
-    /// Where the person keeps backups, when they keep any.
-    pub(crate) backup_folder: Option<&'a Path>,
+    /// Where the person keeps backups; a folder that is missing or holds none reads as no backup.
+    pub(crate) backup_folder: &'a Path,
     /// The run folder the socket and token go in.
     pub(crate) run_folder: &'a DaemonRunFolder,
     /// The checked socket path the gateway binds.

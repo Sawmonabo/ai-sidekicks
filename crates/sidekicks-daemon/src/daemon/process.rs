@@ -454,7 +454,7 @@ impl DaemonProcess {
                 shell: &shell,
                 copier: &copier,
                 now: Timestamp::now(),
-                backup_folder: Some(backup_folder),
+                backup_folder,
                 run_folder,
                 secure_defaults: &secure_defaults,
                 caller_process_reader: Arc::clone(&caller_process_reader),
