@@ -450,9 +450,14 @@ impl TaskWatches {
             (take == QuestionTake::InRunTurn).then(|| QuestionLinePlace::line_up(question.run_id));
         tokio::spawn({
             let request_id = request_id.clone();
+            let server = scope.server_name.clone();
             async move {
-                let took = match place {
-                    None => port.take_tool_server_question(question, answer).await,
+                // Whether the card took it; false when it was settled before its run's turn came.
+                let took: Result<bool, Box<dyn Error + Send + Sync>> = match place {
+                    None => port
+                        .take_tool_server_question(question, answer)
+                        .await
+                        .map(|()| true),
                     Some(place) => {
                         let ended = take_question_in_turn(
                             port.as_ref(),
@@ -463,16 +468,15 @@ impl TaskWatches {
                         )
                         .await;
                         match ended {
-                            Ok(QuestionTurnEnd::Taken) => Ok(()),
-                            Ok(QuestionTurnEnd::Settled) => {
-                                Err("the question was settled before its run's turn came".into())
-                            }
+                            Ok(QuestionTurnEnd::Taken) => Ok(true),
+                            Ok(QuestionTurnEnd::Settled) => Ok(false),
                             // Withdrawn already, its asker gone.
                             Ok(QuestionTurnEnd::AskerLeft) => return,
                             // Its asker gone, so no one else logs it.
                             Err(QuestionTurnError::Withdrawal(error)) => {
                                 tracing::warn!(
                                     error = &*error as &(dyn Error + 'static),
+                                    server = server.as_str(),
                                     "a tool server's question was not withdrawn"
                                 );
                                 return;
@@ -482,14 +486,16 @@ impl TaskWatches {
                     }
                 };
                 match sender.send(took) {
-                    Ok(()) => {}
+                    // Delivered, or settled with nothing left to withdraw.
+                    Ok(()) | Err(Ok(false)) => {}
                     // The asker stopped waiting while the card took the question.
-                    Err(Ok(())) => {
+                    Err(Ok(true)) => {
                         withdraw_questions(port.as_ref(), session_id, vec![request_id]).await;
                     }
                     // Its asker gone, so no one else logs it.
                     Err(Err(error)) => tracing::warn!(
                         error = &*error as &(dyn Error + 'static),
+                        server = server.as_str(),
                         "the questions card did not take a tool server's question"
                     ),
                 }
@@ -509,15 +515,14 @@ impl TaskWatches {
             // Its call or task ended first; the pending take, dropped, has the question withdrawn.
             () = owner_ended.cancelled() => return false,
         };
-        if let Err(error) = took {
+        took.unwrap_or_else(|error| {
             tracing::warn!(
                 error = &*error as &(dyn Error + 'static),
                 server = scope.server_name.as_str(),
                 "the questions card did not take a tool server's question"
             );
-            return false;
-        }
-        true
+            false
+        })
     }
 
     /// Withdraws each of `request_ids` in `session_id` still open on the card, logging any the
@@ -572,14 +577,14 @@ struct PendingTake<'watches> {
     watches: &'watches TaskWatches,
     session_id: SessionId,
     request_id: String,
-    taken: oneshot::Receiver<Result<(), Box<dyn Error + Send + Sync>>>,
+    taken: oneshot::Receiver<Result<bool, Box<dyn Error + Send + Sync>>>,
 }
 
 impl Drop for PendingTake<'_> {
     fn drop(&mut self) {
         // Closed first, so the take's own task withdraws any outcome that comes after.
         self.taken.close();
-        if let Ok(Ok(())) = self.taken.try_recv() {
+        if let Ok(Ok(true)) = self.taken.try_recv() {
             let request_id = std::mem::take(&mut self.request_id);
             self.watches
                 .withdraw_questions_later(self.session_id, vec![request_id]);
@@ -752,7 +757,7 @@ mod tests {
             .await
             .expect("the card takes the question");
         let (sender, taken) = oneshot::channel();
-        sender.send(Ok(())).expect("the take's outcome is sent");
+        sender.send(Ok(true)).expect("the take's outcome is sent");
 
         drop(PendingTake {
             watches: &scope.task_watches,
