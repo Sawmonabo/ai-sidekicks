@@ -577,9 +577,9 @@ impl CommandChannel {
     }
 
     /// Admits `party` by the key its first argument holds when it sits under the provider's
-    /// process, noting the nearest admitted wrapper above it and whether any admitted party is;
-    /// refused, with the key where it holds one, when it does not, holds no key or has ended.
-    /// Fails when the system refuses a read.
+    /// process, noting the nearest admitted wrapper above it and whether any party is, admitted or
+    /// holding a party's key in its own arguments; refused, with the key where it holds one, when
+    /// it does not, holds no key or has ended. Fails when the system refuses a read.
     async fn admit(&self, party: PartyId) -> io::Result<Admission> {
         let read = tokio::task::spawn_blocking(move || {
             Ok::<_, io::Error>((read_process_start(party)?, pin_running_process(party)?))
@@ -623,20 +623,39 @@ impl CommandChannel {
             if parent.id() <= 1 {
                 return Ok(Admission::Refused(Some(public_key)));
             }
-            if let Some(ancestor) = self
+            let admitted_ancestor = self
                 .parties
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .get(&parent.id())
-            {
-                is_nested = true;
-                if wrapper.is_none() && ancestor.is_wrapper {
-                    wrapper = Some(parent.id());
+                .map(|ancestor| ancestor.is_wrapper);
+            match admitted_ancestor {
+                Some(is_wrapper) => {
+                    is_nested = true;
+                    if wrapper.is_none() && is_wrapper {
+                        wrapper = Some(parent.id());
+                    }
                 }
+                // An ancestor whose first record is not taken yet is a party all the same.
+                None => is_nested |= holds_party_key(parent.id()).await?,
             }
             process = parent;
         }
     }
+}
+
+// Whether process `id` holds a party's key as its first own argument, as every party does from
+// its restart on. Fails when the system refuses the read.
+async fn holds_party_key(id: u32) -> io::Result<bool> {
+    let start = tokio::task::spawn_blocking(move || read_process_start(id))
+        .await
+        .map_err(io::Error::other)??;
+    Ok(start.is_some_and(|start| {
+        start
+            .arguments
+            .get(1)
+            .is_some_and(|argument| party_key_of(argument).is_some())
+    }))
 }
 
 // Removes the requests in `requests` addressed to `party`. Blocks; fails with the listing's or a

@@ -205,9 +205,10 @@ async fn a_party_outside_the_providers_process_is_refused_and_its_prompt_answere
     outsider.wait().expect("it is reaped");
 }
 
-// Fails when a party started under an admitted party speaks for a command: its exit would settle
-// a row, and its start not be told apart as nested. Mutation: drop the nested party's filter in
-// `AdmittedParty::open_record`.
+// Fails when a party started under another party speaks for a command: its exit would settle a
+// row, and its start not be told apart as nested, also where its record comes before its outer's.
+// Mutations: drop the nested party's filter in `AdmittedParty::open_record`; drop the
+// `holds_party_key` read from `admit`'s walk.
 #[tokio::test]
 async fn a_party_under_an_admitted_party_speaks_only_its_prompt() {
     let folder = tempfile::tempdir().expect("a folder");
@@ -222,6 +223,15 @@ async fn a_party_under_an_admitted_party_speaks_only_its_prompt() {
         .iter()
         .find(|id| **id != outer_id)
         .expect("the nested party is ready");
+    let early_folder = tempfile::tempdir().expect("a folder");
+    let early = open_channel(early_folder.path(), std::process::id());
+    let sealed_start = sealed(&early, &nested_keys, nested_id, 1, &starting());
+    let early_start = early
+        .open_record(nested_id, 1, &sealed_start)
+        .await
+        .expect("the party's place reads")
+        .expect("a nested wrapper's start is taken before its outer's");
+    assert!(early_start.is_nested);
     let channel = open_channel(folder.path(), std::process::id());
     let open = |keys, party, sequence, record: PartyRecord| {
         let sealed = sealed(&channel, keys, party, sequence, &record);
