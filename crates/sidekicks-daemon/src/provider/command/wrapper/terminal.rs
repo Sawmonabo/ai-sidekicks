@@ -165,12 +165,12 @@ pub(super) fn run_in_terminal(
     *state = CommandState::Reaped;
     let status = exited.and_then(|_| wait_for_terminal_command(&pty));
     // The output a command printed just before it exited is still on its way to the provider.
-    match output_ended.recv_timeout(OUTPUT_DRAIN_CAP) {
-        Ok(Err(error)) => note(
+    // The cap passing, or a copier that never started, leaves nothing more to wait for.
+    if let Ok(Err(error)) = output_ended.recv_timeout(OUTPUT_DRAIN_CAP) {
+        note(
             records,
             &format!("could not tell whether its command's output is all copied: {error}"),
-        ),
-        Ok(Ok(())) | Err(_) => {}
+        );
     }
     if let Some(raw_input) = raw_input
         && let Err(error) = raw_input.leave()
