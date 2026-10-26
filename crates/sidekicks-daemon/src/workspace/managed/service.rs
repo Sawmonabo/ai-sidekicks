@@ -187,15 +187,23 @@ impl ManagedWorkspaceService {
 
     /// Ends the watch of the chats' writes, which drops the last sender of `writes` once its task
     /// is gone, so their reader ends after the writes already sent, and ends the recount of the
-    /// chats' files, waiting for it. A create after it starts no watch. Fails only when the
-    /// recount's task panicked.
+    /// chats' files, waiting for it. A write the watch had not yet sent is not kept as a version,
+    /// which the stop logs once. A create after it starts no watch. Fails only when the recount's
+    /// task panicked.
     pub(crate) async fn stop(&self) -> Result<(), JoinError> {
-        drop(
-            self.write_watch
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .take(),
-        );
+        let write_watch = self
+            .write_watch
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(write_watch) = write_watch {
+            drop(write_watch);
+            tracing::info!(
+                stopped_at = %jiff::Timestamp::now(),
+                "the chats' write watch stopped; writes it had not yet reported are not kept as \
+                 versions"
+            );
+        }
         let counting = self
             .document_counting
             .lock()
