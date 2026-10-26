@@ -33,7 +33,7 @@ use crate::session::run::state_change::refused_statement_index;
 use crate::settle_all::{SettleFailures, settle_all};
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// The statements [`PlansService`] prepares on a read connection: the plans of every run still
 /// waiting on a held request (`HELD_PLANS_SQL`).

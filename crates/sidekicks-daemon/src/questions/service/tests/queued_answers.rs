@@ -1,61 +1,28 @@
-//! The queued answers of a question its agent does not wait for, and the question rows a rebuild
-//! writes from the log.
+//! The queued answers of a question its agent does not wait for.
 
-use std::sync::Arc;
-
-use rusqlite::Connection;
-use rusqlite::types::Value as SqlValue;
 use serde_json::json;
-use sidekicks_contracts::question::QuestionAskedState;
-use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::question::{QuestionAskedState, QuestionId};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::{Fixture, choice_page};
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::events::session::read::DamagedFromSequenceReader;
 use crate::provider::port::question::{ProviderQuestionWithdrawal, WaitingQuestionOpening};
-use crate::questions::projection::QuestionsProjection;
 use crate::questions::service::HeldRequestAnswerer;
-use crate::recovery::database_file::damage::DatabaseDamageWatch;
-use crate::recovery::projection_rebuild::{
-    PROJECTION_REBUILD_STATEMENT_CAPACITY, ProjectionRebuildRequest, ProjectionRebuildService,
-};
-use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
 
-fn table_rows(connection: &Connection, sql: &str) -> Vec<Vec<SqlValue>> {
-    let mut statement = connection.prepare(sql).expect("the read prepares");
-    let columns = statement.column_count();
-    statement
-        .query_map([], |row| {
-            (0..columns)
-                .map(|index| row.get::<_, SqlValue>(index))
-                .collect::<rusqlite::Result<Vec<_>>>()
-        })
-        .expect("the rows read")
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .expect("every row reads")
+/// The questions [`write_queued_answers`] settled, and the unwaited question's state after its
+/// first queued answer was sent and after that send was withdrawn.
+pub(crate) struct QueuedAnswers {
+    unwaited: QuestionId,
+    withdrawn: QuestionId,
+    withdrawn_waiting: QuestionId,
+    opened: QuestionId,
+    after_send: String,
+    after_withdrawal: String,
 }
 
-fn question_rows(connection: &Connection) -> (Vec<Vec<SqlValue>>, Vec<Vec<SqlValue>>) {
-    (
-        table_rows(connection, "SELECT * FROM questions ORDER BY id"),
-        table_rows(
-            connection,
-            "SELECT * FROM question_answer_items ORDER BY queue_item_id",
-        ),
-    )
-}
-
-// A question its agent does not wait for stays open while a send naming it is queued, stays open
-// when that item is withdrawn, and is answered when the agent takes a queued answer; of two
-// devices' answers the first taken wins and unpairs the other, and an item that answers nothing
-// answers nothing. The rows a rebuild writes from the log, with a held question answered, one
-// withdrawn, one withdrawn while it waited for its run and one opened from that wait and answered
-// beside them, are the rows the live writes wrote. Killed by answering at send time, by answering
-// on another item's admission, and by a fold arm that drops an event.
-#[tokio::test]
-async fn queued_answers_settle_a_question_its_agent_does_not_wait_for_and_rebuild_as_written() {
-    let fixture = Fixture::new().await;
+/// Writes, through `fixture`'s service and log, a held question answered, one withdrawn, one
+/// withdrawn while it waited for its run, one opened from that wait and answered, and a question
+/// its agent does not wait for, answered by the first of two queued answers its agent takes.
+pub(crate) async fn write_queued_answers(fixture: &Fixture) -> QueuedAnswers {
     let record_waiting = |request_id: &'static str| {
         fixture.questions.record_question(
             fixture.question(request_id, json!([choice_page()]), true),
@@ -159,43 +126,38 @@ async fn queued_answers_settle_a_question_its_agent_does_not_wait_for_and_rebuil
         )
         .await;
 
-    assert_eq!(after_send, "open");
-    assert_eq!(after_withdrawal, "open");
-    assert_eq!(fixture.state(unwaited), "answered");
-    assert_eq!(fixture.state(withdrawn), "canceled");
-    assert_eq!(fixture.state(withdrawn_waiting), "canceled");
-    assert_eq!(fixture.state(opened), "answered");
-    let reader = fixture.database.reader();
-    let live = question_rows(&reader);
-    assert!(
-        live.1.is_empty(),
-        "the first taken answer unpairs the other"
-    );
+    QueuedAnswers {
+        unwaited,
+        withdrawn,
+        withdrawn_waiting,
+        opened,
+        after_send,
+        after_withdrawal,
+    }
+}
 
-    let pool = Arc::new(DatabaseReadPool::new(
-        fixture.database.path(),
-        PROJECTION_REBUILD_STATEMENT_CAPACITY + SESSION_SERVICE_STATEMENT_CAPACITY,
-    ));
-    let reads_whole: Arc<DamagedFromSequenceReader> =
-        Arc::new(|_session_id: &SessionId| -> Option<i64> { None });
-    ProjectionRebuildService::new(
-        Arc::clone(&pool),
-        Arc::clone(&fixture.writer),
-        Arc::new(SessionService::new(pool, reads_whole)),
-        Arc::new(DatabaseDamageWatch::new()),
-        vec![Box::new(QuestionsProjection)],
-    )
-    .rebuild(
-        ProjectionRebuildRequest {
-            session_id: fixture.session_id,
-            is_forced: true,
-            before_sequence: None,
-            stop: None,
-        },
-        None,
-    )
-    .await
-    .expect("the session's questions are rebuilt");
+// A question its agent does not wait for stays open while a send naming it is queued, stays open
+// when that item is withdrawn, and is answered when the agent takes a queued answer; of two
+// devices' answers the first taken wins and unpairs the other, and an item that answers nothing
+// answers nothing. Killed by answering at send time and by answering on another item's admission.
+#[tokio::test]
+async fn queued_answers_settle_a_question_its_agent_does_not_wait_for() {
+    let fixture = Fixture::new().await;
 
-    assert_eq!(question_rows(&reader), live);
+    let written = write_queued_answers(&fixture).await;
+
+    assert_eq!(written.after_send, "open");
+    assert_eq!(written.after_withdrawal, "open");
+    assert_eq!(fixture.state(written.unwaited), "answered");
+    assert_eq!(fixture.state(written.withdrawn), "canceled");
+    assert_eq!(fixture.state(written.withdrawn_waiting), "canceled");
+    assert_eq!(fixture.state(written.opened), "answered");
+    let paired_items: i64 = fixture
+        .database
+        .reader()
+        .query_row("SELECT COUNT(*) FROM question_answer_items", [], |row| {
+            row.get(0)
+        })
+        .expect("the answer items count");
+    assert_eq!(paired_items, 0, "the first taken answer unpairs the other");
 }

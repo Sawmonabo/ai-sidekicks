@@ -1,7 +1,15 @@
+//! The rebuild's cursor at each way a fold ends, and for each domain, the rows a rebuild writes from
+//! the log against the rows its live writes wrote.
+
+mod approvals;
+mod plans;
+mod questions;
+
 use std::borrow::Cow;
 use std::sync::Arc;
 
 use rstest::rstest;
+use rusqlite::Connection;
 use rusqlite::types::Value;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
@@ -10,20 +18,97 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    PROJECTION_REBUILD_STATEMENT_CAPACITY, ProjectionContradiction, ProjectionFailureCause,
-    ProjectionRebuildError, ProjectionRebuildRequest, ProjectionRebuildService, SessionProjection,
-    SessionProjectionFold,
+    PROJECTION_REBUILD_STATEMENT_CAPACITY, ProjectionRebuildError, ProjectionRebuildRequest,
+    ProjectionRebuildService,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::statement::{StatementBindings, WriteStatement};
 use crate::database::writer::test_file::{TestDatabase, session_event_row, test_session_id};
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use crate::events::projection::{
+    ProjectionContradiction, ProjectionFailureCause, SessionProjection, SessionProjectionFold,
+};
 use crate::events::session::read::DamagedFromSequenceReader;
 use crate::recovery::database_file::damage::DatabaseDamageWatch;
 use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
 
 const PINNED_ROWS_TABLE_SQL: &str =
     "CREATE TABLE pinned_rows (session_id TEXT NOT NULL, sequence INTEGER NOT NULL) STRICT";
+
+/// A test database holding every table a projection here folds into.
+fn rebuild_database() -> TestDatabase {
+    TestDatabase::new(
+        crate::approvals::schema::schema_parts()
+            .with_parts(crate::plans::schema::schema_parts())
+            .with_parts(crate::workflow::schema::schema_parts()),
+    )
+}
+
+/// The rebuild service over `database`, folding `projections`, reading every session whole.
+fn rebuild_service(
+    database: &TestDatabase,
+    writer: Arc<DatabaseWriter>,
+    projections: Vec<Box<dyn SessionProjection>>,
+) -> ProjectionRebuildService {
+    let pool = Arc::new(DatabaseReadPool::new(
+        database.path(),
+        PROJECTION_REBUILD_STATEMENT_CAPACITY + SESSION_SERVICE_STATEMENT_CAPACITY,
+    ));
+    let reads_whole: Arc<DamagedFromSequenceReader> =
+        Arc::new(|_session_id: &SessionId| -> Option<i64> { None });
+    ProjectionRebuildService::new(
+        Arc::clone(&pool),
+        writer,
+        Arc::new(SessionService::new(pool, reads_whole)),
+        Arc::new(DatabaseDamageWatch::new()),
+        projections,
+    )
+}
+
+/// Rebuilds `session_id`'s rows of `projection` from its whole log, forced.
+async fn rebuild_whole(
+    database: &TestDatabase,
+    writer: Arc<DatabaseWriter>,
+    projection: Box<dyn SessionProjection>,
+    session_id: SessionId,
+) {
+    rebuild_service(database, writer, vec![projection])
+        .rebuild(
+            ProjectionRebuildRequest {
+                session_id,
+                is_forced: true,
+                before_sequence: None,
+                stop: None,
+            },
+            None,
+        )
+        .await
+        .expect("the session's rows are rebuilt");
+}
+
+fn table_rows(connection: &Connection, sql: &str) -> Vec<Vec<Value>> {
+    let mut statement = connection.prepare(sql).expect("the read prepares");
+    let columns = statement.column_count();
+    statement
+        .query_map([], |row| {
+            (0..columns)
+                .map(|index| row.get::<_, Value>(index))
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .expect("the rows read")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("every row reads")
+}
+
+fn cursor(connection: &Connection, session_id: SessionId) -> (String, i64) {
+    connection
+        .query_row(
+            "SELECT state, last_sequence FROM projection_cursors WHERE session_id = ?",
+            [session_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("the session has a cursor")
+}
 
 fn statement(
     sql: &'static str,
@@ -174,7 +259,7 @@ async fn a_rebuild_leaves_its_cursor_where_its_fold_ended(
     #[case] cursor_state: &str,
     #[case] cursor_sequence: i64,
 ) {
-    let database = TestDatabase::new();
+    let database = rebuild_database();
     let writer = Arc::new(
         DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
@@ -202,19 +287,7 @@ async fn a_rebuild_leaves_its_cursor_where_its_fold_ended(
             )
             .expect("the test breaks the stored row");
     }
-    let pool = Arc::new(DatabaseReadPool::new(
-        database.path(),
-        PROJECTION_REBUILD_STATEMENT_CAPACITY + SESSION_SERVICE_STATEMENT_CAPACITY,
-    ));
-    let reads_whole: Arc<DamagedFromSequenceReader> =
-        Arc::new(|_session_id: &SessionId| -> Option<i64> { None });
-    let service = ProjectionRebuildService::new(
-        Arc::clone(&pool),
-        writer,
-        Arc::new(SessionService::new(pool, reads_whole)),
-        Arc::new(DatabaseDamageWatch::new()),
-        vec![Box::new(PinnedRows { faulted })],
-    );
+    let service = rebuild_service(&database, writer, vec![Box::new(PinnedRows { faulted })]);
     let stop = CancellationToken::new();
     if is_stopped {
         stop.cancel();
@@ -250,13 +323,8 @@ async fn a_rebuild_leaves_its_cursor_where_its_fold_ended(
         Err(error) => panic!("the rebuild failed otherwise: {error}"),
     };
     assert_eq!(ended, outcome);
-    let cursor: (String, i64) = database
-        .reader()
-        .query_row(
-            "SELECT state, last_sequence FROM projection_cursors WHERE session_id = ?",
-            [session_id.to_string()],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .expect("the session has a cursor");
-    assert_eq!(cursor, (cursor_state.to_owned(), cursor_sequence));
+    assert_eq!(
+        cursor(&database.reader(), session_id),
+        (cursor_state.to_owned(), cursor_sequence)
+    );
 }

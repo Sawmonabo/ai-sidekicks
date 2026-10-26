@@ -50,7 +50,7 @@ use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// The statements [`QuestionsService`] prepares on a read connection: a record, its pages,
 /// whether its run has an interrupt recorded, and which held questions are still open.
