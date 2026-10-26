@@ -22,7 +22,7 @@ use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
     ChildEnd, Spawner, ask_child_to_stop, read_child_exit, wrap_session_child_command,
 };
-use tokio::io::{AsyncRead, AsyncReadExt as _};
+use tokio::io::AsyncRead;
 use tokio::process::Command;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
@@ -32,7 +32,7 @@ use crate::mcp::client::connection::{
 };
 use crate::mcp::client::raw_copy::{RawLineTee, RawReplyCopy};
 use crate::mutex_lock::lock;
-use crate::process_exit::{OutputTail, compose_process_exit};
+use crate::process_exit::{OutputTail, compose_process_exit, read_output_chunks};
 use crate::provider::spawn_environment::{
     ProviderEnvironmentRequest, SpawnEnvironmentError, build_conversation_command_environment,
     remove_environment_names,
@@ -295,27 +295,15 @@ fn compose_end(
 /// Reads `error_output` to its end, chunk by chunk, into `tail` and line by line into the service
 /// log under `server`, each line cut at 4 KiB so a line that never ends holds no more.
 async fn read_error_output(
-    mut error_output: impl AsyncRead + Unpin,
+    error_output: impl AsyncRead + Unpin,
     server: String,
     tail: Arc<Mutex<ErrorOutputTail>>,
 ) {
-    let mut chunk = vec![0; 8192];
     let mut line = Vec::new();
-    loop {
-        let read = match error_output.read(&mut chunk).await {
-            Ok(0) => break,
-            Ok(read) => read,
-            Err(error) => {
-                tracing::warn!(
-                    error = &error as &(dyn Error + 'static),
-                    server = server.as_str(),
-                    "a tool server's error output could not be read to its end"
-                );
-                break;
-            }
-        };
-        lock(&tail).push(&chunk[..read]);
-        for piece in chunk[..read].split_inclusive(|byte| *byte == b'\n') {
+    let what = format!("the error output of tool server '{server}'");
+    read_output_chunks(error_output, &what, |chunk| {
+        lock(&tail).push(chunk);
+        for piece in chunk.split_inclusive(|byte| *byte == b'\n') {
             let (body, is_line_end) = match piece.split_last() {
                 Some((b'\n', body)) => (body, true),
                 _ => (piece, false),
@@ -327,7 +315,8 @@ async fn read_error_output(
                 line.clear();
             }
         }
-    }
+    })
+    .await;
     if !line.is_empty() {
         log_error_output_line(&server, &line);
     }

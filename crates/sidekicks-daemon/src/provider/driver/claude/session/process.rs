@@ -26,12 +26,12 @@ use sidekicks_platforms::{
     ChildEnd, ChildExit, ProgramStart, Spawner, ask_child_to_stop, read_child_exit,
     wrap_child_command,
 };
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::AsyncRead;
 use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-use crate::process_exit::{OutputTail, compose_process_exit};
+use crate::process_exit::{OutputTail, compose_process_exit, read_output_chunks};
 use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::provider::driver::claude::session::control_requests::ClaudeControlRequests;
 use crate::provider::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
@@ -551,23 +551,16 @@ fn describe_exit(child_exit: &ChildExit) -> String {
 // Reads the error output to its end into one tail, chunk by chunk as each arrives. A read that
 // fails ends the tail where it stands, so the exit is still read.
 async fn read_error_tail(
-    mut standard_error: impl AsyncRead + Unpin,
+    standard_error: impl AsyncRead + Unpin,
 ) -> OutputTail<PROVIDER_FAILURE_DETAIL_MAX_LEN> {
     let mut tail = OutputTail::new();
-    let mut chunk = vec![0; 8192];
-    loop {
-        match standard_error.read(&mut chunk).await {
-            Ok(0) => return tail,
-            Ok(length) => tail.push(&chunk[..length]),
-            Err(error) => {
-                tracing::warn!(
-                    error = &error as &(dyn Error + 'static),
-                    "the Claude Code process's error output could not be read to its end"
-                );
-                return tail;
-            }
-        }
-    }
+    read_output_chunks(
+        standard_error,
+        "the Claude Code process's error output",
+        |chunk| tail.push(chunk),
+    )
+    .await;
+    tail
 }
 
 #[cfg(test)]

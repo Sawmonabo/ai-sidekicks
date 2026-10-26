@@ -1,7 +1,9 @@
 //! How a child process ended, as the wire carries it: its exit code or the name of the signal that
 //! ended it, and the tail of what it printed, the last stretch of its output decoded across chunks
-//! and cut on a grapheme boundary.
+//! and cut on a grapheme boundary, read from its pipe chunk by chunk.
 
+use std::error::Error;
+use std::io;
 use std::mem;
 
 use sidekicks_contracts::command::ExitCode;
@@ -9,9 +11,13 @@ use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAI
 use sidekicks_contracts::run::control::{ProcessExit, ProcessExitWithCode, ProcessExitWithSignal};
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 use sidekicks_platforms::ChildExit;
+use tokio::io::{AsyncRead, AsyncReadExt as _};
 use unicode_segmentation::GraphemeCursor;
 
 use crate::utf8_stream::Utf8StreamDecoder;
+
+/// The most of a child's output read from its pipe at once.
+const OUTPUT_CHUNK_BYTES: usize = 8 * 1024;
 
 // What a tail reads when the process printed nothing but whitespace, since the wire refuses blank.
 const NO_OUTPUT: &str = "(no output)";
@@ -120,6 +126,31 @@ pub(crate) fn compose_process_exit<const CAP: usize>(
             signal: None,
             output_tail,
         }),
+    }
+}
+
+/// Reads `reader`, a child's output, to its end, handing each chunk of at most 8 KiB to
+/// `take_chunk` as it arrives. A read that is interrupted is tried again; one that fails otherwise
+/// is logged as `what`, the output's name, and ends the reading where it stands.
+pub(crate) async fn read_output_chunks(
+    mut reader: impl AsyncRead + Unpin,
+    what: &str,
+    mut take_chunk: impl FnMut(&[u8]),
+) {
+    let mut chunk = vec![0; OUTPUT_CHUNK_BYTES];
+    loop {
+        match reader.read(&mut chunk).await {
+            Ok(0) => return,
+            Ok(read) => take_chunk(&chunk[..read]),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "{what} could not be read to its end"
+                );
+                return;
+            }
+        }
     }
 }
 
