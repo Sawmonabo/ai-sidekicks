@@ -645,3 +645,41 @@ impl ToolServerQuestionAnswer for ElicitationAnswer {
         async move { sent }.boxed()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use tokio::sync::oneshot;
+
+    use super::{ElicitationAnswer, PendingTake, compose_question};
+    use crate::mcp::client::test_server::{board_form, test_client, test_scope, track_call};
+    use crate::provider::port::question::QuestionPort as _;
+
+    // Mutation: in `PendingTake::drop`, leave out the withdrawal of an outcome sent but not read.
+    #[tokio::test(start_paused = true)]
+    async fn a_take_whose_outcome_came_but_was_never_read_withdraws_its_question() {
+        let (client, card) = test_client();
+        let scope = test_scope(&client);
+        let request_id = scope.task_watches.mint_request_id(&scope, "task-1");
+        let question = compose_question(
+            &scope,
+            track_call().run_id,
+            request_id.clone(),
+            &board_form(),
+        );
+        let (answer, _answered) = ElicitationAnswer::open(board_form());
+        card.take_tool_server_question(question, answer)
+            .await
+            .expect("the card takes the question");
+        let (sender, taken) = oneshot::channel();
+        sender.send(Ok(())).expect("the take's outcome is sent");
+
+        drop(PendingTake {
+            watches: &scope.task_watches,
+            session_id: scope.session_id,
+            request_id,
+            taken,
+        });
+
+        card.wait_until_none_open().await;
+    }
+}
