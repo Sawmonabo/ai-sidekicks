@@ -5,7 +5,7 @@
 //! `cd`, and the MSYS bash shares it for removal, so they start in the folder, as every terminal
 //! starts them. Only PowerShell never lets go of the folder it started in, so where its arguments
 //! leave room it starts in the system folder and is told its folder by a switch or a command; WSL
-//! is told its folder as Windows Terminal tells it.
+//! is told its folder by its `--cd` switch.
 
 use std::path::{Path, PathBuf};
 

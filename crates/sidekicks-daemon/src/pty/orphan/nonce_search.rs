@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io;
 
-use sidekicks_platforms::{list_user_process_ids, read_process_environment};
+use sidekicks_platforms::{list_user_process_ids, read_process_start};
 
 use crate::pty::orphan::registry::SPAWN_NONCE_ENVIRONMENT_NAME;
 
@@ -67,13 +67,12 @@ pub(crate) fn carried_nonce_entry(nonce: &str) -> String {
 /// system shows none. Blocks on the read; fails with the system's error.
 pub(crate) fn read_carried_nonce(process_id: u32) -> io::Result<Option<String>> {
     let prefix = carried_nonce_entry("");
-    Ok(
-        read_process_environment(process_id)?.and_then(|environment| {
-            environment
-                .into_iter()
-                .find_map(|entry| entry.strip_prefix(&prefix).map(str::to_owned))
-        }),
-    )
+    Ok(read_process_start(process_id)?.and_then(|start| {
+        start
+            .environment
+            .into_iter()
+            .find_map(|entry| entry.strip_prefix(&prefix).map(str::to_owned))
+    }))
 }
 
 #[cfg(test)]

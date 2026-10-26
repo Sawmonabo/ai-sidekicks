@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use sidekicks_contracts::machine::settings::MachineSettingsChange;
+use sidekicks_platforms::harness_test_name;
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -71,14 +72,13 @@ fn crash_as_the_child(crash: &str) -> ! {
 
 // This test's binary run again as one of its children, the test picked by name.
 fn child_command() -> Command {
-    let test_path = module_path!()
-        .split_once("::")
-        .map(|(_crate, path)| path)
-        .expect("the module path names its crate");
     let mut command = Command::new(std::env::current_exe().expect("the test knows its binary"));
     command.args([
         "--exact",
-        &format!("{test_path}::crashes_become_stripped_reports_and_none_while_off"),
+        &harness_test_name(
+            module_path!(),
+            "crashes_become_stripped_reports_and_none_while_off",
+        ),
         "--nocapture",
     ]);
     command

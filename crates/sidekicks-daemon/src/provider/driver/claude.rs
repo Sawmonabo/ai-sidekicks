@@ -53,11 +53,15 @@ use crate::provider::driver::{
     BackgroundWork, CommandSandboxNeeds, DriverServices, InstallFolder, InstallFolderBase,
     ProviderCommand, ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
 };
+use crate::provider::port::running_command_publisher::{
+    RunningCommandParams, WriteCommandInputParams, command_act_unsupported,
+};
 use crate::provider::port::session_inbox_address::SessionInboxAddresser;
 
 mod attachments;
 mod capabilities;
 mod capability_probe;
+mod command_shape;
 mod compaction;
 mod delivery;
 mod event_normalizer;
@@ -234,6 +238,7 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         &["uploads"],
         &["dev-mods"],
     ],
+    shell_prefix_command: Some(command_shape::CLAUDE_SHELL_PREFIX_COMMAND),
 };
 
 /// Builds the Claude Code driver over the shared services; it stores handles and does no I/O.
@@ -483,6 +488,27 @@ impl ProviderDriver for ClaudeDriver {
         params: ListProviderCommandsParams,
     ) -> BoxFuture<'_, Result<ProviderCommandBindingGroup, DriverError>> {
         ready(self.list_provider_commands(params)).boxed()
+    }
+
+    fn stop_command(&self, params: RunningCommandParams) -> BoxFuture<'_, Result<(), DriverError>> {
+        std::future::ready(Err(command_act_unsupported(&params.command_id).into())).boxed()
+    }
+
+    fn move_command_to_background(
+        &self,
+        params: RunningCommandParams,
+    ) -> BoxFuture<'_, Result<bool, DriverError>> {
+        std::future::ready(Err(command_act_unsupported(&params.command_id).into())).boxed()
+    }
+
+    fn write_command_input(
+        &self,
+        params: WriteCommandInputParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        std::future::ready(Err(
+            command_act_unsupported(&params.command.command_id).into()
+        ))
+        .boxed()
     }
 
     fn observed_output_speed_for(

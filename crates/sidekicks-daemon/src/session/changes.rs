@@ -183,8 +183,8 @@ impl SessionChanges {
     /// same one through this, so no two of them interleave on one session.
     #[expect(
         dead_code,
-        reason = "the session conversion and the purge take the session's transition lock \
-                  through it"
+        reason = "the session conversion, the purge and the idle sleep's stop take the session's \
+                  transition lock through it"
     )]
     pub(crate) fn transition_lock(&self) -> &Arc<KeyedLock<SessionId>> {
         &self.lock

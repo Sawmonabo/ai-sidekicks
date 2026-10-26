@@ -35,9 +35,9 @@ use crate::provider::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::provider::driver::diagnostics::OnceReportedDiagnostics;
 use crate::provider::driver::run_control::RunToolBoundary;
-use crate::provider::port::command_output_publisher::CommandOutputPublisher;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::reviewer_denial::ReviewerDenialPort;
+use crate::provider::port::running_command_publisher::RunningCommandPublisher;
 use crate::provider::record_readers::read_non_empty_string;
 use crate::provider::terminal_emission_gate::TerminalEmissionGate;
 use crate::provider::thread_frame_router::ThreadFrameRoute;
@@ -81,7 +81,7 @@ pub(crate) struct CodexFrameDeliveryDependencies {
     /// The approval service's intake of the reviewer's blocks.
     pub(crate) reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
     /// The running-commands stream's live output; absent, a command's output is dropped.
-    pub(crate) command_output: Arc<PortRegistration<Arc<dyn CommandOutputPublisher>>>,
+    pub(crate) command_output: Arc<PortRegistration<Arc<dyn RunningCommandPublisher>>>,
     /// The compaction waits, which a compaction's own turn ends.
     pub(crate) pending_compactions: PendingCompactionRegistry,
     /// What the rest of the driver does for a frame.

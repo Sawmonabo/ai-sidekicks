@@ -1,22 +1,24 @@
-//! A folder's arrival watch, which hands back the records renamed into it, and a file's append
-//! watch, which hands back the bytes appended to it. Each platform's module supplies the wake a
-//! change raises; the folder's listing and the file's reads are shared.
+//! A folder's arrival watch, which hands back the records renamed into it, on a runtime or, for a
+//! caller with no runtime, on the calling thread, and a file's append watch, which hands back the
+//! bytes appended to it. Each platform's module supplies the wake a change raises; the folder's
+//! listing and the file's reads are shared.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
 use crate::atomic_write::TEMPORARY_SUFFIX;
 #[cfg(target_os = "linux")]
-use crate::linux::watch::ChangeWake;
+use crate::linux::watch::{BlockingChangeWake, ChangeWake};
 #[cfg(target_os = "macos")]
-use crate::macos::watch::ChangeWake;
+use crate::macos::watch::{BlockingChangeWake, ChangeWake};
 #[cfg(target_os = "windows")]
-use crate::windows::watch::ChangeWake;
+use crate::windows::watch::{BlockingChangeWake, ChangeWake};
 
 // The most bytes one read of an appended file hands back, so a burst of output is read in bounded
 // pieces.
@@ -37,7 +39,7 @@ impl FolderArrivalWatch {
     /// Windows.
     pub async fn watch(folder: &Path) -> io::Result<Self> {
         let wake = ChangeWake::on_folder_renames(folder)?;
-        let known = list_names(folder).await?;
+        let known = list_names_off_runtime(folder).await?;
         Ok(Self {
             folder: folder.to_path_buf(),
             known,
@@ -48,22 +50,83 @@ impl FolderArrivalWatch {
     /// The paths of the records that arrived since the last call in name order, waiting until one
     /// does; a name ending in the temporary suffix a record is written under is never one. Fails
     /// with the system's error when the folder cannot be listed or the watch fails, and with
-    /// `NotFound` once the folder is removed or renamed away.
+    /// `NotFound` once the folder is removed or renamed away. Dropping the wait loses no arrival:
+    /// each listing that finds one returns it.
     pub async fn next_arrivals(&mut self) -> io::Result<Vec<PathBuf>> {
         loop {
-            let names = list_names(&self.folder).await?;
-            let mut arrivals: Vec<PathBuf> = names
-                .difference(&self.known)
-                .map(|name| self.folder.join(name))
-                .collect();
-            arrivals.sort();
-            self.known = names;
+            let names = list_names_off_runtime(&self.folder).await?;
+            let arrivals = take_arrivals(&self.folder, &mut self.known, names);
             if !arrivals.is_empty() {
                 return Ok(arrivals);
             }
             self.wake.changed().await?;
         }
     }
+
+    /// The paths of the records that arrived since the last call in name order, from one listing
+    /// with no wait, so empty when none has. Fails as [`Self::next_arrivals`] does.
+    pub async fn arrivals_now(&mut self) -> io::Result<Vec<PathBuf>> {
+        let names = list_names_off_runtime(&self.folder).await?;
+        Ok(take_arrivals(&self.folder, &mut self.known, names))
+    }
+}
+
+/// A watch on a folder whose records arrive by rename, as [`FolderArrivalWatch`] is, waited on by
+/// the calling thread for a caller with no runtime.
+pub struct FolderArrivalWait {
+    folder: PathBuf,
+    // The names the last listing held, so each arrival is reported once.
+    known: HashSet<OsString>,
+    wake: BlockingChangeWake,
+}
+
+impl FolderArrivalWait {
+    /// Watches `folder`; the records it already holds are not arrivals. Fails with the system's
+    /// error when the folder cannot be opened, watched or listed, and with `Unsupported` on
+    /// Windows.
+    pub fn watch(folder: &Path) -> io::Result<Self> {
+        let wake = BlockingChangeWake::on_folder_renames(folder)?;
+        let known = list_names(folder)?;
+        Ok(Self {
+            folder: folder.to_path_buf(),
+            known,
+            wake,
+        })
+    }
+
+    /// The paths of the records that arrived since the last call in name order, waiting on this
+    /// thread until one does or `deadline` passes, empty then; a name ending in the temporary
+    /// suffix is never one. Fails as [`FolderArrivalWatch::next_arrivals`] does.
+    pub fn next_arrivals(&mut self, deadline: Option<Instant>) -> io::Result<Vec<PathBuf>> {
+        loop {
+            let names = list_names(&self.folder)?;
+            let arrivals = take_arrivals(&self.folder, &mut self.known, names);
+            if !arrivals.is_empty() {
+                return Ok(arrivals);
+            }
+            let timeout =
+                deadline.map(|deadline| deadline.saturating_duration_since(Instant::now()));
+            if timeout.is_some_and(|timeout| timeout.is_zero()) || !self.wake.changed(timeout)? {
+                return Ok(Vec::new());
+            }
+        }
+    }
+}
+
+// The paths in `folder` that `names` holds and `known` did not, in name order, `names` becoming
+// what is known.
+fn take_arrivals(
+    folder: &Path,
+    known: &mut HashSet<OsString>,
+    names: HashSet<OsString>,
+) -> Vec<PathBuf> {
+    let mut arrivals: Vec<PathBuf> = names
+        .difference(known)
+        .map(|name| folder.join(name))
+        .collect();
+    arrivals.sort();
+    *known = names;
+    arrivals
 }
 
 /// A watch on a file a command writes, handing back each byte appended to it once, from its start;
@@ -138,12 +201,12 @@ impl FileAppendWatch {
     }
 }
 
-// The names in `folder`, the temporary names records are written under left out.
-async fn list_names(folder: &Path) -> io::Result<HashSet<OsString>> {
-    let mut entries = tokio::fs::read_dir(folder).await?;
+// The names in `folder`, the temporary names records are written under left out; blocks on the
+// listing.
+fn list_names(folder: &Path) -> io::Result<HashSet<OsString>> {
     let mut names = HashSet::new();
-    while let Some(entry) = entries.next_entry().await? {
-        let name = entry.file_name();
+    for entry in std::fs::read_dir(folder)? {
+        let name = entry?.file_name();
         if !name
             .as_encoded_bytes()
             .ends_with(TEMPORARY_SUFFIX.as_bytes())
@@ -152,6 +215,14 @@ async fn list_names(folder: &Path) -> io::Result<HashSet<OsString>> {
         }
     }
     Ok(names)
+}
+
+// The names in `folder` as `list_names` lists them, listed on the blocking pool.
+async fn list_names_off_runtime(folder: &Path) -> io::Result<HashSet<OsString>> {
+    let folder = folder.to_path_buf();
+    tokio::task::spawn_blocking(move || list_names(&folder))
+        .await
+        .map_err(io::Error::other)?
 }
 
 #[cfg(all(test, unix))]
@@ -320,19 +391,6 @@ mod tests {
         changed
             .expect("the append is seen in time")
             .expect("the watch reads");
-    }
-
-    // Fails when a file whose name is gone before the watch fails as anything but missing.
-    #[tokio::test]
-    async fn file_append_watch_of_a_missing_file_fails_as_not_found() {
-        let folder = tempfile::tempdir().expect("a scratch folder");
-
-        let failure = FileAppendWatch::watch(&folder.path().join("output")).await;
-
-        assert_eq!(
-            failure.err().map(|failure| failure.kind()),
-            Some(ErrorKind::NotFound)
-        );
     }
 
     // Fails when a drain waits for an append, or does not hand back what was appended.

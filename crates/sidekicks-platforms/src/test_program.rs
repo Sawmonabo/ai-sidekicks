@@ -3,6 +3,16 @@
 
 use crate::terminal::TestProgram;
 
+/// The name the test harness gives `test` in the module at `module_path`, which is
+/// `module_path!()` as the test's own module reads it, so a test can run its program again on that
+/// one test.
+pub fn harness_test_name(module_path: &str, test: &str) -> String {
+    let module = module_path
+        .split_once("::")
+        .map_or(module_path, |(_, path)| path);
+    format!("{module}::{test}")
+}
+
 /// The arguments that run only the test `name`, ignored ones included, its output kept.
 pub(crate) fn this_test_arguments(name: &str) -> [&str; 4] {
     ["--exact", name, "--include-ignored", "--nocapture"]

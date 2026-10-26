@@ -379,6 +379,7 @@ mod tests {
         callback_tools_asked: false,
         account_home_diagnostic_folders: &[],
         account_home_conversation_folders: &[],
+        shell_prefix_command: None,
     };
 
     /// A second registered provider, whose credential home no row may set either, and whose
