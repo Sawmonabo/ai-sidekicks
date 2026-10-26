@@ -4,11 +4,17 @@
 
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use tokio::task::JoinError;
+
 use crate::daemon::process::database::{DatabaseFileCloseFailure, close_database_file};
+use crate::daemon::process::providers::{ProvidersRegistrationStopFailure, shut_down_drivers};
 use crate::daemon::process::{DAEMON_STOP_DRAIN_BOUND, DaemonProcess};
+use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::session::search::index::live::LiveIndexCloseError;
 
 /// Why a step of the stop failed; every other step still ran.
 #[derive(Debug, thiserror::Error)]
@@ -19,6 +25,24 @@ pub(crate) enum DaemonStopFailure {
     /// A step of the database file's close failed.
     #[error(transparent)]
     DatabaseFile(#[from] DatabaseFileCloseFailure),
+    /// Mutating calls were still running when the drain bound ran out.
+    #[error("{0} mutating calls were still running when the stop's drain bound ran out")]
+    MutatingCallsRunning(usize),
+    /// The capability refresh's task ended abnormally.
+    #[error("the capability refresh ended abnormally")]
+    CapabilityRefresh(#[source] JoinError),
+    /// The providers' registration did not end cleanly.
+    #[error(transparent)]
+    ProvidersRegistration(#[from] ProvidersRegistrationStopFailure),
+    /// The scheduler's task ended abnormally.
+    #[error("the scheduler ended abnormally")]
+    Scheduler(#[source] JoinError),
+    /// The session search index did not close cleanly.
+    #[error("the session search index did not close cleanly")]
+    SearchIndex(#[source] Arc<LiveIndexCloseError>),
+    /// A driver's shutdown failed.
+    #[error("a provider's driver did not shut down cleanly")]
+    Driver(#[source] DriverError),
 }
 
 /// Why the crash monitor's end failed.
@@ -42,14 +66,15 @@ pub(crate) enum CrashMonitorEndFailure {
 }
 
 /// Ends the daemon's work: the stop token, so the work under way ends; the socket, so no new call
-/// comes; then the work ending together within `bound`. Answers each step's failure, every step
-/// having run.
+/// comes; then, within what is left of `bound`, the mutating calls under way, the capability
+/// refresh, the providers' registration, the scheduler, the search index, the drivers and the git
+/// trees a failed call left. Answers each step's failure, every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
     intent: DaemonStopIntent,
     bound: Duration,
 ) -> Vec<DaemonStopFailure> {
-    process.stop_started.get_or_insert_with(Instant::now);
+    let started = *process.stop_started.get_or_insert_with(Instant::now);
     tracing::info!(
         ?intent,
         drain_bound_ms = bound.as_millis(),
@@ -60,9 +85,52 @@ pub(crate) async fn stop_work(
     if let Some(gateway) = process.gateway.take() {
         gateway.stop().await;
     }
+    let remaining = || bound.saturating_sub(started.elapsed());
+    let mut failures = Vec::new();
+    if let Some(in_flight) = process.in_flight.take() {
+        let running = in_flight.wait_for_pending_within(None, remaining()).await;
+        if running > 0 {
+            failures.push(DaemonStopFailure::MutatingCallsRunning(running));
+        }
+    }
+    let drivers = match process.providers.take() {
+        Some(providers) => {
+            if let Err(failure) = providers.refreshing.stop().await {
+                failures.push(DaemonStopFailure::CapabilityRefresh(failure));
+            }
+            Some(providers.registry)
+        }
+        None => None,
+    };
+    if let Some(registration) = process.providers_registration.take()
+        && let Err(failure) = registration.stop(remaining()).await
+    {
+        failures.push(failure.into());
+    }
+    // Before the drivers, since a job it runs may still call into them.
+    if let Some(scheduler) = process.scheduler.take()
+        && let Err(failure) = scheduler.stop().await
+    {
+        failures.push(DaemonStopFailure::Scheduler(failure));
+    }
+    if let Some(search_index) = process.search_index.take()
+        && let Err(failure) = search_index.close().await
+    {
+        failures.push(DaemonStopFailure::SearchIndex(failure));
+    }
+    if let Some(drivers) = drivers {
+        failures.extend(
+            shut_down_drivers(&drivers, intent)
+                .await
+                .into_iter()
+                .map(DaemonStopFailure::Driver),
+        );
+    }
+    if let Some(service_inputs) = &process.service_inputs {
+        service_inputs.git.wait_for_tree_ends().await;
+    }
     // After the drain, so every child it ended is still retired.
     drop(process.orphan_guard.take());
-    let failures = Vec::new();
     process.has_stop_failed |= !failures.is_empty();
     failures
 }
