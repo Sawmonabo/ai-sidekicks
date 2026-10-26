@@ -41,7 +41,7 @@ use crate::mcp::client::requests::{McpRequestError, RequestWait};
 use crate::mcp::elicitation_form::{compose_elicitation_content, read_elicitation_questions};
 use crate::mutex_lock::lock;
 use crate::provider::port::question::{
-    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, QuestionTurn, QuestionTurnEnd,
+    ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort, QuestionTurnEnd,
     ToolServerQuestionAnswer, take_question_in_turn,
 };
 use crate::provider::port::registration::PortRegistration;
@@ -446,19 +446,19 @@ impl TaskWatches {
         let (session_id, request_id) = (question.session_id, question.request_id.clone());
         let (mut sender, taken) = oneshot::channel();
         // Its place in its run's line is taken as it arrives, before the take's own task runs.
-        let turn =
-            (take == QuestionTake::InRunTurn).then(|| QuestionTurn::line_up(question.run_id));
+        let place =
+            (take == QuestionTake::InRunTurn).then(|| QuestionLinePlace::line_up(question.run_id));
         tokio::spawn({
             let request_id = request_id.clone();
             async move {
-                let took = match turn {
+                let took = match place {
                     None => port.take_tool_server_question(question, answer).await,
-                    Some(turn) => {
+                    Some(place) => {
                         let ended = take_question_in_turn(
                             port.as_ref(),
                             question,
                             Some(answer),
-                            turn,
+                            place,
                             sender.closed(),
                         )
                         .await;

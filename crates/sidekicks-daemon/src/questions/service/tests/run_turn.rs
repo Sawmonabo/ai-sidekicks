@@ -11,7 +11,7 @@ use sidekicks_contracts::question::QuestionId;
 
 use super::{Fixture, HandedAnswers, RecordingTaskAnswer, choice_page, failed};
 use crate::provider::port::question::{
-    ProviderQuestionWithdrawal, QuestionTurn, QuestionTurnEnd, ToolServerQuestionAnswer,
+    ProviderQuestionWithdrawal, QuestionLinePlace, QuestionTurnEnd, ToolServerQuestionAnswer,
     take_question_in_turn,
 };
 use crate::questions::service::HeldRequestAnswerer;
@@ -85,7 +85,7 @@ async fn a_question_asked_while_its_run_waits_opens_once_the_first_answer_moves_
         &fixture.questions,
         fixture.question("request-2", json!([choice_page()]), true),
         Some(task_answer(&sent)),
-        QuestionTurn::line_up(fixture.run_id),
+        QuestionLinePlace::line_up(fixture.run_id),
         std::future::pending(),
     );
     tokio::pin!(second);
@@ -123,7 +123,7 @@ async fn a_question_asked_while_its_run_waits_opens_once_the_first_answer_moves_
         &fixture.questions,
         fixture.question("request-3", json!([choice_page()]), true),
         Some(task_answer(&sent)),
-        QuestionTurn::line_up(fixture.run_id),
+        QuestionLinePlace::line_up(fixture.run_id),
         std::future::pending(),
     );
     tokio::pin!(third);
@@ -174,7 +174,7 @@ async fn a_question_whose_asker_left_is_withdrawn_after_its_record(
         &fixture.questions,
         fixture.question("request-2", json!([choice_page()]), true),
         Some(task_answer(&sent)),
-        QuestionTurn::line_up(fixture.run_id),
+        QuestionLinePlace::line_up(fixture.run_id),
         std::future::ready(()),
     )
     .await;
@@ -199,7 +199,7 @@ async fn a_waiting_question_its_provider_withdraws_ends_its_turn_at_once() {
         &fixture.questions,
         fixture.question("request-2", json!([choice_page()]), true),
         None,
-        QuestionTurn::line_up(fixture.run_id),
+        QuestionLinePlace::line_up(fixture.run_id),
         std::future::pending(),
     );
     tokio::pin!(second);

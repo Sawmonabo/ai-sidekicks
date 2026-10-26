@@ -83,9 +83,9 @@ pub(crate) enum QuestionTurnEnd {
 
 /// A question's place in its run's line, taken where the question arrives, before any await, and
 /// handed to [`take_question_in_turn`].
-pub(crate) struct QuestionTurn(Result<KeyHold<'static, RunId>, KeyWait<'static, RunId>>);
+pub(crate) struct QuestionLinePlace(Result<KeyHold<'static, RunId>, KeyWait<'static, RunId>>);
 
-impl QuestionTurn {
+impl QuestionLinePlace {
     /// Takes the place of a question `run_id` asks now, behind every question of the run that
     /// came before it and has not yet opened.
     pub(crate) fn line_up(run_id: RunId) -> Self {
@@ -139,7 +139,7 @@ pub(crate) trait QuestionPort: Send + Sync {
 }
 
 /// Takes `question` through `port` in its run's turn, answered through `answer`, or the run's
-/// driver when `None`. It is recorded at once: open when no question is ahead of `turn`, its place
+/// driver when `None`. It is recorded at once: open when no question is ahead of `place`, its place
 /// in its run's line, and its run reads running, else waiting for its run, then taken in the
 /// line's order once the run reads running, never refused for asking while the run waits on
 /// something else. When `asker_left` resolves before its turn, or by the time it opened, it is
@@ -149,7 +149,7 @@ pub(crate) async fn take_question_in_turn(
     port: &dyn QuestionPort,
     question: ProviderQuestion,
     answer: Option<Arc<dyn ToolServerQuestionAnswer>>,
-    turn: QuestionTurn,
+    place: QuestionLinePlace,
     asker_left: impl Future<Output = ()>,
 ) -> Result<QuestionTurnEnd, Box<dyn Error + Send + Sync>> {
     let mut asker_left = pin!(asker_left);
@@ -157,7 +157,7 @@ pub(crate) async fn take_question_in_turn(
         session_id: question.session_id,
         request_id: question.request_id.clone(),
     };
-    let mut ended = take_in_turn(port, question, answer, turn, asker_left.as_mut()).await?;
+    let mut ended = take_in_turn(port, question, answer, place, asker_left.as_mut()).await?;
     if ended == QuestionTurnEnd::Taken && asker_left.as_mut().now_or_never().is_some() {
         ended = QuestionTurnEnd::AskerLeft;
     }
@@ -173,7 +173,7 @@ async fn take_in_turn(
     port: &dyn QuestionPort,
     question: ProviderQuestion,
     answer: Option<Arc<dyn ToolServerQuestionAnswer>>,
-    QuestionTurn(place): QuestionTurn,
+    QuestionLinePlace(place): QuestionLinePlace,
     mut asker_left: Pin<&mut impl Future<Output = ()>>,
 ) -> Result<QuestionTurnEnd, Box<dyn Error + Send + Sync>> {
     let (session_id, run_id) = (question.session_id, question.run_id);
@@ -187,7 +187,7 @@ async fn take_in_turn(
     }
     // Held across every wait and the opening, so the questions behind it wait their turn. Its
     // asker's leaving is read first throughout, so a question no one waits for never opens.
-    let _turn = match place {
+    let _held = match place {
         Ok(hold) => hold,
         Err(wait) => tokio::select! {
             biased;
