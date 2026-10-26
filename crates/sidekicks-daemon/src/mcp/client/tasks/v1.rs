@@ -439,10 +439,8 @@ mod tests {
         )
     }
 
-    // Mutations: in `hold_result`, hold the result under `RequestWait::ToolCall`, whose 30 min
-    // idle window on stdio ends the hold, so the server is told it was canceled and asked for the
-    // result again; or in `poll_once`, await the result in the "input_required" arm, which stops
-    // the polls while the question waits.
+    // Mutation: in `poll_once`, await the result in the "input_required" arm, which stops the
+    // polls while the question waits.
     #[tokio::test(start_paused = true)]
     async fn a_task_whose_question_waits_31_minutes_keeps_one_held_result_and_its_contact() {
         let (client, card) = test_client();
@@ -470,6 +468,60 @@ mod tests {
         assert!(
             server.requests("tasks/get").len() > 300,
             "the task is polled at its 5 s interval while its result is held"
+        );
+        assert_eq!(
+            server.requests("tasks/result").len(),
+            1,
+            "one result is held the whole time"
+        );
+        assert!(
+            server.requests("notifications/cancelled").is_empty(),
+            "the held result is never canceled"
+        );
+    }
+
+    // A result held past the person's answer, while the task keeps working, stays held: the
+    // connection's 30 min idle window on stdio, which runs again once no question is open, never
+    // cancels it. Mutation: in `hold_result`, hold the result under `RequestWait::ToolCall`, whose
+    // idle window then cancels the hold 30 min after the answer.
+    #[tokio::test(start_paused = true)]
+    async fn a_result_held_past_the_answer_while_the_task_works_on_is_never_canceled() {
+        let (client, card) = test_client();
+        let (connection, server) = open_test_server(
+            &client,
+            task_server(
+                |poll| match poll {
+                    2 => status_reply("input_required"),
+                    _ => status_reply("working"),
+                },
+                || {
+                    let mut params = board_form();
+                    params["_meta"] = json!({
+                        "io.modelcontextprotocol/related-task": { "taskId": "task-1" },
+                    });
+                    Reply::AskThenSilent {
+                        request: json!({ "method": "elicitation/create", "params": params }),
+                    }
+                },
+            ),
+        )
+        .await;
+        let sink = CountingSink::new(&server);
+        let contact = contact();
+        let call = connection.call_tool(track_call(), &sink, &contact);
+        tokio::pin!(call);
+
+        tokio::select! {
+            _ = &mut call => panic!("the call ended while its task worked"),
+            () = async {
+                card.answer_open(board_answer()).await;
+                tokio::time::sleep(Duration::from_mins(31)).await;
+            } => {}
+        }
+
+        assert_eq!(
+            server.answer_to("server-1").expect("the client answered")["result"],
+            board_accepted()
         );
         assert_eq!(
             server.requests("tasks/result").len(),

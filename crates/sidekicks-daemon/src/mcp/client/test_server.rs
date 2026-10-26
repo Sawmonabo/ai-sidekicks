@@ -50,6 +50,11 @@ pub(super) enum Reply {
         /// The reply's `result` or `error` member.
         then: Value,
     },
+    /// Sends `request` of its own and never answers, the client's answer to it included.
+    AskThenSilent {
+        /// The server's request, its `id` set by the server.
+        request: Value,
+    },
 }
 
 /// What the server does with a request, by method and params.
@@ -169,6 +174,12 @@ pub(super) async fn start_test_server(
                             request["jsonrpc"] = json!("2.0");
                             request["id"] = json!(request_id);
                             held.insert(request_id, (id, then));
+                            vec![request.to_string()]
+                        }
+                        Reply::AskThenSilent { mut request } => {
+                            next_request += 1;
+                            request["jsonrpc"] = json!("2.0");
+                            request["id"] = json!(format!("server-{next_request}"));
                             vec![request.to_string()]
                         }
                     }
