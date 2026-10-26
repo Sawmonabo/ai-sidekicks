@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use tokio::sync::{Notify, watch};
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::AbortOnDropHandle;
 
 use crate::daemon::backup::run::Backups;
 use crate::daemon::crash::reports::{CrashReportDeps, crash_report_job};
@@ -122,9 +123,10 @@ const IDLE_COLLECT_DELAY: Duration = Duration::from_secs(10);
 
 /// Hands the memory the daemon freed back to the system once, when no run is live and no call is
 /// in flight for [`IDLE_COLLECT_DELAY`]; new work resets the wait, and the next quiet arms it
-/// again.
+/// again. Dropping it ends the collect's task.
 pub(crate) struct IdleMemoryCollect {
     calls: Arc<CallsInFlight>,
+    _collect: AbortOnDropHandle<()>,
 }
 
 /// One call the daemon is serving; while any is held the collect waits.
@@ -147,8 +149,11 @@ impl IdleMemoryCollect {
     )]
     pub(crate) fn start(live_runs: watch::Receiver<u32>, stop: CancellationToken) -> Self {
         let calls = Arc::new(CallsInFlight::default());
-        tokio::spawn(collect_when_quiet(live_runs, Arc::clone(&calls), stop));
-        Self { calls }
+        let collect = tokio::spawn(collect_when_quiet(live_runs, Arc::clone(&calls), stop));
+        Self {
+            calls,
+            _collect: AbortOnDropHandle::new(collect),
+        }
     }
 
     /// Marks a call in flight until the answer is dropped, so the collect waits for it.
@@ -175,8 +180,8 @@ impl Drop for CallInFlight {
 }
 
 // Waits for the work to go quiet, then for it to stay quiet for the delay, any new work starting
-// the wait again; collects once, then waits for new work before it arms again. Ends with `stop`, or
-// once the writer that counts the live runs is gone.
+// the wait again; collects once, then waits for any movement of the work, however brief, before it
+// arms again. Ends with `stop`, or once the writer that counts the live runs is gone.
 async fn collect_when_quiet(
     mut live_runs: watch::Receiver<u32>,
     calls: Arc<CallsInFlight>,
@@ -214,10 +219,9 @@ async fn collect_when_quiet(
                 "handing freed memory back to the system ended before it finished"
             );
         }
-        while is_quiet(&mut live_runs) {
-            if !wait_for_work_moved(&mut live_runs, &calls, &stop).await {
-                return;
-            }
+        // A call that came and went before this task woke still moved the count, so it re-arms.
+        if !wait_for_work_moved(&mut live_runs, &calls, &stop).await {
+            return;
         }
     }
 }
