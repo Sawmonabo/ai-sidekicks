@@ -53,9 +53,6 @@ pub(crate) enum DriverDiagnosticKind {
     ThreadDuplicateChildAnnouncement,
     /// A capability re-declaration failed or missed its liveness deadline.
     CapabilityRefreshFailed,
-    /// A Settings row's value could not be applied at the daemon's start, so the provider runs on
-    /// what it had.
-    SettingsRowApplyFailed,
     /// The provider's stored capability reading could not be rebuilt at the daemon's start, so
     /// its gated calls wait for the first refresh.
     StoredCapabilitiesUnreadable,
@@ -63,6 +60,9 @@ pub(crate) enum DriverDiagnosticKind {
     /// the surface; the failed-read kind does not cover a capability quietly lost between
     /// refreshes.
     CapabilityFlagWithdrawn,
+    /// A Settings row's value could not be applied at the daemon's start, so the provider runs on
+    /// what it had.
+    SettingsRowApplyFailed,
     /// An invocation reached the host with no evaluation seam registered; answered refused, never
     /// completed without the policy check and never left unanswered.
     CallbackToolSeamAbsent,
@@ -173,9 +173,9 @@ impl DriverDiagnosticKind {
                 "driver.threadRouter.duplicateChildAnnouncement"
             }
             Self::CapabilityRefreshFailed => "driver.capabilityRefresh.declarationFailed",
-            Self::SettingsRowApplyFailed => "driver.settingsRow.applyFailed",
             Self::StoredCapabilitiesUnreadable => "driver.capabilityRefresh.storedUnreadable",
             Self::CapabilityFlagWithdrawn => "driver.capabilityRefresh.flagWithdrawn",
+            Self::SettingsRowApplyFailed => "driver.settingsRow.applyFailed",
             Self::CallbackToolSeamAbsent => "driver.callbackTool.seamAbsent",
             Self::CallbackToolRegistryWithheld => "driver.callbackTool.registryWithheld",
             Self::CallbackToolInvocationRefused => "driver.callbackTool.invocationRefused",
