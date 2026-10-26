@@ -7,7 +7,8 @@
 //!
 //! - Input the client does not take is answered as rmcp's own client answers it: a roots request
 //!   with an empty list, and sampling with method-not-found, which fails a call; a task has no
-//!   way to carry that error back, so it is canceled instead of left waiting until its TTL.
+//!   way to carry that error back, so it is canceled instead of left waiting until its TTL, before
+//!   any of its other requests is asked, so none flashes on the card.
 //! - A task's input requests past the first 16 are ignored, as Claude Code ignores them.
 
 use std::collections::{BTreeMap, HashSet};
@@ -18,8 +19,8 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, DEFAULT_MRTR_MAX_ROUNDS, InputRequest, InputRequests,
-    InputResponses, TaskPayload, UpdateTaskParams,
+    CallToolRequestParams, CallToolResponse, DEFAULT_MRTR_MAX_ROUNDS, ElicitRequest, InputRequest,
+    InputRequests, InputResponses, TaskPayload, UpdateTaskParams,
 };
 use rmcp::service::ServiceError;
 use serde_json::{Value, json};
@@ -165,10 +166,12 @@ pub(super) async fn follow_task(
     end
 }
 
-/// One poll: the task's state, answering each of its first 16 input requests not answered yet.
+/// One poll: the task's state, answering each of its first 16 input requests not answered yet,
+/// or canceling the task when one of them is a kind the client does not take.
 #[expect(
     clippy::wildcard_enum_match_arm,
-    reason = "rmcp marks the task payload non-exhaustive, so its states cannot all be named"
+    reason = "rmcp marks the task payload and the input request non-exhaustive, so their states \
+              and kinds cannot all be named"
 )]
 async fn poll_once(
     connection: &McpServerConnection,
@@ -177,53 +180,93 @@ async fn poll_once(
 ) -> Result<PollStep<McpToolCallEnd>, ServiceError> {
     let reply = connection.requests.get_task(mcp_task_id).await?;
     let suggested_interval_ms = reply.task.task.poll_interval_ms;
-    match reply.task.payload {
-        TaskPayload::Completed { result } => Ok(PollStep::End(McpToolCallEnd::Answered { result })),
-        TaskPayload::Failed { error } => Ok(PollStep::End(McpToolCallEnd::Failed { error })),
-        TaskPayload::Cancelled => Ok(PollStep::End(McpToolCallEnd::Canceled)),
-        TaskPayload::InputRequired { input_requests } => {
-            if input_requests.len() > MAX_TASK_INPUT_REQUESTS {
-                tracing::warn!(
-                    server = connection.scope.server_name.as_str(),
-                    count = input_requests.len(),
-                    "a tool server task asked for input past the first 16; the rest are ignored"
-                );
-            }
-            for (key, request) in input_requests.into_iter().take(MAX_TASK_INPUT_REQUESTS) {
-                let is_asked = lock(asked).contains(&key);
-                // A request the card refused, as a run already waiting on a question refuses
-                // one, is asked again on a later poll.
-                if !is_asked && answer_input_request(connection, mcp_task_id, &key, request).await {
-                    lock(asked).insert(key);
-                }
-            }
-            Ok(PollStep::Wait {
-                suggested_interval_ms,
-            })
+    let input_requests = match reply.task.payload {
+        TaskPayload::Completed { result } => {
+            return Ok(PollStep::End(McpToolCallEnd::Answered { result }));
         }
+        TaskPayload::Failed { error } => {
+            return Ok(PollStep::End(McpToolCallEnd::Failed { error }));
+        }
+        TaskPayload::Cancelled => return Ok(PollStep::End(McpToolCallEnd::Canceled)),
+        TaskPayload::InputRequired { input_requests } => input_requests,
         // `working`, and any state a later rmcp adds to its open set, waits for the next poll.
-        _ => Ok(PollStep::Wait {
-            suggested_interval_ms,
-        }),
+        _ => {
+            return Ok(PollStep::Wait {
+                suggested_interval_ms,
+            });
+        }
+    };
+    if input_requests.len() > MAX_TASK_INPUT_REQUESTS {
+        tracing::warn!(
+            server = connection.scope.server_name.as_str(),
+            count = input_requests.len(),
+            "a tool server task asked for input past the first 16; the rest are ignored"
+        );
+    }
+    let mut taken = Vec::new();
+    for (key, request) in input_requests.into_iter().take(MAX_TASK_INPUT_REQUESTS) {
+        match request {
+            InputRequest::Elicitation(elicitation) => {
+                taken.push((key, TaskInput::Elicitation(elicitation)));
+            }
+            InputRequest::ListRoots(_) => taken.push((key, TaskInput::Roots)),
+            // Sampling, and any request a later rmcp adds: the task is canceled before anything
+            // else it asks reaches the card, and the next poll reads its end.
+            _ => {
+                cancel_for_unsupported_input(connection, mcp_task_id).await;
+                return Ok(PollStep::Wait {
+                    suggested_interval_ms,
+                });
+            }
+        }
+    }
+    for (key, input) in taken {
+        let is_asked = lock(asked).contains(&key);
+        // A request the card refused, as a run already waiting on a question refuses one, is
+        // asked again on a later poll.
+        if !is_asked && answer_input_request(connection, mcp_task_id, &key, input).await {
+            lock(asked).insert(key);
+        }
+    }
+    Ok(PollStep::Wait {
+        suggested_interval_ms,
+    })
+}
+
+/// One input request of a task the client takes.
+enum TaskInput {
+    /// An elicitation, asked on the questions card.
+    Elicitation(ElicitRequest),
+    /// A roots request, answered with an empty list.
+    Roots,
+}
+
+/// Cancels task `mcp_task_id`, which asked for input the client does not take; a failed cancel is
+/// logged and tried again at the next poll that reads the request.
+async fn cancel_for_unsupported_input(connection: &McpServerConnection, mcp_task_id: &str) {
+    tracing::warn!(
+        server = connection.scope.server_name.as_str(),
+        "a tool server task asked for sampling, which the client does not take; canceled"
+    );
+    if let Err(error) = connection.requests.cancel_v2_task(mcp_task_id).await {
+        tracing::warn!(
+            error = &error as &(dyn Error + 'static),
+            "a tool server task asking for sampling was not canceled"
+        );
     }
 }
 
 /// Answers one input request of the task: an elicitation's form asked on the questions card, a
-/// roots request answered with an empty list, and sampling by canceling the task; true once it
-/// needs no answer again.
-#[expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "rmcp marks the input request non-exhaustive, so a later kind is named by the wildcard"
-)]
+/// roots request answered with an empty list; true once it needs no answer again.
 async fn answer_input_request(
     connection: &McpServerConnection,
     mcp_task_id: &str,
     key: &str,
-    request: InputRequest,
+    input: TaskInput,
 ) -> bool {
-    let elicitation = match request {
-        InputRequest::Elicitation(elicitation) => elicitation,
-        InputRequest::ListRoots(_) => {
+    let elicitation = match input {
+        TaskInput::Elicitation(elicitation) => elicitation,
+        TaskInput::Roots => {
             let params = input_response(mcp_task_id, key, empty_roots());
             return match connection.requests.update_task(params).await {
                 Ok(()) => true,
@@ -231,23 +274,6 @@ async fn answer_input_request(
                     tracing::warn!(
                         error = &error as &(dyn Error + 'static),
                         "a tool server task's roots request was not answered"
-                    );
-                    false
-                }
-            };
-        }
-        // Sampling, and any request a later rmcp adds.
-        _ => {
-            tracing::warn!(
-                server = connection.scope.server_name.as_str(),
-                "a tool server task asked for sampling, which the client does not take; canceled"
-            );
-            return match connection.requests.cancel_v2_task(mcp_task_id).await {
-                Ok(()) => true,
-                Err(error) => {
-                    tracing::warn!(
-                        error = &error as &(dyn Error + 'static),
-                        "a tool server task asking for sampling was not canceled"
                     );
                     false
                 }
@@ -501,24 +527,40 @@ mod tests {
         assert_eq!(answered_keys, ["k1", "k2"]);
     }
 
-    // Mutations: in `answer_input_request`, leave a roots request unanswered or sampling
-    // outstanding; or in `poll_once`, drop the 16-request cap.
+    /// The keys of every `tasks/update` answer `server` received, each with its answer, in key
+    /// order.
+    fn answered_inputs(server: &TestServer) -> Vec<(String, Value)> {
+        let mut answered: Vec<(String, Value)> = updates(server)
+            .iter()
+            .flat_map(|update| {
+                update["inputResponses"]
+                    .as_object()
+                    .expect("the answers")
+                    .clone()
+            })
+            .collect();
+        answered.sort_by(|left, right| left.0.cmp(&right.0));
+        answered
+    }
+
+    // Mutation: in `poll_once`, go on asking the task's other requests past the sampling one, or
+    // cancel only once they are asked; "a", sorted before it, then reaches the card.
     #[tokio::test(start_paused = true)]
-    async fn a_tasks_roots_are_answered_empty_its_sampling_cancels_it_and_input_past_16_is_ignored()
-    {
+    async fn a_task_asking_for_sampling_is_canceled_before_any_of_its_input_is_asked() {
         let (client, card) = test_client();
-        // "a" sorts first, so the sixteen are "a" and r00 to r14; r15 is the seventeenth.
         let mut requests = Map::new();
         requests.insert(
             "a".to_owned(),
+            json!({ "method": "elicitation/create", "params": board_form() }),
+        );
+        requests.insert(
+            "b".to_owned(),
             json!({ "method": "sampling/createMessage", "params": {
                 "messages": [{ "role": "user", "content": { "type": "text", "text": "Hi" } }],
                 "maxTokens": 10,
             } }),
         );
-        for number in 0..16 {
-            requests.insert(format!("r{number:02}"), json!({ "method": "roots/list" }));
-        }
+        requests.insert("c".to_owned(), json!({ "method": "roots/list" }));
         let waiting = json!({ "status": "input_required", "inputRequests": requests });
         let (connection, server) = open_test_server(
             &client,
@@ -543,23 +585,51 @@ mod tests {
 
         assert_eq!(end.expect("the call ends"), McpToolCallEnd::Canceled);
         assert_eq!(server.requests("tasks/cancel").len(), 1);
-        let mut answered: Vec<(String, Value)> = updates(&server)
-            .iter()
-            .flat_map(|update| {
-                update["inputResponses"]
-                    .as_object()
-                    .expect("the answers")
-                    .clone()
-            })
-            .collect();
-        answered.sort_by(|left, right| left.0.cmp(&right.0));
-        let expected: Vec<(String, Value)> = (0..15)
+        assert!(
+            updates(&server).is_empty(),
+            "nothing is answered to a task canceled"
+        );
+        assert!(card.taken().is_empty(), "no request reaches the card");
+    }
+
+    // Mutations: in `poll_once`, drop the 16-request cap, or leave a roots request unanswered.
+    #[tokio::test(start_paused = true)]
+    async fn a_tasks_roots_are_answered_empty_and_its_input_past_16_is_ignored() {
+        let (client, _card) = test_client();
+        let mut requests = Map::new();
+        for number in 0..17 {
+            requests.insert(format!("r{number:02}"), json!({ "method": "roots/list" }));
+        }
+        let waiting = json!({ "status": "input_required", "inputRequests": requests });
+        let (connection, server) = open_test_server(
+            &client,
+            v2_task_server(move |_, updates, _| {
+                if updates < 16 {
+                    waiting.clone()
+                } else {
+                    completed()
+                }
+            }),
+        )
+        .await;
+        let sink = CountingSink::new(&server);
+        let contact = contact();
+
+        let end = timeout(
+            Duration::from_secs(60),
+            connection.call_tool(track_call(), &sink, &contact),
+        )
+        .await
+        .expect("the task ends");
+
+        assert_eq!(end.expect("the call ends"), answered());
+        let expected: Vec<(String, Value)> = (0..16)
             .map(|number| (format!("r{number:02}"), json!({ "roots": [] })))
             .collect();
-        assert_eq!(answered, expected, "r15, past the cap, is never answered");
-        assert!(
-            card.taken().is_empty(),
-            "no roots or sampling request reaches the card"
+        assert_eq!(
+            answered_inputs(&server),
+            expected,
+            "r16, past the cap, is never answered"
         );
     }
 }
