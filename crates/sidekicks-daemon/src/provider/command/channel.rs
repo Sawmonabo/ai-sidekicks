@@ -482,8 +482,9 @@ impl CommandChannel {
             .map(|admitted| admitted.process.clone())
     }
 
-    /// Closes the channel once its conversation ended, removing its folder and everything in it.
-    /// Fails with the system's error when the folder cannot be removed.
+    /// Closes the channel once its conversation ended, removing its folder and everything in it,
+    /// while its follower and its open prompts still hold it. Fails with the system's error when
+    /// the folder cannot be removed.
     #[cfg_attr(
         not(test),
         expect(
@@ -491,7 +492,7 @@ impl CommandChannel {
             reason = "each driver closes a conversation's channel at its end"
         )
     )]
-    pub(crate) async fn close(self) -> io::Result<()> {
+    pub(crate) async fn close(&self) -> io::Result<()> {
         tokio::fs::remove_dir_all(&self.folder).await
     }
 
