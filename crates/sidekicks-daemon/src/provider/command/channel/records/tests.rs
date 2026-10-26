@@ -48,6 +48,21 @@ impl CommandEndingAppender for DroppedEndings {
     }
 }
 
+/// Endings handed to the test as they are appended.
+struct SentEndings(tokio::sync::mpsc::UnboundedSender<AgentCommandEndedPayload>);
+
+impl CommandEndingAppender for SentEndings {
+    fn append(
+        &self,
+        _binding_id: RuntimeBindingId,
+        ending: AgentCommandEndedPayload,
+        _summary: Option<String>,
+    ) -> BoxFuture<'_, ()> {
+        self.0.send(ending).expect("the test reads every ending");
+        async {}.boxed()
+    }
+}
+
 /// Input waits for a test whose commands report no terminal.
 struct NoTerminals;
 
@@ -78,16 +93,9 @@ fn sets() -> Arc<RunningCommandSets> {
     ))
 }
 
-/// A row `id` paired to the wrapper `party`, whose output the tail reads from a new file.
-struct TailedRow {
-    file: std::fs::File,
-    exited: watch::Sender<bool>,
-    tail: tokio::task::JoinHandle<()>,
-    _folder: tempfile::TempDir,
-}
-
-fn tailed_row(sets: &Arc<RunningCommandSets>, id: &str, party: PartyId) -> TailedRow {
-    sets.command_started(CommandStart {
+/// The start of a row `id` whose line runs `id`.
+fn row_start(id: &str) -> CommandStart {
+    CommandStart {
         session_id: session(),
         command_id: CommandId::new(id.to_owned()).expect("a command id"),
         run_id: RunId::new("0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0f").expect("a run id"),
@@ -98,7 +106,19 @@ fn tailed_row(sets: &Arc<RunningCommandSets>, id: &str, party: PartyId) -> Taile
         is_backgrounded: false,
         can_move_to_background: false,
         accepts_input: false,
-    });
+    }
+}
+
+/// A row `id` paired to the wrapper `party`, whose output the tail reads from a new file.
+struct TailedRow {
+    file: std::fs::File,
+    exited: watch::Sender<bool>,
+    tail: tokio::task::JoinHandle<()>,
+    _folder: tempfile::TempDir,
+}
+
+fn tailed_row(sets: &Arc<RunningCommandSets>, id: &str, party: PartyId) -> TailedRow {
+    sets.command_started(row_start(id));
     let paired = sets.wrapper_started(session(), party, WrapperCommand::Line(id.to_owned()));
     let folder = tempfile::tempdir().expect("a folder");
     let path = folder.path().join("output");
@@ -291,5 +311,79 @@ async fn a_nested_wrapper_is_answered_go_and_let_go_at_its_end() {
     })
     .await
     .expect("the nested wrapper is let go");
+    follower.abort();
+}
+
+// Fails when a wrapper whose process ends just after its `Exited` is let go before that record is
+// read, so its row ends with no exit code where the provider gives none. Mutation: drop the
+// `arrivals_now` pass before a process end's release, which `select!` then loses about half the
+// time.
+#[tokio::test]
+async fn a_wrapper_s_exit_written_just_before_its_end_settles_its_row() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let keys = ChannelKem::gen_keypair();
+    let mut party = party_command(&keys, None)
+        .spawn()
+        .expect("the party starts");
+    let mut lines = BufReader::new(party.stdout.take().expect("its output")).lines();
+    let party_id = ready_parties(&mut lines, 1)[0];
+    let channel = Arc::new(open_channel(folder.path(), std::process::id()));
+    let (sender, mut endings) = tokio::sync::mpsc::unbounded_channel();
+    let binding = RuntimeBindingId::new("binding-a".to_owned()).expect("a binding id");
+    let sets = Arc::new(RunningCommandSets::new(
+        Arc::new(move |_session: &SessionId| Some(binding.clone())),
+        Arc::new(SentEndings(sender)),
+    ));
+    sets.command_started(row_start("npm test"));
+    let watch = channel.watch().await.expect("the channel is watched");
+    let follower = tokio::spawn(follow_channel_records(
+        session(),
+        Arc::clone(&channel),
+        watch,
+        Arc::clone(&sets),
+        Arc::new(NoTerminals),
+    ));
+    let write = |sequence, record: &PartyRecord| {
+        let sealed = sealed(&channel, &keys, party_id, sequence, record);
+        write_record(&channel.folder, &record_name(party_id, sequence), &sealed)
+            .expect("the record is written");
+    };
+    write(
+        1,
+        &PartyRecord::Starting {
+            command: "npm test".to_owned(),
+            stdout_path: None,
+            process: None,
+        },
+    );
+    let requests = channel.folder.join(REQUESTS_FOLDER);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while names_in(&requests).is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the wrapper is answered go");
+    write(
+        2,
+        &PartyRecord::Exited {
+            exit_code: Some(3),
+            signal: None,
+        },
+    );
+    end_party(party);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while channel.party_process(party_id).is_some() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the wrapper is let go");
+    sets.provider_exited(session());
+    let ending = tokio::time::timeout(Duration::from_secs(5), endings.recv())
+        .await
+        .expect("the ending comes")
+        .expect("the endings stay open");
+    assert_eq!(ending.exit_code.map(|code| code.get()), Some(3));
     follower.abort();
 }
