@@ -6,14 +6,16 @@ use std::sync::Arc;
 use rusqlite::Connection;
 use rusqlite::types::Value as SqlValue;
 use serde_json::json;
+use sidekicks_contracts::question::QuestionAskedState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::{Fixture, choice_page};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::events::session::read::DamagedFromSequenceReader;
-use crate::provider::port::question::ProviderQuestionWithdrawal;
+use crate::provider::port::question::{ProviderQuestionWithdrawal, WaitingQuestionOpening};
 use crate::questions::projection::QuestionsProjection;
+use crate::questions::service::HeldRequestAnswerer;
 use crate::recovery::database_file::damage::DatabaseDamageWatch;
 use crate::recovery::projection_rebuild::{
     PROJECTION_REBUILD_STATEMENT_CAPACITY, ProjectionRebuildRequest, ProjectionRebuildService,
@@ -47,12 +49,46 @@ fn question_rows(connection: &Connection) -> (Vec<Vec<SqlValue>>, Vec<Vec<SqlVal
 // A question its agent does not wait for stays open while a send naming it is queued, stays open
 // when that item is withdrawn, and is answered when the agent takes a queued answer; of two
 // devices' answers the first taken wins and unpairs the other, and an item that answers nothing
-// answers nothing. The rows a rebuild writes from the log, with a held question answered and one
-// withdrawn beside them, are the rows the live writes wrote. Killed by answering at send time, by
-// answering on another item's admission, and by a fold arm that drops an event.
+// answers nothing. The rows a rebuild writes from the log, with a held question answered, one
+// withdrawn, one withdrawn while it waited for its run and one opened from that wait and answered
+// beside them, are the rows the live writes wrote. Killed by answering at send time, by answering
+// on another item's admission, and by a fold arm that drops an event.
 #[tokio::test]
 async fn queued_answers_settle_a_question_its_agent_does_not_wait_for_and_rebuild_as_written() {
     let fixture = Fixture::new().await;
+    let record_waiting = |request_id: &'static str| {
+        fixture.questions.record_question(
+            fixture.question(request_id, json!([choice_page()]), true),
+            HeldRequestAnswerer::Driver,
+            QuestionAskedState::WaitingForRun,
+        )
+    };
+    let withdrawn_waiting = record_waiting("request-4")
+        .await
+        .expect("the question is recorded waiting for its run");
+    fixture
+        .questions
+        .withdraw_question(ProviderQuestionWithdrawal {
+            session_id: fixture.session_id,
+            request_id: "request-4".to_owned(),
+        })
+        .await
+        .expect("the withdrawal is taken");
+    let opened = record_waiting("request-5")
+        .await
+        .expect("the question is recorded waiting for its run");
+    assert_eq!(
+        fixture
+            .questions
+            .open_waiting_question(fixture.session_id, "request-5")
+            .await
+            .expect("the run reads running"),
+        WaitingQuestionOpening::Opened
+    );
+    fixture
+        .answer(opened, json!([{ "kind": "picked", "labels": ["Beta"] }]))
+        .await
+        .expect("the opened question is answered");
     let withdrawn = fixture.ask("request-1", json!([choice_page()]), true).await;
     fixture
         .questions
@@ -127,6 +163,8 @@ async fn queued_answers_settle_a_question_its_agent_does_not_wait_for_and_rebuil
     assert_eq!(after_withdrawal, "open");
     assert_eq!(fixture.state(unwaited), "answered");
     assert_eq!(fixture.state(withdrawn), "canceled");
+    assert_eq!(fixture.state(withdrawn_waiting), "canceled");
+    assert_eq!(fixture.state(opened), "answered");
     let reader = fixture.database.reader();
     let live = question_rows(&reader);
     assert!(

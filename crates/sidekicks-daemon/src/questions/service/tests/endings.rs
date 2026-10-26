@@ -3,12 +3,13 @@
 
 use rstest::rstest;
 use serde_json::{Value, json};
-use sidekicks_contracts::question::QuestionSettledState;
+use sidekicks_contracts::question::{QuestionAskedState, QuestionSettledState};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::{Fixture, choice_page, failed};
 use crate::provider::port::question::ProviderQuestionWithdrawal;
+use crate::questions::service::HeldRequestAnswerer;
 use crate::session::run::engine::tests::stored_run_state;
 use crate::session::run::read::{LiveRun, RunRead};
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
@@ -18,6 +19,8 @@ use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions
 enum QuestionEnd {
     /// The provider withdraws it.
     Withdrawn,
+    /// The provider withdraws it while it waits for its run.
+    WithdrawnWhileWaitingForRun,
     /// The provider withdraws it after an interrupt of its run was asked for.
     WithdrawnUnderInterrupt,
     /// Its run is interrupted.
@@ -30,12 +33,18 @@ enum QuestionEnd {
 
 // A held question that ends unanswered is canceled once, in the write that moves or ends its run,
 // with the reason the run's own state gives: a withdrawal `withdrawn` and the run back to
-// `running`, unless an interrupt of the run is recorded, which makes it `interrupted`; an
-// interrupted end `interrupted`; any other end, a restart's among them, `runEnded`. Killed by a
-// cancellation in a second write, by a reason read from the report rather than the run, and by a
-// run left waiting.
+// `running`, unless an interrupt of the run is recorded, which makes it `interrupted`, or, while
+// it waits for its run, `withdrawn` in a write of its own with the run unmoved; an interrupted
+// end `interrupted`; any other end, a restart's among them, `runEnded`. Killed by a cancellation
+// in a second write, by a reason read from the report rather than the run, by a run left
+// waiting, and by a withdrawal that takes a question waiting for its run for an open one.
 #[rstest]
 #[case::withdrawn(QuestionEnd::Withdrawn, "withdrawn", "running")]
+#[case::withdrawn_while_waiting_for_its_run(
+    QuestionEnd::WithdrawnWhileWaitingForRun,
+    "withdrawn",
+    "running"
+)]
 #[case::withdrawn_under_an_interrupt(
     QuestionEnd::WithdrawnUnderInterrupt,
     "interrupted",
@@ -51,14 +60,26 @@ async fn a_held_question_ends_canceled_with_its_runs_reason(
     #[case] run_state: &str,
 ) {
     let fixture = Fixture::new().await;
-    let question_id = fixture.ask("request-1", json!([choice_page()]), true).await;
+    let question_id = if matches!(end, QuestionEnd::WithdrawnWhileWaitingForRun) {
+        fixture
+            .questions
+            .record_question(
+                fixture.question("request-1", json!([choice_page()]), true),
+                HeldRequestAnswerer::Driver,
+                QuestionAskedState::WaitingForRun,
+            )
+            .await
+            .expect("the question is recorded waiting for its run")
+    } else {
+        fixture.ask("request-1", json!([choice_page()]), true).await
+    };
     let withdrawal = ProviderQuestionWithdrawal {
         session_id: fixture.session_id,
         request_id: "request-1".to_owned(),
     };
 
     match end {
-        QuestionEnd::Withdrawn => {}
+        QuestionEnd::Withdrawn | QuestionEnd::WithdrawnWhileWaitingForRun => {}
         QuestionEnd::WithdrawnUnderInterrupt => {
             fixture
                 .database
