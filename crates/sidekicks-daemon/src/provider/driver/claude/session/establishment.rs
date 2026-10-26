@@ -39,6 +39,7 @@ use self::figures::ClaudeHeldFigures;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::events::canonicalizer::CanonicalizationRefusal;
 use crate::mutex_lock::lock;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::{
     CredentialPolicyResolveError, ExecutionPostureService,
 };
@@ -213,6 +214,8 @@ pub(crate) struct ClaudeSpawnSources {
     pub(crate) base_environment: Arc<[(String, String)]>,
     /// The names no environment row may set.
     pub(crate) reserved_names: Arc<ReservedEnvironmentNames>,
+    /// Every provider's background work, which a process's settings deny.
+    pub(crate) background_work: Arc<BackgroundWorkForms>,
     /// The daemon's data folder.
     pub(crate) data_folder: PathBuf,
     /// The person's home folder.

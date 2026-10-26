@@ -26,6 +26,7 @@ use tokio_util::task::TaskTracker;
 use crate::daemon::service_log::service_log_folder;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::mutex_lock::lock;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::provider::compaction_wait::PendingCompactionRegistry;
 use crate::provider::driver::SessionSpawnContextResolver;
@@ -101,6 +102,7 @@ pub(crate) struct CodexDriver {
     attachments: Arc<dyn AttachmentResolver>,
     runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
     shell_lines: Arc<crate::policy::shell_commands::reading_bound::ShellLineReadingBound>,
+    background_work: Arc<BackgroundWorkForms>,
     pending_compactions: PendingCompactionRegistry,
     processes: Arc<ProviderProcessRegistry>,
     reads: Arc<DatabaseReadPool>,
@@ -210,6 +212,7 @@ impl CodexDriver {
             attachments: Arc::clone(&services.attachments),
             runtime_bindings: Arc::clone(&services.runtime_bindings),
             shell_lines: Arc::clone(&services.shell_lines),
+            background_work: Arc::clone(&services.background_work),
             pending_compactions: services.pending_compactions.clone(),
             processes: Arc::clone(&services.processes),
             reads: Arc::clone(&services.pool),
@@ -279,6 +282,7 @@ impl CodexDriver {
                 questions: Arc::clone(&ports.questions),
             },
             shell_lines: Arc::clone(&self.shell_lines),
+            background_work: Arc::clone(&self.background_work),
             project_rules: Arc::clone(&self.project_rules) as _,
             tasks: self.tasks.clone(),
         }));

@@ -30,6 +30,7 @@ use crate::git::worktree::naming::worktrees_folder;
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
 use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
 use crate::plans::service::PlansService;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::callback_tools::host::CallbackToolHost;
@@ -112,6 +113,8 @@ pub(crate) struct Providers {
     /// The names every provider sets on its processes, which no environment row may set, for the
     /// terminals' shells too.
     pub(crate) reserved_names: Arc<ReservedEnvironmentNames>,
+    /// Every provider's background work, which the permission check refuses too.
+    pub(crate) background_work: Arc<BackgroundWorkForms>,
     /// The staged reviews' worktrees, whose leftovers the start sweeps before the socket binds.
     staged_changes: StagedChangesWorktrees,
 }
@@ -125,11 +128,12 @@ pub(crate) fn build_providers(
     start: ProviderStart,
 ) -> Providers {
     let ports = Arc::new(DriverPorts::new());
-    let descriptors: Vec<&ProviderDescriptor> = registrations
+    let descriptors: Vec<&'static ProviderDescriptor> = registrations
         .iter()
         .map(|registration| registration.descriptor)
         .collect();
     let reserved_names = Arc::new(ReservedEnvironmentNames::of_providers(&descriptors));
+    let background_work = Arc::new(BackgroundWorkForms::of_providers(&descriptors));
     let processes = Arc::new(ProviderProcessRegistry::default());
     let provider_services = Arc::new(ProviderServiceProcesses::default());
     let staged_changes =
@@ -158,6 +162,7 @@ pub(crate) fn build_providers(
         provider_services: Arc::clone(&provider_services),
         runtime_bindings: Arc::clone(&runtime_bindings) as _,
         shell_lines: start.shell_lines,
+        background_work: Arc::clone(&background_work),
         ports: Arc::clone(&ports),
     };
     let registry = Arc::new(ProviderRegistry::register_from(registrations, &services));
@@ -175,6 +180,7 @@ pub(crate) fn build_providers(
         runtime_bindings,
         processes,
         reserved_names,
+        background_work,
         staged_changes,
     }
 }

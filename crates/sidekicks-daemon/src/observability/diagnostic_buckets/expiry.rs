@@ -146,6 +146,7 @@ async fn run_expiry(deps: Arc<DiagnosticExpiryDeps>, meter: ProcessorMeter) -> M
         Ok(account_homes) => {
             for account_home in account_homes {
                 folders.extend(account_home_diagnostic_folders(
+                    &deps.drivers,
                     &account_home.provider,
                     &account_home.home,
                 ));
@@ -455,10 +456,6 @@ mod tests {
                 }])
                 .await
                 .expect("the account is written");
-            for folder in account_home_diagnostic_folders(descriptor.id, home) {
-                expired.push(folder.join("old").join("diagnostic"));
-                kept_new.push(folder.join("fresh"));
-            }
             kept_old.push(home.join("session.jsonl"));
             kept_old.push(home.join("projects").join("project").join("session.jsonl"));
             let expected_home = home.to_path_buf();
@@ -474,6 +471,13 @@ mod tests {
                 .returning(|_, _| Ok(0));
             drivers.push(Arc::new(driver));
         }
+        let drivers = Arc::new(registry_of_first_providers(drivers));
+        for (descriptor, home) in PROVIDERS.iter().zip(&homes) {
+            for folder in account_home_diagnostic_folders(&drivers, descriptor.id, home.path()) {
+                expired.push(folder.join("old").join("diagnostic"));
+                kept_new.push(folder.join("fresh"));
+            }
+        }
         for path in expired.iter().chain(&kept_old) {
             write_aged(path, OLD);
         }
@@ -486,7 +490,7 @@ mod tests {
             live_files: Arc::new(|| Ok(Vec::new())),
             configuration,
             reads,
-            drivers: Arc::new(registry_of_first_providers(drivers)),
+            drivers,
         }));
         job(CancellationToken::new())
             .await

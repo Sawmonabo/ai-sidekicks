@@ -14,6 +14,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 
 use crate::events::canonicalizer::CanonicalizationRefusal;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::{
     CURATED_CREDENTIAL_POLICY_REF, CredentialPolicyResolveError, ExecutionPostureService,
 };
@@ -102,6 +103,8 @@ pub(crate) struct ClaudeSpawnLegServices<'a> {
     base_environment: &'a [(String, String)],
     /// The names no environment row may set.
     reserved_names: &'a ReservedEnvironmentNames,
+    /// Every provider's background work, which the process's settings deny.
+    background_work: &'a Arc<BackgroundWorkForms>,
     /// How the place the process runs in spells paths and names.
     path_rules: PathRules,
 }
@@ -115,6 +118,7 @@ impl<'a> ClaudeSpawnLegServices<'a> {
             data_folder: sources.data_folder.to_string_lossy(),
             base_environment: &sources.base_environment,
             reserved_names: &sources.reserved_names,
+            background_work: &sources.background_work,
             path_rules: PathRules::NATIVE,
         }
     }
@@ -196,6 +200,7 @@ pub(crate) async fn build_claude_spawn_bound_legs(
         on_mcp_server_status: request.on_mcp_server_status,
         credential_deny_paths: credential_policy.deny_paths,
         memory_folders: context.memory_folders,
+        background_work: Arc::clone(services.background_work),
         spawn_environment,
         advisor: context.advisor,
         output_style: context.output_style,

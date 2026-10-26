@@ -35,6 +35,7 @@ use crate::interventions::service::{InterventionService, InterventionServiceDeps
 use crate::ipc::handlers::run::safety_holds::RunSafetyHolds;
 use crate::plans::service::PlansService;
 use crate::policy::authorizer::Authorizer;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::registry::ProviderRegistry;
@@ -96,6 +97,8 @@ pub(crate) struct SessionServiceStart {
     pub(crate) machine: LocalMachine,
     /// The one bound on shell-line reads.
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    /// Every provider's background work, which the permission check refuses.
+    pub(crate) background_work: Arc<BackgroundWorkForms>,
     /// The workflow actions' rules.
     pub(crate) authorizer: Arc<Authorizer>,
     /// The daemon's data folder.
@@ -221,6 +224,7 @@ pub(crate) fn build_session_services(
         memory_gate,
         machine,
         shell_lines,
+        background_work,
         authorizer,
         data_folder,
         working_folders,
@@ -253,6 +257,7 @@ pub(crate) fn build_session_services(
         providers: Arc::clone(&providers),
         machine,
         shell_lines,
+        background_work,
         postures: Arc::clone(&execution_postures),
         authorizer,
         data_folder,

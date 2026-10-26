@@ -3,6 +3,8 @@
 //! question hook, a reviewer's block) goes on to the event side, which answers it or leaves it
 //! pending at the provider.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -10,7 +12,7 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::error_description::describe_error;
-use crate::policy::background_work::refuse_background_work;
+use crate::policy::background_work::{BackgroundWorkForms, refuse_background_work};
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::hooks::helper_limit::{
@@ -177,15 +179,17 @@ pub(crate) fn route_claude_request(
 /// read once, on `shell_lines`' blocking thread.
 pub(crate) async fn answer_background_work_check(
     shell_lines: &ShellLineReadingBound,
+    background_work: &Arc<BackgroundWorkForms>,
     command: Option<String>,
 ) -> ClaudeHookAnswer {
     let Some(command) = command else {
         return ClaudeHookAnswer::Pass;
     };
+    let background_work = Arc::clone(background_work);
     let refusal = shell_lines
         .read(command.len(), move |reader| {
             let reading = reader.read(&command);
-            refuse_background_work(reader, &reading)
+            refuse_background_work(&background_work, reader, &reading)
         })
         .await
         .expect("a shell-line read never panics, and a panic ends the daemon");
@@ -258,19 +262,25 @@ fn read_hook_input(callback: &ClaudeHookCallback) -> Option<HookInput> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::answer_background_work_check;
+    use crate::policy::background_work::BackgroundWorkForms;
     use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
+    use crate::provider::driver::PROVIDERS;
     use crate::provider::driver::claude::hooks::pause::ClaudeHookAnswer;
 
     // Killed by a hook that lets background work through, or that refuses an ordinary command.
     #[tokio::test]
     async fn the_background_work_hook_denies_background_work_and_passes_the_rest() {
         let shell_lines = ShellLineReadingBound::new(4096);
+        let background_work = Arc::new(BackgroundWorkForms::of_providers(PROVIDERS));
+        let answer = |command: &str| {
+            answer_background_work_check(&shell_lines, &background_work, Some(command.to_owned()))
+        };
 
-        let refused =
-            answer_background_work_check(&shell_lines, Some("bash -c 'claude --bg x'".to_owned()))
-                .await;
-        let passed = answer_background_work_check(&shell_lines, Some("ls -la".to_owned())).await;
+        let refused = answer("bash -c 'claude --bg x'").await;
+        let passed = answer("ls -la").await;
 
         assert!(matches!(refused, ClaudeHookAnswer::Deny { .. }));
         assert_eq!(passed, ClaudeHookAnswer::Pass);

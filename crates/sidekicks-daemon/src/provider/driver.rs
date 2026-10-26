@@ -21,6 +21,7 @@ use sidekicks_platforms::{
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
 use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::command_search::ProviderCommandSearch;
@@ -462,6 +463,8 @@ pub(crate) struct DriverServices {
     pub(crate) runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
     /// The daemon-wide bound on the shell-line bytes an ask's checks parse at once.
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    /// Every provider's background work, which no agent's shell line may start.
+    pub(crate) background_work: Arc<BackgroundWorkForms>,
     /// The handles the daemon builds after the drivers, each registered by its start.
     pub(crate) ports: Arc<DriverPorts>,
 }

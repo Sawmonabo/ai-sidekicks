@@ -28,7 +28,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
 use crate::mutex_lock::lock;
-use crate::policy::background_work::refuse_background_work;
+use crate::policy::background_work::{BackgroundWorkForms, refuse_background_work};
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::policy::shell_commands::unwrap_shell_command_line;
 use crate::provider::driver::codex::hooks::server::{
@@ -93,6 +93,8 @@ pub(crate) struct CodexCallChecksDependencies {
     pub(crate) session_rules: Arc<PortRegistration<Arc<dyn SessionRulePort>>>,
     /// The daemon-wide bound every command line is read within.
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    /// Every provider's background work, which no call's command line may start.
+    pub(crate) background_work: Arc<BackgroundWorkForms>,
     /// The run each call belongs to, and its limits.
     pub(crate) runs: Arc<dyn CodexCallRuns>,
     /// The driver's tasks, which its shutdown waits for; a held call's card is taken back on one.
@@ -233,11 +235,12 @@ impl CodexCallChecks {
 
     // The line is read once, on the bound's blocking thread, its `-c` and `eval` strings with it.
     async fn refuse_background_work(&self, line: String) -> Option<String> {
+        let background_work = Arc::clone(&self.dependencies.background_work);
         self.dependencies
             .shell_lines
             .read(line.len(), move |reader| {
                 let reading = reader.read(&line);
-                refuse_background_work(reader, &reading)
+                refuse_background_work(&background_work, reader, &reading)
             })
             .await
             .expect("a shell-line read never panics, and a panic ends the daemon")
@@ -456,7 +459,9 @@ mod tests {
     use tokio_util::task::TaskTracker;
 
     use super::{CodexCallChecks, CodexCallChecksDependencies, CodexCallRuns, CodexHookCallRun};
+    use crate::policy::background_work::BackgroundWorkForms;
     use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
+    use crate::provider::driver::PROVIDERS;
     use crate::provider::driver::codex::hooks::server::{
         CodexHookAnswer, CodexHookCall, CodexHookDispatch, CodexHookEvent,
     };
@@ -582,6 +587,7 @@ mod tests {
             permission_asks,
             session_rules,
             shell_lines: Arc::new(ShellLineReadingBound::new(4096)),
+            background_work: Arc::new(BackgroundWorkForms::of_providers(PROVIDERS)),
             runs: Arc::new(OneRun(CodexHookCallRun { session_id, run_id })),
             tasks: TaskTracker::new(),
         }));

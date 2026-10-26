@@ -39,8 +39,10 @@ use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::git::process::{GitLimits, GitRunner};
 use crate::git::worktree::watch::WorkingFolderWatcher;
 use crate::policy::authorizer::Authorizer;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
+use crate::provider::driver::PROVIDERS;
 use crate::provider::driver::contract::MockProviderDriver;
 use crate::provider::driver::test_registry::registry_of_first_provider;
 use crate::provider::runtime_binding::store::CreateRuntimeBindingInput;
@@ -177,6 +179,7 @@ async fn fixture() -> Fixture {
         )),
         machine,
         shell_lines: Arc::new(ShellLineReadingBound::new(1 << 20)),
+        background_work: Arc::new(BackgroundWorkForms::of_providers(PROVIDERS)),
         authorizer: Arc::new(Authorizer::load_built_in().expect("the built-in rules load")),
         data_folder: home.path().join("data"),
         working_folders: Arc::clone(&folder_watch),

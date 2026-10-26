@@ -122,6 +122,7 @@ pub(crate) async fn bring_up_claude_process(
             memory_folders: &legs.memory_folders,
             session_rules: spawn.session_rules,
             path_rules: spawn.path_rules,
+            background_work: &legs.background_work,
         },
         legs.execution_posture.as_ref(),
         &legs.advisor,

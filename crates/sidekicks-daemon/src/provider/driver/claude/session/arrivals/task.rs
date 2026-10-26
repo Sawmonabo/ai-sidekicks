@@ -15,6 +15,7 @@ use tokio::time::Instant;
 
 use super::{ClaudeRoutedFrame, ClaudeSessionArrival, ClaudeSessionArrivalHandler};
 use crate::mutex_lock::lock;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::provider::driver::claude::delivery::requests::{
@@ -87,6 +88,8 @@ pub(crate) struct ClaudeSessionTaskServices {
     pub(crate) cuts: Arc<ClaudeConversationCuts>,
     /// The bound on reading shell lines, which the background-work hook reads through.
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    /// Every provider's background work, which the background-work hook refuses.
+    pub(crate) background_work: Arc<BackgroundWorkForms>,
     /// The in-process tool servers, once registered.
     pub(crate) tool_servers: Arc<PortRegistration<Arc<dyn InProcessToolServers>>>,
     /// Which process runs each session, each removed at its exit.
@@ -197,7 +200,12 @@ impl ClaudeSessionTask {
                 request_id,
                 command,
             } => {
-                let answer = answer_background_work_check(&services.shell_lines, command).await;
+                let answer = answer_background_work_check(
+                    &services.shell_lines,
+                    &services.background_work,
+                    command,
+                )
+                .await;
                 answer_claude_request(&*live.channel, &session_id, account, request_id, &answer)
                     .await;
             }

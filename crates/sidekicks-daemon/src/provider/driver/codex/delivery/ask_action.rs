@@ -12,7 +12,7 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::approval::RememberedScopeKind;
 
 use crate::mcp::tool_name::compose_tool_server_tool_name;
-use crate::policy::background_work::refuse_background_work;
+use crate::policy::background_work::{BackgroundWorkForms, refuse_background_work};
 use crate::policy::shell_commands::{ShellLineReader, unwrap_shell_command_line};
 use crate::provider::port::permission_ask::ProviderAskAction;
 use crate::provider::record_readers::read_non_empty_string;
@@ -55,10 +55,11 @@ pub(crate) fn read_codex_ask_action(
     params: &Map<String, Value>,
     changed_paths: &[String],
     called_tool: Option<&str>,
+    background_work: &BackgroundWorkForms,
     reader: &mut ShellLineReader,
 ) -> CodexAskReading {
     match method {
-        CODEX_COMMAND_APPROVAL_METHOD => read_command_ask(params, reader),
+        CODEX_COMMAND_APPROVAL_METHOD => read_command_ask(params, background_work, reader),
         CODEX_FILE_CHANGE_APPROVAL_METHOD => CodexAskReading {
             action: ProviderAskAction::FileChange {
                 paths: changed_paths.to_vec(),
@@ -81,7 +82,11 @@ pub(crate) fn read_codex_ask_action(
     }
 }
 
-fn read_command_ask(params: &Map<String, Value>, reader: &mut ShellLineReader) -> CodexAskReading {
+fn read_command_ask(
+    params: &Map<String, Value>,
+    background_work: &BackgroundWorkForms,
+    reader: &mut ShellLineReader,
+) -> CodexAskReading {
     let command = read_non_empty_string(params, "command").unwrap_or_default();
     if params.get("kind").and_then(Value::as_str) == Some("writeStdin") {
         return CodexAskReading {
@@ -125,7 +130,7 @@ fn read_command_ask(params: &Map<String, Value>, reader: &mut ShellLineReader) -
             ProviderAskAction::Command {
                 command: unwrap_shell_command_line(command).into_owned(),
             },
-            refuse_background_work(reader, &reading),
+            refuse_background_work(background_work, reader, &reading),
         )
     };
     CodexAskReading {
@@ -191,7 +196,9 @@ mod tests {
     use sidekicks_contracts::approval::RememberedScopeKind;
 
     use super::read_codex_ask_action;
+    use crate::policy::background_work::BackgroundWorkForms;
     use crate::policy::shell_commands::ShellLineReader;
+    use crate::provider::driver::PROVIDERS;
     use crate::provider::port::permission_ask::ProviderAskAction;
 
     const BOTH_SCOPES: [RememberedScopeKind; 2] =
@@ -324,8 +331,14 @@ mod tests {
             changed_paths.iter().map(|&path| path.to_owned()).collect();
         let mut reader = ShellLineReader::new(4096);
 
-        let reading =
-            read_codex_ask_action(method, params, &changed_paths, called_tool, &mut reader);
+        let reading = read_codex_ask_action(
+            method,
+            params,
+            &changed_paths,
+            called_tool,
+            &BackgroundWorkForms::of_providers(PROVIDERS),
+            &mut reader,
+        );
 
         assert_eq!(reading.action, action);
         assert_eq!(reading.rule_scopes, rule_scopes);

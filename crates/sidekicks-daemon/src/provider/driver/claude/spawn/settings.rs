@@ -11,7 +11,7 @@ use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_platforms::PathRules;
 
-use crate::policy::background_work::plain_background_work_forms;
+use crate::policy::background_work::{BackgroundWorkForms, plain_background_work_forms};
 use crate::policy::execution_posture_service::{CredentialDenyPath, CredentialDenyPathKind};
 use crate::provider::driver::claude::session::rules::{
     ClaudeRulesError, compose_claude_session_rule_lists, compose_path_content,
@@ -77,6 +77,8 @@ pub(crate) struct ClaudePermissionsRequest<'a> {
     pub(crate) session_rules: &'a [ProviderAskRule],
     /// How the place the process runs in spells paths.
     pub(crate) path_rules: PathRules,
+    /// Every provider's background work, denied written plainly at the levels that never ask.
+    pub(crate) background_work: &'a BackgroundWorkForms,
 }
 
 /// The advisor a session's processes start with.
@@ -168,7 +170,7 @@ pub(crate) fn compose_claude_permissions(
         level,
         Some(PermissionLevel::Sandboxed | PermissionLevel::Yolo)
     ) {
-        for form in plain_background_work_forms() {
+        for form in plain_background_work_forms(request.background_work) {
             deny.push(format!("{CLAUDE_SHELL_TOOL_NAME}({form})"));
             deny.push(format!("{CLAUDE_SHELL_TOOL_NAME}({form} *)"));
         }
@@ -269,6 +271,8 @@ mod tests {
         ClaudePermissionsRequest, ClaudeSessionAdvisor, compose_claude_permissions,
         compose_claude_spawn_settings,
     };
+    use crate::policy::background_work::BackgroundWorkForms;
+    use crate::provider::driver::PROVIDERS;
 
     // Killed by dropping the memory allows or the `//` anchor, by a `Write(` rule Claude Code never
     // reads, by narrowing the allows to `.md` files, which would keep the agent from its other
@@ -284,6 +288,7 @@ mod tests {
             memory_folders: &memory_folders,
             session_rules: &[],
             path_rules: PathRules::Posix,
+            background_work: &BackgroundWorkForms::of_providers(PROVIDERS),
         };
 
         let document = compose_claude_permissions(&request, &[], Some(PermissionLevel::Sandboxed))
@@ -327,6 +332,7 @@ mod tests {
             memory_folders: &[],
             session_rules: &[],
             path_rules: PathRules::Posix,
+            background_work: &BackgroundWorkForms::of_providers(PROVIDERS),
         };
         let advisor_setting = |advisor: ClaudeSessionAdvisor| {
             let settings = compose_claude_spawn_settings(&request, None, &advisor, None)

@@ -38,6 +38,8 @@ use crate::database::writer::test_file::TestDatabase;
 use crate::git::process::{GitLimits, GitRunner};
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
 use crate::mutex_lock::lock;
+use crate::policy::background_work::BackgroundWorkForms;
+use crate::provider::driver::PROVIDERS;
 use crate::provider::driver::claude::delivery::requests::ClaudeInboundRequests;
 use crate::provider::driver::claude::delivery::stream::ClaudeSessionStream;
 use crate::provider::driver::claude::event_normalizer::is_claude_result_frame_kind;
@@ -116,6 +118,7 @@ pub(crate) fn scripted_live_session(
             on_mcp_server_status: None,
             credential_deny_paths: Vec::new(),
             memory_folders: Vec::new(),
+            background_work: Arc::new(BackgroundWorkForms::of_providers(PROVIDERS)),
             spawn_environment: Vec::new(),
             advisor: ClaudeSessionAdvisor::Unpicked,
             output_style: None,

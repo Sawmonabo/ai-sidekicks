@@ -32,6 +32,7 @@ use crate::database::writer::DatabaseWriter;
 use crate::events::session::appender::SessionEventAppender;
 use crate::mutex_lock::lock;
 use crate::policy::authorizer::Authorizer;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::PROVIDERS;
@@ -116,6 +117,7 @@ pub(crate) fn test_permission_check(
         approvals: Arc::clone(approvals),
         rules: Arc::clone(&rules),
         shell_lines: Arc::clone(&shell_lines),
+        background_work: Arc::new(BackgroundWorkForms::of_providers(PROVIDERS)),
         postures: Arc::clone(&postures),
         machine: Arc::new(MachineRegistry::new(
             Arc::new(DatabaseReadPool::new(

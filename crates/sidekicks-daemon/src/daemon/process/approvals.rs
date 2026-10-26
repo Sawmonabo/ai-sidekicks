@@ -29,6 +29,7 @@ use crate::git::worktree::watch::WorkingFolderWatcher;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::handlers::driver::resolution::read_session_driver;
 use crate::policy::authorizer::Authorizer;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::permission_check::{PermissionCheck, PermissionCheckDeps};
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -53,6 +54,8 @@ pub(crate) struct ApprovalStart {
     pub(crate) machine: LocalMachine,
     /// The one bound on shell-line reads.
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    /// Every provider's background work, which the permission check refuses.
+    pub(crate) background_work: Arc<BackgroundWorkForms>,
     /// Each live run's posture.
     pub(crate) postures: Arc<ExecutionPostureService>,
     /// The workflow actions' rules, loaded and checked at the start.
@@ -117,6 +120,7 @@ pub(crate) fn build_approvals(engine: Weak<RunEngine>, deps: &ApprovalStart) -> 
         approvals: Arc::clone(&service),
         rules: Arc::clone(&rules),
         shell_lines: Arc::clone(&deps.shell_lines),
+        background_work: Arc::clone(&deps.background_work),
         postures: Arc::clone(&deps.postures),
         machine: Arc::clone(&machines),
         authorizer: Arc::clone(&deps.authorizer),

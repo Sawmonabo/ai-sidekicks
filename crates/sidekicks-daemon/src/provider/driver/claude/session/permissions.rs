@@ -120,6 +120,7 @@ pub(crate) fn compose_live_claude_permissions(
             memory_folders: &legs.memory_folders,
             session_rules,
             path_rules,
+            background_work: &legs.background_work,
         },
         writable_roots,
         level,

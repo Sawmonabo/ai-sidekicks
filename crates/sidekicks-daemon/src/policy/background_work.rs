@@ -1,19 +1,50 @@
 //! Which shell lines start a provider's background work, read wherever a line runs it, the strings
 //! its shells run included: work no agent of the session holds, that `Stop` and `Interrupt` never
 //! reach and that the session's receipt never shows, refused at every level in every session. The
-//! forms come from each registered provider's own background-work facts, so nothing here names a
-//! provider.
+//! forms come from each registered provider's own background-work facts, which the daemon's start
+//! gathers once, so nothing here names a provider.
 
 use std::sync::Arc;
 
 use crate::policy::shell_commands::{ShellCommand, ShellLineReader, ShellLineReading, WordText};
-use crate::provider::driver::{BackgroundWork, PROVIDERS, ProviderDescriptor};
+use crate::provider::driver::{BackgroundWork, ProviderDescriptor};
 
-/// The reason the agent reads when the line `reading` holds starts some provider's background
-/// work, or `None` when it starts none. The `-c` and `eval` strings its shells run are reread on
+/// Every registered provider's background work: the names its command runs under, the
+/// subcommands and flags that start the work, and the refusal an agent reads. Built once at the
+/// daemon's start.
+pub(crate) struct BackgroundWorkForms {
+    providers: Vec<ProviderBackgroundWork>,
+}
+
+// One provider's background work and the program names that run it.
+struct ProviderBackgroundWork {
+    command_names: Vec<&'static str>,
+    work: &'static BackgroundWork,
+}
+
+impl BackgroundWorkForms {
+    /// The background work of each of `descriptors` that has any, in their order.
+    pub(crate) fn of_providers(descriptors: &[&'static ProviderDescriptor]) -> Self {
+        Self {
+            providers: descriptors
+                .iter()
+                .filter_map(|descriptor| {
+                    Some(ProviderBackgroundWork {
+                        command_names: descriptor.command_names().collect(),
+                        work: descriptor.background_work.as_ref()?,
+                    })
+                })
+                .collect(),
+        }
+    }
+}
+
+/// The reason the agent reads when the line `reading` holds starts background work of one of
+/// `forms`' providers, or `None` when it starts none. The `-c` and `eval` strings its shells run are reread on
 /// `reader` and judged only when read whole; a line not read whole refuses nothing, since what the
 /// parser could not read is no ground for a refusal.
 pub(crate) fn refuse_background_work(
+    forms: &BackgroundWorkForms,
     reader: &mut ShellLineReader,
     reading: &ShellLineReading,
 ) -> Option<&'static str> {
@@ -22,12 +53,12 @@ pub(crate) fn refuse_background_work(
     }
     // The strings still to judge, so a nesting depth costs a list entry and never a stack frame.
     let mut rereads: Vec<Arc<ShellLineReading>> = Vec::new();
-    if let Some(refusal) = refusal_in(reader, reading, &mut rereads) {
+    if let Some(refusal) = refusal_in(forms, reader, reading, &mut rereads) {
         return Some(refusal);
     }
     while let Some(reread) = rereads.pop() {
         if reread.is_whole()
-            && let Some(refusal) = refusal_in(reader, &reread, &mut rereads)
+            && let Some(refusal) = refusal_in(forms, reader, &reread, &mut rereads)
         {
             return Some(refusal);
         }
@@ -35,30 +66,29 @@ pub(crate) fn refuse_background_work(
     None
 }
 
-/// Each provider's background-work forms written plainly, `<program> <subcommand or flag>`, once
+/// Each of `forms`' background-work forms written plainly, `<program> <subcommand or flag>`, once
 /// each, for a provider's own deny rules at the levels that never ask; every other spelling is
 /// read by [`refuse_background_work`] in the provider's pre-tool hook.
-pub(crate) fn plain_background_work_forms() -> Vec<String> {
-    let mut forms: Vec<String> = Vec::new();
-    for descriptor in PROVIDERS {
-        let Some(work) = &descriptor.background_work else {
-            continue;
-        };
-        for name in descriptor.command_names() {
+pub(crate) fn plain_background_work_forms(forms: &BackgroundWorkForms) -> Vec<String> {
+    let mut plain: Vec<String> = Vec::new();
+    for provider in &forms.providers {
+        let work = provider.work;
+        for name in &provider.command_names {
             for word in work.subcommands.iter().chain(work.flags) {
                 let form = format!("{name} {word}");
-                if !forms.contains(&form) {
-                    forms.push(form);
+                if !plain.contains(&form) {
+                    plain.push(form);
                 }
             }
         }
     }
-    forms
+    plain
 }
 
 // The refusal for a command of `reading` that hands a shell no string and starts background work;
 // each string a command hands a shell is read and left in `rereads` to be judged in its place.
 fn refusal_in(
+    forms: &BackgroundWorkForms,
     reader: &mut ShellLineReader,
     reading: &ShellLineReading,
     rereads: &mut Vec<Arc<ShellLineReading>>,
@@ -67,9 +97,10 @@ fn refusal_in(
         match reader.read_command_string(command) {
             Some(reread) => rereads.push(reread),
             None => {
-                if let Some(refusal) = PROVIDERS
+                if let Some(refusal) = forms
+                    .providers
                     .iter()
-                    .find_map(|descriptor| background_work_refusal(descriptor, command))
+                    .find_map(|provider| background_work_refusal(provider, command))
                 {
                     return Some(refusal);
                 }
@@ -81,12 +112,12 @@ fn refusal_in(
 
 // The provider's refusal when `command` runs its own program in a background-work form.
 fn background_work_refusal(
-    descriptor: &ProviderDescriptor,
+    provider: &ProviderBackgroundWork,
     command: ShellCommand<'_>,
 ) -> Option<&'static str> {
-    let work = descriptor.background_work.as_ref()?;
+    let work = provider.work;
     let program = command.program();
-    if !descriptor.command_names().any(|name| program.is(name)) {
+    if !provider.command_names.iter().any(|name| program.is(name)) {
         return None;
     }
     let is_background = names_background_subcommand(work, command)
@@ -131,8 +162,9 @@ fn is_option(word: impl WordText, option: &str) -> bool {
 mod tests {
     use rstest::rstest;
 
-    use super::refuse_background_work;
+    use super::{BackgroundWorkForms, refuse_background_work};
     use crate::policy::shell_commands::ShellLineReader;
+    use crate::provider::driver::PROVIDERS;
 
     // Far past every line here, so the cases read the walk and never the cap.
     const LIMIT: usize = 4096;
@@ -170,7 +202,12 @@ mod tests {
         let reading = reader.read(line);
 
         assert_eq!(
-            refuse_background_work(&mut reader, &reading).is_some(),
+            refuse_background_work(
+                &BackgroundWorkForms::of_providers(PROVIDERS),
+                &mut reader,
+                &reading
+            )
+            .is_some(),
             is_refused
         );
     }

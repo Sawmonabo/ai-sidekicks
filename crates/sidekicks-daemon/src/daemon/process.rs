@@ -561,16 +561,6 @@ impl DaemonProcess {
                 clock: wall_clock,
             },
         )?;
-        let backups = Backups::new(BackupDeps {
-            writer: Arc::clone(&writer),
-            event_log,
-            reads: Arc::clone(&reads),
-            truncation,
-            settings: Arc::clone(&settings),
-            home_folder: home_folder.to_path_buf(),
-            read_mirror_roots: mirror_roots_reader(home_folder.to_path_buf(), Arc::clone(&reads)),
-            manifest_facts,
-        });
         let providers = build_providers(
             PROVIDER_REGISTRATIONS,
             ProviderStart {
@@ -586,6 +576,20 @@ impl DaemonProcess {
                 shell_lines: Arc::clone(&shell_lines),
             },
         );
+        let backups = Backups::new(BackupDeps {
+            writer: Arc::clone(&writer),
+            event_log,
+            reads: Arc::clone(&reads),
+            truncation,
+            settings: Arc::clone(&settings),
+            home_folder: home_folder.to_path_buf(),
+            read_mirror_roots: mirror_roots_reader(
+                home_folder.to_path_buf(),
+                Arc::clone(&reads),
+                Arc::clone(&providers.registry),
+            ),
+            manifest_facts,
+        });
         hydrate_capabilities(&providers).await;
         sweep_left_staged_worktrees(&providers).await;
         let drivers = Arc::clone(&providers.registry);

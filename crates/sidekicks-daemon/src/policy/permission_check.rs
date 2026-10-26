@@ -42,7 +42,7 @@ use crate::approvals::service::{ApprovalService, ApprovalServiceError, RaisedCar
 use crate::daemon::machine::registry::{MachineRegistry, MachineRegistryReadError};
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::policy::authorizer::{Authorizer, PolicyDecision};
-use crate::policy::background_work::refuse_background_work;
+use crate::policy::background_work::{BackgroundWorkForms, refuse_background_work};
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::provider_ask_answers::{ProviderAskAnswer, answer_provider_ask};
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -152,6 +152,8 @@ pub(crate) struct PermissionCheckDeps {
     pub(crate) rules: Arc<ApprovalRules>,
     /// The daemon-wide bound an ask's command line is read under.
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    /// Every provider's background work, which no ask's command line may start.
+    pub(crate) background_work: Arc<BackgroundWorkForms>,
     /// Each live run's posture.
     pub(crate) postures: Arc<ExecutionPostureService>,
     /// The machine whose owner a workflow start decides as.
@@ -193,10 +195,12 @@ impl PermissionCheck {
         withdrawal: &CancellationToken,
     ) -> Result<ProviderAskVerdict, PermissionCheckError> {
         let read_ask = ask.clone();
+        let background_work = Arc::clone(&self.deps.background_work);
         let reading =
             read_command_line(&self.deps.shell_lines, &ask.action, move |reader, line| {
                 AskReading {
-                    command_refusal: line.and_then(|line| refuse_background_work(reader, line)),
+                    command_refusal: line
+                        .and_then(|line| refuse_background_work(&background_work, reader, line)),
                     subject: derive_rule_subject(reader, line, &read_ask.action),
                     may_allow_stand: may_allow_stand(reader, line, &read_ask),
                     description: describe_provider_ask(reader, line, &read_ask),

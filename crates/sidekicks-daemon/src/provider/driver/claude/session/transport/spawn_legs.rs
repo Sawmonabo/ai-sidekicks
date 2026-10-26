@@ -2,12 +2,14 @@
 //! rewind or a relaunch starts its next process from the same legs instead of guessing them.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::CredentialDenyPath;
 use crate::provider::driver::callback_tool::CallbackToolDispatcher;
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
@@ -45,6 +47,8 @@ pub(crate) struct ClaudeSpawnBoundLegs {
     pub(crate) credential_deny_paths: Vec<CredentialDenyPath>,
     /// Each spelling of the agent-memory folder, which an agent reads and edits at Sandboxed.
     pub(crate) memory_folders: Vec<PathBuf>,
+    /// Every provider's background work, denied written plainly at the levels that never ask.
+    pub(crate) background_work: Arc<BackgroundWorkForms>,
     /// The process's whole environment.
     pub(crate) spawn_environment: Vec<(String, String)>,
     /// The session's advisor.

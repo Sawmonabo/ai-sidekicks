@@ -34,6 +34,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::mutex_lock::lock;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::destructive_git::covers_destructive_git;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::codex::attachments::compose_codex_text_input;
@@ -106,6 +107,8 @@ pub(crate) struct CodexAskHandOffDependencies {
     pub(crate) owners: CodexAskOwners,
     /// The daemon-wide bound a command ask's line is read under.
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    /// Every provider's background work, which no command ask may start.
+    pub(crate) background_work: Arc<BackgroundWorkForms>,
     /// How a project rule is written into one working folder.
     pub(crate) project_rules: Arc<dyn CodexProjectRules>,
     /// The driver's tasks, which its shutdown waits for; each card is raised and taken back on
@@ -379,12 +382,20 @@ impl CodexAskHandOff {
         let line_length = read_non_empty_string(params, "command").map_or(0, str::len);
         let method = request.method.method();
         let read_params = params.clone();
+        let background_work = Arc::clone(&self.dependencies.background_work);
         // The tool server's call in flight is not tracked, so its approval names the server.
         let reading = self
             .dependencies
             .shell_lines
             .read(line_length, move |reader| {
-                read_codex_ask_action(method, &read_params, &changed_paths, None, reader)
+                read_codex_ask_action(
+                    method,
+                    &read_params,
+                    &changed_paths,
+                    None,
+                    &background_work,
+                    reader,
+                )
             })
             .await
             .expect("a shell-line read never panics, and a panic ends the daemon");

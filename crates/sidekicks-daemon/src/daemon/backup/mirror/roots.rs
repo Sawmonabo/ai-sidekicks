@@ -18,6 +18,7 @@ use crate::daemon::machine::settings::file::machine_settings_file_path;
 use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::provider::account_homes::{account_home_conversation_folders, read_account_homes};
+use crate::provider::driver::registry::ProviderRegistry;
 use crate::workspace::managed::service::managed_workspaces_folder;
 
 /// A place the mirror would keep that is no root under the home folder.
@@ -30,22 +31,26 @@ struct KeptPlaceRefused {
 }
 
 /// Lists, at each run, the places the mirror keeps under `home_folder`, the accounts read through
-/// `reads` and charged to the run's meter. The listing fails when the accounts cannot be read, or
+/// `reads` and charged to the run's meter, each account's conversation folders from its
+/// provider's descriptor in `providers`. The listing fails when the accounts cannot be read, or
 /// with [`io::ErrorKind::InvalidData`] naming a place that is not under `home_folder`.
 pub(crate) fn mirror_roots_reader(
     home_folder: PathBuf,
     reads: Arc<DatabaseReadPool>,
+    providers: Arc<ProviderRegistry>,
 ) -> MirrorRootsReader {
     Arc::new(move |meter| {
         let home_folder = home_folder.clone();
         let reads = Arc::clone(&reads);
-        async move { read_mirror_roots(&home_folder, &reads, &meter).await }.boxed()
+        let providers = Arc::clone(&providers);
+        async move { read_mirror_roots(&home_folder, &reads, &providers, &meter).await }.boxed()
     })
 }
 
 async fn read_mirror_roots(
     home_folder: &Path,
     reads: &DatabaseReadPool,
+    providers: &ProviderRegistry,
     meter: &ProcessorMeter,
 ) -> io::Result<Vec<MirrorRoot>> {
     let data_folder = data_folder(home_folder);
@@ -69,7 +74,7 @@ async fn read_mirror_roots(
         .map_err(io::Error::other)?
     {
         for (components, folder) in
-            account_home_conversation_folders(&account_home.provider, &account_home.home)
+            account_home_conversation_folders(providers, &account_home.provider, &account_home.home)
         {
             let name = format!(
                 "account-{}-{}",

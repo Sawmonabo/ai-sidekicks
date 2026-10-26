@@ -31,6 +31,7 @@ use crate::git::process::{GitLimits, GitRunner};
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
 use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
 use crate::mutex_lock::lock;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::command_search::ProviderCommandSearch;
@@ -126,6 +127,7 @@ pub(crate) fn test_driver_services() -> DriverServices {
         provider_services: Arc::new(ProviderServiceProcesses::default()),
         runtime_bindings: Arc::new(NothingServed),
         shell_lines: Arc::new(ShellLineReadingBound::new(TEST_SHELL_LINE_LIMIT)),
+        background_work: Arc::new(BackgroundWorkForms::of_providers(PROVIDERS)),
         ports: Arc::new(DriverPorts::new()),
     }
 }
