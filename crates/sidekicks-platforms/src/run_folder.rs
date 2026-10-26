@@ -5,7 +5,7 @@
 //! private before any bind or byte.
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// The run folder's name, and the start of the names derived from it: the folder in the session's
 /// runtime folder on Linux, the application's folder on Windows, and its named pipe.
@@ -16,6 +16,15 @@ pub(crate) const SESSION_TOKEN_FILE_NAME: &str = "daemon.token";
 
 /// The service status file's name in the run folder.
 pub(crate) const SERVICE_STATUS_FILE_NAME: &str = "service-status.json";
+
+// The askpass program's socket's name in the run folder.
+const ASKPASS_SOCKET_FILE_NAME: &str = "askpass.sock";
+
+/// Where the askpass program's socket goes in `run_folder` on macOS and Linux; nothing binds it on
+/// Windows, so nothing stands there.
+pub fn askpass_socket_path(run_folder: &Path) -> PathBuf {
+    run_folder.join(ASKPASS_SOCKET_FILE_NAME)
+}
 
 /// The run folder, the daemon's local socket, its token file and its status file.
 #[derive(Clone, Debug, PartialEq, Eq)]

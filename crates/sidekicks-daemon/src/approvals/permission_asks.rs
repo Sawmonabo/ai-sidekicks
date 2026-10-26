@@ -172,13 +172,6 @@ pub(crate) struct PermissionAsks {
 
 impl PermissionAsks {
     /// The intake over `deps`, holding no ask.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start registers the permission asks as the ask port"
-        )
-    )]
     pub(crate) fn new(deps: PermissionAsksDeps) -> Self {
         Self {
             deps,

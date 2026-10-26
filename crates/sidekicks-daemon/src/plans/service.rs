@@ -72,13 +72,6 @@ pub(crate) struct PlansService {
 impl PlansService {
     /// A service keeping each plan's text through `publisher`, writing through `appender` and
     /// reading the plan rows through `reads`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which registers the plans port"
-        )
-    )]
     pub(crate) fn new(
         publisher: Arc<ArtifactPublishService>,
         appender: Arc<SessionEventAppender>,

@@ -287,13 +287,6 @@ pub(crate) async fn write_claude_project_rule(
 /// folder's shared `.claude/settings.json`: where one keeps the rule it answers
 /// `RuleInUneditedFile` and changes nothing, since the rule would still apply. Refuses a rule no
 /// file holds with `RuleNotFound`, and fails as a file or the drop-in folder cannot be read.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the approvals' revoke removes a project rule through it"
-    )
-)]
 pub(crate) async fn remove_claude_project_rule(
     folders: &[ClaudeProjectFolder<'_>],
     managed_settings_folder: Option<&Path>,

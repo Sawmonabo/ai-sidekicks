@@ -84,7 +84,7 @@ impl Harness {
             shell: &self.shell,
             copier: &self.copier,
             now: jiff::Timestamp::now(),
-            backup_folder: None,
+            backup_folder: self.data_folder.join("backups"),
             run_folder: &self.run_folder,
             secure_defaults: &self.secure_defaults,
             caller_process_reader: Arc::new(

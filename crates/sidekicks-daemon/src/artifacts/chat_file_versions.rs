@@ -120,13 +120,6 @@ impl ChatFileVersions {
     /// Versions of the writes in the chats' workspaces under `workspaces_folder`, appended through
     /// `appender`, read through `reads`, stored into `payloads` and spooled in `spool_folder`,
     /// which must be on the store's volume.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which builds the chat's versions"
-        )
-    )]
     pub(crate) fn new(
         appender: Arc<SessionEventAppender>,
         reads: Arc<DatabaseReadPool>,
@@ -149,10 +142,6 @@ impl ChatFileVersions {
 
     /// Records each write `writes` reports, one at a time, until its sender is gone; a write that
     /// could not be recorded is logged, and the next one goes on.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start, which hands the workspace's watch the sender"
-    )]
     pub(crate) async fn record_reported_writes(
         &self,
         mut writes: mpsc::Receiver<ManagedWorkspaceWrite>,

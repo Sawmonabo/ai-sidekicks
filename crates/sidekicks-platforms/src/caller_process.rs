@@ -70,7 +70,7 @@ pub async fn unix_domain_listener_process(socket_path: &Path) -> io::Result<Opti
 
 #[cfg(all(test, unix))]
 mod tests {
-    use crate::{ExistingSocket, bind_socket_listener, pin_running_process};
+    use crate::{bind_socket_listener, pin_running_process};
 
     use super::unix_domain_listener_process;
 
@@ -81,8 +81,7 @@ mod tests {
         // The socket path must fit the system's bound on socket paths.
         let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder");
         let socket = folder.path().join("listening.sock");
-        let _listener =
-            bind_socket_listener(&socket, ExistingSocket::Refuse).expect("the listener binds");
+        let _listener = bind_socket_listener(&socket).expect("the listener binds");
 
         let listener = unix_domain_listener_process(&socket)
             .await

@@ -378,9 +378,9 @@ impl CodexServiceRegistry {
     /// The logs of the lasting services that may run now: each one the registry holds, a replaced
     /// one included, that is serving, and the one on each Codex folder whose records' folder holds
     /// a record, which a former daemon's service this daemon has not joined writes. Blocking: it
-    /// lists the records' folder; a failed listing is told in the service log and answers the
-    /// held services' logs alone.
-    pub(crate) fn running_service_log_files(&self) -> Vec<PathBuf> {
+    /// lists the records' folder. Fails when that listing fails, since a service it would name may
+    /// still write its log.
+    pub(crate) fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
         let mut files: Vec<PathBuf> = {
             let services = self.lock();
             services
@@ -391,23 +391,20 @@ impl CodexServiceRegistry {
                 .filter_map(|service| service.lasting_log_file())
                 .collect()
         };
-        match recorded_home_keys(&self.dependencies.data_folder) {
-            Ok(home_keys) => files.extend(home_keys.iter().map(|home_key| {
-                provider_service_log_file_of_key(
-                    &self.dependencies.logs_folder,
-                    &DESCRIPTOR.provider_id(),
-                    home_key,
-                )
-            })),
-            Err(error) => tracing::warn!(
-                error = &error as &(dyn std::error::Error + 'static),
-                "the Codex services' records could not be listed, so only the logs of the services \
-                 this daemon holds are kept from the expiry"
-            ),
-        }
+        files.extend(
+            recorded_home_keys(&self.dependencies.data_folder)?
+                .iter()
+                .map(|home_key| {
+                    provider_service_log_file_of_key(
+                        &self.dependencies.logs_folder,
+                        &DESCRIPTOR.provider_id(),
+                        home_key,
+                    )
+                }),
+        );
         files.sort();
         files.dedup();
-        files
+        Ok(files)
     }
 
     fn lock(&self) -> MutexGuard<'_, RegisteredServices> {

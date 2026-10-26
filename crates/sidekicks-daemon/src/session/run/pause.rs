@@ -252,7 +252,6 @@ pub(crate) struct RunPauseControl {
 impl RunPauseControl {
     /// Pause and resume reading runs through `pool`, moving them through `engine` and reaching each
     /// run's provider through its driver in `providers`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(
         pool: Arc<DatabaseReadPool>,
         engine: Arc<RunEngine>,

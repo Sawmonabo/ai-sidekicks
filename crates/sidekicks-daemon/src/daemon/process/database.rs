@@ -199,7 +199,7 @@ pub(crate) struct DatabaseFileStart<'a> {
     /// The time a new copy aside is named for.
     pub(crate) now: Timestamp,
     /// Where the person keeps backups, which a repair reads the newest of.
-    pub(crate) backup_folder: Option<PathBuf>,
+    pub(crate) backup_folder: PathBuf,
     /// The run folder the repairing socket binds in.
     pub(crate) run_folder: &'a DaemonRunFolder,
     /// The checked socket path the repairing socket binds.
@@ -287,10 +287,6 @@ pub(crate) enum DatabaseFileCloseFailure {
 }
 
 /// The open database file and everything that reads or writes it.
-#[expect(
-    dead_code,
-    reason = "the daemon's start, which hands each part to the services that read or write the file"
-)]
 pub(crate) struct DatabaseFile {
     /// The database file.
     pub(crate) database_path: PathBuf,
@@ -351,7 +347,7 @@ pub(crate) async fn open_database_file(
             copier,
             now,
         },
-        backup_folder: backup_folder.as_deref(),
+        backup_folder: &backup_folder,
         run_folder,
         secure_defaults,
         caller_process_reader,

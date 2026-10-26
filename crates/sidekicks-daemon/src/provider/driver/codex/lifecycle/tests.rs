@@ -19,9 +19,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
-use sidekicks_platforms::{
-    ExistingSocket, LeftoverSweep, bind_socket_listener, replace_file_atomically,
-};
+use sidekicks_platforms::{LeftoverSweep, bind_socket_listener, replace_file_atomically};
 use tempfile::TempDir;
 
 use super::CodexDriver;
@@ -278,8 +276,7 @@ pub(super) fn listen_on_codex_folder(folder: &Path) {
     let socket = home_socket_path(&folder.join(CODEX_FOLDER_NAME));
     std::fs::create_dir_all(socket.parent().expect("the socket has a folder"))
         .expect("the socket's folder is made");
-    let listener =
-        bind_socket_listener(&socket, ExistingSocket::Refuse).expect("the test service listens");
+    let listener = bind_socket_listener(&socket).expect("the test service listens");
     tokio::spawn(async move {
         while let Ok(stream) = listener.accept().await {
             tokio::spawn(answer_as_codex_service(stream));

@@ -384,10 +384,6 @@ impl GitRunner {
     /// no bound on its time: the caller ends it, and dropping the tree before git exits ends it.
     /// Fails with `NotStartable` for a call given input or a time bound, else as
     /// [`run`](Self::run) does before git starts.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the clone service's git and the background fetch")
-    )]
     pub(crate) async fn start(
         &self,
         place: Option<&Place>,

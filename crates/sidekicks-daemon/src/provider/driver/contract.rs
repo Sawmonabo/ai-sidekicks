@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -536,9 +537,9 @@ pub(crate) trait ProviderDriver: Send + Sync {
 
     /// The logs in the daemon's `logs/` folder that the provider's services running now write,
     /// which the diagnostic-log expiry never deletes; blocking. Empty for a provider that runs no
-    /// service writing one.
-    fn running_service_log_files(&self) -> Vec<PathBuf> {
-        Vec::new()
+    /// service writing one. Fails when a log of a service that may run cannot be named.
+    fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
+        Ok(Vec::new())
     }
 }
 

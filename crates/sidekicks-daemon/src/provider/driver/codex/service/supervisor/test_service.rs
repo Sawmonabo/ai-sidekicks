@@ -14,7 +14,7 @@ use futures::{SinkExt as _, StreamExt as _};
 use interprocess::local_socket::tokio::Listener;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::ProcessExit;
-use sidekicks_platforms::{ExistingSocket, ProgramStart, Spawner, bind_socket_listener};
+use sidekicks_platforms::{ProgramStart, Spawner, bind_socket_listener};
 use tempfile::TempDir;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::WebSocketStream;
@@ -334,7 +334,7 @@ pub(crate) fn drop_service_connection(service: &Arc<CodexService>) {
 
 /// A listener at `socket`, or `None` where the system binds no local socket for a test.
 pub(crate) fn bind_test_listener(socket: &Path) -> Option<Listener> {
-    match bind_socket_listener(socket, ExistingSocket::Refuse) {
+    match bind_socket_listener(socket) {
         Ok(listener) => Some(listener),
         Err(error) if error.kind() == io::ErrorKind::Unsupported => None,
         Err(error) => panic!("the test's socket does not listen: {error}"),

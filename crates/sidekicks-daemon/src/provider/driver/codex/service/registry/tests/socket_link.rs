@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::json;
 use sidekicks_platforms::{
-    CAN_LINK_A_SOCKET, ExistingSocket, bind_socket_listener, read_socket_link, replace_socket_link,
+    CAN_LINK_A_SOCKET, bind_socket_listener, read_socket_link, replace_socket_link,
 };
 
 use super::stand_in::{
@@ -132,8 +132,7 @@ async fn a_redial_reaches_the_service_s_own_socket_whatever_the_link_names() {
         .await
         .expect("the service starts");
     let other_socket = services.home.codex_home.join("other.sock");
-    let other = bind_socket_listener(&other_socket, ExistingSocket::Refuse)
-        .expect("the other listener listens");
+    let other = bind_socket_listener(&other_socket).expect("the other listener listens");
     let accepted = Arc::new(AtomicUsize::new(0));
     let counting = Arc::clone(&accepted);
     let accepting = tokio::spawn(async move {

@@ -202,10 +202,6 @@ pub(crate) async fn keep_claude_project_rule(
 
 /// Takes a revoked project rule out of the local settings of the folder `removal` names, unless a
 /// file the daemon never edits keeps it. Fails as the removal fails.
-#[expect(
-    dead_code,
-    reason = "the approvals' revoke takes a project rule out of force through it"
-)]
 pub(crate) async fn revoke_claude_project_rule(
     rule: &ProviderAskRule,
     removal: &ClaudeProjectRuleRemoval<'_>,

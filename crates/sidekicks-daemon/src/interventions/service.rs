@@ -97,7 +97,6 @@ const ACCEPT_STATE_GUARD_INDEX: usize = 1;
 const ACCEPT_MOVE_INDEX: usize = 2;
 
 /// What the interventions service reads and writes through.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) struct InterventionServiceDeps {
     /// The read pool every read borrows a connection from.
     pub(crate) pool: Arc<DatabaseReadPool>,
@@ -245,7 +244,6 @@ impl Applied {
 
 impl InterventionService {
     /// A service over `deps`, with no run locked.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(deps: InterventionServiceDeps) -> Self {
         let InterventionServiceDeps {
             pool,

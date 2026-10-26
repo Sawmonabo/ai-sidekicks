@@ -75,9 +75,10 @@ use crate::settle_all::{SettleFailures, settle_all};
 /// and whether its interrupt at one limit is pending, the limit its log still owes, its open turns'
 /// cuts and the queued messages waiting for it, the number a run's next turn takes, its newest open
 /// turn and every open turn, its provider, whether it ended since a version, its interventions with
-/// no outcome and one session's ended runs still holding one, the two agent reads, and the run end's reads of its open held questions (`OPEN_HELD_OF_RUN_SQL`), its
-/// plans still holding a request (`HELD_PLANS_OF_RUN_SQL`) and its open choices (the newest
-/// request of each dialog and whether it was settled since).
+/// no outcome and one session's ended runs still holding one, the two agent reads, and the run
+/// end's reads of its open held questions (`OPEN_HELD_OF_RUN_SQL`), its plans still holding a
+/// request (`HELD_PLANS_OF_RUN_SQL`) and its open choices (the newest request of each dialog and
+/// whether it was settled since).
 pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 19 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
@@ -287,7 +288,6 @@ impl From<RunStateChangeError> for RunEngineError {
 }
 
 /// What the run engine reads and writes through.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) struct RunEngineDeps {
     /// The read pool every run read borrows a connection from.
     pub(crate) pool: Arc<DatabaseReadPool>,
@@ -345,7 +345,6 @@ pub(crate) struct RunEngine {
 
 impl RunEngine {
     /// An engine over `deps`, the posture gate registered as its first setup gate.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
     pub(crate) fn new(deps: RunEngineDeps) -> Self {
         let RunEngineDeps {
             pool,
@@ -393,13 +392,6 @@ impl RunEngine {
     /// Hands the engine the interventions service that carries out each limit stop's interrupt,
     /// once, while the daemon wires its services and before any run can reach a limit. Fails with
     /// the handle when one was handed already.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which hands the engine the interventions service"
-        )
-    )]
     pub(crate) fn set_limit_interrupter(
         &self,
         limit_interrupter: Weak<dyn LimitInterrupter>,
@@ -409,13 +401,6 @@ impl RunEngine {
 
     /// Adds a setup gate after those already registered; its terminal hook runs before theirs.
     /// Gates are registered while the daemon wires its services, before the engine is shared.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which registers each feature's setup gate"
-        )
-    )]
     pub(crate) fn register_setup_gate(&mut self, gate: Arc<dyn RunSetupGate>) {
         self.gates.register(gate);
     }

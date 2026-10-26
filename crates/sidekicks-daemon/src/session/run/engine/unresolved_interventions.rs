@@ -31,13 +31,6 @@ impl RunEngine {
     /// Hands the engine the run queue whose hold of a person's interrupt a run's end or a turn's
     /// end lets go once it settles that interrupt, once, while the daemon wires its services and
     /// before any run can end. Fails with the handle when one was handed already.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which hands the engine the run queue"
-        )
-    )]
     pub(crate) fn set_interrupt_queue(
         &self,
         queue: Weak<dyn InterruptQueue>,

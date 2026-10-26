@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sidekicks_platforms::{
-    CredentialStore, DaemonRunFolder, LeftoverSweep, SocketPathRefused, check_socket_path,
-    create_missing_private_folders, process_identity, replace_file_atomically,
+    CredentialStore, DaemonRunFolder, LeftoverSweep, SocketPathRefused, askpass_socket_path,
+    check_socket_path, create_missing_private_folders, process_identity, replace_file_atomically,
 };
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
@@ -193,7 +193,8 @@ async fn a_run_folder_too_long_for_its_sockets_fails_the_start_before_any_step()
     let longest_name = crash_monitor_socket_path(Path::new(""), std::process::id())
         .as_os_str()
         .len()
-        .max("daemon.sock".len());
+        .max("daemon.sock".len())
+        .max(askpass_socket_path(Path::new("")).as_os_str().len());
     let home = tempfile::tempdir().expect("a temporary home");
     // The folder, a separator and the longest name come to one byte past the bound.
     let padding = (limit - longest_name)

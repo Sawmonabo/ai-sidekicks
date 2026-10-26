@@ -165,13 +165,6 @@ pub(crate) struct TurnSnapshotService {
 impl TurnSnapshotService {
     /// A service running `git`, reading run contexts through `reads`, and keeping scratch indexes
     /// under `execution_roots_folder`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start makes the turn snapshot service through it"
-        )
-    )]
     pub(crate) fn new(
         git: GitRunner,
         reads: Arc<DatabaseReadPool>,

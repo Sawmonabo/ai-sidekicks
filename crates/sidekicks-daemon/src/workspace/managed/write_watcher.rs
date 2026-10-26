@@ -82,10 +82,6 @@ pub(crate) enum ManagedWorkspaceWatchError {
 }
 
 /// The one watch over every chat's managed workspace; dropping it stops the watch and its task.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the chat-versions record of a chat's writes")
-)]
 pub(crate) struct ManagedWorkspaceWriteWatcher {
     task: JoinHandle<()>,
 }
@@ -97,10 +93,6 @@ impl ManagedWorkspaceWriteWatcher {
     /// added to `changed_folders`. When the watch cannot start or fails, the reason is
     /// logged and the receiver answers with the instant since which writes may be unreported, for
     /// the next watch's `missed_since`; it never answers otherwise.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the chat-versions record of a chat's writes")
-    )]
     pub(crate) fn start(
         workspaces_folder: PathBuf,
         writes: mpsc::Sender<ManagedWorkspaceWrite>,
