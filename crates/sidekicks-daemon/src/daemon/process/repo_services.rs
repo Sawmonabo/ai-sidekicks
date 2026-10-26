@@ -269,6 +269,8 @@ pub(crate) async fn start_repo_attachments(
     )?;
     if let Err(error) = services.live_folders.start(followers).await {
         health_tick.cancel();
+        // The start attaches its follow before the read that failed.
+        tokio::join!(services.live_folders.stop(), services.fetch.stop());
         return Err(error.into());
     }
     let health_triggers = tokio::spawn(reprobe_mount_health(

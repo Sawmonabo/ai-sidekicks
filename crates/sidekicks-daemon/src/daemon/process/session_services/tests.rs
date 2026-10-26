@@ -251,6 +251,7 @@ async fn the_started_follows_drop_a_closed_sessions_cursors() {
     let attachments = start_session_attachments(&fixture.session, &followers);
     let session_id = test_session_id();
     let live_binding = fixture.bind_new_run(session_id).await;
+    assert!(fixture.is_open(&live_binding));
 
     fixture.publish(
         session_id,
