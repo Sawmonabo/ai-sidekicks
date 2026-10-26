@@ -361,6 +361,13 @@ impl CommandChannel {
     /// A watch on the channel's records, made before the provider starts so no record lands
     /// before it, since the records already in the folder are no arrivals. Fails with the system's
     /// error when the folder cannot be watched.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "each driver watches its conversation's channel before it starts the provider"
+        )
+    )]
     pub(crate) async fn watch(&self) -> io::Result<FolderArrivalWatch> {
         FolderArrivalWatch::watch(&self.folder).await
     }
