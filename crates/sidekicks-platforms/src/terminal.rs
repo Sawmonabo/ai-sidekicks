@@ -133,8 +133,7 @@ pub struct TerminalDevice(pub u64);
 pub struct InnerTerminal {
     /// A handle on the program side, kept for the terminal's life so the master never reads as
     /// closed while a command that closed its own descriptors reopens `/dev/tty`; the command's end
-    /// is read from its exit. Declared first, so it closes before the PTY's drop waits on the
-    /// leader.
+    /// is read from its exit.
     #[cfg(unix)]
     pub(crate) _program_side: OwnedFd,
     /// The open PTY, with the command it started.

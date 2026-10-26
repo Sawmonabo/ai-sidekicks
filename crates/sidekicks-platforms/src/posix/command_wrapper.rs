@@ -17,7 +17,7 @@ use nix::fcntl::{FcntlArg, OFlag, fcntl};
 use nix::sys::signal::{SigSet, SigmaskHow, Signal, pthread_sigmask};
 use nix::sys::termios::{SetArg, Termios, cfmakeraw, tcgetattr, tcgetsid, tcsetattr};
 use nix::sys::wait::{WaitStatus, waitpid};
-use nix::unistd::{Pid, dup, isatty, pipe, tcgetpgrp, tcsetpgrp};
+use nix::unistd::{Pid, isatty, pipe, tcgetpgrp, tcsetpgrp};
 use polling::{Event, Events, PollMode, Poller};
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
@@ -293,11 +293,11 @@ pub fn end_terminal_session(pty: &Pty) -> io::Result<()> {
 /// on threads of its own; the master's one open file is shared, so `pty`'s own handle waits too.
 /// Fails with the system's error.
 pub fn blocking_terminal_master(pty: &Pty) -> io::Result<File> {
-    let master = dup(pty.file()).map_err(io::Error::from)?;
+    let master = pty.file().try_clone()?;
     let flags =
         OFlag::from_bits_retain(fcntl(&master, FcntlArg::F_GETFL).map_err(io::Error::from)?);
     fcntl(&master, FcntlArg::F_SETFL(flags - OFlag::O_NONBLOCK)).map_err(io::Error::from)?;
-    Ok(File::from(master))
+    Ok(master)
 }
 
 /// A watch on a terminal's master for output its program wrote that no read has taken yet, which

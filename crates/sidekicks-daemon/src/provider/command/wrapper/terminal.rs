@@ -254,8 +254,9 @@ fn copy_input(master: &std::fs::File) {
 
 /// Copies the command's output into the provider's terminal on a thread of its own, keeping its
 /// last bytes in `tail`, until, once the command exited, no output comes for `OUTPUT_QUIET`: the
-/// terminal's own handle keeps its program side open, so the end is read from the exit, never
-/// from a close. It reads only once `output_watch` sees output, so the wake at the exit reaches
+/// terminal's own handle keeps its program side open while the command's leader lives, so the end
+/// is read from the exit, not from a close the command's own redirections cause. It reads only
+/// once `output_watch` sees output, so the wake at the exit reaches
 /// it; the receiver hears once the output has ended, with the error that kept the copier from
 /// telling whether more was coming.
 fn copy_output(
@@ -286,8 +287,9 @@ fn copy_output(
                         break;
                     }
                 }
-                // The program side stays open until the terminal drops, so an error or an empty
-                // read means the terminal itself is gone.
+                // The program side stays open while the leader lives, so an error or an empty
+                // read means every holder is gone or, on macOS, the leader exited (macOS shuts
+                // the program side for everyone at its session leader's exit).
                 let Ok(count) = master.read(&mut buffer) else {
                     break;
                 };

@@ -6,17 +6,17 @@ use std::io;
 
 use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::tty::{self, Options};
-use nix::fcntl::{FcntlArg, FdFlag, fcntl};
-use nix::pty::{OpenptyResult, Winsize, openpty};
 use nix::sys::stat::fstat;
+use rustix_openpty::openpty;
+use rustix_openpty::rustix::termios::Winsize;
 
 use crate::terminal::{InnerTerminal, TerminalDevice};
 
 /// Opens a terminal of `window_size` and starts the program `options` names in it as a session
 /// leader whose controlling terminal it is, with `alacritty_terminal`'s `USER`, `HOME`,
 /// `ALACRITTY_WINDOW_ID` and `WINDOWID` added, the last two of which the program removes itself;
-/// the terminal keeps a handle of its own on the program side. Blocks; fails with the system's error when the terminal cannot be opened or read or the program
-/// cannot be started.
+/// the terminal keeps a handle of its own on the program side. Blocks; fails with the system's
+/// error when the terminal cannot be opened or read or the program cannot be started.
 pub fn start_inner_terminal(
     options: &Options,
     window_size: WindowSize,
@@ -29,16 +29,13 @@ pub fn start_inner_terminal(
             .num_lines
             .saturating_mul(window_size.cell_height),
     };
-    let OpenptyResult { master, slave } = openpty(&size, None).map_err(io::Error::from)?;
-    // `openpty` opens both without close-on-exec, so a child another thread starts meanwhile would
-    // inherit them and hold the terminal open past its program's end; they are marked at once.
-    for descriptor in [&master, &slave] {
-        fcntl(descriptor, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)).map_err(io::Error::from)?;
-    }
-    let device = terminal_device(fstat(&slave).map_err(io::Error::from)?.st_rdev)?;
+    // Both close-on-exec from the open (atomically on Linux), so a child another thread starts
+    // meanwhile inherits neither and cannot hold the terminal open past its program's end.
+    let rustix_openpty::Pty { controller, user } = openpty(None, Some(&size))?;
+    let device = terminal_device(fstat(&user).map_err(io::Error::from)?.st_rdev)?;
     // Close-on-exec, so the command inherits only the descriptors the PTY gives it.
-    let program_side = slave.try_clone()?;
-    let pty = tty::from_fd(options, 0, master, slave)?;
+    let program_side = user.try_clone()?;
+    let pty = tty::from_fd(options, 0, controller, user)?;
     Ok(InnerTerminal {
         _program_side: program_side,
         pty,

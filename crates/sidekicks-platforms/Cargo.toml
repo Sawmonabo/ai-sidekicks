@@ -106,6 +106,7 @@ windows-sys.features = [
 command-fds.workspace = true
 libc.workspace = true
 nix.workspace = true
+rustix-openpty.workspace = true
 signal-hook.workspace = true
 
 [features]
