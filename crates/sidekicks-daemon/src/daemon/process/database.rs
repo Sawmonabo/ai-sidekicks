@@ -15,8 +15,8 @@
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::pin::pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use jiff::Timestamp;
@@ -401,16 +401,25 @@ pub(crate) async fn open_database_file(
         (Some(release), Some(held_until))
     };
     let damage = Arc::new(DatabaseDamageWatch::new());
+    let status = Arc::new(RecoveryStatusTracker::new());
+    let damaged_writer = Arc::new(OnceLock::new());
     let (after_commit, live_runs) = count_live_runs_after_commits();
     let writer = open_writer(
         &database_path,
         DatabaseWriterOptions {
             writes_held_until,
-            on_write_failed: Some(report_write_damage(Arc::clone(&damage))),
+            on_write_failed: Some(report_write_damage(
+                Arc::clone(&damage),
+                Arc::clone(&status),
+                Arc::clone(&damaged_writer),
+            )),
             after_commit: Some(after_commit),
         },
     )
     .await?;
+    damaged_writer
+        .set(Arc::downgrade(&writer))
+        .expect("only the open sets the writer its listener ends");
     let is_vouched = Arc::new(AtomicBool::new(is_vouched));
     let truncation = Arc::new(WriteAheadLogTruncation::new(Arc::clone(&writer)));
     // A new file has nothing to check. The check starts after the writer's open, which rebuilds a
@@ -431,7 +440,6 @@ pub(crate) async fn open_database_file(
         database_path.clone(),
         READ_POOL_STATEMENT_CAPACITY,
     ));
-    let status = Arc::new(RecoveryStatusTracker::new());
     let damage_follower = AbortOnDropHandle::new(tokio::spawn(follow_damage(
         Arc::clone(&damage),
         Arc::clone(&status),
@@ -472,7 +480,8 @@ pub(crate) async fn open_database_file(
 /// then the damage found recorded, its writer ended if nothing has ended it yet, then the log's
 /// truncation stopped; then the read pool before the writer, so the writer is the last to close
 /// the file and folds the write-ahead log into it, except an ended writer, which is joined first
-/// and skips that checkpoint, so a damaged file's log stays for the repair. The check, the
+/// and skips that checkpoint, so a damaged file's log stays for the repair; damage the drain meets
+/// is recorded after the writer's close. The check, the
 /// truncation and the writer's drain all end within `remaining`, counted from the call; a check or
 /// truncation still running then is a failure, and the close goes on without it. The clean stop is
 /// recorded only for a file vouched for, with no damage found, no write left unfinished, no
@@ -499,7 +508,6 @@ pub(crate) async fn close_database_file(
         is_vouched,
         ..
     } = file;
-    drop(damage_follower);
     let left = || remaining.saturating_sub(closing_started.elapsed());
     let mut failures = Vec::new();
     // The check's connection closes first, so the writer is the last to close the file. Writes
@@ -515,12 +523,11 @@ pub(crate) async fn close_database_file(
             None
         }
     };
-    if damage.is_found() {
+    let is_damage_recorded = damage.is_found();
+    if is_damage_recorded {
         let found = damage.when_found().await;
         stop_writes_for_damage(found, &status, &writer);
-        if let Err(failure) = record_database_damage(&database_path, found).await {
-            failures.push(DatabaseFileCloseFailure::DamageRecord(failure));
-        }
+        record_damage(&database_path, found, &mut failures).await;
     }
     // Before the writer closes, so no truncation waits on a closed writer.
     if wait_within(pin!(truncation.stop()), left(), None)
@@ -539,6 +546,13 @@ pub(crate) async fn close_database_file(
         close_writer(&writer, left(), &mut failures).await
     };
     drop(writes_release);
+    // Kept through the close, so damage a read meets during the drain still ends the writer.
+    drop(damage_follower);
+    // Damage the drain met, which the listener has already ended the writer for.
+    if !is_damage_recorded && damage.is_found() {
+        let found = damage.when_found().await;
+        record_damage(&database_path, found, &mut failures).await;
+    }
     let is_clean = is_vouched.load(Ordering::Acquire)
         && !damage.is_found()
         && !was_ended
@@ -549,6 +563,17 @@ pub(crate) async fn close_database_file(
         failures.push(DatabaseFileCloseFailure::CleanStop(failure));
     }
     failures
+}
+
+// Records `found` beside the file at `database_path`, keeping the record's failure.
+async fn record_damage(
+    database_path: &Path,
+    found: &str,
+    failures: &mut Vec<DatabaseFileCloseFailure>,
+) {
+    if let Err(failure) = record_database_damage(database_path, found).await {
+        failures.push(DatabaseFileCloseFailure::DamageRecord(failure));
+    }
 }
 
 // Opens the writer on the file at `database_path`. A file holding another build's schema fails as
@@ -621,10 +646,23 @@ fn stop_writes_for_damage(found: &str, status: &RecoveryStatusTracker, writer: &
     writer.end(Arc::new(DatabaseFileDamaged(found.to_owned())));
 }
 
-// Tells `damage` of each failure SQLite raised for a write; the watch holds no writer, so the
-// listener holds it whole.
-fn report_write_damage(damage: Arc<DatabaseDamageWatch>) -> WriteFailureListener {
-    Box::new(move |failure| damage.report(failure))
+// Tells `damage` of each failure SQLite raised for a write, and for damage stops the writes at
+// once, on the write queue's task, so the batches after it and the close's checkpoint never reach
+// the damaged file. The writer is set after its open and held through a `Weak`, so the listener
+// never keeps it open.
+fn report_write_damage(
+    damage: Arc<DatabaseDamageWatch>,
+    status: Arc<RecoveryStatusTracker>,
+    writer: Arc<OnceLock<Weak<DatabaseWriter>>>,
+) -> WriteFailureListener {
+    Box::new(move |failure| {
+        damage.report(failure);
+        if is_database_damage_error(failure)
+            && let Some(writer) = writer.get().and_then(Weak::upgrade)
+        {
+            stop_writes_for_damage(&describe_error(failure), &status, &writer);
+        }
+    })
 }
 
 // Closes the read pool, keeping its failure.

@@ -26,7 +26,7 @@ use crate::events::log_service::{
 use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::ipc::caller_process::system_reader::ProcessTableReader;
 use crate::recovery::database_file::copy::DatabaseFileCopier;
-use crate::recovery::database_file::damage::read_database_damage;
+use crate::recovery::database_file::damage::{is_database_damage_error, read_database_damage};
 use crate::recovery::database_file::last_run::{LastRunEnd, read_last_run_end};
 use crate::recovery::database_file::sqlite_shell::SqliteShell;
 use crate::recovery::database_file::{WRITE_AHEAD_LOG_SUFFIX, sibling_path};
@@ -269,6 +269,100 @@ async fn damage_found_mid_run_ends_the_writer_and_leaves_the_log_for_the_repair(
     assert_ne!(harness.last_run().await, LastRunEnd::Clean);
 }
 
+/// A write of the one statement `sql`, its row count unchecked.
+fn statement_write(sql: &'static str) -> WriteJob {
+    WriteJob {
+        statements: vec![WriteStatement {
+            sql: Cow::Borrowed(sql),
+            bindings: StatementBindings::Positional(Vec::new()),
+            expected_row_count: None,
+        }],
+        events: Vec::new(),
+    }
+}
+
+// Damage a write meets during the stop's own drain ends the writer before the close's checkpoint
+// and is recorded after the close: the log stays, the damage record reads and no clean stop is
+// recorded. A slow write queued first keeps the damaged one in the drain; the damage is a page the
+// write itself zeroes, on a new file, which no check reads. Killed by dropping the record after the
+// close (no record reads).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn damage_a_write_meets_in_the_stops_drain_ends_the_writer_and_is_recorded() {
+    let harness = Harness::new();
+    let file = harness.open().await;
+    file.event_log
+        .append(
+            session_created(test_session_id()),
+            EventLogAppendOptions::default(),
+        )
+        .await
+        .expect("the creation is stored");
+    let log_length = std::fs::metadata(harness.log_path())
+        .expect("the run's writes are in the log")
+        .len();
+    assert!(log_length > 0, "the run's writes are in the log");
+
+    let slow = file
+        .writer
+        .enqueue(
+            statement_write(
+                "CREATE TABLE filler AS WITH RECURSIVE counter(n) AS (SELECT 1 UNION ALL \
+                 SELECT n + 1 FROM counter WHERE n < 100000) \
+                 SELECT n, printf('%.100c', 'x') AS text FROM counter",
+            ),
+            None,
+        )
+        .expect("the writer takes the slow write");
+    let damaged = file
+        .writer
+        .enqueue(
+            WriteJob {
+                statements: vec![
+                    WriteStatement {
+                        sql: Cow::Borrowed(
+                            "UPDATE sqlite_dbpage SET data = zeroblob(length(data)) \
+                             WHERE pgno = (SELECT rootpage FROM sqlite_schema \
+                             WHERE name = 'filler')",
+                        ),
+                        bindings: StatementBindings::Positional(Vec::new()),
+                        expected_row_count: None,
+                    },
+                    WriteStatement {
+                        sql: Cow::Borrowed("SELECT n FROM filler"),
+                        bindings: StatementBindings::Positional(Vec::new()),
+                        expected_row_count: None,
+                    },
+                ],
+                events: Vec::new(),
+            },
+            None,
+        )
+        .expect("the writer takes the damaged write");
+    let failures = close_database_file(file, CLOSE_BOUND, false).await;
+
+    assert!(failures.is_empty(), "{failures:?}");
+    // The slow write shares the damaged one's batch or commits before it; either way it is queued
+    // only to hold the damage back until the drain.
+    drop(slow);
+    let damaged = damaged.await.expect_err("the damaged write fails");
+    assert!(is_database_damage_error(&damaged), "{damaged:?}");
+    assert!(
+        std::fs::metadata(harness.log_path())
+            .expect("the log stays for the repair")
+            .len()
+            >= log_length,
+        "the close folds nothing into the damaged file"
+    );
+    assert!(
+        read_database_damage(&harness.database_path)
+            .await
+            .expect("the damage record reads")
+            .is_some(),
+        "the damage the drain met is recorded"
+    );
+    assert_ne!(harness.last_run().await, LastRunEnd::Clean);
+}
+
 // A stop while the check still walks a file nothing vouches for ends the check and waits for its
 // connection to close before the writer closes, so the writer is the file's last connection and
 // leaves no log behind, and the writes the check held fail as closed while held; the file stays
@@ -297,14 +391,7 @@ async fn a_stop_during_the_check_waits_for_it_and_closes_the_writer_last() {
     let held = file
         .writer
         .enqueue(
-            WriteJob {
-                statements: vec![WriteStatement {
-                    sql: Cow::Borrowed("INSERT INTO filler (n, text) VALUES (0, 'held')"),
-                    bindings: StatementBindings::Positional(Vec::new()),
-                    expected_row_count: None,
-                }],
-                events: Vec::new(),
-            },
+            statement_write("INSERT INTO filler (n, text) VALUES (0, 'held')"),
             None,
         )
         .expect("the writer takes the write");
