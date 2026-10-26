@@ -703,8 +703,9 @@ CREATE INDEX idx_plans_waiting_run ON plans(run_id) WHERE state = 'waiting';
 
 -- Owner: Plan-010
 -- The question record, rebuilt from question.asked, question.opened, question.canceled, the
--- user.message.sent that answers it and the admission of a queued answer. Its pages stay in its question.asked event,
--- read from there when an answer is checked; a secret answer is stored nowhere.
+-- user.message.sent that answers it and the admission of a queued answer. Its pages stay in its
+-- question.asked event, read from there when an answer is checked; a secret answer is stored
+-- nowhere.
 CREATE TABLE questions (
   id                TEXT PRIMARY KEY,  -- QuestionId
   session_id        TEXT NOT NULL,

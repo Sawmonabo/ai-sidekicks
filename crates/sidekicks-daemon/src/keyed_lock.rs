@@ -69,7 +69,8 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
     where
         Key: Send + Sync,
     {
-        // Unconstrained, so no exhausted task budget keeps the first poll from joining the queue.
+        // Unconstrained in every poll, the first one's join of the queue included, so no exhausted
+        // task budget holds a poll of the wait back.
         let mut acquiring: Pin<Box<dyn Future<Output = KeyHold<'_, Key>> + Send + '_>> =
             Box::pin(tokio::task::unconstrained(self.acquire(requested_key)));
         // One poll joins the key's queue, which tokio's mutex serves in the order it was joined;

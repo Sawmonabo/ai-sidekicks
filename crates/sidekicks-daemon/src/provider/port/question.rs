@@ -18,8 +18,8 @@ use sidekicks_contracts::session::id::SessionId;
 
 use crate::keyed_lock::{KeyHold, KeyWait, KeyedLock};
 
-// Each run's line of questions taken in its turn, which every driver's and every tool server's
-// question joins, so they open in the order they came.
+// Each run's line of questions taken in its turn, which every driver's question and each tool
+// server's question taken in its run's turn joins, so they open in the order they came.
 static RUN_QUESTION_LINE: LazyLock<KeyedLock<RunId>> = LazyLock::new(KeyedLock::new);
 
 /// The questions one provider request asks, in its order, with the provider's own request id the
@@ -142,9 +142,9 @@ pub(crate) trait QuestionPort: Send + Sync {
 /// driver when `None`. It is recorded at once: open when no question is ahead of `turn`, its place
 /// in its run's line, and its run reads running, else waiting for its run, then taken in the
 /// line's order once the run reads running, never refused for asking while the run waits on
-/// something else. When `asker_left` resolves before its turn, or
-/// by the time it opened, it is withdrawn in this same task, after its record's write, so no
-/// record lands after its withdrawal. An error when a write or the run's read fails.
+/// something else. When `asker_left` resolves before its turn, or by the time it opened, it is
+/// withdrawn in this same task, after its record's write, so no record lands after its
+/// withdrawal. An error when a write or the run's read fails.
 pub(crate) async fn take_question_in_turn(
     port: &dyn QuestionPort,
     question: ProviderQuestion,
