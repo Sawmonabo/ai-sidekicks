@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sidekicks_platforms::{
-    LeftoverSweep, TerminalSignal, create_file_atomically, name_program, read_child_exit,
-    send_signal,
+    LeftoverSweep, TerminalSignal, create_file_atomically, name_program, pin_running_process,
+    read_child_exit, send_signal,
 };
 
 use super::{COMMAND_PROVIDER_VARIABLE, run_command_wrapper_with};
@@ -308,6 +308,97 @@ async fn a_terminal_command_takes_ctrl_c_the_interrupt_and_a_stop_past_an_ignore
     }
     assert_eq!(told.first(), Some(&PartyRecord::Stopped {}));
     assert_eq!(ended_by(&mut child).as_deref(), Some("SIGKILL"));
+}
+
+// Fails when a relayed command outside a terminal is not run and stopped as its own process group:
+// a forwarded interrupt taken twice or not at all, a stop that leaves its background process
+// running, or `Stopped` told after `Exited`. Mutations: `signal_command_group` signaling the
+// child's pid in place of its group; the stop follower letting go of the state's lock before it
+// kills.
+#[tokio::test]
+async fn a_relayed_command_takes_one_interrupt_and_a_stop_ends_its_whole_group() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let channel = open_channel(folder.path());
+    let mut watch = channel.watch().await.expect("the channel is watched");
+    let mut command = wrapper(
+        &[
+            "--conversation",
+            "conversation",
+            "--process",
+            "process-1",
+            "--",
+            "/bin/sh",
+            "-c",
+            "trap 'echo interrupted' INT; sleep 30 & echo \"background $!\"; echo ready; \
+             while :; do wait; done",
+        ],
+        None,
+    );
+    with_channel(&mut command, &channel);
+    let mut child = command.spawn().expect("the wrapper starts");
+    let party = loop {
+        let records = next_records(&channel, &mut watch).await;
+        if let Some(starting) = records
+            .iter()
+            .find(|received| matches!(received.record, PartyRecord::Starting { .. }))
+        {
+            break starting.party;
+        }
+    };
+    let mut lines = BufReader::new(child.stdout.take().expect("its output")).lines();
+    let mut background = None;
+    let mut next_line = || {
+        lines
+            .next()
+            .expect("the command prints")
+            .expect("a line reads")
+    };
+    loop {
+        let line = next_line();
+        if let Some(id) = line.strip_prefix("background ") {
+            background = Some(id.parse::<u32>().expect("a process id"));
+        }
+        if line == "ready" {
+            break;
+        }
+    }
+    let background = background.expect("the background process is named");
+    send_signal(child.id(), TerminalSignal::Interrupt).expect("the interrupt is sent");
+    while next_line() != "interrupted" {}
+    channel
+        .send_request(party, &DaemonRequest::Stop {})
+        .await
+        .expect("the stop is sent");
+    let mut told = Vec::new();
+    while !told
+        .iter()
+        .any(|record| matches!(record, PartyRecord::Exited { .. }))
+    {
+        told.extend(
+            next_records(&channel, &mut watch)
+                .await
+                .into_iter()
+                .map(|received| received.record)
+                .filter(|record| {
+                    matches!(record, PartyRecord::Stopped {} | PartyRecord::Exited { .. })
+                }),
+        );
+    }
+    assert_eq!(told.first(), Some(&PartyRecord::Stopped {}));
+    assert_eq!(ended_by(&mut child).as_deref(), Some("SIGKILL"));
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while pin_running_process(background)
+            .expect("the process reads")
+            .is_some()
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the stop ends the background process");
+    // The output ends once the background process, which holds it open, has ended.
+    let rest: Vec<String> = lines.map(|line| line.expect("a line reads")).collect();
+    assert!(!rest.iter().any(|line| line == "interrupted"), "{rest:?}");
 }
 
 // Fails when a terminal command's last output is cut off because the wrapper stops waiting while
