@@ -391,12 +391,13 @@ async fn a_relayed_command_takes_one_interrupt_and_a_stop_ends_its_whole_group()
     assert!(!rest.iter().any(|line| line == "interrupted"), "{rest:?}");
 }
 
-// Fails when a stopped command reads as ended, or when a Ctrl+Z typed into a command's terminal
-// does not stop it: its stop signals are then dropped and the daemon's stop does nothing, so the
-// wrapper waits on it for good, or its lines keep coming. Outside a terminal the command stops
-// itself right after its `ready`, while the daemon's stop still crosses the channel's folder.
-// Mutations: the platforms crate's `wait_for_exit` with no bound as one blocking `waitid`; the
-// `Inner` arm executing the command in its own place again.
+// Fails, outside a terminal, when a command that stopped itself reads as ended: its stop signals
+// are then dropped and the daemon's stop does nothing, so the wrapper waits on it for good. It
+// stops right after its `ready`, while the daemon's stop still crosses the channel's folder.
+// Mutation: the platforms crate's `wait_for_exit` with no bound as one blocking `waitid`.
+// Fails, in a terminal of its own, when a typed Ctrl+Z does not stop the command, so its lines
+// keep coming; the daemon's stop then proves it ends a stopped job. Mutation: the `Inner` arm
+// executing the command in its own place again.
 #[tokio::test]
 async fn a_stopped_command_still_takes_the_daemon_s_stop() {
     let folder = tempfile::tempdir().expect("a folder");
