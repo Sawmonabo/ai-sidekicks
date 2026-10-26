@@ -19,7 +19,7 @@ pub(crate) mod questions;
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -32,6 +32,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio_util::task::TaskTracker;
 
+use crate::mutex_lock::lock;
 use crate::policy::destructive_git::covers_destructive_git;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::codex::attachments::compose_codex_text_input;
@@ -58,7 +59,9 @@ use crate::provider::port::permission_ask::{
     PermissionAskPort, ProviderAskAction, ProviderAskRule, ProviderPermissionAnswer,
     ProviderPermissionAsk, ProviderPermissionAskWithdrawal, ProviderRuleNotKeptError,
 };
-use crate::provider::port::question::{ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort};
+use crate::provider::port::question::{
+    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, take_question_in_turn,
+};
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::project_rule_folders::write_into_project_folders;
 use crate::provider::record_readers::read_non_empty_string;
@@ -299,7 +302,7 @@ impl CodexAskHandOff {
     /// Forgets the approvals a closed session held, the corrections it waited on and its pending
     /// questions.
     pub(crate) fn forget_session(&self, session_id: SessionId) {
-        let mut state = self.lock();
+        let mut state = lock(&self.state);
         state.held_approvals.remove(&session_id);
         state.corrections.remove(&session_id);
         state.pending_questions.remove(&session_id);
@@ -308,7 +311,7 @@ impl CodexAskHandOff {
     /// Drops the corrections an ended turn's asks could have carried out, which no later turn may,
     /// and the question it had pending, which Codex let go of with it.
     pub(crate) fn forget_turn_corrections(&self, session_id: SessionId, turn_id: &str) {
-        let mut state = self.lock();
+        let mut state = lock(&self.state);
         remove_nested(&mut state.corrections, session_id, turn_id);
         remove_nested(&mut state.pending_questions, session_id, turn_id);
     }
@@ -361,7 +364,7 @@ impl CodexAskHandOff {
         let session_id = record.session_id;
         let correction_key = compose_correction_key(&approval.action);
         let correction_of = {
-            let mut state = self.lock();
+            let mut state = lock(&self.state);
             let corrections = approval
                 .turn_id
                 .as_deref()
@@ -377,7 +380,7 @@ impl CodexAskHandOff {
         let action = approval.action.clone();
         let rule_scopes = std::mem::take(&mut approval.rule_scopes);
         let run_id = approval.run_id;
-        self.lock()
+        lock(&self.state)
             .held_approvals
             .entry(session_id)
             .or_default()
@@ -425,8 +428,9 @@ impl CodexAskHandOff {
         }
     }
 
-    // Holds a question for the questions card. Codex keeps one question pending per turn and a
-    // second replaces the first, so the first's card is taken back and its ask let go.
+    // Holds a question for the questions card, taken in its run's turn. Codex keeps one question
+    // pending per turn and a second replaces the first, so the first's card is taken back and its
+    // ask let go, before the second is taken.
     fn hand_question(
         &self,
         record: &CodexSessionRecord,
@@ -435,26 +439,23 @@ impl CodexAskHandOff {
         params: &Map<String, Value>,
     ) -> CodexServerRequestDecision {
         let session_id = record.session_id;
-        if request.method == CodexRoutedMethod::UserInputRequest
+        let replaced = if request.method == CodexRoutedMethod::UserInputRequest
             && let Some(turn_id) = read_non_empty_string(params, "turnId")
         {
-            let replaced = self
-                .lock()
+            let replaced = lock(&self.state)
                 .pending_questions
                 .entry(session_id)
                 .or_default()
                 .insert(turn_id.to_owned(), request.request_id.clone());
-            if let Some(replaced) = replaced {
-                if let Ok(connection) = record.service.connection() {
-                    connection.forget_held_request(&replaced);
-                }
-                self.withdraw_question_card(
-                    session_id,
-                    record.provider_account_id.clone(),
-                    replaced,
-                );
+            if let Some(replaced) = &replaced
+                && let Ok(connection) = record.service.connection()
+            {
+                connection.forget_held_request(replaced);
             }
-        }
+            replaced
+        } else {
+            None
+        };
         let Some(port) = self.dependencies.owners.questions.port().cloned() else {
             return CodexServerRequestDecision::Held { on_held: None };
         };
@@ -467,9 +468,34 @@ impl CodexAskHandOff {
         };
         let provider_account_id = record.provider_account_id.clone();
         let tasks = self.dependencies.tasks.clone();
+        // The replaced question's card is withdrawn before this one is taken, so the take never
+        // finds the run still waiting on it; asked while the run waits on something else, the
+        // question waits on the card for the run.
         let take_question = move || {
             tasks.spawn(async move {
-                if let Err(error) = port.take_question(question).await {
+                if let Some(request_id) = replaced {
+                    let withdrawal = ProviderQuestionWithdrawal {
+                        session_id,
+                        request_id,
+                    };
+                    if let Err(error) = port.withdraw_question(withdrawal).await {
+                        report_owner_failure(
+                            provider_account_id.clone(),
+                            CodexDeliveryPort::Question,
+                            session_id,
+                            error,
+                        );
+                    }
+                }
+                let taken = take_question_in_turn(
+                    port.as_ref(),
+                    question,
+                    None,
+                    None,
+                    std::future::pending(),
+                )
+                .await;
+                if let Err(error) = taken {
                     report_owner_failure(
                         provider_account_id,
                         CodexDeliveryPort::Question,
@@ -511,7 +537,7 @@ impl CodexAskHandOff {
         if let Some(turn_id) = &held.turn_id
             && let Some(key) = compose_correction_key(&corrected)
         {
-            self.lock()
+            lock(&self.state)
                 .corrections
                 .entry(session_id)
                 .or_default()
@@ -533,7 +559,7 @@ impl CodexAskHandOff {
     }
 
     fn take_held(&self, session_id: SessionId, request_id: &str) -> Option<CodexHeldApproval> {
-        let mut state = self.lock();
+        let mut state = lock(&self.state);
         let held = state.held_approvals.get_mut(&session_id)?;
         let approval = held.remove(request_id);
         if held.is_empty() {
@@ -543,7 +569,7 @@ impl CodexAskHandOff {
     }
 
     fn forget_question(&self, session_id: SessionId, request_id: &str) {
-        let mut state = self.lock();
+        let mut state = lock(&self.state);
         let Some(by_turn) = state.pending_questions.get_mut(&session_id) else {
             return;
         };
@@ -601,10 +627,6 @@ impl CodexAskHandOff {
                 );
             }
         });
-    }
-
-    fn lock(&self) -> MutexGuard<'_, CodexAskState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
