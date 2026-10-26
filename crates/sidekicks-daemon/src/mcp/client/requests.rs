@@ -25,11 +25,12 @@ use crate::mcp::client::raw_copy::RawReplyCopy;
 /// How long an ordinary request waits for its answer (the TypeScript SDK's default).
 pub(super) const ORDINARY_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// How long a tool call on a stdio server may go without an answer or a progress notification.
+/// How long a tool call on a stdio server may go without an answer or a progress notification,
+/// counted only while no question on the connection is open.
 pub(super) const STDIO_TOOL_CALL_IDLE_TIMEOUT: Duration = Duration::from_mins(30);
 
 /// How long a tool call on a server at an address may go without an answer or a progress
-/// notification.
+/// notification, counted only while no question on the connection is open.
 pub(super) const HTTP_TOOL_CALL_IDLE_TIMEOUT: Duration = Duration::from_mins(5);
 
 /// The longest a tool call may run however often it reports progress, 100,000,000 ms, Claude
