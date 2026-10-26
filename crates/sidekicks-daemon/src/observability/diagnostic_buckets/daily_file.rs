@@ -11,7 +11,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use jiff::Zoned;
 use jiff::civil::Date;
@@ -20,6 +20,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::create_private_folder;
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::mutex_lock::lock;
 
 /// A bucket's day files: `<YYYY-MM-DD>.ndjson`, the local day its lines were recorded on.
 pub(crate) struct DailyFileBucket {
@@ -111,7 +112,7 @@ impl DayFiles {
         line: &[u8],
         write: impl FnOnce(&mut File, &[u8]) -> io::Result<()>,
     ) -> io::Result<()> {
-        let mut open_day = self.open_day.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut open_day = lock(&self.open_day);
         let open = match open_day.take() {
             Some(open) if open.day == day => open_day.insert(open),
             _ => {

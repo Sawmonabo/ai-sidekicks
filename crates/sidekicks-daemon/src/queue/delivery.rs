@@ -23,7 +23,7 @@ mod tests;
 mod withdraw;
 
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use sidekicks_contracts::run::id::RunId;
@@ -41,6 +41,7 @@ use crate::database::statement::WriteStatement;
 use crate::events::session::appender::SessionEventDraft;
 use crate::ipc::handlers::driver::resolution::{LiveRunDriverError, read_run_driver};
 use crate::keyed_lock::KeyHold;
+use crate::mutex_lock::lock;
 use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::registry::ProviderRegistry;
@@ -704,10 +705,7 @@ impl QueueDelivery {
     // The delivery's state. No holder awaits or panics while it changes the state, so a poisoned
     // lock still guards a whole state.
     fn lock_state(&self) -> MutexGuard<'_, DeliveryState> {
-        self.shared
-            .state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.shared.state)
     }
 
     fn forget_hand(&self, item_id: QueueItemId) {

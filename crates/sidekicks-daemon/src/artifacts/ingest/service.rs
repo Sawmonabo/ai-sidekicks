@@ -21,7 +21,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::SystemTime;
 
 use bytes::Bytes as ByteBuffer;
@@ -66,6 +66,7 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::events::session::appender::SessionEventAppender;
 use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::MissingEntry as _;
+use crate::mutex_lock::lock;
 #[cfg(test)]
 use crate::pause_point::PausePoint;
 use crate::settle_all::{SettleFailures, settle_all};
@@ -627,7 +628,7 @@ impl ArtifactIngestService {
 
     fn lock_registry(&self) -> MutexGuard<'_, Registry> {
         // Each change to the registry is one insert or removal, which no panic leaves half done.
-        self.registry.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.registry)
     }
 }
 

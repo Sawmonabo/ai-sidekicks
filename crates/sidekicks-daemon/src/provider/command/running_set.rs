@@ -5,7 +5,7 @@
 //! appended once on the session's binding at the time it ends, so a fork move changes nothing.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -23,6 +23,7 @@ use tokio::time::Instant;
 
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
+use crate::mutex_lock::lock;
 use crate::provider::command::channel::PartyId;
 use crate::provider::command::waiting_checks::WaitingState;
 use crate::provider::driver::contract::ProviderDriver;
@@ -257,7 +258,7 @@ impl RunningCommandSets {
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, SessionCommands>> {
-        self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.sessions)
     }
 
     /// Follows `session_id`'s running commands: the feed sends the whole set at once, then after

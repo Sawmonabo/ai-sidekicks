@@ -2,11 +2,12 @@
 //! daemon's own process, its terminals, its providers and whatever they started.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
+use crate::mutex_lock::lock;
 use crate::processor_bound::processor_count;
 
 /// One reading over a process and every process under it.
@@ -65,14 +66,9 @@ impl ProcessTreeUsageReader {
         root_pid: u32,
     ) -> Result<ProcessTreeUsage, ProcessTreeUsageError> {
         let state = Arc::clone(&self.state);
-        tokio::task::spawn_blocking(move || {
-            state
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .read(Pid::from_u32(root_pid))
-        })
-        .await
-        .map_err(ProcessTreeUsageError::Interrupted)
+        tokio::task::spawn_blocking(move || lock(&state).read(Pid::from_u32(root_pid)))
+            .await
+            .map_err(ProcessTreeUsageError::Interrupted)
     }
 }
 

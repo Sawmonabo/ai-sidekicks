@@ -8,12 +8,14 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::time::{Instant, Sleep};
 use tracing::warn;
+
+use crate::mutex_lock::lock;
 
 /// How long the recovery may pass no byte before the shells' processor time is read.
 pub(crate) const RECOVERY_STALL_WINDOW: Duration = Duration::from_secs(60);
@@ -112,7 +114,7 @@ impl ShellProcessorTimeReader {
     ) -> Result<Option<ShellProcessorTimes>, ShellProcessorTimeError> {
         let system = Arc::clone(&self.system);
         tokio::task::spawn_blocking(move || {
-            let mut system = system.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut system = lock(&system);
             let pids: Vec<Pid> = shell_pids.iter().copied().map(Pid::from_u32).collect();
             // An ended shell's entry is dropped, so it reads as missing.
             system.refresh_processes_specifics(

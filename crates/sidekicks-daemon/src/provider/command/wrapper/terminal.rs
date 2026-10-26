@@ -24,6 +24,7 @@ use super::{
     end_as_command_ended, exec_failed, exited_record, follow_stops, lock_records, lock_state, note,
     send_record,
 };
+use crate::mutex_lock::lock;
 use crate::provider::command::channel::PartyRecord;
 use crate::provider::command::channel::party::PartyRequests;
 use crate::provider::command::waiting_checks::cheap_check_delay;
@@ -163,10 +164,7 @@ pub(super) fn run_in_terminal(
     }
     // The command stays unreaped until its state reads reaped, so no stop reaches a reused id.
     let exited = wait_for_exit(pty.child().id(), None);
-    tail.0
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .has_command_exited = true;
+    lock(&tail.0).has_command_exited = true;
     // Set before the wake, so a copier woken from its wait reads the exit.
     if let Err(error) = output_watch.wake() {
         note(
@@ -273,10 +271,7 @@ fn copy_output(
             let (kept, piece_came) = &*tail;
             let mut copied = Ok(());
             loop {
-                let has_command_exited = kept
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .has_command_exited;
+                let has_command_exited = lock(kept).has_command_exited;
                 match output_watch.wait(has_command_exited.then_some(OUTPUT_QUIET)) {
                     Ok(true) => {}
                     // Woken by the exit, the copier reads the flag again.
@@ -304,7 +299,7 @@ fn copy_output(
                 {
                     break;
                 }
-                let mut kept = kept.lock().unwrap_or_else(PoisonError::into_inner);
+                let mut kept = lock(kept);
                 kept.bytes.extend_from_slice(piece);
                 let excess = kept.bytes.len().saturating_sub(OUTPUT_TAIL_BYTES);
                 kept.bytes.drain(..excess);
@@ -338,14 +333,11 @@ fn report_terminal(
             let peer_failure_noted = Once::new();
             let mut last_report = None;
             let (kept, piece_came) = &*tail;
-            let mut armed_at = kept
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .last_output;
+            let mut armed_at = lock(kept).last_output;
             let mut checks_done = 0;
             loop {
                 let output_tail = {
-                    let tail = kept.lock().unwrap_or_else(PoisonError::into_inner);
+                    let tail = lock(kept);
                     if tail.last_output != armed_at {
                         armed_at = tail.last_output;
                         checks_done = 0;

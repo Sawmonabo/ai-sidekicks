@@ -6,7 +6,7 @@
 //! carries; a later one is dropped.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::Serialize;
 use serde_json::value::RawValue;
@@ -16,6 +16,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::error_description::describe_error;
+use crate::mutex_lock::lock;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::delivery::system::read_provider_words;
 use crate::provider::driver::diagnostics::{
@@ -207,9 +208,7 @@ impl ClaudeReviewerCapture {
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, HashSet<String>>> {
-        self.captured_by_session
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.captured_by_session)
     }
 }
 

@@ -21,7 +21,7 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use flexi_logger::writers::{ArcFileLogWriter, FileLogWriter, FileLogWriterHandle};
 use flexi_logger::{Cleanup, Criterion, FileSpec, FlexiLoggerError, Naming};
@@ -32,6 +32,8 @@ use tracing_subscriber::filter::{LevelFilter, Targets};
 use tracing_subscriber::fmt::writer::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::{SubscriberInitExt, TryInitError};
+
+use crate::mutex_lock::lock;
 
 // The folder in the data folder that holds the service log files.
 const SERVICE_LOG_FOLDER_NAME: &str = "logs";
@@ -320,10 +322,6 @@ struct FileSide {
     byte_count: u64,
     // Whether a turn, write or flush failed and was told, and no line has landed since.
     is_failing: bool,
-}
-
-fn lock<Side>(side: &Mutex<Side>) -> MutexGuard<'_, Side> {
-    side.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl ServiceLogSides {

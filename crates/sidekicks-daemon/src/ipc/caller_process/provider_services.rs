@@ -5,9 +5,11 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use sidekicks_platforms::{UnixDomainStream, unix_domain_peer_process};
+
+use crate::mutex_lock::lock;
 
 /// Each serving process with the number of connections held to it.
 type HoldCounts = Arc<Mutex<HashMap<u32, usize>>>;
@@ -49,12 +51,7 @@ impl ProviderServiceProcesses {
             .map_err(HoldServingError::Read)?
             .ok_or(HoldServingError::PeerClosed)?
             .id();
-        *self
-            .holds
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .entry(process_id)
-            .or_default() += 1;
+        *lock(&self.holds).entry(process_id).or_default() += 1;
         let hold = ProviderServiceHold {
             holds: Arc::clone(&self.holds),
             process_id,
@@ -65,19 +62,12 @@ impl ProviderServiceProcesses {
     /// Whether the process with `process_id` serves a provider service connection the daemon
     /// holds.
     pub(crate) fn has(&self, process_id: u32) -> bool {
-        self.holds
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .contains_key(&process_id)
+        lock(&self.holds).contains_key(&process_id)
     }
 
     /// Whether the daemon holds a connection to any provider service now.
     pub(crate) fn is_holding_any(&self) -> bool {
-        !self
-            .holds
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .is_empty()
+        !lock(&self.holds).is_empty()
     }
 }
 
@@ -92,7 +82,7 @@ pub(crate) struct ProviderServiceHold {
 
 impl Drop for ProviderServiceHold {
     fn drop(&mut self) {
-        let mut holds = self.holds.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut holds = lock(&self.holds);
         let count = holds
             .get_mut(&self.process_id)
             .expect("a hold's process stays counted until the hold drops");

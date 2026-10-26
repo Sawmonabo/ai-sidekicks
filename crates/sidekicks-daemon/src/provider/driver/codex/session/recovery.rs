@@ -10,7 +10,7 @@ mod tests;
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -24,6 +24,7 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 use tokio_util::task::TaskTracker;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
 use crate::provider::driver::codex::event_normalizer::CODEX_TURN_COMPLETED_METHOD;
@@ -579,7 +580,7 @@ impl CodexServiceRecovery {
     }
 
     fn lock(&self) -> MutexGuard<'_, RecoveryState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 }
 

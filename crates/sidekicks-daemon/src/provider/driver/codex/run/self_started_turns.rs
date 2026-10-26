@@ -8,7 +8,7 @@
 //! start waits for its end.
 
 use std::error::Error;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use serde::Deserialize;
@@ -16,6 +16,7 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::run::routes::CodexRunBinding;
 use crate::provider::driver::codex::run::start::read_codex_step_bound;
@@ -135,8 +136,7 @@ async fn open_run(
                         .open_daemon_turn_binding(run_id, session_id)
                         .await?;
                     let step_bound = read_codex_step_bound(&reads, session_id).await?;
-                    *binding_slot.lock().unwrap_or_else(PoisonError::into_inner) =
-                        Some((binding, step_bound));
+                    *lock(&binding_slot) = Some((binding, step_bound));
                     Ok(())
                 }
                 .boxed()
@@ -158,16 +158,15 @@ async fn open_run(
             }),
         })
         .await?;
-    let (binding, step_bound) = opened_binding
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .take()
-        .ok_or_else(|| CodexError::Transport {
-            detail: format!(
-                "The run of the turn Codex started on \"{session_id}\" has no binding."
-            ),
-            cause: None,
-        })?;
+    let (binding, step_bound) =
+        lock(&opened_binding)
+            .take()
+            .ok_or_else(|| CodexError::Transport {
+                detail: format!(
+                    "The run of the turn Codex started on \"{session_id}\" has no binding."
+                ),
+                cause: None,
+            })?;
     runs.run_routes.bind_run_delivery(
         run_id,
         CodexRunBinding {

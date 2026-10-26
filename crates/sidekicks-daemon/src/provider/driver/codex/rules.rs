@@ -13,7 +13,7 @@ mod evaluator;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::{Arc, LazyLock, Mutex, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use futures::FutureExt;
@@ -28,6 +28,7 @@ use crate::file::real_location::resolve_real_location;
 use crate::git::exclude::{ExcludeError, add_repository_exclude};
 use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::MissingEntry;
+use crate::mutex_lock::lock;
 use crate::policy::destructive_git::covers_destructive_git;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::delivery::asks::CodexProjectRules;
@@ -456,11 +457,7 @@ async fn evaluate_rule_files(
         let deadline = Instant::now() + time_limit;
         let mut evaluated = Vec::with_capacity(files.len());
         for file in files {
-            file.path.clone_into(
-                &mut evaluator_running_file
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner),
-            );
+            file.path.clone_into(&mut lock(&evaluator_running_file));
             let outcome = evaluator.evaluate(&file.path.to_string_lossy(), &file.text, deadline);
             let is_refused = outcome.is_err();
             evaluated.push((file, outcome));
@@ -477,10 +474,7 @@ async fn evaluate_rule_files(
     )
     .await;
     let Some(finished) = waited else {
-        let path = running_file
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
+        let path = lock(&running_file).clone();
         return Err(CodexRulesError::Unloadable {
             path,
             reason: "did not finish".to_owned(),

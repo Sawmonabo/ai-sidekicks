@@ -14,7 +14,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
 use rusqlite::types::{Type, Value};
@@ -46,6 +46,7 @@ use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::ipc::stream::latest_value::LatestValueOutlet;
+use crate::mutex_lock::lock;
 use crate::session::directory::lookups::{
     SessionWriteError, session_exists, write_while_session_exists,
 };
@@ -489,9 +490,7 @@ impl SessionReviewNoteStore {
 
     fn lock_followers(&self) -> MutexGuard<'_, HashMap<SessionId, Vec<FollowerWake>>> {
         // The map holds no invariant a panicking holder could break.
-        self.followers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.followers)
     }
 }
 

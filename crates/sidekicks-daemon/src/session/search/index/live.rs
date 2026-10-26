@@ -16,7 +16,7 @@
 use std::cmp;
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, SystemTime};
 
 use futures::FutureExt;
@@ -36,6 +36,7 @@ use crate::daemon::scheduler::{JobCondition, ScheduledJobHandle, Scheduler};
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::writer::DatabaseWriter;
 use crate::ipc::registry::HandlerError;
+use crate::mutex_lock::lock;
 use crate::session::search::index::applier::{SearchIndexApplier, SearchIndexApplyError};
 use crate::session::search::index::outbox::{AppliedOutbox, OutboxReader, delete_applied_outbox};
 use crate::session::search::index::rebuild::{
@@ -429,11 +430,7 @@ impl LiveIndexShared {
     // Lets go of every held search and of the job that would expire them.
     fn let_go_of_held_searches(&self) {
         self.session_search.let_go_of_held_searches();
-        let expiry = self
-            .held_search_expiry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let expiry = lock(&self.held_search_expiry).take();
         if let Some(expiry) = expiry {
             expiry.job.cancel();
         }
@@ -443,10 +440,7 @@ impl LiveIndexShared {
 // Schedules the let-go of held searches at the first one's expiry, in place of the instant
 // scheduled before; nothing is scheduled while none is held.
 fn arm_held_search_expiry(shared: &Arc<LiveIndexShared>) {
-    let mut armed = shared
-        .held_search_expiry
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner);
+    let mut armed = lock(&shared.held_search_expiry);
     // Read under the lock, so a close letting go in between cannot leave a job scheduled after it.
     let next_expiry = shared.session_search.next_held_search_expiry();
     if armed.as_ref().map(|expiry| expiry.instant) == next_expiry {

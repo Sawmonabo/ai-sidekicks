@@ -10,9 +10,11 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use tokio::sync::oneshot;
+
+use crate::mutex_lock::lock;
 
 /// Each key's waiters by their id, and the id the next waiter takes.
 struct ArmedWaits<Key, Settlement> {
@@ -139,7 +141,7 @@ fn send_to_each<Settlement: Clone>(
 fn lock_waits<Key, Settlement>(
     waits: &Mutex<ArmedWaits<Key, Settlement>>,
 ) -> MutexGuard<'_, ArmedWaits<Key, Settlement>> {
-    waits.lock().unwrap_or_else(PoisonError::into_inner)
+    lock(waits)
 }
 
 /// One armed wait. Dropping it before it settles withdraws it without settling any other waiter,

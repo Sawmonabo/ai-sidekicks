@@ -19,7 +19,7 @@ use std::error::Error;
 use std::fs::File;
 use std::io::{self, Read, Write as _};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use bytes::Buf as _;
 use futures::FutureExt as _;
@@ -48,6 +48,7 @@ use crate::database::stored_column::text_column;
 use crate::events::session::appender::SessionEventAppender;
 use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::is_missing_entry;
+use crate::mutex_lock::lock;
 use crate::provider::port::file_tool_write::{
     FileToolWriteOpened, FileToolWriteOutcome, FileToolWritePort, FileToolWriteSettled,
 };
@@ -384,9 +385,7 @@ impl ChatFileVersions {
     }
 
     fn lock_held_paths(&self) -> MutexGuard<'_, HashMap<WorkspacePath, HeldPath>> {
-        self.held_paths
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.held_paths)
     }
 }
 

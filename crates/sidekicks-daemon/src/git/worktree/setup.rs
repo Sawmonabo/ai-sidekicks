@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
 use futures::future::{BoxFuture, join_all};
@@ -45,6 +45,7 @@ use crate::error_description::describe_error;
 use crate::git::process::{GitCall, GitRunner, SHUTDOWN_STOP_GRACE, in_folder};
 use crate::git::worktree::errors::WorktreeRefusal;
 use crate::git::worktree::watch::{WatchHold, WatchTarget, WorkingFolderWatcher};
+use crate::mutex_lock::lock;
 use crate::settle_all::{SettleFailures, settle_all};
 use crate::workspace::folder::canonical_path::canonical_folder_path;
 use crate::workspace::trust_envelope::is_contained_within;
@@ -844,7 +845,7 @@ impl Drop for WorktreeSetupSubscription {
 }
 
 fn lock_state(state: &Mutex<RunnerState>) -> MutexGuard<'_, RunnerState> {
-    state.lock().unwrap_or_else(PoisonError::into_inner)
+    lock(state)
 }
 
 fn not_found(worktree_id: WorktreeId) -> WorktreeSetupError {

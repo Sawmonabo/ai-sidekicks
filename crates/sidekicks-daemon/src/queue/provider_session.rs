@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
 use serde_json::Map;
@@ -27,6 +27,7 @@ use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool
 use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::ipc::domain_error::DomainError;
 use crate::keyed_lock::{KeyHold, KeyedLock};
+use crate::mutex_lock::lock;
 use crate::policy::execution_posture_service::compose_execution_posture;
 use crate::provider::driver::contract::{DriverError, SpawnedVersionBindingCarriers};
 use crate::provider::driver::registry::ProviderRegistry;
@@ -598,7 +599,7 @@ impl ProviderSessions {
 
     fn lock_opened(&self) -> MutexGuard<'_, HashMap<SessionId, OpenedSession>> {
         // No code panics while it holds the map, so a poisoned lock still holds a whole one.
-        self.opened.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.opened)
     }
 }
 

@@ -4,8 +4,9 @@
 //! turn, and a run another caller started since keeps the hold it took. Whether a pending relaunch
 //! may go is read from the hold afterwards.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
+use crate::mutex_lock::lock;
 use crate::provider::compaction_wait::PendingCompactionRegistry;
 use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::provider::driver::claude::handshake_register::ClaudeHandshakeRegister;
@@ -53,11 +54,7 @@ impl ClaudeTurnSettlement {
         // compaction's own, whose frame came first if it compacted.
         self.pending_compactions
             .observe_turn_end(&session_id.to_string());
-        let admitted = self
-            .helpers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .turn_ended(&session_id);
+        let admitted = lock(&self.helpers).turn_ended(&session_id);
         for request_id in admitted {
             answer_claude_request(
                 &*live.channel,

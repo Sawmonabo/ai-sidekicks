@@ -7,7 +7,7 @@
 //! refuses its writes.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
 
 use sidekicks_contracts::daemon::recovery::{
     DaemonRecoverySession, DaemonRecoverySessionState, DaemonRecoveryState, DaemonRecoveryStatus,
@@ -21,6 +21,8 @@ use sidekicks_contracts::session::recovery::{
 };
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+
+use crate::mutex_lock::lock;
 
 /// A session's last good point: the last event it opens at, and the first one that is damaged.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -263,7 +265,7 @@ impl RecoveryStatusTracker {
     // A panic while the lock was held leaves the state as whole as each mark leaves it, so a
     // poisoned lock is taken as it stands.
     fn lock(&self) -> MutexGuard<'_, TrackerState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 }
 

@@ -6,7 +6,7 @@
 //! The fork claims the session's slot, then runs on the session's task, where the record is.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
 use futures::future::{BoxFuture, Shared};
@@ -14,6 +14,7 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 use tokio_util::task::TaskTracker;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::provider::driver::codex::session::calls::CodexSessionTask;
 use crate::provider::driver::codex::session::errors::CodexError;
@@ -81,10 +82,7 @@ impl CodexConfigForks {
             return in_flight.clone();
         }
         let fork_number = {
-            let mut next = self
-                .next_fork
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
+            let mut next = lock(&self.next_fork);
             *next += 1;
             *next
         };
@@ -146,7 +144,7 @@ impl CodexConfigForks {
     }
 
     fn lock_running(&self) -> MutexGuard<'_, HashMap<SessionId, (u64, CodexConfigFork)>> {
-        self.running.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.running)
     }
 }
 

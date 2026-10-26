@@ -9,7 +9,7 @@ use std::future::Future;
 use std::io;
 use std::mem;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -20,6 +20,7 @@ use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::scheduler::ScheduledJobOutcome;
+use crate::mutex_lock::lock;
 
 /// What a job's work is counted in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,7 +171,7 @@ pub(crate) struct ProcessorMeter {
 impl ProcessorMeter {
     /// Adds a thread's time to the run's.
     pub(crate) fn add(&self, time: ThreadProcessorTime) {
-        let mut total = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut total = lock(&self.shared);
         total.spent.time += time.spent.time;
         total.spent.readings += time.spent.readings;
         if let Some(failure) = time.unread {
@@ -200,7 +201,7 @@ impl ProcessorMeter {
     /// Takes the run's time so far, leaving the meter at zero. Fails with the first reading that
     /// failed.
     pub(crate) fn take_spent(&self) -> Result<SpentTime, io::Error> {
-        let total = mem::take(&mut *self.shared.lock().unwrap_or_else(PoisonError::into_inner));
+        let total = mem::take(&mut *lock(&self.shared));
         match total.unread {
             Some(failure) => Err(failure),
             None => Ok(total.spent),

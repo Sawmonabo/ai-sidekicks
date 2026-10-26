@@ -11,7 +11,7 @@
 //!   run or refuses it.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -27,6 +27,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
+use crate::mutex_lock::lock;
 use crate::policy::background_work::refuse_background_work;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::policy::shell_commands::unwrap_shell_command_line;
@@ -347,9 +348,7 @@ impl CodexCallChecks {
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<String, HeldCall>> {
-        self.held_by_request_id
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.held_by_request_id)
     }
 }
 

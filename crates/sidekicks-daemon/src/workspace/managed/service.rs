@@ -12,7 +12,7 @@ use std::error::Error;
 use std::ffi::OsStr;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ignore::WalkBuilder;
@@ -33,6 +33,7 @@ use crate::file::bounded_read::run_on_own_thread;
 use crate::file::real_location::resolve_real_path;
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder};
 use crate::missing_entry::is_missing_entry;
+use crate::mutex_lock::lock;
 use crate::session::directory::list_feed::SessionListFeed;
 use crate::workspace::managed::write_watcher::{
     ManagedWorkspaceWrite, ManagedWorkspaceWriteWatcher,
@@ -190,11 +191,7 @@ impl ManagedWorkspaceService {
     /// which the stop logs once. A create after it starts no watch. Fails only when the recount's
     /// task panicked.
     pub(crate) async fn stop(&self) -> Result<(), JoinError> {
-        let write_watch = self
-            .write_watch
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let write_watch = lock(&self.write_watch).take();
         if let Some(write_watch) = write_watch {
             drop(write_watch);
             tracing::info!(
@@ -203,11 +200,7 @@ impl ManagedWorkspaceService {
                  versions"
             );
         }
-        let counting = self
-            .document_counting
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let counting = lock(&self.document_counting).take();
         let Some(counting) = counting else {
             return Ok(());
         };
@@ -285,10 +278,7 @@ impl ManagedWorkspaceService {
     // walks for every entry of a folder made again, all of it new, and otherwise for every write
     // since the ended watch last told them all.
     fn keep_write_watch(&self, had_folder: bool) {
-        let mut write_watch = self
-            .write_watch
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        let mut write_watch = lock(&self.write_watch);
         let Some(write_watch) = write_watch.as_mut() else {
             return;
         };

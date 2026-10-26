@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -12,6 +12,7 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio_util::task::TaskTracker;
 
 use super::{CodexRunEnds, CodexServiceRecovery, CodexServiceRecoveryDependencies};
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::provider::driver::codex::service::registry::CodexServiceRegistry;
 use crate::provider::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
@@ -34,17 +35,11 @@ struct Steps(Mutex<Vec<String>>);
 
 impl Steps {
     fn push(&self, step: String) {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(step);
+        lock(&self.0).push(step);
     }
 
     fn read(&self) -> Vec<String> {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        lock(&self.0).clone()
     }
 }
 

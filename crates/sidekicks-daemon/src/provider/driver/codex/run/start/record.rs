@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde_json::Value;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -16,6 +16,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::attachments::compose_codex_message_input;
 use crate::provider::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::provider::driver::codex::output_speed::{
@@ -217,9 +218,7 @@ impl CodexBindingAdoptions {
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, u64>> {
-        self.latest_by_session
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.latest_by_session)
     }
 }
 

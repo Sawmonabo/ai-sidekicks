@@ -20,7 +20,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::approval::{
@@ -44,6 +44,7 @@ use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
+use crate::mutex_lock::lock;
 use crate::policy::permission_check::{PermissionCheck, PermissionCheckError, ProviderAskVerdict};
 use crate::provider::driver::contract::{
     DriverError, ProviderRequestAnswer, RespondToRequestParams,
@@ -604,7 +605,7 @@ impl PermissionAsks {
 
     fn lock_held(&self) -> MutexGuard<'_, HeldAsks> {
         // The map holds whole entries only, so a panic elsewhere leaves nothing half written.
-        self.held.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.held)
     }
 }
 

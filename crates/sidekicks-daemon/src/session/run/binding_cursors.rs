@@ -7,7 +7,7 @@
 //! once.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEventReadError;
@@ -19,6 +19,7 @@ use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::events::session::followers::CommittedEvent;
+use crate::mutex_lock::lock;
 use crate::provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingStore,
     RuntimeBindingStoreError, read_binding,
@@ -231,12 +232,8 @@ impl RunBindingCursors {
     }
 
     fn lock_sessions(&self) -> MutexGuard<'_, HashMap<SessionId, SessionCursors>> {
-        self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.sessions)
     }
-}
-
-fn lock(epochs: &Mutex<ExecutionEpochs>) -> MutexGuard<'_, ExecutionEpochs> {
-    epochs.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 // The cursor's view of a stored binding.

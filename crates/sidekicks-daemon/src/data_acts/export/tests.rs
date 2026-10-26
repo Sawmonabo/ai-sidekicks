@@ -1,7 +1,7 @@
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use rusqlite::params;
 use sha2::{Digest as _, Sha256};
@@ -19,6 +19,7 @@ use crate::artifacts::payload_store::{ContentHash, PayloadStore};
 use crate::artifacts::schema::ARTIFACT_STATEMENT_CAPACITY;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::events::session::read::HYDRATED_PAGE_TEXT_BYTES;
+use crate::mutex_lock::lock;
 use crate::session::directory::test_rows::insert_session_row;
 use crate::transcript::test_log::TranscriptTestLog;
 
@@ -397,10 +398,7 @@ async fn an_export_that_panics_frees_its_slot_and_fails() {
     })
     .await;
     assert!(panicked.is_err_and(|failure| failure.is_panic()));
-    assert_eq!(
-        jobs.lock().unwrap_or_else(PoisonError::into_inner).running,
-        None
-    );
+    assert_eq!(lock(&jobs).running, None);
     assert!(
         matches!(*ended.borrow(), DataExportProgress::Failed { .. }),
         "{:?}",

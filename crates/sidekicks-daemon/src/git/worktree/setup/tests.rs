@@ -3,7 +3,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -37,6 +37,7 @@ use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
+use crate::mutex_lock::lock;
 
 const READ_STATEMENT_CAPACITY: usize = 16;
 
@@ -74,11 +75,7 @@ impl WorktreeSetupSources for SavedSetup {
         &'a self,
         _worktree_id: &'a WorktreeId,
     ) -> BoxFuture<'a, Result<ProjectSetup, WorktreeSetupError>> {
-        let setup = self
-            .setup
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
+        let setup = lock(&self.setup).clone();
         let is_unreadable = self.is_unreadable.load(Ordering::SeqCst);
         async move {
             if is_unreadable {

@@ -13,7 +13,7 @@ use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, ExitStatus};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -23,6 +23,7 @@ use sidekicks_platforms::{
     signal_command_group, start_in_own_group, stop_signal_number, take_in_orphans, wait_for_exit,
 };
 
+use crate::mutex_lock::lock;
 use crate::provider::command::channel::party::{
     ChannelParty, PartyRecords, PartyRequests, PartyStart, RequestError, own_arguments,
 };
@@ -275,7 +276,7 @@ fn join_channel(process_arguments: &[OsString]) -> (SharedRecords, Option<PartyR
 }
 
 fn lock_records(records: &Mutex<Option<PartyRecords>>) -> MutexGuard<'_, Option<PartyRecords>> {
-    records.lock().unwrap_or_else(PoisonError::into_inner)
+    lock(records)
 }
 
 /// Sends `record`; a failure is said on standard error, since the command runs on whether or not
@@ -339,7 +340,7 @@ enum CommandState {
 type SharedState = Arc<Mutex<CommandState>>;
 
 fn lock_state(state: &Mutex<CommandState>) -> MutexGuard<'_, CommandState> {
-    state.lock().unwrap_or_else(PoisonError::into_inner)
+    lock(state)
 }
 
 /// Hands each stop signal the wrapper receives to its command's process group from now on: before

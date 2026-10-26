@@ -5,12 +5,13 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::keyed_lock::{KeyHold, KeyedLock};
+use crate::mutex_lock::lock;
 use crate::provider::compaction_wait::PendingCompactionRegistry;
 use crate::provider::driver::codex::app_server_protocol::ThreadUnsubscribeParams;
 use crate::provider::driver::codex::commands::CodexProviderCommandCache;
@@ -212,7 +213,7 @@ impl CodexSessionSlots {
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, SessionSlot>> {
-        self.slots.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.slots)
     }
 }
 

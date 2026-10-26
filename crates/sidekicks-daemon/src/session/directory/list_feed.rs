@@ -26,7 +26,7 @@ mod tests;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
 use sidekicks_contracts::event::envelope::DAEMON_SCOPE_SENTINEL_SESSION_ID;
@@ -46,6 +46,7 @@ use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool
 use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use crate::events::session::pending::PendingSessions;
 use crate::ipc::registry::HandlerError;
+use crate::mutex_lock::lock;
 use crate::session::directory::list_feed::rows::{
     OPENING_READ_PAGE_ROWS, SessionListRow, read_list_page, read_list_rows,
 };
@@ -276,9 +277,7 @@ impl SessionListFeed {
 
     fn lock_open_list(&self) -> MutexGuard<'_, Option<OpenList>> {
         // The slot holds no invariant a panicking holder could break.
-        self.open_list
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.open_list)
     }
 }
 
@@ -439,7 +438,7 @@ impl SharedList {
 
     fn lock(&self) -> MutexGuard<'_, ListState> {
         // The counts are kept beside the entries under one hold, so no holder leaves them apart.
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 }
 

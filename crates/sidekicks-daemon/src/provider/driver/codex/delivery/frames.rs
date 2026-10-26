@@ -13,7 +13,7 @@ mod reviews;
 pub(crate) mod turns;
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
@@ -24,6 +24,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::mutex_lock::lock;
 use crate::provider::compaction_wait::PendingCompactionRegistry;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::delivery::rows::{CodexRowDelivery, CodexRowRun};
@@ -287,9 +288,7 @@ impl CodexFrameDelivery {
     }
 
     pub(super) fn lock_diagnostics(&self) -> MutexGuard<'_, OnceReportedDiagnostics> {
-        self.diagnostics
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.diagnostics)
     }
 
     /// Hands one delivery to the run engine, reporting its failure; `None` when it failed.

@@ -9,7 +9,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::{DirEntry, Match, WalkBuilder};
@@ -19,6 +19,7 @@ use sidekicks_platforms::path_from_program_output;
 use tokio::task::JoinError;
 
 use crate::git::process::{GitCall, GitError, GitRunner};
+use crate::mutex_lock::lock;
 use crate::read_retry::{is_retryable_read_failure, read_with_one_retry};
 
 /// The listing inside a working tree: tracked entries and the untracked ones the repository does
@@ -354,12 +355,7 @@ fn walk_folder(folder: &Path) -> Result<WorkingFolderListing, ListingError> {
             },
         }
     }
-    if let Some(failure) = rules
-        .failure
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .take()
-    {
+    if let Some(failure) = lock(&rules.failure).take() {
         return Err(ListingError::Walk(failure));
     }
     Ok(WorkingFolderListing {
@@ -381,12 +377,7 @@ impl FolderRules {
     // verdict of the deepest rules file that names it. A folder left out takes everything under
     // it along, as in git.
     fn keeps(&self, entry: &DirEntry) -> bool {
-        if self
-            .failure
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .is_some()
-        {
+        if lock(&self.failure).is_some() {
             return false;
         }
         let is_entry_folder = is_folder(entry);
@@ -396,7 +387,7 @@ impl FolderRules {
         let Some(parent) = entry.path().parent() else {
             return true;
         };
-        let mut matchers = self.matchers.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut matchers = lock(&self.matchers);
         if !matchers.contains_key(parent) {
             let matcher = self.read_rules(parent);
             matchers.insert(parent.to_path_buf(), matcher);
@@ -469,10 +460,7 @@ impl FolderRules {
     // clear is kept to fail the walk, which is then tried once more.
     fn rules_unreadable(&self, error: ignore::Error) -> Gitignore {
         if error.io_error().is_some_and(is_retryable_walk_failure) {
-            self.failure
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .get_or_insert(error);
+            lock(&self.failure).get_or_insert(error);
         } else {
             tracing::warn!(
                 error = &error as &(dyn Error + 'static),

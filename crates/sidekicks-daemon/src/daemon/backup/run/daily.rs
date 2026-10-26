@@ -3,7 +3,7 @@
 //! sleep does not hold the run back; each daily run schedules the next.
 
 use std::error::Error;
-use std::sync::{Arc, PoisonError, Weak};
+use std::sync::{Arc, Weak};
 use std::time::{Duration, SystemTime};
 
 use futures::FutureExt as _;
@@ -13,6 +13,7 @@ use jiff::tz::TimeZone;
 use super::{BACKUP_BUDGET, BackupTrigger, Backups, last_finished_at};
 use crate::daemon::scheduler::budget::metered_job;
 use crate::daemon::scheduler::{JobCondition, ScheduleError, Scheduler};
+use crate::mutex_lock::lock;
 
 // How long after the last run ended the daily run goes whatever runs.
 const DAILY_LATEST_AFTER: Duration = Duration::from_hours(25);
@@ -90,10 +91,7 @@ fn schedule_daily_at(
             async move {
                 // Taken under one lock with the check, so a request joins this run from here on.
                 let is_queued = {
-                    let mut pending = backups
-                        .pending
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner);
+                    let mut pending = lock(&backups.pending);
                     let is_queued = pending.is_some();
                     if !is_queued {
                         *pending = Some(BackupTrigger::Daily);

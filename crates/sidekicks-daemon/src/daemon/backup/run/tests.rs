@@ -1,8 +1,8 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -27,6 +27,7 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
+use crate::mutex_lock::lock;
 
 /// The service's backups over the test's `database` and `log`, under the home folder
 /// `home_folder`, the mirror keeping what `read_mirror_roots` lists.
@@ -275,10 +276,7 @@ async fn a_back_up_now_that_joins_a_daily_run_makes_it_copy() {
         tokio::sync::watch::channel(0).1,
     );
     // The daily run's turn, as its job takes it: no run was queued, so requests join this one.
-    *backups
-        .pending
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner) = Some(BackupTrigger::Daily);
+    *lock(&backups.pending) = Some(BackupTrigger::Daily);
     backups
         .request(&scheduler, BackupTrigger::Now)
         .expect("the press joins the daily run");
@@ -293,11 +291,5 @@ async fn a_back_up_now_that_joins_a_daily_run_makes_it_copy() {
         .expect("the run is recorded");
 
     assert_eq!(backup_folders(&backups_folder).len(), 1);
-    assert!(
-        backups
-            .pending
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .is_none()
-    );
+    assert!(lock(&backups.pending).is_none());
 }

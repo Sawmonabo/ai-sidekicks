@@ -8,7 +8,7 @@
 //! fails later ends the subscription with the failure.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -34,6 +34,7 @@ use crate::events::session::read::session_read_bound;
 use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use crate::ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
 use crate::ipc::stream::frame_batcher::ChangeFeed;
+use crate::mutex_lock::lock;
 use crate::transcript::block_cut::{BlockParse, MARKDOWN_PARSE};
 use crate::transcript::stream_state::{
     StreamedPiece, TranscriptStreamState, load_piece_texts, read_streamed_pieces,
@@ -165,8 +166,7 @@ impl ChangeRecord for SessionEventRecord {
                             .map(|event| i64::from(event.sequence))
                             .collect();
                         // Only this stream's reads take them, one at a time.
-                        let mut left_pieces =
-                            left_pieces.lock().unwrap_or_else(PoisonError::into_inner);
+                        let mut left_pieces = lock(&left_pieces);
                         let mut stored = std::mem::take(&mut *left_pieces);
                         let unread: Vec<i64> = sequences
                             .iter()
@@ -176,9 +176,8 @@ impl ChangeRecord for SessionEventRecord {
                         stored.extend(read_streamed_pieces(connection, &session_id, &unread)?);
                         let reads = RunTurnReads::new(connection, read_damaged_from_sequence);
                         let observed_at = WireInstant::now();
-                        let mut attribution =
-                            attribution.lock().unwrap_or_else(PoisonError::into_inner);
-                        let mut rows = rows.lock().unwrap_or_else(PoisonError::into_inner);
+                        let mut attribution = lock(&attribution);
+                        let mut rows = lock(&rows);
                         // A large piece's text is loaded only where its row's cut reads it.
                         let cut_texts: Vec<i64> = page
                             .events

@@ -20,7 +20,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, Weak};
 
 use rusqlite::OptionalExtension as _;
 use serde_json::Value;
@@ -37,6 +37,7 @@ use crate::admission::memory_gate::MemoryGate;
 use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use crate::events::session::followers::CommittedEvent;
 use crate::keyed_lock::KeyHold;
+use crate::mutex_lock::lock;
 use crate::provider::driver::ports::ProcessGoneListener;
 use crate::queue::admission::QueueAdmission;
 use crate::queue::delivery::{InterruptedRunContinuation, QueueDelivery};
@@ -767,7 +768,7 @@ impl QueueRunLifecycle {
     // The lifecycle's state. No holder awaits or panics while it changes the state, so a poisoned
     // lock still guards a whole state.
     fn lock(&self) -> MutexGuard<'_, LifecycleState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 }
 

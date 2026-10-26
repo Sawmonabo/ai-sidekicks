@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::join_all;
 use sidekicks_contracts::run::id::RunId;
@@ -19,6 +19,7 @@ use crate::bounded_wait::wait_within;
 use crate::database::connection::read_pool::ReadLength;
 use crate::ipc::handlers::driver::resolution::read_run_driver;
 use crate::keyed_lock::KeyHold;
+use crate::mutex_lock::lock;
 use crate::provider::driver::run_control::{
     WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
@@ -58,7 +59,7 @@ pub(super) struct LateWithdraw {
 
 // Locks `flag`; it holds a plain boolean, which no holder leaves half-written.
 fn lock_flag(flag: &Mutex<bool>) -> MutexGuard<'_, bool> {
-    flag.lock().unwrap_or_else(PoisonError::into_inner)
+    lock(flag)
 }
 
 impl QueueDelivery {

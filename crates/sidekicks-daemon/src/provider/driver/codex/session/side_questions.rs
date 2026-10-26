@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -24,6 +24,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::app_server_protocol::{AskForApproval, ThreadForkParams};
 use crate::provider::driver::codex::attachments::compose_codex_text_input;
@@ -525,9 +526,7 @@ impl CodexSideQuestions {
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<String, CodexSideQuestion>> {
-        self.questions
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.questions)
     }
 }
 
@@ -660,7 +659,7 @@ async fn read_copy_turn(
 }
 
 fn lock_copy_stops(copy_stops: &Mutex<CodexCopyStops>) -> MutexGuard<'_, CodexCopyStops> {
-    copy_stops.lock().unwrap_or_else(PoisonError::into_inner)
+    lock(copy_stops)
 }
 
 // Takes the live copy off its session's routing, stops its turn where it started, as a throwaway

@@ -4,7 +4,7 @@
 //! while a list is being read makes one more read, never two at once.
 
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::terminal::TerminalListUpdate;
@@ -12,6 +12,7 @@ use sidekicks_contracts::terminal::TerminalListUpdate;
 use crate::ipc::stream::latest_value::{
     LatestValueOutlet, LatestValueOutletId, LatestValueOutlets,
 };
+use crate::mutex_lock::lock;
 
 /// Reads a session's whole shell list once every holder in it has settled.
 pub(crate) type ShellListRead =
@@ -120,8 +121,6 @@ impl ShellListFollowers {
     }
 
     fn lock(&self) -> MutexGuard<'_, Followers> {
-        self.followers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.followers)
     }
 }

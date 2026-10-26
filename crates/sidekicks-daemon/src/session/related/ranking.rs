@@ -11,7 +11,7 @@ use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use futures::FutureExt;
@@ -36,6 +36,7 @@ use crate::events::session::followers::{FollowerAttachment, SessionEventFollower
 use crate::events::session::pending::PendingSessions;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
+use crate::mutex_lock::lock;
 use crate::retry_waits::retry_wait;
 use crate::session::directory::lookups::session_exists;
 use crate::session::not_found::session_not_found;
@@ -403,7 +404,7 @@ impl SessionRelatedRanking {
 
     fn lock_followed(&self) -> MutexGuard<'_, HashMap<SessionId, watch::Sender<u64>>> {
         // The map holds no invariant a panicking holder could break.
-        self.followed.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.followed)
     }
 }
 

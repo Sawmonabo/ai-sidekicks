@@ -8,7 +8,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, named_params};
@@ -38,6 +38,7 @@ use crate::events::session::appender::{
 use crate::ipc::handlers::driver::resolution::{LiveRunDriverError, resolve_live_run_driver};
 use crate::ipc::registry::HandlerError;
 use crate::keyed_lock::KeyedLock;
+use crate::mutex_lock::lock;
 use crate::provider::driver::contract::{DriverError, ProviderDriver};
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::run_control::{
@@ -598,7 +599,7 @@ impl ProviderChoiceResolver {
 fn lock_held(
     held_answers: &Mutex<HashMap<RunId, HeldAnswer>>,
 ) -> MutexGuard<'_, HashMap<RunId, HeldAnswer>> {
-    held_answers.lock().unwrap_or_else(PoisonError::into_inner)
+    lock(held_answers)
 }
 
 /// The settle of one choice a run's end let go: the guard that no settlement followed its request

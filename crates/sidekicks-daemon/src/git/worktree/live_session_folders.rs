@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -37,6 +37,7 @@ use crate::git::worktree::watch::{
 };
 use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::is_gone;
+use crate::mutex_lock::lock;
 use crate::session::review_note::diff_line::NotedLineReader;
 use crate::session::review_note::store::{
     ReviewNoteFolderError, ReviewNoteFolders, WorkingFolderDetach,
@@ -160,10 +161,7 @@ impl<W: Watcher + Send + 'static> LiveSessionFolders<W> {
             }
             Ok(())
         });
-        *self
-            .attachment
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Some(attachment);
+        *lock(&self.attachment) = Some(attachment);
         let live = self
             .deps
             .reads
@@ -178,11 +176,7 @@ impl<W: Watcher + Send + 'static> LiveSessionFolders<W> {
     /// Stops following the log, waits for the syncs under way, then lets every hold go.
     pub(crate) async fn stop(&self) {
         self.stopping.cancel();
-        let attachment = self
-            .attachment
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let attachment = lock(&self.attachment).take();
         drop(attachment);
         self.syncs.close();
         self.syncs.wait().await;
@@ -282,14 +276,12 @@ impl<W: Watcher + Send + 'static> LiveSessionFolders<W> {
 
     fn lock_held(&self) -> MutexGuard<'_, HashMap<SessionId, HeldFolder>> {
         // The map holds no invariant a panicking holder could break.
-        self.held_by_session
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.held_by_session)
     }
 
     fn lock_due(&self) -> MutexGuard<'_, HashSet<SessionId>> {
         // The set holds no invariant a panicking holder could break.
-        self.due.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.due)
     }
 }
 

@@ -3,7 +3,7 @@
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::Mutex;
 use std::time::SystemTime;
 
 use ignore::WalkBuilder;
@@ -14,6 +14,7 @@ use super::ceiling::{CeilingMisses, log_watch_ceiling};
 use super::root_watchers::RootWatchers;
 use super::{FileWatchError, WalkFilter};
 use crate::missing_entry::is_missing_entry;
+use crate::mutex_lock::lock;
 
 /// How a root is watched: the whole tree where the system can, else the root folder alone.
 pub(super) const ROOT_MODE: RecursiveMode = if WATCHES_TREES {
@@ -289,10 +290,4 @@ fn arm_folder<W: Watcher>(
             false
         }
     }
-}
-
-/// The watches, locked; a watcher whose holder panicked is still whole, since each call on it
-/// stands alone.
-pub(super) fn lock<W>(watcher: &Mutex<W>) -> MutexGuard<'_, W> {
-    watcher.lock().unwrap_or_else(PoisonError::into_inner)
 }

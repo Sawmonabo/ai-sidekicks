@@ -13,7 +13,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use bytes::Bytes;
 use futures::StreamExt as _;
@@ -51,6 +51,7 @@ use crate::ipc::registry::{
     AfterReply, DispatchError, HandlerContext, Reply, Request, TransportId,
 };
 use crate::ipc::stream::subscriptions::subscription_limit_reached;
+use crate::mutex_lock::lock;
 
 /// The contract of `method` the gateway's gates read: the protocol's own subscription cancel, or
 /// the method a contract table declares.
@@ -204,7 +205,7 @@ impl ConnectionClose {
     }
 
     fn lock(&self) -> MutexGuard<'_, CloseState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 }
 
@@ -243,7 +244,7 @@ impl CancelTable {
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<JsonRpcId, Vec<(u64, CancellationToken)>>> {
-        self.calls.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.calls)
     }
 }
 

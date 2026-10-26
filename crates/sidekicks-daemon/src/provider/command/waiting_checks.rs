@@ -353,7 +353,7 @@ async fn run_checks(
 mod tests {
     use std::collections::HashMap;
     use std::io::Read as _;
-    use std::sync::{Arc, Mutex, PoisonError};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use futures::FutureExt as _;
@@ -369,6 +369,7 @@ mod tests {
     use super::{
         CheckKind, InputWaitReader, WaitingChecks, is_marked_waiting, last_line, reads_as_prompt,
     };
+    use crate::mutex_lock::lock;
 
     // Fails when the trailing line ends are kept (the `\n` row), when a carriage return is deleted
     // rather than the text before it dropped (the `50%` row), or when one family is dropped.
@@ -406,9 +407,7 @@ mod tests {
 
     impl NotingReader {
         fn full_reads_after(&self, start: Instant) -> Vec<Duration> {
-            self.reads
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
+            lock(&self.reads)
                 .iter()
                 .filter(|(_, kind)| *kind == CheckKind::Full)
                 .map(|(at, _)| at.duration_since(start))
@@ -416,10 +415,7 @@ mod tests {
         }
 
         fn note(&self, kind: CheckKind) {
-            self.reads
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .push((Instant::now(), kind));
+            lock(&self.reads).push((Instant::now(), kind));
         }
     }
 

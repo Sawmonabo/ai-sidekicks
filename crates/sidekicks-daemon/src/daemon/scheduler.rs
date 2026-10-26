@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, SystemTime};
 
 use futures::future::BoxFuture;
@@ -35,6 +35,7 @@ use tracing::Instrument as _;
 
 pub(crate) use crate::daemon::scheduler::condition::JobCondition;
 use crate::daemon::scheduler::condition::ParkedRuns;
+use crate::mutex_lock::lock;
 
 pub(crate) mod budget;
 mod condition;
@@ -289,11 +290,7 @@ impl Scheduler {
         drop(pending_by_instant);
         drop(parked);
         drop(wake_sender);
-        let task = self
-            .task
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let task = lock(&self.task).take();
         match task {
             Some(task) => task.await,
             None => Ok(()),
@@ -414,7 +411,7 @@ impl SchedulerState {
 
 impl SchedulerShared {
     fn lock_state(&self) -> MutexGuard<'_, SchedulerState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 
     // Arms the wall-clock timer for the first pending instant or parked run's latest moment,

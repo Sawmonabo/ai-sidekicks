@@ -7,7 +7,7 @@ use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -27,6 +27,7 @@ use tokio_util::task::AbortOnDropHandle;
 
 use crate::error_description::describe_error;
 use crate::git::worktree::copy::{TreeCopyPolicy, copy_tree};
+use crate::mutex_lock::lock;
 use crate::process_exit::{OutputTail, read_output_chunks};
 use crate::workspace::last_error::normalize_workspace_last_error;
 use crate::workspace::trust_envelope::{components_equal, is_contained_within};
@@ -340,10 +341,7 @@ impl RunningCommand {
         reason: &'static str,
         grace: Duration,
     ) -> Result<(), SetupCommandEndError> {
-        self.end
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get_or_insert(CommandEnd { reason, grace });
+        lock(&self.end).get_or_insert(CommandEnd { reason, grace });
         self.is_end_asked.cancel();
         let mut ended = self.ended.subscribe();
         let outcome = ended
@@ -357,7 +355,7 @@ impl RunningCommand {
     }
 
     fn asked_end(&self) -> Option<CommandEnd> {
-        *self.end.lock().unwrap_or_else(PoisonError::into_inner)
+        *lock(&self.end)
     }
 
     fn finish(&self, outcome: io::Result<()>) {
@@ -577,7 +575,7 @@ impl Default for CommandOutput {
 
 async fn read_output(reader: impl AsyncRead + Unpin, output: &Mutex<CommandOutput>) {
     read_output_chunks(reader, "a setup command's output", |chunk| {
-        let mut output = output.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut output = lock(output);
         output.tail.push(chunk);
         output.has_printed = true;
     })
@@ -586,7 +584,7 @@ async fn read_output(reader: impl AsyncRead + Unpin, output: &Mutex<CommandOutpu
 
 // The step's outcome with the output read so far, which a command ended early may add to later.
 fn take_outcome(error: Option<String>, output: &Mutex<CommandOutput>) -> StepOutcome {
-    let printed = std::mem::take(&mut *output.lock().unwrap_or_else(PoisonError::into_inner));
+    let printed = std::mem::take(&mut *lock(output));
     StepOutcome {
         error,
         output: printed.has_printed.then(|| {

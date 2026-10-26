@@ -162,7 +162,7 @@ impl<Update: Clone + Send + Sync + 'static> LatestUpdateGate<Update> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex, PoisonError};
+    use std::sync::{Arc, Mutex};
 
     use rstest::rstest;
     use sidekicks_contracts::repo::clone::ProjectCloneProgress;
@@ -171,6 +171,7 @@ mod tests {
     use tokio::time::{Duration, Instant};
 
     use super::{CLONE_UPDATE_INTERVAL, GitProgressReader, LatestUpdateGate};
+    use crate::mutex_lock::lock;
 
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn lets_at_most_four_updates_a_second_through_the_last_one_always_arriving() {
@@ -178,9 +179,7 @@ mod tests {
         let gate = {
             let sent = Arc::clone(&sent);
             LatestUpdateGate::new(move |percent| {
-                sent.lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .push((Instant::now(), percent));
+                lock(&sent).push((Instant::now(), percent));
             })
         };
         // Git's progress through a reader, a line every 5 ms for two seconds.
@@ -194,7 +193,7 @@ mod tests {
         }
         tokio::time::sleep(CLONE_UPDATE_INTERVAL).await;
 
-        let sent = sent.lock().unwrap_or_else(PoisonError::into_inner);
+        let sent = lock(&sent);
         assert_eq!(sent.first(), Some(&(burst_began, 0)));
         for pair in sent.windows(2) {
             assert!(pair[1].0 - pair[0].0 >= CLONE_UPDATE_INTERVAL);

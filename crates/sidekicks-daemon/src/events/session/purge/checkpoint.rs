@@ -5,7 +5,7 @@
 //! a request while it runs has it truncate once more after.
 
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
@@ -13,6 +13,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::database::checkpoint::CheckpointMode;
 use crate::database::writer::{DatabaseWriter, MaintenanceError};
+use crate::mutex_lock::lock;
 
 // The first wait after a busy try, doubled after each until the last.
 const FIRST_RETRY_WAIT: Duration = Duration::from_millis(50);
@@ -82,11 +83,6 @@ impl WriteAheadLogTruncation {
         self.tasks.wait().await;
         self.tasks.reopen();
     }
-}
-
-fn lock(state: &Mutex<TruncationState>) -> MutexGuard<'_, TruncationState> {
-    // Two flags no panicking holder could leave apart from the task they describe.
-    state.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 // Truncates until a try is not busy, then again while a request came meanwhile. A writer ended or

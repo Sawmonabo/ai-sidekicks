@@ -17,7 +17,7 @@ mod views;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use sidekicks_contracts::session::id::SessionId;
@@ -25,6 +25,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::daemon::service_log::service_log_folder;
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::mutex_lock::lock;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::provider::compaction_wait::PendingCompactionRegistry;
 use crate::provider::driver::SessionSpawnContextResolver;
@@ -432,11 +433,7 @@ impl CodexDriver {
         parts: &Arc<CodexDriverParts>,
         service: Arc<crate::provider::driver::codex::service::supervisor::CodexService>,
     ) {
-        let is_first = self
-            .rate_limits_read
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(service.id());
+        let is_first = lock(&self.rate_limits_read).insert(service.id());
         if !is_first {
             return;
         }

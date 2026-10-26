@@ -8,7 +8,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt::Display;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
 use serde_json::{Map, Value};
@@ -21,6 +21,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use strum::IntoStaticStr;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
@@ -307,9 +308,7 @@ impl CallbackToolHost {
     }
 
     fn lock_registries(&self) -> MutexGuard<'_, Registries> {
-        self.registries
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.registries)
     }
 
     /// Installs the registry a spawn may offer and returns its token with the admission. A

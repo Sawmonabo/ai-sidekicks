@@ -2,9 +2,11 @@
 //! inside a lock or outside any, whatever the scheduler does.
 
 use std::collections::VecDeque;
-use std::sync::{Mutex, PoisonError};
+use std::sync::Mutex;
 
 use tokio::sync::oneshot;
+
+use crate::mutex_lock::lock;
 
 /// The armed holds, in the order they were armed: each call that reaches the point takes the
 /// oldest, reports on its `reached` and waits for the `Answer` its `release` sends; a call that
@@ -34,10 +36,7 @@ impl<Answer> PausePoint<Answer> {
     pub(crate) fn arm(&self) -> ArmedPause<Answer> {
         let (reached_sender, reached) = oneshot::channel();
         let (release, released) = oneshot::channel();
-        self.armed
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push_back((reached_sender, released));
+        lock(&self.armed).push_back((reached_sender, released));
         ArmedPause { reached, release }
     }
 
@@ -60,11 +59,7 @@ impl<Answer> PausePoint<Answer> {
 
     // Takes the oldest armed hold and reports the call there; `None` when no hold was armed.
     fn reach(&self) -> Option<oneshot::Receiver<Answer>> {
-        let (reached, released) = self
-            .armed
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .pop_front()?;
+        let (reached, released) = lock(&self.armed).pop_front()?;
         reached
             .send(())
             .expect("the test waits for the call to arrive");

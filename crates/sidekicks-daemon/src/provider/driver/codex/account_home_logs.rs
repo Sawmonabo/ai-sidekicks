@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OpenFlags, params};
@@ -18,6 +18,7 @@ use rusqlite::ErrorCode;
 use sidekicks_platforms::volume_free_bytes;
 
 use crate::missing_entry::MissingEntry as _;
+use crate::mutex_lock::lock;
 
 // Codex's log database in its home.
 const LOGS_DATABASE_FILE_NAME: &str = "logs_2.sqlite";
@@ -156,7 +157,7 @@ impl AccountHomeLogExpiry {
     }
 
     fn lock_rebuilt(&self) -> MutexGuard<'_, HashMap<PathBuf, LogDatabaseStamp>> {
-        self.rebuilt.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.rebuilt)
     }
 }
 

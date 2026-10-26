@@ -7,13 +7,14 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::artifacts::ingest::limits::MAX_ACTIVE_INGEST_STREAMS;
 use crate::artifacts::refusals::{
     ArtifactError, artifact_too_large_for_volume, ingest_capacity_exhausted,
 };
 use crate::keyed_lock::{KeyHold, KeyedLock};
+use crate::mutex_lock::lock;
 #[cfg(test)]
 use crate::pause_point::PausePoint;
 
@@ -132,7 +133,7 @@ impl UploadAdmission {
 
 fn lock_open_uploads(open_uploads: &OpenUploads) -> MutexGuard<'_, Vec<Arc<AtomicU64>>> {
     // The list holds no invariant a panicking holder could break.
-    open_uploads.lock().unwrap_or_else(PoisonError::into_inner)
+    lock(open_uploads)
 }
 
 #[cfg(test)]

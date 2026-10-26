@@ -19,7 +19,7 @@ use std::error::Error;
 use std::fs::{self, File, TryLockError};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use futures::FutureExt as _;
@@ -67,6 +67,7 @@ use crate::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelo
 use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::file::atomic_write::{AtomicWriteError, write_and_flush};
+use crate::mutex_lock::lock;
 use crate::recovery::database_file::check::SOUND_ROW;
 use crate::recovery::database_file::newest_backup::{BackupManifestError, read_backup_manifest};
 use crate::text_cut::cut_to_code_points;
@@ -275,7 +276,7 @@ impl JoinedRequests<'_> {
         trigger: BackupTrigger,
         is_skipped: impl FnOnce(BackupTrigger) -> bool,
     ) -> bool {
-        let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut pending = lock(self.pending);
         let strongest = pending.map_or(trigger, |joined| joined.max(trigger));
         let is_run_skipped = is_skipped(strongest);
         if is_run_skipped {
@@ -288,7 +289,7 @@ impl JoinedRequests<'_> {
     // Lets the requests go, so the next one queues a run of its own.
     fn release(&mut self) {
         if !self.is_released {
-            *self.pending.lock().unwrap_or_else(PoisonError::into_inner) = None;
+            *lock(self.pending) = None;
             self.is_released = true;
         }
     }
@@ -340,7 +341,7 @@ impl Backups {
         trigger: BackupTrigger,
     ) -> Result<(), ScheduleError> {
         {
-            let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut pending = lock(&self.pending);
             if let Some(queued) = pending.as_mut() {
                 *queued = (*queued).max(trigger);
                 return Ok(());
@@ -363,7 +364,7 @@ impl Backups {
         );
         let scheduled = scheduler.schedule("backup", condition, Duration::ZERO, job);
         if scheduled.is_err() {
-            *self.pending.lock().unwrap_or_else(PoisonError::into_inner) = None;
+            *lock(&self.pending) = None;
         }
         scheduled.map(drop)
     }
@@ -395,11 +396,7 @@ impl Backups {
                 return true;
             }
             let is_unchanged = trigger == BackupTrigger::Daily
-                && *self
-                    .committed_at_last_copy
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    == Some(*commits.borrow());
+                && *lock(&self.committed_at_last_copy) == Some(*commits.borrow());
             if is_unchanged {
                 tracing::info!("the daily backup was skipped: nothing was written since the last");
             }
@@ -448,10 +445,7 @@ impl Backups {
         } else {
             copied_through
         };
-        *self
-            .committed_at_last_copy
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Some(holds);
+        *lock(&self.committed_at_last_copy) = Some(holds);
         Ok(Some(JobWorkload::of(WorkUnit::StoreBytes, total_bytes)))
     }
 

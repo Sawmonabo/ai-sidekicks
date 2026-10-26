@@ -10,7 +10,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::string::FromUtf8Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use bytes::Bytes;
 use futures::SinkExt;
@@ -35,6 +35,7 @@ use super::connection::ConnectionClose;
 use crate::ipc::registry::EncodedValue;
 use crate::ipc::stream::feed::{SendGate, SubscriptionClosed};
 use crate::ipc::stream::subscriptions::{Subscription, SubscriptionFrame};
+use crate::mutex_lock::lock;
 
 /// The bytes of each piece while more than one lane waits, so a lane waits behind at most one
 /// piece of each busy lane.
@@ -615,7 +616,7 @@ impl Outbox {
     }
 
     fn lock(&self) -> MutexGuard<'_, OutboxState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 
     /// What the outbox holds now, for the tests' bounds.

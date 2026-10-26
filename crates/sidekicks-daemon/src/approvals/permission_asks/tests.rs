@@ -2,7 +2,7 @@
 //! every answer it is handed and fails its first hand where a test says.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use serde_json::json;
@@ -19,6 +19,7 @@ use crate::approvals::service::ApprovalServiceError;
 use crate::approvals::service::tests::{SETTLE_WAIT, from_json};
 use crate::approvals::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::mutex_lock::lock;
 use crate::policy::permission_check::tests::{CheckFixture, LINE_LIMIT};
 use crate::provider::driver::contract::{DriverError, MockProviderDriver, ProviderRequestAnswer};
 use crate::provider::driver::test_registry::{
@@ -63,10 +64,7 @@ impl AsksFixture {
                 Some(failure) if is_first => Err(failure()),
                 Some(_) | None => {
                     if let ProviderRequestAnswer::Permission(answer) = params.response {
-                        recorded
-                            .lock()
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .push(answer);
+                        lock(&recorded).push(answer);
                     }
                     Ok(())
                 }
@@ -127,10 +125,7 @@ impl AsksFixture {
     }
 
     fn handed(&self) -> Vec<ProviderPermissionAnswer> {
-        self.handed
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        lock(&self.handed).clone()
     }
 }
 

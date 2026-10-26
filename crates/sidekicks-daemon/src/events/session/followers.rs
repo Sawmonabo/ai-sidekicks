@@ -10,13 +10,14 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::watch;
 
 use crate::events::session::appender::UnsequencedEventEnvelope;
+use crate::mutex_lock::lock;
 
 /// A committed event as its followers hear it: the envelope its row was written from, shared
 /// with that row, and the sequence its write committed it at.
@@ -117,16 +118,12 @@ impl SessionEventFollowers {
 
     fn lock_followers(&self) -> MutexGuard<'_, AttachedFollowers> {
         // The map holds no invariant a panicking holder could break.
-        self.followers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.followers)
     }
 
     fn lock_change_counts(&self) -> MutexGuard<'_, HashMap<SessionId, watch::Sender<u64>>> {
         // The map holds no invariant a panicking holder could break.
-        self.change_counts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.change_counts)
     }
 }
 

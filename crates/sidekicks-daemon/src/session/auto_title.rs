@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use serde_json::Value;
@@ -30,6 +30,7 @@ use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool
 use crate::database::stored_column::text_column;
 use crate::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
+use crate::mutex_lock::lock;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::session_control::{NAME_SESSION_REPLY_MAX_BYTES, NameSessionParams};
 use crate::session::changes::SessionChanges;
@@ -435,7 +436,7 @@ impl SessionAutoTitle {
 
     fn lock_pending(&self) -> MutexGuard<'_, PendingPasses> {
         // The map holds no invariant a panicking holder could break.
-        self.pending.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.pending)
     }
 }
 

@@ -18,7 +18,7 @@ mod skill_picks;
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -45,6 +45,7 @@ use crate::events::session::read::DamagedFromSequenceReader;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::handlers::driver::resolution::read_session_driver;
 use crate::keyed_lock::KeyHold;
+use crate::mutex_lock::lock;
 use crate::provider::driver::contract::{ProviderDriver, bound_failure_detail};
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::queue::delivery::{ProviderProcessIds, QueueDelivery};
@@ -713,7 +714,7 @@ impl QueueAdmission {
     // The admission's state. No holder awaits or panics while it changes the state, so a poisoned
     // lock still guards a whole state.
     fn lock(&self) -> MutexGuard<'_, AdmissionState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 }
 

@@ -9,12 +9,13 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use sidekicks_platforms::ProcessRecord;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::service::process::{
     LastingCodexService, codex_lasting_service_environment_entry,
 };
@@ -92,9 +93,7 @@ impl LastingServiceDrains {
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<LastingServiceRecordFile, LastingServiceDrainWatch>> {
-        self.under_way
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.under_way)
     }
 }
 
@@ -181,10 +180,7 @@ async fn wait_for_drained_end(
             report_stop_failed(error);
         }
     }
-    under_way
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .remove(&record_file);
+    lock(&under_way).remove(&record_file);
 }
 
 // Ends what the drained service `ended` left running, then removes its record from `record_file`

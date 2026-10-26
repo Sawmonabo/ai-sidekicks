@@ -8,7 +8,7 @@
 
 use std::collections::hash_map::Entry as MapEntry;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
 use serde_json::json;
@@ -28,6 +28,7 @@ use crate::ipc::registry::{
     TransportId,
 };
 use crate::ipc::stream::feed::SendGate;
+use crate::mutex_lock::lock;
 use crate::recovery::database_file::damage::DatabaseDamageWatch;
 
 /// The daemon's open subscriptions, by id and by connection, shared by the cancel call, the
@@ -210,7 +211,7 @@ impl Subscriptions {
     }
 
     fn lock(&self) -> MutexGuard<'_, SubscriptionTable> {
-        self.table.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.table)
     }
 }
 

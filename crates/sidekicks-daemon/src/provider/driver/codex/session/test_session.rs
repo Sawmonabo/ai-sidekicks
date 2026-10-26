@@ -4,7 +4,7 @@
 
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -26,6 +26,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, insert_lead};
+use crate::mutex_lock::lock;
 use crate::policy::execution_posture_service::{
     ExecutionPostureService, compose_execution_posture,
 };
@@ -324,9 +325,7 @@ impl TestCodexSession {
     /// Opens the epoch cursor of `binding_id` on `run_id` at the run's start, as the binding's
     /// spawn does, so the run's rows are attributed.
     pub(crate) fn open_epoch(&self, binding_id: RuntimeBindingId, run_id: RunId) {
-        self.epochs
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.epochs)
             .open_binding(
                 EpochBinding {
                     id: binding_id,
@@ -685,9 +684,7 @@ impl TestDaemonTurnBindings {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<RuntimeBindingId>> {
-        self.binding_id
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.binding_id)
     }
 }
 

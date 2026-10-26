@@ -13,7 +13,7 @@ pub(crate) mod rows;
 pub(crate) mod tests;
 
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use sidekicks_contracts::event::declared_variants::{AgentOutputPayload, RunAgentOutputPayload};
 use sidekicks_contracts::event::session::SessionEvent;
@@ -35,6 +35,7 @@ use crate::events::session::appender::{
     SessionEventLinkage,
 };
 use crate::events::session::version::SESSION_EVENT_VERSION;
+use crate::mutex_lock::lock;
 use crate::provider::port::run_state_publisher::RunStatePublisher;
 use crate::session::run::engine::turns::{ProviderTurnEnd, run_live_or_turn_open_statement};
 use crate::session::run::engine::{RunEngine, RunEngineError, RunMarker};
@@ -748,7 +749,7 @@ impl RunInboundDispatch {
     }
 
     fn lock_epochs(&self) -> MutexGuard<'_, ExecutionEpochs> {
-        self.epochs.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.epochs)
     }
 }
 

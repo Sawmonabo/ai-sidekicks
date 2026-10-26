@@ -13,7 +13,7 @@ pub(crate) mod record;
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
@@ -24,6 +24,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use crate::keyed_lock::{KeyHold, KeyedLock};
+use crate::mutex_lock::lock;
 use crate::provider::driver::attachments::AttachmentResolver;
 use crate::provider::driver::codex::attachments::resolve_codex_turn_message;
 use crate::provider::driver::codex::input_limit::message_too_large_refusal;
@@ -342,9 +343,7 @@ impl CodexRunStart {
     }
 
     fn lock_withdrawals(&self) -> MutexGuard<'_, HashMap<RunId, Arc<AtomicBool>>> {
-        self.withdrawals_by_run
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.withdrawals_by_run)
     }
 
     /// Records the speed a run settled at; a failed write is reported.

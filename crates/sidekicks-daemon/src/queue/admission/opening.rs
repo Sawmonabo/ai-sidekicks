@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -14,6 +14,7 @@ use sidekicks_contracts::session::id::SessionId;
 
 use super::QueueAdmission;
 use crate::database::connection::read_pool::ReadLength;
+use crate::mutex_lock::lock;
 use crate::provider::driver::contract::{ProviderDriver, RunOpening, StartRunParams};
 use crate::provider::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, InterruptRunRequest,
@@ -51,7 +52,7 @@ impl RunOpenings {
     // The table. No holder awaits or panics while it changes, so a poisoned lock still guards a
     // whole table.
     fn lock(&self) -> MutexGuard<'_, HashMap<RunId, QueueItemRecord>> {
-        self.by_run.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.by_run)
     }
 }
 
