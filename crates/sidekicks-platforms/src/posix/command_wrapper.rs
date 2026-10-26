@@ -317,10 +317,10 @@ impl TerminalOutputWatch {
         })
     }
 
-    /// Waits until the master holds unread output, answering true, or until `timeout` passes where
-    /// one is given or [`TerminalOutputWatch::wake`] is called, answering false. A terminal whose
-    /// program side all closed reads as holding some, since a read of it then answers at once.
-    /// Fails with the system's error.
+    /// Waits until the master holds unread output, answering true, or else, answering false, with
+    /// no timeout until [`TerminalOutputWatch::wake`] is called and with one until it passes. A
+    /// terminal whose program side all closed reads as holding some, since a read of it then
+    /// answers at once. Fails with the system's error.
     pub fn wait(&self, timeout: Option<Duration>) -> io::Result<bool> {
         let give_up_at = timeout.map(|timeout| Instant::now() + timeout);
         let mut events = Events::with_capacity(NonZeroUsize::MIN);
@@ -332,7 +332,8 @@ impl TerminalOutputWatch {
             if events.iter().any(|event| event.key == MASTER_KEY) {
                 return Ok(true);
             }
-            // With no bound only a wake returns here; with one, an early return waits on.
+            // With no bound a wake or a spurious return comes here; with one, an early return waits
+            // on.
             if give_up_at.is_none_or(|give_up_at| Instant::now() >= give_up_at) {
                 return Ok(false);
             }

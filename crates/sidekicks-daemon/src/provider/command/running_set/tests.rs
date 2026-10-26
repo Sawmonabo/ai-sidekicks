@@ -208,11 +208,12 @@ fn row<'a>(set: &'a [RunningCommand], id: &str) -> &'a RunningCommand {
 // not ending a command by the person, a summary kept on a finished ending or dropped from a failed
 // one, a reseed that keeps an unlisted background row or ends a foreground one outside its scope,
 // a move refused or allowed in the wrong state, a write taken by a command that takes no input,
-// a refused stop that leaves the row stopping, a second stop answered before the first, a provider's
-// own stop read by its exit code, a waiting reading dropped, a wrapper that starts before its row
-// left unpaired, or a provider exit that drops the wrapper's code. Mutations: `facts.waiting =
-// Some(state)` dropped; `unpaired.paired.send_replace(true)` dropped; `end.is_stopped_by_provider`
-// read as false; the `Stopping` arm of `stop` answering `Ok(())` at once.
+// a refused stop that leaves the row stopping, a second stop answered before the first, a
+// provider's own stop read by its exit code, a waiting reading dropped, a wrapper that starts
+// before its row left unpaired, or a provider exit that drops the wrapper's code. Mutations:
+// `facts.waiting = Some(state)` dropped; `unpaired.paired.send_replace(true)` dropped;
+// `end.is_stopped_by_provider` read as false; the `Stopping` arm of `stop` answering `Ok(())` at
+// once.
 #[tokio::test]
 async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     let mut fixture = fixture();

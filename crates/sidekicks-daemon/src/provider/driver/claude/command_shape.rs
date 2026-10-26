@@ -20,9 +20,10 @@ const LINE_SHELL_VARIABLE: &str = "SHELL";
 /// `pwd -P >| <file>`. The first `eval` at a part's start is the command's: a quoted command holds
 /// no bare quote, so no later one can close its quotes.
 static BASH_COMMAND_LINE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r#"(?:^| && )eval (?:'((?:[^']|'"'"')*)'|([A-Za-z0-9_./:=@+,-]+))(?: < /dev/null)? && pwd -P >\| [^\n]+$"#,
-    )
+    Regex::new(concat!(
+        r#"(?:^| && )eval (?:'((?:[^']|'"'"')*)'|([A-Za-z0-9_./:=@+,-]+))"#,
+        r#"(?: < /dev/null)? && pwd -P >\| [^\n]+$"#,
+    ))
     .expect("the pattern is valid")
 });
 

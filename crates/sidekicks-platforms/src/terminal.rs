@@ -83,8 +83,6 @@ pub struct ConsoleReading {
     pub process_ids: Vec<u32>,
     /// Whether the console echoes what is typed (`ENABLE_ECHO_INPUT`); off at a password prompt.
     pub is_echo_input: bool,
-    /// Whether the console hands input over a line at a time (`ENABLE_LINE_INPUT`).
-    pub is_line_input: bool,
 }
 
 /// What a terminal's master shows of the terminal, read by whoever holds the master: its session

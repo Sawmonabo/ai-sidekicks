@@ -19,8 +19,8 @@ const PROMPT: &str = "Password for 'https://ana@example.com': ";
 #[ignore = "run only as the askpass process another test starts"]
 #[expect(
     clippy::exit,
-    reason = "the askpass's own exit status is what git reads, where the harness would exit with its \
-              own"
+    reason = "the askpass's own exit status is what git reads, where the harness would exit with \
+              its own"
 )]
 fn an_askpass_process_asks_its_prompt() {
     std::process::exit(i32::from(run_command_askpass() != ExitCode::SUCCESS));

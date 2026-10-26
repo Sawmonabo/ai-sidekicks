@@ -1,6 +1,6 @@
 //! The channel as a party holds it, the command wrapper or the askpass: joined once by a restart
-//! that hands the party its own key pair, its records sealed to the daemon and the daemon's requests
-//! read back, each from a thread of its own with no runtime.
+//! that hands the party its own key pair, its records sealed to the daemon and the daemon's
+//! requests read back, each from a thread of its own with no runtime.
 
 use std::collections::VecDeque;
 use std::ffi::OsString;

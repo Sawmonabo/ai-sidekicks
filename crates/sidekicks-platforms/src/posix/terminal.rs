@@ -815,7 +815,8 @@ mod tests {
 
     // Fails when a program stopped as its terminal is released reads as exited, so it is never
     // killed and the PTY's drop waits on it for good. It ignores the hangup, which macOS otherwise
-    // lets end a stopped session leader. Mutation: `is_exit` answering true for any code but 0.
+    // lets end a stopped session leader. Mutation: `is_exit` answering true for any code but 0; or
+    // `release_terminal`'s kill after the grace deleted.
     #[test]
     fn a_stopped_program_is_killed_within_the_release_s_grace() {
         let options = terminal_options(

@@ -194,8 +194,8 @@ fn named_shell(variable: &str) -> PathBuf {
             let named =
                 named.map_or_else(|| "nothing".to_owned(), |named| named.display().to_string());
             write_error_line(&format!(
-                "sidekicks-command-wrapper runs the command with {FALLBACK_SHELL}, since {variable} \
-                 names {named}, no shell's absolute path"
+                "sidekicks-command-wrapper runs the command with {FALLBACK_SHELL}, \
+                 since {variable} names {named}, no shell's absolute path"
             ));
             PathBuf::from(FALLBACK_SHELL)
         }
