@@ -287,10 +287,6 @@ pub(crate) enum DatabaseFileCloseFailure {
 }
 
 /// The open database file and everything that reads or writes it.
-#[expect(
-    dead_code,
-    reason = "the daemon's start, which hands each part to the services that read or write the file"
-)]
 pub(crate) struct DatabaseFile {
     /// The database file.
     pub(crate) database_path: PathBuf,

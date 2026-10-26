@@ -369,7 +369,6 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
 
     /// Stops every folder's watches and drops every subscription, then waits for the folders'
     /// tasks to end; a later hold or subscription fails with [`WorkingFolderError::Stopped`].
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's stop"))]
     pub(crate) async fn stop(&self) {
         let (folders, subscriptions) = {
             let mut state = self.shared.lock_state();
