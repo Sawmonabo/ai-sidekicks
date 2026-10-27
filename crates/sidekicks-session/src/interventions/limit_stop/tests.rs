@@ -30,6 +30,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+use sidekicks_provider::driver::error_causes::unanswered;
 use sidekicks_provider::driver::message_handing::MessageHanding;
 use sidekicks_provider::driver::run_control::{AnswerProviderChoiceResult, WaitingMessage};
 use sidekicks_provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
@@ -47,7 +48,6 @@ use crate::interventions::service::InterventionTarget;
 use crate::interventions::service::tests::{Harness, applied, harness};
 use crate::run::engine::test_fixture::{SETTLE_WAIT, held_cut_limit, hold_cut, stored_run_state};
 use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
-use crate::run::pause::test_answers::unanswered;
 use crate::run::pause::{RunPauseControl, RunPauseError};
 use crate::run::provider_choice::{
     PROVIDER_CHOICE_STATEMENT_CAPACITY, ProviderChoiceAnswerOrigin, ProviderChoiceResolver,

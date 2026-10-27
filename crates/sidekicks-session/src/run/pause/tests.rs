@@ -19,6 +19,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+use sidekicks_provider::driver::error_causes::unanswered;
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::run_control::{TakenMessages, WaitingMessage};
 use sidekicks_provider::driver::test_registry::{
@@ -33,7 +34,6 @@ use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 use tempfile::TempDir;
 use tokio::sync::oneshot;
 
-use super::test_answers::unanswered;
 use super::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl, RunPauseError};
 use crate::driver_resolution::LiveRunDriverError;
 use crate::questions::schema::schema_parts;

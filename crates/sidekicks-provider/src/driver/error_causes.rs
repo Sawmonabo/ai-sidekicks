@@ -174,6 +174,14 @@ pub struct RequestUnanswered {
     pub refusal: DomainError,
 }
 
+/// The driver's answer when the request went out and no answer came, as tests hand it back.
+#[cfg(any(test, feature = "test-support"))]
+pub fn unanswered() -> crate::driver::contract::DriverError {
+    crate::driver::contract::DriverError::Unanswered(RequestUnanswered {
+        refusal: DomainError::new("the provider did not answer", RefusalCode::ProviderTimeout),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};

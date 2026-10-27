@@ -23,6 +23,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+use sidekicks_provider::driver::error_causes::unanswered;
 use sidekicks_provider::driver::run_control::AnswerProviderChoiceResult;
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
@@ -45,7 +46,6 @@ use crate::driver_resolution::LiveRunDriverError;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
 use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
-use crate::run::pause::test_answers::unanswered;
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::RunStateChange;
 

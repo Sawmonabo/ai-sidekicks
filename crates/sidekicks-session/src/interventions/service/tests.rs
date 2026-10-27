@@ -29,6 +29,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+use sidekicks_provider::driver::error_causes::unanswered;
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::run_control::{
     ApplyInterventionResponse, FasterModelRetryOutcome, InterruptPendingChoice,
@@ -57,7 +58,6 @@ use crate::queue_store::send_now::{SentNow, mark_sent_now_statement, record_sent
 use crate::queue_store::{NewQueueItem, QueueItemBody, insert_queue_item_statement};
 use crate::run::engine::RunEngine;
 use crate::run::engine::test_fixture::{insert_running_run, stored_run_state, test_engine};
-use crate::run::pause::test_answers::unanswered;
 use crate::run::state_change::RunStateChange;
 
 /// A run queue that holds nothing but counts each hold it takes, records each release's choice,

@@ -26,11 +26,11 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+use sidekicks_provider::driver::error_causes::unanswered;
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_providers,
 };
 use sidekicks_provider::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
-use sidekicks_session::run::pause::test_answers::unanswered;
 use sidekicks_session::run::projection::insert_queued_run_statement;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;

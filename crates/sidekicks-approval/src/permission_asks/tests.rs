@@ -16,6 +16,7 @@ use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_provider::driver::contract::{
     DriverError, MockProviderDriver, ProviderRequestAnswer,
 };
+use sidekicks_provider::driver::error_causes::unanswered;
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_providers,
 };
@@ -23,7 +24,6 @@ use sidekicks_provider::port::permission_ask::{
     ProviderAnswerRule, ProviderAskAction, ProviderPermissionAnswer, ProviderPermissionAsk,
     ProviderPermissionAskWithdrawal,
 };
-use sidekicks_session::run::pause::test_answers::unanswered;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 

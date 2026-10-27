@@ -10,6 +10,7 @@ use rstest::rstest;
 use sidekicks_contracts::run::control::AgentRunResumeRequest;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_provider::driver::error_causes::unanswered;
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::run_control::TakenMessages;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
@@ -17,7 +18,6 @@ use sidekicks_provider::port::run_pause::ContinuedMessages;
 use sidekicks_provider::process_identity::{ProviderProcessIdentity, TEST_PROVIDER_PROCESS};
 use sidekicks_session::queue_store::RecordedQueueItemState;
 use sidekicks_session::run::engine::test_fixture::test_engine;
-use sidekicks_session::run::pause::test_answers::unanswered;
 use sidekicks_session::run::pause::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
