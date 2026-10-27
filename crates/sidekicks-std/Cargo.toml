@@ -3,7 +3,7 @@ name = "sidekicks-std"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Primitives that name no daemon, session, run or provider concept and could have lived in std; the CLI and the client may link them."
+description = "Primitives that name no daemon, session, run or provider concept and could have lived in std."
 license.workspace = true
 publish.workspace = true
 

@@ -18,7 +18,7 @@ use crate::mutex_lock::lock;
 static DEADLINES: Mutex<Deadlines> = Mutex::new(Deadlines {
     due: BinaryHeap::new(),
     next_id: 0,
-    is_keeper_started: false,
+    is_thread_started: false,
 });
 
 // Woken when a deadline is set, so the thread waits for the earliest one again.
@@ -28,7 +28,7 @@ static DEADLINE_SET: Condvar = Condvar::new();
 struct Deadlines {
     due: BinaryHeap<Reverse<DueDeadline>>,
     next_id: u64,
-    is_keeper_started: bool,
+    is_thread_started: bool,
 }
 
 // One deadline: when it passes, its id, and where its passing is answered. Ordered by the instant,
@@ -79,11 +79,11 @@ pub(crate) fn deadline_after(wait: Duration) -> io::Result<(Deadline, oneshot::R
     let (passed, passed_received) = oneshot::channel();
     let at = Instant::now() + wait;
     let mut deadlines = lock(&DEADLINES);
-    if !deadlines.is_keeper_started {
+    if !deadlines.is_thread_started {
         std::thread::Builder::new()
             .name("wall-clock deadlines".to_owned())
             .spawn(keep_deadlines)?;
-        deadlines.is_keeper_started = true;
+        deadlines.is_thread_started = true;
     }
     let id = deadlines.next_id;
     deadlines.next_id += 1;
@@ -118,5 +118,49 @@ fn keep_deadlines() {
                 .wait(deadlines)
                 .unwrap_or_else(PoisonError::into_inner),
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use tokio::sync::oneshot::error::TryRecvError;
+
+    use super::{DEADLINES, deadline_after};
+    use crate::mutex_lock::lock;
+
+    // How many deadlines are set and neither passed nor dropped.
+    fn pending_count() -> usize {
+        lock(&DEADLINES).due.len()
+    }
+
+    // The earliest deadline is answered first whatever order they were set in, one dropped
+    // leaves and only it, and the later one stays set. Killed by the heap ordered latest first,
+    // by a drop that removes the wrong entries, and by the drop deleted.
+    #[tokio::test]
+    async fn the_earliest_deadline_answers_first_and_a_dropped_one_leaves() {
+        let (long, mut long_passed) =
+            deadline_after(Duration::from_secs(10)).expect("the deadline is set");
+        let (dropped, _dropped_passed) =
+            deadline_after(Duration::from_secs(10)).expect("the deadline is set");
+        let (_short, short_passed) =
+            deadline_after(Duration::from_millis(50)).expect("the deadline is set");
+        let before_drop = pending_count();
+        drop(dropped);
+        let after_drop = pending_count();
+        let started = Instant::now();
+
+        short_passed.await.expect("the short deadline passes");
+
+        let waited = started.elapsed();
+        assert!(waited < Duration::from_secs(5), "{waited:?}");
+        assert_eq!(long_passed.try_recv(), Err(TryRecvError::Empty));
+        assert_eq!(
+            (after_drop, pending_count()),
+            (before_drop - 1, before_drop - 2)
+        );
+        drop(long);
+        assert_eq!(pending_count(), before_drop - 3);
     }
 }

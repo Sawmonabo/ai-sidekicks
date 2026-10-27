@@ -84,10 +84,12 @@ pub async fn read_within_ceiling<Output: Send + 'static>(
     }
     // Held to the end, so the deadline stays set while either wait below runs.
     let (_deadline, mut deadline_passed) = deadline_after(read_ceiling(path))?;
-    // A read still waiting for room never started, so no thread holds its path.
+    // A read still waiting for room never started, so no thread holds its path; a deadline past
+    // when room comes wins, so no thread starts for a read already answered.
     let room = tokio::select! {
-        room = READS_IN_FLIGHT.acquire() => room.expect("the read cap is never closed"),
+        biased;
         _ = &mut deadline_passed => return Err(timed_out()),
+        room = READS_IN_FLIGHT.acquire() => room.expect("the read cap is never closed"),
     };
     let fate = Arc::new(ReadFate::default());
     let (answer, answer_received) = oneshot::channel();
