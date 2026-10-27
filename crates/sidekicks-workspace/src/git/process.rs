@@ -299,7 +299,7 @@ pub struct GitLimits {
 }
 
 impl GitLimits {
-    /// The daemon's bounds: [`GIT_COMMAND_TIMEOUT`] and [`GIT_OUTPUT_MAX_BYTES`].
+    /// The daemon's bounds: `GIT_COMMAND_TIMEOUT` and [`GIT_OUTPUT_MAX_BYTES`].
     pub const DAEMON: Self = Self {
         timeout: GIT_COMMAND_TIMEOUT,
         output_bytes: GIT_OUTPUT_MAX_BYTES,
