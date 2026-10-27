@@ -163,6 +163,7 @@ sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
 sidekicks-platforms.workspace = true
 sidekicks-policy.workspace = true
+sidekicks-provider.workspace = true
 sidekicks-search = { workspace = true, features = ["index"] }
 sidekicks-std.workspace = true
 sidekicks-store.workspace = true
@@ -224,12 +225,7 @@ x-wing.workspace = true
 [build-dependencies]
 # The SQLite shell, compiled from its vendored source after its hash is checked.
 cc.workspace = true
-# Codex's app-server protocol types, generated from the release's schema bundle after its hash is
-# checked.
-serde_json.workspace = true
 sha3.workspace = true
-typify.workspace = true
-zstd.workspace = true
 
 [features]
 # Helpers the integration tests use: a database file with the daemon's schema and the session

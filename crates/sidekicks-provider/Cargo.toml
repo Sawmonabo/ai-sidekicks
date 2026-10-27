@@ -1,0 +1,82 @@
+[package]
+name = "sidekicks-provider"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The driver interface, the run ports, shared provider code and every provider's driver."
+license.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+alacritty_terminal.workspace = true
+anyhow.workspace = true
+base16ct.workspace = true
+base64.workspace = true
+blake3.workspace = true
+bytes.workspace = true
+console.workspace = true
+diffy.workspace = true
+futures.workspace = true
+getrandom.workspace = true
+hpke.workspace = true
+jiff.workspace = true
+jsonc-parser.workspace = true
+lru.workspace = true
+memchr.workspace = true
+notify.workspace = true
+process-wrap.workspace = true
+regex.workspace = true
+rusqlite.workspace = true
+semver.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_with.workspace = true
+sha2.workspace = true
+shlex.workspace = true
+sidekicks-contracts.workspace = true
+sidekicks-ipc.workspace = true
+sidekicks-platforms.workspace = true
+sidekicks-policy.workspace = true
+sidekicks-std.workspace = true
+sidekicks-store.workspace = true
+sidekicks-workspace.workspace = true
+starlark.workspace = true
+strum.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+tokio-util.workspace = true
+toml.workspace = true
+tracing.workspace = true
+url.workspace = true
+zeroize.workspace = true
+zstd.workspace = true
+
+[dev-dependencies]
+interprocess.workspace = true
+mockall.workspace = true
+proptest.workspace = true
+rstest.workspace = true
+tempfile.workspace = true
+# The paused clock the drivers' and the command channel's tests drive.
+tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber.workspace = true
+
+[build-dependencies]
+# Codex's app-server protocol types, generated from the release's schema bundle after its hash is
+# checked.
+serde_json.workspace = true
+sha3.workspace = true
+typify.workspace = true
+zstd.workspace = true
+
+[features]
+# Helpers other crates' tests use: the drivers' test registry and provider, the runtime binding's
+# test store and the question port's test card.
+test-support = []
+
+[lints]
+workspace = true

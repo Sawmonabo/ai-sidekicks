@@ -5,7 +5,7 @@ use serde_json::Value;
 
 /// The vendored release bundle, compressed, embedded so the test binary carries no checkout path.
 const BUNDLE: &[u8] = include_bytes!(
-    "../../../../vendor/codex-app-server-protocol/app-server-exports-experimental.json.zst"
+    "../../vendor/codex-app-server-protocol/app-server-exports-experimental.json.zst"
 );
 
 /// The schema file `name` of the vendored bundle, parsed; the bundle carries each file as text.

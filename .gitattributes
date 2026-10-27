@@ -1,2 +1,3 @@
 # SQLite's shell, kept byte for byte from its release; `build.rs` checks its hash on every checkout.
 crates/sidekicks-daemon/vendor/** -text linguist-vendored
+crates/sidekicks-provider/vendor/** -text linguist-vendored

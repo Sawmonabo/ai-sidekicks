@@ -1,6 +1,6 @@
 //! The driver every provider implements, the table of providers, their registry and the shared turn
-//! machinery. A provider's code stays in its own folder below; this file is the one other place
-//! that names one, in its table entry.
+//! machinery. A provider's code stays in its own folder at the crate root; this file is the one
+//! other place that names one, in its table entry.
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -38,8 +38,6 @@ use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 pub(crate) mod attachments;
 pub(crate) mod callback_tool;
 pub(crate) mod capabilities;
-mod claude;
-mod codex;
 pub(crate) mod contract;
 pub(crate) mod daemon_stop;
 pub(crate) mod delivery_dispatch;
@@ -54,6 +52,7 @@ pub(crate) mod registry;
 pub(crate) mod reorder_buffer;
 pub(crate) mod rewind;
 pub(crate) mod run_control;
+pub(crate) mod schema;
 pub(crate) mod session_control;
 pub(crate) mod streamed_text;
 #[cfg(test)]
@@ -62,7 +61,7 @@ pub(crate) mod unified_diff;
 
 // The shared session tests compose addresses with the one real addresser.
 #[cfg(test)]
-pub(crate) use claude::inbox_address::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
+pub(crate) use crate::claude::inbox_address::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
 
 /// The fixed facts a provider's driver declares about itself, the same for every installed build,
 /// account, model and session; what depends on those comes from the driver's methods.
@@ -408,12 +407,12 @@ impl ReportedVersionReading {
 /// and their drivers registered, which the daemon's start builds the registry from once.
 pub(crate) const PROVIDER_REGISTRATIONS: &[ProviderRegistration] = &[
     ProviderRegistration {
-        descriptor: &claude::DESCRIPTOR,
-        build: claude::build,
+        descriptor: &crate::claude::DESCRIPTOR,
+        build: crate::claude::build,
     },
     ProviderRegistration {
-        descriptor: &codex::DESCRIPTOR,
-        build: codex::build,
+        descriptor: &crate::codex::DESCRIPTOR,
+        build: crate::codex::build,
     },
 ];
 
