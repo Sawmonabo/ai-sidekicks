@@ -20,7 +20,7 @@ enum ModeEnd<Failure> {
 /// Runs `work` on a thread of its own until it answers or standard input ends, whichever comes
 /// first. Exits 0 once the work succeeds, 1 with why on standard error when it fails, and 1 as
 /// soon as standard input ends, the work's thread ending with the process.
-pub(crate) fn run_until_input_ends<Failure>(
+pub fn run_until_input_ends<Failure>(
     work: impl FnOnce() -> Result<(), Failure> + Send + 'static,
 ) -> ExitCode
 where

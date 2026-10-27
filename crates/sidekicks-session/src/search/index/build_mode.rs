@@ -20,7 +20,7 @@ use sidekicks_std::helper_mode::input_watch::run_until_input_ends;
 use sidekicks_store::database::connection::setup::open_database_reader;
 
 /// The argument the daemon's own program is started with to run the search index's build.
-pub(crate) const SEARCH_INDEX_BUILD_MODE: &str = "index";
+pub const SEARCH_INDEX_BUILD_MODE: &str = "index";
 
 // The build's statements: each kind's highest rowid and its rows in a rowid range.
 const BUILD_STATEMENT_CAPACITY: usize = 2 * IndexRowKind::VARIANTS.len();
@@ -49,7 +49,7 @@ enum SearchIndexBuildModeError {
 /// and in place, 1 with why on standard error when the build fails, and 1 as soon as standard input
 /// ends, the build's thread ending with the process. Runs before the daemon's runtime, log or
 /// allocator timer would start.
-pub(crate) fn run_search_index_build() -> ExitCode {
+pub fn run_search_index_build() -> ExitCode {
     run_until_input_ends(|| build_from_arguments(env::args_os().skip(2)))
 }
 

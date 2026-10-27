@@ -3,6 +3,6 @@
 //! standard input and keeps its error output's tail, and the mode's side, which ends as soon as
 //! that input does.
 
-pub(crate) mod child;
-pub(crate) mod error_output;
-pub(crate) mod input_watch;
+pub mod child;
+pub mod error_output;
+pub mod input_watch;

@@ -55,18 +55,18 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::schema::session_directory::read_session_state_through;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
-#[cfg(test)]
-pub(crate) mod test_opening;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_opening;
 #[cfg(test)]
 mod tests;
 
 /// The statements the provider sessions' reads prepare: a session's state, its runs, their
 /// bindings, its mode and its level.
-pub(crate) const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 5;
+pub const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 5;
 
 /// What a session's provider session opens with, composed from the session's lead as its log
 /// stands now.
-pub(crate) struct ProviderSessionOpening {
+pub struct ProviderSessionOpening {
     /// The provider the lead runs on.
     pub(crate) provider: ProviderId,
     /// The git folder of the session's repository, which the posture of each level is built on.
@@ -84,7 +84,7 @@ pub(crate) struct ProviderSessionOpening {
 
 /// Composes a session's opening from its lead. Fails when the session has no lead or no
 /// workspace, or its repository's git folder cannot be read.
-pub(crate) type ProviderSessionOpeningComposer = Arc<
+pub type ProviderSessionOpeningComposer = Arc<
     dyn Fn(
             SessionId,
         )
@@ -94,28 +94,28 @@ pub(crate) type ProviderSessionOpeningComposer = Arc<
 >;
 
 /// What the provider sessions read, write and call.
-pub(crate) struct ProviderSessionsDeps {
+pub struct ProviderSessionsDeps {
     /// The read pool every read of a session's bindings, mode and level goes through.
-    pub(crate) pool: Arc<DatabaseReadPool>,
+    pub pool: Arc<DatabaseReadPool>,
     /// The writer a level move is stored through.
-    pub(crate) writer: Arc<DatabaseWriter>,
+    pub writer: Arc<DatabaseWriter>,
     /// The binding rows an opening completes or removes.
-    pub(crate) runtime_bindings: Arc<RuntimeBindingStore>,
+    pub runtime_bindings: Arc<RuntimeBindingStore>,
     /// Records each binding a run opens on, or a resume minted, with its epoch cursor open.
-    pub(crate) binding_cursors: Arc<RunBindingCursors>,
+    pub binding_cursors: Arc<RunBindingCursors>,
     /// The drivers, and the contract version each declares.
-    pub(crate) providers: Arc<ProviderRegistry>,
+    pub providers: Arc<ProviderRegistry>,
     /// Composes a session's opening from its lead.
-    pub(crate) compose_opening: ProviderSessionOpeningComposer,
+    pub compose_opening: ProviderSessionOpeningComposer,
     /// The session-wide transition lock, which a session's close holds from its driver's close
     /// until its `session.closed` write; each opening, run binding and level move takes it.
-    pub(crate) transition_lock: Arc<KeyedLock<SessionId>>,
+    pub transition_lock: Arc<KeyedLock<SessionId>>,
 }
 
 /// Why a session's provider session was not opened, a run's binding not recorded or a level not
 /// moved; nothing of an opening that failed is left live.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ProviderSessionError {
+pub enum ProviderSessionError {
     /// The session's opening could not be composed.
     #[error("the provider session of session {session_id} could not be composed")]
     Compose {
@@ -251,14 +251,14 @@ struct OpenedSession {
 /// Opens each session's provider session once per daemon process, at its first admission, and the
 /// runtime binding of each run on it. A session holds one entry from its first admission until it
 /// closes or the daemon stops.
-pub(crate) struct ProviderSessions {
+pub struct ProviderSessions {
     deps: ProviderSessionsDeps,
     opened: Mutex<HashMap<SessionId, OpenedSession>>,
 }
 
 impl ProviderSessions {
     /// The provider sessions over `deps`, none open.
-    pub(crate) fn new(deps: ProviderSessionsDeps) -> Self {
+    pub fn new(deps: ProviderSessionsDeps) -> Self {
         Self {
             deps,
             opened: Mutex::new(HashMap::new()),

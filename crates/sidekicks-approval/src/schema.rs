@@ -19,7 +19,7 @@ use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::sql_list_of_every;
 
 /// The questions' list and the approval tables' own part.
-pub(crate) fn schema_parts() -> SchemaParts {
+pub fn schema_parts() -> SchemaParts {
     sidekicks_session::questions::schema::schema_parts()
         .with_part(SchemaPart::new("approval", approval_schema_sql()))
 }

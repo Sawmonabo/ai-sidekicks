@@ -14,18 +14,18 @@ const CANONICAL_JSON_MAX_DEPTH: usize = 64;
 
 /// The UTF-8 bytes of an RFC 8785 canonicalization; only this module makes one.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CanonicalBytes(Vec<u8>);
+pub struct CanonicalBytes(Vec<u8>);
 
 impl CanonicalBytes {
     /// The bytes.
-    pub(crate) fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 }
 
 /// Why an `occurredAt` cannot take the stored form `YYYY-MM-DDTHH:MM:SS.sssZ`.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum OccurredAtNormalizationRefusal {
+pub enum OccurredAtNormalizationRefusal {
     /// The contract's reading refused the text.
     #[error(transparent)]
     Unreadable(#[from] OccurredAtRefusal),
@@ -38,7 +38,7 @@ pub(crate) enum OccurredAtNormalizationRefusal {
 /// Why a value or an envelope has no canonical bytes. Each guard refuses on its own variant, and
 /// none quotes the value, which may carry a person's words.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum CanonicalizationRefusal {
+pub enum CanonicalizationRefusal {
     /// The envelope's `occurredAt` cannot take the stored form.
     #[error("the envelope's occurredAt cannot take the stored form")]
     OccurredAt(#[from] OccurredAtNormalizationRefusal),
@@ -53,7 +53,7 @@ pub(crate) enum CanonicalizationRefusal {
 /// `occurred_at` in the stored form, UTC to the millisecond (`YYYY-MM-DDTHH:MM:SS.sssZ`), the
 /// instant it names kept exactly. Refuses what the contract's reading refuses, and an instant that
 /// folds to UTC before year 0000.
-pub(crate) fn normalize_occurred_at(
+pub fn normalize_occurred_at(
     occurred_at: &str,
 ) -> Result<EventOccurredAt, OccurredAtNormalizationRefusal> {
     // jiff holds years back to -9999, so a fold before year 0000 still reads; one past year 9999
@@ -64,7 +64,7 @@ pub(crate) fn normalize_occurred_at(
 
 /// `value`'s RFC 8785 bytes. Refuses a value nesting containers deeper than
 /// [`CANONICAL_JSON_MAX_DEPTH`], and one the serializer refuses.
-pub(crate) fn canonicalize_json(value: &Value) -> Result<CanonicalBytes, CanonicalizationRefusal> {
+pub fn canonicalize_json(value: &Value) -> Result<CanonicalBytes, CanonicalizationRefusal> {
     refuse_over_deep(value)?;
     Ok(CanonicalBytes(serde_json_canonicalizer::to_vec(value)?))
 }

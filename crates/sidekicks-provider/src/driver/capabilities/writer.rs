@@ -39,7 +39,7 @@ use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// The statements a [`DriverCapabilitiesWriter`] prepares on a read connection: the contract row,
 /// the flag rows and the tool rows.
-pub(crate) const DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY: usize = 3;
+pub const DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY: usize = 3;
 
 // The pair comes from the parent row itself, so a row with no version stays apart from no row.
 const SELECT_CONTRACT_META_SQL: &str = "
@@ -107,7 +107,7 @@ pub(crate) enum CapabilitySnapshotChange {
 /// What a declare did: to the snapshot, and whether the stored CLI version pair differed from the
 /// declared one and was rewritten.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct DeclaredCapabilities {
+pub struct DeclaredCapabilities {
     /// What happened to the snapshot.
     pub(crate) snapshot_change: CapabilitySnapshotChange,
     /// Whether the stored version pair was rewritten.
@@ -117,7 +117,7 @@ pub(crate) struct DeclaredCapabilities {
 /// A provider's stored capabilities rebuilt, or why none can be: never written, or written with no
 /// CLI version, which is never invented since it is the spawned build's own report.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum CapabilityHydration {
+pub enum CapabilityHydration {
     /// The stored reading, rebuilt whole.
     Hit {
         /// The reading as the driver would answer it, without detection sources.
@@ -136,7 +136,7 @@ pub(crate) enum CapabilityHydration {
     "the stored capability flags are not the flag set: missing {missing:?}, unexpected \
      {unexpected:?}"
 )]
-pub(crate) struct StoredFlagSetMismatch {
+pub struct StoredFlagSetMismatch {
     /// The flags with no stored row.
     pub(crate) missing: Vec<DriverCapabilityFlag>,
     /// The stored names that are no flag.
@@ -145,7 +145,7 @@ pub(crate) struct StoredFlagSetMismatch {
 
 /// Why a capability declare or hydrate failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum DriverCapabilitiesWriterError {
+pub enum DriverCapabilitiesWriterError {
     /// The reading was refused before anything was read or written.
     #[error(transparent)]
     InvalidOutput(#[from] ProviderOutputValidationError),
@@ -165,7 +165,7 @@ pub(crate) enum DriverCapabilitiesWriterError {
 
 /// Stores each provider's declared capabilities and rebuilds them without asking the driver; one
 /// per daemon, so its lock orders every declare of a provider.
-pub(crate) struct DriverCapabilitiesWriter {
+pub struct DriverCapabilitiesWriter {
     reads: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
     // One provider's declares take turns, each committing before the next reads.
@@ -189,7 +189,7 @@ struct CapabilitySnapshot {
 
 impl DriverCapabilitiesWriter {
     /// A writer reading through `reads` and writing through `writer`.
-    pub(crate) fn new(reads: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
+    pub fn new(reads: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
         Self {
             reads,
             writer,
@@ -202,7 +202,7 @@ impl DriverCapabilitiesWriter {
     /// differs. Fails with [`DriverCapabilitiesWriterError::InvalidOutput`] for a contract version
     /// that is no canonical semantic version or a tool name declared twice, before anything is
     /// read or written, and otherwise when the read or the write fails.
-    pub(crate) async fn declare(
+    pub async fn declare(
         &self,
         provider: &ProviderId,
         result: &GetCapabilitiesResult,
@@ -285,7 +285,7 @@ impl DriverCapabilitiesWriter {
     /// snapshot, its fixed output-speed levels from `descriptor`. Fails with
     /// [`DriverCapabilitiesWriterError::FlagSetMismatch`] when the stored flag rows are not exactly
     /// the flag set, and when the read fails or a stored value does not read as its type.
-    pub(crate) async fn hydrate(
+    pub async fn hydrate(
         &self,
         provider: &ProviderId,
         descriptor: &ProviderDescriptor,

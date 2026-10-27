@@ -19,6 +19,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use tempfile::TempDir;
 use tokio::sync::oneshot;
 
+use super::test_answers::unanswered;
 use super::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl, RunPauseError};
 use crate::driver_resolution::LiveRunDriverError;
 use crate::questions::schema::schema_parts;
@@ -27,10 +28,8 @@ use crate::run::engine::{InterruptRoute, RunEngine};
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::RunStateChange;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_driver::PROVIDER_REGISTRATIONS;
-use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
-use sidekicks_provider::driver::error_causes::RequestUnanswered;
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::run_control::{TakenMessages, WaitingMessage};
 use sidekicks_provider::driver::test_registry::{
@@ -41,7 +40,7 @@ use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::tests::{TestLog, open_log};
+use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 
 /// How long a call held behind a resume is watched to show it waits.
 const HELD_WATCH: Duration = Duration::from_millis(200);
@@ -159,13 +158,6 @@ fn stored_run(database: &TestDatabase, run_id: RunId) -> (String, i64) {
 
 fn safe(version: u64) -> SafeInt<0> {
     SafeInt::new(version).expect("the test's version is a safe integer")
-}
-
-/// The driver's answer when the request went out and no answer came.
-pub(crate) fn unanswered() -> DriverError {
-    DriverError::Unanswered(RequestUnanswered {
-        refusal: DomainError::new("the provider did not answer", RefusalCode::ProviderTimeout),
-    })
 }
 
 /// A message waiting for the run.

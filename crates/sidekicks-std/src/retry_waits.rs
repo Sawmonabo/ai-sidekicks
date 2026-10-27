@@ -18,7 +18,7 @@ pub(crate) const RETRY_WAITS: [Duration; 6] = [
 
 /// The wait before the retry that follows `failed_tries` failures in a row, for a step that never
 /// gives up: the schedule's, then its longest.
-pub(crate) fn retry_wait(failed_tries: usize) -> Duration {
+pub fn retry_wait(failed_tries: usize) -> Duration {
     RETRY_WAITS
         .get(failed_tries)
         .copied()

@@ -22,7 +22,7 @@
 //!   rule it replaces and its revoke reach no provider, and no provider is handed it.
 
 mod driver_reads;
-pub(crate) mod session_end;
+pub mod session_end;
 
 use std::path::PathBuf;
 use std::slice;
@@ -77,16 +77,16 @@ use sidekicks_workspace::schema::MountOrigin;
 
 /// The distinct statements [`ApprovalRules`] prepares, for the reading connection's statement
 /// cache.
-pub(crate) const APPROVAL_RULES_STATEMENT_CAPACITY: usize = 8;
+pub const APPROVAL_RULES_STATEMENT_CAPACITY: usize = 8;
 
 /// Takes a revoked rule out of force at the provider of one session, through its driver's
 /// `revoke_rule`; the daemon's start supplies it. Fails with the driver's own error.
-pub(crate) type RevokeAtProvider =
+pub type RevokeAtProvider =
     Box<dyn Fn(RevokeRuleParams) -> BoxFuture<'static, Result<(), DriverError>> + Send + Sync>;
 
 /// Why a rule could not be read, recorded or revoked.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ApprovalRuleError {
+pub enum ApprovalRuleError {
     /// `session.notFound`, `approval.rule.notFound`, `approval.rule.alreadyRevoked`, or
     /// `approval.rule.notKept` for a revoke whose rule stayed in a project's rule file.
     #[error(transparent)]
@@ -141,7 +141,7 @@ impl From<ApprovalRuleError> for HandlerError {
 /// The project rules a purged session made, taken out of the project's files, and the other
 /// sessions of the project whose providers read their rules again once the purge has run.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct WithdrawnProjectRules {
+pub struct WithdrawnProjectRules {
     rules: Vec<ProviderAskRule>,
     other_sessions: Vec<SessionId>,
 }
@@ -284,7 +284,7 @@ type RuleWriteHold<'lock> = KeyHold<'lock, ()>;
 
 /// Records, reads and revokes the rules a person's answers made, one rule write at a time, and
 /// ends a session's session rules once it closes. Shared by `Arc`.
-pub(crate) struct ApprovalRules {
+pub struct ApprovalRules {
     /// The pool every read borrows a connection from.
     reads: Arc<DatabaseReadPool>,
     /// Where the rule events are appended.
@@ -305,7 +305,7 @@ impl ApprovalRules {
     /// The rules of `machine_id`'s providers, read through `reads`, recorded through `events`,
     /// taken out of force through `revoke_at_provider`, an ask's command line read under
     /// `shell_lines`; no session's rules end until [`ApprovalRules::start`].
-    pub(crate) fn new(
+    pub fn new(
         reads: Arc<DatabaseReadPool>,
         events: Arc<SessionEventAppender>,
         machine_id: MachineId,
@@ -343,7 +343,7 @@ impl ApprovalRules {
     /// The rules in force on the session, as the inspector lists them, oldest first, read with the
     /// session's existence in one read. Refuses `session.notFound` for a session the daemon does
     /// not hold; fails as the read fails.
-    pub(crate) async fn list(
+    pub async fn list(
         &self,
         session_id: SessionId,
     ) -> Result<ApprovalRuleListResponse, ApprovalRuleError> {
@@ -459,7 +459,7 @@ impl ApprovalRules {
     /// `approval.rule.notKept` when a provider could not take a project rule out of a rule file,
     /// the rule left in force and nothing recorded. Fails with [`ApprovalRuleError::Provider`]
     /// when a provider could not read a session's rules again once the revoke was recorded.
-    pub(crate) async fn revoke(
+    pub async fn revoke(
         &self,
         rule_id: RememberedRuleId,
     ) -> Result<ApprovalRuleRevokeResponse, ApprovalRuleError> {
@@ -506,7 +506,7 @@ impl ApprovalRules {
     /// its purge, and answers what [`ApprovalRules::hand_out_after_purge`] gives each other
     /// session of the project once the purge has deleted the rules' records. Fails as a read or a
     /// removal fails.
-    pub(crate) async fn withdraw_project_rules(
+    pub async fn withdraw_project_rules(
         &self,
         session_id: SessionId,
     ) -> Result<WithdrawnProjectRules, ApprovalRuleError> {
@@ -537,7 +537,7 @@ impl ApprovalRules {
 
     /// Hands each other session of a purged session's project its rules again, each provider
     /// reading them without the withdrawn ones. Fails with the first provider's failure.
-    pub(crate) async fn hand_out_after_purge(
+    pub async fn hand_out_after_purge(
         &self,
         withdrawn: WithdrawnProjectRules,
     ) -> Result<(), ApprovalRuleError> {

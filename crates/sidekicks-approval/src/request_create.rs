@@ -20,7 +20,7 @@ use sidekicks_provider::port::permission_ask::ProviderAskAction;
 /// a command's program and first subcommand, a network request's host, a written file's name.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct ApprovalResourceDescriptor {
+pub struct ApprovalResourceDescriptor {
     /// The words the standing allow names.
     pub(crate) subject: FreeFormText<FILE_PATH_MAX_LEN>,
     /// False on an ask that may not carry a standing allow, such as input to a running command.

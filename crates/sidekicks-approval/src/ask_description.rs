@@ -45,7 +45,7 @@ pub(crate) struct ProviderAskDescription {
 /// Why an ask could not be described: its tool name, which the card names and which stands as the
 /// scope of an ask with no target of its own, is empty or no scope.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum AskDescriptionError {
+pub enum AskDescriptionError {
     /// The provider named the tool with no text.
     #[error("the ask names its tool with no text")]
     EmptyToolName,

@@ -14,7 +14,7 @@ use sidekicks_store::database::sql_list::sql_list_of_every;
 /// a client publish's lookup by its key, an attachment's payload read, the list's two, a read's
 /// four, the chat versions' read of a path's newest hash, and the payload store's reference count
 /// and referenced keys.
-pub(crate) const ARTIFACT_STATEMENT_CAPACITY: usize = 13;
+pub const ARTIFACT_STATEMENT_CAPACITY: usize = 13;
 
 /// The questions' list and the artifact tables' own part.
 pub(crate) fn schema_parts() -> SchemaParts {

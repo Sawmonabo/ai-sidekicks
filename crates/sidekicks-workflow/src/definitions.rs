@@ -3,10 +3,10 @@
 //! the refusals of a save, and the reads of saved versions.
 
 pub(crate) mod content_hash;
-pub(crate) mod drafts;
+pub mod drafts;
 pub(crate) mod errors;
-pub(crate) mod kept_values;
-pub(crate) mod library;
-pub(crate) mod store;
+pub mod kept_values;
+pub mod library;
+pub mod store;
 pub(crate) mod stored_document;
-pub(crate) mod versions;
+pub mod versions;

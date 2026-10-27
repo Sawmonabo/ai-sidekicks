@@ -142,7 +142,7 @@ mod tests {
         TestDatabase, test_envelope, test_session_id,
     };
     use sidekicks_store::events::log_service::EventLogAppendOptions;
-    use sidekicks_store::events::log_service::tests::open_log;
+    use sidekicks_store::events::log_service::test_log::open_log;
 
     #[tokio::test]
     async fn a_row_the_session_lacks_is_refused_where_a_row_with_no_body_reads_absent() {

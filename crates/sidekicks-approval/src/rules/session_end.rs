@@ -36,7 +36,7 @@ static SELECT_ENDED_SESSIONS_WITH_RULES_SQL: LazyLock<String> = LazyLock::new(||
 
 /// The task that ends closed sessions' session rules and its follower of closes, from
 /// [`ApprovalRules::start`] until [`SessionRuleEnding::stop`].
-pub(crate) struct SessionRuleEnding {
+pub struct SessionRuleEnding {
     /// Hears every committed close; dropping it detaches.
     attachment: FollowerAttachment,
     /// Ends the task after the ends under way.
@@ -48,7 +48,7 @@ pub(crate) struct SessionRuleEnding {
 impl SessionRuleEnding {
     /// Stops hearing closes and settles once the ends under way are done. Fails only when the task
     /// itself ended abnormally.
-    pub(crate) async fn stop(self) -> Result<(), JoinError> {
+    pub async fn stop(self) -> Result<(), JoinError> {
         let Self {
             attachment,
             stop,
@@ -64,10 +64,7 @@ impl ApprovalRules {
     /// Follows `followers` to end the session rules of every session that closes, and ends those
     /// of sessions that closed with their rules still in force, both until the returned handle's
     /// stop.
-    pub(crate) fn start(
-        self: &Arc<Self>,
-        followers: &Arc<SessionEventFollowers>,
-    ) -> SessionRuleEnding {
+    pub fn start(self: &Arc<Self>, followers: &Arc<SessionEventFollowers>) -> SessionRuleEnding {
         let rules = Arc::clone(self);
         // Runs on the writer's pump, so it only names the session for the task.
         let attachment = followers.follow_all(move |event| {

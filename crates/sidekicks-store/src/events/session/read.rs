@@ -42,21 +42,21 @@ use crate::transcript_rejoin::{row_condition_sql, stored_patch_part_sql};
     "the stored event {event_id} of session {session_id} at sequence {sequence} is not a \
      well-formed event, so the row was written outside the append path"
 )]
-pub(crate) struct MalformedStoredEventError {
+pub struct MalformedStoredEventError {
     /// The row's event id, as stored.
-    pub(crate) event_id: String,
+    pub event_id: String,
     /// The row's session id, as stored.
-    pub(crate) session_id: String,
+    pub session_id: String,
     /// The row's sequence.
-    pub(crate) sequence: i64,
+    pub sequence: i64,
     /// What is wrong with it.
     #[source]
-    pub(crate) fault: MalformedStoredEventFault,
+    pub fault: MalformedStoredEventFault,
 }
 
 /// What makes a stored row not a well-formed event envelope.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum MalformedStoredEventFault {
+pub enum MalformedStoredEventFault {
     /// `session_events.payload` is not a JSON object.
     #[error("its payload column is not a JSON object")]
     PayloadNotObject(#[source] serde_json::Error),
@@ -79,7 +79,7 @@ pub(crate) enum MalformedStoredEventFault {
 
 /// Why a read of a session's log failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SessionLogReadError {
+pub enum SessionLogReadError {
     /// SQLite refused the read, or a column holds a type its schema forbids.
     #[error("a session_events read failed")]
     Database(#[from] rusqlite::Error),
@@ -90,16 +90,16 @@ pub(crate) enum SessionLogReadError {
 
 /// Which of the events after a position a read takes; every one when a member is `None`.
 #[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct SessionEventFilter<'types> {
+pub struct SessionEventFilter<'types> {
     /// Only events of these types.
-    pub(crate) event_types: Option<&'types [&'types str]>,
+    pub event_types: Option<&'types [&'types str]>,
     /// Only events before this sequence.
-    pub(crate) before_sequence: Option<i64>,
+    pub before_sequence: Option<i64>,
 }
 
 /// The envelope's columns, in the order [`SessionEventReads::read_envelopes`] reads them; a
 /// statement naming them reads its rows' table as `event`.
-pub(crate) const SELECTED_COLUMNS: &str = "event.id, event.session_id, event.sequence, \
+pub const SELECTED_COLUMNS: &str = "event.id, event.session_id, event.sequence, \
      event.occurred_at, event.category, event.type, event.actor, event.payload, \
      event.correlation_id, event.causation_id, event.version";
 
@@ -225,23 +225,23 @@ const HYDRATED_PAGE_ROWS: i64 = 64;
 /// The most text, in UTF-8 bytes as the payloads state it, one hydrated page loads: 8 MiB, so a
 /// reader holds a few pages of text at most whatever the bodies' sizes, and an export, which holds
 /// one page at a time, stays within its 64 MiB budget.
-pub(crate) const HYDRATED_PAGE_TEXT_BYTES: u64 = 8 * 1024 * 1024;
+pub const HYDRATED_PAGE_TEXT_BYTES: u64 = 8 * 1024 * 1024;
 
 /// One page of hydrated rows: the rows whose bodies together stay within
 /// [`HYDRATED_PAGE_TEXT_BYTES`], loaded, and, when the next row's body alone passes it, that row
 /// unloaded, for its reader to take a frame at a time or load by itself.
 #[derive(Debug, Default)]
-pub(crate) struct HydratedPage {
+pub struct HydratedPage {
     /// The rows loaded, in log order.
-    pub(crate) events: Vec<HydratedSessionEvent>,
+    pub events: Vec<HydratedSessionEvent>,
     /// The row after them whose body alone passes the page's text, unloaded.
-    pub(crate) oversized: Option<UnloadedBodyEvent>,
+    pub oversized: Option<UnloadedBodyEvent>,
 }
 
 impl HydratedPage {
     /// The sequence of the page's last row, loaded or not; `None` for an empty page, which ends
     /// the read.
-    pub(crate) fn last_sequence(&self) -> Option<i64> {
+    pub fn last_sequence(&self) -> Option<i64> {
         self.oversized
             .as_ref()
             .map(|unloaded| &unloaded.event)
@@ -253,11 +253,11 @@ impl HydratedPage {
 /// A row whose body is too long to load with others: the event and where each stored piece of its
 /// body sits, in order.
 #[derive(Debug)]
-pub(crate) struct UnloadedBodyEvent {
+pub struct UnloadedBodyEvent {
     /// The event, checked as an envelope.
-    pub(crate) event: EventEnvelope,
+    pub event: EventEnvelope,
     /// Its own body's place, then those of the pieces that join it.
-    pub(crate) pieces: Vec<StoredBodyPlace>,
+    pub pieces: Vec<StoredBodyPlace>,
 }
 
 static EVENT_BY_ID_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -282,7 +282,7 @@ const UNREADABLE_PAYLOAD_SQL: &str = "SELECT id, sequence, payload FROM session_
 /// JSON, as a conversion failure of the payload column carrying its [`MalformedStoredEventError`].
 /// Answers `error` itself when it is not SQLite's generic error, which a JSON function raises,
 /// when every payload reads, or when the search for the row fails.
-pub(crate) fn payload_damage_of(
+pub fn payload_damage_of(
     reader: &Connection,
     session_id: &SessionId,
     error: rusqlite::Error,
@@ -329,11 +329,11 @@ pub(crate) fn payload_damage_of(
 
 /// Answers the sequence a damaged session's reads stop before, `None` for a session that reads
 /// whole.
-pub(crate) type DamagedFromSequenceReader = dyn Fn(&SessionId) -> Option<i64> + Send + Sync;
+pub type DamagedFromSequenceReader = dyn Fn(&SessionId) -> Option<i64> + Send + Sync;
 
 /// Whether the event aliased `event_alias` is one the log can read: before `@read_bound`, which
 /// [`session_read_bound`] gives, and outside every range its session skipped as damaged.
-pub(crate) fn readable_event_sql(event_alias: &str) -> String {
+pub fn readable_event_sql(event_alias: &str) -> String {
     format!(
         "{event_alias}.sequence < @read_bound AND {}",
         outside_skipped_ranges_sql(event_alias)
@@ -343,7 +343,7 @@ pub(crate) fn readable_event_sql(event_alias: &str) -> String {
 /// The sequence a read of `session_id` stops before: the earlier of the read's own
 /// `before_sequence` and the session's last good point while its history is damaged, which
 /// `read_damaged_from_sequence` answers, else past every sequence.
-pub(crate) fn session_read_bound(
+pub fn session_read_bound(
     read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,
     session_id: &SessionId,
     before_sequence: Option<i64>,
@@ -356,7 +356,7 @@ pub(crate) fn session_read_bound(
 /// The synchronous reads of one session's log on a read-only connection; every list is in
 /// ascending sequence order. Each read fails with [`SessionLogReadError::Malformed`] when a row is
 /// not a valid event envelope, and with [`SessionLogReadError::Database`] when SQLite refuses it.
-pub(crate) struct SessionEventReads<'reader, DamagedFrom> {
+pub struct SessionEventReads<'reader, DamagedFrom> {
     reader: &'reader Connection,
     read_damaged_from_sequence: DamagedFrom,
 }
@@ -367,10 +367,7 @@ where
 {
     /// The reads on `reader`; `read_damaged_from_sequence` answers the sequence a damaged
     /// session's reads stop before, `None` for a session that reads whole.
-    pub(crate) fn new(
-        reader: &'reader Connection,
-        read_damaged_from_sequence: DamagedFrom,
-    ) -> Self {
+    pub fn new(reader: &'reader Connection, read_damaged_from_sequence: DamagedFrom) -> Self {
         Self {
             reader,
             read_damaged_from_sequence,
@@ -379,16 +376,13 @@ where
 
     /// A read transaction on the reads' connection, so every read made while it is held sees one
     /// snapshot of the store; fails when SQLite refuses to begin it.
-    pub(crate) fn snapshot(&self) -> rusqlite::Result<Transaction<'reader>> {
+    pub fn snapshot(&self) -> rusqlite::Result<Transaction<'reader>> {
         self.reader.unchecked_transaction()
     }
 
     /// The session's highest sequence it reads to, below its last good point while its history is
     /// damaged, or `None` when it has no such event.
-    pub(crate) fn read_head(
-        &self,
-        session_id: &SessionId,
-    ) -> Result<Option<i64>, SessionLogReadError> {
+    pub fn read_head(&self, session_id: &SessionId) -> Result<Option<i64>, SessionLogReadError> {
         let head: Option<i64> = self
             .reader
             .prepare_cached(HEAD_SQL)?
@@ -400,7 +394,7 @@ where
 
     /// Up to `limit` events with a sequence greater than `after_position`, every one when `limit`
     /// is negative, and only those `filter` takes.
-    pub(crate) fn read_after(
+    pub fn read_after(
         &self,
         session_id: &SessionId,
         after_position: i64,
@@ -429,7 +423,7 @@ where
     /// A page of run `run_id`'s rows of one of `event_types` with a sequence greater than
     /// `after_position` and, where `before_sequence` is given, below it, each paired with its body:
     /// its own stored body joined with those of the pieces that continue it, below the same bound.
-    pub(crate) fn read_run_page_hydrated(
+    pub fn read_run_page_hydrated(
         &self,
         session_id: &SessionId,
         run_id: &RunId,
@@ -458,7 +452,7 @@ where
         not(test),
         expect(dead_code, reason = "the data export writes every session's rows")
     )]
-    pub(crate) fn read_page_hydrated(
+    pub fn read_page_hydrated(
         &self,
         session_id: &SessionId,
         after_position: i64,
@@ -476,7 +470,7 @@ where
     }
 
     /// `unloaded`'s row paired with its body loaded whole. Fails as a hydrated page does.
-    pub(crate) fn load_body(
+    pub fn load_body(
         &self,
         unloaded: UnloadedBodyEvent,
     ) -> Result<HydratedSessionEvent, SessionLogReadError> {
@@ -484,7 +478,7 @@ where
     }
 
     /// The events with a sequence from `from_sequence` to `to_sequence`, both included.
-    pub(crate) fn read_window(
+    pub fn read_window(
         &self,
         session_id: &SessionId,
         from_sequence: i64,
@@ -502,7 +496,7 @@ where
     }
 
     /// The events at the given sequences; a sequence the session holds no event at reads none.
-    pub(crate) fn read_at_sequences(
+    pub fn read_at_sequences(
         &self,
         session_id: &SessionId,
         sequences: &[i64],
@@ -518,7 +512,7 @@ where
     }
 
     /// The event `event_id`, without its body, or `None` when the session reads none.
-    pub(crate) fn read_event(
+    pub fn read_event(
         &self,
         session_id: &SessionId,
         event_id: &str,
@@ -536,7 +530,7 @@ where
     }
 
     /// The sequence a read of `session_id` stops before, as [`session_read_bound`] answers it.
-    pub(crate) fn read_bound(&self, session_id: &SessionId, before_sequence: Option<i64>) -> i64 {
+    pub fn read_bound(&self, session_id: &SessionId, before_sequence: Option<i64>) -> i64 {
         session_read_bound(
             &self.read_damaged_from_sequence,
             session_id,
@@ -628,7 +622,7 @@ where
 
     /// Runs a statement selecting [`SELECTED_COLUMNS`] and checks each row as an envelope, in the
     /// order read.
-    pub(crate) fn read_envelopes(
+    pub fn read_envelopes(
         &self,
         sql: &str,
         bindings: impl rusqlite::Params,
@@ -649,7 +643,7 @@ where
 /// session's `head`, which the caller reads before any page so a cursor past it cannot pass on a
 /// later commit. Fails with [`SessionEventCursorUnresolvable`] for a cursor that names no position
 /// or one past the head.
-pub(crate) fn resolve_event_cursor(
+pub fn resolve_event_cursor(
     cursor: Option<&EventCursor>,
     head: Option<i64>,
 ) -> Result<i64, SessionEventCursorUnresolvable> {
@@ -772,7 +766,7 @@ fn body_read_error(envelope: &EventEnvelope, error: BodyStreamError) -> SessionL
 }
 
 /// `envelope`'s body that does not read back as its payload describes, as the malformed row it is.
-pub(crate) fn malformed_body(
+pub fn malformed_body(
     envelope: &EventEnvelope,
     error: BodyStreamError,
 ) -> MalformedStoredEventError {

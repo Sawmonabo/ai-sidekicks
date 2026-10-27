@@ -330,7 +330,7 @@ mod tests {
         TestDatabase, test_envelope, test_session_id,
     };
     use sidekicks_store::events::log_service::EventLogAppendOptions;
-    use sidekicks_store::events::log_service::tests::open_log;
+    use sidekicks_store::events::log_service::test_log::open_log;
 
     /// Long enough for a frame that is coming to come, many windows over.
     const QUIET: Duration = Duration::from_millis(250);

@@ -5,7 +5,7 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::wire::integer::MAX_SAFE_INTEGER;
 
 /// The string at `key` in `source` when it has at least one character; `None` for anything else.
-pub(crate) fn read_non_empty_string<'source>(
+pub fn read_non_empty_string<'source>(
     source: &'source Map<String, Value>,
     key: &str,
 ) -> Option<&'source str> {

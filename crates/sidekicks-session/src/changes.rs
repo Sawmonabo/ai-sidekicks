@@ -51,7 +51,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// The statements the session changes prepare on a read connection: the session's facts, its
 /// runs, and the providers their bindings name.
-pub(crate) const SESSION_CHANGES_STATEMENT_CAPACITY: usize = 3;
+pub const SESSION_CHANGES_STATEMENT_CAPACITY: usize = 3;
 
 const SELECT_FACTS_SQL: &str =
     "SELECT state, name, pinned_at, muted_at FROM sessions WHERE id = ?1";
@@ -71,7 +71,7 @@ const FACTS_GUARD_INDEX: usize = 0;
 
 /// Why a session change was refused or not kept; a refused change keeps nothing.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SessionChangeError {
+pub enum SessionChangeError {
     /// The session is unknown (`session.notFound`), closed (`session.alreadyClosed`), or in a
     /// state that takes no such change (`session.changeRefused`); or a close found a run on a
     /// provider no registered driver answers (`provider.notFound`) and ended nothing.
@@ -131,7 +131,7 @@ enum SessionMark {
 
 /// Renames, archives, reactivates, closes, pins and mutes sessions, reading through the daemon's
 /// read pool and appending through the event log.
-pub(crate) struct SessionChanges {
+pub struct SessionChanges {
     /// Where the session's facts and the providers of its runs are read.
     pool: Arc<DatabaseReadPool>,
     /// The append path each change's event goes through.
@@ -151,7 +151,7 @@ pub(crate) struct SessionChanges {
 impl SessionChanges {
     /// The changes reading through `pool`, appending through `event_log` and reaching the
     /// session's providers through the drivers `providers` registered.
-    pub(crate) fn new(
+    pub fn new(
         pool: Arc<DatabaseReadPool>,
         event_log: Arc<EventLogService>,
         providers: Arc<ProviderRegistry>,
@@ -184,7 +184,7 @@ impl SessionChanges {
     /// archive, reactivate and close take it, and the queue's opening of a provider session, its
     /// run bindings and level moves, the person's restart, the session conversion and the purge
     /// take the same one through this, so no two of them interleave on one session.
-    pub(crate) fn transition_lock(&self) -> &Arc<KeyedLock<SessionId>> {
+    pub fn transition_lock(&self) -> &Arc<KeyedLock<SessionId>> {
         &self.lock
     }
 
@@ -379,7 +379,7 @@ impl SessionChanges {
             reason = "the session close handler answers a person's close through it"
         )
     )]
-    pub(crate) async fn close(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
+    pub async fn close(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         let _hold = self.lock.acquire(session_id).await;
         let facts = self.read_facts(session_id).await?;
         if facts.state == SessionState::Closed {
@@ -624,7 +624,7 @@ async fn tell_providers_name(
 
 /// Refuses a change to a session that takes none: a closed one with `session.alreadyClosed`, and
 /// one being purged with `session.changeRefused`.
-pub(crate) fn refuse_unchangeable_session(
+pub fn refuse_unchangeable_session(
     session_id: &SessionId,
     state: SessionState,
 ) -> Result<(), DomainError> {

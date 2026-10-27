@@ -11,7 +11,7 @@ use crate::database::writer::WriteError;
 use crate::events::session::read::MalformedStoredEventError;
 
 /// A set of rows derived from the session log, as a rebuild replaces them.
-pub(crate) trait SessionProjection: Send + Sync {
+pub trait SessionProjection: Send + Sync {
     /// The projection's name in a rebuild's response.
     fn name(&self) -> &'static str;
 
@@ -32,7 +32,7 @@ pub(crate) trait SessionProjection: Send + Sync {
 }
 
 /// One projection's fold over one session's events, applied in sequence order.
-pub(crate) trait SessionProjectionFold: Send {
+pub trait SessionProjectionFold: Send {
     /// Pushes onto `statements` the statements that apply the event, read as its `envelope` and its
     /// typed `event`, to the rows. Fails with [`ProjectionContradiction`] when the event
     /// contradicts what the fold already applied.
@@ -48,11 +48,11 @@ pub(crate) trait SessionProjectionFold: Send {
 /// carries.
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
-pub(crate) struct ProjectionContradiction(pub(crate) String);
+pub struct ProjectionContradiction(pub String);
 
 /// Why an event cannot be folded into rows the daemon can trust.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ProjectionFailureCause {
+pub enum ProjectionFailureCause {
     /// The stored row is not a well-formed event envelope.
     #[error("the stored event does not read as an event")]
     Unreadable(#[source] MalformedStoredEventError),
@@ -72,12 +72,12 @@ pub(crate) enum ProjectionFailureCause {
 /// event the fold could not take.
 #[derive(Debug, thiserror::Error)]
 #[error("event {sequence} of session {session_id} cannot be folded into rows the service trusts")]
-pub(crate) struct ProjectionFailure {
+pub struct ProjectionFailure {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The event's sequence.
-    pub(crate) sequence: i64,
+    pub sequence: i64,
     /// Why it could not be folded.
     #[source]
-    pub(crate) cause: ProjectionFailureCause,
+    pub cause: ProjectionFailureCause,
 }

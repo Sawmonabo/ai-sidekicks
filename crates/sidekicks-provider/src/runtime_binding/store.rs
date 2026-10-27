@@ -48,7 +48,7 @@ use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// The statements the binding reads prepare on a read connection: one binding, a run's, many
 /// runs', and every resumable one.
-pub(crate) const RUNTIME_BINDING_STORE_STATEMENT_CAPACITY: usize = 4;
+pub const RUNTIME_BINDING_STORE_STATEMENT_CAPACITY: usize = 4;
 
 // The stored spawn record's member naming the build that ran: written from the spawned build's
 // reading, kept apart from the legs a resume reads.
@@ -126,28 +126,28 @@ const DELETE_BINDING_SQL: &str = "DELETE FROM runtime_bindings WHERE id = ?";
 /// posture relaunches unsandboxed). The function legs are injected again at each spawn instead.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct RuntimeBindingSpawnConfig {
+pub struct RuntimeBindingSpawnConfig {
     /// How the session may touch the machine.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "sidekicks_contracts::wire::present"
     )]
-    pub(crate) execution_posture: Option<ExecutionPosture>,
+    pub execution_posture: Option<ExecutionPosture>,
     /// The daemon's callback tools.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "sidekicks_contracts::wire::present"
     )]
-    pub(crate) callback_tools: Option<Vec<SessionCallbackTool>>,
+    pub callback_tools: Option<Vec<SessionCallbackTool>>,
     /// The provider-native subagent policy.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "sidekicks_contracts::wire::present"
     )]
-    pub(crate) subagent_policy: Option<SubagentPolicy>,
+    pub subagent_policy: Option<SubagentPolicy>,
     /// Every tool server the session can reach, each with the person's switch, so a resume starts
     /// with exactly the servers that were on.
     #[serde(
@@ -155,14 +155,14 @@ pub(crate) struct RuntimeBindingSpawnConfig {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "sidekicks_contracts::wire::present"
     )]
-    pub(crate) tool_servers: Option<Vec<SessionToolServer>>,
+    pub tool_servers: Option<Vec<SessionToolServer>>,
     /// A JSON Schema the final output must meet.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "sidekicks_contracts::wire::present"
     )]
-    pub(crate) output_schema: Option<Map<String, Value>>,
+    pub output_schema: Option<Map<String, Value>>,
     /// The account the run was admitted against, bound for the run's life, so a resume never moves
     /// onto the current default account.
     #[serde(
@@ -170,7 +170,7 @@ pub(crate) struct RuntimeBindingSpawnConfig {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "sidekicks_contracts::wire::present"
     )]
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    pub provider_account_id: Option<ProviderAccountId>,
     /// The requested output-speed level, never the provider's observed state, which would read a
     /// level that stopped being offered as accepted after a restart.
     #[serde(
@@ -178,72 +178,72 @@ pub(crate) struct RuntimeBindingSpawnConfig {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "sidekicks_contracts::wire::present"
     )]
-    pub(crate) output_speed: Option<ProviderToken>,
+    pub output_speed: Option<ProviderToken>,
 }
 
 /// A runtime binding as the daemon reads it, its JSON columns parsed.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct RuntimeBinding {
+pub struct RuntimeBinding {
     /// The binding.
-    pub(crate) id: RuntimeBindingId,
+    pub id: RuntimeBindingId,
     /// The run it belongs to; a run has many.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// The provider, as written.
-    pub(crate) provider_name: ProviderId,
+    pub provider_name: ProviderId,
     /// The provider's contract version.
-    pub(crate) contract_version: FreeFormText<PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN>,
+    pub contract_version: FreeFormText<PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN>,
     /// The version the spawned build reported.
-    pub(crate) cli_version: DriverCliVersionReport,
+    pub cli_version: DriverCliVersionReport,
     /// The provider's handle of the conversation, `None` until it has one.
-    pub(crate) resume_handle: Option<String>,
+    pub resume_handle: Option<String>,
     /// The build that ran, from the same reading as the version; a record, never a start's input,
     /// since every start resolves the command again.
-    pub(crate) resolved_executable_path: String,
+    pub resolved_executable_path: String,
     /// The legs a resume rebuilds from.
-    pub(crate) spawn_config: RuntimeBindingSpawnConfig,
+    pub spawn_config: RuntimeBindingSpawnConfig,
     /// The provider's own recovery data.
     pub(crate) runtime_metadata: Map<String, Value>,
     /// When it was recorded.
-    pub(crate) created_at: String,
+    pub created_at: String,
     /// When it last changed.
-    pub(crate) updated_at: String,
+    pub updated_at: String,
 }
 
 /// What [`RuntimeBindingStore::create`] records; the store mints the id, since a run has many
 /// bindings.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct CreateRuntimeBindingInput {
+pub struct CreateRuntimeBindingInput {
     /// The run.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// The provider.
-    pub(crate) provider_name: ProviderId,
+    pub provider_name: ProviderId,
     /// The provider's contract version.
-    pub(crate) contract_version: FreeFormText<PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN>,
+    pub contract_version: FreeFormText<PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN>,
     /// The spawned build's version and path, from one reading.
-    pub(crate) spawned_version: SpawnedVersionBindingCarriers,
+    pub spawned_version: SpawnedVersionBindingCarriers,
     /// The provider's handle of the conversation, when it has one yet.
-    pub(crate) resume_handle: Option<String>,
+    pub resume_handle: Option<String>,
     /// The spawn-bound legs.
-    pub(crate) spawn_config: RuntimeBindingSpawnConfig,
+    pub spawn_config: RuntimeBindingSpawnConfig,
     /// The provider's own recovery data.
-    pub(crate) runtime_metadata: Map<String, Value>,
+    pub runtime_metadata: Map<String, Value>,
 }
 
 /// The mutable columns [`RuntimeBindingStore::update`] patches, each `None` to keep the stored
 /// value; the spawn record and version are absent, since a relaunch records a new row instead.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct RuntimeBindingPatch {
+pub struct RuntimeBindingPatch {
     /// A new contract version.
-    pub(crate) contract_version: Option<FreeFormText<PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN>>,
+    pub contract_version: Option<FreeFormText<PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN>>,
     /// A new resume handle.
-    pub(crate) resume_handle: Option<String>,
+    pub resume_handle: Option<String>,
     /// New recovery data.
-    pub(crate) runtime_metadata: Option<Map<String, Value>>,
+    pub runtime_metadata: Option<Map<String, Value>>,
 }
 
 /// A binding pointed at the conversation its session moved onto, and the ones the session left.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct RuntimeBindingRebind {
+pub struct RuntimeBindingRebind {
     /// The binding.
     pub(crate) binding_id: RuntimeBindingId,
     /// The conversation it runs on now.
@@ -255,17 +255,17 @@ pub(crate) struct RuntimeBindingRebind {
 /// A resume a driver started on its own, after its process ended or on a new provider build, and
 /// the binding it minted for the session's leg.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct RuntimeBindingRelaunch {
+pub struct RuntimeBindingRelaunch {
     /// The binding the session ran on before, whose run, provider and legs carry over.
-    pub(crate) predecessor_id: RuntimeBindingId,
+    pub predecessor_id: RuntimeBindingId,
     /// The id the driver minted for the relaunched leg.
-    pub(crate) binding_id: RuntimeBindingId,
+    pub binding_id: RuntimeBindingId,
     /// The conversation the leg runs on now.
-    pub(crate) resume_handle: String,
+    pub resume_handle: String,
     /// The relaunched build's version and path, from the one reading its spawn took.
-    pub(crate) spawned_version: SpawnedVersionBindingCarriers,
+    pub spawned_version: SpawnedVersionBindingCarriers,
     /// The conversations the leg left.
-    pub(crate) left_conversations: Vec<LeftConversation>,
+    pub left_conversations: Vec<LeftConversation>,
 }
 
 /// A stored binding row with a column that does not read as its type: the daemon's own record is
@@ -273,7 +273,7 @@ pub(crate) struct RuntimeBindingRelaunch {
 /// the value.
 #[derive(Debug, thiserror::Error)]
 #[error("the stored {column} of runtime binding {} does not read", .binding_id.as_str())]
-pub(crate) struct StoredBindingUnreadable {
+pub struct StoredBindingUnreadable {
     /// The binding.
     pub(crate) binding_id: RuntimeBindingId,
     /// The column.
@@ -286,7 +286,7 @@ pub(crate) struct StoredBindingUnreadable {
 /// A stored binding id that is no valid binding id.
 #[derive(Debug, thiserror::Error)]
 #[error("a stored runtime binding id is not a valid binding id")]
-pub(crate) struct StoredBindingIdInvalid;
+pub struct StoredBindingIdInvalid;
 
 /// Why the stored spawn record does not read.
 #[derive(Debug, thiserror::Error)]
@@ -304,7 +304,7 @@ enum SpawnConfigFault {
 
 /// Why a binding write or read failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RuntimeBindingStoreError {
+pub enum RuntimeBindingStoreError {
     /// A provider-declared value was refused before anything was written.
     #[error(transparent)]
     InvalidOutput(#[from] ProviderOutputValidationError),
@@ -332,7 +332,7 @@ pub(crate) enum RuntimeBindingStoreError {
 }
 
 /// The binding `id`, or `None`. Fails on a database error or a stored row that does not read.
-pub(crate) fn read_binding(
+pub fn read_binding(
     reader: &Connection,
     id: &RuntimeBindingId,
 ) -> rusqlite::Result<Option<RuntimeBinding>> {
@@ -344,7 +344,7 @@ pub(crate) fn read_binding(
 
 /// A run's bindings, oldest first; empty when it has none. Fails on a database error or a stored
 /// row that does not read.
-pub(crate) fn read_run_bindings(
+pub fn read_run_bindings(
     reader: &Connection,
     run_id: &RunId,
 ) -> rusqlite::Result<Vec<RuntimeBinding>> {
@@ -356,7 +356,7 @@ pub(crate) fn read_run_bindings(
 /// Every binding of `run_ids` in one read, superseded ones included, ordered by run, then oldest
 /// first; the caller groups them. Fails as a whole on a database error or any row that does not
 /// read.
-pub(crate) fn read_bindings_of_runs(
+pub fn read_bindings_of_runs(
     reader: &Connection,
     run_ids: &[RunId],
 ) -> rusqlite::Result<Vec<RuntimeBinding>> {
@@ -388,21 +388,21 @@ pub(crate) fn read_resumable_bindings(
 
 /// Writes runtime bindings through the database writer, reading a stored one first through the
 /// read pool where a write is gated on it.
-pub(crate) struct RuntimeBindingStore {
+pub struct RuntimeBindingStore {
     reads: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
 }
 
 impl RuntimeBindingStore {
     /// A store reading through `reads` and writing through `writer`.
-    pub(crate) fn new(reads: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
+    pub fn new(reads: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
         Self { reads, writer }
     }
 
     /// Records a new binding under a minted id and returns it as stored, once committed. Fails
     /// with [`RuntimeBindingStoreError::InvalidOutput`] for a contract version or resume handle
     /// that does not meet its rules, before anything is written, and when the write fails.
-    pub(crate) async fn create(
+    pub async fn create(
         &self,
         input: CreateRuntimeBindingInput,
     ) -> Result<RuntimeBinding, RuntimeBindingStoreError> {
@@ -474,7 +474,7 @@ impl RuntimeBindingStore {
     /// it has no row and nothing was written. Fails with
     /// [`RuntimeBindingStoreError::InvalidOutput`] for an invalid patch, even for an absent id, on
     /// a stored row that does not read, before anything is written, and when the write fails.
-    pub(crate) async fn update(
+    pub async fn update(
         &self,
         id: &RuntimeBindingId,
         patch: RuntimeBindingPatch,
@@ -544,7 +544,7 @@ impl RuntimeBindingStore {
     /// write. Fails with [`RuntimeBindingStoreError::InvalidOutput`] for an invalid resume handle,
     /// and with [`RuntimeBindingStoreError::Write`] when the predecessor has no row, so nothing
     /// was recorded.
-    pub(crate) async fn record_relaunch(
+    pub async fn record_relaunch(
         &self,
         relaunch: RuntimeBindingRelaunch,
     ) -> Result<(), RuntimeBindingStoreError> {
@@ -583,10 +583,7 @@ impl RuntimeBindingStore {
     }
 
     /// Deletes binding `id` and returns whether it had a row. Fails when the write fails.
-    pub(crate) async fn delete(
-        &self,
-        id: &RuntimeBindingId,
-    ) -> Result<bool, RuntimeBindingStoreError> {
+    pub async fn delete(&self, id: &RuntimeBindingId) -> Result<bool, RuntimeBindingStoreError> {
         let results = self
             .writer
             .write(vec![WriteStatement {

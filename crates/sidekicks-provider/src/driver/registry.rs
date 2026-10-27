@@ -78,7 +78,7 @@ struct RegisteredDriver {
 
 /// Holds the registered drivers in the table's order and gates capability-bound calls on their
 /// recorded flags.
-pub(crate) struct ProviderRegistry {
+pub struct ProviderRegistry {
     /// The drivers in table order; a short list, scanned.
     drivers: Vec<RegisteredDriver>,
 }
@@ -86,7 +86,7 @@ pub(crate) struct ProviderRegistry {
 impl ProviderRegistry {
     /// Builds every provider in `table`, in its order, from the one bundle of shared services. A
     /// build does no I/O and starts no process, so it cannot fail.
-    pub(crate) fn register_from(table: &[ProviderRegistration], services: &DriverServices) -> Self {
+    pub fn register_from(table: &[ProviderRegistration], services: &DriverServices) -> Self {
         Self {
             drivers: table
                 .iter()
@@ -110,7 +110,7 @@ impl ProviderRegistry {
 
     /// Records the capabilities `provider`'s read reported, replacing the earlier snapshot. Refused
     /// `provider.notFound` when no driver answers it.
-    pub(crate) fn record_capabilities(
+    pub fn record_capabilities(
         &self,
         provider: &ProviderId,
         capabilities: DriverCapabilities,
@@ -125,7 +125,7 @@ impl ProviderRegistry {
 
     /// The contract version `provider`'s recorded snapshot declares, `None` until a snapshot is
     /// recorded; refused `provider.notFound` when no driver answers it.
-    pub(crate) fn contract_version(
+    pub fn contract_version(
         &self,
         provider: &ProviderId,
     ) -> Result<Option<FreeFormText<PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN>>, DomainError> {
@@ -139,17 +139,14 @@ impl ProviderRegistry {
     }
 
     /// The driver for `provider`, refused `provider.notFound` when no driver answers it.
-    pub(crate) fn lookup(
-        &self,
-        provider: &ProviderId,
-    ) -> Result<Arc<dyn ProviderDriver>, DomainError> {
+    pub fn lookup(&self, provider: &ProviderId) -> Result<Arc<dyn ProviderDriver>, DomainError> {
         self.entry(provider)
             .map(|registered| Arc::clone(&registered.driver))
     }
 
     /// The fixed facts `provider`'s driver declares, refused `provider.notFound` when no driver
     /// answers it.
-    pub(crate) fn descriptor(
+    pub fn descriptor(
         &self,
         provider: &ProviderId,
     ) -> Result<&'static ProviderDescriptor, DomainError> {
@@ -159,7 +156,7 @@ impl ProviderRegistry {
     /// Passes when `provider`'s recorded snapshot declares `flag`. Refuses with
     /// [`provider_not_found`] when no driver answers it, and [`provider_capability_unsupported`]
     /// when the flag is off or no snapshot is recorded yet.
-    pub(crate) fn check_capability(
+    pub fn check_capability(
         &self,
         provider: &ProviderId,
         flag: DriverCapabilityFlag,
@@ -180,7 +177,7 @@ impl ProviderRegistry {
 
     /// The logs the registered providers' running services write, which the diagnostic-log expiry
     /// never deletes; blocking. Fails with the first driver's failure to name its services' logs.
-    pub(crate) fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
+    pub fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
         let mut files = Vec::new();
         for registered in &self.drivers {
             files.extend(registered.driver.running_service_log_files()?);
@@ -189,7 +186,7 @@ impl ProviderRegistry {
     }
 
     /// Each registered provider with its driver, in the table's order.
-    pub(crate) fn drivers(&self) -> impl Iterator<Item = (&ProviderId, &Arc<dyn ProviderDriver>)> {
+    pub fn drivers(&self) -> impl Iterator<Item = (&ProviderId, &Arc<dyn ProviderDriver>)> {
         self.drivers
             .iter()
             .map(|registered| (&registered.provider, &registered.driver))
@@ -197,8 +194,8 @@ impl ProviderRegistry {
 }
 
 /// A provider id for a test that needs any provider; no table holds it.
-#[cfg(test)]
-pub(crate) fn test_provider() -> ProviderId {
+#[cfg(any(test, feature = "test-support"))]
+pub fn test_provider() -> ProviderId {
     ProviderId::new("test-provider".to_owned()).expect("the id matches the pattern")
 }
 

@@ -36,30 +36,30 @@ pub(crate) struct RuleFile<'a> {
 /// entity type and id, for one user, with a JSON context the action's schema types. A request the
 /// schema does not admit is denied.
 #[derive(Debug, Clone)]
-pub(crate) struct PolicyRequest<'a> {
+pub struct PolicyRequest<'a> {
     /// The user the request acts for.
-    pub(crate) principal: &'a UserId,
+    pub principal: &'a UserId,
     /// The action's id as the schema declares it, such as `workflow::start`.
-    pub(crate) action: &'a str,
+    pub action: &'a str,
     /// What the action acts on.
-    pub(crate) resource: PolicyResource<'a>,
+    pub resource: PolicyResource<'a>,
     /// The context the rules read, a JSON object the action's context type must admit.
-    pub(crate) context: serde_json::Value,
+    pub context: serde_json::Value,
 }
 
 /// The resource a request acts on: its entity type as the schema names it, and its id.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct PolicyResource<'a> {
+pub struct PolicyResource<'a> {
     /// The entity type, such as `Workflow`.
-    pub(crate) entity_type: &'a str,
+    pub entity_type: &'a str,
     /// The entity's id.
-    pub(crate) id: &'a str,
+    pub id: &'a str,
 }
 
 /// What the rules decide. A deny carries the evaluation's errors, empty when no rule permits the
 /// request or one forbids it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum PolicyDecision {
+pub enum PolicyDecision {
     /// A rule permits the request, none forbids it and nothing errored.
     Allow,
     /// The request may not proceed.
@@ -71,7 +71,7 @@ pub(crate) enum PolicyDecision {
 
 /// Why a set of rules did not load; each keeps the rules engine's own errors.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RulesLoadError {
+pub enum RulesLoadError {
     /// The schema's text does not parse.
     #[error("approval rules: the schema does not parse")]
     SchemaDoesNotParse(#[source] Box<CedarSchemaError>),
@@ -106,7 +106,7 @@ pub(crate) enum RulesLoadError {
 /// shares the one parsed set, and decisions may be taken on any thread; each evaluates afresh, with
 /// nothing cached between them.
 #[derive(Clone)]
-pub(crate) struct Authorizer {
+pub struct Authorizer {
     rules: Arc<LoadedRules>,
 }
 
@@ -124,7 +124,7 @@ const _: () = assert_send_sync::<Authorizer>();
 impl Authorizer {
     /// Loads the rules the daemon ships. Fails with a [`RulesLoadError`] when they do not parse or
     /// do not check against their schema, which stops the start.
-    pub(crate) fn load_built_in() -> Result<Self, RulesLoadError> {
+    pub fn load_built_in() -> Result<Self, RulesLoadError> {
         Self::load(BUILT_IN_SCHEMA, BUILT_IN_RULE_FILES)
     }
 
@@ -174,7 +174,7 @@ impl Authorizer {
     /// Decides `request` against the rules. A request or context the schema refuses is a deny
     /// carrying its error, and so is any rule whose evaluation errors, since the engine skips such
     /// a rule and could otherwise allow past a forbid that failed.
-    pub(crate) fn decide(&self, request: PolicyRequest<'_>) -> PolicyDecision {
+    pub fn decide(&self, request: PolicyRequest<'_>) -> PolicyDecision {
         let engine_request = match self.engine_request(request) {
             Ok(engine_request) => engine_request,
             Err(error) => {

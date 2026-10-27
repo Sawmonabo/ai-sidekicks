@@ -49,7 +49,7 @@ const LAST_ROWID_BEFORE_SQL: &str = "
 
 /// Why a `transcript.search` call failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum TranscriptSearchError {
+pub enum TranscriptSearchError {
     /// The session is not one this daemon holds.
     #[error(transparent)]
     Refused(#[from] DomainError),

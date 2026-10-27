@@ -23,7 +23,7 @@ pub(crate) fn apply_connection_pragmas(connection: &Connection) -> rusqlite::Res
 /// SQLite's busy wait, with room for `statement_capacity` cached statements, the size of the
 /// statement set it runs. Fails when the file is missing, closing the connection when its setup
 /// fails.
-pub(crate) fn open_database_reader(
+pub fn open_database_reader(
     database_path: &Path,
     statement_capacity: usize,
 ) -> Result<Connection, CleanupFailures<rusqlite::Error>> {

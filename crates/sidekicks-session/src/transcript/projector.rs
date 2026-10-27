@@ -40,7 +40,7 @@ pub(crate) const TRANSCRIPT_ROW_BODY_INLINE_MAX_UTF8_BYTES: i64 =
 
 /// Why a window of events could not be projected into rows.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum TranscriptProjectionError {
+pub enum TranscriptProjectionError {
     /// SQLite refused the bodies' read, or a stored size is not a safe integer.
     #[error("the read of a transcript window's bodies failed")]
     Database(#[from] rusqlite::Error),

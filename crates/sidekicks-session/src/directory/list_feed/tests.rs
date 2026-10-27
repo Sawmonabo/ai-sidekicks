@@ -23,7 +23,7 @@ use sidekicks_ipc::stream::feed::{CreditGate, Feed as _};
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
 use sidekicks_store::events::log_service::EventLogAppendOptions;
-use sidekicks_store::events::log_service::tests::{TestLog, open_log};
+use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 use sidekicks_workspace::managed::service::SessionListRefresh as _;
 use sidekicks_workspace::schema::MountOrigin;
 use sidekicks_workspace::test_rows::PARENT_ROWS_AT;

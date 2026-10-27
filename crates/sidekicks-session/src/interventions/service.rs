@@ -86,7 +86,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// The statements the service's reads prepare on its pooled connection: the run's row, its
 /// provider, and an intervention's row by its id and under a reused key.
-pub(crate) const INTERVENTION_SERVICE_STATEMENT_CAPACITY: usize = 4;
+pub const INTERVENTION_SERVICE_STATEMENT_CAPACITY: usize = 4;
 
 // The insert of a request is the first statement of its write.
 const INSERT_STATEMENT_INDEX: usize = 0;
@@ -97,24 +97,24 @@ const ACCEPT_STATE_GUARD_INDEX: usize = 1;
 const ACCEPT_MOVE_INDEX: usize = 2;
 
 /// What the interventions service reads and writes through.
-pub(crate) struct InterventionServiceDeps {
+pub struct InterventionServiceDeps {
     /// The read pool every read borrows a connection from.
-    pub(crate) pool: Arc<DatabaseReadPool>,
+    pub pool: Arc<DatabaseReadPool>,
     /// The event log every intervention event is appended to.
-    pub(crate) event_log: Arc<EventLogService>,
+    pub event_log: Arc<EventLogService>,
     /// The run engine, which routes an interrupt and forgets a limit's late hand.
-    pub(crate) engine: Arc<RunEngine>,
+    pub engine: Arc<RunEngine>,
     /// The registered drivers, which carry out a dispatch.
-    pub(crate) providers: Arc<ProviderRegistry>,
+    pub providers: Arc<ProviderRegistry>,
     /// The run queue, which an interrupt's end goes through.
-    pub(crate) queue: Arc<dyn InterruptQueue>,
+    pub queue: Arc<dyn InterruptQueue>,
 }
 
 /// Takes every intervention on a run, a person's from their device's connection and the daemon's
 /// own at a limit, to one durable row, at most one dispatch and one outcome. Cloning shares its
 /// locks, so a clone a task carries orders its writes with the rest.
 #[derive(Clone)]
-pub(crate) struct InterventionService {
+pub struct InterventionService {
     /// The read pool every read borrows a connection from.
     pub(super) pool: Arc<DatabaseReadPool>,
     /// The appender every intervention event goes through.
@@ -244,7 +244,7 @@ impl Applied {
 
 impl InterventionService {
     /// A service over `deps`, with no run locked.
-    pub(crate) fn new(deps: InterventionServiceDeps) -> Self {
+    pub fn new(deps: InterventionServiceDeps) -> Self {
         let InterventionServiceDeps {
             pool,
             event_log,
@@ -273,7 +273,7 @@ impl InterventionService {
     /// request differs; a dispatch that throws answers `failed` with its reason, and one the
     /// provider got with no answer back answers `accepted`, its row and an interrupt's queue hold
     /// left for the run's end or a turn's end to settle, or the outcome such a settle gave it.
-    pub(crate) async fn apply_intervention(
+    pub async fn apply_intervention(
         &self,
         request: AgentRunInterveneRequest,
         actor: InterventionActor,

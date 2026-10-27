@@ -9,6 +9,8 @@
 //! - No sequence: the append path mints it inside the write.
 //! - The append receipt is returned as is.
 
+mod payloads;
+
 use std::sync::Arc;
 
 use garde::Validate as _;
@@ -37,7 +39,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// A payload that names the session it belongs to and who acted, so the envelope reads both from
 /// it and the two cannot disagree.
-pub(crate) trait AppendedPayload {
+pub trait AppendedPayload {
     /// The session the event belongs to.
     fn session_id(&self) -> &SessionId;
 
@@ -48,7 +50,7 @@ pub(crate) trait AppendedPayload {
 /// A typed event ready to append: its session, who acted, its type, the payload members the
 /// envelope stores, serialized from the checked event, and the run the event belongs to.
 #[derive(Clone, Debug)]
-pub(crate) struct SessionEventDraft {
+pub struct SessionEventDraft {
     session_id: SessionId,
     actor: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
     event_type: SessionEventType,
@@ -61,7 +63,7 @@ impl SessionEventDraft {
     /// The draft of the event `into_event` makes of `payload`, its session and actor read from the
     /// payload, as `SessionEvent::AgentToolCallInvoked` makes an `agent.toolCall.invoked`. Fails as
     /// [`SessionEventDraft::of_session`] does.
-    pub(crate) fn new<Payload: AppendedPayload>(
+    pub fn new<Payload: AppendedPayload>(
         payload: Payload,
         into_event: fn(Payload) -> SessionEvent,
     ) -> Result<Self, SessionEventDraftError> {
@@ -73,7 +75,7 @@ impl SessionEventDraft {
     /// The draft of `event` on `session_id`'s log, for a payload that names no session, with the
     /// daemon as its actor. Fails when the event breaks one of its type's checks, or when its
     /// payload does not serialize to a JSON object.
-    pub(crate) fn of_session(
+    pub fn of_session(
         session_id: SessionId,
         event: &SessionEvent,
     ) -> Result<Self, SessionEventDraftError> {
@@ -98,7 +100,8 @@ impl SessionEventDraft {
 
     /// The draft with `body`, its machine-authored prose, kept beside its payload when it is
     /// appended; a body its append's linkage carries is kept in its place.
-    pub(crate) fn with_content_body(self, body: String) -> Self {
+    #[must_use]
+    pub fn with_content_body(self, body: String) -> Self {
         Self {
             content_body: Some(body),
             ..self
@@ -121,7 +124,7 @@ pub(crate) struct StoredPatchPart {
 
 /// Why a typed event could not be drafted.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SessionEventDraftError {
+pub enum SessionEventDraftError {
     /// The event breaks one of its type's checks.
     #[error("the event breaks a check of its type")]
     Check(#[from] garde::Report),
@@ -134,11 +137,11 @@ pub(crate) enum SessionEventDraftError {
 /// inside its transaction. Its session, type, payload and run come from a [`SessionEventDraft`]
 /// only, so they always agree.
 #[derive(Clone, Debug)]
-pub(crate) struct UnsequencedEventEnvelope {
+pub struct UnsequencedEventEnvelope {
     /// The event's id.
-    pub(crate) id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    pub id: FreeFormText<EVENT_FIELD_MAX_LEN>,
     /// When the event occurred; stored in UTC to the millisecond.
-    pub(crate) occurred_at: EventOccurredAt,
+    pub occurred_at: EventOccurredAt,
     /// Who acted: a person's or an agent's id, `None` when the daemon did; stored as `NULL`.
     pub(crate) actor: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
     /// The id that ties this event to others of one operation.
@@ -157,7 +160,7 @@ pub(crate) struct UnsequencedEventEnvelope {
 impl UnsequencedEventEnvelope {
     /// The envelope of `draft`, under a freshly minted id, with the linkage members given;
     /// `occurred_at` is in the stored form.
-    pub(crate) fn new(
+    pub fn new(
         draft: SessionEventDraft,
         occurred_at: EventOccurredAt,
         correlation_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
@@ -188,33 +191,33 @@ impl UnsequencedEventEnvelope {
     }
 
     /// The session the event belongs to.
-    pub(crate) fn session_id(&self) -> SessionId {
+    pub fn session_id(&self) -> SessionId {
         self.session_id
     }
 
     /// The event's type.
-    pub(crate) fn event_type(&self) -> SessionEventType {
+    pub fn event_type(&self) -> SessionEventType {
         self.event_type
     }
 
     /// The event's category, its type's own.
-    pub(crate) fn category(&self) -> EventCategory {
+    pub fn category(&self) -> EventCategory {
         self.event_type.category()
     }
 
     /// The payload members the envelope stores.
-    pub(crate) fn payload(&self) -> &Map<String, Value> {
+    pub fn payload(&self) -> &Map<String, Value> {
         &self.payload
     }
 
     /// The run the event belongs to, where its payload names one.
-    pub(crate) fn run(&self) -> Option<EventRun> {
+    pub fn run(&self) -> Option<EventRun> {
         self.run
     }
 
     /// Adds to the payload the description of `body`, the event's machine-authored prose, and
     /// returns the body `content_payload` stores. Fails on a type that carries no body.
-    pub(crate) fn describe_content(
+    pub fn describe_content(
         &mut self,
         body: String,
     ) -> Result<StoredBody, ContentPartitionRefusedError> {
@@ -272,26 +275,26 @@ impl UnsequencedEventEnvelope {
 
 /// The envelope linkage and the atomic table write one append carries.
 #[derive(Debug, Default)]
-pub(crate) struct SessionEventLinkage {
+pub struct SessionEventLinkage {
     /// The instant the event records, for a producer whose rows in the same write carry it too;
     /// the clock's when `None`.
-    pub(crate) occurred_at: Option<WireInstant>,
+    pub occurred_at: Option<WireInstant>,
     /// The id that ties this event to others of one operation.
-    pub(crate) correlation_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+    pub correlation_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
     /// The id of what caused this event.
-    pub(crate) causation_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+    pub causation_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
     /// Statements committed in the same write just before the rows; see
     /// [`EventLogAppendOptions::transactional_prelude`].
-    pub(crate) transactional_prelude: Vec<WriteStatement>,
+    pub transactional_prelude: Vec<WriteStatement>,
     /// A body-bearing event's prose, kept beside its payload.
-    pub(crate) content_body: Option<String>,
+    pub content_body: Option<String>,
     /// Events committed in the same write, in order, just before this one.
-    pub(crate) preceding_events: Vec<SessionEventDraft>,
+    pub preceding_events: Vec<SessionEventDraft>,
 }
 
 /// Why an append through the appender was not kept; none of its events is stored.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SessionEventAppendError {
+pub enum SessionEventAppendError {
     /// The linkage's `occurredAt` cannot take the stored form, one finer than a millisecond among
     /// them.
     #[error("the event's occurredAt cannot be stored")]
@@ -304,7 +307,7 @@ pub(crate) enum SessionEventAppendError {
 /// Why an emitter's typed event was not appended, refused at its draft or at its append; none of
 /// its write is kept.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SessionEventEmitError {
+pub enum SessionEventEmitError {
     /// The event breaks one of its type's checks.
     #[error("the event could not be drafted")]
     Draft(#[from] SessionEventDraftError),
@@ -314,20 +317,20 @@ pub(crate) enum SessionEventEmitError {
 }
 
 /// Builds one session event envelope from a typed event and appends it to the event log.
-pub(crate) struct SessionEventAppender {
+pub struct SessionEventAppender {
     event_log: Arc<EventLogService>,
     version: EventEnvelopeVersion,
 }
 
 impl SessionEventAppender {
     /// An appender writing envelopes of `version` to `event_log`.
-    pub(crate) fn new(event_log: Arc<EventLogService>, version: EventEnvelopeVersion) -> Self {
+    pub fn new(event_log: Arc<EventLogService>, version: EventEnvelopeVersion) -> Self {
         Self { event_log, version }
     }
 
     /// Appends `draft`, after the linkage's preceding events in the same write, and returns once
     /// it committed. Fails as [`SessionEventAppendError`] says.
-    pub(crate) async fn append(
+    pub async fn append(
         &self,
         draft: SessionEventDraft,
         linkage: SessionEventLinkage,
@@ -338,7 +341,7 @@ impl SessionEventAppender {
 
     /// Appends as [`SessionEventAppender::append`] does, under `hold`, the caller's own hold on
     /// the draft's session.
-    pub(crate) async fn append_held(
+    pub async fn append_held(
         &self,
         hold: &SessionAppendHold,
         draft: SessionEventDraft,

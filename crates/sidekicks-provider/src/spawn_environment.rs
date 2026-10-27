@@ -28,7 +28,7 @@ use crate::driver::ProviderDescriptor;
 /// process, launch, credential-home, screen-reader and background-work switch names; and every
 /// driver's background-work switch, which every provider's process and conversation commands get,
 /// so no provider's agent starts another's background work. Built once at the daemon's start.
-pub(crate) struct ReservedEnvironmentNames {
+pub struct ReservedEnvironmentNames {
     names: Vec<&'static str>,
     background_work_off_switches: Vec<(&'static str, &'static str)>,
 }
@@ -36,7 +36,7 @@ pub(crate) struct ReservedEnvironmentNames {
 impl ReservedEnvironmentNames {
     /// The names every one of `descriptors` sets, so a row naming any of them is dropped whichever
     /// provider the session runs, and their background-work switches.
-    pub(crate) fn of_providers(descriptors: &[&ProviderDescriptor]) -> Self {
+    pub fn of_providers(descriptors: &[&ProviderDescriptor]) -> Self {
         Self {
             names: descriptors
                 .iter()
@@ -53,37 +53,37 @@ impl ReservedEnvironmentNames {
 }
 
 /// What every environment the daemon builds for one session starts from.
-pub(crate) struct SessionEnvironment<'a> {
+pub struct SessionEnvironment<'a> {
     /// The login shell's environment captured at the daemon's start, never the daemon's own.
-    pub(crate) base: &'a [(String, String)],
+    pub base: &'a [(String, String)],
     /// The machine's `Every project` rows.
-    pub(crate) every_project_rows: &'a [EnvironmentRow],
+    pub every_project_rows: &'a [EnvironmentRow],
     /// The session's project's own rows, which win over an `Every project` row of the same name.
-    pub(crate) project_rows: &'a [EnvironmentRow],
+    pub project_rows: &'a [EnvironmentRow],
     /// The names no row may set.
-    pub(crate) reserved_names: &'a ReservedEnvironmentNames,
+    pub reserved_names: &'a ReservedEnvironmentNames,
     /// The spelling rules of the place the child runs in, under which every name is compared.
-    pub(crate) rules: PathRules,
+    pub rules: PathRules,
 }
 
 /// What a provider's process and the commands its conversation runs both start from.
-pub(crate) struct ProviderEnvironmentRequest<'a> {
+pub struct ProviderEnvironmentRequest<'a> {
     /// The session's environment.
-    pub(crate) session: SessionEnvironment<'a>,
+    pub session: SessionEnvironment<'a>,
     /// The provider's descriptor, whose withheld and process names apply.
-    pub(crate) descriptor: &'a ProviderDescriptor,
+    pub descriptor: &'a ProviderDescriptor,
     /// The run's credential variables to remove, its resolved credential policy's `deny_env_vars`.
-    pub(crate) deny_env_vars: &'a [&'a str],
+    pub deny_env_vars: &'a [&'a str],
     /// The pairs that point the provider at one account's folders, composed by its driver: each
     /// name one of the descriptor's credential-home names, each value an absolute path. Empty, the
     /// provider runs on the person's own configuration and sign-in.
-    pub(crate) credential_homes: &'a [(String, String)],
+    pub credential_homes: &'a [(String, String)],
 }
 
 /// Why a provider's environment could not be built. Each names the variable and never its value,
 /// which can hold a credential.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum SpawnEnvironmentError {
+pub enum SpawnEnvironmentError {
     /// Two mandated values claim one name, refused even when equal: the last winning could lower
     /// the auto-update opt-out, and the first winning would drop an account's folder.
     #[error(
@@ -134,7 +134,7 @@ pub(crate) fn build_provider_process_environment(
 /// credential variables and the driver's withheld names removed, then every driver's
 /// background-work switch and the account's folders. Fails as
 /// [`build_provider_process_environment`] does for the account's folders.
-pub(crate) fn build_conversation_command_environment(
+pub fn build_conversation_command_environment(
     request: &ProviderEnvironmentRequest<'_>,
 ) -> Result<Vec<(String, String)>, SpawnEnvironmentError> {
     let credential_home_pairs = request
@@ -146,7 +146,7 @@ pub(crate) fn build_conversation_command_environment(
 
 /// The whole environment of a command the person's project runs: the session's, every variable
 /// kept, since such a command may need a credential (`NPM_TOKEN` for a private registry).
-pub(crate) fn build_project_command_environment(
+pub fn build_project_command_environment(
     session: &SessionEnvironment<'_>,
 ) -> Vec<(String, String)> {
     layer_session_environment(session, []).into_pairs()
@@ -177,7 +177,7 @@ pub(crate) fn place_folder_first_on_search_path(
 }
 
 /// `environment` without any pair that one of `names` names under `rules`.
-pub(crate) fn remove_environment_names(
+pub fn remove_environment_names(
     environment: &mut Vec<(String, String)>,
     names: &[&str],
     rules: PathRules,

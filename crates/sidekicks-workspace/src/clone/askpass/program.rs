@@ -15,7 +15,7 @@ use interprocess::local_socket::{GenericFilePath, Stream, ToFsName};
 use super::broker::AskpassRequest;
 
 /// The file name git and ssh run the askpass mode by, beside the daemon's own program.
-pub(crate) const GIT_ASKPASS_PROGRAM_NAME: &str = "sidekicks-git-askpass";
+pub const GIT_ASKPASS_PROGRAM_NAME: &str = "sidekicks-git-askpass";
 
 /// The environment variable naming the broker's socket to the askpass mode.
 pub(crate) const ASKPASS_SOCKET_VARIABLE: &str = "SIDEKICKS_ASKPASS_SOCKET";
@@ -25,14 +25,14 @@ pub(crate) const ASKPASS_OWNER_VARIABLE: &str = "SIDEKICKS_ASKPASS_OWNER";
 
 /// The askpass mode's path, beside `daemon_program`, the running daemon's own program, with the
 /// system's program suffix.
-pub(crate) fn git_askpass_program_path(daemon_program: &Path) -> PathBuf {
+pub fn git_askpass_program_path(daemon_program: &Path) -> PathBuf {
     daemon_program.with_file_name(format!("{GIT_ASKPASS_PROGRAM_NAME}{EXE_SUFFIX}"))
 }
 
 /// Runs the askpass mode: the question is git's or ssh's first argument, the socket and owner come
 /// from the environment the daemon gave git. Exits 0 having printed the answer, 1 otherwise. Runs
 /// before the daemon's runtime, log or allocator timer would start.
-pub(crate) fn run_git_askpass() -> ExitCode {
+pub fn run_git_askpass() -> ExitCode {
     let Some(socket_path) = env::var_os(ASKPASS_SOCKET_VARIABLE) else {
         return ExitCode::FAILURE;
     };

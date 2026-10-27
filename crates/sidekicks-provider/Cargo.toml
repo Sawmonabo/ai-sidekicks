@@ -26,6 +26,7 @@ jiff.workspace = true
 jsonc-parser.workspace = true
 lru.workspace = true
 memchr.workspace = true
+mockall = { workspace = true, optional = true }
 notify.workspace = true
 process-wrap.workspace = true
 regex.workspace = true
@@ -45,12 +46,15 @@ sidekicks-store.workspace = true
 sidekicks-workspace.workspace = true
 starlark.workspace = true
 strum.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 tokio-util.workspace = true
 toml.workspace = true
 tracing.workspace = true
+# The diagnostics recorder other crates' tests install.
+tracing-subscriber = { workspace = true, optional = true }
 url.workspace = true
 zeroize.workspace = true
 zstd.workspace = true
@@ -60,7 +64,12 @@ interprocess.workspace = true
 mockall.workspace = true
 proptest.workspace = true
 rstest.workspace = true
-tempfile.workspace = true
+# The call fixtures, the scripted caller reader and the credit gate the tests use.
+sidekicks-ipc = { workspace = true, features = ["test-support"] }
+# The stand-in programs and recorded system calls the tests use.
+sidekicks-platforms = { workspace = true, features = ["test-support"] }
+# The test database and the session rows the tests build on.
+sidekicks-store = { workspace = true, features = ["test-support"] }
 # The paused clock the drivers' and the command channel's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
@@ -74,9 +83,9 @@ typify.workspace = true
 zstd.workspace = true
 
 [features]
-# Helpers other crates' tests use: the drivers' test registry and provider, the runtime binding's
-# test store and the question port's test card.
-test-support = []
+# Helpers other crates' tests use: the drivers' test registry and provider, the driver's mock, the
+# runtime binding's test store and the question port's test card.
+test-support = ["dep:mockall", "dep:tracing-subscriber", "sidekicks-store/test-support"]
 
 [lints]
 workspace = true

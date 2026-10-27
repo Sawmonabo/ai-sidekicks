@@ -52,20 +52,20 @@ use sidekicks_ipc::registry::TransportId;
 
 /// One device connection: the device and the connection it called on.
 #[derive(Clone, Debug)]
-pub(crate) struct ShellConnection {
+pub struct ShellConnection {
     /// The calling device.
-    pub(crate) device_id: DeviceId,
+    pub device_id: DeviceId,
     /// The connection it called on.
-    pub(crate) transport_id: TransportId,
+    pub transport_id: TransportId,
 }
 
 /// A device connection asking for a shell through its pane's output subscription to that shell.
 #[derive(Clone, Debug)]
-pub(crate) struct ShellLeaseCaller {
+pub struct ShellLeaseCaller {
     /// The calling device and connection.
-    pub(crate) connection: ShellConnection,
+    pub connection: ShellConnection,
     /// The pane's output subscription to the shell.
-    pub(crate) output_subscription_id: SubscriptionId,
+    pub output_subscription_id: SubscriptionId,
 }
 
 /// An agent's running command asking for a shell through the run's write path.
@@ -206,7 +206,7 @@ struct LeaseShared {
 /// change of holder; the `admit_*` checks refuse with `terminal.control.heldByOther` or
 /// `terminal.control.notHeld` when the caller may not act, and `admit_write` takes a shell nobody
 /// holds for the device writing to it.
-pub(crate) struct ShellControlLease {
+pub struct ShellControlLease {
     shared: Arc<LeaseShared>,
 }
 
@@ -214,7 +214,7 @@ impl ShellControlLease {
     /// The lease of `terminal_id` in `session_id`, held by nobody at version 0; `broadcast`
     /// records each change of holder, and `refuse_ended_caller` refuses a caller whose pane or
     /// shell has ended.
-    pub(crate) fn new(
+    pub fn new(
         session_id: SessionId,
         terminal_id: TerminalId,
         machine_device_id: DeviceId,
@@ -244,7 +244,7 @@ impl ShellControlLease {
     /// fails with it. `force` moves the shell off another device; nothing moves it off a run.
     /// Refuses a caller whose pane or shell ended before anything binds to it, and a shell another
     /// holds with `terminal.control.heldByOther`.
-    pub(crate) async fn take(
+    pub async fn take(
         &self,
         caller: &ShellLeaseCaller,
         force: bool,

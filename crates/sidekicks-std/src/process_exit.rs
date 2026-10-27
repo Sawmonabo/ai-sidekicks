@@ -18,7 +18,7 @@ use crate::utf8_stream::Utf8StreamDecoder;
 
 /// The most of a child's output one read of its pipe takes, so the buffer each reader holds stays
 /// small however much the child prints.
-pub(crate) const OUTPUT_CHUNK_BYTES: usize = 8 * 1024;
+pub const OUTPUT_CHUNK_BYTES: usize = 8 * 1024;
 
 // What a tail reads when the process printed nothing but whitespace, since the wire refuses blank.
 const NO_OUTPUT: &str = "(no output)";
@@ -27,16 +27,22 @@ const NO_OUTPUT: &str = "(no output)";
 /// make a whole UTF-8 sequence and each invalid one reads as U+FFFD once, and at most about twice
 /// the cap is kept in memory however much the child prints. `CAP` is at most the wire's
 /// failure-detail cap, which the build checks.
-pub(crate) struct OutputTail<const CAP: usize> {
+pub struct OutputTail<const CAP: usize> {
     text: String,
     // Code points in `text`.
     text_len: usize,
     decoder: Utf8StreamDecoder,
 }
 
+impl<const CAP: usize> Default for OutputTail<CAP> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const CAP: usize> OutputTail<CAP> {
     /// An empty tail.
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         const {
             assert!(
                 CAP <= PROVIDER_FAILURE_DETAIL_MAX_LEN,
@@ -51,7 +57,7 @@ impl<const CAP: usize> OutputTail<CAP> {
     }
 
     /// Adds one chunk of output.
-    pub(crate) fn push(&mut self, chunk: &[u8]) {
+    pub fn push(&mut self, chunk: &[u8]) {
         let mut decoder = mem::take(&mut self.decoder);
         decoder.push(chunk, |text| self.push_text(text));
         self.decoder = decoder;
@@ -60,7 +66,7 @@ impl<const CAP: usize> OutputTail<CAP> {
     /// The tail as the wire carries it: the last `CAP` code points, moved forward to the next
     /// grapheme boundary so no character is split from its marks, each NUL read as U+FFFD, and
     /// `(no output)` for output that was empty or only whitespace.
-    pub(crate) fn into_text(mut self) -> String {
+    pub fn into_text(mut self) -> String {
         mem::take(&mut self.decoder).finish(|text| self.push_text(text));
         let cut = self
             .text
@@ -109,7 +115,7 @@ impl<const CAP: usize> OutputTail<CAP> {
 
 /// The exit a process crosses the wire with: the name of the signal that ended it, or that the
 /// daemon asked, where there is one, else its exit code, with its output tail.
-pub(crate) fn compose_process_exit<const CAP: usize>(
+pub fn compose_process_exit<const CAP: usize>(
     exit: ChildExit,
     output_tail: OutputTail<CAP>,
 ) -> ProcessExit {
@@ -133,7 +139,7 @@ pub(crate) fn compose_process_exit<const CAP: usize>(
 /// Reads `reader`, a child's output, to its end, handing each chunk of at most 8 KiB to
 /// `take_chunk` as it arrives. A read that is interrupted is tried again; one that fails otherwise
 /// is logged as `what`, the output's name, and ends the reading where it stands.
-pub(crate) async fn read_output_chunks(
+pub async fn read_output_chunks(
     mut reader: impl AsyncRead + Unpin,
     what: &str,
     mut take_chunk: impl FnMut(&[u8]),

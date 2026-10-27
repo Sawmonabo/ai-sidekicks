@@ -127,7 +127,7 @@ pub(crate) fn parked_failed_run_condition(alias: &str) -> String {
 /// Where a request's instant falls among the stored instants, which compare as text in their one
 /// stored form: before every one, at a stored-form text, or after every one.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum StoredInstantBound {
+pub enum StoredInstantBound {
     /// Before the year 0000, which no stored instant precedes.
     BeforeEvery,
     /// The instant in the stored form, so it compares with the stored instants as text.
@@ -140,7 +140,7 @@ pub(crate) enum StoredInstantBound {
 /// fraction length, which would compare wrongly as written. It is rounded up to the millisecond the
 /// stored instants keep, so a stored instant is before it, or at or after it, exactly when it is
 /// so against the rounded text.
-pub(crate) fn stored_instant_bound(instant: &WireInstant) -> StoredInstantBound {
+pub fn stored_instant_bound(instant: &WireInstant) -> StoredInstantBound {
     let Some(timestamp) = millisecond_ceiling(instant) else {
         // The instant's pattern holds only days of the calendar, so the text failed to read or
         // round for an offset that carries it past the last timestamp.

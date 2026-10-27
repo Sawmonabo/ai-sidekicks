@@ -48,7 +48,7 @@ const METHODS_TAKEN_BY_A_DAMAGED_SESSION: [&str; 2] = [
 /// stop, the restart and the flush is refused `daemon.writeRefused` while the daemon takes no
 /// writes, and one naming a session the pass is still rebuilding, or one with damaged history, is
 /// refused `session.rebuilding` or `session.history.damaged`. A call it takes goes on untouched.
-pub(crate) struct RecoveryWriteGate {
+pub struct RecoveryWriteGate {
     /// The dispatch the calls go on to.
     next: Arc<dyn Dispatch>,
     /// The frozen registry, whose entries say which method mutates.
@@ -60,7 +60,7 @@ pub(crate) struct RecoveryWriteGate {
 impl RecoveryWriteGate {
     /// The gate over `next`; `registry` says which method mutates and `status` where the recovery
     /// stands.
-    pub(crate) fn new(
+    pub fn new(
         next: Arc<dyn Dispatch>,
         registry: Arc<MethodRegistry>,
         status: Arc<RecoveryStatusTracker>,

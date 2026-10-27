@@ -23,4 +23,4 @@ pub mod scheduler;
 pub mod settle_all;
 pub mod standard_error;
 pub mod text_cut;
-pub(crate) mod utf8_stream;
+pub mod utf8_stream;

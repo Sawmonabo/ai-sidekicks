@@ -69,6 +69,7 @@ ignored = [
   "serde-saphyr",
   "yaml-edit",
   # Fetching and unpacking the tools a workflow code step runs on.
+  "flate2",
   "tar",
   "zip",
   # Editing the providers' and tool servers' TOML settings in place.
@@ -76,49 +77,30 @@ ignored = [
 ]
 
 [dependencies]
-alacritty_terminal.workspace = true
-anyhow.workspace = true
-axum = { workspace = true, features = ["http1", "tokio"] }
-base16ct.workspace = true
-base64.workspace = true
 blake3.workspace = true
 bytes.workspace = true
-cedar-policy.workspace = true
 chromiumoxide_cdp.workspace = true
-console.workspace = true
 crash-handler.workspace = true
 croner.workspace = true
 csv.workspace = true
-deadpool.workspace = true
-diffy.workspace = true
 dugong.workspace = true
 ed25519-dalek.workspace = true
 fast_image_resize.workspace = true
 ferriki-textmate.workspace = true
 ferroni.workspace = true
-file-format.workspace = true
-# Unpacks a workflow code step's tools, and writes each PNG chunk's CRC in the picture size tests.
 flate2.workspace = true
 flexi_logger.workspace = true
 form_urlencoded.workspace = true
 futures.workspace = true
-garde.workspace = true
 getrandom.workspace = true
-gif.workspace = true
 h2.workspace = true
 hkdf.workspace = true
 hmac.workspace = true
-hpke.workspace = true
 hyper-util.workspace = true
-icu_collator.workspace = true
-ignore.workspace = true
-image.workspace = true
-image-webp.workspace = true
 instant-acme.workspace = true
 interprocess.workspace = true
 jiff.workspace = true
 jsonata-core.workspace = true
-jsonc-parser.workspace = true
 jwt-simple.workspace = true
 lettre.workspace = true
 # Its version is the one `rusqlite` bundles, whose SQLite the vendored shell is checked against.
@@ -131,45 +113,31 @@ minidump.workspace = true
 minidump-processor.workspace = true
 minidump-unwind.workspace = true
 minidumper.workspace = true
-notify.workspace = true
 opentelemetry-proto.workspace = true
 p256.workspace = true
 pasetors.workspace = true
 pdfium-render.workspace = true
 percent-encoding.workspace = true
-png.workspace = true
-process-wrap.workspace = true
 psl.workspace = true
 quick_cache.workspace = true
-reflink-copy.workspace = true
 regex.workspace = true
-reqwest.workspace = true
-rmcp.workspace = true
 rquickjs.workspace = true
 rusqlite.workspace = true
 rustls-platform-verifier.workspace = true
-satteri-pulldown-cmark.workspace = true
-schemars.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
-semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serde_json_canonicalizer.workspace = true
 serde-saphyr.workspace = true
-serde_with.workspace = true
 sha2.workspace = true
-shlex.workspace = true
 sidekicks-approval.workspace = true
 sidekicks-artifact.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
-sidekicks-mcp.workspace = true
 sidekicks-platforms.workspace = true
 sidekicks-policy.workspace = true
 sidekicks-provider.workspace = true
 sidekicks-queue.workspace = true
 sidekicks-recovery.workspace = true
-sidekicks-search = { workspace = true, features = ["index"] }
 sidekicks-session.workspace = true
 sidekicks-shell.workspace = true
 sidekicks-std.workspace = true
@@ -178,52 +146,52 @@ sidekicks-terminal.workspace = true
 sidekicks-workflow.workspace = true
 sidekicks-workspace.workspace = true
 snow.workspace = true
-sse-stream.workspace = true
-starlark.workspace = true
 strum.workspace = true
-subtle.workspace = true
 sysinfo.workspace = true
 tar.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
-tokio-tungstenite.workspace = true
 tokio-util.workspace = true
-toml.workspace = true
 toml_edit.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-tree-sitter.workspace = true
-tree-sitter-bash.workspace = true
-unicode-normalization.workspace = true
-unicode-properties.workspace = true
-unicode-segmentation.workspace = true
-url.workspace = true
 uuid.workspace = true
-vte = { workspace = true, features = ["ansi"] }
 walkdir.workspace = true
 web-push-native.workspace = true
 webp.workspace = true
 yaml-edit.workspace = true
-zeroize.workspace = true
 zip.workspace = true
-zstd.workspace = true
-zune-jpeg.workspace = true
 
 [dev-dependencies]
-insta.workspace = true
-mockall.workspace = true
+alacritty_terminal.workspace = true
 proptest.workspace = true
 rstest.workspace = true
-# The test database and session rows the integration tests build on.
-sidekicks-daemon = { path = ".", features = ["test-support"] }
+# The artifact test store and the plans fixtures the tests open.
+sidekicks-artifact = { workspace = true, features = ["test-support"] }
+# The call fixtures, the scripted caller reader and the credit gate the tests use.
+sidekicks-ipc = { workspace = true, features = ["test-support"] }
 # A file whose removal the system refuses, for the clone's failed-removal test.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
-# The documents an index holds under a row's key, for the search apply's damaged-row test.
-sidekicks-search = { workspace = true, features = ["index", "test-support"] }
+# The test driver registry, the mock driver and the stand-in stores the tests build on.
+sidekicks-provider = { workspace = true, features = ["test-support"] }
+# The provider session opening the tests compose.
+sidekicks-queue = { workspace = true, features = ["test-support"] }
+# The run engine, the questions and the transcript fixtures the tests build on.
+sidekicks-session = { workspace = true, features = ["test-support"] }
+# The shell table the tests open.
+sidekicks-shell = { workspace = true, features = ["test-support"] }
+# The pause points and stalled reads the tests arm.
+sidekicks-std = { workspace = true, features = ["test-support"] }
+# The test database and the session rows the tests build on.
+sidekicks-store = { workspace = true, features = ["test-support"] }
 # The screen copy drawn without a shell, for the screen listener's answer tests.
 sidekicks-terminal = { workspace = true, features = ["test-support"] }
+# The workflow rows the tests build on.
+sidekicks-workflow = { workspace = true, features = ["test-support"] }
+# The git runner and the workspace rows the tests build on.
+sidekicks-workspace = { workspace = true, features = ["test-support"] }
 standardwebhooks.workspace = true
 # The paused clock the clone progress gate's and the stream batcher's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
@@ -233,11 +201,6 @@ x-wing.workspace = true
 # The SQLite shell, compiled from its vendored source after its hash is checked.
 cc.workspace = true
 sha3.workspace = true
-
-[features]
-# Helpers the integration tests use: a database file with the daemon's schema and the session
-# rows other tables build on.
-test-support = []
 
 [lints]
 workspace = true

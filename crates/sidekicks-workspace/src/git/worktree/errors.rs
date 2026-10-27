@@ -35,7 +35,7 @@ use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
 /// the run in the way.
 #[derive(Clone, Debug, PartialEq, Eq, IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
-pub(crate) enum WorktreeCreateFailureReason {
+pub enum WorktreeCreateFailureReason {
     /// The base ref begins with `-`, which git would read as an option.
     BaseRefOptionLike,
     /// No base ref was supplied and the mount's HEAD names no branch.
@@ -78,7 +78,7 @@ pub(crate) enum WorktreeCreateFailureReason {
 /// Why a worktree call or an execution root's preparation was refused. Converts into the
 /// [`DomainError`] the reply carries, keeping any failure underneath as its source.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WorktreeRefusal {
+pub enum WorktreeRefusal {
     /// The worktree id did not resolve (`worktree.notFound`).
     #[error("worktree {worktree_id} does not exist")]
     NotFound {

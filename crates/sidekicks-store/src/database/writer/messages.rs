@@ -19,11 +19,11 @@ use sidekicks_std::scheduler::budget::Measured;
 /// One write: its statements, then its event rows in order, run as one unit under a savepoint of
 /// its own.
 #[derive(Debug)]
-pub(crate) struct WriteJob {
+pub struct WriteJob {
     /// The statements, run in order before the rows.
-    pub(crate) statements: Vec<WriteStatement>,
+    pub statements: Vec<WriteStatement>,
     /// The event rows, each inserted at its session's next sequence.
-    pub(crate) events: Vec<SessionEventRow>,
+    pub events: Vec<SessionEventRow>,
 }
 
 /// How one write of a committed batch ended. A refused or failed write rolled back alone; the
@@ -50,7 +50,7 @@ pub(crate) enum WriteJobOutcome {
 
 /// Why one write failed alone, its savepoint rolled back.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WriteJobFailure {
+pub enum WriteJobFailure {
     /// The write's savepoint could not be opened, released or rolled back.
     #[error("the write's savepoint failed")]
     Savepoint(#[source] rusqlite::Error),
@@ -70,7 +70,7 @@ pub(crate) enum WriteJobFailure {
 
 /// Why a batch did not commit; none of its writes was kept.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum BatchFailure {
+pub enum BatchFailure {
     /// The batch's transaction could not begin.
     #[error("the batch's transaction could not begin")]
     Begin(#[source] rusqlite::Error),

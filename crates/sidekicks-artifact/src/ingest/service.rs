@@ -190,7 +190,7 @@ enum ChunkOutcome {
 }
 
 /// The ingest streams of every session, and the reaper pass that ends the abandoned ones.
-pub(crate) struct ArtifactIngestService {
+pub struct ArtifactIngestService {
     appender: Arc<SessionEventAppender>,
     reads: Arc<DatabaseReadPool>,
     payloads: Arc<PayloadStore>,
@@ -207,7 +207,7 @@ pub(crate) struct ArtifactIngestService {
 impl ArtifactIngestService {
     /// A service appending through `appender`, reading through `reads`, storing into `payloads`
     /// and spooling in `admission`'s folder, which must be on the store's volume.
-    pub(crate) fn new(
+    pub fn new(
         appender: Arc<SessionEventAppender>,
         reads: Arc<DatabaseReadPool>,
         payloads: Arc<PayloadStore>,
@@ -234,7 +234,7 @@ impl ArtifactIngestService {
     /// `artifact.idempotencyConflict` for a key reused with another run, name or size, and with
     /// the admission's refusals, `artifact.tooLarge` and `artifact.ingest.capacityExhausted`; a
     /// refusal opens nothing.
-    pub(crate) async fn start(
+    pub async fn start(
         &self,
         request: ArtifactIngestStartRequest,
     ) -> Result<ArtifactIngestStartResponse, ArtifactError> {
@@ -311,7 +311,7 @@ impl ArtifactIngestService {
     /// lifetime, or for a chunk out of sequence, which ends the stream; with `artifact.tooLarge`
     /// for a chunk past the declared size, which ends it too; and as
     /// [`ArtifactError::StreamWriteDropped`], ending the stream, after a write dropped mid-chunk.
-    pub(crate) async fn write(
+    pub async fn write(
         &self,
         request: ArtifactIngestWriteRequest,
     ) -> Result<ArtifactIngestWriteResponse, ArtifactError> {
@@ -395,7 +395,7 @@ impl ArtifactIngestService {
     /// `agent.run.notFound` for a run that is not the session's, and as
     /// [`ArtifactError::StreamWriteDropped`] after a write dropped mid-chunk; every failure ends
     /// the stream.
-    pub(crate) async fn complete(
+    pub async fn complete(
         &self,
         request: ArtifactIngestCompleteRequest,
         created_by: DeviceId,
@@ -510,10 +510,7 @@ impl ArtifactIngestService {
     /// to live, its blocking work charged to `meter`. Answers the artifacts it examined: each
     /// stream the registry held and each entry of the spool folder. Fails with the one failure, or
     /// every failure together, once the rest are done.
-    pub(crate) async fn reap(
-        &self,
-        meter: &ProcessorMeter,
-    ) -> Result<u64, SettleFailures<ArtifactError>> {
+    pub async fn reap(&self, meter: &ProcessorMeter) -> Result<u64, SettleFailures<ArtifactError>> {
         let (streams_examined, expired_ids): (usize, Vec<String>) = {
             let _ledger_hold = self.admission.hold_still().await;
             let now = self.clock.now();

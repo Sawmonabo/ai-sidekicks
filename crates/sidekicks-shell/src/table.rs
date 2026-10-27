@@ -128,7 +128,7 @@ struct TableShared {
 }
 
 /// Every session's shells in this daemon.
-pub(crate) struct ShellTable {
+pub struct ShellTable {
     shared: Arc<TableShared>,
 }
 

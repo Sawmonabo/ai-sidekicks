@@ -4,26 +4,26 @@
 //! daemon's own turns, pause and resume, the provider's choices, and how a restart settles a live
 //! run.
 
-pub(crate) mod agent;
-pub(crate) mod binding_cursors;
+pub mod agent;
+pub mod binding_cursors;
 pub(crate) mod daemon_turn;
-pub(crate) mod engine;
-pub(crate) mod epochs;
-pub(crate) mod ids;
-pub(crate) mod inbound;
+pub mod engine;
+pub mod epochs;
+pub mod ids;
+pub mod inbound;
 pub(crate) mod limit_interrupter;
-pub(crate) mod live_bindings;
-pub(crate) mod live_count;
-pub(crate) mod pause;
-pub(crate) mod projection;
-pub(crate) mod provider_choice;
-pub(crate) mod read;
-pub(crate) mod refusals;
+pub mod live_bindings;
+pub mod live_count;
+pub mod pause;
+pub mod projection;
+pub mod provider_choice;
+pub mod read;
+pub mod refusals;
 pub(crate) mod restart;
 pub(crate) mod schema;
-pub(crate) mod start_request;
-pub(crate) mod state_change;
-pub(crate) mod stored_leg;
-pub(crate) mod stored_state_change;
-pub(crate) mod superseded;
-pub(crate) mod transitions;
+pub mod start_request;
+pub mod state_change;
+pub mod stored_leg;
+pub mod stored_state_change;
+pub mod superseded;
+pub mod transitions;

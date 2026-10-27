@@ -49,33 +49,33 @@ static WORKING_FOLDER_SQL: LazyLock<String> = LazyLock::new(|| {
 /// A session's shape, its working folder, `None` while no workspace root is in place, and the
 /// place the folder is in.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SessionWorkingFolder {
+pub struct SessionWorkingFolder {
     /// What the session is bound to.
-    pub(crate) shape: SessionShape,
+    pub shape: SessionShape,
     /// The root its shells start in and its file search lists.
-    pub(crate) working_folder: Option<PathBuf>,
+    pub working_folder: Option<PathBuf>,
     /// Where the session works: `None` on macOS and Linux, Windows itself or a WSL 2
     /// distribution on Windows, so every git call on the folder runs there.
-    pub(crate) place: Option<Place>,
+    pub place: Option<Place>,
     /// The repository the folder belongs to, `None` while no folder is in place or its mount is
     /// no longer attached.
-    pub(crate) repository: Option<WorkingFolderRepository>,
+    pub repository: Option<WorkingFolderRepository>,
 }
 
 /// The attached repository mount a session's working folder belongs to.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct WorkingFolderRepository {
+pub struct WorkingFolderRepository {
     /// The mount.
-    pub(crate) repo_mount_id: RepoMountId,
+    pub repo_mount_id: RepoMountId,
     /// The repository's own checkout, resolved at attach.
-    pub(crate) repository_root: PathBuf,
+    pub repository_root: PathBuf,
     /// Whether the mount is a project's folder, whose repository is fetched; a chat's is not.
-    pub(crate) is_project: bool,
+    pub is_project: bool,
 }
 
 /// Why a session's working folder could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WorkingFolderReadError {
+pub enum WorkingFolderReadError {
     /// The session is not one this daemon holds (`session.notFound`).
     #[error(transparent)]
     Refused(#[from] DomainError),
@@ -87,7 +87,7 @@ pub(crate) enum WorkingFolderReadError {
 /// Reads the working folder of `session_id` on `reader`. Fails with
 /// [`WorkingFolderReadError::Refused`] (`session.notFound`) for a session this daemon holds no row
 /// for, and with [`WorkingFolderReadError::Database`] when the read fails.
-pub(crate) fn read_working_folder(
+pub fn read_working_folder(
     reader: &Connection,
     session_id: &SessionId,
 ) -> Result<SessionWorkingFolder, WorkingFolderReadError> {

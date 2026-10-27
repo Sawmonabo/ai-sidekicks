@@ -82,7 +82,7 @@ const APPROVALS_EVENT_TYPES: [SessionEventType; 5] = [
 /// The `approval_requests` and `approval_resolutions` rows as a rebuild replaces them. Its fold
 /// keeps no state, so the projection is its own fold.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct ApprovalsProjection;
+pub struct ApprovalsProjection;
 
 impl SessionProjection for ApprovalsProjection {
     fn name(&self) -> &'static str {

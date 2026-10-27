@@ -11,12 +11,12 @@ use strum::VariantArray as _;
 use sidekicks_store::database::sql_list::sql_list_of;
 
 /// Whether `event_type` enters a terminal state.
-pub(crate) fn is_run_terminal_event_type(event_type: &str) -> bool {
+pub fn is_run_terminal_event_type(event_type: &str) -> bool {
     RunStateEventType::from_wire_name(event_type).is_some_and(|known| known.state().is_terminal())
 }
 
 /// The terminal states as a SQL list of quoted words, for a `state IN (…)` condition.
-pub(crate) static RUN_TERMINAL_STATES_SQL: LazyLock<String> =
+pub static RUN_TERMINAL_STATES_SQL: LazyLock<String> =
     LazyLock::new(|| sql_list_of(RUN_TERMINAL_STATES.map(<&'static str>::from)));
 
 /// The run terminal event types as a SQL list of quoted words, in the order the unique index on

@@ -2,7 +2,7 @@
 //! search reads, and the `@` search of a session's working-folder files.
 
 pub(crate) mod cursor;
-pub(crate) mod files;
+pub mod files;
 pub(crate) mod hits;
 pub mod index;
 pub(crate) mod marked_line;

@@ -15,7 +15,7 @@ use sidekicks_store::database::stored_column::text_column;
 
 /// The statements a [`WorkflowStepPayloadReader`] prepares on a read connection: one per payload a
 /// step stores.
-pub(crate) const WORKFLOW_STEP_PAYLOAD_STATEMENT_CAPACITY: usize = 3;
+pub const WORKFLOW_STEP_PAYLOAD_STATEMENT_CAPACITY: usize = 3;
 
 // The read of one payload column of the step the full key names, so only that payload is read.
 macro_rules! read_payload_sql {

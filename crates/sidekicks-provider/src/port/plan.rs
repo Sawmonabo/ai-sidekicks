@@ -11,17 +11,17 @@ use sidekicks_contracts::session::id::SessionId;
 
 /// A plan as its provider sent it, never read off the disk.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderPlan {
+pub struct ProviderPlan {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The run that proposed it.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// The plan's markdown.
-    pub(crate) text: String,
+    pub text: String,
     /// Where the provider wrote the plan as a file, where it did.
-    pub(crate) plan_file_path: Option<FilesystemPath>,
+    pub plan_file_path: Option<FilesystemPath>,
     /// Whether the driver holds a provider request that waits on the verdict.
-    pub(crate) holds_request: bool,
+    pub holds_request: bool,
 }
 
 /// A held plan request the provider let go before any verdict.
@@ -33,13 +33,13 @@ pub(crate) struct ProviderPlan {
     )
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderPlanHoldEnd {
+pub struct ProviderPlanHoldEnd {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The plan whose request was held.
-    pub(crate) plan_id: PlanId,
+    pub plan_id: PlanId,
     /// Why the hold ended.
-    pub(crate) reason: PlanHoldEndedReason,
+    pub reason: PlanHoldEndedReason,
 }
 
 /// The plan record's intake, registered through a `PortRegistration`. Until it is registered, a
@@ -48,7 +48,7 @@ pub(crate) struct ProviderPlanHoldEnd {
     dead_code,
     reason = "the providers' drivers, which hand a finished plan over"
 )]
-pub(crate) trait PlanPort: Send + Sync {
+pub trait PlanPort: Send + Sync {
     /// Records `plan` and answers the id the driver keeps its held request under. An error when it
     /// could not be recorded.
     fn take_plan(

@@ -23,7 +23,7 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// The statements the service's reads run: whether a pair holds any link.
-pub(crate) const SESSION_LINK_SERVICE_STATEMENT_CAPACITY: usize = 1;
+pub const SESSION_LINK_SERVICE_STATEMENT_CAPACITY: usize = 1;
 
 static ADD_RELATED_LINK_SQL: LazyLock<String> = LazyLock::new(|| {
     let related = <&'static str>::from(SessionLinkKind::Related);
@@ -60,7 +60,7 @@ const TARGET_GUARD_INDEX: usize = 1;
 
 /// Why a link change failed; a refused change keeps nothing.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SessionLinkError {
+pub enum SessionLinkError {
     /// Either session is not one this daemon holds (`session.notFound`), or the pair is linked
     /// only by kinds an event recorded (`session.link.notRemovable`).
     #[error(transparent)]
@@ -92,7 +92,7 @@ impl From<SessionLinkError> for HandlerError {
 
 /// Adds and removes the `related` link between two sessions, reading through the daemon's read
 /// pool and writing through its writer; a committed change has the related ranking re-score both.
-pub(crate) struct SessionLinkService {
+pub struct SessionLinkService {
     pool: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
     related_ranking: Arc<SessionRelatedRanking>,
@@ -101,7 +101,7 @@ pub(crate) struct SessionLinkService {
 impl SessionLinkService {
     /// The service reading through `pool`, writing through `writer` and re-scoring through
     /// `related_ranking`.
-    pub(crate) fn new(
+    pub fn new(
         pool: Arc<DatabaseReadPool>,
         writer: Arc<DatabaseWriter>,
         related_ranking: Arc<SessionRelatedRanking>,
@@ -116,7 +116,7 @@ impl SessionLinkService {
     /// Links the two sessions as related; a pair already related stays as it is. Fails with
     /// [`SessionLinkError::Refused`] (`session.notFound`) when either session is unknown, and with
     /// [`SessionLinkError::Write`] when the write is not kept.
-    pub(crate) async fn add(&self, request: &SessionLinkRequest) -> Result<(), SessionLinkError> {
+    pub async fn add(&self, request: &SessionLinkRequest) -> Result<(), SessionLinkError> {
         let results = self
             .write_for_pair(request, ADD_RELATED_LINK_SQL.as_str())
             .await?;
@@ -130,10 +130,7 @@ impl SessionLinkService {
     /// Fails with [`SessionLinkError::Refused`]: `session.link.notRemovable` when the pair is
     /// linked only by kinds an event recorded, `session.notFound` for an unknown session; and as
     /// the write or the read fails.
-    pub(crate) async fn remove(
-        &self,
-        request: &SessionLinkRequest,
-    ) -> Result<(), SessionLinkError> {
+    pub async fn remove(&self, request: &SessionLinkRequest) -> Result<(), SessionLinkError> {
         let results = self
             .write_for_pair(request, REMOVE_RELATED_LINK_SQL.as_str())
             .await?;

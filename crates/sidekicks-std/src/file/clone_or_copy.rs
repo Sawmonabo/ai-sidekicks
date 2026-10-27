@@ -23,7 +23,7 @@ const TEMPORARY_NAME_RANDOM_BYTES: usize = 8;
 /// a copy that fails partway, or is cut by a crash, never carries the name. Fails with
 /// `AlreadyExists` when anything is at `destination`, which is never replaced, `NotFound` when
 /// `source` or the folder is missing, else with the copy's or the naming's error.
-pub(crate) fn clone_or_copy(source: &Path, destination: &Path) -> io::Result<()> {
+pub fn clone_or_copy(source: &Path, destination: &Path) -> io::Result<()> {
     match reflink_copy::reflink(source, destination) {
         Ok(()) => Ok(()),
         Err(refusal)

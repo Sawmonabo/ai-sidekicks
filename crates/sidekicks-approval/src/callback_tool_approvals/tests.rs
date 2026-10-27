@@ -17,12 +17,13 @@ use super::{
     CallbackToolApprovalError, CallbackToolApprovals, CallbackToolGate, UNGATED_TOOL_REFUSAL,
 };
 use crate::permission_asks::tests::{AsksFixture, device};
-use crate::service::tests::{SETTLE_WAIT, from_json};
-use sidekicks_driver::PROVIDER_REGISTRATIONS;
+use crate::service::test_fixture::SETTLE_WAIT;
+use crate::service::tests::from_json;
 use sidekicks_provider::callback_tools::host::{
     CallbackToolApprovalBasis, CallbackToolApprovalOutcome, CallbackToolApprovalSeam,
     CallbackToolPortError,
 };
+use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::callback_tool::CallbackToolInvocation;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::test_registry::registry_of_first_providers;

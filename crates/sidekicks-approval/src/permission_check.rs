@@ -110,7 +110,7 @@ pub(crate) enum WorkflowStartVerdict {
 
 /// Why a check could not decide; the action does not proceed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum PermissionCheckError {
+pub enum PermissionCheckError {
     /// The provider took the ask back before its card was raised.
     #[error("the provider took the ask back before its card was raised")]
     Withdrawn,
@@ -144,29 +144,29 @@ pub(crate) enum PermissionCheckError {
 }
 
 /// What the check reads and raises cards through.
-pub(crate) struct PermissionCheckDeps {
+pub struct PermissionCheckDeps {
     /// Where the session's level and a run's agent are read.
-    pub(crate) reads: Arc<DatabaseReadPool>,
+    pub reads: Arc<DatabaseReadPool>,
     /// Where cards are raised and corrections taken.
-    pub(crate) approvals: Arc<ApprovalService>,
+    pub approvals: Arc<ApprovalService>,
     /// The rules in force.
-    pub(crate) rules: Arc<ApprovalRules>,
+    pub rules: Arc<ApprovalRules>,
     /// The daemon-wide bound an ask's command line is read under.
-    pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    pub shell_lines: Arc<ShellLineReadingBound>,
     /// Every provider's background work, which no ask's command line may start.
-    pub(crate) background_work: Arc<BackgroundWorkForms>,
+    pub background_work: Arc<BackgroundWorkForms>,
     /// Each live run's posture.
-    pub(crate) postures: Arc<ExecutionPostureService>,
+    pub postures: Arc<ExecutionPostureService>,
     /// The machine whose owner a workflow start decides as.
-    pub(crate) machine: Arc<MachineRegistry>,
+    pub machine: Arc<MachineRegistry>,
     /// The machine's workflow rules.
-    pub(crate) authorizer: Arc<Authorizer>,
+    pub authorizer: Arc<Authorizer>,
     /// The one all-projects agent-memory folder.
-    pub(crate) agent_memory_folder: PathBuf,
+    pub agent_memory_folder: PathBuf,
 }
 
 /// The one gate every sensitive action passes; shared by `Arc`.
-pub(crate) struct PermissionCheck {
+pub struct PermissionCheck {
     deps: PermissionCheckDeps,
 }
 
@@ -180,7 +180,7 @@ struct AskReading {
 
 impl PermissionCheck {
     /// The check over `deps`.
-    pub(crate) fn new(deps: PermissionCheckDeps) -> Self {
+    pub fn new(deps: PermissionCheckDeps) -> Self {
         Self { deps }
     }
 
@@ -452,5 +452,7 @@ fn refuse_withdrawn(withdrawal: &CancellationToken) -> Result<(), PermissionChec
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_fixture;
 #[cfg(test)]
 pub(crate) mod tests;

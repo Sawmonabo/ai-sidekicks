@@ -2,4 +2,4 @@
 //! the refresh that reads every driver again on each trigger.
 
 pub(crate) mod probe;
-pub(crate) mod refresh;
+pub mod refresh;

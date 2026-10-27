@@ -22,11 +22,11 @@ use sidekicks_std::mutex_lock::lock;
 /// A committed event as its followers hear it: the envelope its row was written from, shared
 /// with that row, and the sequence its write committed it at.
 #[derive(Clone, Debug)]
-pub(crate) struct CommittedEvent {
+pub struct CommittedEvent {
     /// The event as stored.
-    pub(crate) envelope: Arc<UnsequencedEventEnvelope>,
+    pub envelope: Arc<UnsequencedEventEnvelope>,
     /// Its sequence in its session's log.
-    pub(crate) sequence: SafeInt<0>,
+    pub sequence: SafeInt<0>,
 }
 
 /// A follower of every session: called with each committed event, on the writer's pump. An error
@@ -44,7 +44,7 @@ struct AttachedFollowers {
 /// Publishes committed events to the followers of every session and raises each session's change
 /// count. Shared by `Arc`; no lock inside is held across an await or a follower's call.
 #[derive(Default)]
-pub(crate) struct SessionEventFollowers {
+pub struct SessionEventFollowers {
     followers: Mutex<AttachedFollowers>,
     // Only sessions someone counted at the last `change_count` have an entry.
     change_counts: Mutex<HashMap<SessionId, watch::Sender<u64>>>,
@@ -53,7 +53,7 @@ pub(crate) struct SessionEventFollowers {
 impl SessionEventFollowers {
     /// Attaches `follower` to every session's committed events from now on. Dropping the returned
     /// attachment detaches it; one function attached twice is detached once per attachment.
-    pub(crate) fn follow_all(
+    pub fn follow_all(
         self: &Arc<Self>,
         follower: impl Fn(&CommittedEvent) -> Result<(), Box<dyn Error + Send + Sync>>
         + Send
@@ -73,7 +73,7 @@ impl SessionEventFollowers {
     /// The change count of `session_id`: the number of its events committed since the first
     /// receiver subscribed, raised once they can be read. The count starts at 0. Each call first
     /// drops every session's count no receiver reads any more.
-    pub(crate) fn change_count(&self, session_id: &SessionId) -> watch::Receiver<u64> {
+    pub fn change_count(&self, session_id: &SessionId) -> watch::Receiver<u64> {
         let mut change_counts = self.lock_change_counts();
         change_counts.retain(|_, sender| sender.receiver_count() > 0);
         change_counts
@@ -85,7 +85,7 @@ impl SessionEventFollowers {
     /// Publishes one committed write's `events`, in sequence order: calls every follower of every
     /// session with each event, then raises each session's change count by its events. Called once
     /// per committed write, in commit order.
-    pub(crate) fn publish(&self, events: &[CommittedEvent]) {
+    pub fn publish(&self, events: &[CommittedEvent]) {
         // A snapshot, so a follower may attach or detach from inside its call.
         let followers: Vec<Arc<AllSessionsFollower>> =
             self.lock_followers().by_id.values().cloned().collect();
@@ -129,7 +129,7 @@ impl SessionEventFollowers {
 
 /// One attachment of a follower of every session; dropping it detaches that follower.
 #[must_use = "dropping the attachment detaches the follower"]
-pub(crate) struct FollowerAttachment {
+pub struct FollowerAttachment {
     // Weak, so an attachment a follower keeps never holds the followers alive.
     followers: Weak<SessionEventFollowers>,
     id: u64,

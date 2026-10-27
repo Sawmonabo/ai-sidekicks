@@ -45,7 +45,7 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::stored_column::optional_text_column;
 
 /// The statements the prune's context read prepares on a read connection: the one row read.
-pub(crate) const TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY: usize = 1;
+pub const TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY: usize = 1;
 
 const SELECT_RUN_CONTEXT_SQL: &str =
     "SELECT git_common_dir, released_at FROM run_execution_contexts WHERE run_id = @run_id";
@@ -114,7 +114,7 @@ pub(crate) enum TurnSnapshotCaptureOutcome {
         reason = "a run's deletion and a session's purge read what the prune of its refs did"
     )
 )]
-pub(crate) enum TurnSnapshotPruneOutcome {
+pub enum TurnSnapshotPruneOutcome {
     /// Every snapshot ref of the run was deleted, in one transaction; none when it had none.
     Pruned {
         /// The refs deleted.
@@ -131,7 +131,7 @@ pub(crate) enum TurnSnapshotPruneOutcome {
 
 /// The failure behind a skipped prune.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum TurnSnapshotPruneFailure {
+pub enum TurnSnapshotPruneFailure {
     /// The run's context row could not be read.
     #[error(transparent)]
     ContextRead(Arc<RunContextReadError>),
@@ -142,7 +142,7 @@ pub(crate) enum TurnSnapshotPruneFailure {
 
 /// Why a run's context row could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RunContextReadError {
+pub enum RunContextReadError {
     /// SQLite refused the read, or a stored value did not read as its type.
     #[error("the run's context row could not be read")]
     Read(#[from] rusqlite::Error),
@@ -153,7 +153,7 @@ pub(crate) enum RunContextReadError {
 
 /// Owns the `refs/sidekicks/runs/` namespace and every git call that writes into it. Keeps nothing
 /// between calls but the lock that runs one capture of a checkout at a time.
-pub(crate) struct TurnSnapshotService {
+pub struct TurnSnapshotService {
     git: GitRunner,
     /// Where the prune reads a run's context row.
     reads: Arc<DatabaseReadPool>,
@@ -167,7 +167,7 @@ pub(crate) struct TurnSnapshotService {
 impl TurnSnapshotService {
     /// A service running `git`, reading run contexts through `reads`, and keeping scratch indexes
     /// under `execution_roots_folder`.
-    pub(crate) fn new(
+    pub fn new(
         git: GitRunner,
         reads: Arc<DatabaseReadPool>,
         execution_roots_folder: &Path,
@@ -519,7 +519,7 @@ impl TurnSnapshotService {
     /// transaction, all or none, so a refusal deletes none and the prune is retried. A dangling
     /// symref under the prefix, which the daemon never writes, is not listed and so not deleted.
     /// Never fails; answers `Skipped` with `GitDirAbsent`, `GitDirUnusable` or `RefDeleteFailed`.
-    pub(crate) async fn prune_run_refs(
+    pub async fn prune_run_refs(
         &self,
         place: Option<&Place>,
         run_key: RunContextKey,

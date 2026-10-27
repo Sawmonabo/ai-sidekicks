@@ -65,13 +65,13 @@ pub(crate) type ProcessPeakRead = Arc<dyn Fn(u32) -> io::Result<Option<u64>> + S
 /// The machine's figures the gate weighs by, each in bytes.
 #[derive(Clone, Copy, Debug)]
 #[expect(clippy::struct_field_names, reason = "each figure names its unit")]
-pub(crate) struct MemoryGateFigures {
+pub struct MemoryGateFigures {
     /// The machine's physical memory, which sets the headroom.
-    pub(crate) physical_memory_bytes: u64,
+    pub physical_memory_bytes: u64,
     /// A quick Code step's thread beyond its interpreter's budget.
-    pub(crate) quick_thread_bytes: u64,
+    pub quick_thread_bytes: u64,
     /// An ingest worker's own memory beyond the file it reads and the picture it draws.
-    pub(crate) ingest_worker_bytes: u64,
+    pub ingest_worker_bytes: u64,
 }
 
 /// A provider start's footprint, its figures from the provider's descriptor: a new process of the
@@ -195,7 +195,7 @@ impl AdmissionWork {
 /// Where an admission stands: in the line, holding its reservation, or parked on a person or a
 /// provider limit and holding nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MemoryAdmissionState {
+pub enum MemoryAdmissionState {
     /// In the line.
     Waiting,
     /// Holding its reservation.
@@ -215,7 +215,7 @@ pub(crate) enum AdmissionOutcome {
 
 /// A use of an admission its state does not allow, or a peak read that failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum MemoryAdmissionError {
+pub enum MemoryAdmissionError {
     /// The admission's state does not allow the act.
     #[error("a memory admission that is {state:?} cannot {act}")]
     WrongState {
@@ -281,7 +281,7 @@ enum Weighed {
 
 /// The daemon's one memory gate. Learned peaks live only in its memory, so a restart re-learns.
 /// Made inside a tokio runtime, whose task does the weighing.
-pub(crate) struct MemoryGate {
+pub struct MemoryGate {
     shared: Arc<GateShared>,
 }
 
@@ -289,7 +289,7 @@ impl MemoryGate {
     /// The gate over the machine `figures` describe, reading its available memory through
     /// `read_available` and a process's peak through `read_peak`. Must be called inside a tokio
     /// runtime.
-    pub(crate) fn new(
+    pub fn new(
         figures: MemoryGateFigures,
         read_available: AvailableMemoryRead,
         read_peak: ProcessPeakRead,

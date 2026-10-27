@@ -45,7 +45,7 @@ pub(crate) enum TurnSnapshotCaptureStep {
 /// Why one run's snapshot refs were not pruned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
-pub(crate) enum TurnSnapshotRetentionSkipReason {
+pub enum TurnSnapshotRetentionSkipReason {
     /// The run has not ended (its context row carries no release time), so its refs stay.
     RunNotEnded,
     /// The run has no context row, so no git folder was recorded for it.

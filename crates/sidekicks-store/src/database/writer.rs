@@ -10,11 +10,11 @@
 //! without running.
 
 mod backpressure;
-pub(crate) mod backup;
-pub(crate) mod jobs;
-pub(crate) mod messages;
+pub mod backup;
+pub mod jobs;
+pub mod messages;
 mod queue;
-pub(crate) mod repack;
+pub mod repack;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_file;
 #[cfg(test)]
@@ -63,12 +63,12 @@ pub(crate) type CommitHook = Box<dyn FnOnce(&[SafeInt<0>]) + Send>;
 /// Run on the writer's thread, on its connection, right after each batch that committed a write and
 /// before any caller of the batch hears, so what it reads follows the commits in their order. Its
 /// failure is told to the [`WriteFailureListener`] and fails no write.
-pub(crate) type CommitRead = Box<dyn FnMut(&Connection) -> rusqlite::Result<()> + Send>;
+pub type CommitRead = Box<dyn FnMut(&Connection) -> rusqlite::Result<()> + Send>;
 
 /// Told of each failure SQLite raised for a write, a batch or a checkpoint, before its caller. It
 /// runs on the write queue's task, so it does only quick work, and one that ends the writer holds
 /// it through a `Weak`: an `Arc` would keep the writer open once every other handle dropped.
-pub(crate) type WriteFailureListener = Box<dyn Fn(&(dyn Error + 'static)) + Send + Sync>;
+pub type WriteFailureListener = Box<dyn Fn(&(dyn Error + 'static)) + Send + Sync>;
 
 /// What every call of `DatabaseWriter::close` answers: the number of writes the close left
 /// unfinished, or why the connection or its thread did not end cleanly.
@@ -80,16 +80,16 @@ pub(crate) type CloseOutcome =
 pub struct DatabaseWriterOptions {
     /// Holds every write and checkpoint in the queue until it answers `Ok`; an error, or the sender
     /// dropped, ends the writer with it, so no held write and no checkpoint is ever sent.
-    pub(crate) writes_held_until: Option<oneshot::Receiver<Result<(), WritesHeldError>>>,
+    pub writes_held_until: Option<oneshot::Receiver<Result<(), WritesHeldError>>>,
     /// Told of each failure SQLite raised for a write, a batch or a checkpoint, before its caller.
-    pub(crate) on_write_failed: Option<WriteFailureListener>,
+    pub on_write_failed: Option<WriteFailureListener>,
     /// Read on the writer's connection after each batch that committed a write.
-    pub(crate) after_commit: Option<CommitRead>,
+    pub after_commit: Option<CommitRead>,
 }
 
 /// A committed write: what each statement did and each event row's sequence, in the write's order.
 #[derive(Debug)]
-pub(crate) struct CommittedWrite {
+pub struct CommittedWrite {
     /// What each statement did.
     pub(crate) statement_results: Vec<StatementResult>,
     /// Each event row's sequence.
@@ -98,7 +98,7 @@ pub(crate) struct CommittedWrite {
 
 /// Why a write was not kept; none of it is stored.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WriteError {
+pub enum WriteError {
     /// A statement's row count was not the one it expected.
     #[error(
         "the write was refused: statement {statement_index} matched {row_count} rows, not the \
@@ -142,7 +142,7 @@ pub(crate) enum WriteError {
 impl WriteError {
     /// The position of the statement whose row count refused the write, `None` for any other
     /// failure.
-    pub(crate) fn refused_statement_index(&self) -> Option<usize> {
+    pub fn refused_statement_index(&self) -> Option<usize> {
         match self {
             Self::Refused {
                 statement_index, ..
@@ -161,7 +161,7 @@ impl WriteError {
 /// Why a checkpoint or a repack, the writer's work on its connection between batches, did not run
 /// or did not finish.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum MaintenanceError {
+pub enum MaintenanceError {
     /// SQLite failed the work, or putting the busy timeout back after it.
     #[error("the database's maintenance failed")]
     Failed(#[source] CleanupFailures<rusqlite::Error>),
@@ -178,7 +178,7 @@ pub(crate) enum MaintenanceError {
 
 /// Why the hold a writer was opened with ended without letting its writes go.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WritesHeldError {
+pub enum WritesHeldError {
     /// The holder refused to let the writes go.
     #[error("the hold on the database writer's writes was refused")]
     Refused(#[source] Box<dyn Error + Send + Sync>),
@@ -203,7 +203,7 @@ pub enum DatabaseWriterOpenError<OpenError> {
 
 /// Why a writer's close did not end cleanly.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WriterCloseError {
+pub enum WriterCloseError {
     /// The connection did not close cleanly.
     #[error("the database writer's connection did not close cleanly")]
     Connection(#[source] CleanupFailures<rusqlite::Error>),
@@ -231,7 +231,7 @@ pub enum ThreadJoinError {
 
 /// A write the queue has taken: it resolves once the write committed, or with why it was not
 /// kept. Dropping it does not withdraw the write, which is still stored and its hook still run.
-pub(crate) struct PendingWrite {
+pub struct PendingWrite {
     answer: oneshot::Receiver<Result<CommittedWrite, WriteError>>,
 }
 
@@ -362,7 +362,7 @@ impl DatabaseWriter {
     /// Queues `job` and returns at once, with no await before the send, so a caller can queue
     /// inside a lock and await the write outside it. `on_commit` runs once the write commits.
     /// Fails at once for an ended writer and for a write larger than the queue.
-    pub(crate) fn enqueue(
+    pub fn enqueue(
         &self,
         job: WriteJob,
         on_commit: Option<CommitHook>,
@@ -389,7 +389,7 @@ impl DatabaseWriter {
     /// Runs `statements` in order as one write and returns what each did once it committed. Fails
     /// with [`WriteError::Refused`] when a statement's row count is not the one it expected, and as
     /// [`DatabaseWriter::enqueue`] does; either way none of it is kept.
-    pub(crate) async fn write(
+    pub async fn write(
         &self,
         statements: Vec<WriteStatement>,
     ) -> Result<Vec<StatementResult>, WriteError> {
@@ -403,7 +403,7 @@ impl DatabaseWriter {
     /// Appends `events` in order, each at its session's next sequence, after `statements`, all as
     /// one write that never splits across batches, and returns each event's sequence once it
     /// committed. Fails as [`DatabaseWriter::write`] does.
-    pub(crate) async fn append_events(
+    pub async fn append_events(
         &self,
         events: Vec<SessionEventRow>,
         statements: Vec<WriteStatement>,
@@ -415,13 +415,13 @@ impl DatabaseWriter {
     /// The writer thread's count of the batches that committed a write, raised once after each; a
     /// reader that sees it change can read what the batch wrote, and a copy names the count it
     /// holds every batch up to. Drop the receiver to stop following.
-    pub(crate) fn follow_commits(&self) -> watch::Receiver<u64> {
+    pub fn follow_commits(&self) -> watch::Receiver<u64> {
         self.commits.clone()
     }
 
     /// Returns once every write sent before this call has committed or failed, the writes waiting
     /// at the cap among them; a write sent afterward does not extend the wait.
-    pub(crate) async fn flush(&self) {
+    pub async fn flush(&self) {
         let (reply, answer) = oneshot::channel();
         if self.messages.send(QueueMessage::Flush(reply)).is_err() {
             // The queue has stopped, so every write it took has settled.
@@ -437,10 +437,7 @@ impl DatabaseWriter {
     /// asked for meanwhile wait until it ends, and a passive one fails with
     /// [`MaintenanceError::Held`]. Returns what `work` returns. Dropping the future mid-hold, or
     /// before the hold started, still lets the writes go.
-    pub(crate) async fn hold_while<Work: Future>(
-        &self,
-        work: impl FnOnce() -> Work,
-    ) -> Work::Output {
+    pub async fn hold_while<Work: Future>(&self, work: impl FnOnce() -> Work) -> Work::Output {
         let hold = HoldGuard {
             messages: self.messages.clone(),
             id: self.next_hold.fetch_add(1, Ordering::Relaxed),
@@ -529,7 +526,7 @@ impl DatabaseWriter {
     /// before its next step, answering [`BackupCopy::Stopped`]. The answer carries the thread's
     /// processor time around the copy's steps. Fails with SQLite's error, or once the writer is
     /// ended or closed.
-    pub(crate) async fn backup(
+    pub async fn backup(
         &self,
         destination: PathBuf,
         cancel: CancellationToken,
@@ -549,13 +546,13 @@ impl DatabaseWriter {
 
     /// Whether the writer was ended: by [`DatabaseWriter::end`], by its hold's refusal, or by a
     /// close at its drain bound.
-    pub(crate) fn is_ended(&self) -> bool {
+    pub fn is_ended(&self) -> bool {
         self.shared.stop.is_stopped()
     }
 
     /// The reason the writer was ended, once it is; `None` until then and after a close at the
     /// drain bound.
-    pub(crate) fn when_failed(&self) -> watch::Receiver<Option<EndReason>> {
+    pub fn when_failed(&self) -> watch::Receiver<Option<EndReason>> {
         self.shared.failure.subscribe()
     }
 
@@ -563,7 +560,7 @@ impl DatabaseWriter {
     /// batch in flight rolls back unless its commit already ran, and the thread closes its
     /// connection without the checkpoint a close makes, so the files stay as they were found. A
     /// call racing the queue's release of the thread may still wait out the thread's close.
-    pub(crate) fn end(&self, reason: EndReason) {
+    pub fn end(&self, reason: EndReason) {
         if !self.shared.end(reason) {
             return;
         }
@@ -576,7 +573,7 @@ impl DatabaseWriter {
     /// (within `drain_within` when given), then lets the thread close its connection and exit.
     /// Returns the number of writes left unfinished; past the bound the unsent writes fail and the
     /// batch in flight rolls back unless its commit already ran. Repeated calls share the first.
-    pub(crate) async fn close(&self, drain_within: Option<Duration>) -> CloseOutcome {
+    pub async fn close(&self, drain_within: Option<Duration>) -> CloseOutcome {
         let mut closed = self.closed.clone();
         if self
             .messages
@@ -760,7 +757,7 @@ impl ThreadStop {
 
 /// The SQLite result code `error` or the first of its sources to carry one holds; `None` when
 /// none does.
-pub(crate) fn sqlite_error_code(error: &(dyn Error + 'static)) -> Option<ErrorCode> {
+pub fn sqlite_error_code(error: &(dyn Error + 'static)) -> Option<ErrorCode> {
     std::iter::successors(Some(error), |&error| error.source())
         .find_map(|error| error.downcast_ref::<rusqlite::Error>()?.sqlite_error_code())
 }

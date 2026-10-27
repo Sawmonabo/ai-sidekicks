@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 /// Waits on `work` until it finishes, returning its output, or until `bound` passes or `cancel` is
 /// canceled first, returning `None`. The work is only borrowed, never canceled: a caller still
 /// holds it, or its `JoinHandle`, and may await it again after a `None`.
-pub(crate) async fn wait_within<Work: Future>(
+pub async fn wait_within<Work: Future>(
     work: Pin<&mut Work>,
     bound: Duration,
     cancel: Option<&CancellationToken>,

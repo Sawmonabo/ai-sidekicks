@@ -35,19 +35,21 @@ use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_fixture;
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;
 
 /// The statements [`PlansService`] prepares on a read connection: the plans of every run still
 /// waiting on a held request (`HELD_PLANS_SQL`).
-pub(crate) const PLANS_STATEMENT_CAPACITY: usize = 1;
+pub const PLANS_STATEMENT_CAPACITY: usize = 1;
 
 /// The media type a plan's artifact is kept under.
 const PLAN_MEDIA_TYPE: &str = "text/markdown";
 
 /// Why a plan was not recorded or a hold not ended; nothing of the failed write is kept.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum PlanError {
+pub enum PlanError {
     /// The plan's artifact was not kept, or its write was refused.
     #[error(transparent)]
     Artifact(#[from] ArtifactError),
@@ -66,7 +68,7 @@ pub(crate) enum PlanError {
 }
 
 /// Records the plans the drivers hand and ends the holds they let go.
-pub(crate) struct PlansService {
+pub struct PlansService {
     publisher: Arc<ArtifactPublishService>,
     appender: Arc<SessionEventAppender>,
     reads: Arc<DatabaseReadPool>,
@@ -75,7 +77,7 @@ pub(crate) struct PlansService {
 impl PlansService {
     /// A service keeping each plan's text through `publisher`, writing through `appender` and
     /// reading the plan rows through `reads`.
-    pub(crate) fn new(
+    pub fn new(
         publisher: Arc<ArtifactPublishService>,
         appender: Arc<SessionEventAppender>,
         reads: Arc<DatabaseReadPool>,
@@ -90,7 +92,7 @@ impl PlansService {
     /// Records `plan` `waiting`: its artifact, `artifact.published`, the plan's row and
     /// `plan.proposed` naming the artifact, in one write. Answers the minted plan id. Fails with
     /// `session.notFound` or `agent.run.notFound`, as the store fails, or as the write does.
-    pub(crate) async fn take_plan(&self, plan: ProviderPlan) -> Result<PlanId, PlanError> {
+    pub async fn take_plan(&self, plan: ProviderPlan) -> Result<PlanId, PlanError> {
         let metadata = match &plan.plan_file_path {
             Some(path) => file_name_metadata(path.as_str()),
             None => JsonRecord::default(),
@@ -150,10 +152,7 @@ impl PlansService {
             reason = "the Claude Code and Codex drivers, which hand a finished plan over"
         )
     )]
-    pub(crate) async fn end_plan_hold(
-        &self,
-        hold_end: ProviderPlanHoldEnd,
-    ) -> Result<(), PlanError> {
+    pub async fn end_plan_hold(&self, hold_end: ProviderPlanHoldEnd) -> Result<(), PlanError> {
         self.end_hold(
             HeldPlan {
                 plan_id: hold_end.plan_id,
@@ -174,10 +173,7 @@ impl PlansService {
             reason = "the daemon's start, which sweeps the holds a restart lost"
         )
     )]
-    pub(crate) async fn end_holds_lost_at_restart(
-        &self,
-        session_id: SessionId,
-    ) -> Result<(), PlanError> {
+    pub async fn end_holds_lost_at_restart(&self, session_id: SessionId) -> Result<(), PlanError> {
         let held = self
             .reads
             .read(ReadLength::Short, move |reader| {

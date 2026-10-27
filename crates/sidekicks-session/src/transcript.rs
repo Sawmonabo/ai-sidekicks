@@ -1,7 +1,7 @@
 //! The transcript: reply bodies, run facts, turn attribution, file patches and the windows a
 //! client reads.
 
-pub(crate) mod block_cut;
+pub mod block_cut;
 pub(crate) mod body;
 pub(crate) mod child_run;
 pub(crate) mod escape_sequences;
@@ -9,8 +9,8 @@ pub(crate) mod patch_list;
 pub(crate) mod projector;
 pub(crate) mod reasoning;
 pub(crate) mod run_facts;
-pub(crate) mod stream_state;
-#[cfg(test)]
-pub(crate) mod test_log;
-pub(crate) mod turn_attribution;
-pub(crate) mod window;
+pub mod stream_state;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_log;
+pub mod turn_attribution;
+pub mod window;

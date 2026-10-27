@@ -35,7 +35,7 @@ use crate::spawned_version::ResolvedProviderExecutable;
 /// The stand-in Codex service: this test program, run by the script the registry's services
 /// start as Codex.
 const APP_SERVER_STAND_IN: &str =
-    "provider::driver::codex::service::registry::tests::stand_in::an_app_server_stand_in";
+    "codex::service::registry::tests::stand_in::an_app_server_stand_in";
 
 /// The address the stand-in listens on, as its `--listen` names it; only its script sets it.
 const LISTEN_ADDRESS_NAME: &str = "SIDEKICKS_TEST_LISTEN_ADDRESS";

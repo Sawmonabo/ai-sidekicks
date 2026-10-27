@@ -12,15 +12,15 @@ use sidekicks_store::events::session::appender::SessionEventDraft;
 
 /// A plan waiting on a request its driver holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct HeldPlan {
+pub struct HeldPlan {
     /// The plan.
-    pub(crate) plan_id: PlanId,
+    pub plan_id: PlanId,
     /// Its session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
 }
 
 /// The plans store as a run's end and the session list read it.
-pub(crate) trait PlanHolds: Send + Sync {
+pub trait PlanHolds: Send + Sync {
     /// The plans of `run_id` still waiting on a request their driver holds. Fails as SQLite does,
     /// or when a stored id does not read.
     fn read_held_plans_of_run(
@@ -42,10 +42,10 @@ pub(crate) trait PlanHolds: Send + Sync {
 }
 
 /// A plans store that holds no plan, for tests whose runs hold none.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) struct NoPlanHolds;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl PlanHolds for NoPlanHolds {
     fn read_held_plans_of_run(
         &self,

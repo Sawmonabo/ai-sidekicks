@@ -17,7 +17,7 @@ use sidekicks_std::missing_entry::MissingEntry as _;
 
 /// Why a backup's manifest could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum BackupManifestError {
+pub enum BackupManifestError {
     /// The file system refused the read.
     #[error("the backup's manifest could not be read")]
     Read(#[source] io::Error),
@@ -31,7 +31,7 @@ pub(crate) enum BackupManifestError {
 
 /// The manifest of the backup in `backup_path`, `None` when it has none, read on the calling
 /// thread. Fails when the file system refuses the read or the manifest does not parse or check.
-pub(crate) fn read_backup_manifest(
+pub fn read_backup_manifest(
     backup_path: &Path,
 ) -> Result<Option<BackupManifest>, BackupManifestError> {
     let Some(manifest_bytes) = fs::read(backup_path.join(BACKUP_MANIFEST_FILE_NAME))

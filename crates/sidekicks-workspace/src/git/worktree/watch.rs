@@ -55,7 +55,7 @@ mod tests;
 
 /// How often a folder too large to watch is checked, and the mount-health re-probe's own tick:
 /// what it shows is minutes old at most, while git runs a few times an hour.
-pub(crate) const SLOW_TICK_INTERVAL: Duration = Duration::from_secs(180);
+pub const SLOW_TICK_INTERVAL: Duration = Duration::from_secs(180);
 
 // Repository changes a receiver may fall behind before it reads a lag, which it answers by
 // probing every mount.
@@ -71,36 +71,36 @@ pub(crate) type WorkingTreeChangeListener = Arc<dyn Fn(WorkingTreeChange) + Send
 /// A folder to keep watched: where it is, the repository mount it belongs to, and the place every
 /// git call on it runs.
 #[derive(Clone, Debug)]
-pub(crate) struct WatchTarget {
+pub struct WatchTarget {
     /// The folder, as stored.
-    pub(crate) folder: PathBuf,
+    pub folder: PathBuf,
     /// The mount whose sessions the branch write-back reads.
-    pub(crate) repo_mount_id: RepoMountId,
+    pub repo_mount_id: RepoMountId,
     /// Where the folder is: `None` on macOS and Linux.
-    pub(crate) place: Option<Place>,
+    pub place: Option<Place>,
 }
 
 /// What the working-folder watch runs with.
-pub(crate) struct WorkingFolderWatcherDeps {
+pub struct WorkingFolderWatcherDeps {
     /// The daemon's git.
-    pub(crate) git: GitRunner,
+    pub git: GitRunner,
     /// The pool a session's working folder is read on.
-    pub(crate) reads: Arc<DatabaseReadPool>,
+    pub reads: Arc<DatabaseReadPool>,
     /// The sessions standing in a folder, for the branch write-back.
-    pub(crate) occupancy: MountOccupancyReader,
+    pub occupancy: MountOccupancyReader,
     /// Where `session.branch.changed` is appended.
-    pub(crate) events: Arc<WorktreeEventEmitter>,
+    pub events: Arc<WorktreeEventEmitter>,
     /// The daemon's scheduler, which runs each slow tick.
-    pub(crate) scheduler: Arc<Scheduler>,
+    pub scheduler: Arc<Scheduler>,
     /// The machine's ceiling on watches, `inotify_watch_ceiling` in the daemon.
-    pub(crate) read_watch_ceiling: ReadWatchCeiling,
+    pub read_watch_ceiling: ReadWatchCeiling,
     /// How often a folder on the slow tick is checked, [`SLOW_TICK_INTERVAL`] in the daemon.
-    pub(crate) slow_tick_interval: Duration,
+    pub slow_tick_interval: Duration,
 }
 
 /// Why a folder could not be held, subscribed, followed or raised.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WorkingFolderError {
+pub enum WorkingFolderError {
     /// The session's working folder could not be read; `session.notFound` for a session this
     /// daemon holds no row for.
     #[error(transparent)]
@@ -137,7 +137,7 @@ impl From<WorkingFolderError> for HandlerError {
 
 /// Why a folder's watches could not start; every hold and subscriber waiting on it gets it.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum FolderStartError {
+pub enum FolderStartError {
     /// The tree's own git folder could not be read.
     #[error("the working folder's git folder could not be read")]
     GitFolder(#[source] GitError),
@@ -154,7 +154,7 @@ type StartOutcome = Result<(), Arc<FolderStartError>>;
 
 /// One watch per working folder, its subscribers, and the branch write-back; `W` is the system's
 /// file watch, which a test swaps for one it feeds.
-pub(crate) struct WorkingFolderWatcher<W = RecommendedWatcher> {
+pub struct WorkingFolderWatcher<W = RecommendedWatcher> {
     shared: Arc<WatcherShared>,
     backend: PhantomData<fn() -> W>,
 }
@@ -214,7 +214,7 @@ struct FolderKey {
 }
 
 /// Keeps one folder's watches running until it drops.
-pub(crate) struct WatchHold {
+pub struct WatchHold {
     shared: Weak<WatcherShared>,
     folder: FolderKey,
 }
@@ -228,7 +228,7 @@ impl Drop for WatchHold {
 }
 
 /// Sends each change of its session's folder to its listener until it drops.
-pub(crate) struct WatchSubscription {
+pub struct WatchSubscription {
     shared: Weak<WatcherShared>,
     subscription_id: u64,
 }
@@ -243,7 +243,7 @@ impl Drop for WatchSubscription {
 
 impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
     /// A watcher running with `deps`, watching nothing until a hold or a subscription.
-    pub(crate) fn new(deps: WorkingFolderWatcherDeps) -> Self {
+    pub fn new(deps: WorkingFolderWatcherDeps) -> Self {
         Self {
             shared: Arc::new(WatcherShared {
                 deps,
@@ -259,7 +259,7 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
     /// started. Fails with [`WorkingFolderError::Folder`] when the folder cannot be resolved,
     /// [`WorkingFolderError::Start`] when its watches cannot start, and
     /// [`WorkingFolderError::Stopped`] after [`stop`](Self::stop).
-    pub(crate) async fn hold(&self, target: &WatchTarget) -> Result<WatchHold, WorkingFolderError> {
+    pub async fn hold(&self, target: &WatchTarget) -> Result<WatchHold, WorkingFolderError> {
         let key = canonical_folder_path(&target.folder)
             .await
             .map_err(WorkingFolderError::Folder)?;
@@ -276,7 +276,7 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
     /// subscription drops, following the session when it moves; a session that works in no folder
     /// yet is followed once it is in one. Fails with `session.notFound` for a session this daemon
     /// holds no row for, and as [`hold`](Self::hold) does.
-    pub(crate) async fn subscribe(
+    pub async fn subscribe(
         &self,
         session_id: &SessionId,
         on_change: WorkingTreeChangeListener,
@@ -313,7 +313,7 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
 
     /// Moves `session_id`'s subscriptions to the folder it works in now, or parks them while it
     /// works in none; run after the session moves. Fails as [`subscribe`](Self::subscribe) does.
-    pub(crate) async fn follow(&self, session_id: &SessionId) -> Result<(), WorkingFolderError> {
+    pub async fn follow(&self, session_id: &SessionId) -> Result<(), WorkingFolderError> {
         let target = self.read_target(session_id).await?;
         let key = match &target {
             Some(target) => Some(
@@ -348,10 +348,7 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
     /// Marks the folder `session_id` works in as changed for every subscriber on it, once; an
     /// allowed approval raises it, since work the person has not seen may land there. A session
     /// whose folder is not watched raises nothing. Fails as [`subscribe`](Self::subscribe) does.
-    pub(crate) async fn raise_staleness(
-        &self,
-        session_id: &SessionId,
-    ) -> Result<(), WorkingFolderError> {
+    pub async fn raise_staleness(&self, session_id: &SessionId) -> Result<(), WorkingFolderError> {
         let Some(target) = self.read_target(session_id).await? else {
             return Ok(());
         };
@@ -366,13 +363,13 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
 
     /// A receiver of each watched folder whose repository may have moved or gone, from now on;
     /// on a lag, every mount is to be probed, since a folder was missed.
-    pub(crate) fn on_repository_change(&self) -> broadcast::Receiver<PathBuf> {
+    pub fn on_repository_change(&self) -> broadcast::Receiver<PathBuf> {
         self.shared.repository_changes.subscribe()
     }
 
     /// Stops every folder's watches and drops every subscription, then waits for the folders'
     /// tasks to end; a later hold or subscription fails with [`WorkingFolderError::Stopped`].
-    pub(crate) async fn stop(&self) {
+    pub async fn stop(&self) {
         let (folders, subscriptions) = {
             let mut state = self.shared.lock_state();
             state.is_stopped = true;

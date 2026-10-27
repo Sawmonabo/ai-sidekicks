@@ -9,7 +9,8 @@ use sidekicks_contracts::approval::ApprovalCategory;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 
-use crate::service::tests::{ApprovalFixture, SETTLE_WAIT, from_json};
+use crate::service::test_fixture::SETTLE_WAIT;
+use crate::service::tests::{ApprovalFixture, from_json};
 use crate::store::{InsertedApprovalRequest, insert_request_statement};
 
 impl ApprovalFixture {

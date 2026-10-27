@@ -18,7 +18,7 @@ use sidekicks_store::database::statement::{StatementBindings, WriteStatement, te
 use sidekicks_store::database::writer::DatabaseWriter;
 
 /// The statements the store's reads run: the held draft.
-pub(crate) const SESSION_DRAFT_STORE_STATEMENT_CAPACITY: usize = 1;
+pub const SESSION_DRAFT_STORE_STATEMENT_CAPACITY: usize = 1;
 
 const SELECT_DRAFT_SQL: &str = "SELECT text FROM session_drafts WHERE session_id = @sessionId";
 
@@ -30,7 +30,7 @@ const DELETE_DRAFT_SQL: &str = "DELETE FROM session_drafts WHERE session_id = @s
 
 /// Why a draft was not read or stored; a refused store keeps nothing.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SessionDraftError {
+pub enum SessionDraftError {
     /// The session is not one this daemon holds (`session.notFound`), or the write was not kept.
     #[error(transparent)]
     Write(#[from] SessionWriteError),
@@ -57,20 +57,20 @@ impl From<SessionDraftError> for HandlerError {
 }
 
 /// Reads each session's draft through the daemon's read pool and stores it through its writer.
-pub(crate) struct SessionDraftStore {
+pub struct SessionDraftStore {
     pool: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
 }
 
 impl SessionDraftStore {
     /// The store reading through `pool` and writing through `writer`.
-    pub(crate) fn new(pool: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
+    pub fn new(pool: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
         Self { pool, writer }
     }
 
     /// The session's held draft, or the empty string when none is held. Fails with
     /// [`SessionDraftError::Database`] or [`SessionDraftError::Pool`] when the read does.
-    pub(crate) async fn read(&self, session_id: SessionId) -> Result<String, SessionDraftError> {
+    pub async fn read(&self, session_id: SessionId) -> Result<String, SessionDraftError> {
         self.pool
             .read(ReadLength::Short, move |connection| {
                 let draft = connection
@@ -88,7 +88,7 @@ impl SessionDraftStore {
     /// Holds `text` as the session's draft, or clears the draft when `text` is empty, and answers
     /// when it was stored once committed. Fails with [`SessionDraftError::Write`]:
     /// `session.notFound` for a session this daemon holds no row for, or the write not kept.
-    pub(crate) async fn write(
+    pub async fn write(
         &self,
         session_id: SessionId,
         text: String,

@@ -42,7 +42,7 @@ use crate::recorder::{QueueRecorder, QueueRecorderDeps};
 use crate::refusals::{
     UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found, unreturned_refusal,
 };
-use crate::run_lifecycle::{QueueRunLifecycle, QueueRunLifecycleDeps};
+use crate::run_lifecycle::{QueueRunLifecycle, QueueRunLifecycleDeps, RunLifecycleListener};
 use crate::send::{QueueSendMessage, QueueSends, QueueSendsDeps};
 use crate::session_lock::{QueueSessionLock, UnreleasedInterrupts};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -77,36 +77,36 @@ static EMPTIED_RUN_DETAIL: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN
     });
 
 /// What the run queue reads, writes and calls.
-pub(crate) struct RunQueueDeps {
+pub struct RunQueueDeps {
     /// The read pool every queue and run read goes through.
-    pub(crate) pool: Arc<DatabaseReadPool>,
+    pub pool: Arc<DatabaseReadPool>,
     /// The event log every queue event is appended to.
-    pub(crate) event_log: Arc<EventLogService>,
+    pub event_log: Arc<EventLogService>,
     /// The writer a change no event records goes through.
-    pub(crate) writer: Arc<DatabaseWriter>,
+    pub writer: Arc<DatabaseWriter>,
     /// The queues' change signals.
-    pub(crate) signals: Arc<QueueChangeSignals>,
+    pub signals: Arc<QueueChangeSignals>,
     /// Starts, continues and ends runs.
-    pub(crate) engine: Arc<RunEngine>,
+    pub engine: Arc<RunEngine>,
     /// The drivers and their descriptors.
-    pub(crate) providers: Arc<ProviderRegistry>,
+    pub providers: Arc<ProviderRegistry>,
     /// Opens each session's provider session.
-    pub(crate) provider_sessions: Arc<ProviderSessions>,
+    pub provider_sessions: Arc<ProviderSessions>,
     /// The gate every start waits its turn at.
-    pub(crate) memory_gate: Arc<MemoryGate>,
+    pub memory_gate: Arc<MemoryGate>,
     /// The identity of each session's provider process.
-    pub(crate) processes: Arc<dyn ProviderProcessIds>,
+    pub processes: Arc<dyn ProviderProcessIds>,
     /// Resumes a paused run a send went into, and settles what resumes kept.
-    pub(crate) pauses: Arc<RunPauseControl>,
+    pub pauses: Arc<RunPauseControl>,
     /// The committed events the run lifecycle follows.
-    pub(crate) followers: Arc<SessionEventFollowers>,
+    pub followers: Arc<SessionEventFollowers>,
     /// Where each damaged session's log stops being readable.
-    pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+    pub read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
 }
 
 /// The daemon's one run queue: the handlers' sends and changes, the interventions' interrupts, and
 /// the run lifecycle that follows every committed run state change.
-pub(crate) struct RunQueue {
+pub struct RunQueue {
     pool: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
     providers: Arc<ProviderRegistry>,
@@ -128,7 +128,7 @@ pub(crate) struct RunQueue {
 
 impl RunQueue {
     /// The queue over `deps`, following every session's committed events from now on.
-    pub(crate) fn new(deps: RunQueueDeps) -> Arc<Self> {
+    pub fn new(deps: RunQueueDeps) -> Arc<Self> {
         let RunQueueDeps {
             pool,
             event_log,
@@ -252,7 +252,7 @@ impl RunQueue {
         )
     )]
     pub(crate) fn process_gone_listener(&self) -> Arc<dyn ProcessGoneListener> {
-        Arc::new(Arc::downgrade(&self.lifecycle))
+        Arc::new(RunLifecycleListener(Arc::downgrade(&self.lifecycle)))
     }
 
     /// Sends one message from `device_id` to the lead of `to`, else of `session_id`, and answers it
@@ -263,7 +263,7 @@ impl RunQueue {
     /// give back, a retry in other words, a skill pick the provider does not list or whose read
     /// waited past the delivery timeout, a send the store cannot keep and one whose lead run kept
     /// moving under it, writing nothing.
-    pub(crate) async fn create(
+    pub async fn create(
         &self,
         request: AgentQueueItemCreateRequest,
         device_id: DeviceId,
@@ -328,7 +328,7 @@ impl RunQueue {
 
     /// A queue, the lead's or a child's, in its order, only the items in `state` when it is
     /// given. Fails as the read fails.
-    pub(crate) async fn list(
+    pub async fn list(
         &self,
         request: AgentQueueItemListRequest,
     ) -> Result<AgentQueueItemListResponse, QueueError> {
@@ -356,7 +356,7 @@ impl RunQueue {
     /// does not hold, one the agent has taken and one its provider did not give back, which then
     /// reads not delivered. Removing the last message of a run that has not started ends that run
     /// `failed` in the same write.
-    pub(crate) async fn cancel(
+    pub async fn cancel(
         &self,
         request: AgentQueueItemCancelRequest,
     ) -> Result<AgentQueueItemCancelResponse, QueueError> {
@@ -426,7 +426,7 @@ impl RunQueue {
     /// a message a `Send now` marked that the order puts after another loses the mark and goes in
     /// its place. Refuses a list that is not exactly the waiting items; a message the agent takes
     /// meanwhile keeps its place.
-    pub(crate) async fn reorder(
+    pub async fn reorder(
         &self,
         request: AgentQueueItemReorderRequest,
     ) -> Result<AgentQueueItemListResponse, QueueError> {

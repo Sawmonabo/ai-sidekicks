@@ -15,7 +15,7 @@ use sidekicks_ipc::domain_error::DomainError;
 
 /// Why the run engine refused a call or a move; nothing was written for any of them.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RunRefusal {
+pub enum RunRefusal {
     /// A run id the daemon holds no run for (`agent.run.notFound`).
     #[error("Run does not exist or is not accessible")]
     NotFound {

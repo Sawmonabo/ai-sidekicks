@@ -1,26 +1,21 @@
 //! A database file for tests, opened as the daemon opens its own with the schema of the parts a
 //! test names, and the event rows tests write to it.
 
-// The event rows' imports are gated: those rows serve only the crate's own tests.
 use std::path::PathBuf;
-#[cfg(test)]
 use std::sync::Arc;
 
 use rusqlite::Connection;
-use tempfile::TempDir;
-#[cfg(test)]
-use {
-    rusqlite::params,
-    serde_json::json,
-    sidekicks_contracts::{
-        agent::definition::AgentId, event::envelope::EventOccurredAt, event::session::SessionEvent,
-        run::id::RunId, session::id::SessionId, wire::instant::WireInstant, wire::integer::SafeInt,
-    },
+use rusqlite::params;
+use serde_json::json;
+use sidekicks_contracts::{
+    agent::definition::AgentId, event::envelope::EventOccurredAt, event::session::SessionEvent,
+    run::id::RunId, session::id::SessionId, wire::id::mint_uuid_v7, wire::instant::WireInstant,
+    wire::integer::SafeInt,
 };
+use tempfile::TempDir;
 
 use crate::database::connection::writer_open::{DatabaseOpenError, open_database};
 use crate::database::schema::{DatabaseSchema, SchemaParts};
-#[cfg(test)]
 use crate::events::{
     content::codec::BodyEncoder,
     log_service::compose_rows,
@@ -30,8 +25,6 @@ use crate::events::{
         version::SESSION_EVENT_VERSION,
     },
 };
-#[cfg(test)]
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 
 /// A database file in a folder of its own, removed when this drops, and the schema it is opened
@@ -75,19 +68,13 @@ impl TestDatabase {
 }
 
 /// A fresh session's id.
-#[cfg(test)]
-pub(crate) fn test_session_id() -> SessionId {
+pub fn test_session_id() -> SessionId {
     SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
 }
 
 /// Writes `session_id`'s creation, its lead bound to the provider `provider`, and answers the
 /// lead's agent.
-#[cfg(test)]
-pub(crate) fn insert_lead(
-    database: &TestDatabase,
-    session_id: SessionId,
-    provider: &str,
-) -> AgentId {
+pub fn insert_lead(database: &TestDatabase, session_id: SessionId, provider: &str) -> AgentId {
     let agent_id = mint_uuid_v7().to_string();
     database
         .reader()
@@ -113,17 +100,12 @@ pub(crate) fn insert_lead(
 }
 
 /// A fresh run's id.
-#[cfg(test)]
-pub(crate) fn test_run_id() -> RunId {
+pub fn test_run_id() -> RunId {
     RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
 }
 
 /// The envelope of `event` on `session_id`'s log, occurring now, with no linkage.
-#[cfg(test)]
-pub(crate) fn test_envelope(
-    session_id: SessionId,
-    event: &SessionEvent,
-) -> UnsequencedEventEnvelope {
+pub fn test_envelope(session_id: SessionId, event: &SessionEvent) -> UnsequencedEventEnvelope {
     UnsequencedEventEnvelope::new(
         SessionEventDraft::of_session(session_id, event)
             .expect("the test's event passes its checks"),
@@ -135,8 +117,7 @@ pub(crate) fn test_envelope(
 }
 
 /// A `session.pinned` row for `session_id`, with no body.
-#[cfg(test)]
-pub(crate) fn session_event_row(session_id: &SessionId) -> SessionEventRow {
+pub fn session_event_row(session_id: &SessionId) -> SessionEventRow {
     let pinned = serde_json::from_value(json!({
         "type": "session.pinned",
         "payload": { "sessionId": session_id, "at": "2026-10-14T09:00:00.000Z" },
@@ -155,8 +136,7 @@ pub(crate) fn session_event_row(session_id: &SessionId) -> SessionEventRow {
 /// the daemon's insert, occurring at `occurred_at` and with `body` stored as an append stores it,
 /// across rows where an append would cut it so, and returns the event's own row's sequence and
 /// event id.
-#[cfg(test)]
-pub(crate) fn insert_test_event(
+pub fn insert_test_event(
     writer: &Connection,
     session_id: SessionId,
     event: serde_json::Value,

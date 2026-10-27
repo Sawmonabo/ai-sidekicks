@@ -25,7 +25,7 @@ struct ArmedWaits<Key, Settlement> {
 }
 
 /// The armed waits on keys of one kind; clones share the same waits.
-pub(crate) struct KeyedWaits<Key, Settlement> {
+pub struct KeyedWaits<Key, Settlement> {
     /// The waits every clone shares. No holder panics while it changes the map, so a poisoned
     /// lock still holds whole waits.
     waits: Arc<Mutex<ArmedWaits<Key, Settlement>>>,
@@ -53,7 +53,7 @@ impl<Key, Settlement> Default for KeyedWaits<Key, Settlement> {
 impl<Key: Eq + Hash + Clone, Settlement: Clone> KeyedWaits<Key, Settlement> {
     /// Arms a wait on `key`. Arm before the action whose result settles it: a settlement sent
     /// before the wait is armed finds no waiter.
-    pub(crate) fn arm(&self, key: Key) -> ArmedWait<Key, Settlement> {
+    pub fn arm(&self, key: Key) -> ArmedWait<Key, Settlement> {
         let (sender, receiver) = oneshot::channel();
         let mut waits = lock(&self.waits);
         let waiter_id = waits.next_waiter_id;
@@ -73,7 +73,7 @@ impl<Key: Eq + Hash + Clone, Settlement: Clone> KeyedWaits<Key, Settlement> {
     }
 
     /// Settles every waiter on `key` with `settlement`; a no-op with none armed.
-    pub(crate) fn settle_all<Lookup>(&self, key: &Lookup, settlement: Settlement)
+    pub fn settle_all<Lookup>(&self, key: &Lookup, settlement: Settlement)
     where
         Key: Borrow<Lookup>,
         Lookup: Eq + Hash + ?Sized,
@@ -86,11 +86,7 @@ impl<Key: Eq + Hash + Clone, Settlement: Clone> KeyedWaits<Key, Settlement> {
     }
 
     /// Settles every waiter on each key `is_settled` picks with `settlement`; a no-op with none.
-    pub(crate) fn settle_where(
-        &self,
-        mut is_settled: impl FnMut(&Key) -> bool,
-        settlement: Settlement,
-    ) {
+    pub fn settle_where(&self, mut is_settled: impl FnMut(&Key) -> bool, settlement: Settlement) {
         let mut waits = lock(&self.waits);
         let settled_keys: Vec<Key> = waits
             .by_key
@@ -115,7 +111,7 @@ impl<Key: Eq + Hash + Clone, Settlement: Clone> KeyedWaits<Key, Settlement> {
             reason = "the drivers' compaction arms the wait and reads it"
         )
     )]
-    pub(crate) fn pending_count_for<Lookup>(&self, key: &Lookup) -> usize
+    pub fn pending_count_for<Lookup>(&self, key: &Lookup) -> usize
     where
         Key: Borrow<Lookup>,
         Lookup: Eq + Hash + ?Sized,
@@ -139,7 +135,7 @@ fn send_to_each<Settlement: Clone>(
 /// so a caller drops it when the action failed or answered first, and awaits [`Self::settled`]
 /// otherwise.
 #[must_use = "dropping the wait withdraws it"]
-pub(crate) struct ArmedWait<Key: Eq + Hash, Settlement> {
+pub struct ArmedWait<Key: Eq + Hash, Settlement> {
     /// The waits this one is registered in.
     waits: Arc<Mutex<ArmedWaits<Key, Settlement>>>,
     /// The key the wait was armed on.
@@ -152,7 +148,7 @@ pub(crate) struct ArmedWait<Key: Eq + Hash, Settlement> {
 
 impl<Key: Eq + Hash, Settlement> ArmedWait<Key, Settlement> {
     /// Waits for the wait's settlement. Dropping the future before it ends withdraws the wait.
-    pub(crate) async fn settled(mut self) -> Settlement {
+    pub async fn settled(mut self) -> Settlement {
         let receiver = self
             .receiver
             .take()

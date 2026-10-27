@@ -13,8 +13,8 @@ mod live;
 mod running_wait;
 mod settle;
 mod start;
-#[cfg(test)]
-pub(crate) mod tests;
+#[cfg(any(test, feature = "test-support"))]
+pub mod tests;
 pub(crate) mod turns;
 mod unresolved_interventions;
 
@@ -55,7 +55,7 @@ use sidekicks_provider::run::delivery::RunMarker;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 use sidekicks_std::mutex_lock::lock;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use sidekicks_std::pause_point::PausePoint;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
@@ -81,7 +81,7 @@ use sidekicks_workspace::run_setup_gates::{
 /// plans still holding a request (its plan holds' read) and its open choices (the newest
 /// request of each dialog and whether it was settled since), and a driver's read of a session's
 /// stored leg (the session's runs and their bindings).
-pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 21 + RUN_AGENT_STATEMENT_CAPACITY;
+pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 21 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;
@@ -105,7 +105,7 @@ pub(crate) enum InterruptRoute {
 /// Why the run engine did not do what it was asked; what each step wrote before the failure is
 /// kept, and the failure says which step failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RunEngineError {
+pub enum RunEngineError {
     /// The run is unknown, has ended, or may not make the move asked of it.
     #[error(transparent)]
     Refused(RunRefusal),
@@ -230,18 +230,18 @@ impl From<RunStateChangeError> for RunEngineError {
 }
 
 /// What the run engine reads and writes through.
-pub(crate) struct RunEngineDeps {
+pub struct RunEngineDeps {
     /// The read pool every run read borrows a connection from.
-    pub(crate) pool: Arc<DatabaseReadPool>,
+    pub pool: Arc<DatabaseReadPool>,
     /// The event log every run event is appended to.
-    pub(crate) event_log: Arc<EventLogService>,
+    pub event_log: Arc<EventLogService>,
     /// The posture gate, registered as the first setup gate; every start reads the run's resolved
     /// posture from it.
-    pub(crate) execution_postures: Arc<ExecutionPostureService>,
+    pub execution_postures: Arc<ExecutionPostureService>,
     /// The registered drivers: a provider's fixed facts and its driver, by the provider's id.
-    pub(crate) providers: Arc<ProviderRegistry>,
+    pub providers: Arc<ProviderRegistry>,
     /// The plans a run's end reopens as it lets their held requests go.
-    pub(crate) plan_holds: Arc<dyn PlanHolds>,
+    pub plan_holds: Arc<dyn PlanHolds>,
 }
 
 // An interrupt that waits before it is routed: for a continue to settle, or for a start past its
@@ -261,7 +261,7 @@ struct LiveAppend {
 
 /// Owns every run state change, the setup gates a run passes before its provider starts it, a
 /// run's turns and the daemon's own stops at a limit.
-pub(crate) struct RunEngine {
+pub struct RunEngine {
     pool: Arc<DatabaseReadPool>,
     appender: Arc<SessionEventAppender>,
     changes: RunStateChangeWriter,
@@ -284,7 +284,7 @@ pub(crate) struct RunEngine {
     #[cfg(test)]
     resume_read_pause: PausePoint,
     // Where a test holds a restart's settle of a run between its facts' read and its write.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     restart_facts_pause: PausePoint,
     // The engine's own allocation, which a call a driver makes through its port takes to hand a
     // limit's stop to a task of its own.
@@ -294,7 +294,7 @@ pub(crate) struct RunEngine {
 impl RunEngine {
     /// An engine over `deps`, built inside the allocation `this` points to, the posture gate
     /// registered as its first setup gate.
-    pub(crate) fn new(deps: RunEngineDeps, this: Weak<RunEngine>) -> Self {
+    pub fn new(deps: RunEngineDeps, this: Weak<RunEngine>) -> Self {
         let RunEngineDeps {
             pool,
             event_log,
@@ -323,7 +323,7 @@ impl RunEngine {
             cut_pause: PausePoint::default(),
             #[cfg(test)]
             resume_read_pause: PausePoint::default(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             restart_facts_pause: PausePoint::default(),
             this,
         }
@@ -343,15 +343,15 @@ impl RunEngine {
     }
 
     /// Where a test holds a restart's settle of a run between its facts' read and its write.
-    #[cfg(test)]
-    pub(crate) fn restart_facts_pause(&self) -> &PausePoint {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn restart_facts_pause(&self) -> &PausePoint {
         &self.restart_facts_pause
     }
 
     /// Hands the engine the interventions service that carries out each limit stop's interrupt,
     /// once, while the daemon wires its services and before any run can reach a limit. Fails with
     /// the handle when one was handed already.
-    pub(crate) fn set_limit_interrupter(
+    pub fn set_limit_interrupter(
         &self,
         limit_interrupter: Weak<dyn LimitInterrupter>,
     ) -> Result<(), SetOnceError<Weak<dyn LimitInterrupter>>> {
@@ -360,7 +360,7 @@ impl RunEngine {
 
     /// Adds a setup gate after those already registered; its terminal hook runs before theirs.
     /// Gates are registered while the daemon wires its services, before the engine is shared.
-    pub(crate) fn register_setup_gate(&mut self, gate: Arc<dyn RunSetupGate>) {
+    pub fn register_setup_gate(&mut self, gate: Arc<dyn RunSetupGate>) {
         self.gates.register(gate);
     }
 
@@ -420,7 +420,7 @@ impl RunEngine {
     /// once it is written, on a task of its own; a move that names no state it leaves hands
     /// nothing, its caller handing them once the provider runs. Refuses as
     /// [`RunStateChangeWriter::write`] does; a running change's posture is the start's to stamp.
-    pub(crate) async fn transition(
+    pub async fn transition(
         self: &Arc<Self>,
         change: RunStateChange,
         companions: RunStateChangeCompanions,
@@ -454,7 +454,7 @@ impl RunEngine {
     /// interrupt a stop of the run could not hand is handed again, and once the provider reports
     /// the run back to `running` from a wait, a pause or `pausing`, the interrupt of every limit it
     /// owes, each failure returned beside the run as the change left it.
-    pub(crate) async fn apply_provider_state_change(
+    pub async fn apply_provider_state_change(
         self: &Arc<Self>,
         change: RunStateChange,
         turn_end: Option<ProviderTurnEnd>,

@@ -51,7 +51,7 @@ static FILE_ENTRIES_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// The artifacts of `session_id`: its plans, then its chat's files and folders. Fails with
 /// `session.notFound` for a session the daemon does not hold, and as the read fails.
-pub(crate) async fn list_artifacts(
+pub async fn list_artifacts(
     reads: &DatabaseReadPool,
     session_id: SessionId,
 ) -> Result<ArtifactListResponse, ArtifactError> {

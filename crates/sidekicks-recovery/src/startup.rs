@@ -69,7 +69,7 @@ use sidekicks_store::events::session::appender::{
 /// the seven every-session listings of what the restart left (the live runs, the pending retries,
 /// the ended runs with an open turn, with an unresolved intervention, with a pending ask and with
 /// an open choice, and the held plans).
-pub(crate) const STARTUP_RECOVERY_STATEMENT_CAPACITY: usize = 8;
+pub const STARTUP_RECOVERY_STATEMENT_CAPACITY: usize = 8;
 
 // The failed passes since the last one that succeeded, read from the service's own session.
 static COUNT_FAILURES_SINCE_SUCCESS_SQL: LazyLock<String> = LazyLock::new(|| {

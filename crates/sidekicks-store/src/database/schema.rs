@@ -12,12 +12,12 @@ use std::sync::Arc;
 mod daemon_configuration;
 mod event_log;
 mod provider_accounts;
-pub(crate) mod recovery;
+pub mod recovery;
 pub mod session_directory;
 
 /// The event log's table, by the name the schema creates it under and the reads that look for it
 /// by name use.
-pub(crate) const SESSION_EVENTS_TABLE: &str = "session_events";
+pub const SESSION_EVENTS_TABLE: &str = "session_events";
 
 /// One named piece of the database schema: the tables, indexes and triggers one module owns.
 #[derive(Clone, Debug)]
@@ -95,7 +95,7 @@ impl DatabaseSchema {
 
 /// The store's own parts: the event log, the session directory, this machine, the daemon's
 /// configuration, the recovery's records and the provider accounts, in foreign-key order.
-pub(crate) fn schema_parts() -> SchemaParts {
+pub fn schema_parts() -> SchemaParts {
     SchemaParts::default()
         .with_part(SchemaPart::new(
             "event_log",

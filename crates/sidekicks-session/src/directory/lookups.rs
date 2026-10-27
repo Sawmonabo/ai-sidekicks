@@ -24,14 +24,14 @@ use sidekicks_workspace::schema::MountOrigin;
 
 /// The states of a session that has ended, closed or being purged, as a SQL list of quoted words
 /// for a `state IN (…)` condition: such a session takes no message, ask or rule.
-pub(crate) static ENDED_SESSION_STATES_SQL: LazyLock<String> = LazyLock::new(|| {
+pub static ENDED_SESSION_STATES_SQL: LazyLock<String> = LazyLock::new(|| {
     sql_list_of([SessionState::Closed, SessionState::PurgeRequested].map(<&'static str>::from))
 });
 
 /// The subquery answering the project id of the session whose id `session_id_sql` reads (a bound
 /// parameter such as `@sessionId`, or a column such as `s.id`), or NULL for a chat, a session whose
 /// project was forgotten, or one not bound to a project yet.
-pub(crate) fn session_project_sql(session_id_sql: &str) -> String {
+pub fn session_project_sql(session_id_sql: &str) -> String {
     let attached = <&'static str>::from(MountOrigin::Attached);
     format!(
         "(SELECT project.id FROM projects AS project
@@ -52,17 +52,14 @@ pub(crate) fn session_project_sql(session_id_sql: &str) -> String {
 const SESSION_EXISTS_SQL: &str = "SELECT 1 FROM sessions WHERE id = @sessionId";
 
 /// Whether the session has a directory row, read on `reader`. Fails when SQLite refuses the read.
-pub(crate) fn session_exists(
-    reader: &Connection,
-    session_id: &SessionId,
-) -> rusqlite::Result<bool> {
+pub fn session_exists(reader: &Connection, session_id: &SessionId) -> rusqlite::Result<bool> {
     reader
         .prepare_cached(SESSION_EXISTS_SQL)?
         .exists(named_params! { "@sessionId": session_id.text().as_str() })
 }
 
 /// Holds only while the session has a directory row: the write refuses and rolls back otherwise.
-pub(crate) fn session_exists_statement(session_id: &SessionId) -> WriteStatement {
+pub fn session_exists_statement(session_id: &SessionId) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(SESSION_EXISTS_SQL),
         bindings: StatementBindings::Named(vec![text_binding(
@@ -75,7 +72,7 @@ pub(crate) fn session_exists_statement(session_id: &SessionId) -> WriteStatement
 
 /// Why a write kept only while its session has a row was not kept.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SessionWriteError {
+pub enum SessionWriteError {
     /// The session is not one this daemon holds (`session.notFound`).
     #[error(transparent)]
     Refused(#[from] DomainError),

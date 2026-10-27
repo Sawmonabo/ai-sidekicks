@@ -11,7 +11,7 @@ const UNICODE_ESCAPE_LEN: usize = 6;
 
 /// Provider-sent JSON `bytes` as text, with invalid UTF-8 and lone surrogate escapes repaired to
 /// U+FFFD and nothing else changed. Borrows `bytes` when nothing needs repair.
-pub(crate) fn decode_inbound_json(bytes: &[u8]) -> Cow<'_, str> {
+pub fn decode_inbound_json(bytes: &[u8]) -> Cow<'_, str> {
     let text = String::from_utf8_lossy(bytes);
     // In valid JSON a reverse solidus only starts an escape, so text without one has none.
     if memchr(b'\\', text.as_bytes()).is_none() {

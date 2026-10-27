@@ -107,7 +107,7 @@ static RUNS_EVENT_TYPES: LazyLock<Vec<SessionEventType>> = LazyLock::new(|| {
 });
 
 /// The statement that creates a run's row from its `agent.run.queued` payload.
-pub(crate) fn insert_queued_run_statement(payload: &AgentRunQueuedPayload) -> WriteStatement {
+pub fn insert_queued_run_statement(payload: &AgentRunQueuedPayload) -> WriteStatement {
     let (session_id, run_id, run_version, parent_run_id, reached_by, is_apart) = match payload {
         AgentRunQueuedPayload::SessionAgent(queued) => (
             &queued.session_id,
@@ -229,7 +229,7 @@ fn state_change_swap_of(event: &SessionEvent) -> Option<RunStateSwap> {
 }
 
 /// The `runs` rows as a rebuild replaces them: one per run, at its last state and version.
-pub(crate) struct RunsProjection;
+pub struct RunsProjection;
 
 impl SessionProjection for RunsProjection {
     fn name(&self) -> &'static str {

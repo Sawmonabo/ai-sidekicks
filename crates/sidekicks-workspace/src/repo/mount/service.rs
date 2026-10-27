@@ -49,7 +49,7 @@ use sidekicks_store::database::writer::{DatabaseWriter, WriteError, sqlite_error
 use sidekicks_store::events::session::appender::SessionEventEmitError;
 
 /// The statements the service's reads keep prepared on each read connection.
-pub(crate) const REPO_MOUNT_SERVICE_STATEMENT_CAPACITY: usize = 4;
+pub const REPO_MOUNT_SERVICE_STATEMENT_CAPACITY: usize = 4;
 
 // An attached mount of a repository the machine has no active mount of in that place, compared by
 // identity anchor inside the write; zero rows refuses it.
@@ -147,7 +147,7 @@ const SELECT_MANAGED_ROOT_SQL: &str =
 /// Why a mount call failed: a refusal the wire carries, or a failure of the store or of the
 /// events a committed detach owed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RepoMountServiceError {
+pub enum RepoMountServiceError {
     /// The call was refused; nothing was written.
     #[error(transparent)]
     Refused(#[from] RepoRefusal),
@@ -265,7 +265,7 @@ struct ActiveMount {
     not(test),
     expect(dead_code, reason = "the repository mount methods' handlers")
 )]
-pub(crate) struct RepoMountService {
+pub struct RepoMountService {
     writer: Arc<DatabaseWriter>,
     reads: Arc<DatabaseReadPool>,
     events: Arc<WorkspaceEventEmitter>,
@@ -283,7 +283,7 @@ pub(crate) struct RepoMountService {
 impl RepoMountService {
     /// The mounts of `machine_id`'s daemon, written through `writer`, read through `reads`, roots
     /// resolved by `resolver` and a detach's archivals appended through `events`.
-    pub(crate) fn new(
+    pub fn new(
         writer: Arc<DatabaseWriter>,
         reads: Arc<DatabaseReadPool>,
         events: Arc<WorkspaceEventEmitter>,
@@ -642,7 +642,7 @@ impl RepoMountService {
 /// The statements that delete a chat's managed mount row with every workspace on it and the run
 /// and branch rows naming those workspaces, in foreign-key order; a session with none matches
 /// nothing. They go in one write, alone or inside the purge's.
-pub(crate) fn managed_mount_deletion_statements(session_id: SessionId) -> Vec<WriteStatement> {
+pub fn managed_mount_deletion_statements(session_id: SessionId) -> Vec<WriteStatement> {
     DELETE_MANAGED_MOUNT_SQL
         .iter()
         .map(|sql| WriteStatement {

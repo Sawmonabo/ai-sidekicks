@@ -16,7 +16,7 @@ type HoldCounts = Arc<Mutex<HashMap<u32, usize>>>;
 
 /// Why the process serving a provider service connection could not be held.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum HoldServingError {
+pub enum HoldServingError {
     /// The service closed its end before its process was read.
     #[error("the provider service closed its connection before its process was read")]
     PeerClosed,
@@ -27,7 +27,7 @@ pub(crate) enum HoldServingError {
 
 /// The processes serving the provider service connections the daemon holds now.
 #[derive(Default)]
-pub(crate) struct ProviderServiceProcesses {
+pub struct ProviderServiceProcesses {
     /// Each serving process with its held connections; an entry goes with its last hold.
     holds: HoldCounts,
 }
@@ -37,7 +37,7 @@ impl ProviderServiceProcesses {
     /// stream back beside it. The system names the process from the socket, a read that can touch
     /// the process table, so it runs on the blocking pool. An error when the system cannot name
     /// the process, the service having closed its end included.
-    pub(crate) async fn hold_serving(
+    pub async fn hold_serving(
         &self,
         stream: UnixDomainStream,
     ) -> Result<(UnixDomainStream, ProviderServiceHold), HoldServingError> {
@@ -73,7 +73,7 @@ impl ProviderServiceProcesses {
 
 /// One held connection's serving process, counted until this drops.
 #[must_use = "the process is held only while the hold lives"]
-pub(crate) struct ProviderServiceHold {
+pub struct ProviderServiceHold {
     /// The counts this hold is one of.
     holds: HoldCounts,
     /// The process this hold counts.

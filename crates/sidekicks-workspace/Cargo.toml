@@ -45,6 +45,10 @@ insta.workspace = true
 rstest.workspace = true
 # A file whose removal the system refuses, for the clone's failed-removal test.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
+# The pause points and stalled reads the tests arm.
+sidekicks-std = { workspace = true, features = ["test-support"] }
+# The test database and the session rows the tests build on.
+sidekicks-store = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
 # The paused clock the clone progress gate's and the worktree setup's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
@@ -52,7 +56,7 @@ tokio = { workspace = true, features = ["test-util"] }
 [features]
 # Helpers other crates' tests use: the workspace and worktree rows other tables build on, and the
 # git runner a test scripts.
-test-support = []
+test-support = ["sidekicks-platforms/test-support"]
 
 [lints]
 workspace = true

@@ -13,11 +13,11 @@ use sidekicks_store::database::schema::SchemaParts;
 use sidekicks_store::events::test_log::SessionTestLog;
 
 /// A text [`stalling_parse`] stalls on.
-pub(crate) const STALLING_TEXT: &str = "THE-BLOCK-CUT-STALLS-HERE";
+pub const STALLING_TEXT: &str = "THE-BLOCK-CUT-STALLS-HERE";
 
 /// The markdown parse, except on a window holding [`STALLING_TEXT`], where every child it answers
 /// starts at the window's start, so the cut cannot advance.
-pub(crate) fn stalling_parse() -> ChildStartsParse {
+pub fn stalling_parse() -> ChildStartsParse {
     let mut markdown = MARKDOWN_PARSE();
     Box::new(move |text| {
         if text.contains(STALLING_TEXT) {
@@ -30,14 +30,14 @@ pub(crate) fn stalling_parse() -> ChildStartsParse {
 
 /// A session's log whose lead run is stored in the runs table, in a database holding the session's
 /// tables.
-pub(crate) struct TranscriptTestLog {
+pub struct TranscriptTestLog {
     /// The store's session log it writes through: its database, session, lead run and events.
-    pub(crate) session_log: SessionTestLog,
+    pub session_log: SessionTestLog,
 }
 
 impl TranscriptTestLog {
     /// A fresh session with its lead run, in a database of `parts`, which hold the runs table.
-    pub(crate) fn new(parts: SchemaParts) -> Self {
+    pub fn new(parts: SchemaParts) -> Self {
         let log = Self {
             session_log: SessionTestLog::new(parts),
         };
@@ -63,7 +63,7 @@ impl TranscriptTestLog {
     }
 
     /// A new child run of `parent_run_id` in `state`, stored with its `agent.run.queued` row.
-    pub(crate) fn child_run(&self, parent_run_id: RunId, state: &str) -> RunId {
+    pub fn child_run(&self, parent_run_id: RunId, state: &str) -> RunId {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         self.store_run(run_id, Some(parent_run_id), state);
         self.session_log.write(
@@ -85,7 +85,7 @@ impl TranscriptTestLog {
     }
 
     /// Writes an intervention on `target_run_id` in `state`, one of its seven event types.
-    pub(crate) fn intervention(&self, target_run_id: RunId, state: &str) -> (i64, String) {
+    pub fn intervention(&self, target_run_id: RunId, state: &str) -> (i64, String) {
         let mut payload = json!({
             "sessionId": self.session_log.session_id,
             "interventionId": mint_uuid_v7().to_string(),
@@ -104,7 +104,7 @@ impl TranscriptTestLog {
     }
 
     /// Marks the events from `from` through `to` skipped, as a damaged session's repair does.
-    pub(crate) fn skip(&self, from: i64, to: i64) {
+    pub fn skip(&self, from: i64, to: i64) {
         self.session_log.write(
             json!({
                 "type": "session.damagedEvents.skipped",
@@ -119,7 +119,7 @@ impl TranscriptTestLog {
     }
 
     /// Writes the end of turn `turn_number` of `run_id`.
-    pub(crate) fn turn_end(&self, run_id: RunId, turn_number: u64) -> (i64, String) {
+    pub fn turn_end(&self, run_id: RunId, turn_number: u64) -> (i64, String) {
         self.session_log.write(
             json!({
                 "type": "agent.turn.completed",
@@ -135,7 +135,7 @@ impl TranscriptTestLog {
     }
 
     /// Damages the row at `sequence` as `damage` says, its payload still valid JSON.
-    pub(crate) fn damage_row(&self, sequence: i64, damage: RowDamage) {
+    pub fn damage_row(&self, sequence: i64, damage: RowDamage) {
         match damage {
             RowDamage::Encoding => self.set_payload_value(sequence, "$.contentEncoding", "zstdx"),
             RowDamage::EncodingByte => self.flip_encoding_high_bit(sequence),
@@ -145,8 +145,8 @@ impl TranscriptTestLog {
         }
     }
 
-    // Sets the payload value at the JSON `path` of the row at `sequence` to `value`.
-    fn set_payload_value(&self, sequence: i64, path: &str, value: impl ToSql) {
+    /// Sets the payload value at the JSON `path` of the row at `sequence` to `value`.
+    pub fn set_payload_value(&self, sequence: i64, path: &str, value: impl ToSql) {
         self.session_log
             .writer
             .execute(
@@ -156,9 +156,9 @@ impl TranscriptTestLog {
             .expect("the payload is written");
     }
 
-    // Flips the high bit of the `z` in the `"zstd"` the payload of the row at `sequence` names, so
-    // that text is no longer UTF-8; fails the test when the payload names no `zstd` encoding.
-    fn flip_encoding_high_bit(&self, sequence: i64) {
+    /// Flips the high bit of the `z` in the `"zstd"` the payload of the row at `sequence` names, so
+    /// that text is no longer UTF-8; fails the test when the payload names no `zstd` encoding.
+    pub fn flip_encoding_high_bit(&self, sequence: i64) {
         self.session_log
             .writer
             .execute(
@@ -186,7 +186,7 @@ impl TranscriptTestLog {
 
 /// How a test damages a log row after it was written, its payload still valid JSON.
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum RowDamage {
+pub enum RowDamage {
     /// Its payload names an encoding no build writes.
     Encoding,
     /// Its payload's `zstd` encoding has one bit flipped, so that text is not UTF-8.
@@ -200,7 +200,7 @@ pub(crate) enum RowDamage {
 }
 
 /// `value` as the wire writes it, its byte members as their placeholders, beside its attachments.
-pub(crate) fn wire_message<T: Serialize>(value: &T) -> (Value, Vec<bytes::Bytes>) {
+pub fn wire_message<T: Serialize>(value: &T) -> (Value, Vec<bytes::Bytes>) {
     let (json, attachments) = write(value).expect("the test's value serializes");
     (
         serde_json::from_slice(&json).expect("a written message reads as JSON"),
@@ -210,7 +210,7 @@ pub(crate) fn wire_message<T: Serialize>(value: &T) -> (Value, Vec<bytes::Bytes>
 
 /// The block starts `member` holds, as [`wire_message`] wrote it beside `attachments`: the UTF-16
 /// offsets its attachment packs, none when it is absent.
-pub(crate) fn wire_block_starts(member: &Value, attachments: &[bytes::Bytes]) -> Vec<u32> {
+pub fn wire_block_starts(member: &Value, attachments: &[bytes::Bytes]) -> Vec<u32> {
     member["$bytes"].as_u64().map_or_else(Vec::new, |index| {
         let index = usize::try_from(index).expect("an attachment index fits");
         attachments[index]

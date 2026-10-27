@@ -111,8 +111,7 @@ async fn read_until(output: &mut TerminalOutput, text: &mut String, marker: &str
 }
 
 /// The `shell` mode's stand-in's test, which the test shell starts through.
-const SHELL_MODE_STAND_IN: &str =
-    "pty::shell::write::tests::the_shell_mode_stand_in_starts_the_launched_shell";
+const SHELL_MODE_STAND_IN: &str = "write::tests::the_shell_mode_stand_in_starts_the_launched_shell";
 
 #[test]
 #[ignore = "run only as the shell mode's stand-in, in a test shell's terminal"]

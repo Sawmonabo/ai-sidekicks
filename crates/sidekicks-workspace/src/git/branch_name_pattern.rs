@@ -22,18 +22,15 @@ pub(crate) const BRANCH_NAME_SESSION_PLACEHOLDER: &str = "{session}";
 
 /// What a branch-name pattern's placeholders are filled with.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct BranchNamePatternValues<'a> {
+pub struct BranchNamePatternValues<'a> {
     /// The tail derived from the session's title.
-    pub(crate) title: &'a str,
+    pub title: &'a str,
     /// The session's short id, the last 8 hex characters of its id.
-    pub(crate) session: &'a str,
+    pub session: &'a str,
 }
 
 /// The branch name `pattern` makes: `{title}` and every `{session}` replaced by their values.
-pub(crate) fn fill_branch_name_pattern(
-    pattern: &str,
-    values: BranchNamePatternValues<'_>,
-) -> String {
+pub fn fill_branch_name_pattern(pattern: &str, values: BranchNamePatternValues<'_>) -> String {
     pattern
         .replace(BRANCH_NAME_TITLE_PLACEHOLDER, values.title)
         .replace(BRANCH_NAME_SESSION_PLACEHOLDER, values.session)
@@ -250,7 +247,7 @@ fn strip_clash_message(stderr: &str) -> Option<&str> {
 
 /// Git's last `fatal: ` line in `stderr`, whole and with its line end trimmed; `None` when git
 /// wrote none.
-pub(crate) fn last_fatal_line(stderr: &str) -> Option<&str> {
+pub fn last_fatal_line(stderr: &str) -> Option<&str> {
     stderr
         .lines()
         .rev()
@@ -262,7 +259,7 @@ pub(crate) fn last_fatal_line(stderr: &str) -> Option<&str> {
 /// `cannot lock ref '<ref>': ` clause, which reftable leaves out, and which the files backend
 /// leaves out too when the clashing ref is packed; `words` as given when it has no such clause. A
 /// ref name holds no `:`, so the clause ends at the first `': `.
-pub(crate) fn strip_lock_clause(words: &str) -> &str {
+pub fn strip_lock_clause(words: &str) -> &str {
     words
         .strip_prefix(GIT_LOCK_CLAUSE_PREFIX)
         .and_then(|rest| rest.split_once("': "))

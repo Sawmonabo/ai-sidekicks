@@ -7,7 +7,7 @@ use sidekicks_contracts::session::id::SessionId;
 
 /// The inbox addresses the daemon holds, per place, in each place's own form, so the provider's
 /// sessions there answer a message sent from them.
-pub(crate) trait SessionInboxAddresser: Send + Sync {
+pub trait SessionInboxAddresser: Send + Sync {
     /// `session_id`'s inbox in `place` (`None`: the computer's own system on macOS or Linux);
     /// answered for every place, a place the daemon's start did not list included.
     #[cfg_attr(

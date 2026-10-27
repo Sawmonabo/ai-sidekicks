@@ -12,23 +12,23 @@ use crate::database::schema::SchemaParts;
 use crate::database::writer::test_file::{TestDatabase, insert_test_event, test_session_id};
 
 /// The instant every test row occurs at unless a test names another.
-pub(crate) const AT: &str = "2026-10-14T09:00:00.000Z";
+pub const AT: &str = "2026-10-14T09:00:00.000Z";
 
 /// A test database holding one session's log, its events naming one lead run.
-pub(crate) struct SessionTestLog {
+pub struct SessionTestLog {
     /// The database.
-    pub(crate) database: TestDatabase,
+    pub database: TestDatabase,
     /// The connection rows are written on.
-    pub(crate) writer: Connection,
+    pub writer: Connection,
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The run the session's lead events name.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
 }
 
 impl SessionTestLog {
     /// A fresh session's log in a database holding the tables of `parts`.
-    pub(crate) fn new(parts: SchemaParts) -> Self {
+    pub fn new(parts: SchemaParts) -> Self {
         let database = TestDatabase::new(parts);
         let writer = database.opener()().expect("the test creates its database");
         Self {
@@ -41,13 +41,13 @@ impl SessionTestLog {
 
     /// Writes `event`, its `type` and `payload` as JSON, with `body`, occurring at [`AT`]; returns
     /// its sequence and event id.
-    pub(crate) fn write(&self, event: Value, body: Option<&str>) -> (i64, String) {
+    pub fn write(&self, event: Value, body: Option<&str>) -> (i64, String) {
         insert_test_event(&self.writer, self.session_id, event, body, AT)
     }
 
     /// Writes a piece of `event_type` (`agent.message.sent` or `agent.thinking.updated`) of
     /// `run_id`'s provider message `message_id`, in its block `block` where it names one.
-    pub(crate) fn piece(
+    pub fn piece(
         &self,
         event_type: &str,
         run_id: RunId,
@@ -74,7 +74,7 @@ impl SessionTestLog {
     }
 
     /// Writes a reply piece of the lead run at [`AT`].
-    pub(crate) fn reply(&self, message_id: &str, block: Option<u64>, body: &str) -> (i64, String) {
+    pub fn reply(&self, message_id: &str, block: Option<u64>, body: &str) -> (i64, String) {
         self.piece(
             "agent.message.sent",
             self.run_id,
@@ -86,7 +86,7 @@ impl SessionTestLog {
     }
 
     /// Writes a completed `edit` call on `run_id`, `tool_call_id` naming it, with `body`.
-    pub(crate) fn tool_completion(
+    pub fn tool_completion(
         &self,
         run_id: RunId,
         tool_call_id: &str,
@@ -109,13 +109,13 @@ impl SessionTestLog {
     }
 
     /// A second connection, to read what the writer committed.
-    pub(crate) fn reader(&self) -> Connection {
+    pub fn reader(&self) -> Connection {
         self.database.reader()
     }
 
     /// Flips the checksum, its last byte, of the frame at `frame`, counted from 0, of the body
     /// stored at `sequence`, so decoding that frame fails.
-    pub(crate) fn damage_frame(&self, sequence: i64, frame: usize) {
+    pub fn damage_frame(&self, sequence: i64, frame: usize) {
         let mut stored: Vec<u8> = self
             .writer
             .query_row(

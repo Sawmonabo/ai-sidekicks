@@ -16,7 +16,7 @@ use sidekicks_provider::port::session_inbox_address::SessionInboxAddresser;
 /// computer's own system included, is named, and on macOS and Linux none is.
 #[derive(Debug, thiserror::Error)]
 #[error("{place:?} is not a place on a computer whose own system follows {native_rules:?} rules")]
-pub(crate) struct ForeignPlaceError {
+pub struct ForeignPlaceError {
     /// The place listed.
     pub(crate) place: Option<Place>,
     /// The rules of the computer's own system.
@@ -24,7 +24,7 @@ pub(crate) struct ForeignPlaceError {
 }
 
 /// Composes each session's inbox addresses on this computer.
-pub(crate) struct SessionInboxAddresses {
+pub struct SessionInboxAddresses {
     /// The computer's own system: `windows` on Windows, `None` on macOS and Linux.
     own_system: Option<Place>,
     /// The places a messaging provider is installed in, each once.
@@ -39,7 +39,7 @@ impl SessionInboxAddresses {
     /// The composer for a computer whose own system follows `native_rules`, with a messaging
     /// provider installed in `installed_places` and addresses answered by `addresser`. Refuses a
     /// place the computer's own system cannot hold: `None` on Windows, any place elsewhere.
-    pub(crate) fn new(
+    pub fn new(
         native_rules: PathRules,
         installed_places: Vec<Option<Place>>,
         has_wsl_distribution: bool,
@@ -67,7 +67,7 @@ impl SessionInboxAddresses {
     /// `own_place` is `None`), then each other installed place's once. The own place's entry is
     /// always built, so the list is never empty; on a computer without a WSL 2 distribution it is
     /// that one entry, naming no place.
-    pub(crate) fn addresses_of(
+    pub fn addresses_of(
         &self,
         session_id: &SessionId,
         own_place: Option<&Place>,

@@ -18,8 +18,7 @@ use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 
 /// The per-session append lock every service over the daemon's database shares. A session id is
 /// held as its 16 bytes, so either hex spelling of one id takes one lock.
-pub(crate) static SESSION_APPEND_LOCK: LazyLock<KeyedLock<SessionId>> =
-    LazyLock::new(KeyedLock::new);
+pub static SESSION_APPEND_LOCK: LazyLock<KeyedLock<SessionId>> = LazyLock::new(KeyedLock::new);
 
 /// A hold on one session's append lock, which code appending on that session takes by reference.
-pub(crate) type SessionAppendHold = KeyHold<'static, SessionId>;
+pub type SessionAppendHold = KeyHold<'static, SessionId>;

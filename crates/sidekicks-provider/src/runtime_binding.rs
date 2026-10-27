@@ -3,7 +3,7 @@
 //! another conversation.
 
 pub(crate) mod rebinder;
-pub(crate) mod resume;
-pub(crate) mod store;
-#[cfg(test)]
-pub(crate) mod test_store;
+pub mod resume;
+pub mod store;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_store;

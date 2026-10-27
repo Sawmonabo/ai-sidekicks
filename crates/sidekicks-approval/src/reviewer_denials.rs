@@ -76,7 +76,7 @@ use sidekicks_store::events::session::skipped_ranges::outside_skipped_ranges_sql
 
 /// The statements [`ReviewerDenials`] prepares on a read connection: the blocked call's row, the
 /// session's state, the block, its override, the run and its provider, and the run's agent.
-pub(crate) const REVIEWER_DENIALS_STATEMENT_CAPACITY: usize = 6 + RUN_AGENT_STATEMENT_CAPACITY;
+pub const REVIEWER_DENIALS_STATEMENT_CAPACITY: usize = 6 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // The blocked call's own row: the newest opening of the call in the block's run, outside every
 // range its session skipped. A provider may reuse a call's key in a later run or after a cut.
@@ -223,7 +223,7 @@ pub(crate) enum ReviewerDenialError {
 
 /// Why `Allow once` was refused or failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum DenialOverrideError {
+pub enum DenialOverrideError {
     /// `session.notFound`, `approval.denial.notFound`, `approval.denial.notOverridable`,
     /// `session.alreadyClosed`, `session.changeRefused`, `provider.notFound`, or the held refusal
     /// of a press that got no answer.
@@ -277,7 +277,7 @@ impl From<DenialOverrideError> for HandlerError {
 
 /// Records each block a provider's reviewer makes and allows one once on a person's press: the
 /// port the drivers hand their blocks to, and what the `approval.denial.override` handler calls.
-pub(crate) struct ReviewerDenials {
+pub struct ReviewerDenials {
     /// Where the log, the sessions and the runs are read.
     reads: Arc<DatabaseReadPool>,
     /// Where the blocks and the overrides are recorded.
@@ -306,7 +306,7 @@ impl ReviewerDenials {
     /// The blocks read through `reads`, recorded through `events`, and allowed once through the
     /// drivers `providers` registered; nothing wakes a waiting block until
     /// [`ReviewerDenials::start`].
-    pub(crate) fn new(
+    pub fn new(
         reads: Arc<DatabaseReadPool>,
         events: Arc<SessionEventAppender>,
         providers: Arc<ProviderRegistry>,
@@ -329,10 +329,7 @@ impl ReviewerDenials {
     /// Follows `followers`, so a block waiting for its call's row is woken when the row commits
     /// and refused when its run ends without one, until [`ReviewerDenials::stop`] takes the
     /// returned attachment.
-    pub(crate) fn start(
-        self: &Arc<Self>,
-        followers: &Arc<SessionEventFollowers>,
-    ) -> FollowerAttachment {
+    pub fn start(self: &Arc<Self>, followers: &Arc<SessionEventFollowers>) -> FollowerAttachment {
         let row_waits = self.row_waits.clone();
         // Runs on the writer's pump, so it only wakes waiters.
         followers.follow_all(move |event| {
@@ -343,7 +340,7 @@ impl ReviewerDenials {
 
     /// Stops following the log and refuses every block still waiting, since nothing will now
     /// record it; a block taken after the stop is refused too.
-    pub(crate) fn stop(&self, attachment: FollowerAttachment) {
+    pub fn stop(&self, attachment: FollowerAttachment) {
         self.is_stopped.store(true, Ordering::SeqCst);
         drop(attachment);
         self.row_waits.settle_where(|_| true, RowWait::Stopped);
@@ -462,7 +459,7 @@ impl ReviewerDenials {
     /// every later press until the process it went to has ended. A caller awaits a press to its
     /// end and never drops it mid-send; the method layer cancels through its token, not by
     /// dropping the future.
-    pub(crate) async fn override_denial(
+    pub async fn override_denial(
         &self,
         request: &ApprovalDenialOverrideRequest,
     ) -> Result<ApprovalDenialOverrideResponse, DenialOverrideError> {

@@ -36,7 +36,7 @@ use sidekicks_store::data_folder::data_folder;
 
 /// The word the daemon's own program is started with to run the crash monitor; the socket's path
 /// follows it.
-pub const CRASH_MONITOR_MODE: &str = "minidump";
+pub(crate) const CRASH_MONITOR_MODE: &str = "minidump";
 
 /// The folder of crash dumps in the data folder, the service's and the app's alike.
 pub(crate) const CRASH_DUMPS_FOLDER_NAME: &str = "crash-dumps";
@@ -216,7 +216,7 @@ fn log_unremoved_socket(path: &Path, failure: &io::Error) {
 /// Runs the `minidump` mode on the argument after the mode's own, the socket's path, writing dumps
 /// into the data folder's crash dumps folder. Exits 0 once it ends, 1 with why on standard error
 /// when it cannot serve.
-pub fn run_crash_monitor(arguments: &[OsString]) -> ExitCode {
+pub(crate) fn run_crash_monitor(arguments: &[OsString]) -> ExitCode {
     let [socket_path] = arguments else {
         write_error_line("the crash monitor is started with its socket's path");
         return ExitCode::FAILURE;

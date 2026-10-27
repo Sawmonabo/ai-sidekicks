@@ -39,14 +39,14 @@ struct StoredPayload {
 }
 
 /// Resolves a message's attachments against the session's manifests and the payload store.
-pub(crate) struct ArtifactAttachmentResolver {
+pub struct ArtifactAttachmentResolver {
     reads: Arc<DatabaseReadPool>,
     payloads: Arc<PayloadStore>,
 }
 
 impl ArtifactAttachmentResolver {
     /// A resolver reading through the daemon's read pool and naming paths in `payloads`.
-    pub(crate) fn new(reads: Arc<DatabaseReadPool>, payloads: Arc<PayloadStore>) -> Self {
+    pub fn new(reads: Arc<DatabaseReadPool>, payloads: Arc<PayloadStore>) -> Self {
         Self { reads, payloads }
     }
 

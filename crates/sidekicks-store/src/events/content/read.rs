@@ -19,18 +19,18 @@ use crate::events::content::codec::StoredBodyPlace;
 
 /// One stored row, as the caller read it.
 #[derive(Clone, Debug)]
-pub(crate) struct StoredEventContentRow {
+pub struct StoredEventContentRow {
     /// The event, as already read from the `payload` column.
-    pub(crate) envelope: EventEnvelope,
+    pub envelope: EventEnvelope,
     /// The row's body: its own `session_events.content_payload` and those of the pieces that join
     /// it, decoded and joined in order; `None` when it stores none.
-    pub(crate) content_payload: Option<String>,
+    pub content_payload: Option<String>,
     /// The joined body's UTF-8 byte length, as [`joined_content_length`] sums it.
-    pub(crate) content_length: Option<u64>,
+    pub content_length: Option<u64>,
 }
 
 /// Pairs one stored row with its body.
-pub(crate) fn hydrate_stored_event(row: StoredEventContentRow) -> HydratedSessionEvent {
+pub fn hydrate_stored_event(row: StoredEventContentRow) -> HydratedSessionEvent {
     let content = match row.content_payload {
         Some(body) => HydratedSessionEventContent::Available {
             body,
@@ -48,6 +48,6 @@ pub(crate) fn hydrate_stored_event(row: StoredEventContentRow) -> HydratedSessio
 
 /// The length of a body stored as `pieces`, its own and those that join it: the sum of the lengths
 /// their payloads state, echoed rather than counted from the text; `None` when one states none.
-pub(crate) fn joined_content_length(pieces: &[StoredBodyPlace]) -> Option<u64> {
+pub fn joined_content_length(pieces: &[StoredBodyPlace]) -> Option<u64> {
     pieces.iter().map(|piece| piece.content_length).sum()
 }

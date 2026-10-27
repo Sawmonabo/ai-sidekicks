@@ -15,7 +15,7 @@ use sidekicks_std::file::real_location::resolve_real_location;
 /// not even its root exists (a drive unplugged), then each part in the system's comparable form.
 /// Two folders are the same folder exactly when their keys are equal. Fails with a resolve's
 /// failure other than a part that names nothing (a permission refusal).
-pub(crate) async fn canonical_folder_path(folder: &Path) -> io::Result<PathBuf> {
+pub async fn canonical_folder_path(folder: &Path) -> io::Result<PathBuf> {
     let resolved = resolve_real_location(folder).await?;
     Ok(PathRules::NATIVE
         .comparable_components(&resolved)

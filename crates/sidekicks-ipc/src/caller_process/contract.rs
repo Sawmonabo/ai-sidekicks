@@ -15,7 +15,7 @@ pub(crate) type PeerRead = io::Result<(Stream, io::Result<Option<PinnedProcess>>
 
 /// Reads which process is at the other end of a local connection, a pinned process's parent and
 /// responsible process, and whether a caller is the desktop's signed client.
-pub(crate) trait CallerProcessReader: Send + Sync {
+pub trait CallerProcessReader: Send + Sync {
     /// The process at the other end of `stream`, pinned: on Linux the one that connected (or
     /// listened, on a socket the daemon dialed), as recorded at the connect; on macOS the one that
     /// last used that end. `None` when that end has closed; an error when the system cannot say.

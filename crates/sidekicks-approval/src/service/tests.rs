@@ -5,7 +5,6 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
-use std::time::Duration;
 
 use rstest::rstest;
 use serde::de::DeserializeOwned;
@@ -28,9 +27,9 @@ use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_platforms::WallClockTimer;
 use tempfile::TempDir;
 
+use super::test_fixture::{SETTLE_WAIT, test_approval_service};
 use super::{
     ApprovalService, ApprovalServiceError, RaisedCard, RaisedRequestSettlement, ResolveAnswer,
     refuse_unfit_answer,
@@ -39,12 +38,11 @@ use crate::request_create::{
     ApprovalRequestCreateRequest, ApprovalRequestOrigin, ApprovalResourceDescriptor,
 };
 use crate::run_blocking::ApprovalRunHolds;
-use crate::store::{APPROVAL_REQUEST_READER_STATEMENT_CAPACITY, StoredApprovalRequest};
+use crate::store::StoredApprovalRequest;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::tests::{stored_run_state, test_engine};
 use sidekicks_session::run::projection::insert_queued_run_statement;
-use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
@@ -58,51 +56,6 @@ use sidekicks_store::events::session::appender::{
 };
 use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
-use sidekicks_workspace::git::process::test_git_runner;
-use sidekicks_workspace::git::worktree::event_emitter::WorktreeEventEmitter;
-use sidekicks_workspace::git::worktree::occupancy::MountOccupancyReader;
-use sidekicks_workspace::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
-
-/// Bounds a wait the test expects to settle, so one that never does fails the test.
-pub(crate) const SETTLE_WAIT: Duration = Duration::from_secs(5);
-
-/// The approval service on `database`, appending through `events` and writing through `writer`,
-/// with its run holds reaching `engine`; a working-folder watcher over `event_log` stands by it.
-pub(crate) fn test_approval_service(
-    database: &TestDatabase,
-    event_log: Arc<EventLogService>,
-    events: Arc<SessionEventAppender>,
-    writer: Arc<DatabaseWriter>,
-    engine: Weak<RunEngine>,
-) -> (Arc<ApprovalService>, Arc<ApprovalRunHolds>) {
-    let reads = Arc::new(DatabaseReadPool::new(
-        database.path(),
-        APPROVAL_REQUEST_READER_STATEMENT_CAPACITY,
-    ));
-    let run_holds = Arc::new(ApprovalRunHolds::new(engine, Arc::clone(&reads)));
-    let watcher_reads = Arc::new(DatabaseReadPool::new(database.path(), 8));
-    let working_folders = Arc::new(WorkingFolderWatcher::new(WorkingFolderWatcherDeps {
-        git: test_git_runner(),
-        reads: Arc::clone(&watcher_reads),
-        occupancy: MountOccupancyReader::new(watcher_reads),
-        events: Arc::new(WorktreeEventEmitter::new(event_log)),
-        scheduler: Arc::new(Scheduler::start(
-            Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
-            None,
-            tokio::sync::watch::channel(0).1,
-        )),
-        read_watch_ceiling: || Ok(None),
-        slow_tick_interval: Duration::from_secs(180),
-    }));
-    let service = Arc::new(ApprovalService::new(
-        reads,
-        events,
-        writer,
-        working_folders,
-        Arc::clone(&run_holds),
-    ));
-    (service, run_holds)
-}
 
 /// A session with one running run, the approval service over it, and the run engine its holds
 /// move.

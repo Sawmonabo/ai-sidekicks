@@ -10,7 +10,7 @@ use super::PendingRun;
 
 /// When a due job may run, read against the busy count.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum JobCondition {
+pub enum JobCondition {
     /// Whenever it falls due.
     Always,
     /// Only while the busy count is zero.
@@ -107,7 +107,7 @@ impl ParkedRuns {
     }
 
     /// The names of the parked runs, in the order they were parked.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
         self.runs.iter().map(|(_, run)| run.name)
     }

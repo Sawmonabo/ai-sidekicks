@@ -56,7 +56,7 @@ pub(crate) struct OrphanRegistryLeftover {
 
 /// Why the registry could not be read or written.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum OrphanRegistryError {
+pub enum OrphanRegistryError {
     /// The file could not be read.
     #[error("the orphan registry could not be read")]
     Read(#[source] io::Error),

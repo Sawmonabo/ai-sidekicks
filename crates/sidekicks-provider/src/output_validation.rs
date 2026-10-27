@@ -24,7 +24,7 @@ pub(crate) const CLI_VERSION_SEMVER_MAX_LEN: usize = 64;
 /// install path.
 #[derive(Debug, thiserror::Error)]
 #[error("invalid provider {field}: {reason}")]
-pub(crate) struct ProviderOutputValidationError {
+pub struct ProviderOutputValidationError {
     /// The provider whose report was refused, when the check knows it.
     pub(crate) provider_name: Option<ProviderId>,
     /// The stored field refused.

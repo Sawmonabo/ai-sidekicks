@@ -12,7 +12,7 @@ use sidekicks_contracts::session::id::SessionId;
 /// The daemon's tool-server client's side of the `/` list: each working server's prompts for a
 /// session, registered through a `PortRegistration`. Until it is registered, the list holds no
 /// tool-server prompt.
-pub(crate) trait ServerPromptPort: Send + Sync {
+pub trait ServerPromptPort: Send + Sync {
     /// Each working tool server's prompts for the session, as prompt entries naming a server.
     fn read_prompts(
         &self,

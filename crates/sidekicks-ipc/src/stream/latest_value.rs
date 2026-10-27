@@ -39,19 +39,19 @@ impl<Emission> SourceValue<Emission> {
 
 /// What a source hands its feed values through. Every call does nothing once the feed dropped or
 /// the source failed; dropping it ends the stream once the waiting value is read.
-pub(crate) struct LatestValueOutlet<Emission> {
+pub struct LatestValueOutlet<Emission> {
     value: Arc<SourceValue<Emission>>,
 }
 
 impl<Emission> LatestValueOutlet<Emission> {
     /// Sends a whole value, replacing the one still waiting.
-    pub(crate) fn send(&self, value: Emission) {
+    pub fn send(&self, value: Emission) {
         self.update(|waiting| waiting.newest = Some(value));
     }
 
     /// Stops the stream for a source that can no longer follow: the feed's next read answers
     /// `failure`, so the subscription ends refused, and the waiting value is dropped.
-    pub(crate) fn fail(&self, failure: HandlerError) {
+    pub fn fail(&self, failure: HandlerError) {
         self.update(|waiting| {
             waiting.newest = None;
             waiting.failure = Some(failure);
@@ -79,11 +79,11 @@ impl<Emission> Drop for LatestValueOutlet<Emission> {
 
 /// One reader's place among a value's readers, which its detach removes it by.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct LatestValueOutletId(u64);
+pub struct LatestValueOutletId(u64);
 
 /// The outlets of every reader of one value, each kept until its detach removes it by the id
 /// attaching it answered.
-pub(crate) struct LatestValueOutlets<Emission> {
+pub struct LatestValueOutlets<Emission> {
     next_id: u64,
     outlets: Vec<(LatestValueOutletId, LatestValueOutlet<Emission>)>,
 }
@@ -99,7 +99,7 @@ impl<Emission> Default for LatestValueOutlets<Emission> {
 
 impl<Emission> LatestValueOutlets<Emission> {
     /// Keeps `outlet` and answers the id its detach removes it by.
-    pub(crate) fn attach(&mut self, outlet: LatestValueOutlet<Emission>) -> LatestValueOutletId {
+    pub fn attach(&mut self, outlet: LatestValueOutlet<Emission>) -> LatestValueOutletId {
         let id = LatestValueOutletId(self.next_id);
         self.next_id += 1;
         self.outlets.push((id, outlet));
@@ -107,36 +107,36 @@ impl<Emission> LatestValueOutlets<Emission> {
     }
 
     /// Drops the outlet `id` names; an id already removed changes nothing.
-    pub(crate) fn detach(&mut self, id: LatestValueOutletId) {
+    pub fn detach(&mut self, id: LatestValueOutletId) {
         self.outlets.retain(|(outlet_id, _)| *outlet_id != id);
     }
 
     /// Whether no reader is attached.
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.outlets.is_empty()
     }
 
     /// How many readers are attached.
-    pub(crate) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.outlets.len()
     }
 
     /// The ids of every attached outlet.
-    pub(crate) fn ids(&self) -> impl Iterator<Item = LatestValueOutletId> + '_ {
+    pub fn ids(&self) -> impl Iterator<Item = LatestValueOutletId> + '_ {
         self.outlets.iter().map(|(id, _)| *id)
     }
 }
 
 impl<Emission: Clone> LatestValueOutlets<Emission> {
     /// Sends `value` whole through every attached outlet.
-    pub(crate) fn send(&self, value: &Emission) {
+    pub fn send(&self, value: &Emission) {
         for (_, outlet) in &self.outlets {
             outlet.send(value.clone());
         }
     }
 
     /// Sends `value` whole through the outlet `id` names; an id not attached sends nothing.
-    pub(crate) fn send_to(&self, id: LatestValueOutletId, value: &Emission) {
+    pub fn send_to(&self, id: LatestValueOutletId, value: &Emission) {
         if let Some((_, outlet)) = self.outlets.iter().find(|(outlet_id, _)| *outlet_id == id) {
             outlet.send(value.clone());
         }
@@ -146,7 +146,7 @@ impl<Emission: Clone> LatestValueOutlets<Emission> {
 /// A subscription's newest-value feed: it reads only once its gate lets a frame through, and then
 /// the newest value sent, so the reader ends on the newest value; it finishes once the source
 /// dropped its outlet and nothing waits. Dropping it runs the source's detach.
-pub(crate) struct LatestValueFeed<Emission, Detach: FnOnce() + Send> {
+pub struct LatestValueFeed<Emission, Detach: FnOnce() + Send> {
     value: Arc<SourceValue<Emission>>,
     /// What stops the source following; `None` only while `open` waits for it.
     detach: Option<Detach>,
@@ -157,7 +157,7 @@ impl<Emission, Detach: FnOnce() + Send> LatestValueFeed<Emission, Detach> {
     /// outlet, and answers the detach the feed runs when it drops. The detach runs synchronously,
     /// so a source whose release must await spawns that release from it. A follow that fails opens
     /// nothing, and its failure is the subscribe call's.
-    pub(crate) async fn open<Follow, Following>(follow: Follow) -> Result<Self, HandlerError>
+    pub async fn open<Follow, Following>(follow: Follow) -> Result<Self, HandlerError>
     where
         Follow: FnOnce(LatestValueOutlet<Emission>) -> Following,
         Following: Future<Output = Result<Detach, HandlerError>>,

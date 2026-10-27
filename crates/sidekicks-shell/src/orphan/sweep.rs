@@ -52,7 +52,7 @@ impl OrphanSweepResult {
 /// The sweep's blocking task ended before it finished.
 #[derive(Debug, thiserror::Error)]
 #[error("the orphan sweep ended before it finished")]
-pub(crate) struct OrphanSweepInterrupted(#[source] JoinError);
+pub struct OrphanSweepInterrupted(#[source] JoinError);
 
 /// Ends the shells' holds a previous run left, kills each child it left running in the boot
 /// `boot_id` and discards every other entry. A process that cannot be read or killed is logged and
@@ -148,7 +148,7 @@ mod tests {
     use crate::orphan::registry::{OrphanRegistryEntry, OrphanRegistryLeftover};
 
     /// A child that waits, leading a session of its own so its kill reaches nothing else.
-    const WAITING_CHILD_STAND_IN: &str = "pty::orphan::sweep::tests::a_child_that_waits";
+    const WAITING_CHILD_STAND_IN: &str = "orphan::sweep::tests::a_child_that_waits";
 
     #[test]
     #[ignore = "run only as the sweep test's child"]

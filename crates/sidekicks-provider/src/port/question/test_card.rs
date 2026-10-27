@@ -28,7 +28,7 @@ type CardQuestion = (ProviderQuestion, Option<Arc<dyn ToolServerQuestionAnswer>>
 /// open with their answerers until answered or withdrawn, and those waiting for their run. A
 /// withdrawal of a question it does not hold leaves the card as it is.
 #[derive(Default)]
-pub(crate) struct QuestionCard {
+pub struct QuestionCard {
     taken: Mutex<Vec<ProviderQuestion>>,
     open: Mutex<Vec<CardQuestion>>,
     waiting: Mutex<Vec<CardQuestion>>,
@@ -51,12 +51,12 @@ pub(crate) struct QuestionCard {
 
 impl QuestionCard {
     /// Every question the card opened, in order.
-    pub(crate) fn taken(&self) -> Vec<ProviderQuestion> {
+    pub fn taken(&self) -> Vec<ProviderQuestion> {
         self.taken.lock().expect("never poisoned").clone()
     }
 
     /// The questions on the card waiting for their run, in the order they came.
-    pub(crate) fn waiting(&self) -> Vec<ProviderQuestion> {
+    pub fn waiting(&self) -> Vec<ProviderQuestion> {
         self.waiting
             .lock()
             .expect("never poisoned")
@@ -128,7 +128,7 @@ impl QuestionCard {
 
     /// Waits until no question is open, as once every one was answered or withdrawn; fails the
     /// test past 60 s.
-    pub(crate) async fn wait_until_none_open(&self) {
+    pub async fn wait_until_none_open(&self) {
         self.wait_until(
             |card| card.open.lock().expect("never poisoned").is_empty(),
             "every question is answered or withdrawn",
@@ -137,7 +137,7 @@ impl QuestionCard {
     }
 
     /// Waits until the card took `count` questions; fails the test past 60 s.
-    pub(crate) async fn wait_until_taken(&self, count: usize) {
+    pub async fn wait_until_taken(&self, count: usize) {
         self.wait_until(
             |card| card.taken().len() >= count,
             "the card takes the questions",
@@ -146,7 +146,7 @@ impl QuestionCard {
     }
 
     /// Waits until `count` questions wait for their run on the card; fails the test past 60 s.
-    pub(crate) async fn wait_until_waiting(&self, count: usize) {
+    pub async fn wait_until_waiting(&self, count: usize) {
         self.wait_until(
             |card| card.waiting().len() >= count,
             "the card holds the questions waiting for their run",
@@ -156,7 +156,7 @@ impl QuestionCard {
 
     /// Waits until no question waits for its run on the card, as once each was opened or
     /// withdrawn; fails the test past 60 s.
-    pub(crate) async fn wait_until_none_waiting(&self) {
+    pub async fn wait_until_none_waiting(&self) {
         self.wait_until(
             |card| card.waiting().is_empty(),
             "no question waits for its run",
@@ -166,7 +166,7 @@ impl QuestionCard {
 
     /// Holds back the outcome of each later take until the returned gate is notified, the question
     /// already on the card, as a take whose write is enqueued before it answers.
-    pub(crate) fn hold_takes(&self) -> Arc<Notify> {
+    pub fn hold_takes(&self) -> Arc<Notify> {
         let gate = Arc::new(Notify::new());
         *self.take_gate.lock().expect("never poisoned") = Some(Arc::clone(&gate));
         gate
@@ -174,12 +174,12 @@ impl QuestionCard {
 
     /// Holds back each later record write, the question not yet on the card, until
     /// [`Self::land_records`], as a write queued behind another.
-    pub(crate) fn hold_records(&self) {
+    pub fn hold_records(&self) {
         *self.record_gate.lock().expect("never poisoned") = Some(Arc::new(Semaphore::new(0)));
     }
 
     /// Lets every record write held back land.
-    pub(crate) fn land_records(&self) {
+    pub fn land_records(&self) {
         if let Some(gate) = self.record_gate.lock().expect("never poisoned").take() {
             gate.close();
         }
@@ -187,18 +187,18 @@ impl QuestionCard {
 
     /// Records each later question waiting for its run, as one asked while its run waits on
     /// something else, and fails the write that would open it.
-    pub(crate) fn fail_waiting_opens(&self) {
+    pub fn fail_waiting_opens(&self) {
         self.is_waiting_open_failing.store(true, Ordering::SeqCst);
     }
 
     /// Fails each later record write before it reaches the card, as a write the store refused.
-    pub(crate) fn fail_records(&self) {
+    pub fn fail_records(&self) {
         self.is_record_failing.store(true, Ordering::SeqCst);
     }
 
     /// Waits until `count` record writes wait at the gate of [`Self::hold_records`]; fails the
     /// test past 60 s.
-    pub(crate) async fn wait_until_records_held(&self, count: usize) {
+    pub async fn wait_until_records_held(&self, count: usize) {
         self.wait_until(
             |card| *card.held_records.lock().expect("never poisoned") >= count,
             "the record writes wait at the gate",
@@ -208,7 +208,7 @@ impl QuestionCard {
 
     /// Waits until the card took `count` withdrawals, of questions it held or not; fails the test
     /// past 60 s.
-    pub(crate) async fn wait_until_withdrawals(&self, count: usize) {
+    pub async fn wait_until_withdrawals(&self, count: usize) {
         self.wait_until(
             |card| card.withdrawals().len() >= count,
             "the card takes the withdrawals",
@@ -217,13 +217,13 @@ impl QuestionCard {
     }
 
     /// The request id of every withdrawal the card took, in order.
-    pub(crate) fn withdrawals(&self) -> Vec<String> {
+    pub fn withdrawals(&self) -> Vec<String> {
         self.withdrawals.lock().expect("never poisoned").clone()
     }
 
     /// Holds back each later withdrawal until the returned gate is notified, the question still
     /// open, as a withdrawal whose write waits behind another.
-    pub(crate) fn hold_withdrawals(&self) -> Arc<Notify> {
+    pub fn hold_withdrawals(&self) -> Arc<Notify> {
         let gate = Arc::new(Notify::new());
         *self.withdraw_gate.lock().expect("never poisoned") = Some(Arc::clone(&gate));
         gate
@@ -231,7 +231,7 @@ impl QuestionCard {
 
     /// Waits for an open question, answers the oldest with `answers` through its answerer and
     /// closes it.
-    pub(crate) async fn answer_open(&self, answers: Vec<QuestionAnswer>) -> ProviderQuestion {
+    pub async fn answer_open(&self, answers: Vec<QuestionAnswer>) -> ProviderQuestion {
         loop {
             let asked = self.asked.notified();
             let open = {

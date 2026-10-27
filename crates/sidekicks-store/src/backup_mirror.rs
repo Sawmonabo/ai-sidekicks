@@ -27,10 +27,10 @@ use sidekicks_std::missing_entry::{MissingEntry as _, is_missing_entry};
 
 /// The mirror's folder inside the backups folder; it holds no manifest, so no reader takes it
 /// for a backup.
-pub(crate) const MIRROR_FOLDER_NAME: &str = "mirror";
+pub const MIRROR_FOLDER_NAME: &str = "mirror";
 
 /// The file inside the mirror naming where each root's files came from, which a restore reads.
-pub(crate) const MIRROR_ROOTS_FILE_NAME: &str = "roots.json";
+pub const MIRROR_ROOTS_FILE_NAME: &str = "roots.json";
 
 // The suffix of a copy on its way to its place.
 const COPY_IN_PROGRESS_SUFFIX: &str = ".mirror-copy";
@@ -56,7 +56,7 @@ const LISTED_PATH_SEPARATOR: char = '/';
 /// [`new`]: MirrorRoot::new
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", try_from = "ListedMirrorRoot")]
-pub(crate) struct MirrorRoot {
+pub struct MirrorRoot {
     name: String,
     source: String,
 }
@@ -71,7 +71,7 @@ struct ListedMirrorRoot {
 
 /// Why a root was refused.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum MirrorRootError {
+pub enum MirrorRootError {
     /// The name is not one plain path component.
     #[error("a kept place's name is not one plain folder name")]
     Name,
@@ -106,7 +106,7 @@ impl MirrorRoot {
     /// The root named `name` keeping `source`, a path relative to the home folder. Fails when the
     /// name is not one plain path component, or the path is empty, absolute, not UTF-8 or holds a
     /// component other than a plain name, such as `..`.
-    pub(crate) fn new(name: String, source: &Path) -> Result<Self, MirrorRootError> {
+    pub fn new(name: String, source: &Path) -> Result<Self, MirrorRootError> {
         let components = source
             .components()
             .map(|component| match component {
@@ -127,11 +127,7 @@ impl MirrorRoot {
     /// [`new`] does, and when `place` is not under `home`.
     ///
     /// [`new`]: MirrorRoot::new
-    pub(crate) fn under_home(
-        name: String,
-        home: &Path,
-        place: &Path,
-    ) -> Result<Self, MirrorRootError> {
+    pub fn under_home(name: String, home: &Path, place: &Path) -> Result<Self, MirrorRootError> {
         let source = place
             .strip_prefix(home)
             .map_err(|_outside| MirrorRootError::Source)?;
@@ -139,12 +135,12 @@ impl MirrorRoot {
     }
 
     /// The copy's name in the mirror.
-    pub(crate) fn name(&self) -> &str {
+    pub fn name(&self) -> &str {
         &self.name
     }
 
     /// The place this root keeps on the computer whose home folder is `home`.
-    pub(crate) fn place(&self, home: &Path) -> PathBuf {
+    pub fn place(&self, home: &Path) -> PathBuf {
         self.source
             .split(LISTED_PATH_SEPARATOR)
             .fold(home.to_path_buf(), |place, part| place.join(part))
@@ -166,18 +162,18 @@ fn is_plain_component(part: &str) -> bool {
 
 /// What one run of the mirror did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct MirrorReport {
+pub struct MirrorReport {
     /// The files copied.
-    pub(crate) copied_files: u64,
+    pub copied_files: u64,
     /// Their bytes.
-    pub(crate) copied_bytes: u64,
+    pub copied_bytes: u64,
     /// The copies deleted because their source is gone.
-    pub(crate) removed_entries: u64,
+    pub removed_entries: u64,
 }
 
 /// Why the mirror did not finish.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum MirrorError {
+pub enum MirrorError {
     /// The run's stop came first.
     #[error("the mirror's copy was stopped")]
     Stopped,
@@ -198,7 +194,7 @@ pub(crate) enum MirrorError {
 /// listed deleted. Checks `stop` before each entry. Blocking, so it runs through `spawn_blocking`.
 /// Fails with [`MirrorError::Stopped`] once `stop` fires, and with the first refused read, copy or
 /// removal.
-pub(crate) fn mirror_roots(
+pub fn mirror_roots(
     mirror_folder: &Path,
     home: &Path,
     roots: &[MirrorRoot],
@@ -239,7 +235,7 @@ pub(crate) fn mirror_roots(
 /// `precision`, the one [`probe_time_precision`] measured where the copy is, or more, copied, and
 /// each copy whose source is gone deleted; a source that is gone leaves no copy. Checks `stop`
 /// before each entry. Blocking. Fails as [`mirror_roots`] does.
-pub(crate) fn bring_level(
+pub fn bring_level(
     source: &Path,
     copy: &Path,
     precision: Duration,
@@ -349,7 +345,7 @@ fn is_same_modified_time(left: SystemTime, right: SystemTime, precision: Duratio
 /// an even second, then 10 ns, 100 ns and so on up to 1 s, and the first that reads back whole is
 /// it; two seconds when none does. The file is removed after. Blocking. Fails when the file cannot
 /// be made, timed, read or removed.
-pub(crate) fn probe_time_precision(folder: &Path) -> io::Result<Duration> {
+pub fn probe_time_precision(folder: &Path) -> io::Result<Duration> {
     let probe = folder.join(TIME_PROBE_FILE_NAME);
     let file = File::create(&probe)?;
     let base = UNIX_EPOCH + TIME_PROBE_BASE;

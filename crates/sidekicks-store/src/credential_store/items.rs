@@ -79,21 +79,21 @@ const PROBE_VALUE_BYTES: usize = 32;
 const PROBE_ACCOUNT_BYTES: usize = 8;
 
 /// What the daemon's start hands its secret items.
-pub(crate) struct SecretItemsStart {
+pub struct SecretItemsStart {
     /// The daemon's data folder, which holds the place record and the items file.
-    pub(crate) data_folder: PathBuf,
+    pub data_folder: PathBuf,
     /// Whether this is a Mac's service running while the person is logged out, which cannot reach
     /// the login keychain.
-    pub(crate) runs_while_logged_out: bool,
+    pub runs_while_logged_out: bool,
     /// What this machine offers for the secrets.
-    pub(crate) access: Arc<dyn CredentialStoreAccess>,
+    pub access: Arc<dyn CredentialStoreAccess>,
     /// How long one secret call may take, every wait included.
-    pub(crate) call_timeout: Duration,
+    pub call_timeout: Duration,
 }
 
 /// The daemon's secrets for one run; see the module doc. Built once at the start and shared by
 /// every feature, each through its own service's [`ItemsKeychain`].
-pub(crate) struct SecretItems {
+pub struct SecretItems {
     /// The place record's path.
     record_path: PathBuf,
     /// Whether this is a Mac's service running while the person is logged out.
@@ -140,7 +140,7 @@ enum Check {
 impl SecretItems {
     /// The secret items of the data folder and offer `start` names, nothing picked or checked
     /// yet. Fails with the random source's error when it gives no bytes for the probe account.
-    pub(crate) fn new(start: SecretItemsStart) -> Result<Arc<Self>, getrandom::Error> {
+    pub fn new(start: SecretItemsStart) -> Result<Arc<Self>, getrandom::Error> {
         let SecretItemsStart {
             data_folder,
             runs_while_logged_out,

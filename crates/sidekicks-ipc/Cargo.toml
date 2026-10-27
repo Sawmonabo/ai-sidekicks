@@ -33,6 +33,8 @@ uuid.workspace = true
 [dev-dependencies]
 rstest.workspace = true
 rusqlite.workspace = true
+# The stand-in programs and recorded system calls the tests use.
+sidekicks-platforms = { workspace = true, features = ["test-support"] }
 # The paused clock the stream batcher's and the in-flight record's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 

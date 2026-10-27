@@ -27,8 +27,8 @@ use uuid::Uuid;
 
 use sidekicks_store::events::log_service::{EventLogAppendReceipt, EventLogService};
 use sidekicks_store::events::session::appender::{
-    AppendedPayload, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
-    SessionEventEmitError, SessionEventLinkage,
+    SessionEventAppender, SessionEventDraft, SessionEventDraftError, SessionEventEmitError,
+    SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
@@ -49,13 +49,13 @@ pub(crate) struct EmitWorktreeEventInput {
 
 /// Appends the five worktree lifecycle events and the two session records a tree's life writes.
 /// Each emit returns the receipt carrying the sequence the append assigned.
-pub(crate) struct WorktreeEventEmitter {
+pub struct WorktreeEventEmitter {
     appender: SessionEventAppender,
 }
 
 impl WorktreeEventEmitter {
     /// An emitter appending to `event_log` at the session events' envelope version.
-    pub(crate) fn new(event_log: Arc<EventLogService>) -> Self {
+    pub fn new(event_log: Arc<EventLogService>) -> Self {
         Self {
             appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
         }
@@ -250,55 +250,4 @@ fn created_draft(
         restored_from,
     };
     SessionEventDraft::new(payload, SessionEvent::WorktreeCreated)
-}
-
-impl AppendedPayload for WorktreeLifecyclePayload {
-    fn session_id(&self) -> &SessionId {
-        &self.session_id
-    }
-
-    fn actor(&self) -> Option<&LifecycleActor> {
-        self.actor.as_ref().and_then(Option::as_ref)
-    }
-}
-
-impl AppendedPayload for WorktreeCreatedPayload {
-    fn session_id(&self) -> &SessionId {
-        &self.session_id
-    }
-
-    fn actor(&self) -> Option<&LifecycleActor> {
-        self.actor.as_ref().and_then(Option::as_ref)
-    }
-}
-
-impl AppendedPayload for WorktreeRetiredPayload {
-    fn session_id(&self) -> &SessionId {
-        &self.session_id
-    }
-
-    fn actor(&self) -> Option<&LifecycleActor> {
-        self.actor.as_ref().and_then(Option::as_ref)
-    }
-}
-
-// A session record names no actor: the daemon writes it.
-impl AppendedPayload for SessionSweptToCheckoutPayload {
-    fn session_id(&self) -> &SessionId {
-        &self.session_id
-    }
-
-    fn actor(&self) -> Option<&LifecycleActor> {
-        None
-    }
-}
-
-impl AppendedPayload for SessionBranchChangedPayload {
-    fn session_id(&self) -> &SessionId {
-        &self.session_id
-    }
-
-    fn actor(&self) -> Option<&LifecycleActor> {
-        None
-    }
 }

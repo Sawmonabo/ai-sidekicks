@@ -29,9 +29,9 @@ use super::{
 };
 use crate::remote::shared_ports::schema::schema_parts;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_driver::PROVIDER_REGISTRATIONS;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::capabilities::{
     DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
 };

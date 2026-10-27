@@ -25,7 +25,7 @@ use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-pub(crate) enum ProviderAskAction {
+pub enum ProviderAskAction {
     /// Run a command.
     Command {
         /// The command line.
@@ -75,7 +75,7 @@ impl From<&ProviderAskAction> for ProviderAskActionKind {
 impl ProviderAskAction {
     /// The line a command action runs, which is read before a rule's subject is derived from it;
     /// `None` for any other action.
-    pub(crate) fn command_line(&self) -> Option<&str> {
+    pub fn command_line(&self) -> Option<&str> {
         match self {
             Self::Command { command } => Some(command),
             Self::CommandInput { .. }
@@ -89,7 +89,7 @@ impl ProviderAskAction {
     /// The command or path a person may correct before approving the action, and which an ask
     /// carrying out a correction must name exactly: a command, a read's path, or a change's one
     /// path; `None` for any other action, which takes no correction.
-    pub(crate) fn corrected_subject(&self) -> Option<&str> {
+    pub fn corrected_subject(&self) -> Option<&str> {
         match self {
             Self::Command { command } => Some(command),
             Self::FileRead { path } => Some(path),
@@ -105,65 +105,65 @@ impl ProviderAskAction {
 /// One ask a provider holds a tool call on: the tool, its input as the provider sent it, the
 /// provider's own request id the answer goes back under, and its prompt where it sent one.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct ProviderPermissionAsk {
+pub struct ProviderPermissionAsk {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The run that asks.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// The provider's own request id.
-    pub(crate) request_id: String,
+    pub request_id: String,
     /// The tool the call is to.
-    pub(crate) tool_name: String,
+    pub tool_name: String,
     /// The call's input as the provider sent it.
-    pub(crate) input: Value,
+    pub input: Value,
     /// What the call would do, which the card shows and a rule names.
-    pub(crate) action: ProviderAskAction,
+    pub action: ProviderAskAction,
     /// The scopes a standing rule on this ask may take, none where the provider keeps no rule for
     /// it (a running command's input) and no `project` where it has no project rule file for its
     /// kind.
-    pub(crate) rule_scopes: Vec<RememberedScopeKind>,
+    pub rule_scopes: Vec<RememberedScopeKind>,
     /// Whether the provider's own safety check flagged the call and offers no standing allow on
     /// it, so no rule in force answers it.
-    pub(crate) is_provider_flagged: bool,
+    pub is_provider_flagged: bool,
     /// Whether an ask rule the session's level adds sent the ask rather than the provider's own
     /// check or the person's rules (a removal command at Reviewed its check did not flag); the
     /// level answers such an ask itself.
-    pub(crate) is_sent_by_level_rule: bool,
+    pub is_sent_by_level_rule: bool,
     /// The held tool call's id, where the provider sent one.
-    pub(crate) tool_call_id: Option<String>,
+    pub tool_call_id: Option<String>,
     /// The provider's prompt, where it sent one.
-    pub(crate) prompt: Option<String>,
+    pub prompt: Option<String>,
     /// The approved card whose corrected command or path this ask carries out, named by a driver
     /// whose provider takes no corrected input back and asks for the corrected one instead.
-    pub(crate) correction_of: Option<ApprovalRequestId>,
+    pub correction_of: Option<ApprovalRequestId>,
 }
 
 /// An ask the provider withdrew before anyone answered it, by the request id it was taken under.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderPermissionAskWithdrawal {
+pub struct ProviderPermissionAskWithdrawal {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The provider's own request id.
-    pub(crate) request_id: String,
+    pub request_id: String,
 }
 
 /// The rule an answer made, with the folders a project rule is written into: every live working
 /// folder of the project, each worktree's own; none for a session rule.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderAnswerRule {
+pub struct ProviderAnswerRule {
     /// The rule.
-    pub(crate) rule: ProviderAskRule,
+    pub rule: ProviderAskRule,
     /// The folders a project rule is written into.
-    pub(crate) project_folders: Vec<PathBuf>,
+    pub project_folders: Vec<PathBuf>,
 }
 
 /// The command or path as the person corrected it, and the card they approved it on.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderAnswerCorrection {
+pub struct ProviderAnswerCorrection {
     /// The corrected command or path.
-    pub(crate) edited_action: String,
+    pub edited_action: String,
     /// The card it was approved on.
-    pub(crate) approval_request_id: ApprovalRequestId,
+    pub approval_request_id: ApprovalRequestId,
 }
 
 /// The approval pipeline's answer to one permission ask, which each driver turns into its
@@ -171,7 +171,7 @@ pub(crate) struct ProviderAnswerCorrection {
 /// with the decline's typed reason. Either may carry the rule its answer made, and an allow the
 /// rule in force that answered it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ProviderPermissionAnswer {
+pub enum ProviderPermissionAnswer {
     /// The call may go on.
     Allow {
         /// The command or path as the person corrected it.
@@ -194,7 +194,7 @@ pub(crate) enum ProviderPermissionAnswer {
 /// not be kept there; the call is answered and nothing is held.
 #[derive(Debug, thiserror::Error)]
 #[error("the answer reached the provider, but the rule it made could not be kept there")]
-pub(crate) struct ProviderRuleNotKeptError {
+pub struct ProviderRuleNotKeptError {
     /// Why the rule could not be kept.
     #[source]
     pub(crate) source: Box<dyn Error + Send + Sync>,
@@ -204,7 +204,7 @@ pub(crate) struct ProviderRuleNotKeptError {
 /// answer comes later, through the driver's `respond_to_request` with a
 /// [`ProviderPermissionAnswer`]. Until it is registered, an admitted ask stays pending at the
 /// provider: nothing answers it.
-pub(crate) trait PermissionAskPort: Send + Sync {
+pub trait PermissionAskPort: Send + Sync {
     /// Records `ask`. An error when it could not be recorded.
     fn take_ask(
         &self,

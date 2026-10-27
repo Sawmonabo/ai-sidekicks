@@ -33,7 +33,7 @@ use sidekicks_store::database::stored_column::{
 
 /// The statements a [`WorkflowVersions`] prepares on a read connection: a version by number, a
 /// version by id, and a version's whole workflow.
-pub(crate) const WORKFLOW_VERSIONS_STATEMENT_CAPACITY: usize = 3;
+pub const WORKFLOW_VERSIONS_STATEMENT_CAPACITY: usize = 3;
 
 // The columns of one version, in the order `version_from_row` reads them.
 const VERSION_COLUMNS: &str = "id, definition_id, version_number, content_hash, schema_version,

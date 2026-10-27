@@ -27,7 +27,7 @@ use sidekicks_store::database::stored_column::{safe_int_column, text_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// The statements the store's reads run: the held draft.
-pub(crate) const WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY: usize = 1;
+pub const WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY: usize = 1;
 
 // The key of the new workflow's draft, which names no definition.
 const NEW_WORKFLOW_DRAFT_KEY: &str = "";

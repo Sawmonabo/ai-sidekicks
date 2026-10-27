@@ -45,7 +45,7 @@ const TEXT_MEDIA_TYPES_OUTSIDE_TEXT: [&str; 2] = ["application/json", "image/svg
 const FALLBACK_FILE_NAME: &str = "attachment";
 
 /// The metadata member that records a file's name, which an attachment's line to an agent shows.
-pub(crate) const FILE_NAME_MEMBER: &str = "fileName";
+pub const FILE_NAME_MEMBER: &str = "fileName";
 
 /// A payload spooled to a file, with what was counted as it was written.
 pub(crate) struct SpooledPayload {

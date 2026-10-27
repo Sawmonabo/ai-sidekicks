@@ -25,15 +25,21 @@ use tokio::task::JoinError;
 use crate::mutex_lock::lock;
 
 /// A per-key, first-come-first-served lock held across awaits; see the module doc.
-pub(crate) struct KeyedLock<Key> {
+pub struct KeyedLock<Key> {
     canonical_key: fn(Key) -> Key,
     // Each key's queue, held by its holder and every waiter.
     queues: Mutex<HashMap<Key, Arc<tokio::sync::Mutex<()>>>>,
 }
 
+impl<Key: Eq + Hash + Clone> Default for KeyedLock<Key> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
     /// A lock whose keys are compared as given.
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self::with_canonical_key(|key| key)
     }
 
@@ -48,7 +54,7 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
 
     /// Waits for `requested_key` behind every caller that asked for it first and returns the hold,
     /// which releases the key when it drops. Dropping the future while it waits gives up its place.
-    pub(crate) async fn acquire(&self, requested_key: Key) -> KeyHold<'_, Key> {
+    pub async fn acquire(&self, requested_key: Key) -> KeyHold<'_, Key> {
         let key = (self.canonical_key)(requested_key);
         let queue = Arc::clone(self.lock_queues().entry(key.clone()).or_default());
         let mut hold = KeyHold {
@@ -64,10 +70,7 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
     /// Takes `requested_key`'s place in line at once, with no await: the hold when no one holds or
     /// waits on the key, else a wait that keeps this place behind every caller that asked first,
     /// which awaiting carries on from and dropping gives up.
-    pub(crate) fn try_acquire(
-        &self,
-        requested_key: Key,
-    ) -> Result<KeyHold<'_, Key>, KeyWait<'_, Key>>
+    pub fn try_acquire(&self, requested_key: Key) -> Result<KeyHold<'_, Key>, KeyWait<'_, Key>>
     where
         Key: Send + Sync,
     {
@@ -92,7 +95,7 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
     /// leaves the queue and drops `work` unrun; work that ends after its caller stopped waiting is
     /// handed to `landed_late`. Answers `None` only to a caller no longer waiting. Fails with the
     /// task's error when the work panics.
-    pub(crate) async fn run_held<Answer: Send + 'static>(
+    pub async fn run_held<Answer: Send + 'static>(
         self: &Arc<Self>,
         key: Key,
         work: impl Future<Output = Answer> + Send + 'static,
@@ -125,8 +128,8 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
     /// How many handles on `requested_key`'s queue its holder and its waiters keep, beside the
     /// map's own; 0 when no one holds or waits on it. A waiter keeps handles of its own, so the
     /// count rises once a caller waits behind the holder.
-    #[cfg(test)]
-    pub(crate) fn queue_handle_count(&self, requested_key: Key) -> usize {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn queue_handle_count(&self, requested_key: Key) -> usize {
         let key = (self.canonical_key)(requested_key);
         self.lock_queues()
             .get(&key)
@@ -142,7 +145,7 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
 /// One caller's hold on one key of a [`KeyedLock`], from its wait to its release: dropping it ends
 /// the hold, wakes the next waiter and removes the key's queue once no one else holds or waits on
 /// it. Code that runs on the holder's key takes it by reference.
-pub(crate) struct KeyHold<'lock, Key: Eq + Hash + Clone> {
+pub struct KeyHold<'lock, Key: Eq + Hash + Clone> {
     lock: &'lock KeyedLock<Key>,
     key: Key,
     queue: Option<Arc<tokio::sync::Mutex<()>>>,
@@ -151,7 +154,7 @@ pub(crate) struct KeyHold<'lock, Key: Eq + Hash + Clone> {
 
 impl<Key: Eq + Hash + Clone> KeyHold<'_, Key> {
     /// The key held, in its canonical spelling.
-    pub(crate) fn key(&self) -> &Key {
+    pub fn key(&self) -> &Key {
         &self.key
     }
 }
@@ -159,7 +162,7 @@ impl<Key: Eq + Hash + Clone> KeyHold<'_, Key> {
 /// A caller's place in a key's line, taken by [`KeyedLock::try_acquire`] behind every caller that
 /// asked first: awaiting it answers the hold once those ahead release the key, and dropping it
 /// gives up the place.
-pub(crate) struct KeyWait<'lock, Key: Eq + Hash + Clone>(
+pub struct KeyWait<'lock, Key: Eq + Hash + Clone>(
     Pin<Box<dyn Future<Output = KeyHold<'lock, Key>> + Send + 'lock>>,
 );
 

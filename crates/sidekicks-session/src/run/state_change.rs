@@ -100,23 +100,23 @@ macro_rules! state_change_payload {
 /// and the failure category and recovery condition any change may carry. With `expected_state`,
 /// the change is refused unless the run is in that state when it is read.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct RunStateChange {
+pub struct RunStateChange {
     /// The run.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// The state the run must be in when it is read, where the caller decided from one.
-    pub(crate) expected_state: Option<RunState>,
+    pub expected_state: Option<RunState>,
     /// Why the run failed.
-    pub(crate) failure_category: Option<RunFailureCategory>,
+    pub failure_category: Option<RunFailureCategory>,
     /// Why the run needs recovery.
-    pub(crate) recovery_condition: Option<RecoveryCondition>,
+    pub recovery_condition: Option<RecoveryCondition>,
     /// The state it enters and that state's own members.
-    pub(crate) entry: RunStateEntry,
+    pub entry: RunStateEntry,
 }
 
 impl RunStateChange {
     /// A change of `run_id` into `entry`, from whatever state it is in, with no failure category
     /// or recovery condition.
-    pub(crate) fn new(run_id: RunId, entry: RunStateEntry) -> Self {
+    pub fn new(run_id: RunId, entry: RunStateEntry) -> Self {
         Self {
             run_id,
             expected_state: None,
@@ -255,17 +255,17 @@ pub(crate) type RunEventDraft =
 /// that reads the run sees the version the change reached, and events appended just before the
 /// change's own. A statement refusing refuses the whole write.
 #[derive(Clone, Default)]
-pub(crate) struct RunStateChangeCompanions {
+pub struct RunStateChangeCompanions {
     /// Statements run after the swap.
-    pub(crate) statements: Vec<WriteStatement>,
+    pub statements: Vec<WriteStatement>,
     /// Events appended just before the change's own.
-    pub(crate) preceding_events: Vec<SessionEventDraft>,
+    pub preceding_events: Vec<SessionEventDraft>,
     /// An event drafted again at each attempt from the run it read, appended before every other
     /// preceding event.
     pub(crate) leading_event: Option<RunEventDraft>,
     /// The interventions whose rows `statements` move to an outcome, which a run's end leaves to
     /// them rather than settling as left with none.
-    pub(crate) settled_interventions: Vec<InterventionId>,
+    pub settled_interventions: Vec<InterventionId>,
     /// The choices whose settlements `preceding_events` carry, which a run's end leaves to them
     /// rather than settling as left with no answer.
     pub(crate) settled_choices: Vec<ChoiceDialog>,
@@ -273,7 +273,7 @@ pub(crate) struct RunStateChangeCompanions {
 
 /// Why a run state change was not written; nothing of it is kept.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RunStateChangeError {
+pub enum RunStateChangeError {
     /// The run is unknown, has ended, or is in a state the table does not let it leave for the one
     /// asked.
     #[error(transparent)]
@@ -499,7 +499,7 @@ impl RunStateChangeWriter {
 
 /// The position of the statement that refused the append's write, when a guard's row count
 /// refused it.
-pub(crate) fn refused_statement_index(error: &SessionEventAppendError) -> Option<usize> {
+pub fn refused_statement_index(error: &SessionEventAppendError) -> Option<usize> {
     if let SessionEventAppendError::Append(EventAppendError::Write(write_error)) = error {
         write_error.refused_statement_index()
     } else {

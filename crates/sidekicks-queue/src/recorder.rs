@@ -45,8 +45,8 @@ use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::{
-    AppendedPayload, SessionEventAppendError, SessionEventAppender, SessionEventDraft,
-    SessionEventDraftError, SessionEventLinkage,
+    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
+    SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
@@ -140,7 +140,7 @@ pub(crate) enum RecordSendError {
 
 /// Why a queue change was not recorded or its item not read back.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum QueueRecordError {
+pub enum QueueRecordError {
     /// An event of the write breaks a check of its type.
     #[error("a queue change's event could not be drafted")]
     Draft(#[from] SessionEventDraftError),
@@ -533,16 +533,6 @@ pub(crate) fn outcome_draft_of(
         SessionEventDraft::of_session(item.session_id, &event)?,
         leave_queued_statement(&item.id, &QueueItemExit::Outcome(outcome.clone()), now),
     ))
-}
-
-impl AppendedPayload for UserMessageSentPayload {
-    fn session_id(&self) -> &SessionId {
-        &self.session_id
-    }
-
-    fn actor(&self) -> Option<&FreeFormText<EVENT_FIELD_MAX_LEN>> {
-        Some(&self.actor)
-    }
 }
 
 // The `agent.queueItem.admitted` event of `item` taken by `run_id`.

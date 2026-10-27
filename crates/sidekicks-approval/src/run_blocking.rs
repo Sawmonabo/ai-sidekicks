@@ -58,7 +58,7 @@ pub(crate) enum RunHoldError {
 
 /// Moves each run to match its open asks: held in `waitingForApproval` while it has one, released
 /// to `running` once it has none. Shared by `Arc`.
-pub(crate) struct ApprovalRunHolds {
+pub struct ApprovalRunHolds {
     /// The engine that moves runs; weak, since the engine holds the run-end gate that holds this.
     engine: Weak<RunEngine>,
     /// Where a run's open asks are read.
@@ -74,7 +74,7 @@ pub(crate) struct ApprovalRunHolds {
 impl ApprovalRunHolds {
     /// Holds moving runs through `engine`, reading open asks through `reads`; nothing is followed
     /// until [`ApprovalRunHolds::start`].
-    pub(crate) fn new(engine: Weak<RunEngine>, reads: Arc<DatabaseReadPool>) -> Self {
+    pub fn new(engine: Weak<RunEngine>, reads: Arc<DatabaseReadPool>) -> Self {
         Self {
             engine,
             reads,
@@ -140,10 +140,7 @@ impl ApprovalRunHolds {
 
     /// Follows `followers` to reconcile, whenever a run of a session reports `running`, each run
     /// of that session holding an open ask, until the returned handle's stop.
-    pub(crate) fn start(
-        self: &Arc<Self>,
-        followers: &Arc<SessionEventFollowers>,
-    ) -> RunHoldFollowing {
+    pub fn start(self: &Arc<Self>, followers: &Arc<SessionEventFollowers>) -> RunHoldFollowing {
         let holds = Arc::clone(self);
         // Runs on the writer's pump, so it only names the session for the task.
         let attachment = followers.follow_all(move |event| {
@@ -188,7 +185,7 @@ impl ApprovalRunHolds {
 
 /// The follower of runs reporting `running` and its task, from [`ApprovalRunHolds::start`] until
 /// [`RunHoldFollowing::stop`].
-pub(crate) struct RunHoldFollowing {
+pub struct RunHoldFollowing {
     /// Hears every committed `agent.run.running`; dropping it detaches.
     attachment: FollowerAttachment,
     /// Ends the task after the session under way.
@@ -202,7 +199,7 @@ pub(crate) struct RunHoldFollowing {
 impl RunHoldFollowing {
     /// Stops hearing runs and settles once every reconcile under way is done. Fails only when the
     /// task itself ended abnormally.
-    pub(crate) async fn stop(self) -> Result<(), JoinError> {
+    pub async fn stop(self) -> Result<(), JoinError> {
         let Self {
             attachment,
             stop,
@@ -245,7 +242,7 @@ async fn reconcile_running_sessions_until_stopped(
 /// The run setup gate whose terminal hook cancels the asks a run left open: it passes every run,
 /// and once a run ends it lets go of the run's provider asks, cancels its pending cards and
 /// settles every wait on them, whatever the cancels returned.
-pub(crate) struct ApprovalRunEnd {
+pub struct ApprovalRunEnd {
     /// The service whose asks the run's end cancels.
     service: Arc<ApprovalService>,
     /// The provider asks the run's end lets go of.
@@ -255,7 +252,7 @@ pub(crate) struct ApprovalRunEnd {
 impl ApprovalRunEnd {
     /// The gate letting go of a run's provider asks in `permission_asks` and canceling its cards
     /// through `service`.
-    pub(crate) fn new(service: Arc<ApprovalService>, permission_asks: Arc<PermissionAsks>) -> Self {
+    pub fn new(service: Arc<ApprovalService>, permission_asks: Arc<PermissionAsks>) -> Self {
         Self {
             service,
             permission_asks,

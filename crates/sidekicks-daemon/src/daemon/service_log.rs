@@ -66,7 +66,7 @@ const FILE_FAILED_NOTICE: &str = "the service log file failed, so the service lo
 
 /// The service log built and not yet installed: `main` installs it with [`ServiceLog::install`]
 /// before anything else logs.
-pub struct ServiceLog {
+pub(crate) struct ServiceLog {
     dispatch: Dispatch,
     sides: Arc<ServiceLogSides>,
     file_handle: Option<FileLogWriterHandle>,
@@ -75,7 +75,7 @@ pub struct ServiceLog {
 
 /// What `main` keeps for the daemon's life once the service log is installed: dropping it shuts the
 /// file writer down.
-pub struct ServiceLogGuard {
+pub(crate) struct ServiceLogGuard {
     file_writer: Option<ArcFileLogWriter>,
     files: ServiceLogFiles,
     _file_handle: Option<FileLogWriterHandle>,
@@ -83,7 +83,7 @@ pub struct ServiceLogGuard {
 
 /// A view of the service log's files, for the diagnostic-log expiry.
 #[derive(Clone)]
-pub struct ServiceLogFiles {
+pub(crate) struct ServiceLogFiles {
     sides: Arc<ServiceLogSides>,
 }
 
@@ -131,7 +131,7 @@ impl ServiceLog {
     /// Installs the service log as the process's subscriber, `log` records included, and says once
     /// on standard error when the file could not be opened. Fails when a subscriber or a `log`
     /// logger is already installed.
-    pub fn install(self) -> Result<ServiceLogGuard, TryInitError> {
+    pub(crate) fn install(self) -> Result<ServiceLogGuard, TryInitError> {
         self.dispatch.try_init()?;
         if let Some(failure) = &self.open_failure {
             tracing::warn!(
@@ -156,12 +156,12 @@ impl ServiceLog {
 impl ServiceLogGuard {
     /// A handle on the service log file's writer, taken at install so the panic hook can flush it
     /// without waiting on the log's own lock; `None` when the file could not be opened.
-    pub fn file_writer(&self) -> Option<ArcFileLogWriter> {
+    pub(crate) fn file_writer(&self) -> Option<ArcFileLogWriter> {
         self.file_writer.clone()
     }
 
     /// The service log's files, for the diagnostic-log expiry.
-    pub fn files(&self) -> ServiceLogFiles {
+    pub(crate) fn files(&self) -> ServiceLogFiles {
         self.files.clone()
     }
 }
@@ -178,7 +178,7 @@ impl ServiceLogFiles {
 /// person alone (mode 0700 on macOS and Linux; on Windows the folder keeps the profile's access
 /// list), and opens its first file. Never fails: a folder or file that cannot be opened
 /// leaves `standard_error` alone carrying the log, which [`ServiceLog::install`] says once.
-pub fn open_service_log<StandardError>(
+pub(crate) fn open_service_log<StandardError>(
     data_folder: &Path,
     standard_error: StandardError,
 ) -> ServiceLog

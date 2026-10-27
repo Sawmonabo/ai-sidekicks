@@ -187,7 +187,7 @@ pub(crate) fn run_outcome_of(
 /// The SQL of a session's activity, from the session id's SQL, its `last_run_outcome`'s and the
 /// condition under which a plan's card waits on the person: such a session reads waiting too,
 /// since no run waits on the plan. Each run read is an indexed lookup of the session's runs.
-pub(crate) fn session_activity_sql(
+pub fn session_activity_sql(
     session_id_sql: &str,
     last_run_outcome_sql: &str,
     waiting_plan_sql: &str,

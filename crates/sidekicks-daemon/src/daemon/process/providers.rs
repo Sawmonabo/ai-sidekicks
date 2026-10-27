@@ -51,6 +51,7 @@ use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_queue::admission::QueueAdmission;
 use sidekicks_queue::delivery::QueueDelivery;
 use sidekicks_session::addresses::{ForeignPlaceError, SessionInboxAddresses};
+use sidekicks_session::console_state::ConsoleStateAdvisors;
 use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::inbound::RunInboundDispatch;
@@ -301,7 +302,9 @@ pub(crate) fn register_driver_ports(
     ports.questions.register(owners.questions)?;
     ports.plans.register(owners.plans)?;
     ports.reviewer_denials.register(owners.reviewer_denials)?;
-    ports.session_advisors.register(owners.writer)?;
+    ports
+        .session_advisors
+        .register(Arc::new(ConsoleStateAdvisors(owners.writer)))?;
     ports.session_rules.register(owners.approval_rules)?;
     ports.session_places.register(owners.session_places)?;
     ports
@@ -585,7 +588,7 @@ mod tests {
     use sidekicks_std::mutex_lock::lock;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::TestDatabase;
-    use sidekicks_store::events::log_service::tests::open_log;
+    use sidekicks_store::events::log_service::test_log::open_log;
     use sidekicks_workspace::git::process::{GitLimits, GitRunner};
 
     /// The statements the tests' read pool caches.

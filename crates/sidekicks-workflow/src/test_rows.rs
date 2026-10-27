@@ -13,7 +13,7 @@ use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 use crate::schema::WORKFLOW_SCHEMA_SQL;
 
 /// The session every test run lives in.
-pub(crate) const TEST_SESSION_ID: &str = "00000000-0000-7000-8000-000000000001";
+pub const TEST_SESSION_ID: &str = "00000000-0000-7000-8000-000000000001";
 
 /// The node every test step runs, as the test version's body names it.
 pub(crate) const TEST_NODE_ID: &str = "approve";
@@ -25,7 +25,7 @@ const STEP_STARTED_AT: &str = "2026-10-02T00:00:01.000Z";
 const EMPTY_PAYLOAD_REF: &str = r#"{"kind":"inline","items":[]}"#;
 
 /// A connection on a fresh in-memory database holding the workflow tables, with foreign keys on.
-pub(crate) fn workflow_tables() -> Connection {
+pub fn workflow_tables() -> Connection {
     let connection = Connection::open_in_memory().expect("an in-memory database opens");
     connection
         .execute_batch(&WORKFLOW_SCHEMA_SQL)
@@ -35,7 +35,7 @@ pub(crate) fn workflow_tables() -> Connection {
 
 /// Stores the workflow `definition_id` named `name` with its version 1, `version_id`, whose body
 /// holds the test node.
-pub(crate) fn insert_workflow_version(
+pub fn insert_workflow_version(
     connection: &Connection,
     definition_id: &str,
     version_id: &str,
@@ -88,7 +88,7 @@ fn stored_instant(text: &str) -> String {
 
 /// Stores the first run of its own chain, `run_id`, of version `version_id`, at `status`, started
 /// at `started_at` and ended at `finished_at`, both written in the stored form.
-pub(crate) fn insert_run(
+pub fn insert_run(
     connection: &Connection,
     run_id: &str,
     version_id: &str,
@@ -117,22 +117,22 @@ pub(crate) fn insert_run(
 }
 
 /// A step a test stores: its place in the run, where it stands and what a waiting one waits on.
-pub(crate) struct TestStep<'step> {
+pub struct TestStep<'step> {
     /// Its execution index.
-    pub(crate) execution_index: u32,
+    pub execution_index: u32,
     /// Where it stands.
-    pub(crate) status: WorkflowStepStatus,
+    pub status: WorkflowStepStatus,
     /// What it waits on, for a waiting step.
-    pub(crate) wait_cause: Option<WorkflowWaitCause>,
+    pub wait_cause: Option<WorkflowWaitCause>,
     /// The spent account an `account` wait waits on.
-    pub(crate) wait_account_id: Option<&'step str>,
+    pub wait_account_id: Option<&'step str>,
     /// When an `account` wait resumes itself.
-    pub(crate) resume_at: Option<&'step str>,
+    pub resume_at: Option<&'step str>,
 }
 
 /// Stores `step` in run `run_id`, running the test node; a waiting step started waiting when it
 /// started.
-pub(crate) fn insert_step(connection: &Connection, run_id: &str, step: &TestStep<'_>) {
+pub fn insert_step(connection: &Connection, run_id: &str, step: &TestStep<'_>) {
     let is_waiting = step.status == WorkflowStepStatus::Waiting;
     connection
         .execute(

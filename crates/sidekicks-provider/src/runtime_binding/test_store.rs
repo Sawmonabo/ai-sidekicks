@@ -5,14 +5,17 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::Map;
+#[cfg(test)]
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
+#[cfg(test)]
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::driver::PROVIDERS;
 use crate::driver::contract::{DriverCliVersionReport, SpawnedVersionBindingCarriers};
+#[cfg(test)]
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::runtime_binding::store::{
     CreateRuntimeBindingInput, RUNTIME_BINDING_STORE_STATEMENT_CAPACITY, RuntimeBindingSpawnConfig,
@@ -24,7 +27,7 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 /// The binding store on `database`, through a writer of its own that creates the daemon's schema.
-pub(crate) async fn open_store(database: &TestDatabase) -> RuntimeBindingStore {
+pub async fn open_store(database: &TestDatabase) -> RuntimeBindingStore {
     let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
         .await
         .expect("the writer opens its database");
@@ -33,7 +36,7 @@ pub(crate) async fn open_store(database: &TestDatabase) -> RuntimeBindingStore {
 }
 
 /// One spawned build's reading: its version and where it ran.
-pub(crate) fn spawned_build(version: &str, path: &str) -> SpawnedVersionBindingCarriers {
+pub fn spawned_build(version: &str, path: &str) -> SpawnedVersionBindingCarriers {
     SpawnedVersionBindingCarriers {
         cli_version: DriverCliVersionReport {
             raw_version: version.to_owned(),
@@ -44,7 +47,7 @@ pub(crate) fn spawned_build(version: &str, path: &str) -> SpawnedVersionBindingC
 }
 
 /// A binding of a fresh run on the table's first provider, on conversation `conversation-1`.
-pub(crate) fn binding_input(
+pub fn binding_input(
     spawn_config: RuntimeBindingSpawnConfig,
     spawned_version: SpawnedVersionBindingCarriers,
 ) -> CreateRuntimeBindingInput {
@@ -63,6 +66,7 @@ pub(crate) fn binding_input(
 /// Records the leg of a session that ran and now rests: a binding of a fresh run naming
 /// conversation `resume_handle` on `provider_account_id`'s account, which `host` then answers as
 /// `session_id`'s stored leg.
+#[cfg(test)]
 pub(crate) async fn record_session_leg(
     database: &TestDatabase,
     host: &RecordingRunEngine,

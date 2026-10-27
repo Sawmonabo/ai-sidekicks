@@ -5,7 +5,7 @@
 
 pub mod applier;
 pub(crate) mod batch_builder;
-pub(crate) mod build_mode;
+pub mod build_mode;
 pub(crate) mod columns;
 pub mod live;
 pub mod outbox;

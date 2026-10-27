@@ -466,13 +466,13 @@ pub(crate) fn is_limit_interrupt_pending(
 
 /// A faster-model retry a restart found with no outcome yet.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct PendingRetry {
+pub struct PendingRetry {
     /// The retry.
     pub(crate) intervention_id: InterventionId,
     /// The run it retries.
     pub(crate) target_run_id: RunId,
     /// The run's session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// Where it stands.
     pub(crate) state: UnresolvedInterventionState,
     /// Who it is from.
@@ -480,17 +480,17 @@ pub(crate) struct PendingRetry {
 }
 
 /// The one write that settles a pending retry: its row's move and the move's event.
-pub(crate) struct RetrySettlement {
+pub struct RetrySettlement {
     /// The row's move, refused unless the row is still in the state it was read in.
-    pub(crate) statement: WriteStatement,
+    pub statement: WriteStatement,
     /// The move's `agent.intervention.*` event.
-    pub(crate) event: SessionEventDraft,
+    pub event: SessionEventDraft,
 }
 
 /// Every faster-model retry of `session_id`'s runs, or of every session's when it is `None`, with
 /// no outcome yet, read on `reader` by the daemon's recovery pass at start. Fails when the read
 /// fails or a stored column does not read as its type.
-pub(crate) fn read_pending_retries(
+pub fn read_pending_retries(
     reader: &Connection,
     session_id: Option<&SessionId>,
 ) -> rusqlite::Result<Vec<PendingRetry>> {
@@ -513,7 +513,7 @@ pub(crate) fn read_pending_retries(
 /// that held its turn having ended with the daemon: a `requested` retry was never sent, so it
 /// expires; an `accepted` one fails, its outcome lost with the daemon. Fails when the event breaks
 /// a check of its type.
-pub(crate) fn settle_retry_after_restart(
+pub fn settle_retry_after_restart(
     retry: &PendingRetry,
 ) -> Result<RetrySettlement, SessionEventDraftError> {
     let PendingRetry {
@@ -559,13 +559,13 @@ pub(crate) fn settle_retry_after_restart(
 /// An interrupt whose queue hold went while what it held back was left unsettled: the run and the
 /// person's choice for its waiting messages, which the queue settles again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct UnreleasedInterrupt {
+pub struct UnreleasedInterrupt {
     /// The interrupt.
-    pub(crate) intervention_id: InterventionId,
+    pub intervention_id: InterventionId,
     /// The run it held.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// The choice its release had to apply.
-    pub(crate) choice: InterruptChoice,
+    pub choice: InterruptChoice,
 }
 
 const RECORD_UNRELEASED_SQL: &str = "UPDATE interventions
@@ -592,7 +592,7 @@ const SELECT_SESSIONS_WITH_UNRELEASED_SQL: &str = "SELECT DISTINCT runs.session_
 
 /// The statement that records `choice` as left unsettled by the release of the queue hold
 /// `intervention_id` took; refused when no row is saved as `intervention_id`.
-pub(crate) fn record_unreleased_statement(
+pub fn record_unreleased_statement(
     intervention_id: &InterventionId,
     choice: InterruptChoice,
 ) -> WriteStatement {
@@ -613,7 +613,7 @@ pub(crate) fn record_unreleased_statement(
 
 /// The statement that clears what [`record_unreleased_statement`] recorded on `intervention_id`,
 /// once settled; a row purged meanwhile changes nothing.
-pub(crate) fn clear_unreleased_statement(intervention_id: &InterventionId) -> WriteStatement {
+pub fn clear_unreleased_statement(intervention_id: &InterventionId) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(CLEAR_UNRELEASED_SQL),
         bindings: StatementBindings::Named(vec![text_binding(
@@ -626,7 +626,7 @@ pub(crate) fn clear_unreleased_statement(intervention_id: &InterventionId) -> Wr
 
 /// Every interrupt of a run of `session_id` whose release left its choice unsettled, read on
 /// `reader`, oldest first. Fails when the read fails or a stored column does not read as its type.
-pub(crate) fn read_unreleased_interrupts(
+pub fn read_unreleased_interrupts(
     reader: &Connection,
     session_id: &SessionId,
 ) -> rusqlite::Result<Vec<UnreleasedInterrupt>> {
@@ -647,7 +647,7 @@ pub(crate) fn read_unreleased_interrupts(
 
 /// Every session with an interrupt whose release left its choice unsettled, read on `reader`.
 /// Fails when the read fails or a stored id does not read as its type.
-pub(crate) fn read_sessions_with_unreleased_interrupts(
+pub fn read_sessions_with_unreleased_interrupts(
     reader: &Connection,
 ) -> rusqlite::Result<Vec<SessionId>> {
     reader

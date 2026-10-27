@@ -39,7 +39,7 @@ const EVICTION_DISPOSITION_REASON: &str = "the binding's operation associations 
 
 /// The runtime binding a cursor counts deliveries for.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct EpochBinding {
+pub struct EpochBinding {
     /// The binding.
     pub(crate) id: RuntimeBindingId,
     /// The run it belongs to.
@@ -101,7 +101,7 @@ pub(crate) enum ConfirmedCut {
 
 /// Why a cursor call was refused: the caller named a binding in the wrong state for it.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum EpochCursorError {
+pub enum EpochCursorError {
     /// The binding already has a cursor open.
     #[error("runtime binding {} already has an epoch cursor", binding_id.as_str())]
     AlreadyOpen {
@@ -140,7 +140,7 @@ struct BindingCursor {
 
 /// The cursors of the open runtime bindings. Calls for one binding are made in its delivery
 /// order, the fence among them, since each attribution is decided from the calls before it.
-pub(crate) struct ExecutionEpochs {
+pub struct ExecutionEpochs {
     max_associations_per_binding: NonZeroUsize,
     // One entry per binding opened and not yet closed.
     cursors: HashMap<RuntimeBindingId, BindingCursor>,
@@ -155,7 +155,7 @@ impl ExecutionEpochs {
             reason = "the daemon's start builds the one set of epoch cursors"
         )
     )]
-    pub(crate) fn new(max_associations_per_binding: NonZeroUsize) -> Self {
+    pub fn new(max_associations_per_binding: NonZeroUsize) -> Self {
         Self {
             max_associations_per_binding,
             cursors: HashMap::new(),
@@ -207,7 +207,7 @@ impl ExecutionEpochs {
 
     /// The binding a cursor counts for. Fails with [`EpochCursorError::NotOpen`] for a binding
     /// with no cursor open.
-    pub(crate) fn binding(
+    pub fn binding(
         &self,
         binding_id: &RuntimeBindingId,
     ) -> Result<&EpochBinding, EpochCursorError> {

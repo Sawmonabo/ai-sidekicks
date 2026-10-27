@@ -3,5 +3,5 @@
 //! shares.
 
 pub mod read_pool;
-pub(crate) mod setup;
+pub mod setup;
 pub mod writer_open;

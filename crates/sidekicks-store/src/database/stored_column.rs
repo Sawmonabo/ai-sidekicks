@@ -12,7 +12,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 /// The TEXT column at `index` read through `parse`; fails with
 /// `rusqlite::Error::FromSqlConversionFailure` keeping `parse`'s failure.
-pub(crate) fn text_column<Parsed, Failure>(
+pub fn text_column<Parsed, Failure>(
     row: &Row<'_>,
     index: usize,
     parse: impl FnOnce(String) -> Result<Parsed, Failure>,
@@ -25,7 +25,7 @@ where
 
 /// The nullable TEXT column at `index` read through `parse`, `None` for `NULL`; fails as
 /// [`text_column`] does.
-pub(crate) fn optional_text_column<Parsed, Failure>(
+pub fn optional_text_column<Parsed, Failure>(
     row: &Row<'_>,
     index: usize,
     parse: impl FnOnce(String) -> Result<Parsed, Failure>,
@@ -41,15 +41,12 @@ where
 
 /// The TEXT column at `index` read as a JSON object, as every stored payload is; fails as
 /// [`text_column`] does, keeping a [`StoredJsonFault`].
-pub(crate) fn json_object_column(
-    row: &Row<'_>,
-    index: usize,
-) -> rusqlite::Result<Map<String, Value>> {
+pub fn json_object_column(row: &Row<'_>, index: usize) -> rusqlite::Result<Map<String, Value>> {
     text_column(row, index, |text| parse_stored_json_object(&text))
 }
 
 /// Stored `text` read as a JSON object; fails with where and how it does not read.
-pub(crate) fn parse_stored_json_object(text: &str) -> Result<Map<String, Value>, StoredJsonFault> {
+pub fn parse_stored_json_object(text: &str) -> Result<Map<String, Value>, StoredJsonFault> {
     serde_json::from_str(text).map_err(StoredJsonFault::from)
 }
 
@@ -57,7 +54,7 @@ pub(crate) fn parse_stored_json_object(text: &str) -> Result<Map<String, Value>,
 /// quote the stored value.
 #[derive(Debug, thiserror::Error)]
 #[error("{kind:?} fault at line {line}, column {column}")]
-pub(crate) struct StoredJsonFault {
+pub struct StoredJsonFault {
     /// Whether the text, its syntax or its data failed.
     kind: serde_json::error::Category,
     /// The line, from 1; 0 for a fault in data already parsed.
@@ -77,13 +74,13 @@ impl From<serde_json::Error> for StoredJsonFault {
 }
 
 /// A word of a closed set, read by its serde spelling; fails for text that names no member.
-pub(crate) fn closed_word<Word: DeserializeOwned>(text: String) -> Result<Word, serde_json::Error> {
+pub fn closed_word<Word: DeserializeOwned>(text: String) -> Result<Word, serde_json::Error> {
     serde_json::from_value(Value::String(text))
 }
 
 /// A value of a type no writer stores in the column at `index`, such as a payload member's, as
 /// rusqlite's conversion error on that column.
-pub(crate) fn wrong_type_failure(index: usize, value: &SqliteValue) -> rusqlite::Error {
+pub fn wrong_type_failure(index: usize, value: &SqliteValue) -> rusqlite::Error {
     rusqlite::Error::FromSqlConversionFailure(
         index,
         value.data_type(),
@@ -93,7 +90,7 @@ pub(crate) fn wrong_type_failure(index: usize, value: &SqliteValue) -> rusqlite:
 
 /// A rowid, or a key built from one, as unsigned: SQLite holds it signed, so a negative one fails
 /// the read with `rusqlite::Error::FromSqlConversionFailure`, keeping why.
-pub(crate) fn rowid_column(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
+pub fn rowid_column(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
     let value: i64 = row.get(index)?;
     u64::try_from(value).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(index, Type::Integer, Box::new(error))
@@ -103,7 +100,7 @@ pub(crate) fn rowid_column(row: &Row<'_>, index: usize) -> rusqlite::Result<u64>
 /// An INTEGER that holds a safe integer from `MIN` up, such as a sequence, a place or a bound;
 /// fails the read with `rusqlite::Error::FromSqlConversionFailure`, naming the value, for one
 /// below `MIN` or past 2^53 − 1.
-pub(crate) fn safe_int_column<const MIN: u64>(
+pub fn safe_int_column<const MIN: u64>(
     row: &Row<'_>,
     index: usize,
 ) -> rusqlite::Result<SafeInt<MIN>> {

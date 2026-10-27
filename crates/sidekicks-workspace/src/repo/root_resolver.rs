@@ -75,7 +75,7 @@ enum ToplevelAnswer {
 /// keeping nothing, since `git init` can make any folder a repository. Cloning it shares the
 /// runner.
 #[derive(Clone)]
-pub(crate) struct RepoRootResolver {
+pub struct RepoRootResolver {
     git: GitRunner,
     // The resolution every pick answers with, in place of the file system and git.
     #[cfg(test)]
@@ -88,7 +88,7 @@ pub(crate) struct RepoRootResolver {
 )]
 impl RepoRootResolver {
     /// The resolver asking `git`, each call held to [`ROOT_RESOLUTION_GIT_TIMEOUT`].
-    pub(crate) fn new(git: GitRunner) -> Self {
+    pub fn new(git: GitRunner) -> Self {
         Self {
             git,
             #[cfg(test)]

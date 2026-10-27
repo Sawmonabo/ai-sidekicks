@@ -56,7 +56,7 @@ impl OutputRing {
 }
 
 /// One subscriber's running-commands feed; dropping it ends the subscription.
-pub(crate) struct RunningCommandFeed {
+pub struct RunningCommandFeed {
     sessions: Arc<Mutex<HashMap<SessionId, SessionCommands>>>,
     session_id: SessionId,
     changed: watch::Receiver<()>,

@@ -34,7 +34,7 @@ const PLAN_EVENT_TYPES: [SessionEventType; 5] = [
 /// The `plans` rows as a rebuild replaces them. Its fold keeps no state, so the projection is its
 /// own fold.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct PlansProjection;
+pub struct PlansProjection;
 
 impl SessionProjection for PlansProjection {
     fn name(&self) -> &'static str {

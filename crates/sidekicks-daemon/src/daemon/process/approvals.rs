@@ -263,7 +263,7 @@ mod tests {
     use sidekicks_provider::driver::test_registry::registry_of_first_provider;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-    use sidekicks_store::events::log_service::tests::open_log;
+    use sidekicks_store::events::log_service::test_log::open_log;
     use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 
     // Killed by mapping the read's refusal to an internal failure, which the person would read as

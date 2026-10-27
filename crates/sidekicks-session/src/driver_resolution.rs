@@ -23,7 +23,7 @@ use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_
 
 /// Why the driver of a live run was not resolved.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum LiveRunDriverError {
+pub enum LiveRunDriverError {
     /// No binding on the run's chain names a provider. Every live run has one, so the record is
     /// broken: a fault in the daemon, never a refusal of the call.
     #[error("live run {run_id} has no runtime binding on its chain")]
@@ -62,7 +62,7 @@ pub(crate) fn resolve_live_run_driver(
 
 /// The driver of the provider the live run `run_id` runs on, its binding read through `pool`.
 /// Fails as [`resolve_live_run_driver`] fails, and as the pool and the read do.
-pub(crate) async fn read_run_driver<Failure>(
+pub async fn read_run_driver<Failure>(
     pool: &DatabaseReadPool,
     providers: &ProviderRegistry,
     run_id: RunId,
@@ -97,7 +97,7 @@ pub(crate) fn resolve_session_driver(
 /// current account) and its driver, the lead's binding read through `pool` from the readable part
 /// of the session's log. Refused as [`resolve_session_driver`] refuses, and fails as the pool and
 /// the read do.
-pub(crate) async fn read_session_driver<Failure>(
+pub async fn read_session_driver<Failure>(
     pool: &DatabaseReadPool,
     providers: &ProviderRegistry,
     read_damaged_from_sequence: &DamagedFromSequenceReader,

@@ -15,7 +15,7 @@ use sidekicks_std::missing_entry::is_gone;
 /// The key of one run's execution context row: an agent run's id or a workflow run's id. It
 /// writes as the UUID's lowercase hyphenated text, so it is a safe ref path component.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct RunContextKey(Uuid);
+pub struct RunContextKey(Uuid);
 
 impl fmt::Display for RunContextKey {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -11,7 +11,7 @@ use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::sql_list_of_every;
 
 /// The artifacts' list and the plan table's own part.
-pub(crate) fn schema_parts() -> SchemaParts {
+pub fn schema_parts() -> SchemaParts {
     crate::schema::schema_parts().with_part(SchemaPart::new("plans", plan_schema_sql()))
 }
 

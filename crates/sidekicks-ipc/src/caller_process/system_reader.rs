@@ -18,7 +18,7 @@ use crate::caller_process::contract::{CallerProcessReader, PeerRead};
 /// Reads callers, their parents and responsible processes from the system's process table, and
 /// their signatures against the desktop client's requirement. Every read can touch the process
 /// table's files or the code on disk, so each runs on the blocking pool.
-pub(crate) struct ProcessTableReader {
+pub struct ProcessTableReader {
     /// The signatures the desktop's client meets; `None` when this build admits no client by its
     /// signature.
     desktop_client: Option<Arc<DesktopClientRequirement>>,
@@ -29,7 +29,7 @@ impl ProcessTableReader {
     /// signature and the app's bundle identifier; one that admits no client by its signature when
     /// this program's signature names no team. Fails when that requirement cannot be built, so the
     /// daemon does not start.
-    pub(crate) fn for_this_program() -> Result<Self, CodeSignatureError> {
+    pub fn for_this_program() -> Result<Self, CodeSignatureError> {
         Ok(Self {
             desktop_client: DesktopClientRequirement::for_this_program(APP_BUNDLE_IDENTIFIER)?
                 .map(Arc::new),

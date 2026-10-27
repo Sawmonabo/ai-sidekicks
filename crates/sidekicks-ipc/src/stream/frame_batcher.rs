@@ -137,12 +137,12 @@ impl<Record: ChangeRecord> FrameBatcher<Record> {
 }
 
 /// One frame's changes as its stream's contract holds them.
-pub(crate) type FrameChanges<Change> = BoundedVec<Change, 1, STREAM_FRAME_MAX_CHANGES>;
+pub type FrameChanges<Change> = BoundedVec<Change, 1, STREAM_FRAME_MAX_CHANGES>;
 
 /// A change stream's feed: each frame its batcher reads from the record, made into the stream's
 /// frame by `frame_of`. A failed read ends the subscription as a fault in the daemon, and the
 /// store closing under the daemon's stop ends it as finished.
-pub(crate) struct ChangeFeed<Record: ChangeRecord, Frame> {
+pub struct ChangeFeed<Record: ChangeRecord, Frame> {
     /// The frames' batcher.
     batcher: FrameBatcher<Record>,
     /// Makes one frame of its changes.
@@ -153,7 +153,7 @@ impl<Record: ChangeRecord, Frame> ChangeFeed<Record, Frame> {
     /// The feed of `record`'s frames after `cursor`, each made by `frame_of`, its first frame read
     /// at once. Fails as an internal error when that read fails, so the subscribe call is refused
     /// with nothing open.
-    pub(crate) async fn open(
+    pub async fn open(
         record: Arc<Record>,
         cursor: Record::Cursor,
         frame_of: fn(FrameChanges<Record::Change>) -> Frame,

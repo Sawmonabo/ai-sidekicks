@@ -19,7 +19,7 @@ use sidekicks_std::process_exit::OutputTail;
 const PREVIOUS_LOG_TAIL_BYTES: u64 = 256 * 1024;
 
 /// The size past which a running service's log is cut: 64 MiB.
-pub(crate) const SERVICE_LOG_CAP_BYTES: u64 = 64 * 1024 * 1024;
+pub const SERVICE_LOG_CAP_BYTES: u64 = 64 * 1024 * 1024;
 
 /// The hex digits of a home's key: the first 16 of its path's `blake3` hash.
 const HOME_KEY_HEX_DIGITS: usize = 16;
@@ -68,7 +68,7 @@ pub(crate) fn provider_service_log_file_of_key(
 
 /// Whether `file_name` names a provider service's log, the tail kept beside it, or that tail
 /// while it is written: `<provider id>-service-<16 hex digits>` and one of their endings.
-pub(crate) fn is_provider_service_log_file_name(file_name: &str) -> bool {
+pub fn is_provider_service_log_file_name(file_name: &str) -> bool {
     let Some(stem) = SERVICE_LOG_ENDINGS
         .iter()
         .find_map(|ending| file_name.strip_suffix(ending))
@@ -119,7 +119,7 @@ pub(crate) async fn open_provider_service_log(log_file: &Path) -> io::Result<std
 /// leave a hole of NUL bytes as long as the log was. It is logrotate's copy and truncate, with
 /// its gap: what the service appends between the tail's read and the cut lands in neither file.
 /// A missing log is left alone. Fails with the read's, the keep's or the cut's error.
-pub(crate) async fn cap_provider_service_log(log_file: &Path, cap_bytes: u64) -> io::Result<()> {
+pub async fn cap_provider_service_log(log_file: &Path, cap_bytes: u64) -> io::Result<()> {
     match tokio::fs::symlink_metadata(log_file).await {
         Ok(metadata) if metadata.is_file() && metadata.len() > cap_bytes => {}
         Ok(_) => return Ok(()),

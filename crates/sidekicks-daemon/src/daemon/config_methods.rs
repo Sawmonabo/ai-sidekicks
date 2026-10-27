@@ -102,7 +102,7 @@ mod tests {
     use sidekicks_ipc::registry::{Dispatch as _, DispatchError, MethodRegistryBuilder, Reply};
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::TestDatabase;
-    use sidekicks_store::events::log_service::tests::open_log;
+    use sidekicks_store::events::log_service::test_log::open_log;
 
     // The port and step bound as the row holds them.
     fn stored_settings(database: &TestDatabase) -> (i64, Option<i64>) {

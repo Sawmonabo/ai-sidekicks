@@ -57,7 +57,7 @@ use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 
 /// The statements the store's reads run on a read connection beyond the library's: the latest
 /// version a refused save is told about.
-pub(crate) const WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY: usize = 1;
+pub const WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY: usize = 1;
 
 // A permission level is left to the column's default, so a new workflow starts at `yolo`.
 const INSERT_DEFINITION_SQL: &str = "INSERT INTO workflow_definitions (

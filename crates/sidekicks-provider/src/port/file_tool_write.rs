@@ -20,13 +20,13 @@ use sidekicks_contracts::session::id::SessionId;
     )
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct FileToolWriteOpened {
+pub struct FileToolWriteOpened {
     /// The session whose agent called the tool.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The provider's own id of the call.
-    pub(crate) call_id: String,
+    pub call_id: String,
     /// The file the call writes, as the tool names it.
-    pub(crate) path: PathBuf,
+    pub path: PathBuf,
 }
 
 /// What a file tool's call left at its path.
@@ -35,7 +35,7 @@ pub(crate) struct FileToolWriteOpened {
     reason = "the providers' drivers' file tools, which report each write"
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum FileToolWriteOutcome {
+pub enum FileToolWriteOutcome {
     /// The file's whole bytes after the call, as its result gives them.
     Written(ByteBuffer),
     /// The call wrote nothing: it failed, was refused, or left the file as it was.
@@ -51,15 +51,15 @@ pub(crate) enum FileToolWriteOutcome {
     )
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct FileToolWriteSettled {
+pub struct FileToolWriteSettled {
     /// The session whose agent called the tool.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The provider's own id of the call.
-    pub(crate) call_id: String,
+    pub call_id: String,
     /// The file the call wrote, as it opened.
-    pub(crate) path: PathBuf,
+    pub path: PathBuf,
     /// What the call left there.
-    pub(crate) outcome: FileToolWriteOutcome,
+    pub outcome: FileToolWriteOutcome,
 }
 
 /// A chat's versions' intake of its agent's file tool writes, registered through a
@@ -72,7 +72,7 @@ pub(crate) struct FileToolWriteSettled {
         reason = "the providers' drivers' file tools, which report each write"
     )
 )]
-pub(crate) trait FileToolWritePort: Send + Sync {
+pub trait FileToolWritePort: Send + Sync {
     /// Holds the watch's reports of `opened`'s path until the call settles. An error when the call
     /// could not be held.
     fn open_file_tool_write(

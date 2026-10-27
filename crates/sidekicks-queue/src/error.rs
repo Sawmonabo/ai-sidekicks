@@ -19,7 +19,7 @@ use sidekicks_store::database::writer::WriteError;
 
 /// Why a run queue call, or the work it runs on its own, failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum QueueError {
+pub enum QueueError {
     /// A refusal the caller reads by its code.
     #[error(transparent)]
     Refused(#[from] DomainError),

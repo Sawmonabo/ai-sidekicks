@@ -48,7 +48,7 @@ use sidekicks_store::events::session::pending::PendingSessions;
 
 /// The statements the ranking's reads prepare: a session's links, its stored list and whether the
 /// session exists.
-pub(crate) const RELATED_RANKING_STATEMENT_CAPACITY: usize = 3;
+pub const RELATED_RANKING_STATEMENT_CAPACITY: usize = 3;
 
 // The most sessions one round scores and one stored write replaces, so a burst of link changes
 // never makes one long read or one huge write; the rest wait for the next round.
@@ -82,7 +82,7 @@ const REPLACE_RELATED_SQL: &str = "
 
 /// Why a session's related list could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SessionRelatedReadError {
+pub enum SessionRelatedReadError {
     /// The session is not one this daemon holds (`session.notFound`).
     #[error(transparent)]
     Refused(#[from] DomainError),
@@ -96,7 +96,7 @@ pub(crate) enum SessionRelatedReadError {
 
 impl SessionRelatedReadError {
     /// Whether the read failed because the read pool is closed, as it is at the daemon's stop.
-    pub(crate) fn is_pool_closed(&self) -> bool {
+    pub fn is_pool_closed(&self) -> bool {
         match self {
             Self::Pool(DatabaseReadError::Closed) => true,
             Self::Pool(DatabaseReadError::Open(_) | DatabaseReadError::Join(_))
@@ -133,7 +133,7 @@ enum RescoringError {
 /// Scores, stores and serves each session's related list. Re-scoring runs one round at a time on
 /// the task [`SessionRelatedRanking::start`] spawns, so a link verb never waits on it, and a
 /// session asked for twice before its round is scored once. Shared by `Arc`.
-pub(crate) struct SessionRelatedRanking {
+pub struct SessionRelatedRanking {
     /// The pool every read borrows a connection from.
     reads: Arc<DatabaseReadPool>,
     /// Where each round's lists are stored.
@@ -148,7 +148,7 @@ pub(crate) struct SessionRelatedRanking {
 
 /// The re-scoring task and its follower of renames, from [`SessionRelatedRanking::start`] until
 /// [`RelatedRescoring::stop`].
-pub(crate) struct RelatedRescoring {
+pub struct RelatedRescoring {
     /// Hears every committed rename; dropping it detaches.
     attachment: FollowerAttachment,
     /// Ends the task after the round under way, and a retry still waiting.
@@ -161,7 +161,7 @@ impl RelatedRescoring {
     /// Stops hearing renames, ends re-scoring after the round under way, drops a retry still
     /// waiting, and settles once that round's write and raises are done. Fails only when the task
     /// itself ended abnormally.
-    pub(crate) async fn stop(self) -> Result<(), JoinError> {
+    pub async fn stop(self) -> Result<(), JoinError> {
         let Self {
             attachment,
             stop,
@@ -176,7 +176,7 @@ impl RelatedRescoring {
 impl SessionRelatedRanking {
     /// A ranking reading through `reads` and storing through `writer`; nothing is re-scored until
     /// [`SessionRelatedRanking::start`].
-    pub(crate) fn new(reads: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
+    pub fn new(reads: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
         Self {
             reads,
             writer,
@@ -188,10 +188,7 @@ impl SessionRelatedRanking {
 
     /// Follows every committed rename of `followers` and starts the re-scoring task, both until
     /// the returned handle's stop.
-    pub(crate) fn start(
-        self: &Arc<Self>,
-        followers: &Arc<SessionEventFollowers>,
-    ) -> RelatedRescoring {
+    pub fn start(self: &Arc<Self>, followers: &Arc<SessionEventFollowers>) -> RelatedRescoring {
         let ranking = Arc::clone(self);
         // Runs on the writer's pump, so it only names the session for the task.
         let attachment = followers.follow_all(move |event| {
@@ -211,7 +208,7 @@ impl SessionRelatedRanking {
 
     /// Queues the sessions a committed link change joined for re-scoring, with their neighbors,
     /// and returns at once.
-    pub(crate) fn rescore_around(&self, session_ids: impl IntoIterator<Item = SessionId>) {
+    pub fn rescore_around(&self, session_ids: impl IntoIterator<Item = SessionId>) {
         for session_id in session_ids {
             self.changed.add(session_id);
         }
@@ -220,7 +217,7 @@ impl SessionRelatedRanking {
     /// The session's related sessions, most relevant first, each with the strongest link the pair
     /// shares. Fails with `session.notFound` for a session the daemon has no record of, and as the
     /// read fails.
-    pub(crate) async fn read(
+    pub async fn read(
         &self,
         session_id: SessionId,
     ) -> Result<SessionRelatedListUpdate, SessionRelatedReadError> {
@@ -244,7 +241,7 @@ impl SessionRelatedRanking {
     /// re-score of it stores, and after a session it shows is renamed. The follower reads the
     /// newest list with [`SessionRelatedRanking::read`] after subscribing and whenever the count
     /// moves. Each call first drops every count no receiver reads any more.
-    pub(crate) fn follow(&self, session_id: &SessionId) -> watch::Receiver<u64> {
+    pub fn follow(&self, session_id: &SessionId) -> watch::Receiver<u64> {
         let mut followed = self.lock_followed();
         followed.retain(|_, count| count.receiver_count() > 0);
         followed
@@ -254,8 +251,8 @@ impl SessionRelatedRanking {
     }
 
     /// How many followers still read a count, across every session.
-    #[cfg(test)]
-    pub(crate) fn open_follow_count(&self) -> usize {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn open_follow_count(&self) -> usize {
         self.lock_followed()
             .values()
             .map(watch::Sender::receiver_count)

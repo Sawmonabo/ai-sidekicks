@@ -52,7 +52,7 @@ use sidekicks_store::events::session::skipped_ranges::outside_skipped_ranges_sql
 
 /// The statements damaged history's own reads run: the last event before a damaged one, and
 /// whether a session has a row.
-pub(crate) const DAMAGED_HISTORY_STATEMENT_CAPACITY: usize = 2;
+pub const DAMAGED_HISTORY_STATEMENT_CAPACITY: usize = 2;
 
 // The last event the session opens at: the newest one before the first damaged event that no
 // skipped range holds.
@@ -69,7 +69,7 @@ static SELECT_LAST_EVENT_BEFORE_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// Deletes every row of one damaged session for `Delete session`, from any state but
 /// `provisioning`; the copy set aside stays.
-pub(crate) trait DamagedSessionPurge: Send + Sync {
+pub trait DamagedSessionPurge: Send + Sync {
     /// Purges `session_id`, answering once its rows are gone; fails with why the session was
     /// refused or its purge stopped, which leaves its rows for a later purge to finish.
     fn purge_damaged_session(
@@ -100,7 +100,7 @@ pub(crate) struct DamagedHistoryDeps {
 
 /// Finds a damaged session's last good point and rebuilds its projections through it, and runs
 /// the person's two actions on it, one at a time per session.
-pub(crate) struct DamagedHistory {
+pub struct DamagedHistory {
     deps: DamagedHistoryDeps,
     // Held across an action's check and its act, so a delete never meets a session a continue has
     // just opened.
@@ -110,7 +110,7 @@ pub(crate) struct DamagedHistory {
 /// Why `Continue from here` or `Delete session` was refused or failed; nothing is written on a
 /// refusal.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RecoveryActionError {
+pub enum RecoveryActionError {
     /// No session of that id is held.
     #[error("no session {0} is held")]
     NotFound(SessionId),
@@ -212,7 +212,7 @@ impl DamagedHistory {
     /// [`RecoveryActionError::NotFound`], and one not damaged or with no readable event
     /// [`RecoveryActionError::Refused`]; a failure after the skip leaves the session at its point
     /// and keeps the skip, so the next start rebuilds past it.
-    pub(crate) async fn continue_from_last_good_point(
+    pub async fn continue_from_last_good_point(
         &self,
         session_id: SessionId,
     ) -> Result<(), RecoveryActionError> {
@@ -277,7 +277,7 @@ impl DamagedHistory {
     /// `Delete session` on a damaged session: every row of it goes, the copy set aside stays.
     /// Refuses a session whose history is not damaged as
     /// [`DamagedHistory::continue_from_last_good_point`] does, and fails with the purge's refusal.
-    pub(crate) async fn delete_damaged_session(
+    pub async fn delete_damaged_session(
         &self,
         session_id: SessionId,
     ) -> Result<(), RecoveryActionError> {

@@ -11,7 +11,7 @@ use super::ShellLineReader;
 
 /// The one daemon-wide bound on the line bytes the shell-line reader parses at once, with the
 /// reader's byte limit. Every ask reads its shell lines through `read`.
-pub(crate) struct ShellLineReadingBound {
+pub struct ShellLineReadingBound {
     // One permit per line byte, `limit` in all.
     permits: Arc<Semaphore>,
     limit: usize,
@@ -19,7 +19,7 @@ pub(crate) struct ShellLineReadingBound {
 
 impl ShellLineReadingBound {
     /// A bound of `limit` line bytes, the reader's limit: a system's argument bound, under 4 GiB.
-    pub(crate) fn new(limit: usize) -> Self {
+    pub fn new(limit: usize) -> Self {
         Self {
             permits: Arc::new(Semaphore::new(limit)),
             limit,
@@ -30,7 +30,7 @@ impl ShellLineReadingBound {
     /// within the bound; a line past the limit, which the reader does not parse, waits for none.
     /// The bytes stay taken until `work` ends, rereads of the line's `-c` and `eval` strings
     /// included. Fails when `work` panics.
-    pub(crate) async fn read<T: Send + 'static>(
+    pub async fn read<T: Send + 'static>(
         &self,
         line_length: usize,
         work: impl FnOnce(&mut ShellLineReader) -> T + Send + 'static,

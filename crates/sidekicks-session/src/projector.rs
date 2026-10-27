@@ -12,7 +12,7 @@ use crate::records::DaemonSessionRecord;
 
 /// Why a session's log does not rebuild into a record.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SessionRebuildError {
+pub enum SessionRebuildError {
     /// The bootstrap `session.created` sits past sequence 0: earlier events were lost or its
     /// producer broke the bootstrap contract, so a record from it would show partial state as
     /// whole.

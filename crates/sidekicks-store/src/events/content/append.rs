@@ -32,7 +32,7 @@ const CONTENT_DESCRIPTION_PAYLOAD_KEYS: [&str; 2] =
     CONTENT_LENGTH_PAYLOAD_KEY,
     CONTENT_ENCODING_PAYLOAD_KEY
 )]
-pub(crate) struct ContentDescriptionSeededError {
+pub struct ContentDescriptionSeededError {
     /// Who refused, as the append path names itself.
     pub(crate) refuser: &'static str,
     /// The member the payload already carried.
@@ -65,7 +65,7 @@ pub(crate) fn assert_no_seeded_content_description(
      for {}, the types whose registered payload declares the content members",
     body_bearing_type_names()
 )]
-pub(crate) struct ContentPartitionRefusedError {
+pub struct ContentPartitionRefusedError {
     /// The envelope's type.
     pub(crate) event_type: String,
 }
@@ -124,7 +124,7 @@ pub(crate) fn is_patch_bearing(event_type: SessionEventType, payload: &Map<Strin
 /// A patch-bearing completion whose body is not a list of the files its payload names, which only
 /// a producer's mistake can send.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum PatchFilesRefusedError {
+pub enum PatchFilesRefusedError {
     /// The body does not read as `{"files": [...]}`.
     #[error("a tool completion naming patches carries a body that is not its file list")]
     Body(#[source] serde_json::Error),
@@ -158,7 +158,7 @@ pub(crate) struct PatchPartPlace {
 
 /// A file's place or a text offset of a [`PatchPartPlace`] as its column stores it; panics only on
 /// a value past `i64`, which no stored file list or text reaches.
-pub(crate) fn stored_index(index: usize) -> i64 {
+pub fn stored_index(index: usize) -> i64 {
     i64::try_from(index).expect("a file's place or a text offset lies far below 2^63")
 }
 

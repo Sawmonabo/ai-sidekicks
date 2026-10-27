@@ -2,4 +2,4 @@
 //! noted line as its file reads now.
 
 pub(crate) mod diff_line;
-pub(crate) mod store;
+pub mod store;

@@ -101,7 +101,7 @@ pub(crate) trait CapabilityProbeExchange {
 
 /// A failure of the probe read itself, which leaves no reading: nothing is declared from it.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum CapabilityProbeError {
+pub enum CapabilityProbeError {
     /// The negative control was answered, so the channel's refusals cannot be trusted.
     #[error(
         "the capability probe's negative control `{probe_name}` was answered by provider `{}`, \
@@ -389,11 +389,11 @@ macro_rules! assert_admissible_detection {
     ($detection_of:path, $prohibited_names:expr) => {
         const _: () = {
             use ::strum::VariantArray as _;
-            let flags = $crate::provider::driver::capabilities::DriverCapabilityFlag::VARIANTS;
+            let flags = $crate::driver::capabilities::DriverCapabilityFlag::VARIANTS;
             let mut i = 0;
             while i < flags.len() {
                 assert!(
-                    $crate::provider::capability::probe::is_detection_admissible(
+                    $crate::capability::probe::is_detection_admissible(
                         $detection_of(flags[i]),
                         $prohibited_names,
                     ),

@@ -20,10 +20,10 @@ use crate::run::turn_end::{ProviderTurnEnd, StartedTurn};
 use crate::runtime_binding::store::RuntimeBinding;
 
 /// A failure the run engine reports to a driver, kept whole.
-pub(crate) type RunHostError = Box<dyn Error + Send + Sync>;
+pub type RunHostError = Box<dyn Error + Send + Sync>;
 
 /// What a driver asks of the run engine; the daemon's start registers the engine as it.
-pub(crate) trait RunHost: Send + Sync {
+pub trait RunHost: Send + Sync {
     /// Opens and numbers `run_id`'s next turn, its steps counted against `step_bound`; `None`
     /// once the run ended. Fails as the turn's start is not written.
     fn start_turn(

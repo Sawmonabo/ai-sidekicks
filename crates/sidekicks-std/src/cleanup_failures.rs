@@ -18,7 +18,7 @@ pub struct CleanupFailures<Original, Cleanup = Original> {
 impl<Original, Cleanup> CleanupFailures<Original, Cleanup> {
     /// `original` carrying `cleanup_failures`, each kept whole; with none, it reads as `original`
     /// alone. `operation` names what failed, as a log line says it.
-    pub(crate) fn new(
+    pub fn new(
         original: Original,
         cleanup_failures: Vec<Cleanup>,
         operation: &'static str,
@@ -31,17 +31,17 @@ impl<Original, Cleanup> CleanupFailures<Original, Cleanup> {
     }
 
     /// The failure the operation itself ended with.
-    pub(crate) fn original(&self) -> &Original {
+    pub fn original(&self) -> &Original {
         &self.original
     }
 
     /// The failures of cleaning up after it, in the order they came; empty when cleanup succeeded.
-    pub(crate) fn cleanup_failures(&self) -> &[Cleanup] {
+    pub fn cleanup_failures(&self) -> &[Cleanup] {
         &self.failures
     }
 
     /// The original, and the cleanups' failures with the operation they cleaned up after.
-    pub(crate) fn into_parts(self) -> (Original, Vec<Cleanup>, &'static str) {
+    pub fn into_parts(self) -> (Original, Vec<Cleanup>, &'static str) {
         (self.original, self.failures, self.operation)
     }
 }

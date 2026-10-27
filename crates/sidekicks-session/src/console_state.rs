@@ -7,6 +7,7 @@
 
 use std::borrow::Cow;
 use std::error::Error;
+use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -113,7 +114,11 @@ pub(crate) fn read_session_advisor_model(
         .optional()
 }
 
-impl SessionAdvisorStore for DatabaseWriter {
+/// The advisors a provider resolved, kept on each session's console state through the database
+/// writer.
+pub struct ConsoleStateAdvisors(pub Arc<DatabaseWriter>);
+
+impl SessionAdvisorStore for ConsoleStateAdvisors {
     /// Keeps the resolved advisor while the session has a directory row, so a purged session gains
     /// no row; fails with `session.notFound` for one without.
     fn record_resolved(
@@ -128,7 +133,7 @@ impl SessionAdvisorStore for DatabaseWriter {
                 advisor_model.as_deref(),
                 WireInstant::now().as_str(),
             );
-            write_while_session_exists(self, &session_id, statement).await?;
+            write_while_session_exists(&self.0, &session_id, statement).await?;
             Ok(())
         }
         .boxed()
@@ -154,7 +159,7 @@ pub(crate) fn session_mode_change_statement(
 
 /// The mode the session was last moved to, Build for a session never moved. Fails when the read
 /// fails or the stored text names no mode.
-pub(crate) fn read_session_mode(
+pub fn read_session_mode(
     reader: &Connection,
     session_id: &SessionId,
 ) -> rusqlite::Result<SessionMode> {
@@ -171,7 +176,7 @@ pub(crate) fn read_session_mode(
 /// session has no row. Fails when the read fails, and with
 /// `rusqlite::Error::FromSqlConversionFailure`, naming the value, for a stored bound outside 1 to
 /// 2^53 − 1.
-pub(crate) fn read_session_max_steps_per_turn(
+pub fn read_session_max_steps_per_turn(
     reader: &Connection,
     session_id: &SessionId,
 ) -> rusqlite::Result<Option<SafeInt<1>>> {
@@ -192,10 +197,13 @@ pub(crate) fn read_session_max_steps_per_turn(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use sidekicks_contracts::session::controls::methods::SessionMode;
 
     use super::{
-        advisor_model_change_statement, read_session_advisor_model, session_mode_change_statement,
+        ConsoleStateAdvisors, advisor_model_change_statement, read_session_advisor_model,
+        session_mode_change_statement,
     };
     use crate::questions::schema::schema_parts;
     use sidekicks_provider::port::session_advisor_store::SessionAdvisorStore;
@@ -210,9 +218,11 @@ mod tests {
     #[tokio::test]
     async fn a_resolved_advisor_fills_only_an_advisor_no_one_set() {
         let database = TestDatabase::new(schema_parts());
-        let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-            .await
-            .expect("the writer opens");
+        let writer = Arc::new(
+            DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+                .await
+                .expect("the writer opens"),
+        );
         let reader = database.reader();
         let (moved, off) = (test_session_id(), test_session_id());
         for session_id in [&moved, &off] {
@@ -231,7 +241,7 @@ mod tests {
         assert_eq!(read(&moved), None);
 
         for session_id in [moved, off] {
-            writer
+            ConsoleStateAdvisors(Arc::clone(&writer))
                 .record_resolved(session_id, Some("opus".to_owned()))
                 .await
                 .expect("the resolved advisor is recorded");

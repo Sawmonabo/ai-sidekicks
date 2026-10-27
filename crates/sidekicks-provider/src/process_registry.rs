@@ -13,7 +13,7 @@ use sidekicks_std::mutex_lock::lock;
 
 /// The daemon's provider processes by session, and the count their spawn sequences come from.
 #[derive(Default)]
-pub(crate) struct ProviderProcessRegistry {
+pub struct ProviderProcessRegistry {
     // Relaxed is enough: an identity is published to readers through the map's lock.
     spawn_count: AtomicU64,
     processes: Mutex<HashMap<SessionId, ProviderProcessIdentity>>,

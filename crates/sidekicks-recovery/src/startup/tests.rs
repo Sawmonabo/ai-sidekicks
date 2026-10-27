@@ -16,7 +16,7 @@ use crate::restart_settle::RESTART_FAILURE_DETAIL;
 use crate::session_write_refusal::{refuse_call_naming_session, refuse_session_event};
 use crate::status::RecoveryStatusTracker;
 use crate::test_pass::PassFixture;
-use sidekicks_approval::service::tests::SETTLE_WAIT;
+use sidekicks_approval::service::test_fixture::SETTLE_WAIT;
 use sidekicks_provider::port::plan::ProviderPlan;
 use sidekicks_session::run::engine::tests::{insert_running_run, stored_run_state};
 use sidekicks_store::database::writer::test_file::test_run_id;

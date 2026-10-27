@@ -23,7 +23,7 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::stored_column::{optional_text_column, text_column};
 
 /// The statements the occupancy read prepares on a pooled connection.
-pub(crate) const MOUNT_OCCUPANCY_STATEMENT_CAPACITY: usize = 2;
+pub const MOUNT_OCCUPANCY_STATEMENT_CAPACITY: usize = 2;
 
 // A workspace's checkout is its working tree's top level, which the execution-root service records
 // in the workspace's metadata; a workspace without that key works at its root.
@@ -95,7 +95,7 @@ pub(crate) enum OccupancyReadError {
 
 /// Reads who stands in, and who runs in, each folder of a repository mount.
 #[derive(Clone)]
-pub(crate) struct MountOccupancyReader {
+pub struct MountOccupancyReader {
     reads: Arc<DatabaseReadPool>,
 }
 
@@ -107,7 +107,7 @@ struct OccupancyRows {
 
 impl MountOccupancyReader {
     /// A reader on the daemon's read pool.
-    pub(crate) fn new(reads: Arc<DatabaseReadPool>) -> Self {
+    pub fn new(reads: Arc<DatabaseReadPool>) -> Self {
         Self { reads }
     }
 

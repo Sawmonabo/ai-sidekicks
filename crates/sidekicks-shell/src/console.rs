@@ -13,12 +13,12 @@ use sidekicks_std::error_description::describe_error;
 use sidekicks_std::standard_error::write_error_line;
 
 /// The word the daemon's own program is started with to run a `console` mode.
-pub(crate) const CONSOLE_MODE: &str = "console";
+pub const CONSOLE_MODE: &str = "console";
 
 /// Runs the `console` mode on the arguments after its word: `<pid>` sends the console of process
 /// `pid` a break, `input <pid>` writes the count of input events waiting on it to standard output.
 /// Exits 0 once done, 1 with why on standard error for other arguments or a refused call.
-pub(crate) fn run_console_mode(arguments: &[&str]) -> ExitCode {
+pub fn run_console_mode(arguments: &[&str]) -> ExitCode {
     let done = match arguments {
         [input, pid] if *input == CONSOLE_WAITING_INPUT_ARGUMENT => {
             read_pid(pid).and_then(|pid| write_console_waiting_input(pid, &mut io::stdout().lock()))

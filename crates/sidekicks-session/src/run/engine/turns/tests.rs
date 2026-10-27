@@ -20,7 +20,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
-use sidekicks_store::events::log_service::tests::open_log;
+use sidekicks_store::events::log_service::test_log::open_log;
 use sidekicks_store::events::session::insert::{SessionEventRow, monotonic_ns_now};
 
 // Killed by the append not writing an event's turn number, which lets every guard pass on a

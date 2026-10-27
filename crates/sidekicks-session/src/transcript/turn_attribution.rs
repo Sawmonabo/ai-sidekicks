@@ -33,7 +33,7 @@ use sidekicks_store::events::session::read::{readable_event_sql, session_read_bo
 
 /// Why an event could not be attributed to its turn.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum TurnAttributionError {
+pub enum TurnAttributionError {
     /// SQLite refused a read of the run's log, or a stored payload is not a JSON object.
     #[error("a read of a run's turns failed")]
     Database(#[from] rusqlite::Error),
@@ -58,11 +58,11 @@ pub(crate) enum TurnAttributionError {
 /// One event of a run, attributed: the run, the stamp its row carries and, on a
 /// `agent.run.rolledBack`, the rollback read into its contract.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RunEventAttribution {
+pub struct RunEventAttribution {
     /// The run the event belongs to.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// The stamp its row carries.
-    pub(crate) stamp: TranscriptRunStamp,
+    pub stamp: TranscriptRunStamp,
     /// The rollback, on an `agent.run.rolledBack`.
     pub(crate) rollback: Option<AgentRunRolledBackEvent>,
 }
@@ -117,7 +117,7 @@ static SELECT_TOOL_CALL_OPENING_SQL: LazyLock<String> = LazyLock::new(|| {
 /// damaged session's last good point or in a range it skipped. Each fails with
 /// [`TurnAttributionError`] when SQLite refuses it or a stored rollback does not match its
 /// contract.
-pub(crate) struct RunTurnReads<'reader, DamagedFrom> {
+pub struct RunTurnReads<'reader, DamagedFrom> {
     reader: &'reader Connection,
     read_damaged_from_sequence: DamagedFrom,
 }
@@ -128,10 +128,7 @@ where
 {
     /// The reads on `reader`; `read_damaged_from_sequence` answers the sequence a damaged
     /// session's reads stop before, `None` for a session that reads whole.
-    pub(crate) fn new(
-        reader: &'reader Connection,
-        read_damaged_from_sequence: DamagedFrom,
-    ) -> Self {
+    pub fn new(reader: &'reader Connection, read_damaged_from_sequence: DamagedFrom) -> Self {
         Self {
             reader,
             read_damaged_from_sequence,
@@ -241,14 +238,14 @@ where
 /// the log in sequence order, a window read or a stream's deliveries; each run is seeded from the
 /// log on first sight and after its terminal event, and marked against every rollback of it the
 /// log holds by then. It holds one fold per run until that run's terminal event.
-pub(crate) struct SessionTurnAttribution {
+pub struct SessionTurnAttribution {
     session_id: SessionId,
     fold_by_run_id: HashMap<RunId, RunFold>,
 }
 
 impl SessionTurnAttribution {
     /// An attribution of `session_id`'s events holding no fold yet.
-    pub(crate) fn new(session_id: SessionId) -> Self {
+    pub fn new(session_id: SessionId) -> Self {
         Self {
             session_id,
             fold_by_run_id: HashMap::new(),
@@ -259,7 +256,7 @@ impl SessionTurnAttribution {
     /// through `reads` when it holds no fold of it. Fails with [`TurnAttributionError`] when a seed
     /// read fails, an `agent.run.rolledBack` does not match its contract or the payload's run id is
     /// not one.
-    pub(crate) fn attribute<DamagedFrom>(
+    pub fn attribute<DamagedFrom>(
         &mut self,
         reads: &RunTurnReads<'_, DamagedFrom>,
         event: &EventEnvelope,

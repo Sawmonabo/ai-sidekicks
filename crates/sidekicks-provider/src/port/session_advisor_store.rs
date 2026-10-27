@@ -9,7 +9,7 @@ use sidekicks_contracts::session::id::SessionId;
 
 /// The session store's record of a resolved advisor, registered through a `PortRegistration`;
 /// until it is, the resolution lives only as long as the session's process.
-pub(crate) trait SessionAdvisorStore: Send + Sync {
+pub trait SessionAdvisorStore: Send + Sync {
     /// Keeps `advisor_model` (`None` for no advisor) as `session_id`'s own advisor unless the
     /// session's advisor was already set. Fails when the write fails.
     fn record_resolved(

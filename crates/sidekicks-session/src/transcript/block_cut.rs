@@ -54,11 +54,11 @@ const BYTE_ORDER_MARK: char = '\u{feff}';
 pub(crate) type ChildStartsParse = Box<dyn FnMut(&str) -> Vec<usize>>;
 
 /// Makes the parse one cut runs on each window it reads.
-pub(crate) type BlockParse = fn() -> ChildStartsParse;
+pub type BlockParse = fn() -> ChildStartsParse;
 
 /// The parse of the markdown the desktop draws, each window's tree handed to the next parse,
 /// which keeps its capacity.
-pub(crate) const MARKDOWN_PARSE: BlockParse = markdown_parse;
+pub const MARKDOWN_PARSE: BlockParse = markdown_parse;
 
 fn markdown_parse() -> ChildStartsParse {
     let mut arena = None;

@@ -357,7 +357,7 @@ mod tests {
     use crate::client::test_server::{
         Reply, method_not_found, start_test_server, test_client, test_scope, v1_initialize_result,
     };
-    use sidekicks_driver::PROVIDER_REGISTRATIONS;
+    use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::spawn_environment::{
         ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
     };

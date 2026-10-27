@@ -84,7 +84,7 @@ pub(crate) const PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE: &str =
 /// waits for the next turn), a run start the driver refused, a provider command that names no
 /// runnable build, or a failure inside the driver, keeping its cause.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum DriverError {
+pub enum DriverError {
     /// A refusal a client reads by its code.
     #[error(transparent)]
     Refused(#[from] DomainError),
@@ -186,8 +186,8 @@ impl From<DriverError> for HandlerError {
 /// The operations every provider driver carries out for the daemon. Each refusal comes back as
 /// [`DriverError::Refused`]; an operation gated on a capability flag the driver does not declare
 /// is refused as `provider.capability.unsupported` before it reaches the driver.
-#[cfg_attr(test, mockall::automock)]
-pub(crate) trait ProviderDriver: Send + Sync {
+#[cfg_attr(any(test, feature = "test-support"), mockall::automock)]
+pub trait ProviderDriver: Send + Sync {
     /// Opens a provider session and binds its spawn-time legs.
     fn create_session(
         &self,
@@ -571,7 +571,7 @@ pub(crate) trait ProviderDriver: Send + Sync {
 
 /// A follow of a session's live command list, ended when this drops.
 #[must_use = "the command list is followed only while the subscription lives"]
-pub(crate) struct ProviderCommandsSubscription {
+pub struct ProviderCommandsSubscription {
     /// Ends the follow; taken once, on drop.
     end: Option<Box<dyn FnOnce() + Send>>,
 }
@@ -595,84 +595,84 @@ impl Drop for ProviderCommandsSubscription {
 
 /// One declared row's new value, already checked against its declaration and stored.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ApplyRowValueParams {
+pub struct ApplyRowValueParams {
     /// The row.
-    pub(crate) row_id: ProviderDeclarationId,
+    pub row_id: ProviderDeclarationId,
     /// The place of a per-place switch; `None` on a computer without a WSL 2 distribution or for a
     /// row that is not per place.
-    pub(crate) place: Option<Place>,
+    pub place: Option<Place>,
     /// The value, or `None` for a choice's none.
-    pub(crate) value: Option<ProviderValue>,
+    pub value: Option<ProviderValue>,
 }
 
 /// What the daemon hands a driver to start one run: its id, the message that opens it and the
 /// run's own options.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct StartRunParams {
+pub struct StartRunParams {
     /// The run.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// The queued message the run opens with, on the binding the daemon opened for it.
-    pub(crate) opening: RunOpening,
+    pub opening: RunOpening,
     /// The conversation so far, for a provider that takes it per run.
-    pub(crate) conversation_history: Option<Vec<Value>>,
+    pub conversation_history: Option<Vec<Value>>,
     /// The agent's accepted output-speed level, resolved as on [`CreateSessionParams`]. A provider
     /// that applies it between turns sends it before this run's turn only when it differs from
     /// the level the process last applied; one that takes it per turn sends it with this turn.
     /// `None` keeps the level the process holds.
-    pub(crate) output_speed: Option<ProviderToken>,
+    pub output_speed: Option<ProviderToken>,
     /// The session option values to apply between turns before this run's turn, like
     /// `outputSpeed`; an option left out keeps what the process holds.
-    pub(crate) options: Vec<ProviderOptionSetting>,
+    pub options: Vec<ProviderOptionSetting>,
     /// A level for this run's turn alone; the next run carries the agent's own level again.
-    pub(crate) output_speed_for_turn: Option<ProviderToken>,
+    pub output_speed_for_turn: Option<ProviderToken>,
     /// The run's effective posture. A provider that binds posture at spawn meets a change by
     /// relaunching the session, never by applying part of it.
-    pub(crate) execution_posture: Option<ExecutionPosture>,
+    pub execution_posture: Option<ExecutionPosture>,
     /// A JSON Schema this turn's final output must meet (gated on `structuredOutput`), for a
     /// provider that binds it per turn.
-    pub(crate) output_schema: Option<Map<String, Value>>,
+    pub output_schema: Option<Map<String, Value>>,
     /// The session's own bound on the steps one turn may take, read as the run starts; `None`
     /// where the person set none.
-    pub(crate) step_bound: Option<SafeInt<1>>,
+    pub step_bound: Option<SafeInt<1>>,
 }
 
 /// The message a run the queue admitted opens with, and where it runs: the session, the binding
 /// its deliveries are attributed on and the agent whose run it is.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RunOpening {
+pub struct RunOpening {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The runtime binding the run's deliveries are attributed on, opened by the daemon.
-    pub(crate) binding_id: RuntimeBindingId,
+    pub binding_id: RuntimeBindingId,
     /// The agent whose run it is.
-    pub(crate) agent_id: AgentId,
+    pub agent_id: AgentId,
     /// The message's words.
-    pub(crate) content: MessageContent,
+    pub content: MessageContent,
     /// The message's files, in staging order.
-    pub(crate) attachments: Vec<ArtifactId>,
+    pub attachments: Vec<ArtifactId>,
     /// The message's id, stamped on the provider's user message so a later cut can name it.
-    pub(crate) message_id: QueueItemId,
+    pub message_id: QueueItemId,
     /// The skills picked for the message, in the order picked.
-    pub(crate) skills: Vec<PickedSkill>,
+    pub skills: Vec<PickedSkill>,
 }
 
 /// Answers one interactive request a driver raised on a run with the daemon's answer, which the
 /// driver composes into its provider's own answer shape.
 #[derive(Debug)]
-pub(crate) struct RespondToRequestParams {
+pub struct RespondToRequestParams {
     /// The run.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// The request.
-    pub(crate) request_id: String,
+    pub request_id: String,
     /// The daemon's answer.
-    pub(crate) response: ProviderRequestAnswer,
+    pub response: ProviderRequestAnswer,
 }
 
 /// The daemon's answer to one request a driver raised: the person's answers to a question, one per
 /// question in the request's own order, or the approval pipeline's answer to a permission ask. A
 /// secret answer's value reaches only the driver.
 #[derive(Debug)]
-pub(crate) enum ProviderRequestAnswer {
+pub enum ProviderRequestAnswer {
     /// The answers to a question.
     Question {
         /// One answer per question, in the request's order.
@@ -686,27 +686,27 @@ pub(crate) enum ProviderRequestAnswer {
 /// name another build: the text always, and its canonical parse when it parses. Every version
 /// runs; nothing refuses on it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct DriverCliVersionReport {
+pub struct DriverCliVersionReport {
     /// The version as printed.
-    pub(crate) raw_version: String,
+    pub raw_version: String,
     /// Its canonical parse, when it parses.
-    pub(crate) parsed_version: Option<String>,
+    pub parsed_version: Option<String>,
 }
 
 /// One spawned-build reading's two binding carriers, read together so a binding row never pairs
 /// one install's version with another install's path: what the build reported, and where it ran.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SpawnedVersionBindingCarriers {
+pub struct SpawnedVersionBindingCarriers {
     /// The version the spawned build reported in-band.
-    pub(crate) cli_version: DriverCliVersionReport,
+    pub cli_version: DriverCliVersionReport,
     /// The build's absolute, symlink-resolved path, the one that answered.
-    pub(crate) resolved_executable_path: PathBuf,
+    pub resolved_executable_path: PathBuf,
 }
 
 /// How one flag's value was reached on a live reading: probed, or taken from the driver's own
 /// table where no probe is admissible.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CapabilityDetectionSource {
+pub enum CapabilityDetectionSource {
     /// From the driver's own table.
     Static,
     /// By a zero-turn probe whose negative control still refused.
@@ -716,26 +716,26 @@ pub(crate) enum CapabilityDetectionSource {
 /// The driver's capability reading: the flags, the tools as the provider declared them and the
 /// version the provider printed.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct GetCapabilitiesResult {
+pub struct GetCapabilitiesResult {
     /// The flags and contract version.
-    pub(crate) capabilities: DriverCapabilities,
+    pub capabilities: DriverCapabilities,
     /// The tools as the provider declared them.
-    pub(crate) tools: Vec<ProviderToolMetadata>,
+    pub tools: Vec<ProviderToolMetadata>,
     /// The printed provider version; it describes this reading, not a capability, so it is not
     /// part of the stored capability snapshot.
-    pub(crate) cli_version: DriverCliVersionReport,
+    pub cli_version: DriverCliVersionReport,
     /// How each flag was reached, for every flag on a live reading; `None` on a reading rebuilt
     /// from the stored cache, which keeps values and not provenance. Never sent to a client.
-    pub(crate) detection_source: Option<BTreeMap<DriverCapabilityFlag, CapabilityDetectionSource>>,
+    pub detection_source: Option<BTreeMap<DriverCapabilityFlag, CapabilityDetectionSource>>,
     /// The output-speed levels of a driver whose provider lists none per model: present only
     /// when `outputSpeed` is on and the driver declares a fixed set. With neither this nor a
     /// per-model set, a person's request for a level refuses. It survives a cache rebuild.
-    pub(crate) output_speed_levels: Option<Vec<ProviderToken>>,
+    pub output_speed_levels: Option<Vec<ProviderToken>>,
 }
 
 /// Fits failure text to a failure detail: every NUL dropped, ECMAScript whitespace trimmed from
 /// both ends, cut to the cap in code points, and `empty_fallback` where nothing is left.
-pub(crate) fn bound_failure_detail(
+pub fn bound_failure_detail(
     detail: &str,
     empty_fallback: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 ) -> FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN> {
@@ -750,33 +750,33 @@ pub(crate) fn bound_failure_detail(
 
 /// Params of `compact_context` (gated on `contextCompaction`); addresses one binding.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CompactContextParams {
+pub struct CompactContextParams {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The binding.
-    pub(crate) binding_id: RuntimeBindingId,
+    pub binding_id: RuntimeBindingId,
 }
 
 /// Params of `list_provider_commands` (gated on `providerCommands`); addresses one binding, with
 /// the driver and account the daemon resolved it to and its one live run.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ListProviderCommandsParams {
+pub struct ListProviderCommandsParams {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The binding.
-    pub(crate) binding_id: RuntimeBindingId,
+    pub binding_id: RuntimeBindingId,
     /// The driver and account the binding runs on, which the group and each entry carry.
-    pub(crate) binding: ProviderCommandBinding,
+    pub binding: ProviderCommandBinding,
     /// The one live run on the binding; `None` when several are live.
-    pub(crate) run_id: Option<RunId>,
+    pub run_id: Option<RunId>,
 }
 
 /// Params of `list_models`: the session whose model control reads the catalog, and the account
 /// to read it against, `None` for the provider's default account.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ListModelsParams {
+pub struct ListModelsParams {
     /// The session, only where this is the session's own provider; `None` for any other.
-    pub(crate) session_id: Option<SessionId>,
+    pub session_id: Option<SessionId>,
     /// The account: the session's own bound account for its own provider.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    pub provider_account_id: Option<ProviderAccountId>,
 }

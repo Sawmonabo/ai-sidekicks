@@ -111,7 +111,7 @@ pub(crate) async fn validate_execution_root(
 /// Whether `candidate` is `anchor` or lies beneath it, compared component by component in the
 /// running system's comparable form, so `/repo-evil` is not inside `/repo`. Both are compared as
 /// given: a caller resolves links first.
-pub(crate) fn is_contained_within(candidate: &Path, anchor: &Path) -> bool {
+pub fn is_contained_within(candidate: &Path, anchor: &Path) -> bool {
     PathRules::NATIVE
         .comparable_components(candidate)
         .starts_with(&PathRules::NATIVE.comparable_components(anchor))

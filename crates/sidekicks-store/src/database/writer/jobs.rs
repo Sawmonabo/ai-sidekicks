@@ -17,7 +17,7 @@ use sidekicks_std::scheduler::budget::{
 };
 
 /// How often the passive WAL checkpoint job runs on the scheduler.
-pub(crate) const PASSIVE_CHECKPOINT_INTERVAL: Duration = Duration::from_mins(5);
+pub const PASSIVE_CHECKPOINT_INTERVAL: Duration = Duration::from_mins(5);
 
 /// The passive checkpoint's processor budget: 250 ms per 64 MiB of log it moves into the store.
 const PASSIVE_CHECKPOINT_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
@@ -28,7 +28,7 @@ const PASSIVE_CHECKPOINT_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
 
 /// How often the writer runs `PRAGMA optimize`: once a day, as SQLite advises for a long-lived
 /// connection, the first a day after the start, whose open already ran it.
-pub(crate) const OPTIMIZE_INTERVAL: Duration = Duration::from_hours(24);
+pub const OPTIMIZE_INTERVAL: Duration = Duration::from_hours(24);
 
 /// The optimize's processor budget: 100 ms a run. It is usually a no-op, and where it analyzes a
 /// table its temporary analysis limit bounds the scan, so a run's cost does not grow with the file:
@@ -44,7 +44,7 @@ const OPTIMIZE_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
 impl DatabaseWriter {
     /// The scheduler's passive WAL checkpoint job, run every [`PASSIVE_CHECKPOINT_INTERVAL`] and
     /// metered against its budget; each run fails as [`DatabaseWriter::checkpoint`] does.
-    pub(crate) fn passive_checkpoint_job(
+    pub fn passive_checkpoint_job(
         writer: Arc<Self>,
     ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static
     {
@@ -97,7 +97,7 @@ impl DatabaseWriter {
 
     /// The scheduler's daily optimize job, run every [`OPTIMIZE_INTERVAL`] and metered against its
     /// budget; each run fails as [`DatabaseWriter::optimize`] does.
-    pub(crate) fn optimize_job(
+    pub fn optimize_job(
         writer: Arc<Self>,
     ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static
     {

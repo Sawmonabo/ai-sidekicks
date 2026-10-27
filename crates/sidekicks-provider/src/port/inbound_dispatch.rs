@@ -8,7 +8,7 @@ use futures::future::BoxFuture;
 use crate::run::delivery::{InboundDelivery, InboundOutcome};
 
 /// Takes each delivery a driver hands over; the daemon's start registers the dispatch as it.
-pub(crate) trait InboundDispatch: Send + Sync {
+pub trait InboundDispatch: Send + Sync {
     /// Dispatches one delivery. It is attributed when the call is made, before the returned future
     /// is first polled, so calls for a binding are made in its delivery order; the caller never
     /// awaits it on the task that reads its provider's frames, since a piece of a run being

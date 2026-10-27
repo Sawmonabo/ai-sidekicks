@@ -42,7 +42,7 @@ pub(crate) const RESTART_FAILURE_DETAIL: &str =
 /// pending retries, and its ended runs with an open turn, with a pending ask and with an open
 /// choice, and an ended run's choice settle (its row, the newest request of each dialog and whether
 /// it was settled since).
-pub(crate) const RESTART_SETTLE_STATEMENT_CAPACITY: usize = 8;
+pub const RESTART_SETTLE_STATEMENT_CAPACITY: usize = 8;
 
 /// What the restart settle reads and writes through.
 pub(crate) struct RestartSettleDeps {
@@ -77,7 +77,7 @@ pub(crate) struct RestartTally {
 /// Why a restart settle stopped short; what it wrote before is kept, and a later settle takes up
 /// what it left.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RestartSettleError {
+pub enum RestartSettleError {
     /// A read of what the restart left failed.
     #[error("what the restart left could not be read")]
     Read(#[from] rusqlite::Error),

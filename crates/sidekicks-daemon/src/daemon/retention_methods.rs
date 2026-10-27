@@ -391,7 +391,7 @@ mod tests {
     use sidekicks_store::database::writer::test_file::{
         TestDatabase, insert_test_event, test_session_id,
     };
-    use sidekicks_store::events::log_service::tests::TestLog;
+    use sidekicks_store::events::log_service::test_log::TestLog;
 
     const WAIT: Duration = Duration::from_secs(10);
 

@@ -16,7 +16,7 @@
 //!   and the provider ask that carries them out takes the correction once, in a guarded write. A
 //!   decline records the person's words with the answer, so a resend hands its provider the same.
 
-pub(crate) mod session_sweep;
+pub mod session_sweep;
 
 use std::error::Error;
 use std::sync::Arc;
@@ -184,7 +184,7 @@ impl<'request> ResolveAnswer<'request> {
 
 /// Why the approval service refused or failed a call.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ApprovalServiceError {
+pub enum ApprovalServiceError {
     /// A refusal by its code: the ask unknown, already answered or canceled, an answer that does
     /// not fit it, a create after its run or session ended, a record that could not be kept, or
     /// the session's own refusal of the write.
@@ -219,7 +219,7 @@ impl From<ApprovalServiceError> for HandlerError {
 
 /// Raises asks, records their answers, and cancels the ones their run, their session or their
 /// provider leaves open. Shared by `Arc`.
-pub(crate) struct ApprovalService {
+pub struct ApprovalService {
     /// Where the asks are read.
     reads: Arc<DatabaseReadPool>,
     /// Where the approval events are appended.
@@ -240,7 +240,7 @@ impl ApprovalService {
     /// The service reading through `reads`, recording through `events` and `writer`, marking
     /// `working_folders` stale and reconciling runs through `run_holds`; no closed session's asks
     /// are canceled until [`ApprovalService::start`].
-    pub(crate) fn new(
+    pub fn new(
         reads: Arc<DatabaseReadPool>,
         events: Arc<SessionEventAppender>,
         writer: Arc<DatabaseWriter>,
@@ -546,7 +546,7 @@ impl ApprovalService {
     /// appends; an ask answered meanwhile keeps its answer. A failed cancel does not stop the
     /// rest, and whatever the cancels returned, every wait on a card of the run settles canceled,
     /// a card whose row is gone among them. Fails with every cancel's failure once all have run.
-    pub(crate) async fn cancel_pending_for_run(
+    pub async fn cancel_pending_for_run(
         &self,
         run_id: RunId,
         hold: Option<&SessionAppendHold>,
@@ -751,5 +751,7 @@ fn refuse_unfit_answer(
     Ok(())
 }
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_fixture;
 #[cfg(test)]
 pub(crate) mod tests;

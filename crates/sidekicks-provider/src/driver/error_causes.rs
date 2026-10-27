@@ -50,20 +50,20 @@ pub(crate) fn provider_failure_refusal(
 /// read. It carries the command as the person configured it, never a path they did not type.
 #[derive(Debug, thiserror::Error)]
 #[error("the provider command {requested_command:?} names no runnable build")]
-pub(crate) struct ExecutableUnresolvable {
+pub struct ExecutableUnresolvable {
     /// The provider.
-    pub(crate) provider: ProviderId,
+    pub provider: ProviderId,
     /// The command as configured: a bare name or a path.
-    pub(crate) requested_command: String,
+    pub requested_command: String,
     /// Whether the system reads the command as a path the person typed, rather than a bare name
     /// searched for.
-    pub(crate) is_typed_path: bool,
+    pub is_typed_path: bool,
     /// Whether a build the command names was found, one that then could not be resolved or
     /// started.
-    pub(crate) is_build_found: bool,
+    pub is_build_found: bool,
     /// Why it resolves to no build: none was found, or its real path could not be read.
     #[source]
-    pub(crate) cause: io::Error,
+    pub cause: io::Error,
 }
 
 /// The provider's model catalog reply could not be read whole: no list, an entry it cannot name,
@@ -71,7 +71,7 @@ pub(crate) struct ExecutableUnresolvable {
 /// catalog is refused, never kept short.
 #[derive(Debug, thiserror::Error)]
 #[error("the provider's {reply_name} reply could not be read: {}", .detail.as_str())]
-pub(crate) struct ModelCatalogUnreadable {
+pub struct ModelCatalogUnreadable {
     /// The provider.
     pub(crate) provider: ProviderId,
     /// The provider's name for the reply, as its wire spells it.
@@ -85,7 +85,7 @@ pub(crate) struct ModelCatalogUnreadable {
 /// agent the refusal answers for.
 #[derive(Debug, thiserror::Error)]
 #[error("the provider does not offer {value} on its {axis} axis")]
-pub(crate) struct ProviderAxisInvalid {
+pub struct ProviderAxisInvalid {
     /// The agent whose binding set the axis.
     pub(crate) agent_id: AgentId,
     /// The request's member the value was set on.
@@ -135,7 +135,7 @@ pub(crate) enum ProviderAxis {
 impl ExecutableUnresolvable {
     /// Whether the provider is not installed: a bare command name no search found, as against a
     /// typed path that does not run or a build found that the system cannot resolve or start.
-    pub(crate) fn is_not_installed(&self) -> bool {
+    pub fn is_not_installed(&self) -> bool {
         !self.is_typed_path && !self.is_build_found && self.cause.kind() == io::ErrorKind::NotFound
     }
 
@@ -168,10 +168,10 @@ impl ExecutableUnresolvable {
 /// says what became of it, and never sends it again blind.
 #[derive(Debug, thiserror::Error)]
 #[error("the provider got the request and no answer came")]
-pub(crate) struct RequestUnanswered {
+pub struct RequestUnanswered {
     /// The refusal the call answers with, `provider.timeout` or `provider.unavailable`.
     #[source]
-    pub(crate) refusal: DomainError,
+    pub refusal: DomainError,
 }
 
 #[cfg(test)]

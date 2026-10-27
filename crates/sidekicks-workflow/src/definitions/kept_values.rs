@@ -25,7 +25,7 @@ use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// The statements the store's reads run: a workflow's kept values.
-pub(crate) const WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY: usize = 1;
+pub const WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY: usize = 1;
 
 const SELECT_KEPT_VALUES_SQL: &str = "SELECT key, value_json, kept_by_run_id, updated_at
   FROM workflow_node_state WHERE definition_id = @definition_id AND node_id = '' ORDER BY key";

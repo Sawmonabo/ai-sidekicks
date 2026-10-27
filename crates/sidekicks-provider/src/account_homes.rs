@@ -20,7 +20,7 @@ const ACCOUNT_HOMES_SQL: &str =
 
 /// Why the account homes could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum AccountHomesReadError {
+pub enum AccountHomesReadError {
     /// No connection could read.
     #[error("the account homes could not be read")]
     Read(#[from] DatabaseReadError),
@@ -30,18 +30,18 @@ pub(crate) enum AccountHomesReadError {
 }
 
 /// One account's home and the provider whose account it is.
-pub(crate) struct AccountHome {
+pub struct AccountHome {
     /// The account's id.
-    pub(crate) account_id: String,
+    pub account_id: String,
     /// The provider's id.
-    pub(crate) provider: String,
+    pub provider: String,
     /// The account's home folder.
-    pub(crate) home: PathBuf,
+    pub home: PathBuf,
 }
 
 /// Every account home in the accounts table, the query's time on the pool's thread charged to
 /// `meter`. Fails when the accounts cannot be read.
-pub(crate) async fn read_account_homes(
+pub async fn read_account_homes(
     reads: &DatabaseReadPool,
     meter: &ProcessorMeter,
 ) -> Result<Vec<AccountHome>, AccountHomesReadError> {
@@ -68,7 +68,7 @@ fn query_account_homes(connection: &Connection) -> Result<Vec<AccountHome>, Acco
 }
 
 /// The diagnostic folders `provider`'s descriptor in `providers` names, under `home`.
-pub(crate) fn account_home_diagnostic_folders(
+pub fn account_home_diagnostic_folders(
     providers: &ProviderRegistry,
     provider: &str,
     home: &Path,
@@ -82,7 +82,7 @@ pub(crate) fn account_home_diagnostic_folders(
 
 /// The conversation folders `provider`'s descriptor in `providers` names, each with its
 /// components, under `home`.
-pub(crate) fn account_home_conversation_folders(
+pub fn account_home_conversation_folders(
     providers: &ProviderRegistry,
     provider: &str,
     home: &Path,

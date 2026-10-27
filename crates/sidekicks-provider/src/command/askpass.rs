@@ -14,11 +14,11 @@ use crate::command::channel::{DaemonRequest, PartyRecord};
 use sidekicks_std::standard_error::write_error_line;
 
 /// The name of the link git and ssh run as their askpass, which reaches this mode.
-pub(crate) const COMMAND_ASKPASS_PROGRAM_NAME: &str = "sidekicks-command-askpass";
+pub const COMMAND_ASKPASS_PROGRAM_NAME: &str = "sidekicks-command-askpass";
 
 /// Runs the askpass with this process's own arguments: 0 having printed the answer, 1 with nothing
 /// printed when no channel is named, the channel fails or the answer is the end of input.
-pub(crate) fn run_command_askpass() -> ExitCode {
+pub fn run_command_askpass() -> ExitCode {
     let process_arguments: Vec<OsString> = std::env::args_os().collect();
     match ask_daemon(&process_arguments) {
         Ok(Some(answer)) => {

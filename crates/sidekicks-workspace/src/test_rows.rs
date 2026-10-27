@@ -8,16 +8,16 @@ use sidekicks_contracts::repo::mount::ExecutionMode;
 use crate::schema::WORKSPACE_SCHEMA_SQL;
 
 /// When every parent row was made.
-pub(crate) const PARENT_ROWS_AT: &str = "2026-10-14T09:30:00.000Z";
+pub const PARENT_ROWS_AT: &str = "2026-10-14T09:30:00.000Z";
 
 /// Creates the workspace tables the rows sit in. Fails as SQLite does.
-pub(crate) fn create_workspace_tables(connection: &Connection) -> rusqlite::Result<()> {
+pub fn create_workspace_tables(connection: &Connection) -> rusqlite::Result<()> {
     connection.execute_batch(&WORKSPACE_SCHEMA_SQL)
 }
 
 /// The rows of a project `id` and its attached mount `id` of `/repos/app` in `place`, `NULL` with
 /// none; each project is its own, since a project has one attached mount.
-pub(crate) fn project_and_mount_rows(id: &str, place: Option<&str>) -> [String; 2] {
+pub fn project_and_mount_rows(id: &str, place: Option<&str>) -> [String; 2] {
     let active = <&'static str>::from(ProjectState::Active);
     let place = place.map_or_else(|| "NULL".to_owned(), |place| format!("'{place}'"));
     [

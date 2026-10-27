@@ -29,7 +29,7 @@ pub(crate) fn refuse_call_naming_session(
 /// Refuses an event of a session whose history is damaged with `session.history.damaged`, except
 /// the one event that continues it from its last good point, and an event of a session the
 /// restart's pass is still rebuilding and has yet to settle the runs of with `session.rebuilding`.
-pub(crate) fn refuse_session_event(
+pub fn refuse_session_event(
     tracker: &RecoveryStatusTracker,
     session_id: &SessionId,
     event_type: &str,

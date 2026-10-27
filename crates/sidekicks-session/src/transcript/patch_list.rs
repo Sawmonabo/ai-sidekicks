@@ -112,7 +112,7 @@ static TEXT_PART_AFTER_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// Why a patch read failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum PatchListError {
+pub enum PatchListError {
     /// The session is not one this daemon holds, the call is not one it holds, or a read failed.
     #[error(transparent)]
     Read(#[from] TranscriptReadError),

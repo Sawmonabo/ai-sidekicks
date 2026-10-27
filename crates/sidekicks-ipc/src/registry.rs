@@ -30,46 +30,46 @@ use sidekicks_std::mutex_lock::lock;
 
 /// The gateway's id for one connection, unique for the daemon's life.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct TransportId(pub(crate) u64);
+pub struct TransportId(pub u64);
 
 /// What the gateway stamps on every call: never read from the request.
 #[derive(Clone, Debug)]
-pub(crate) struct HandlerContext {
+pub struct HandlerContext {
     /// The connection the call arrived on.
-    pub(crate) transport_id: TransportId,
+    pub transport_id: TransportId,
     /// The device that connection comes from, which a handler records as the call's author;
     /// `None` on the socket of a service repairing its database file, which holds the device's row.
-    pub(crate) device_id: Option<DeviceId>,
+    pub device_id: Option<DeviceId>,
     /// The process the system names at the client's end of the connection, pinned at the
     /// connect; `None` where the system could not name it.
-    pub(crate) caller_process: Option<PinnedProcess>,
+    pub caller_process: Option<PinnedProcess>,
     /// Canceled when the client sends `$/cancelRequest` for this call, or when its connection
     /// closes.
-    pub(crate) cancellation: CancellationToken,
+    pub cancellation: CancellationToken,
     /// The call's place among the mutating calls the daemon is running, which a flush or a stop
     /// waits behind; `None` for a call that is not recorded.
-    pub(crate) recorded_call: Option<RecordedCallId>,
+    pub recorded_call: Option<RecordedCallId>,
     /// What the connection runs once the call's result is queued ahead of any close; an error
     /// reply, a subscription or a closed connection drops it unrun.
-    pub(crate) after_reply: AfterReply,
+    pub after_reply: AfterReply,
 }
 
 /// An action a handler leaves for its connection, run once the call's result is queued on the
 /// connection, whose close still writes it: a stop the result announces starts only then.
 #[derive(Clone, Default)]
-pub(crate) struct AfterReply(Arc<Mutex<Option<ReplyAction>>>);
+pub struct AfterReply(Arc<Mutex<Option<ReplyAction>>>);
 
 // What a handler leaves to run after its reply.
 type ReplyAction = Box<dyn FnOnce() + Send>;
 
 impl AfterReply {
     /// Leaves `action` to run after the reply, in place of any left before.
-    pub(crate) fn set(&self, action: impl FnOnce() + Send + 'static) {
+    pub fn set(&self, action: impl FnOnce() + Send + 'static) {
         *lock(&self.0) = Some(Box::new(action));
     }
 
     /// Runs the action left, if any, once.
-    pub(crate) fn run(&self) {
+    pub fn run(&self) {
         let action = lock(&self.0).take();
         if let Some(action) = action {
             action();
@@ -87,7 +87,7 @@ impl HandlerContext {
     /// The device the call came from, for `method`'s handler. Fails `Internal` when the connection
     /// carries none: a handler that needs one was wired on a repairing service's socket, a fault in
     /// the daemon.
-    pub(crate) fn calling_device(&self, method: &'static str) -> Result<DeviceId, HandlerError> {
+    pub fn calling_device(&self, method: &'static str) -> Result<DeviceId, HandlerError> {
         self.device_id
             .clone()
             .ok_or_else(|| HandlerError::Internal(Box::new(CallingDeviceMissing { method })))
@@ -104,7 +104,7 @@ struct CallingDeviceMissing {
 
 /// A handler's failure: a classified refusal, or a fault the client is told nothing of.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum HandlerError {
+pub enum HandlerError {
     /// A refusal with its code, answered as the error mapper writes it.
     #[error(transparent)]
     Refused(#[from] DomainError),
@@ -118,7 +118,7 @@ pub(crate) enum HandlerError {
 
 /// Why a dispatch produced no reply. No arm's message names the method or quotes the call.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum DispatchError {
+pub enum DispatchError {
     /// No method is registered under the call's name.
     #[error("the method is not served")]
     MethodNotFound,
@@ -159,25 +159,25 @@ impl From<HandlerError> for DispatchError {
 
 /// One call as the gateway hands it over: the method's wire name, its params as received (absent
 /// when the request carried none) and the attachments that came with the message.
-pub(crate) struct Request {
+pub struct Request {
     /// The method's wire name.
-    pub(crate) method: String,
+    pub method: String,
     /// The params as received; `None` when the request carried none.
-    pub(crate) params: Option<Box<RawValue>>,
+    pub params: Option<Box<RawValue>>,
     /// The attachments the params' byte placeholders name.
-    pub(crate) attachments: Vec<Bytes>,
+    pub attachments: Vec<Bytes>,
 }
 
 /// A value written for the wire: its JSON and its attachments, as `wire::attachment::write` makes.
-pub(crate) struct EncodedValue {
+pub struct EncodedValue {
     /// The JSON, a placeholder for each byte member.
-    pub(crate) json: Vec<u8>,
+    pub json: Vec<u8>,
     /// The attachments, in placeholder order.
-    pub(crate) attachments: Vec<Bytes>,
+    pub attachments: Vec<Bytes>,
 }
 
 /// What a dispatch answers.
-pub(crate) enum Reply {
+pub enum Reply {
     /// A query's or mutation's result, checked and encoded.
     Result(EncodedValue),
     /// A subscribe call's acknowledgment, checked and encoded, its subscription's id, and the
@@ -195,7 +195,7 @@ pub(crate) enum Reply {
 }
 
 /// A subscription's emissions, each checked and encoded, read only when its gate allows.
-pub(crate) trait EncodedFeed: Send {
+pub trait EncodedFeed: Send {
     /// The next emission once `gate` lets a frame through; `Ok(None)` when the stream ended
     /// (finished, or its gate closed). An emission that fails its check is
     /// `DispatchError::ResultInvalid`; the feed's own failure is `Refused` or `Internal`.
@@ -207,7 +207,7 @@ pub(crate) trait EncodedFeed: Send {
 
 /// The one dispatch path: the registry and every gate implement it; a gate holds the next one as
 /// `Arc<dyn Dispatch>` and the frozen registry for `descriptor`.
-pub(crate) trait Dispatch: Send + Sync {
+pub trait Dispatch: Send + Sync {
     /// Answers `request` under `context`; every way it produces no reply is a `DispatchError`.
     fn dispatch(
         &self,
@@ -218,7 +218,7 @@ pub(crate) trait Dispatch: Send + Sync {
 
 /// Why a method could not be registered; the daemon's start ends with it.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum RegistrationError {
+pub enum RegistrationError {
     /// A second handler for a name already registered.
     #[error("method {method} is registered twice")]
     Duplicate {
@@ -256,20 +256,20 @@ struct RegisteredMethod {
 
 /// The registry while the daemon starts: each method's handler registered once, then frozen.
 #[derive(Default)]
-pub(crate) struct MethodRegistryBuilder {
+pub struct MethodRegistryBuilder {
     methods: HashMap<&'static str, RegisteredMethod>,
 }
 
 impl MethodRegistryBuilder {
     /// An empty registry.
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 
     /// Registers a query's or a mutation's `handler`; fails on a subscribe method, a malformed name
     /// and a name already registered. A query's handler is dropped when its call is canceled; a
     /// mutation's runs to its own answer and checks `cancellation` at its commit point itself.
-    pub(crate) fn register<M, Handler>(&mut self, handler: Handler) -> Result<(), RegistrationError>
+    pub fn register<M, Handler>(&mut self, handler: Handler) -> Result<(), RegistrationError>
     where
         M: Method + 'static,
         M::Params: Send + 'static,
@@ -297,7 +297,7 @@ impl MethodRegistryBuilder {
     /// they arrive: `admit` runs inside the dispatch, before the gateway reads the connection's
     /// next message, and takes the call's place; `run` is the rest, which runs as `register`'s
     /// handlers do. `admit` never waits; its refusal answers the call. Fails as `register` does.
-    pub(crate) fn register_ordered<M, Admit, Run, Admitted>(
+    pub fn register_ordered<M, Admit, Run, Admitted>(
         &mut self,
         admit: Admit,
         run: Run,
@@ -339,7 +339,7 @@ impl MethodRegistryBuilder {
     /// Registers a subscribe call's `handler`, which gets the subscription's id the registry mints
     /// and answers the acknowledgment carrying it and the typed feed; fails as `register` does.
     /// The handler is dropped when its call is canceled before it answers.
-    pub(crate) fn register_subscription<M, Handler>(
+    pub fn register_subscription<M, Handler>(
         &mut self,
         handler: Handler,
     ) -> Result<(), RegistrationError>
@@ -382,7 +382,7 @@ impl MethodRegistryBuilder {
     }
 
     /// Freezes the registry for dispatch; nothing registers after.
-    pub(crate) fn freeze(self) -> MethodRegistry {
+    pub fn freeze(self) -> MethodRegistry {
         MethodRegistry {
             methods: self.methods,
         }
@@ -405,13 +405,13 @@ impl MethodRegistryBuilder {
 }
 
 /// The registry frozen at start: no lock, read by every gate.
-pub(crate) struct MethodRegistry {
+pub struct MethodRegistry {
     methods: HashMap<&'static str, RegisteredMethod>,
 }
 
 impl MethodRegistry {
     /// The table entry of `method`, or `None` when no handler is registered under it.
-    pub(crate) fn descriptor(&self, method: &str) -> Option<&'static MethodDescriptor> {
+    pub fn descriptor(&self, method: &str) -> Option<&'static MethodDescriptor> {
         self.methods
             .get(method)
             .map(|registered| registered.descriptor)

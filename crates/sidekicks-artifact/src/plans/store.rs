@@ -111,7 +111,7 @@ pub(crate) fn end_hold_statement(plan_id: &PlanId) -> WriteStatement {
 
 /// A verdict that settled `plan_id` in `state`, from `device_id` at `resolved_at`, naming the
 /// session it was handed off to when it was; refused unless the plan waits.
-pub(crate) fn settle_verdict_statement(
+pub fn settle_verdict_statement(
     plan_id: &PlanId,
     state: PlanState,
     fresh_session_id: Option<&SessionId>,
@@ -153,7 +153,7 @@ pub(crate) fn hold_end_write(
 }
 
 /// The plans table as a run's end and the session list read it.
-pub(crate) struct StoredPlanHolds;
+pub struct StoredPlanHolds;
 
 impl PlanHolds for StoredPlanHolds {
     fn read_held_plans_of_run(
@@ -190,7 +190,7 @@ impl PlanHolds for StoredPlanHolds {
 
 /// The plans of `session_id`, or of every session when it is `None`, still waiting on a request
 /// their driver holds. Fails as SQLite does, or when a stored id does not read.
-pub(crate) fn read_held_plans(
+pub fn read_held_plans(
     connection: &Connection,
     session_id: Option<&SessionId>,
 ) -> rusqlite::Result<Vec<HeldPlan>> {

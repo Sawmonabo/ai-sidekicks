@@ -20,7 +20,7 @@ use sidekicks_store::database::writer::repack::VolumeFreeBytesReader;
 type OpenUploads = Arc<Mutex<Vec<Arc<AtomicU64>>>>;
 
 /// The admission ledger over every open upload a client sent.
-pub(crate) struct UploadAdmission {
+pub struct UploadAdmission {
     spool_folder: PathBuf,
     read_volume_free_bytes: VolumeFreeBytesReader,
     ledger: KeyedLock<()>,
@@ -55,10 +55,7 @@ impl Drop for AdmittedUpload {
 impl UploadAdmission {
     /// An admission over the spools written in `spool_folder`, created at the first admission,
     /// reading the volume's free room with `read_volume_free_bytes`.
-    pub(crate) fn new(
-        spool_folder: PathBuf,
-        read_volume_free_bytes: VolumeFreeBytesReader,
-    ) -> Self {
+    pub fn new(spool_folder: PathBuf, read_volume_free_bytes: VolumeFreeBytesReader) -> Self {
         Self {
             spool_folder,
             read_volume_free_bytes,

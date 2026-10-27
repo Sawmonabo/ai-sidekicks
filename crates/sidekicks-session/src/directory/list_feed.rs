@@ -18,7 +18,7 @@
 //!   sleeps; the timer runs only while such a session and a subscriber exist. Every emission
 //!   stamps its send as the activity's renewal.
 
-pub(crate) mod rows;
+pub mod rows;
 pub(crate) mod subscriber;
 #[cfg(test)]
 mod tests;
@@ -62,7 +62,7 @@ const RENEW_INTERVAL: Duration =
 
 /// Why the opening list could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SessionListReadError {
+pub enum SessionListReadError {
     /// SQLite refused the read, or a stored column does not read as its type.
     #[error("a read of the sessions list failed")]
     Database(#[from] rusqlite::Error),
@@ -86,20 +86,20 @@ pub(crate) struct SessionListNotCurrent;
 
 /// The list as one subscription opens it: the first page, the chats count, whether the list is
 /// whole, and the feed of every later page and change.
-pub(crate) struct SessionListOpening {
+pub struct SessionListOpening {
     /// The first page of entries.
-    pub(crate) sessions: Vec<SessionListEntry>,
+    pub sessions: Vec<SessionListEntry>,
     /// The chats the live list counts.
-    pub(crate) chat_count: SafeInt<0>,
+    pub chat_count: SafeInt<0>,
     /// Whether the first page is the whole list.
-    pub(crate) is_complete: bool,
+    pub is_complete: bool,
     /// The rest of the list, then each change.
-    pub(crate) subscriber: SessionListSubscriber,
+    pub subscriber: SessionListSubscriber,
 }
 
 /// The daemon's one live sessions list: built when the first subscription opens and dropped when
 /// the last one closes.
-pub(crate) struct SessionListFeed {
+pub struct SessionListFeed {
     reads: Arc<DatabaseReadPool>,
     row_sql: Arc<ListRowSql>,
     scheduler: Arc<Scheduler>,
@@ -126,7 +126,7 @@ impl SessionListFeed {
     /// The list read through `reads`, kept current from `followers`' committed events and renewed
     /// on `scheduler`'s wakes, a session reading waiting while `plan_holds` has a plan of its
     /// waiting.
-    pub(crate) fn new(
+    pub fn new(
         reads: Arc<DatabaseReadPool>,
         followers: &Arc<SessionEventFollowers>,
         scheduler: Arc<Scheduler>,
@@ -164,8 +164,8 @@ impl SessionListFeed {
 
     /// The list on `database`, kept current from `followers`, with a scheduler that hears no wake
     /// and no plan holds.
-    #[cfg(test)]
-    pub(crate) fn for_test(
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn for_test(
         database: &sidekicks_store::database::writer::test_file::TestDatabase,
         followers: &Arc<SessionEventFollowers>,
     ) -> Arc<Self> {
@@ -188,7 +188,7 @@ impl SessionListFeed {
 
     /// Opens the list for one subscription: its first page now and the rest through its feed.
     /// Fails with the opening read's failure, with nothing opened.
-    pub(crate) async fn open(self: &Arc<Self>) -> Result<SessionListOpening, SessionListReadError> {
+    pub async fn open(self: &Arc<Self>) -> Result<SessionListOpening, SessionListReadError> {
         let _opening = self.opening.lock().await;
         if let Some(opening) = self.join_open_list() {
             return Ok(opening);
@@ -227,7 +227,7 @@ impl SessionListFeed {
     /// Reads those sessions' rows again and sends each that changed to every subscriber, or its
     /// removal when its row is gone. For a list fact a service writes without an event, called
     /// after the write commits; nothing is read while no subscription is open.
-    pub(crate) fn refresh(&self, session_ids: impl IntoIterator<Item = SessionId>) {
+    pub fn refresh(&self, session_ids: impl IntoIterator<Item = SessionId>) {
         if !self.is_listening.load(Ordering::Acquire) {
             return;
         }

@@ -32,7 +32,7 @@ use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::tests::open_log;
+use sidekicks_store::events::log_service::test_log::open_log;
 
 const WAIT: Duration = Duration::from_secs(10);
 

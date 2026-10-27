@@ -24,7 +24,7 @@ use tokio_util::task::TaskTracker;
 
 /// The most one stream of a git call may print, sized for the largest: a `-z` listing of a whole
 /// worktree's paths. Passing it fails the call; nothing is cut.
-pub(crate) const GIT_OUTPUT_MAX_BYTES: usize = 64 * 1024 * 1024;
+pub const GIT_OUTPUT_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 /// How long one git call may run: `worktree add` writes a whole checkout and a snapshot's staging
 /// walks the whole worktree, so a shorter bound would end healthy work on a large repository.
@@ -79,7 +79,7 @@ pub(crate) const CONFIG_UNSET_EXIT_CODE: i32 = 1;
 
 /// Why a git call did not answer.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum GitError {
+pub enum GitError {
     /// The project is in a WSL 2 distribution, where the daemon runs no git.
     #[error(
         "the project is in the WSL 2 distribution {}, where the daemon runs no git",
@@ -152,11 +152,11 @@ impl GitError {
 /// What a git call that exited 0 printed: its standard output, and the warnings it may still
 /// have printed on its standard error.
 #[derive(Debug)]
-pub(crate) struct GitOutput {
+pub struct GitOutput {
     /// Its standard output, bytes as printed, since a `-z` listing's paths are bytes.
-    pub(crate) stdout: Vec<u8>,
+    pub stdout: Vec<u8>,
     /// Its standard error, read as UTF-8 with any other byte replaced.
-    pub(crate) stderr: String,
+    pub stderr: String,
 }
 
 /// Whether a call runs the repository's hooks.
@@ -189,7 +189,7 @@ enum GitFileWatch {
 /// One git call: its whole argument list, `-C <folder>` included, what it adds to git's
 /// environment and gives git on its standard input, and any bound on its time below the runner's.
 #[derive(Debug)]
-pub(crate) struct GitCall {
+pub struct GitCall {
     hooks: GitHooks,
     file_watch: GitFileWatch,
     arguments: Vec<OsString>,
@@ -202,13 +202,13 @@ impl GitCall {
     /// A read, run with `arguments`: no hook runs and the file watch is off, though the call may
     /// still write a scratch index, worktree records or ref locks. A read in the background builds
     /// its arguments with [`background_read`], so it never takes the person's index lock.
-    pub(crate) fn read(arguments: impl IntoIterator<Item = impl Into<OsString>>) -> Self {
+    pub fn read(arguments: impl IntoIterator<Item = impl Into<OsString>>) -> Self {
         Self::new(GitHooks::Off, GitFileWatch::Off, arguments)
     }
 
     /// A call that writes a commit or a ref, run with `arguments`, the repository's hooks and file
     /// watch as it sets them.
-    pub(crate) fn write(arguments: impl IntoIterator<Item = impl Into<OsString>>) -> Self {
+    pub fn write(arguments: impl IntoIterator<Item = impl Into<OsString>>) -> Self {
         Self::new(GitHooks::Repository, GitFileWatch::Repository, arguments)
     }
 
@@ -240,7 +240,8 @@ impl GitCall {
 
     /// The call with `input` written to git's standard input, which is closed after it; a call
     /// given none has no standard input, so `commit-tree -F -` reads an empty message.
-    pub(crate) fn with_input(mut self, input: Vec<u8>) -> Self {
+    #[must_use]
+    pub fn with_input(mut self, input: Vec<u8>) -> Self {
         self.input = Some(input);
         self
     }
@@ -258,7 +259,7 @@ impl GitCall {
     /// and the git program has it, since the read walks the whole tree without it; any other file
     /// watch, a helper program the repository names included, is off. It costs one more git call
     /// for the repository's setting each time, and one for the program's build once a runner.
-    pub(crate) fn live_index_read(folder: &Path, arguments: &[&str]) -> Self {
+    pub fn live_index_read(folder: &Path, arguments: &[&str]) -> Self {
         Self::new(
             GitHooks::Off,
             GitFileWatch::BuiltInKept {
@@ -290,7 +291,7 @@ impl PreparedCall {
 
 /// The bounds every call of one runner keeps.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct GitLimits {
+pub struct GitLimits {
     /// How long a call may run before its whole tree is ended.
     pub(crate) timeout: Duration,
     /// How many bytes one output stream may hold.
@@ -299,7 +300,7 @@ pub(crate) struct GitLimits {
 
 impl GitLimits {
     /// The daemon's bounds: [`GIT_COMMAND_TIMEOUT`] and [`GIT_OUTPUT_MAX_BYTES`].
-    pub(crate) const DAEMON: Self = Self {
+    pub const DAEMON: Self = Self {
         timeout: GIT_COMMAND_TIMEOUT,
         output_bytes: GIT_OUTPUT_MAX_BYTES,
     };
@@ -309,7 +310,7 @@ impl GitLimits {
 /// shell's environment, each call held to the runner's bounds. Cloning it shares the program, the
 /// environment and what was read of its build.
 #[derive(Clone)]
-pub(crate) struct GitRunner {
+pub struct GitRunner {
     spawner: Spawner,
     executable: Option<Arc<Path>>,
     // The login shell's environment captured at the daemon's start, never the daemon's own, which
@@ -326,7 +327,7 @@ impl GitRunner {
     /// The runner for the git at `executable`, an absolute path, or for none found, when every
     /// call fails with [`GitError::NotFound`] where git is first needed rather than at start; each
     /// call's environment starts from `login_environment`, the login shell's captured at start.
-    pub(crate) fn new(
+    pub fn new(
         spawner: Spawner,
         executable: Option<PathBuf>,
         login_environment: Arc<[(String, String)]>,
@@ -345,7 +346,7 @@ impl GitRunner {
     /// Waits up to [`SHUTDOWN_STOP_GRACE`] for the end of every tree a failed call left, since a
     /// git the kernel holds may never be reaped, and logs how many are still ending past it. A call
     /// failing after this still ends its tree on a task of its own, which nothing waits for.
-    pub(crate) async fn wait_for_tree_ends(&self) {
+    pub async fn wait_for_tree_ends(&self) {
         self.tree_ends.close();
         if tokio::time::timeout(SHUTDOWN_STOP_GRACE, self.tree_ends.wait())
             .await
@@ -366,11 +367,7 @@ impl GitRunner {
     /// when it cannot start, `TimedOut`, `OutputTooLarge`, `Read`, and `Exited` with what git
     /// printed when it exits with a failure; a live index read fails so too when the read of the
     /// repository's setting or of the program's build does.
-    pub(crate) async fn run(
-        &self,
-        place: Option<&Place>,
-        call: GitCall,
-    ) -> Result<GitOutput, GitError> {
+    pub async fn run(&self, place: Option<&Place>, call: GitCall) -> Result<GitOutput, GitError> {
         let executable = self.executable_for(place)?;
         let timeout = call.timeout.map_or(self.limits.timeout, |timeout| {
             timeout.min(self.limits.timeout)
@@ -598,7 +595,7 @@ impl GitRunner {
 /// shell's on macOS and Linux); a relative entry is passed over, since it would name the daemon's
 /// working folder. `None` when there is none. Reads the file system, so it runs on the spawner's
 /// thread or in `spawn_blocking`.
-pub(crate) fn find_git_executable(environment: &[(String, String)]) -> Option<PathBuf> {
+pub fn find_git_executable(environment: &[(String, String)]) -> Option<PathBuf> {
     find_executables("git", environment, Path::new(""), &[])
         .find(|candidate| candidate.is_absolute())
 }
@@ -628,14 +625,14 @@ pub(crate) async fn read_git_common_folder(
 
 /// A git call's arguments that run `arguments` in `folder` with no optional lock, so a read in the
 /// background never rewrites the person's index.
-pub(crate) fn background_read(folder: &Path, arguments: &[&str]) -> Vec<OsString> {
+pub fn background_read(folder: &Path, arguments: &[&str]) -> Vec<OsString> {
     let mut call = vec![OsString::from("--no-optional-locks")];
     call.extend(in_folder(folder, arguments));
     call
 }
 
 /// A git call's arguments that run `arguments` in `folder`: `-C <folder>` and then them.
-pub(crate) fn in_folder(folder: &Path, arguments: &[&str]) -> Vec<OsString> {
+pub fn in_folder(folder: &Path, arguments: &[&str]) -> Vec<OsString> {
     [OsStr::new("-C"), folder.as_os_str()]
         .into_iter()
         .chain(arguments.iter().map(OsStr::new))
@@ -645,14 +642,14 @@ pub(crate) fn in_folder(folder: &Path, arguments: &[&str]) -> Vec<OsString> {
 
 /// The person's git, found as the daemon's start finds it, with the daemon's bounds, for tests
 /// that run git in a temporary repository.
-#[cfg(test)]
-pub(crate) fn test_git_runner() -> GitRunner {
+#[cfg(any(test, feature = "test-support"))]
+pub fn test_git_runner() -> GitRunner {
     test_git_runner_with_environment(&[])
 }
 
 /// [`test_git_runner`] with `extra` set over the test's environment in every call git makes, as a
 /// login shell's variable reaches it.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn test_git_runner_with_environment(extra: &[(&str, &str)]) -> GitRunner {
     let mut environment: Vec<(String, String)> = std::env::vars()
         .filter(|(name, _)| extra.iter().all(|(extra_name, _)| name != extra_name))
@@ -674,14 +671,8 @@ pub(crate) fn test_git_runner_with_environment(extra: &[(&str, &str)]) -> GitRun
 
 /// Writes a symbolic link at `link` in `folder`, pointing at `target`, through git's checkout
 /// of a link from a new scratch repository at `scratch`'s index, so no system call is named.
-#[cfg(test)]
-pub(crate) async fn write_link(
-    git: &GitRunner,
-    scratch: &Path,
-    folder: &Path,
-    link: &str,
-    target: &str,
-) {
+#[cfg(any(test, feature = "test-support"))]
+pub async fn write_link(git: &GitRunner, scratch: &Path, folder: &Path, link: &str, target: &str) {
     git.run(
         None,
         GitCall::read([OsString::from("init"), scratch.to_path_buf().into()]),

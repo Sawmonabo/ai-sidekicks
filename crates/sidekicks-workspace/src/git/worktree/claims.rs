@@ -205,7 +205,7 @@ mod tests {
     use crate::test_rows::project_and_mount_rows;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::TestDatabase;
-    use sidekicks_store::events::log_service::tests::open_log;
+    use sidekicks_store::events::log_service::test_log::open_log;
 
     const READ_STATEMENT_CAPACITY: usize = 4;
 

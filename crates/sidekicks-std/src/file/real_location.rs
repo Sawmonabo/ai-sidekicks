@@ -12,7 +12,7 @@ use crate::missing_entry::is_missing_entry;
 /// `path` with every link resolved through `real_path`, read within the bounded read's ceiling.
 /// Fails with the system's error, `NotFound` when the path is missing, and `TimedOut` when the file
 /// system gives no answer in time.
-pub(crate) async fn resolve_real_path(path: &Path) -> io::Result<PathBuf> {
+pub async fn resolve_real_path(path: &Path) -> io::Result<PathBuf> {
     read_within_ceiling(path, real_path).await
 }
 
@@ -22,7 +22,7 @@ pub(crate) async fn resolve_real_path(path: &Path) -> io::Result<PathBuf> {
 /// standing where a folder would be among them, is passed over as missing. The walk is read within
 /// the bounded read's ceiling. Fails with any other resolve's failure, and `TimedOut` when the file
 /// system gives no answer in time.
-pub(crate) async fn resolve_real_location(path: &Path) -> io::Result<PathBuf> {
+pub async fn resolve_real_location(path: &Path) -> io::Result<PathBuf> {
     read_within_ceiling(path, |path| {
         let mut missing_names = Vec::new();
         let mut existing = path;

@@ -39,7 +39,7 @@ const VERSION_OUTPUT_BOUND: usize = 64 * 1024;
 /// It keeps each build's version for the daemon's life once a read of it printed: a build replaced
 /// at the same path, with another modification time or length, is read again, and so is one whose
 /// read timed out or could not start.
-pub(crate) struct ProviderCommandSearch {
+pub struct ProviderCommandSearch {
     spawner: Spawner,
     // Per canonical path, one entry, so a replaced build takes its place.
     versions: Mutex<HashMap<PathBuf, FoundBuildVersion>>,
@@ -84,7 +84,7 @@ enum VersionReadError {
 
 impl ProviderCommandSearch {
     /// A search with no version read yet, starting each build's version read on `spawner`.
-    pub(crate) fn new(spawner: Spawner) -> Self {
+    pub fn new(spawner: Spawner) -> Self {
         Self {
             spawner,
             versions: Mutex::new(HashMap::new()),

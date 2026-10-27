@@ -46,16 +46,16 @@ use sidekicks_workspace::run_setup_gates::RunSetupGate;
 
 /// Bounds a start or a continue, the call made while its driver is held and a hand on a task of
 /// its own, so a call that waits on nothing, or a hand that never comes, fails the test.
-pub(crate) const SETTLE_WAIT: Duration = Duration::from_secs(10);
+pub const SETTLE_WAIT: Duration = Duration::from_secs(10);
 
 /// How long a held driver stays held once the call under test is in flight, long enough for a
 /// call that does not wait to read the run and act on what it reads.
-pub(crate) const DRIVER_HOLD: Duration = Duration::from_millis(200);
+pub const DRIVER_HOLD: Duration = Duration::from_millis(200);
 
 /// An engine on `database`, appending through `event_log`, with no registered driver, no
 /// interventions service, no plan holds and its posture files under `home`; a test makes the
 /// tables its runs need.
-pub(crate) fn test_engine(
+pub fn test_engine(
     database: &TestDatabase,
     event_log: Arc<EventLogService>,
     home: &Path,
@@ -65,7 +65,7 @@ pub(crate) fn test_engine(
 
 /// [`test_engine`] whose runs' ends read and reopen the plans `plan_holds` holds, with
 /// `setup_gates` registered after the posture gate, in order.
-pub(crate) fn test_engine_with(
+pub fn test_engine_with(
     database: &TestDatabase,
     event_log: Arc<EventLogService>,
     home: &Path,
@@ -100,7 +100,7 @@ pub(crate) fn test_engine_with(
 /// leaving the run's end to the test; a hand the test holds waits for the test's answer instead.
 /// Once a test hands it the database, every interrupt it accepts, or refuses with its row pending,
 /// records its row `accepted` with the turn it names.
-pub(super) struct TestLimitInterrupter {
+pub struct TestLimitInterrupter {
     refusals_left: AtomicUsize,
     is_refused_row_pending: AtomicBool,
     row_database: OnceLock<PathBuf>,
@@ -115,20 +115,20 @@ pub(super) struct TestLimitInterrupter {
 
 impl TestLimitInterrupter {
     /// Has every later refusal leave its row pending.
-    pub(super) fn refuse_with_row_pending(&self) {
+    pub fn refuse_with_row_pending(&self) {
         self.is_refused_row_pending.store(true, Ordering::SeqCst);
     }
 
     /// Records each later row in `database`, whose interventions table the test made.
-    pub(super) fn record_rows_in(&self, database: &TestDatabase) {
+    pub fn record_rows_in(&self, database: &TestDatabase) {
         assert!(
             self.row_database.set(database.path()).is_ok(),
             "the stand-in records its rows in one database"
         );
     }
 
-    // Records the interrupt of `run_id` at `limit`, naming `cut_turn`, as an accepted row.
-    fn record_row(&self, run_id: RunId, limit: RunLimit, cut_turn: Option<SafeInt<1>>) {
+    /// Records the interrupt of `run_id` at `limit`, naming `cut_turn`, as an accepted row.
+    pub fn record_row(&self, run_id: RunId, limit: RunLimit, cut_turn: Option<SafeInt<1>>) {
         let Some(path) = self.row_database.get() else {
             return;
         };
@@ -194,10 +194,7 @@ impl LimitInterrupter for TestLimitInterrupter {
 
 /// Hands `engine` a stand-in interventions service that refuses its first `refusals` interrupts;
 /// the engine holds it only while the caller keeps the returned handle.
-pub(super) fn hand_limit_interrupter(
-    engine: &RunEngine,
-    refusals: usize,
-) -> Arc<TestLimitInterrupter> {
+pub fn hand_limit_interrupter(engine: &RunEngine, refusals: usize) -> Arc<TestLimitInterrupter> {
     let interrupter = Arc::new(TestLimitInterrupter {
         refusals_left: AtomicUsize::new(refusals),
         is_refused_row_pending: AtomicBool::new(false),
@@ -215,7 +212,7 @@ pub(super) fn hand_limit_interrupter(
 }
 
 /// Writes `run_id` of `session_id` running at version 1.
-pub(crate) fn insert_running_run(database: &TestDatabase, session_id: SessionId, run_id: RunId) {
+pub fn insert_running_run(database: &TestDatabase, session_id: SessionId, run_id: RunId) {
     let connection = database.reader();
     connection
         .execute(
@@ -227,7 +224,7 @@ pub(crate) fn insert_running_run(database: &TestDatabase, session_id: SessionId,
 }
 
 /// Appends `event` to the log of `session_id` through `engine`.
-pub(crate) async fn append(engine: &RunEngine, session_id: SessionId, event: &SessionEvent) {
+pub async fn append(engine: &RunEngine, session_id: SessionId, event: &SessionEvent) {
     engine
         .append(
             SessionEventDraft::of_session(session_id, event).expect("the event passes its checks"),
@@ -240,11 +237,11 @@ pub(crate) async fn append(engine: &RunEngine, session_id: SessionId, event: &Se
 }
 
 /// The step bound the tests' turns reach.
-pub(super) const STEP_BOUND: SafeInt<1> = SafeInt::new(40).expect("40 is a step bound");
+pub const STEP_BOUND: SafeInt<1> = SafeInt::new(40).expect("40 is a step bound");
 
 /// Arms the step count of turn `turn_number` on `run_id` at `bound`, as the turn's start does on a
 /// run whose provider does not bound its steps.
-pub(super) fn arm_step_count(engine: &RunEngine, run_id: RunId, turn_number: u64, bound: u64) {
+pub fn arm_step_count(engine: &RunEngine, run_id: RunId, turn_number: u64, bound: u64) {
     lock(&engine.live).step_counts.insert(
         run_id,
         StepCount::new(
@@ -260,7 +257,7 @@ pub(super) fn turn(number: u64) -> SafeInt<1> {
 }
 
 /// The step stop of turn `turn_number` at its bound.
-pub(super) fn step_stop(turn_number: u64) -> LimitStop {
+pub fn step_stop(turn_number: u64) -> LimitStop {
     LimitStop::Step {
         count: STEP_BOUND,
         turn_number: turn(turn_number),
@@ -268,7 +265,7 @@ pub(super) fn step_stop(turn_number: u64) -> LimitStop {
 }
 
 /// The provider's end of turn `turn_number`, interrupted with no cause of its own.
-pub(super) fn provider_end(turn_number: u64) -> ProviderTurnEnd {
+pub fn provider_end(turn_number: u64) -> ProviderTurnEnd {
     ProviderTurnEnd {
         turn_number: turn(turn_number),
         outcome: TurnOutcome::Interrupted(None),
@@ -281,7 +278,7 @@ pub(super) fn run_version(version: u64) -> SafeInt<0> {
 }
 
 /// The start of turn `turn_number` of `run_id` at run version `version`.
-pub(crate) fn turn_started_at(
+pub fn turn_started_at(
     session_id: SessionId,
     run_id: RunId,
     turn_number: u64,
@@ -298,7 +295,7 @@ pub(crate) fn turn_started_at(
 }
 
 /// The completion of turn `turn_number` of `run_id` at run version `version`.
-pub(crate) fn turn_completed_at(
+pub fn turn_completed_at(
     session_id: SessionId,
     run_id: RunId,
     turn_number: u64,
@@ -313,7 +310,7 @@ pub(crate) fn turn_completed_at(
 }
 
 /// The run's stored events in order: each type, with the payload's `cause` and `origin`.
-pub(super) fn stored_events(
+pub fn stored_events(
     database: &TestDatabase,
     run_id: &RunId,
 ) -> Vec<(String, Option<String>, Option<String>)> {
@@ -333,7 +330,7 @@ pub(super) fn stored_events(
 }
 
 /// `expected` in the form [`stored_events`] reads.
-pub(super) fn events(
+pub fn events(
     expected: &[(&str, Option<&str>, Option<&str>)],
 ) -> Vec<(String, Option<String>, Option<String>)> {
     expected
@@ -349,13 +346,13 @@ pub(super) fn events(
 }
 
 /// A test's token limit.
-pub(super) fn token_limit() -> TokensPerRun {
+pub fn token_limit() -> TokensPerRun {
     TokensPerRun(SafeInt::new(500_000).expect("the test's limit is a safe integer"))
 }
 
 /// Cuts turn `turn_number` of `run_id` at `limit` as a stop does before it hands the interrupt,
 /// and answers the cut as the hand carries it.
-pub(crate) fn hold_cut(
+pub fn hold_cut(
     engine: &RunEngine,
     run_id: RunId,
     turn_number: SafeInt<1>,
@@ -374,7 +371,7 @@ pub(crate) fn hold_cut(
 }
 
 /// The limit turn `turn_number` of `run_id` ends with by the cuts the engine holds of it, if any.
-pub(crate) fn held_cut_limit(
+pub fn held_cut_limit(
     engine: &RunEngine,
     run_id: RunId,
     turn_number: SafeInt<1>,
@@ -383,7 +380,7 @@ pub(crate) fn held_cut_limit(
 }
 
 /// The run's stored state and version.
-pub(crate) fn stored_run_state(database: &TestDatabase, run_id: &RunId) -> (String, i64) {
+pub fn stored_run_state(database: &TestDatabase, run_id: &RunId) -> (String, i64) {
     database
         .reader()
         .query_row(
@@ -414,7 +411,7 @@ pub(super) fn turn_start(
 
 /// A continue of the interrupted `run_id` from an admitted message, its turn started as
 /// [`turn_start`] starts it.
-pub(crate) fn continue_request(
+pub fn continue_request(
     run_id: RunId,
     start_driver: impl Fn(ExecutionPosture) -> DriverStep + Send + Sync + 'static,
 ) -> RunContinueRequest {
@@ -435,13 +432,13 @@ pub(crate) fn continue_request(
 }
 
 /// A driver start that starts the turn at once.
-pub(super) fn started_turn(_resolved_posture: ExecutionPosture) -> DriverStep {
+pub fn started_turn(_resolved_posture: ExecutionPosture) -> DriverStep {
     async { Ok(()) }.boxed()
 }
 
 /// A driver start that is held once it begins: the start, which reports on the receiver that it
 /// began and then waits until the sender releases it. It starts one turn.
-pub(crate) fn held_driver() -> (
+pub fn held_driver() -> (
     impl Fn(ExecutionPosture) -> DriverStep + Send + Sync + 'static,
     oneshot::Receiver<()>,
     oneshot::Sender<()>,

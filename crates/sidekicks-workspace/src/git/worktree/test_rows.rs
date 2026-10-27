@@ -12,14 +12,14 @@ use crate::test_rows::{PARENT_ROWS_AT, create_workspace_tables, insert_workspace
 pub(crate) const PARENT_WORKTREE_ID: &str = "parent-worktree";
 
 /// Creates the workspace and worktree tables the rows sit in. Fails as SQLite does.
-pub(crate) fn create_worktree_tables(connection: &Connection) -> rusqlite::Result<()> {
+pub fn create_worktree_tables(connection: &Connection) -> rusqlite::Result<()> {
     create_workspace_tables(connection)?;
     connection.execute_batch(&WORKTREE_SCHEMA_SQL)
 }
 
 /// Stores the workspace rows, the worktree [`PARENT_WORKTREE_ID`] on mount `mount` and its branch
 /// context `branch-context` in workspace `workspace`.
-pub(crate) fn insert_worktree_rows(connection: &Connection) {
+pub fn insert_worktree_rows(connection: &Connection) {
     insert_workspace_rows(connection);
     let ready = <&'static str>::from(WorktreeState::Ready);
     let rows = [
@@ -50,26 +50,26 @@ pub(crate) fn worktree_row(id: &str, branch_name: &str, state: &str) -> String {
 /// A run's execution context row on the parent branch context in workspace `workspace`, made at
 /// [`PARENT_ROWS_AT`]; [`RunContextRow::BOUND_ROOT`] fills the fields a test leaves alone.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct RunContextRow<'a> {
+pub struct RunContextRow<'a> {
     /// The run.
-    pub(crate) run_id: &'a str,
+    pub run_id: &'a str,
     /// The mode's text, any text, so a test can store one outside the set.
-    pub(crate) execution_mode: &'a str,
+    pub execution_mode: &'a str,
     /// Where the run executes.
-    pub(crate) execution_root: &'a str,
+    pub execution_root: &'a str,
     /// The checkout's top level.
-    pub(crate) checkout_root: Option<&'a str>,
+    pub checkout_root: Option<&'a str>,
     /// The repository's common git folder.
-    pub(crate) git_common_dir: Option<&'a str>,
+    pub git_common_dir: Option<&'a str>,
     /// The worktree the run executes in.
-    pub(crate) worktree_id: Option<&'a str>,
+    pub worktree_id: Option<&'a str>,
     /// When the run let its context go.
-    pub(crate) released_at: Option<&'a str>,
+    pub released_at: Option<&'a str>,
 }
 
 impl RunContextRow<'_> {
     /// The unreleased bound-root run `run` in the checkout `/repos/app`.
-    pub(crate) const BOUND_ROOT: RunContextRow<'static> = RunContextRow {
+    pub const BOUND_ROOT: RunContextRow<'static> = RunContextRow {
         run_id: "run",
         execution_mode: "boundRoot",
         execution_root: "/repos/app",
@@ -80,7 +80,7 @@ impl RunContextRow<'_> {
     };
 
     /// Stores the row. Fails as SQLite does, a constraint's refusal among them.
-    pub(crate) fn insert(&self, connection: &Connection) -> rusqlite::Result<()> {
+    pub fn insert(&self, connection: &Connection) -> rusqlite::Result<()> {
         connection
             .execute(
                 "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \

@@ -35,17 +35,17 @@ use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
 use crate::mutex_lock::lock;
-pub(crate) use crate::scheduler::condition::JobCondition;
+pub use crate::scheduler::condition::JobCondition;
 use crate::scheduler::condition::ParkedRuns;
 
-pub(crate) mod budget;
+pub mod budget;
 mod condition;
 
 // Wakes a receiver may fall behind before it reads a lag; wakes are rare.
 const WAKE_SIGNAL_CAPACITY: usize = 16;
 
 /// What one run of a job ends with; a failure is written to the service log.
-pub(crate) type ScheduledJobOutcome = Result<(), Box<dyn Error + Send + Sync>>;
+pub type ScheduledJobOutcome = Result<(), Box<dyn Error + Send + Sync>>;
 
 // A job's work, given the token the scheduler's stop cancels, which a long job checks between its
 // steps so the stop never waits on it for long.
@@ -54,11 +54,11 @@ type ScheduledJobRun =
 
 /// One wake of the machine from sleep, as the operating system announced it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct WakeSignal;
+pub struct WakeSignal;
 
 /// Why a job could not be scheduled.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ScheduleError {
+pub enum ScheduleError {
     /// The scheduler has stopped.
     #[error("the scheduler has stopped, so the job \"{job}\" cannot be scheduled")]
     Stopped {
@@ -77,7 +77,7 @@ pub(crate) enum ScheduleError {
 }
 
 /// What a caller holds for a scheduled job.
-pub(crate) struct ScheduledJobHandle {
+pub struct ScheduledJobHandle {
     scheduler: Weak<SchedulerShared>,
     job_id: u64,
     is_canceled: Arc<AtomicBool>,
@@ -184,8 +184,8 @@ impl Scheduler {
     }
 
     /// The names of the runs waiting to fall due or parked, for a test to read what was scheduled.
-    #[cfg(test)]
-    pub(crate) fn waiting_job_names(&self) -> Vec<&'static str> {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn waiting_job_names(&self) -> Vec<&'static str> {
         let state = self.shared.lock_state();
         state
             .pending_by_deadline
@@ -199,7 +199,7 @@ impl Scheduler {
     /// Schedules one run of `run`, named `name` in the service log, `delay` from now on the
     /// monotonic clock, to run once `condition` allows; a zero delay runs it at once. Refused once
     /// the scheduler has stopped.
-    pub(crate) fn schedule<Run>(
+    pub fn schedule<Run>(
         &self,
         name: &'static str,
         condition: JobCondition,
@@ -222,7 +222,7 @@ impl Scheduler {
     /// clock changes, to run once `condition` allows; an instant already past runs it at once.
     /// Refused once the scheduler has stopped, or when the operating system refuses to arm the
     /// timer for it.
-    pub(crate) fn schedule_at<Run>(
+    pub fn schedule_at<Run>(
         &self,
         name: &'static str,
         condition: JobCondition,
@@ -244,7 +244,7 @@ impl Scheduler {
     /// Schedules `run` `first_delay` from now, then again `interval` after each run ends, so two
     /// runs of one job never overlap, each running once `condition` allows. Refused once the
     /// scheduler has stopped.
-    pub(crate) fn schedule_repeating<Run>(
+    pub fn schedule_repeating<Run>(
         &self,
         name: &'static str,
         condition: JobCondition,
@@ -266,7 +266,7 @@ impl Scheduler {
 
     /// A receiver of every wake from now on; dropping it detaches. Once the scheduler has stopped,
     /// or wakes are no longer heard, the receiver is closed, since no wake comes again.
-    pub(crate) fn on_wake(&self) -> broadcast::Receiver<WakeSignal> {
+    pub fn on_wake(&self) -> broadcast::Receiver<WakeSignal> {
         self.shared
             .lock_state()
             .wake_sender
@@ -276,7 +276,7 @@ impl Scheduler {
 
     /// Runs nothing more: drops every pending run, closes the wake receivers, cancels the token
     /// the running job was given, then waits for it. Fails only when the task panicked.
-    pub(crate) async fn stop(&self) -> Result<(), JoinError> {
+    pub async fn stop(&self) -> Result<(), JoinError> {
         let (pending_by_deadline, pending_by_instant, parked, wake_sender) = {
             let mut state = self.shared.lock_state();
             state.is_stopped = true;
@@ -371,7 +371,7 @@ impl ScheduledJobHandle {
     }
 
     /// Removes the job's future runs; a run already going finishes. A repeat does nothing.
-    pub(crate) fn cancel(&self) {
+    pub fn cancel(&self) {
         let Some(shared) = self.scheduler.upgrade() else {
             return;
         };

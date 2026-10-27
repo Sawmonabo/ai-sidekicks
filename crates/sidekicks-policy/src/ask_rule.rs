@@ -7,7 +7,7 @@ use strum::IntoStaticStr;
 /// The kind of action a held call would take, without its subject, as a standing rule names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
-pub(crate) enum ProviderAskActionKind {
+pub enum ProviderAskActionKind {
     /// Run a command.
     Command,
     /// Send input to the running command the ask's tool call names.
@@ -27,13 +27,13 @@ pub(crate) enum ProviderAskActionKind {
 /// card named, of the kind of action the ask was: a command's program and first subcommand, a
 /// file's path, a host, or a tool's name.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct ProviderAskRule {
+pub struct ProviderAskRule {
     /// The rule's reach.
-    pub(crate) kind: RememberedScopeKind,
+    pub kind: RememberedScopeKind,
     /// Whether it allows or blocks.
-    pub(crate) sense: RememberedRuleSense,
+    pub sense: RememberedRuleSense,
     /// The kind of action it covers.
-    pub(crate) action: ProviderAskActionKind,
+    pub action: ProviderAskActionKind,
     /// The words the card named.
-    pub(crate) subject: String,
+    pub subject: String,
 }

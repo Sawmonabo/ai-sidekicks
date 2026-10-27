@@ -31,15 +31,15 @@ pub(crate) struct PasteInput {
 }
 
 /// One part of a paste, as a write frame carries it.
-pub(crate) struct ShellPastePart {
+pub struct ShellPastePart {
     /// The paste the part belongs to, minted by the client.
-    pub(crate) paste_id: ClientUuid,
+    pub paste_id: ClientUuid,
     /// The pane output subscription the part came through.
-    pub(crate) output_subscription_id: SubscriptionId,
+    pub output_subscription_id: SubscriptionId,
     /// The part's text.
-    pub(crate) data: String,
+    pub data: String,
     /// Whether this is the paste's last part.
-    pub(crate) is_last_part: bool,
+    pub is_last_part: bool,
 }
 
 /// One paste across the parts it was sent in. A marked paste is opened once before its first part

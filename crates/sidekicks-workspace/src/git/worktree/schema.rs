@@ -16,7 +16,7 @@ use sidekicks_store::database::sql_list::{sql_list_of, sql_list_of_every};
 pub(crate) static WORKTREE_SCHEMA_SQL: LazyLock<String> = LazyLock::new(worktree_schema_sql);
 
 /// The workspace's list and the worktree part.
-pub(crate) fn schema_parts() -> SchemaParts {
+pub fn schema_parts() -> SchemaParts {
     crate::schema::schema_parts()
         .with_part(SchemaPart::new("worktree", WORKTREE_SCHEMA_SQL.as_str()))
 }

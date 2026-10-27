@@ -10,7 +10,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::registry::HandlerError;
 
 /// Reads the files staged for a session's next message, answered by the staged-attachments store.
-pub(crate) trait StagedAttachments: Send + Sync {
+pub trait StagedAttachments: Send + Sync {
     /// The files staged for `session_id`, in the order they were staged. Fails with
     /// [`StagedAttachmentsError`] when the store cannot read them.
     fn read(
@@ -22,7 +22,7 @@ pub(crate) trait StagedAttachments: Send + Sync {
 /// Why the files staged for a session could not be read.
 #[derive(Debug, thiserror::Error)]
 #[error("the files staged for a session could not be read")]
-pub(crate) struct StagedAttachmentsError(#[source] pub(crate) Box<dyn Error + Send + Sync>);
+pub struct StagedAttachmentsError(#[source] pub(crate) Box<dyn Error + Send + Sync>);
 
 impl From<StagedAttachmentsError> for HandlerError {
     /// A staged-files read that failed is a fault in the daemon.

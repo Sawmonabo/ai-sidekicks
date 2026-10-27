@@ -38,7 +38,7 @@ struct ElicitationField<'params> {
 /// The questions one `elicitation/create` asks: one per field of a `form` with fields, else its
 /// message alone. Every field carries `header`, the asking server's name, and the message;
 /// `params` is untrusted tool-server output.
-pub(crate) fn read_elicitation_questions(
+pub fn read_elicitation_questions(
     params: &Value,
     header: Option<NonEmptyText>,
 ) -> Vec<QuestionPrompt> {
@@ -121,7 +121,7 @@ pub(crate) fn read_elicitation_questions(
 /// The form's `content`: each answered field under its own name, a picked label as the value it
 /// stands for and typed text as the field's own type. `answers` holds one per question, in the
 /// order [`read_elicitation_questions`] asked them; a skipped one leaves the field out.
-pub(crate) fn compose_elicitation_content(
+pub fn compose_elicitation_content(
     params: &Value,
     answers: &[QuestionAnswer],
 ) -> Map<String, Value> {

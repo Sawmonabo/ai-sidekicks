@@ -18,8 +18,7 @@ use sidekicks_contracts::session::id::SessionId;
 
 use sidekicks_store::events::log_service::{EventLogAppendReceipt, EventLogService};
 use sidekicks_store::events::session::appender::{
-    AppendedPayload, SessionEventAppender, SessionEventDraft, SessionEventEmitError,
-    SessionEventLinkage,
+    SessionEventAppender, SessionEventDraft, SessionEventEmitError, SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
@@ -40,13 +39,13 @@ pub(crate) struct EmitWorkspaceEventInput {
 
 /// Appends workspace lifecycle and mount health events, one per call. Each emit returns the
 /// receipt carrying the sequence the append assigned.
-pub(crate) struct WorkspaceEventEmitter {
+pub struct WorkspaceEventEmitter {
     appender: SessionEventAppender,
 }
 
 impl WorkspaceEventEmitter {
     /// An emitter appending to `event_log` at the session events' envelope version.
-    pub(crate) fn new(event_log: Arc<EventLogService>) -> Self {
+    pub fn new(event_log: Arc<EventLogService>) -> Self {
         Self {
             appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
         }
@@ -160,15 +159,5 @@ impl WorkspaceTransition {
             Self::RootLost => SessionEvent::WorkspaceRootLost,
             Self::Archived => SessionEvent::WorkspaceArchived,
         }
-    }
-}
-
-impl AppendedPayload for WorkspaceLifecyclePayload {
-    fn session_id(&self) -> &SessionId {
-        &self.session_id
-    }
-
-    fn actor(&self) -> Option<&LifecycleActor> {
-        self.actor.as_ref().and_then(Option::as_ref)
     }
 }

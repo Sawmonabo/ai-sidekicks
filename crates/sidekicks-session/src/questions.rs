@@ -3,11 +3,11 @@
 //! queued messages that answer one its agent does not wait for.
 
 pub(crate) mod answer_text;
-pub(crate) mod projection;
+pub mod projection;
 pub(crate) mod resolve;
 pub(crate) mod run_end;
-pub(crate) mod schema;
-pub(crate) mod service;
+pub mod schema;
+pub mod service;
 pub(crate) mod store;
 pub(crate) mod waiting_for_run;
 pub(crate) mod waits;

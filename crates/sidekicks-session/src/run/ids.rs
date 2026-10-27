@@ -12,7 +12,7 @@ use sidekicks_store::database::stored_column::text_column;
 /// The ids, in one `runId` column, of the runs of the session the `@sessionId` parameter names:
 /// the rows the rebuild wrote, every run its events name, so a run the rebuild never reached past
 /// a damaged event is still found, and those that had an execution root.
-pub(crate) const SESSION_RUN_IDS_SQL: &str = "
+pub const SESSION_RUN_IDS_SQL: &str = "
   SELECT run_id AS runId FROM runs WHERE session_id = @sessionId
   UNION
   SELECT run_id FROM session_events WHERE session_id = @sessionId AND run_id IS NOT NULL
@@ -35,11 +35,11 @@ pub(crate) fn read_session_run_ids(
 }
 
 /// Reads a row only while the `@runId` parameter names a run of the `@sessionId` session.
-pub(crate) const RUN_IN_SESSION_SQL: &str =
+pub const RUN_IN_SESSION_SQL: &str =
     "SELECT 1 FROM runs WHERE run_id = @runId AND session_id = @sessionId";
 
 /// A statement that holds only while `run_id` names a run of `session_id`.
-pub(crate) fn run_in_session_statement(session_id: &SessionId, run_id: &RunId) -> WriteStatement {
+pub fn run_in_session_statement(session_id: &SessionId, run_id: &RunId) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(RUN_IN_SESSION_SQL),
         bindings: StatementBindings::Named(vec![

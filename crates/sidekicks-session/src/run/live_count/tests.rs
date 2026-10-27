@@ -6,9 +6,8 @@ use std::sync::Arc;
 use rusqlite::types::Value;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
-use tokio::sync::watch;
 
-use super::count_live_runs_after_commits;
+use super::test_log::counted_log;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
 use crate::run::engine::tests::insert_running_run;
@@ -16,22 +15,10 @@ use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStat
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
+use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_run_id, test_session_id};
-use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use sidekicks_store::events::log_service::tests::{TestLog, open_log_with};
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
-
-/// The event log on a fresh database, its writer counting the live runs after each commit, and
-/// that count.
-pub(crate) async fn counted_log(database: &TestDatabase) -> (TestLog, watch::Receiver<u32>) {
-    let (after_commit, live_runs) = count_live_runs_after_commits();
-    let options = DatabaseWriterOptions {
-        after_commit: Some(after_commit),
-        ..DatabaseWriterOptions::default()
-    };
-    (open_log_with(database, options).await, live_runs)
-}
 
 // Commits run `run_id` of a fresh session in `state` through `writer`, as a run state change's
 // write leaves the run's row.

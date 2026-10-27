@@ -68,7 +68,7 @@ impl SessionRecovery {
 }
 
 /// Holds the daemon's recovery state as the restart's pass and the person's repairs move it.
-pub(crate) struct RecoveryStatusTracker {
+pub struct RecoveryStatusTracker {
     state: Mutex<TrackerState>,
 }
 
@@ -85,9 +85,15 @@ struct TrackerState {
     rebuilding_sessions: HashMap<SessionId, ListedSessionStage>,
 }
 
+impl Default for RecoveryStatusTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RecoveryStatusTracker {
     /// A tracker for a start whose pass has yet to list the sessions it must rebuild.
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             state: Mutex::new(TrackerState {
                 is_pass_running: true,
@@ -113,7 +119,7 @@ impl RecoveryStatusTracker {
     }
 
     /// Marks the local store failed: the daemon reads blocked from then on.
-    pub(crate) fn mark_store_failed(&self) {
+    pub fn mark_store_failed(&self) {
         self.lock().has_store_failed = true;
     }
 
@@ -144,7 +150,7 @@ impl RecoveryStatusTracker {
     }
 
     /// Marks a session's projections current, or the session deleted, so it is no longer listed.
-    pub(crate) fn mark_session_healthy(&self, session_id: &SessionId) {
+    pub fn mark_session_healthy(&self, session_id: &SessionId) {
         let mut state = self.lock();
         state.rebuilding_sessions.remove(session_id);
         state.sessions.remove(session_id);
@@ -160,13 +166,13 @@ impl RecoveryStatusTracker {
     }
 
     /// Marks a session none of whose events can be read.
-    pub(crate) fn mark_session_unreadable(&self, session_id: &SessionId) {
+    pub fn mark_session_unreadable(&self, session_id: &SessionId) {
         self.mark_session_damaged(session_id, SessionRecovery::Damaged);
     }
 
     /// How far the session's history is damaged, which makes it take no write; `None` when it
     /// takes writes.
-    pub(crate) fn read_session_write_refusal(
+    pub fn read_session_write_refusal(
         &self,
         session_id: &SessionId,
     ) -> Option<SessionHistoryDamagedRecovery> {
@@ -212,7 +218,7 @@ impl RecoveryStatusTracker {
 
     /// The sequence a read of the session stops before while its history is damaged: its first
     /// damaged event, or the start of its log when none can be read; `None` when it reads whole.
-    pub(crate) fn read_damaged_from_sequence(&self, session_id: &SessionId) -> Option<i64> {
+    pub fn read_damaged_from_sequence(&self, session_id: &SessionId) -> Option<i64> {
         match self.lock().sessions.get(session_id)? {
             SessionRecovery::Degraded(point) => Some(i64::from(point.damaged_from_sequence)),
             SessionRecovery::Damaged => Some(START_OF_LOG_POSITION),
@@ -222,7 +228,7 @@ impl RecoveryStatusTracker {
     /// Why the whole daemon takes no write of a call: its store has failed, its pass has not yet
     /// listed the sessions it must rebuild, or the call names no session while the pass runs,
     /// since it may reach any session; `None` when it takes the write.
-    pub(crate) fn read_daemon_write_refusal(
+    pub fn read_daemon_write_refusal(
         &self,
         names_session: bool,
     ) -> Option<DaemonWriteRefusedRecovery> {
@@ -244,7 +250,7 @@ impl RecoveryStatusTracker {
     /// The `recovery` member of the status read: the overall state and every damaged session. The
     /// sessions the pass has yet to rebuild are left out; the daemon reads rebuilding while it
     /// runs.
-    pub(crate) fn read(&self) -> DaemonRecoveryStatus {
+    pub fn read(&self) -> DaemonRecoveryStatus {
         let state = self.lock();
         DaemonRecoveryStatus {
             overall: state.overall(),

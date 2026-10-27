@@ -2,4 +2,4 @@
 //! difference between two of them.
 
 pub(crate) mod difference;
-pub(crate) mod history;
+pub mod history;

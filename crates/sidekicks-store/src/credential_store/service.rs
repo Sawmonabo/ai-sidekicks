@@ -5,7 +5,7 @@
 
 /// A keychain service the daemon files items under; each feature that keeps a secret has its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum KeychainService {
+pub enum KeychainService {
     /// The workflow secrets' values, each under its secret's id.
     WorkflowSecrets,
     /// The write-probe-read-delete check's item, under a fresh account each start.
@@ -17,7 +17,7 @@ impl KeychainService {
     pub(crate) const ALL: [Self; 2] = [Self::WorkflowSecrets, Self::Probe];
 
     /// The service's name in the store.
-    pub(crate) const fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::WorkflowSecrets => "ai-sidekicks-workflow-secrets",
             Self::Probe => "ai-sidekicks-probe",

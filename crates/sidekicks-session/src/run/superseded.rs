@@ -23,7 +23,7 @@ use sidekicks_store::events::session::read::{readable_event_sql, session_read_bo
      match its contract, so the run's history cannot be read",
     .session_id
 )]
-pub(crate) struct StoredRollbackMismatchError {
+pub struct StoredRollbackMismatchError {
     /// The session whose log holds the event.
     pub(crate) session_id: SessionId,
     /// The event's sequence.
@@ -35,7 +35,7 @@ pub(crate) struct StoredRollbackMismatchError {
 
 /// Why a run's superseded turns could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SupersededTurnsReadError {
+pub enum SupersededTurnsReadError {
     /// SQLite refused the read, or a payload column is not JSON.
     #[error("the read of a run's rollbacks failed")]
     Database(#[from] rusqlite::Error),
@@ -46,7 +46,7 @@ pub(crate) enum SupersededTurnsReadError {
 
 /// Reads one stored `agent.run.rolledBack` payload into its contract. Fails with
 /// [`StoredRollbackMismatchError`] when it does not match.
-pub(crate) fn parse_stored_rollback(
+pub fn parse_stored_rollback(
     payload: &Map<String, Value>,
     session_id: &SessionId,
     sequence: i64,

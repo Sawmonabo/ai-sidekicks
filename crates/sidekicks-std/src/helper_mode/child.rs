@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use crate::helper_mode::error_output::read_error_output_tail;
 
 /// How a helper mode's child ended.
-pub(crate) enum HelperModeEnd {
+pub enum HelperModeEnd {
     /// The child exited 0.
     Succeeded,
     /// The stop came first: the child's standard input was closed and it has exited, or it was
@@ -28,7 +28,7 @@ pub(crate) enum HelperModeEnd {
 }
 
 /// Why a helper mode's child could not be run to its end.
-pub(crate) enum HelperModeChildError {
+pub enum HelperModeChildError {
     /// The child could not start.
     Start(io::Error),
     /// The wait for the child, or the read of its error output, failed.
@@ -38,10 +38,7 @@ pub(crate) enum HelperModeChildError {
 /// Starts `command`, a run of the daemon's own program, on `spawner`'s thread, armed to end with
 /// the daemon and killed if the returned handle drops. Fails with the spawn's error, or with the
 /// spawner's when its thread has ended.
-pub(crate) async fn start_helper_mode_child(
-    spawner: &Spawner,
-    mut command: Command,
-) -> io::Result<Child> {
+pub async fn start_helper_mode_child(spawner: &Spawner, mut command: Command) -> io::Result<Child> {
     command.kill_on_drop(true);
     prepare_child_command(&mut command, std::process::id());
     spawner
@@ -55,7 +52,7 @@ pub(crate) async fn start_helper_mode_child(
 /// held until it exits or `stop` fires, when the input is closed and its exit waited for. Keeps
 /// the last `error_output_kept_bytes` of its error output. Fails when it cannot start, or when the
 /// wait or the read of its error output fails.
-pub(crate) async fn run_helper_mode_child(
+pub async fn run_helper_mode_child(
     spawner: &Spawner,
     mut command: Command,
     stop: &CancellationToken,

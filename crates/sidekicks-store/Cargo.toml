@@ -29,6 +29,8 @@ sidekicks-platforms.workspace = true
 sidekicks-std.workspace = true
 strum.workspace = true
 subtle.workspace = true
+# The temporary folder of the test database other crates' tests open.
+tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
@@ -49,7 +51,7 @@ tokio = { workspace = true, features = ["test-util"] }
 [features]
 # Helpers other crates' tests use: a database file with a crate's schema list and the session rows
 # other tables build on, and the event log's test rows.
-test-support = []
+test-support = ["dep:tempfile", "sidekicks-platforms/test-support"]
 
 [lints]
 workspace = true

@@ -14,7 +14,7 @@ use sidekicks_provider::driver::registry::test_provider;
 use sidekicks_provider::driver::run_control::DriverRunRefusal;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::tests::open_log;
+use sidekicks_store::events::log_service::test_log::open_log;
 
 // Killed by recording a driver's refused start as a provider failure, which drops the refusal's
 // model and sentence, or by reading only the driver's error and missing the refusal it carries.

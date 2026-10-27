@@ -136,7 +136,7 @@ pub(crate) fn read_unresolved_interventions(
 /// Every ended run of `session_id`, or of every session when it is `None`, that still holds an
 /// intervention with no outcome, read on `reader`: what a daemon that went down between a run's
 /// end and its settle left. Fails when the read fails or a stored id is not one.
-pub(crate) fn read_ended_runs_with_unresolved(
+pub fn read_ended_runs_with_unresolved(
     reader: &Connection,
     session_id: Option<&SessionId>,
 ) -> rusqlite::Result<Vec<SessionRun>> {

@@ -6,7 +6,7 @@
 //! syntax error; nothing here guesses at what it could not read. A reading owns its line once and
 //! holds its words as pieces of it, so its memory and each query's time grow with the line alone.
 
-pub(crate) mod reading_bound;
+pub mod reading_bound;
 mod words;
 mod wrappers;
 
@@ -19,13 +19,13 @@ use tree_sitter::{Node, Parser};
 use self::words::{
     BytePositions, JoinedWords, Piece, PieceTexts, ShellText, Word, WordBuilder, node_text, offset,
 };
-pub(crate) use self::words::{PositionedByte, ShellWord, WordText};
+pub use self::words::{PositionedByte, ShellWord, WordText};
 use self::wrappers::{command_wrapper, take_wrapper_words};
 
 /// The simple commands of one line, nested ones included, in the order they appear, outer ones
 /// before those nested in them; `is_whole` is false when the parser could not read some of the
 /// line, or the line was past the reader's bound, and what it could not read is not among them.
-pub(crate) struct ShellLineReading {
+pub struct ShellLineReading {
     line: Arc<str>,
     decoded: Box<str>,
     positions: BytePositions,
@@ -47,7 +47,7 @@ struct CommandEntry {
 
 impl ShellLineReading {
     /// The commands read.
-    pub(crate) fn commands(&self) -> impl ExactSizeIterator<Item = ShellCommand<'_>> {
+    pub fn commands(&self) -> impl ExactSizeIterator<Item = ShellCommand<'_>> {
         self.commands.iter().map(|&entry| ShellCommand {
             reading: self,
             entry,
@@ -55,7 +55,7 @@ impl ShellLineReading {
     }
 
     /// Whether the parser read every part of the line.
-    pub(crate) fn is_whole(&self) -> bool {
+    pub fn is_whole(&self) -> bool {
         self.is_whole
     }
 
@@ -106,24 +106,24 @@ impl ShellLineReading {
 /// after it, dequoted as the shell would pass them, and the programs it was run through, such as
 /// `sudo` or `env`, outermost first.
 #[derive(Clone, Copy)]
-pub(crate) struct ShellCommand<'r> {
+pub struct ShellCommand<'r> {
     reading: &'r ShellLineReading,
     entry: CommandEntry,
 }
 
 impl<'r> ShellCommand<'r> {
     /// The program's name, without its folder.
-    pub(crate) fn program(self) -> ShellWord<'r> {
+    pub fn program(self) -> ShellWord<'r> {
         self.reading.word(self.entry.program)
     }
 
     /// The words after the program.
-    pub(crate) fn argument_words(self) -> impl ExactSizeIterator<Item = ShellWord<'r>> {
+    pub fn argument_words(self) -> impl ExactSizeIterator<Item = ShellWord<'r>> {
         (self.entry.program + 1..self.entry.end).map(move |index| self.reading.word(index))
     }
 
     /// The programs that ran this command after their own options, outermost first.
-    pub(crate) fn wrappers(self) -> impl ExactSizeIterator<Item = ShellWord<'r>> {
+    pub fn wrappers(self) -> impl ExactSizeIterator<Item = ShellWord<'r>> {
         (self.entry.first..self.entry.program).map(move |index| self.reading.word(index))
     }
 
@@ -145,7 +145,7 @@ impl<'r> ShellCommand<'r> {
 /// not parsed; in all the reader parses at most twice `limit`, each distinct string once, and
 /// hands a repeat its kept reading, so a string past what is left reads not whole with no command.
 /// Reading blocks the thread for the parse, so every ask reads through `ShellLineReadingBound`.
-pub(crate) struct ShellLineReader {
+pub struct ShellLineReader {
     parser: Parser,
     limit: usize,
     bytes_left: usize,
@@ -157,7 +157,7 @@ pub(crate) struct ShellLineReader {
 impl ShellLineReader {
     /// A reader for one ask, with `limit` the byte length past which a string is not read: a
     /// system's argument bound, far below the 4 GiB a reading's offsets count to.
-    pub(crate) fn new(limit: usize) -> Self {
+    pub fn new(limit: usize) -> Self {
         let mut parser = Parser::new();
         parser
             .set_language(&tree_sitter_bash::LANGUAGE.into())
@@ -174,13 +174,13 @@ impl ShellLineReader {
     /// Reads `line` into its simple commands, those in a pipeline, a chain, a substitution or a
     /// string a substitution runs included. A line past the limit or past what the reader has left
     /// reads not whole with no command; a line read before reads as it did then, at no cost.
-    pub(crate) fn read(&mut self, line: &str) -> Arc<ShellLineReading> {
+    pub fn read(&mut self, line: &str) -> Arc<ShellLineReading> {
         self.read_text(line)
     }
 
     /// Reads the line `command` hands a shell, an `eval`'s words joined by spaces or the string a
     /// shell runs with `-c`, as `read` reads a line; `None` when the command hands a shell none.
-    pub(crate) fn read_command_string(
+    pub fn read_command_string(
         &mut self,
         command: ShellCommand<'_>,
     ) -> Option<Arc<ShellLineReading>> {
@@ -214,7 +214,7 @@ impl ShellLineReader {
 /// `zsh` or `eval` handing a shell its whole line, as a provider wraps a command in
 /// `/bin/zsh -lc '…'`; any other line, one with an operator outside the quotes among them, is
 /// returned as it is. No tree is built for the outer line, so no cap applies to it.
-pub(crate) fn unwrap_shell_command_line(line: &str) -> Cow<'_, str> {
+pub fn unwrap_shell_command_line(line: &str) -> Cow<'_, str> {
     let Some(words) = shlex::split(line) else {
         return Cow::Borrowed(line);
     };

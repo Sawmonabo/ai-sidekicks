@@ -121,7 +121,7 @@ pub(crate) enum FileWatchNotice {
 
 /// Why a file watch could not start or stopped.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum FileWatchError {
+pub enum FileWatchError {
     /// A root's real path could not be read.
     #[error("the watched folder `{}` could not be resolved", .root.display())]
     RootUnresolved {

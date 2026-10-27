@@ -11,17 +11,17 @@ const AGENT_MEMORY_FOLDER_NAME: &str = "agent-memory";
 const SERVICE_LOG_FOLDER_NAME: &str = "logs";
 
 /// The service's data folder under `home`, which holds its store, its logs and its lock.
-pub(crate) fn data_folder(home: &Path) -> PathBuf {
+pub fn data_folder(home: &Path) -> PathBuf {
     home.join(DAEMON_DATA_FOLDER_NAME)
 }
 
 /// The agent memory folder in `data_folder`: the daemon's own and only copy of each agent's
 /// memory kept across projects.
-pub(crate) fn agent_memory_folder(data_folder: &Path) -> PathBuf {
+pub fn agent_memory_folder(data_folder: &Path) -> PathBuf {
     data_folder.join(AGENT_MEMORY_FOLDER_NAME)
 }
 
 /// The folder in `data_folder` that holds the service log files.
-pub(crate) fn service_log_folder(data_folder: &Path) -> PathBuf {
+pub fn service_log_folder(data_folder: &Path) -> PathBuf {
     data_folder.join(SERVICE_LOG_FOLDER_NAME)
 }

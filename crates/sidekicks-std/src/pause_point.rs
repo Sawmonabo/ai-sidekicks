@@ -11,7 +11,7 @@ use crate::mutex_lock::lock;
 /// The armed holds, in the order they were armed: each call that reaches the point takes the
 /// oldest, reports on its `reached` and waits for the `Answer` its `release` sends; a call that
 /// finds none passes.
-pub(crate) struct PausePoint<Answer = ()> {
+pub struct PausePoint<Answer = ()> {
     armed: Mutex<VecDeque<(oneshot::Sender<()>, oneshot::Receiver<Answer>)>>,
 }
 
@@ -24,16 +24,16 @@ impl<Answer> Default for PausePoint<Answer> {
 }
 
 /// The test's ends of an armed hold.
-pub(crate) struct ArmedPause<Answer = ()> {
+pub struct ArmedPause<Answer = ()> {
     /// Answers once a call is held at the point.
-    pub(crate) reached: oneshot::Receiver<()>,
+    pub reached: oneshot::Receiver<()>,
     /// Lets the held call go on with its answer.
-    pub(crate) release: oneshot::Sender<Answer>,
+    pub release: oneshot::Sender<Answer>,
 }
 
 impl<Answer> PausePoint<Answer> {
     /// Arms one more hold, for the first call to reach the point after the holds armed before it.
-    pub(crate) fn arm(&self) -> ArmedPause<Answer> {
+    pub fn arm(&self) -> ArmedPause<Answer> {
         let (reached_sender, reached) = oneshot::channel();
         let (release, released) = oneshot::channel();
         lock(&self.armed).push_back((reached_sender, released));
@@ -42,13 +42,13 @@ impl<Answer> PausePoint<Answer> {
 
     /// Holds the call here when a hold is armed, until the test releases it, and answers what the
     /// test sent; `None` when no hold was armed.
-    pub(crate) async fn pass(&self) -> Option<Answer> {
+    pub async fn pass(&self) -> Option<Answer> {
         let released = self.reach()?;
         Some(released.await.expect("the test releases the held call"))
     }
 
     /// [`PausePoint::pass`] for a call on a blocking thread, such as a read on the pool's thread.
-    pub(crate) fn pass_blocking(&self) -> Option<Answer> {
+    pub fn pass_blocking(&self) -> Option<Answer> {
         let released = self.reach()?;
         Some(
             released

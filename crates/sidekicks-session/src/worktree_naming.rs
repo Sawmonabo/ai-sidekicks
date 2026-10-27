@@ -48,7 +48,7 @@ const GIT_FATAL_PREFIX: &str = "fatal: ";
 
 /// The daemon's worktrees folder in the data folder inside `home_folder`, holding one folder per
 /// project.
-pub(crate) fn worktrees_folder(home_folder: &Path) -> PathBuf {
+pub fn worktrees_folder(home_folder: &Path) -> PathBuf {
     home_folder
         .join(DAEMON_DATA_FOLDER_NAME)
         .join(WORKTREES_FOLDER_NAME)

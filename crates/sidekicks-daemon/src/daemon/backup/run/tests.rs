@@ -28,7 +28,7 @@ use sidekicks_store::data_folder::data_folder;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::wal_truncation::WriteAheadLogTruncation;
 use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_store::events::log_service::tests::{TestLog, open_log};
+use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 
 /// The service's backups over the test's `database` and `log`, under the home folder
 /// `home_folder`, the mirror keeping what `read_mirror_roots` lists.

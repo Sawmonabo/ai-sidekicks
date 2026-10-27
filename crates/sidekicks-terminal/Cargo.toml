@@ -11,6 +11,7 @@ publish.workspace = true
 alacritty_terminal.workspace = true
 bytes.workspace = true
 sidekicks-platforms.workspace = true
+sidekicks-std.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

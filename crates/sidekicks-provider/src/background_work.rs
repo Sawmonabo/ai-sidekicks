@@ -12,7 +12,7 @@ use sidekicks_policy::shell_commands::{ShellCommand, ShellLineReader, ShellLineR
 /// Every registered provider's background work: the names its command runs under, the
 /// subcommands and flags that start the work, and the refusal an agent reads. Built once at the
 /// daemon's start.
-pub(crate) struct BackgroundWorkForms {
+pub struct BackgroundWorkForms {
     providers: Vec<ProviderBackgroundWork>,
 }
 
@@ -24,7 +24,7 @@ struct ProviderBackgroundWork {
 
 impl BackgroundWorkForms {
     /// The background work of each of `descriptors` that has any, in their order.
-    pub(crate) fn of_providers(descriptors: &[&'static ProviderDescriptor]) -> Self {
+    pub fn of_providers(descriptors: &[&'static ProviderDescriptor]) -> Self {
         Self {
             providers: descriptors
                 .iter()
@@ -43,7 +43,7 @@ impl BackgroundWorkForms {
 /// `forms`' providers, or `None` when it starts none. The `-c` and `eval` strings its shells run
 /// are reread on `reader` and judged only when read whole; a line not read whole refuses nothing,
 /// since what the parser could not read is no ground for a refusal.
-pub(crate) fn refuse_background_work(
+pub fn refuse_background_work(
     forms: &BackgroundWorkForms,
     reader: &mut ShellLineReader,
     reading: &ShellLineReading,

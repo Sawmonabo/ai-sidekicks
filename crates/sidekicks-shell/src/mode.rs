@@ -16,13 +16,13 @@ use sidekicks_std::standard_error::write_error_line;
 
 /// The word the daemon's own program is started with, before the daemon's process id, to run the
 /// `shell` mode.
-pub(crate) const SHELL_MODE: &str = "shell";
+pub const SHELL_MODE: &str = "shell";
 
 /// Runs the `shell` mode for the daemon whose process id is `daemon_pid`, as the argument after
 /// the mode's word gives it: never returns once a shell starts; exits 1 with why on standard
 /// error when the argument is not a process id, the daemon did not confirm the start, or neither
 /// the shell nor its fallback could be started.
-pub(crate) fn run_shell_mode(daemon_pid: &str) -> ExitCode {
+pub fn run_shell_mode(daemon_pid: &str) -> ExitCode {
     let Ok(daemon_pid) = daemon_pid.parse::<u32>() else {
         return fail("the shell mode is started with the daemon's process id");
     };

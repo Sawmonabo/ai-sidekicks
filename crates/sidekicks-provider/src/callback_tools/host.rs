@@ -28,12 +28,12 @@ use crate::driver::diagnostics::{
 use sidekicks_std::mutex_lock::lock;
 
 /// An error a seam, executor or sink returns: anything that failed, with its causes.
-pub(crate) type CallbackToolPortError = Box<dyn Error + Send + Sync>;
+pub type CallbackToolPortError = Box<dyn Error + Send + Sync>;
 
 /// How an adjudication was reached; only a `User*` basis raised an approval request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
-pub(crate) enum CallbackToolApprovalBasis {
+pub enum CallbackToolApprovalBasis {
     /// The person's policy settled it.
     Policy,
     /// A rule the person remembered settled it.
@@ -47,7 +47,7 @@ pub(crate) enum CallbackToolApprovalBasis {
 /// The seam's settled adjudication. There is no ask arm: the approval pipeline holds the pending
 /// request and answers once the person has.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum CallbackToolApprovalOutcome {
+pub enum CallbackToolApprovalOutcome {
     /// The call may run.
     Allow {
         /// How it was allowed: `Policy`, `RememberedRule` or `UserGrant`.
@@ -63,7 +63,7 @@ pub(crate) enum CallbackToolApprovalOutcome {
 }
 
 /// The approval pipeline's evaluation, which the daemon's start binds to the composed check.
-pub(crate) trait CallbackToolApprovalSeam: Send + Sync {
+pub trait CallbackToolApprovalSeam: Send + Sync {
     /// Adjudicates `invocation`, whose arguments a policy may read, made by `provider`'s process.
     /// An error when it could not adjudicate, which the host answers `denied`.
     fn evaluate<'a>(
@@ -244,7 +244,7 @@ impl Refusal {
 /// The daemon's one callback-tool dispatcher for every provider, holding each session's registry.
 /// Spawns reach it through [`super::spawn_binding::bind_callback_tools_for_spawn`]; the registry
 /// lock is never held across an await.
-pub(crate) struct CallbackToolHost {
+pub struct CallbackToolHost {
     executor: Arc<dyn CallbackToolExecutor>,
     activity_sink: Arc<dyn CallbackToolActivitySink>,
     approval_seam: Option<Arc<dyn CallbackToolApprovalSeam>>,

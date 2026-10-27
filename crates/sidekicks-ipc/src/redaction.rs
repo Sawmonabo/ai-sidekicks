@@ -64,7 +64,7 @@ static KNOWN_TOKEN_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
 /// folder's name may hold spaces and the last segment may not, so `/Users/a/My Project/x.rs` is
 /// matched whole and the prose after a path is kept; prose between two paths can be matched with
 /// them, the safe direction.
-pub(crate) static UNIX_PATH: LazyLock<Regex> = LazyLock::new(|| {
+pub static UNIX_PATH: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(concat!(
         r"(^|[^A-Za-z0-9_.-])(?:/[A-Za-z0-9_.-]+(?: +[A-Za-z0-9_.-]+)*)*/[A-Za-z0-9_.-]+",
         r"(?::[0-9]+(?::[0-9]+)?)?",
@@ -74,13 +74,13 @@ pub(crate) static UNIX_PATH: LazyLock<Regex> = LazyLock::new(|| {
 
 /// A UNC path, in its plain or verbatim `\\?\UNC\` form: the host has no spaces and may hold `$`
 /// (`\\wsl$\`), the share and path segments may hold spaces.
-pub(crate) static UNC_PATH: LazyLock<Regex> = LazyLock::new(|| {
+pub static UNC_PATH: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\\\\(?:\?\\UNC\\)?[A-Za-z0-9_.$-]+(?:\\[A-Za-z0-9_. -]+)+(?::[0-9]+(?::[0-9]+)?)?")
         .expect("the pattern is a valid regex")
 });
 
 /// A Windows drive path, plain or with its verbatim `\\?\` prefix, whose segments may hold spaces.
-pub(crate) static DRIVE_PATH: LazyLock<Regex> = LazyLock::new(|| {
+pub static DRIVE_PATH: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?:\\\\\?\\)?[A-Za-z]:\\(?:[A-Za-z0-9_. -]+\\?)+(?::[0-9]+(?::[0-9]+)?)?")
         .expect("the pattern is a valid regex")
 });
@@ -88,7 +88,7 @@ pub(crate) static DRIVE_PATH: LazyLock<Regex> = LazyLock::new(|| {
 /// `raw_detail` with its credential material replaced by `***`. Redacting too much is the
 /// accepted direction (`token: not found` becomes `token: ***`); redacting too little would put a
 /// live credential on the wire.
-pub(crate) fn scrub_credentials(raw_detail: &str) -> String {
+pub fn scrub_credentials(raw_detail: &str) -> String {
     let scrubbed = URL_USERINFO.replace_all(raw_detail, |captures: &Captures<'_>| {
         format!("{}{CREDENTIAL_REDACTION}@", &captures[1])
     });

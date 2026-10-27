@@ -7,7 +7,7 @@ use std::mem;
 /// held until the next chunk completes it, and each invalid sequence reads as one U+FFFD, as
 /// `String::from_utf8_lossy` reads it over the whole stream.
 #[derive(Debug, Default)]
-pub(crate) struct Utf8StreamDecoder {
+pub struct Utf8StreamDecoder {
     // The start of a sequence the last chunk cut off, at most three bytes.
     pending: Vec<u8>,
 }
@@ -15,7 +15,7 @@ pub(crate) struct Utf8StreamDecoder {
 impl Utf8StreamDecoder {
     /// Decodes `chunk` after any bytes held from the chunk before, handing `text` each decoded
     /// piece in order; a sequence the chunk cuts off is held for the next one.
-    pub(crate) fn push(&mut self, chunk: &[u8], mut text: impl FnMut(&str)) {
+    pub fn push(&mut self, chunk: &[u8], mut text: impl FnMut(&str)) {
         let mut bytes = mem::take(&mut self.pending);
         bytes.extend_from_slice(chunk);
         let mut rest = bytes.as_slice();
@@ -41,7 +41,7 @@ impl Utf8StreamDecoder {
     }
 
     /// Ends the stream: a sequence still held, which no chunk completed, reads as one U+FFFD.
-    pub(crate) fn finish(self, mut text: impl FnMut(&str)) {
+    pub fn finish(self, mut text: impl FnMut(&str)) {
         if !self.pending.is_empty() {
             text("\u{FFFD}");
         }

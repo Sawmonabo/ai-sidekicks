@@ -15,7 +15,7 @@ use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::sql_list_of_every;
 
 /// The worktrees' list and the provider drivers' own part.
-pub(crate) fn schema_parts() -> SchemaParts {
+pub fn schema_parts() -> SchemaParts {
     sidekicks_workspace::git::worktree::schema::schema_parts().with_part(SchemaPart::new(
         "provider_drivers",
         provider_drivers_schema_sql(),

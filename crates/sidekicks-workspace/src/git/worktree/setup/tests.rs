@@ -39,7 +39,7 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_store::events::log_service::tests::{TestLog, open_log};
+use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 
 const READ_STATEMENT_CAPACITY: usize = 16;
 

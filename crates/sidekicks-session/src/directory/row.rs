@@ -40,7 +40,7 @@ use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
 /// The members of an event the directory reads, which a stored event and an event about to be
 /// appended both carry. Its payload is trusted as the append path's variant check left it.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct DirectoryEvent<'event> {
+pub struct DirectoryEvent<'event> {
     /// The session the event belongs to.
     pub(crate) session_id: SessionId,
     /// When it occurred, as the event carries it.
@@ -80,7 +80,7 @@ impl<'event> From<&'event UnsequencedEventEnvelope> for DirectoryEvent<'event> {
 /// Why an event cannot open or change a session's directory row. None quotes a payload, which
 /// may carry a person's words.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum DirectoryRowError {
+pub enum DirectoryRowError {
     /// A row opens only from its session's `session.created`, and this event is another type.
     #[error("a session's directory row opens only at session.created, not {event_type}")]
     NotACreation {
@@ -547,7 +547,7 @@ static INSERT_CREATED_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
 /// write before its row. Each is relative to the event alone. The update expects its one row, so
 /// an event for a session with no row refuses the write; an event of the machine's own sentinel
 /// session has none and gets no statements. Fails as the event's own read fails.
-pub(crate) fn directory_statements_for(
+pub fn directory_statements_for(
     event: &DirectoryEvent<'_>,
 ) -> Result<Vec<WriteStatement>, DirectoryRowError> {
     if event.session_id == *DAEMON_SCOPE_SENTINEL_SESSION_ID {

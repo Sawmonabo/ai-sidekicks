@@ -39,7 +39,7 @@ use sidekicks_session::conversation_purge::{
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::related::ranking::SessionRelatedRanking;
 use sidekicks_session::run::engine::tests::insert_running_run;
-use sidekicks_session::run::live_count::tests::counted_log;
+use sidekicks_session::run::live_count::test_log::counted_log;
 use sidekicks_session::service::SessionService;
 use sidekicks_shell::test_table::{TableFixture, table_fixture};
 use sidekicks_std::keyed_lock::KeyedLock;
@@ -50,7 +50,7 @@ use sidekicks_store::database::wal_truncation::WriteAheadLogTruncation;
 use sidekicks_store::database::writer::test_file::{
     TestDatabase, session_event_row, test_envelope,
 };
-use sidekicks_store::events::log_service::tests::TestLog;
+use sidekicks_store::events::log_service::test_log::TestLog;
 use sidekicks_store::events::log_service::{EVENT_LOG_STATEMENT_CAPACITY, EventLogAppendOptions};
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;

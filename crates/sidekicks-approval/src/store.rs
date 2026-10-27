@@ -31,7 +31,7 @@ use sidekicks_store::database::stored_column::{closed_word, optional_text_column
 
 /// The distinct statements [`ApprovalRequestReader`] prepares, for the reading connection's
 /// statement cache.
-pub(crate) const APPROVAL_REQUEST_READER_STATEMENT_CAPACITY: usize = 9;
+pub const APPROVAL_REQUEST_READER_STATEMENT_CAPACITY: usize = 9;
 
 /// An ask as its rows hold it, with the answers its card may offer and its answer once it has one.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -104,54 +104,54 @@ pub(crate) struct StoredApprovalResolution {
 
 /// A new ask as its row records it, pending from `created_at`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct InsertedApprovalRequest {
+pub struct InsertedApprovalRequest {
     /// The ask.
-    pub(crate) approval_request_id: ApprovalRequestId,
+    pub approval_request_id: ApprovalRequestId,
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The run.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// The agent's actor id, or the device a person's request came from.
-    pub(crate) requested_by: NonEmptyText,
+    pub requested_by: NonEmptyText,
     /// What the ask is about.
-    pub(crate) category: ApprovalCategory,
+    pub category: ApprovalCategory,
     /// The target as free text.
-    pub(crate) scope: ApprovalScope,
+    pub scope: ApprovalScope,
     /// What the card draws.
-    pub(crate) resource_descriptor: ApprovalResourceDescriptor,
+    pub resource_descriptor: ApprovalResourceDescriptor,
     /// The daemon's own id of the provider ask; absent on a card the daemon raised itself.
-    pub(crate) ask_id: Option<NonEmptyText>,
+    pub ask_id: Option<NonEmptyText>,
     /// When it was raised.
-    pub(crate) created_at: WireInstant,
+    pub created_at: WireInstant,
 }
 
 /// An answer as its resolution row records it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct InsertedApprovalResolution {
+pub struct InsertedApprovalResolution {
     /// The ask.
-    pub(crate) approval_request_id: ApprovalRequestId,
+    pub approval_request_id: ApprovalRequestId,
     /// The device whose connection carried the answer.
-    pub(crate) device_id: DeviceId,
+    pub device_id: DeviceId,
     /// The id the answering client minted.
-    pub(crate) client_resolution_id: ClientUuid,
+    pub client_resolution_id: ClientUuid,
     /// The answer.
-    pub(crate) decision: ApprovalDecision,
+    pub decision: ApprovalDecision,
     /// The recorded scope.
-    pub(crate) effective_scope: ApprovalScope,
+    pub effective_scope: ApprovalScope,
     /// The rule the answer asks for; absent for a one-time answer.
-    pub(crate) asked_scope: Option<RememberedScope>,
+    pub asked_scope: Option<RememberedScope>,
     /// The command or path as the person corrected it, on an approval that changed it.
-    pub(crate) edited_action: Option<NonEmptyText>,
+    pub edited_action: Option<NonEmptyText>,
     /// The `why not` words, on a decline the person typed them on.
-    pub(crate) decline_reason: Option<NonEmptyText>,
+    pub decline_reason: Option<NonEmptyText>,
     /// When it was answered.
-    pub(crate) resolved_at: WireInstant,
+    pub resolved_at: WireInstant,
 }
 
 /// How an ask settles: with the person's answer, or canceled with its run, its session or its
 /// provider process.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ApprovalSettlement {
+pub enum ApprovalSettlement {
     /// Answered.
     Decided(ApprovalDecision),
     /// Ended without an answer.
@@ -395,7 +395,7 @@ pub(crate) fn run_live_statement(session_id: &SessionId, run_id: &RunId) -> Writ
 }
 
 /// The statement that records a new pending ask.
-pub(crate) fn insert_request_statement(request: &InsertedApprovalRequest) -> WriteStatement {
+pub fn insert_request_statement(request: &InsertedApprovalRequest) -> WriteStatement {
     request_statement(&INSERT_REQUEST_SQL, request)
 }
 
@@ -407,7 +407,7 @@ pub(crate) fn rewrite_request_statement(request: &InsertedApprovalRequest) -> Wr
 
 /// The statement that settles an ask as `settlement` says at `settled_at`, refused unless it is
 /// still pending.
-pub(crate) fn settle_pending_statement(
+pub fn settle_pending_statement(
     approval_request_id: &ApprovalRequestId,
     settlement: ApprovalSettlement,
     settled_at: &WireInstant,
@@ -424,9 +424,7 @@ pub(crate) fn settle_pending_statement(
 }
 
 /// The statement that records an ask's one answer.
-pub(crate) fn insert_resolution_statement(
-    resolution: &InsertedApprovalResolution,
-) -> WriteStatement {
+pub fn insert_resolution_statement(resolution: &InsertedApprovalResolution) -> WriteStatement {
     resolution_statement(INSERT_RESOLUTION_SQL, resolution)
 }
 
@@ -506,7 +504,7 @@ pub(crate) fn insert_correction_use_statement(
 
 /// The statement that writes onto an ask's answer the rule it made, in that rule's own record;
 /// refused when the ask has no answer.
-pub(crate) fn remembered_scope_statement(
+pub fn remembered_scope_statement(
     approval_request_id: &ApprovalRequestId,
     remembered_scope: &RememberedScope,
 ) -> WriteStatement {
@@ -551,14 +549,14 @@ fn request_statement(
 /// Reads asks and their answers on a read-only connection, inside a read of the daemon's read
 /// pool. A stored value that does not read as its type, a descriptor among them, fails the read
 /// with `rusqlite::Error::FromSqlConversionFailure`, keeping why.
-pub(crate) struct ApprovalRequestReader<'connection> {
+pub struct ApprovalRequestReader<'connection> {
     /// The read-only connection.
     reader: &'connection Connection,
 }
 
 impl<'connection> ApprovalRequestReader<'connection> {
     /// A reader over `reader`, a read-only connection.
-    pub(crate) fn new(reader: &'connection Connection) -> Self {
+    pub fn new(reader: &'connection Connection) -> Self {
         Self { reader }
     }
 
@@ -642,7 +640,7 @@ impl<'connection> ApprovalRequestReader<'connection> {
     /// The runs of `session_id`, or of every session when it is `None`, that have ended while an
     /// ask of theirs is still pending: what a daemon that went down between a run's end and the
     /// cancel of its asks left.
-    pub(crate) fn list_ended_runs_with_pending(
+    pub fn list_ended_runs_with_pending(
         &self,
         session_id: Option<&SessionId>,
     ) -> rusqlite::Result<Vec<SessionRun>> {

@@ -56,7 +56,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// The statements the deletion's reads run: the run a delete removes, the runs a bulk delete
 /// removes, the bulk delete's preview, and a refused run's status.
-pub(crate) const WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY: usize = 4;
+pub const WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY: usize = 4;
 
 /// The most runs one page of bulk delete reads, and so the most one of its writes removes. Bulk
 /// delete waits for each write to commit before it reads or queues the next, so it holds at most
@@ -286,9 +286,7 @@ impl From<WorkflowRunDeletionError> for HandlerError {
 /// The statements that remove the runs `workflow_run_ids` with every row that hangs off them,
 /// children first so the foreign keys hold at every statement: what a delete writes with each run's
 /// `workflow.run.deleted`, and what a rebuild of the runs applies on reading that event.
-pub(crate) fn workflow_run_deletion_statements(
-    workflow_run_ids: &[WorkflowRunId],
-) -> Vec<WriteStatement> {
+pub fn workflow_run_deletion_statements(workflow_run_ids: &[WorkflowRunId]) -> Vec<WriteStatement> {
     let ids_json = serde_json::to_string(workflow_run_ids).expect("run ids write as JSON");
     RUN_ROW_DELETE_SQL
         .iter()

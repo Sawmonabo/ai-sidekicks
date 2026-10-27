@@ -127,7 +127,7 @@ mod tests {
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::schema::session_directory::insert_session_row;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-    use sidekicks_store::events::log_service::tests::open_log;
+    use sidekicks_store::events::log_service::test_log::open_log;
 
     /// Long enough for a re-score round to store and raise, many times over.
     const ROUND_WAIT: Duration = Duration::from_secs(10);

@@ -283,7 +283,7 @@ pub fn insert_session_row(
 const SESSION_STATE_SQL: &str = "SELECT state FROM sessions WHERE id = ?";
 
 /// A session's state from its directory row, or `None` for a session with no row.
-pub(crate) fn read_session_state(
+pub fn read_session_state(
     reader: &Connection,
     session_id: &SessionId,
 ) -> rusqlite::Result<Option<SessionState>> {
@@ -296,7 +296,7 @@ pub(crate) fn read_session_state(
 }
 
 /// [`read_session_state`] as one short read on `pool`.
-pub(crate) async fn read_session_state_through<Failure>(
+pub async fn read_session_state_through<Failure>(
     pool: &DatabaseReadPool,
     session_id: SessionId,
 ) -> Result<Option<SessionState>, Failure>

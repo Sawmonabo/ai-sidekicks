@@ -12,7 +12,7 @@ use sidekicks_store::database::statement::{StatementBindings, WriteStatement, te
 use sidekicks_store::database::stored_column::{closed_word, text_column};
 
 /// The statement storing the level a session moved to; the write refuses a session with no row.
-pub(crate) fn permission_level_change_statement(
+pub fn permission_level_change_statement(
     session_id: &SessionId,
     permission_level: PermissionLevel,
 ) -> WriteStatement {
@@ -30,7 +30,7 @@ pub(crate) fn permission_level_change_statement(
 
 /// The level the session runs at: YOLO for a session never moved. Fails when the read fails or the
 /// stored text names no level.
-pub(crate) fn read_session_permission_level(
+pub fn read_session_permission_level(
     reader: &Connection,
     session_id: &SessionId,
 ) -> rusqlite::Result<PermissionLevel> {

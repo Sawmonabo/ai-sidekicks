@@ -20,7 +20,7 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
 use sidekicks_store::events::log_service::EventLogAppendOptions;
-use sidekicks_store::events::log_service::tests::{TestLog, open_log};
+use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
 use sidekicks_workspace::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
 use sidekicks_workspace::git::worktree::event_emitter::WorktreeEventEmitter;

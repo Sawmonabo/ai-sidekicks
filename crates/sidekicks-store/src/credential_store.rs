@@ -9,11 +9,11 @@
 //! with the cause.
 
 pub(crate) mod file;
-pub(crate) mod items;
-pub(crate) mod os;
-pub(crate) mod place;
+pub mod items;
+pub mod os;
+pub mod place;
 pub(crate) mod seal;
-pub(crate) mod service;
+pub mod service;
 
 use std::borrow::Cow;
 use std::error::Error;
@@ -26,7 +26,7 @@ use subtle::ConstantTimeEq as _;
 /// One keychain service's items, each addressed by an account name. Every call fails with
 /// [`KeychainRefusal`] when the keychain is locked, missing or silent; the operating system's
 /// keychain answers in bounded time, and the items file when its file system answers.
-pub(crate) trait SecretKeychain: Send + Sync {
+pub trait SecretKeychain: Send + Sync {
     /// Writes `value` under `account`, replacing any value held there.
     fn write<'call>(
         &'call self,
@@ -89,7 +89,7 @@ pub(crate) fn holds_value(kept: Option<&SecretString>, value: &SecretString) -> 
 /// refuses with its own code and this cause.
 #[derive(Debug, thiserror::Error)]
 #[error("The keychain could not be used: {reason}")]
-pub(crate) struct KeychainRefusal {
+pub struct KeychainRefusal {
     /// Why the keychain could not be used.
     cause: KeychainRefusalCause,
     /// What went wrong, in words a person reads.
@@ -120,8 +120,8 @@ impl KeychainRefusal {
     }
 
     /// Why the keychain could not be used.
-    #[cfg(test)]
-    pub(crate) fn cause(&self) -> KeychainRefusalCause {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn cause(&self) -> KeychainRefusalCause {
         self.cause
     }
 
@@ -132,7 +132,7 @@ impl KeychainRefusal {
 
     /// Why the keychain could not be used and the keychain's failure underneath, which a caller
     /// turns into its own refusal beside this refusal's text.
-    pub(crate) fn into_cause_and_failure(
+    pub fn into_cause_and_failure(
         self,
     ) -> (KeychainRefusalCause, Option<Box<dyn Error + Send + Sync>>) {
         (self.cause, self.failure)

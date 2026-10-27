@@ -132,7 +132,7 @@ pub(crate) struct InterruptEndWrites {
 /// Why the delivery could not read, resolve a driver or record a message's outcome; every cause
 /// is kept.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum DeliveryError {
+pub enum DeliveryError {
     /// SQLite refused a read, or a stored value does not read as its type.
     #[error("the run queue's read failed")]
     Read(#[from] rusqlite::Error),
@@ -159,7 +159,7 @@ struct DeliveryShared {
 /// Hands live runs their waiting messages, and takes them back ahead of a change. A cheap handle;
 /// clones share one state.
 #[derive(Clone)]
-pub(crate) struct QueueDelivery {
+pub struct QueueDelivery {
     shared: Arc<DeliveryShared>,
 }
 

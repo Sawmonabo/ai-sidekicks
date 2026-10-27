@@ -15,7 +15,7 @@ use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::machine::local::LocalMachine;
 
 /// The statements [`MachineRegistry`] prepares on a read connection: the other owner's row.
-pub(crate) const MACHINE_REGISTRY_STATEMENT_CAPACITY: usize = 1;
+pub const MACHINE_REGISTRY_STATEMENT_CAPACITY: usize = 1;
 
 // A re-registration refreshes only `updated_at`; the first registration's time stays.
 const UPSERT_REGISTRATION_SQL: &str = "INSERT INTO machine_trust_state
@@ -29,7 +29,7 @@ const SELECT_OTHER_OWNER_SQL: &str = "SELECT 1 FROM machine_trust_state
 
 /// Why this machine's owner could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum MachineRegistryReadError {
+pub enum MachineRegistryReadError {
     /// SQLite refused the read.
     #[error("this machine's registrations could not be read")]
     Database(#[from] rusqlite::Error),
@@ -39,7 +39,7 @@ pub(crate) enum MachineRegistryReadError {
 }
 
 /// This machine's registrations, kept in `machine_trust_state`, and the owner they leave it.
-pub(crate) struct MachineRegistry {
+pub struct MachineRegistry {
     /// Where the registrations are read.
     reads: Arc<DatabaseReadPool>,
     /// Where a registration is written.
@@ -50,7 +50,7 @@ pub(crate) struct MachineRegistry {
 
 impl MachineRegistry {
     /// The registrations of `machine`, read through `reads` and written through `writer`.
-    pub(crate) fn new(
+    pub fn new(
         reads: Arc<DatabaseReadPool>,
         writer: Arc<DatabaseWriter>,
         machine: LocalMachine,
@@ -90,7 +90,7 @@ impl MachineRegistry {
     /// The user every policy check on this machine decides as: its local owner, unregistered or
     /// registered under that owner alike, and `None` once it is registered under any other user.
     /// Fails as the read does.
-    pub(crate) async fn read_owner(&self) -> Result<Option<UserId>, MachineRegistryReadError> {
+    pub async fn read_owner(&self) -> Result<Option<UserId>, MachineRegistryReadError> {
         let machine_id = self.machine.machine_id.clone();
         let owner_user_id = self.machine.owner_user_id;
         let is_owned_by_another = self

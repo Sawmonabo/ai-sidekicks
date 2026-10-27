@@ -14,7 +14,7 @@ use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLen
 /// and then by id, read through `pool`: the account it runs on and the handle of its conversation,
 /// at rest as live; `None` for a session that never ran. Fails as the pool or SQLite fails, or a
 /// stored row does not read.
-pub(crate) async fn read_session_leg(
+pub async fn read_session_leg(
     pool: &DatabaseReadPool,
     session_id: SessionId,
 ) -> Result<Option<RuntimeBinding>, RuntimeBindingStoreError> {

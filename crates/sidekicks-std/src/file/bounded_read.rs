@@ -47,7 +47,7 @@ struct ReadFate {
 /// once [`FILE_READ_CEILING`] passes without one, the read left to finish on its thread; a read of
 /// a path at or beneath one whose read is still abandoned fails with `TimedOut` at once. Fails with
 /// the read's own error, the thread's start failure, or `Other` when the read panics.
-pub(crate) async fn read_within_ceiling<Output: Send + 'static>(
+pub async fn read_within_ceiling<Output: Send + 'static>(
     path: &Path,
     read: impl FnOnce(&Path) -> io::Result<Output> + Send + 'static,
 ) -> io::Result<Output> {
@@ -74,7 +74,7 @@ pub(crate) async fn read_within_ceiling<Output: Send + 'static>(
             run_on_own_thread("bounded file read", move || {
                 // Held until the read returns, so an abandoned read still counts against the cap.
                 let _room = room;
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 stalled_reads::wait_while_stalled(&path);
                 let answer = read(&path);
                 let mut abandoned = lock_abandoned_paths();
@@ -117,7 +117,7 @@ pub(crate) async fn read_within_ceiling<Output: Send + 'static>(
 /// Runs `work` on a thread of its own, never on tokio's blocking pool, whose stop waits for every
 /// task on it, and answers with what `work` returns. Fails with the thread's start failure, or
 /// `Other` when `work` panics.
-pub(crate) async fn run_on_own_thread<Output: Send + 'static>(
+pub async fn run_on_own_thread<Output: Send + 'static>(
     thread_name: &str,
     work: impl FnOnce() -> Output + Send + 'static,
 ) -> io::Result<Output> {
@@ -135,7 +135,7 @@ fn lock_abandoned_paths() -> MutexGuard<'static, Vec<PathBuf>> {
     lock(&ABANDONED_PATHS)
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "test-support")))]
 #[expect(
     clippy::unnecessary_wraps,
     reason = "a test's read of a path it does not hold runs with no ceiling"
@@ -146,16 +146,16 @@ fn read_ceiling(_path: &Path) -> Option<Duration> {
 
 // A test's held read gives up in moments rather than after the whole ceiling; any other read in a
 // test runs with no timer, so a paused clock's advance never abandons a read that is answering.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 fn read_ceiling(path: &Path) -> Option<Duration> {
     stalled_reads::is_stalled(path).then_some(stalled_reads::STALLED_READ_CEILING)
 }
 
-#[cfg(test)]
-pub(crate) use stalled_reads::stall_reads_of;
+#[cfg(any(test, feature = "test-support"))]
+pub use stalled_reads::stall_reads_of;
 
 /// Reads a test holds, so a bounded read of a path never answers while the test runs.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 mod stalled_reads {
     use std::path::{Path, PathBuf};
     use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
@@ -180,13 +180,13 @@ mod stalled_reads {
 
     /// Holds every bounded read of one path past its first `passed` reads until dropped, when the
     /// held reads run and answer no one.
-    pub(crate) struct StalledReads {
+    pub struct StalledReads {
         path: PathBuf,
     }
 
     /// Stalls the bounded reads of exactly `path` after the first `passed` of them, until the
     /// returned guard drops; each held read gives up after [`STALLED_READ_CEILING`].
-    pub(crate) fn stall_reads_of(path: &Path, passed: usize) -> StalledReads {
+    pub fn stall_reads_of(path: &Path, passed: usize) -> StalledReads {
         lock_stalled().push(Stall {
             path: path.to_path_buf(),
             passed,

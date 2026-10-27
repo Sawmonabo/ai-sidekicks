@@ -41,7 +41,7 @@ use sidekicks_workspace::git::process::{GitError, GitRunner};
 use sidekicks_workspace::working_folder::{WorkingFolderReadError, read_working_folder};
 
 /// The statements the file search prepares on a read connection: the session's working folder.
-pub(crate) const FILE_SEARCH_STATEMENT_CAPACITY: usize = 1;
+pub const FILE_SEARCH_STATEMENT_CAPACITY: usize = 1;
 
 /// The most rows one `@` search answers.
 const FILE_SEARCH_RESULT_MAX: usize = 50;
@@ -170,7 +170,7 @@ impl From<FileSearchError> for HandlerError {
 }
 
 /// Answers `session.file.search` over each session's working folder.
-pub(crate) struct FileSearchService {
+pub struct FileSearchService {
     pool: Arc<DatabaseReadPool>,
     git: GitRunner,
     /// Each working folder's listing, kept until the folder is reported changed or no longer
@@ -184,7 +184,7 @@ pub(crate) struct FileSearchService {
 impl FileSearchService {
     /// The search reading each session's working folder through `pool` and listing it through
     /// `git`.
-    pub(crate) fn new(pool: Arc<DatabaseReadPool>, git: GitRunner) -> Self {
+    pub fn new(pool: Arc<DatabaseReadPool>, git: GitRunner) -> Self {
         Self {
             pool,
             git,
@@ -212,7 +212,7 @@ impl FileSearchService {
     }
 
     /// Settles once every listing under way has ended.
-    pub(crate) async fn stop(&self) {
+    pub async fn stop(&self) {
         self.listing_tasks.close();
         self.listing_tasks.wait().await;
     }

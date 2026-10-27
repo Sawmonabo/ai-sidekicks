@@ -14,14 +14,14 @@ use crate::driver::run_control::WaitingMessage;
 use sidekicks_std::keyed_lock::KeyHold;
 
 /// A failure the waiting-message queue reports, kept whole.
-pub(crate) type ContinuedMessagesError = Box<dyn Error + Send + Sync>;
+pub type ContinuedMessagesError = Box<dyn Error + Send + Sync>;
 
 /// The messages waiting for a paused run that its resume delivers: read once the resume is sure to
 /// go, taken once the driver continued the run with them, given back when it did not, and kept
 /// when the driver sent them and no answer came. Each call runs under the queue's own lock on the
 /// session, which the driver's call itself never holds: the read marks the messages as the
 /// resume's, so a change to them meanwhile finds them taken.
-pub(crate) trait ContinuedMessages: Send + Sync {
+pub trait ContinuedMessages: Send + Sync {
     /// Takes the queue's own per-session lock on `session_id`, which every hand and take-back of a
     /// session's waiting messages runs under.
     fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>>;
@@ -84,7 +84,7 @@ pub(crate) trait ContinuedMessages: Send + Sync {
 }
 
 /// The pause and continue of runs, as a driver reaches them once a continue's answer came.
-pub(crate) trait RunPauses: Send + Sync {
+pub trait RunPauses: Send + Sync {
     /// Settles as taken every message a continue of `run_id` kept, once the provider reports the
     /// run running again, which shows it took the continue they went with. Fails as the queue's
     /// admission of them fails.

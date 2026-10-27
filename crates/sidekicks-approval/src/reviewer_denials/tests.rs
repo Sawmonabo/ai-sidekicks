@@ -28,19 +28,19 @@ use super::{
 };
 use crate::schema::schema_parts;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_driver::PROVIDER_REGISTRATIONS;
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_providers,
 };
 use sidekicks_provider::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
-use sidekicks_session::run::pause::tests::unanswered;
+use sidekicks_session::run::pause::test_answers::unanswered;
 use sidekicks_session::run::projection::insert_queued_run_statement;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::tests::{TestLog, open_log};
+use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };

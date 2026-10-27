@@ -3,8 +3,8 @@
 //! daemon's tool-server client hands the questions a tool server's task asks, whose answer goes
 //! back through the client.
 
-#[cfg(test)]
-pub(crate) mod test_card;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_card;
 
 use std::error::Error;
 use std::pin::{Pin, pin};
@@ -26,32 +26,32 @@ static RUN_QUESTION_LINE: LazyLock<KeyedLock<RunId>> = LazyLock::new(KeyedLock::
 /// The questions one provider request asks, in its order, with the provider's own request id the
 /// answer goes back under, and whether the agent waits for the answer.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct ProviderQuestion {
+pub struct ProviderQuestion {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The run that asks.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// The provider's own request id.
-    pub(crate) request_id: String,
+    pub request_id: String,
     /// The questions, in the request's order.
-    pub(crate) questions: Vec<QuestionPrompt>,
+    pub questions: Vec<QuestionPrompt>,
     /// False only on a question the agent does not wait for: its run keeps running and the
     /// person's queued message answers it.
-    pub(crate) is_agent_waiting: bool,
+    pub is_agent_waiting: bool,
 }
 
 /// A question the provider withdrew before anyone answered it, by the request id it came under.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderQuestionWithdrawal {
+pub struct ProviderQuestionWithdrawal {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The provider's own request id.
-    pub(crate) request_id: String,
+    pub request_id: String,
 }
 
 /// Where the person's answers to a tool server task's question go: the tool-server client, which
 /// sends them to the server that asked.
-pub(crate) trait ToolServerQuestionAnswer: Send + Sync {
+pub trait ToolServerQuestionAnswer: Send + Sync {
     /// Sends `answers`, one per question in the question's order. An error when the server could
     /// not be sent them.
     fn answer(
@@ -62,7 +62,7 @@ pub(crate) trait ToolServerQuestionAnswer: Send + Sync {
 
 /// What an attempt to open a question that waits for its run came to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum WaitingQuestionOpening {
+pub enum WaitingQuestionOpening {
     /// Opened, its run moved to wait on it.
     Opened,
     /// Its run does not read running, so it waits on.
@@ -73,7 +73,7 @@ pub(crate) enum WaitingQuestionOpening {
 
 /// How a question taken in its run's turn ended its turn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum QuestionTurnEnd {
+pub enum QuestionTurnEnd {
     /// It is open on the card.
     Taken,
     /// It was settled before its turn came: withdrawn, or canceled with its run's end.
@@ -85,7 +85,7 @@ pub(crate) enum QuestionTurnEnd {
 /// Why a question taken in its run's turn failed: its take, after which it was withdrawn, or the
 /// withdrawal its asker's leaving asked for, so a caller never withdraws it a second time.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum QuestionTurnError {
+pub enum QuestionTurnError {
     /// A write or the run's read failed before the question ended its turn; it was then withdrawn
     /// by its request id, or `withdrawal` says why not.
     #[error(
@@ -106,19 +106,19 @@ pub(crate) enum QuestionTurnError {
 
 /// A question's place in its run's line, taken where the question arrives, before any await, and
 /// handed to [`take_question_in_turn`].
-pub(crate) struct QuestionLinePlace(Result<KeyHold<'static, RunId>, KeyWait<'static, RunId>>);
+pub struct QuestionLinePlace(Result<KeyHold<'static, RunId>, KeyWait<'static, RunId>>);
 
 impl QuestionLinePlace {
     /// Takes the place of a question `run_id` asks now, behind every question of the run that
     /// came before it and has not yet opened.
-    pub(crate) fn line_up(run_id: RunId) -> Self {
+    pub fn line_up(run_id: RunId) -> Self {
         Self(RUN_QUESTION_LINE.try_acquire(run_id))
     }
 }
 
 /// The questions card's intake, registered through a `PortRegistration`. Until it is registered, a
 /// question stays pending at the provider: nothing answers it.
-pub(crate) trait QuestionPort: Send + Sync {
+pub trait QuestionPort: Send + Sync {
     /// Records `question`, asked by a tool server's task during the run, whose answer goes to
     /// `answer` rather than the run's driver. An error when it could not be recorded.
     fn take_tool_server_question(
@@ -181,7 +181,7 @@ pub(crate) trait QuestionPort: Send + Sync {
 /// its withdrawal. Fails with [`QuestionTurnError::Take`] when a write or the run's read fails,
 /// the question then withdrawn so no record is left with no take to open it, and with
 /// [`QuestionTurnError::Withdrawal`] when its asker's withdrawal fails.
-pub(crate) async fn take_question_in_turn(
+pub async fn take_question_in_turn(
     port: &dyn QuestionPort,
     question: ProviderQuestion,
     answer: Option<Arc<dyn ToolServerQuestionAnswer>>,

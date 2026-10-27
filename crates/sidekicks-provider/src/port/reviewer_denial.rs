@@ -14,25 +14,25 @@ use sidekicks_contracts::session::id::SessionId;
 /// whether the provider lets it be allowed once, and the provider's own record of the block, kept
 /// verbatim so `override_denial` hands it back unchanged.
 #[derive(Debug)]
-pub(crate) struct ProviderReviewerDenial {
+pub struct ProviderReviewerDenial {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The run.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// The blocked tool call; `None` for a block that names no call, recorded as a row of its own.
-    pub(crate) tool_call_id: Option<String>,
+    pub tool_call_id: Option<String>,
     /// The reviewer's reason.
-    pub(crate) reason: Option<String>,
+    pub reason: Option<String>,
     /// Whether the provider lets the block be allowed once.
-    pub(crate) is_overridable: bool,
+    pub is_overridable: bool,
     /// The provider's own record of the block, relayed and stored as received.
-    pub(crate) provider_denial: Box<RawValue>,
+    pub provider_denial: Box<RawValue>,
 }
 
 /// The approval pipeline's intake of reviewer blocks, registered through a `PortRegistration`.
 /// Until it is registered, a block stays the provider's own: the agent is told why and nothing is
 /// recorded.
-pub(crate) trait ReviewerDenialPort: Send + Sync {
+pub trait ReviewerDenialPort: Send + Sync {
     /// Records `denial`, waiting for the blocked call's row when the block arrives first; a block
     /// that names no call is recorded at once. An error when it could not be recorded.
     fn take_denial(

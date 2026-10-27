@@ -9,7 +9,7 @@ use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::sql_list_of_every;
 
 /// The provider drivers' list and the command receipts' own part.
-pub(crate) fn schema_parts() -> SchemaParts {
+pub fn schema_parts() -> SchemaParts {
     sidekicks_provider::driver::schema::schema_parts().with_part(SchemaPart::new(
         "command_receipts",
         command_receipts_schema_sql(),

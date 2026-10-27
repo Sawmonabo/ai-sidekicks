@@ -21,7 +21,7 @@ use sidekicks_store::events::projection::{
 
 /// The `sessions` row as a rebuild replaces it. Almost every event moves the row's last activity,
 /// so the fold reads every registered event type.
-pub(crate) struct SessionDirectoryProjection;
+pub struct SessionDirectoryProjection;
 
 impl SessionProjection for SessionDirectoryProjection {
     fn name(&self) -> &'static str {

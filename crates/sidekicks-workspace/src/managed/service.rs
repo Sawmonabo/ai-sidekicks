@@ -47,14 +47,14 @@ const GIT_INIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The folder holding every chat's managed workspace under `home_folder`, one subfolder per
 /// session id.
-pub(crate) fn managed_workspaces_folder(home_folder: &Path) -> PathBuf {
+pub fn managed_workspaces_folder(home_folder: &Path) -> PathBuf {
     home_folder
         .join(DAEMON_DATA_FOLDER_NAME)
         .join(MANAGED_WORKSPACES_FOLDER_NAME)
 }
 
 /// The sessions list, told of a chat whose document count moved, which no event carries.
-pub(crate) trait SessionListRefresh: Send + Sync {
+pub trait SessionListRefresh: Send + Sync {
     /// Names a session whose listed facts changed, once the write that changed them committed.
     fn refresh_session(&self, session_id: SessionId);
 }
@@ -70,7 +70,7 @@ pub(crate) struct ManagedWorkspace {
 
 /// Why making or deleting a chat's managed workspace failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ManagedWorkspaceError {
+pub enum ManagedWorkspaceError {
     /// The folder holding every chat's workspace could not be made or resolved.
     #[error("the managed workspaces folder could not be made")]
     WorkspacesFolder(#[source] io::Error),
@@ -95,7 +95,7 @@ pub(crate) enum ManagedWorkspaceError {
 /// Makes and deletes chats' managed workspaces, each with its managed mount row, and reports the
 /// writes chats make in them.
 #[cfg_attr(not(test), expect(dead_code, reason = "a chat's create and its purge"))]
-pub(crate) struct ManagedWorkspaceService {
+pub struct ManagedWorkspaceService {
     workspaces_folder: PathBuf,
     place: Option<Place>,
     repo_mounts: Arc<RepoMountService>,
@@ -154,7 +154,7 @@ impl ManagedWorkspaceService {
     /// chat makes in one sent on `writes`; starts the watch that reports them, and the task that
     /// recounts a chat's files on each change and names the chat to `list_feed` when its count
     /// moved. Dropping the service ends both.
-    pub(crate) fn new(
+    pub fn new(
         home_folder: &Path,
         place: Option<Place>,
         repo_mounts: Arc<RepoMountService>,
@@ -193,7 +193,7 @@ impl ManagedWorkspaceService {
     /// chats' files, waiting for it. A write the watch had not yet sent is not kept as a version,
     /// which the stop logs once. A create after it starts no watch. Fails only when the recount's
     /// task panicked.
-    pub(crate) async fn stop(&self) -> Result<(), JoinError> {
+    pub async fn stop(&self) -> Result<(), JoinError> {
         let write_watch = lock(&self.write_watch).take();
         if let Some(write_watch) = write_watch {
             drop(write_watch);
@@ -269,10 +269,7 @@ impl ManagedWorkspaceService {
     /// Deletes the chat's workspace folder whole and leaves its rows, for a caller that deletes
     /// them in its own write. A session with no managed workspace changes nothing. Fails with the
     /// removal's failure.
-    pub(crate) async fn delete_folder(
-        &self,
-        session_id: SessionId,
-    ) -> Result<(), ManagedWorkspaceError> {
+    pub async fn delete_folder(&self, session_id: SessionId) -> Result<(), ManagedWorkspaceError> {
         remove_folder(self.workspace_path_of(session_id)).await
     }
 

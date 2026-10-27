@@ -14,10 +14,12 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::{CHECK_FAILED_REFUSAL, PermissionAskError, PermissionAsks, PermissionAsksDeps};
-use crate::permission_check::tests::{CheckFixture, LINE_LIMIT};
+use crate::permission_check::test_fixture::LINE_LIMIT;
+use crate::permission_check::tests::CheckFixture;
 use crate::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
 use crate::service::ApprovalServiceError;
-use crate::service::tests::{SETTLE_WAIT, from_json};
+use crate::service::test_fixture::SETTLE_WAIT;
+use crate::service::tests::from_json;
 use crate::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_provider::driver::contract::{
@@ -30,7 +32,7 @@ use sidekicks_provider::port::permission_ask::{
     ProviderAnswerRule, ProviderAskAction, ProviderPermissionAnswer, ProviderPermissionAsk,
     ProviderPermissionAskWithdrawal,
 };
-use sidekicks_session::run::pause::tests::unanswered;
+use sidekicks_session::run::pause::test_answers::unanswered;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 

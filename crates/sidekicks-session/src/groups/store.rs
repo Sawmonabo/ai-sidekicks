@@ -169,9 +169,7 @@ pub(crate) fn leave_group_statement(session_id: &SessionId) -> WriteStatement {
 
 /// Removes every group of the session's project that no session sits in, so a move that empties a
 /// group removes it in the same write.
-pub(crate) fn remove_empty_groups_of_session_project_statement(
-    session_id: &SessionId,
-) -> WriteStatement {
+pub fn remove_empty_groups_of_session_project_statement(session_id: &SessionId) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(REMOVE_EMPTY_GROUPS_OF_SESSION_PROJECT_SQL.as_str()),
         bindings: StatementBindings::Named(vec![text_binding(

@@ -6,7 +6,7 @@ use std::fmt::{self, Display};
 /// The failures of steps that all settled: the one failure as it came, or every failure with the
 /// operation they belonged to.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SettleFailures<Failure> {
+pub enum SettleFailures<Failure> {
     /// The one step that failed.
     #[error(transparent)]
     One(Failure),
@@ -22,7 +22,7 @@ pub(crate) enum SettleFailures<Failure> {
 
 /// The outcomes of steps joined together, each a `Result` of one failure type, which
 /// [`settle_all`] folds into their values or their failures.
-pub(crate) trait SettledOutcomes {
+pub trait SettledOutcomes {
     /// Every step's value, in the steps' order.
     type Values;
     /// The failure each step may end with.
@@ -88,7 +88,7 @@ impl<First, Second, Third, Failure> SettledOutcomes
 
 /// Folds the outcomes of steps that have all settled: each value in order, or the one failure, or
 /// every failure in [`SettleFailures::Many`] named by `operation`.
-pub(crate) fn settle_all<Outcomes: SettledOutcomes>(
+pub fn settle_all<Outcomes: SettledOutcomes>(
     outcomes: Outcomes,
     operation: &'static str,
 ) -> Result<Outcomes::Values, SettleFailures<Outcomes::Failure>> {
@@ -105,9 +105,9 @@ pub(crate) fn settle_all<Outcomes: SettledOutcomes>(
 }
 
 /// Failures written one after another, `; ` between them, for a message that names every cause.
-pub(crate) struct DescribeEach<'a, Failure>(
+pub struct DescribeEach<'a, Failure>(
     /// The failures, in the order they are written.
-    pub(crate) &'a [Failure],
+    pub &'a [Failure],
 );
 
 impl<Failure: Display> Display for DescribeEach<'_, Failure> {

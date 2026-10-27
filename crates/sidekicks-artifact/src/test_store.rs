@@ -27,7 +27,7 @@ use sidekicks_store::database::statement::{StatementBindings, WriteStatement, te
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::EventLogService;
-use sidekicks_store::events::log_service::tests::{TestLog, open_log};
+use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
@@ -35,39 +35,39 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 const TEST_VOLUME_FREE_BYTES: u64 = 1 << 40;
 
 /// A database with one session and one of its runs, and the services' shared pieces over it.
-pub(crate) struct ArtifactTestStore {
+pub struct ArtifactTestStore {
     /// The database file.
-    pub(crate) database: TestDatabase,
+    pub database: TestDatabase,
     /// The writer on the database.
-    pub(crate) writer: Arc<DatabaseWriter>,
+    pub writer: Arc<DatabaseWriter>,
     /// The event log on the database, through the same writer.
-    pub(crate) event_log: Arc<EventLogService>,
+    pub event_log: Arc<EventLogService>,
     /// The appender on the database's event log, through the same writer.
-    pub(crate) appender: Arc<SessionEventAppender>,
+    pub appender: Arc<SessionEventAppender>,
     /// The read pool on the database.
-    pub(crate) reads: Arc<DatabaseReadPool>,
+    pub reads: Arc<DatabaseReadPool>,
     /// The payload store in its own folder.
     pub(crate) payloads: Arc<PayloadStore>,
     /// The upload admission over its own spool folder.
     pub(crate) admission: Arc<UploadAdmission>,
     /// The seeded session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The seeded run, one of the session's.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     // Held only so the temporary folder lives as long as the store.
     _folder: TempDir,
 }
 
 impl ArtifactTestStore {
     /// Opens the store with its session and run written.
-    pub(crate) async fn open() -> Self {
+    pub async fn open() -> Self {
         let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
         Self::open_on(database, log)
     }
 
     /// The store on `database` and its event log `log`, with its session and run written.
-    pub(crate) fn open_on(database: TestDatabase, log: TestLog) -> Self {
+    pub fn open_on(database: TestDatabase, log: TestLog) -> Self {
         let session_id = test_session_id();
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         seed_owner(
@@ -103,7 +103,7 @@ impl ArtifactTestStore {
     }
 
     /// The publication service over the store's pieces, on the machine's wall clock.
-    pub(crate) fn publisher(&self) -> ArtifactPublishService {
+    pub fn publisher(&self) -> ArtifactPublishService {
         ArtifactPublishService::new(
             Arc::clone(&self.appender),
             Arc::clone(&self.reads),
@@ -114,12 +114,12 @@ impl ArtifactTestStore {
     }
 
     /// The folder the admission spools into.
-    pub(crate) fn spool_folder(&self) -> &Path {
+    pub fn spool_folder(&self) -> &Path {
         self.admission.spool_folder()
     }
 
     /// How many rows `table` holds, read on a connection of the test's own.
-    pub(crate) fn count_rows(&self, table: &str) -> i64 {
+    pub fn count_rows(&self, table: &str) -> i64 {
         self.database
             .reader()
             .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
@@ -129,7 +129,7 @@ impl ArtifactTestStore {
     }
 
     /// How many events of `event_type` the log holds, read on a connection of the test's own.
-    pub(crate) fn count_events(&self, event_type: &str) -> i64 {
+    pub fn count_events(&self, event_type: &str) -> i64 {
         self.database
             .reader()
             .query_row(
@@ -153,7 +153,8 @@ impl ArtifactTestStore {
     }
 
     /// How many files sit in the spool folder; none when it was never made.
-    pub(crate) fn spooled_file_count(&self) -> usize {
+    #[expect(clippy::panic, reason = "a test helper fails the test that called it")]
+    pub fn spooled_file_count(&self) -> usize {
         match std::fs::read_dir(self.spool_folder()) {
             Ok(entries) => entries.count(),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
@@ -179,12 +180,12 @@ fn seed_owner(connection: &Connection, session_id: &str, run_id: &str) {
 }
 
 /// The refusal code `failure` carries, or `None` for a fault that is no refusal.
-pub(crate) fn refusal_code_of(failure: &ArtifactError) -> Option<RefusalCode> {
+pub fn refusal_code_of(failure: &ArtifactError) -> Option<RefusalCode> {
     failure.refusal().map(|refusal| refusal.code)
 }
 
 /// Writes a manifest of `session_id` over `content_hash` and its payload reference.
-pub(crate) async fn write_payload_reference(
+pub async fn write_payload_reference(
     writer: &DatabaseWriter,
     session_id: SessionId,
     content_hash: &ContentHash,

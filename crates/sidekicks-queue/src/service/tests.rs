@@ -39,8 +39,8 @@ use crate::provider_session::test_opening::{
 };
 use crate::provider_session::{ProviderSessions, ProviderSessionsDeps};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_driver::PROVIDER_REGISTRATIONS;
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::run_control::{
@@ -66,7 +66,7 @@ use sidekicks_std::pause_point::PausePoint;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, insert_lead, test_session_id};
-use sidekicks_store::events::log_service::tests::{TestLog, open_log};
+use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 
 /// The statements the tests' read pool prepares, every reader's together.

@@ -31,7 +31,7 @@ const CONCURRENT_SIGNATURE_CHECKS: usize = 4;
 pub(crate) type TerminalProcessIds = Arc<dyn Fn() -> HashSet<u32> + Send + Sync>;
 
 /// The check a connection's handshake runs on this daemon's caller.
-pub(crate) struct CallerCheck {
+pub struct CallerCheck {
     /// Reads the caller's parents, responsible process and signature.
     reader: Arc<dyn CallerProcessReader>,
     /// The person's terminals, whose programs are theirs where the system keeps no responsible
@@ -48,7 +48,7 @@ pub(crate) struct CallerCheck {
 impl CallerCheck {
     /// The check for this daemon, reading through `reader`, with the person's terminals read
     /// through `terminals` and the provider services held in `provider_services`.
-    pub(crate) fn new(
+    pub fn new(
         reader: Arc<dyn CallerProcessReader>,
         terminals: TerminalProcessIds,
         provider_services: Arc<ProviderServiceProcesses>,
@@ -64,7 +64,7 @@ impl CallerCheck {
 
     /// The check as the negotiator runs it; a read the system refuses answers the handshake
     /// `-32603`.
-    pub(crate) fn admission_check(self: &Arc<Self>) -> CallerAdmissionCheck {
+    pub fn admission_check(self: &Arc<Self>) -> CallerAdmissionCheck {
         let check = Arc::clone(self);
         Arc::new(move |caller: PinnedProcess, is_tokenless: bool| {
             let check = Arc::clone(&check);
@@ -170,68 +170,24 @@ impl CallerCheck {
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_reader;
+
 #[cfg(test)]
 pub(crate) mod tests {
     use std::collections::HashSet;
-    use std::io;
+
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    use futures::FutureExt as _;
-    use futures::future::BoxFuture;
-    use interprocess::local_socket::tokio::Stream;
     use rstest::rstest;
-    use sidekicks_platforms::{
-        ParentProcess, PinnedProcess, ResponsibleProcess, SignatureCheck, this_process,
-    };
+    use sidekicks_platforms::{ParentProcess, ResponsibleProcess, this_process};
 
     use super::CallerCheck;
-    use crate::caller_process::contract::{CallerProcessReader, PeerRead};
+    use super::test_reader::ScriptedReader;
+    use crate::caller_process::contract::CallerProcessReader;
     use crate::caller_process::provider_services::ProviderServiceProcesses;
     use crate::protocol_negotiation::CallerAdmission;
-
-    /// A reader answering one responsible process, one parent and one signature verdict for every
-    /// process, and recording whether a signature was read.
-    pub(crate) struct ScriptedReader {
-        pub(crate) responsible: ResponsibleProcess,
-        pub(crate) parent: ParentProcess,
-        pub(crate) is_desktop_client: bool,
-        pub(crate) was_signature_read: AtomicBool,
-    }
-
-    impl CallerProcessReader for ScriptedReader {
-        fn read_peer_process(&self, _stream: Stream) -> BoxFuture<'_, PeerRead> {
-            futures::future::ready(Err(io::Error::other("no peer is read here"))).boxed()
-        }
-
-        fn read_parent_process(
-            &self,
-            _process: PinnedProcess,
-        ) -> BoxFuture<'_, io::Result<ParentProcess>> {
-            futures::future::ready(Ok(self.parent.clone())).boxed()
-        }
-
-        fn read_responsible_process(
-            &self,
-            _process: PinnedProcess,
-        ) -> BoxFuture<'_, io::Result<ResponsibleProcess>> {
-            futures::future::ready(Ok(self.responsible.clone())).boxed()
-        }
-
-        fn check_desktop_client(
-            &self,
-            _caller: PinnedProcess,
-            _responsible: PinnedProcess,
-        ) -> BoxFuture<'_, io::Result<Option<SignatureCheck>>> {
-            self.was_signature_read.store(true, Ordering::SeqCst);
-            let check = if self.is_desktop_client {
-                SignatureCheck::Met
-            } else {
-                SignatureCheck::NotMet { status: -67050 }
-            };
-            futures::future::ready(Ok(Some(check))).boxed()
-        }
-    }
 
     // The test's own process stands in for every process; its id is also the daemon's, so a
     // parent read as the test's process is the daemon.

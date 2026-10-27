@@ -20,7 +20,7 @@ use crate::plan_holds::PlanHolds;
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 
 /// The statements the list's reads prepare, counted into the read pool's statement capacity.
-pub(crate) const SESSION_LIST_ROWS_STATEMENT_CAPACITY: usize = 2;
+pub const SESSION_LIST_ROWS_STATEMENT_CAPACITY: usize = 2;
 
 /// The rows one read of the opening list takes, so no read holds a connection for the whole list.
 pub(super) const OPENING_READ_PAGE_ROWS: usize = 500;

@@ -15,7 +15,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 /// weakly.
 ///
 /// [`RunEngine::end_run_for_interrupt`]: super::engine::RunEngine::end_run_for_interrupt
-pub(crate) trait LimitInterrupter: Send + Sync {
+pub trait LimitInterrupter: Send + Sync {
     /// Interrupts `run_id` because it reached `limit`, its row naming the turn of `cut`, the stop's
     /// cut, and answers within its own bound, since the stop's task runs until it answers. A step
     /// hand in flight meanwhile stands for every step stop of the run: a resend, and a later
@@ -37,7 +37,7 @@ pub(crate) trait LimitInterrupter: Send + Sync {
 /// that stop's cut and no other. The engine keeps the same cut in its turn's list as the limit
 /// with that identity, and a restart reads a cut turn from the log as the turn with its limit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct HandedCut {
+pub struct HandedCut {
     /// The turn the stop cut.
     pub(crate) turn_number: SafeInt<1>,
     /// The stop that made the cut.
@@ -47,7 +47,7 @@ pub(crate) struct HandedCut {
 /// Why the interventions service did not carry out a limit's interrupt, by what it left of the
 /// interrupt's row.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum LimitInterruptFailure {
+pub enum LimitInterruptFailure {
     /// Nothing of this interrupt is left `requested` or `accepted`, so the stop cut no turn.
     #[error("the limit's interrupt failed and left no pending row")]
     NoRow {

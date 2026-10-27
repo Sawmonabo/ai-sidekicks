@@ -50,7 +50,7 @@ pub(crate) struct CompactionWaitSettlement {
 /// key names the binding a wait was dispatched under, so a path that replaces the binding can
 /// release its stranded waits; clones share the same waits.
 #[derive(Clone, Default)]
-pub(crate) struct PendingCompactionRegistry {
+pub struct PendingCompactionRegistry {
     /// The waits every clone shares.
     waits: KeyedWaits<String, CompactionWaitSettlement>,
 }

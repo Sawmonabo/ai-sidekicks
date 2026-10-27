@@ -23,17 +23,17 @@ use sidekicks_store::events::session::append_lock::SessionAppendHold;
     dead_code,
     reason = "the workspace and queue setup gates, which read the run's session, item and workspace"
 )]
-pub(crate) struct RunSetupContext {
+pub struct RunSetupContext {
     /// The run.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// Its session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The queue item the run was admitted from; absent for a turn the daemon started itself.
-    pub(crate) queue_item: Option<QueueItemSummary>,
+    pub queue_item: Option<QueueItemSummary>,
     /// The workspace the send that started the run bound it to; absent where none was named.
-    pub(crate) workspace_id: Option<WorkspaceId>,
+    pub workspace_id: Option<WorkspaceId>,
     /// The posture the run runs at: the one it was requested at, or a daemon turn's session's.
-    pub(crate) execution_posture: ExecutionPosture,
+    pub execution_posture: ExecutionPosture,
 }
 
 /// How a run ended, handed to every terminal hook as the cause of what it releases.
@@ -42,20 +42,20 @@ pub(crate) struct RunSetupContext {
     dead_code,
     reason = "the terminal hooks that release what a run's setup gates took in its session"
 )]
-pub(crate) struct RunTerminalContext {
+pub struct RunTerminalContext {
     /// The run.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// Its session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The state it ended in, a terminal one or `interrupted` after a failed continue.
-    pub(crate) terminal_state: RunState,
+    pub terminal_state: RunState,
     /// The run version that ended.
-    pub(crate) run_version: i64,
+    pub run_version: i64,
 }
 
 /// Why a gate refused a run or a terminal hook failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RunSetupGateError {
+pub enum RunSetupGateError {
     /// A refusal with its code, which the run's failure cause carries with its words.
     #[error(transparent)]
     Refused(#[from] DomainError),
@@ -71,7 +71,7 @@ pub(crate) enum RunSetupGateError {
     .run_id,
     <&'static str>::from(*.terminal_state)
 )]
-pub(crate) struct RunTerminalReleaseError {
+pub struct RunTerminalReleaseError {
     /// The run that ended.
     pub(crate) run_id: RunId,
     /// The state it ended in.
@@ -85,7 +85,7 @@ pub(crate) struct RunTerminalReleaseError {
 /// `assert_run_ready` ends the run `failed` with that failure as its cause; `on_run_terminal` runs
 /// once for each run version that ends, whatever ended it, and again for an interrupted run whose
 /// continue failed after the gates ran, which leaves it at that end.
-pub(crate) trait RunSetupGate: Send + Sync {
+pub trait RunSetupGate: Send + Sync {
     /// Checks the run, failing when it may not start.
     fn assert_run_ready<'a>(
         &'a self,
@@ -105,20 +105,20 @@ pub(crate) trait RunSetupGate: Send + Sync {
 
 /// The registered gates, in registration order; one entry per gate a feature registers at start.
 #[derive(Default)]
-pub(crate) struct RunSetupGates {
+pub struct RunSetupGates {
     /// The gates, in registration order.
     gates: Vec<Arc<dyn RunSetupGate>>,
 }
 
 impl RunSetupGates {
     /// Adds `gate` after every gate registered before it.
-    pub(crate) fn register(&mut self, gate: Arc<dyn RunSetupGate>) {
+    pub fn register(&mut self, gate: Arc<dyn RunSetupGate>) {
         self.gates.push(gate);
     }
 
     /// Runs every gate in registration order; the first gate's failure stops the rest and is
     /// returned.
-    pub(crate) async fn assert_run_ready(
+    pub async fn assert_run_ready(
         &self,
         context: &RunSetupContext,
     ) -> Result<(), RunSetupGateError> {
@@ -131,7 +131,7 @@ impl RunSetupGates {
     /// Runs every terminal hook in reverse registration order. A hook that fails does not stop the
     /// rest; once all have run, their failures return together, beside the run and how it ended.
     /// Each hook appends under `hold` where the caller holds the run's session.
-    pub(crate) async fn release_for_terminal(
+    pub async fn release_for_terminal(
         &self,
         context: &RunTerminalContext,
         hold: Option<&SessionAppendHold>,

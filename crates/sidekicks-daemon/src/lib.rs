@@ -1,12 +1,12 @@
 //! The daemon: one program that runs sessions with each provider's agent, their git worktrees,
 //! terminals and the SQLite store, and the helper modes it starts by name.
 
-pub mod bootstrap;
-pub mod daemon;
+pub(crate) mod bootstrap;
+pub(crate) mod daemon;
 pub(crate) mod data_acts;
-pub mod highlight;
-pub mod ipc;
-pub mod observability;
-pub mod orchestration;
+pub(crate) mod highlight;
+pub(crate) mod ipc;
+pub(crate) mod observability;
+pub(crate) mod orchestration;
 pub mod program;
 pub mod remote;

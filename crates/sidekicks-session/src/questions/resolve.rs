@@ -49,7 +49,7 @@ impl QuestionsService {
     /// `question.answerInvalid` for an answer its question cannot take, each with nothing sent.
     /// Fails as the driver or the wait fails, nothing written, or as the write fails after the
     /// answer went out.
-    pub(crate) async fn resolve_question(
+    pub async fn resolve_question(
         &self,
         request: QuestionResolveRequest,
         device_id: DeviceId,

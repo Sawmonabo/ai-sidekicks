@@ -68,7 +68,7 @@ use sidekicks_store::events::session::read::{
 /// (the head, the rows after a position of every type and of named types, a sequence window and the
 /// rows at named sequences), and the transcript reads' six (the rows before a position, a stored
 /// row, a window's bodies and the turn attribution's three seeds).
-pub(crate) const SESSION_SERVICE_STATEMENT_CAPACITY: usize = 5 + 3 + 5 + 6;
+pub const SESSION_SERVICE_STATEMENT_CAPACITY: usize = 5 + 3 + 5 + 6;
 
 // A negative limit reads every event.
 const NO_LIMIT: i64 = -1;
@@ -77,74 +77,74 @@ const NO_LIMIT: i64 = -1;
 /// of the wire's session record but the held draft, the staged files and the inbox addresses,
 /// which the handler composes.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SessionReadRecord {
+pub struct SessionReadRecord {
     /// The session.
-    pub(crate) id: SessionId,
+    pub id: SessionId,
     /// Its lifecycle state.
-    pub(crate) state: SessionState,
+    pub state: SessionState,
     /// Its shape.
-    pub(crate) shape: SessionShape,
+    pub shape: SessionShape,
     /// Where it runs; `None` on macOS and Linux.
-    pub(crate) place: Option<Place>,
+    pub place: Option<Place>,
     /// Its name, `None` while untitled.
-    pub(crate) name: Option<FreeFormText<SESSION_NAME_MAX_LEN>>,
+    pub name: Option<FreeFormText<SESSION_NAME_MAX_LEN>>,
     /// Whether the person muted its notifications.
-    pub(crate) muted: bool,
+    pub muted: bool,
     /// The move its next run boundary applies, `None` when none waits.
-    pub(crate) pending_working_folder: Option<SessionPendingWorkingFolder>,
+    pub pending_working_folder: Option<SessionPendingWorkingFolder>,
     /// When it was made.
-    pub(crate) created_at: WireInstant,
+    pub created_at: WireInstant,
     /// When it last changed.
-    pub(crate) updated_at: WireInstant,
+    pub updated_at: WireInstant,
     /// Its own bound on the steps one turn may take, `None` where the person set none.
-    pub(crate) max_steps_per_turn: Option<SafeInt<1>>,
+    pub max_steps_per_turn: Option<SafeInt<1>>,
     /// Its tags as first written, in the order of their case fold.
-    pub(crate) tags: TagList,
+    pub tags: TagList,
 }
 
 /// A session's read as its row, tags, console settings, runs and log answer it, standing events
 /// included.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SessionLogRead {
+pub struct SessionLogRead {
     /// The session.
-    pub(crate) session: SessionReadRecord,
+    pub session: SessionReadRecord,
     /// Its transcript cursors.
-    pub(crate) transcript_cursors: SessionTranscriptCursors,
+    pub transcript_cursors: SessionTranscriptCursors,
     /// Every run not yet ended.
-    pub(crate) live_runs: Vec<SessionLiveRun>,
+    pub live_runs: Vec<SessionLiveRun>,
     /// The newest event of each kind a reader keeps a standing fact from, in sequence order.
-    pub(crate) standing_events: Vec<SessionStandingEvent>,
+    pub standing_events: Vec<SessionStandingEvent>,
 }
 
 /// A page of a session's events after a known sequence; with no `limit`, every later event.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct EventsReadAfterSequenceRequest {
+pub struct EventsReadAfterSequenceRequest {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The last sequence already read, or `-1` to read from the session's first event.
-    pub(crate) after_sequence: i64,
+    pub after_sequence: i64,
     /// The most events the page holds; every later event when `None`.
-    pub(crate) limit: Option<u32>,
+    pub limit: Option<u32>,
     /// Only events of these types; every type when `None`.
-    pub(crate) event_types: Option<Arc<[String]>>,
+    pub event_types: Option<Arc<[String]>>,
     /// Only events before this sequence; every later event when `None`.
-    pub(crate) before_sequence: Option<i64>,
+    pub before_sequence: Option<i64>,
 }
 
 /// The page: its events in sequence order, and where the next page starts.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct EventsReadAfterSequenceResponse {
+pub struct EventsReadAfterSequenceResponse {
     /// The events.
-    pub(crate) events: Vec<EventEnvelope>,
+    pub events: Vec<EventEnvelope>,
     /// The `after_sequence` that reads the next page: the page's last sequence, or the request's.
-    pub(crate) next_sequence: i64,
+    pub next_sequence: i64,
     /// Whether another page follows.
-    pub(crate) has_more: bool,
+    pub has_more: bool,
 }
 
 /// Why a session service read failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SessionServiceError {
+pub enum SessionServiceError {
     /// The session is not one this daemon holds (`session.notFound`).
     #[error(transparent)]
     Refused(#[from] DomainError),
@@ -268,7 +268,7 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
 /// whole log or a page of it, a window of its transcript or one stored row, or its record rebuilt
 /// from that log. Each read runs on the blocking pool on a connection it borrows for the whole
 /// read.
-pub(crate) struct SessionService {
+pub struct SessionService {
     pool: Arc<DatabaseReadPool>,
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     // The cuts of ended replies its body reads keep, so a later part decodes only its frames.
@@ -278,7 +278,7 @@ pub(crate) struct SessionService {
 impl SessionService {
     /// The service reading through `pool`; `read_damaged_from_sequence` says where a damaged
     /// session's reads stop.
-    pub(crate) fn new(
+    pub fn new(
         pool: Arc<DatabaseReadPool>,
         read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     ) -> Self {
@@ -291,7 +291,7 @@ impl SessionService {
 
     /// Lets go of the block cuts its body reads kept for `session_id`'s replies, once the session
     /// is purged.
-    pub(crate) fn forget_session_block_cuts(&self, session_id: &SessionId) {
+    pub fn forget_session_block_cuts(&self, session_id: &SessionId) {
         self.block_cuts.forget_session_block_cuts(session_id);
     }
 
@@ -302,7 +302,7 @@ impl SessionService {
     /// [`SessionServiceError::Refused`] (`session.notFound`) for a session this daemon holds no row
     /// for, [`SessionServiceError::Log`] for a standing event that is not a well-formed envelope,
     /// and [`SessionServiceError::RunNamesNoAgent`] for a live run whose creation names no agent.
-    pub(crate) async fn read_session(
+    pub async fn read_session(
         &self,
         request: SessionReadRequest,
     ) -> Result<SessionLogRead, SessionServiceError> {
@@ -318,7 +318,7 @@ impl SessionService {
     /// The session's events after `after_sequence`, at most `limit` of them, only of `event_types`
     /// and only before `before_sequence` when each is given. Fails with
     /// [`SessionServiceError::Log`] when a stored row is not a well-formed envelope.
-    pub(crate) async fn read_events_after_sequence(
+    pub async fn read_events_after_sequence(
         &self,
         request: EventsReadAfterSequenceRequest,
     ) -> Result<EventsReadAfterSequenceResponse, SessionServiceError> {
@@ -372,7 +372,7 @@ impl SessionService {
     /// events for (`session.notFound`) or an `aroundCursor` at which no row stands
     /// (`transcript.row.notFound`), and [`TranscriptReadError::CursorUnresolvable`] for a cursor
     /// that names no position.
-    pub(crate) async fn read_transcript_window(
+    pub async fn read_transcript_window(
         &self,
         request: TranscriptReadRequest,
     ) -> Result<TranscriptReadResponse, TranscriptReadError> {
@@ -391,7 +391,7 @@ impl SessionService {
     /// whose whole body a long read loads to cut it into blocks. Fails with [`BodyReadError`] for
     /// a session this daemon holds no events for (`session.notFound`), an offset that is no place
     /// to resume from, or a read that failed.
-    pub(crate) async fn read_row_body(
+    pub async fn read_row_body(
         &self,
         session_id: SessionId,
         row_id: String,
@@ -434,7 +434,7 @@ impl SessionService {
     /// One page of a run's reasoning. Fails with [`TranscriptReadError::Refused`] for a run this
     /// daemon does not hold (`agent.run.notFound`) and [`TranscriptReadError::CursorUnresolvable`]
     /// for a cursor that names no position.
-    pub(crate) async fn read_reasoning(
+    pub async fn read_reasoning(
         &self,
         request: TranscriptReasoningReadRequest,
     ) -> Result<TranscriptReasoningReadResponse, TranscriptReadError> {
@@ -451,7 +451,7 @@ impl SessionService {
     /// [`TranscriptReadError::Refused`] for a run this daemon does not hold (`agent.run.notFound`)
     /// or one with no parent (`agent.run.notChild`), and
     /// [`TranscriptReadError::CursorUnresolvable`] for a cursor that names no position.
-    pub(crate) async fn expand_child_run(
+    pub async fn expand_child_run(
         &self,
         request: TranscriptChildRunExpandRequest,
         observed_at: WireInstant,
@@ -474,7 +474,7 @@ impl SessionService {
     /// One page of the patches a tool call's row left out. Fails with [`PatchListError`] for a
     /// session or call this daemon does not hold, a cursor that names no place in the call's
     /// files, or a read that failed.
-    pub(crate) async fn list_patches(
+    pub async fn list_patches(
         &self,
         request: TranscriptPatchListRequest,
     ) -> Result<TranscriptPatchListResponse, PatchListError> {
@@ -489,7 +489,7 @@ impl SessionService {
 
     /// The sequence `session_id`'s reads stop at while its history is damaged, `None` while it is
     /// whole.
-    pub(crate) fn damaged_from_sequence(&self, session_id: &SessionId) -> Option<i64> {
+    pub fn damaged_from_sequence(&self, session_id: &SessionId) -> Option<i64> {
         (self.read_damaged_from_sequence)(session_id)
     }
 

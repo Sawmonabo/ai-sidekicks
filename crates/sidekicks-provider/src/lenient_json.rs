@@ -59,7 +59,7 @@ pub(crate) use skip_other_shapes;
 /// `Deserialize`.
 macro_rules! lenient_object {
     ($($object:ty),* $(,)?) => {$(
-        impl<'de> serde::de::Visitor<'de> for $crate::provider::lenient_json::LenientVisitor<$object> {
+        impl<'de> serde::de::Visitor<'de> for $crate::lenient_json::LenientVisitor<$object> {
             type Value = Option<$object>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -76,7 +76,7 @@ macro_rules! lenient_object {
                 .map(Some)
             }
 
-            $crate::provider::lenient_json::skip_other_shapes!(
+            $crate::lenient_json::skip_other_shapes!(
                 visit_bool(bool),
                 visit_str(&str),
                 visit_i64(i64),
@@ -84,14 +84,14 @@ macro_rules! lenient_object {
                 visit_f64(f64),
                 visit_unit(),
             );
-            $crate::provider::lenient_json::skip_other_shapes!(@seq);
+            $crate::lenient_json::skip_other_shapes!(@seq);
         }
 
-        impl $crate::provider::lenient_json::Lenient for $object {
+        impl $crate::lenient_json::Lenient for $object {
             fn read<'de, D: serde::Deserializer<'de>>(
                 deserializer: D,
             ) -> Result<Option<Self>, D::Error> {
-                deserializer.deserialize_any($crate::provider::lenient_json::LenientVisitor::<
+                deserializer.deserialize_any($crate::lenient_json::LenientVisitor::<
                     $object,
                 >(std::marker::PhantomData))
             }

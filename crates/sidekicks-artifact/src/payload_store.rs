@@ -43,7 +43,7 @@ const REFERENCED_KEYS_SQL: &str = "SELECT DISTINCT storage_path FROM artifact_pa
 
 /// Why a payload no reference names was not reclaimed; the orphan sweep tries it again.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum PayloadReclaimError {
+pub enum PayloadReclaimError {
     /// SQLite refused the count of the payload's references.
     #[error("the payload's references could not be counted")]
     Database(#[from] rusqlite::Error),
@@ -58,16 +58,16 @@ pub(crate) enum PayloadReclaimError {
 /// A payload's content hash, `sha256:<64 lowercase hex digits>`: the manifest's digest and the
 /// payload's key in the store.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct ContentHash(String);
+pub struct ContentHash(String);
 
 /// Stored text that is no content hash; it names no value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("the stored text is not a sha256 content hash")]
-pub(crate) struct NotAContentHash;
+pub struct NotAContentHash;
 
 impl ContentHash {
     /// The content hash of a payload whose SHA-256 digest is `digest`.
-    pub(crate) fn of_sha256(digest: &[u8]) -> Self {
+    pub fn of_sha256(digest: &[u8]) -> Self {
         Self(format!(
             "{CONTENT_HASH_ALGORITHM}:{}",
             base16ct::lower::encode_string(digest)
@@ -76,7 +76,7 @@ impl ContentHash {
 
     /// Takes stored text back as a content hash, refusing anything but `sha256:` and 64 lowercase
     /// hex digits, so a damaged row can never name a path outside the store.
-    pub(crate) fn from_stored(text: String) -> Result<Self, NotAContentHash> {
+    pub fn from_stored(text: String) -> Result<Self, NotAContentHash> {
         let is_content_hash = text
             .strip_prefix(CONTENT_HASH_ALGORITHM)
             .and_then(|rest| rest.strip_prefix(':'))
@@ -94,7 +94,7 @@ impl ContentHash {
     }
 
     /// The hash's text, `sha256:<hex>`.
-    pub(crate) fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> &str {
         &self.0
     }
 
@@ -111,7 +111,7 @@ impl fmt::Display for ContentHash {
 }
 
 /// The content-addressed payload store under one folder.
-pub(crate) struct PayloadStore {
+pub struct PayloadStore {
     objects_folder: PathBuf,
     storage_key_lock: KeyedLock<ContentHash>,
 }
@@ -119,7 +119,7 @@ pub(crate) struct PayloadStore {
 impl PayloadStore {
     /// A store under `objects_folder`, made private here with any missing folder above it, and its
     /// entry flushed into its parent. Blocks on the file system; fails with its failure.
-    pub(crate) fn new(objects_folder: PathBuf) -> io::Result<Self> {
+    pub fn new(objects_folder: PathBuf) -> io::Result<Self> {
         sidekicks_platforms::create_private_folder(&objects_folder)?;
         sidekicks_platforms::flush_folder(
             objects_folder
@@ -137,7 +137,7 @@ impl PayloadStore {
     /// the key, and returns what it answers. `source_path` must be on the store's volume. Fails
     /// with the file system's failure or `record_reference`'s; a failed record deletes the bytes
     /// this call moved in, and bytes stored before it stay for the references they have.
-    pub(crate) async fn admit<Recorded>(
+    pub async fn admit<Recorded>(
         &self,
         source_path: PathBuf,
         content_hash: &ContentHash,
@@ -176,7 +176,7 @@ impl PayloadStore {
     /// purge, after its rows' delete committed. Each removal is charged to `meter`, the meter of
     /// the job or call it runs under. A payload already gone counts as removed; one whose read or
     /// removal fails is logged and left to the orphan sweep.
-    pub(crate) async fn reclaim_unreferenced(
+    pub async fn reclaim_unreferenced(
         &self,
         reads: &DatabaseReadPool,
         content_hashes: impl IntoIterator<Item = ContentHash>,
@@ -198,7 +198,7 @@ impl PayloadStore {
     /// daemon's start and on the ingest reaper's cadence, its listing, reads and removals charged
     /// to `meter`. Answers the payloads it examined, each one stored. Fails when the store's folder
     /// cannot be listed or the referenced keys read.
-    pub(crate) async fn sweep_orphans(
+    pub async fn sweep_orphans(
         &self,
         reads: &DatabaseReadPool,
         meter: &ProcessorMeter,
@@ -265,7 +265,7 @@ impl PayloadStore {
 
     /// Where the payload stored under `content_hash` sits, `sha256/ab/abcd…` under the store's
     /// folder: the first two hex digits fan the payloads out over 256 folders.
-    pub(crate) fn object_path_of(&self, content_hash: &ContentHash) -> PathBuf {
+    pub fn object_path_of(&self, content_hash: &ContentHash) -> PathBuf {
         let hex = content_hash.hex();
         self.objects_folder
             .join(CONTENT_HASH_ALGORITHM)

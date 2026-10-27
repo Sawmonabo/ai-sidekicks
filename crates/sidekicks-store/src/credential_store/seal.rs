@@ -7,7 +7,7 @@ use sidekicks_platforms::{CredentialSeal, SealFailure};
 
 /// Seals a secret to this computer under a name and opens it again. Every call fails with
 /// [`SealFailure`]; the caller sets its time.
-pub(crate) trait SecretSeal: Send + Sync {
+pub trait SecretSeal: Send + Sync {
     /// Seals `value` under `name` and returns the sealed blob, which only [`Self::unseal`] under
     /// the same name opens.
     fn seal<'call>(

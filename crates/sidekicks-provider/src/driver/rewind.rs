@@ -14,7 +14,7 @@ use sidekicks_contracts::session::id::SessionId;
     clippy::struct_field_names,
     reason = "each member is an id, named for what it identifies"
 )]
-pub(crate) struct RewindConversationParams {
+pub struct RewindConversationParams {
     /// The session.
     pub(crate) session_id: SessionId,
     /// The session's live binding.
@@ -25,7 +25,7 @@ pub(crate) struct RewindConversationParams {
 
 /// What a rewind did: applied in place, or a fallback the driver took instead.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum RewindConversationResult {
+pub enum RewindConversationResult {
     /// The cut landed.
     Applied {
         /// The new binding, when the cut restarted the process on a fork of the conversation (a

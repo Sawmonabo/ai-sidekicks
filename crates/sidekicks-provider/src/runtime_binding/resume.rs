@@ -19,9 +19,9 @@ use crate::runtime_binding::store::RuntimeBinding;
 /// The function legs a resume injects fresh, apart from the stored legs, so leaving out the
 /// status sink is a choice at the call.
 #[derive(Clone, Default)]
-pub(crate) struct ResumeFunctionLegs {
+pub struct ResumeFunctionLegs {
     /// The status sink bound to the resumed leg.
-    pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
+    pub on_mcp_server_status: Option<McpServerStatusProducer>,
 }
 
 /// A binding with no conversation to resume: recovery starts the leg fresh rather than retry.
@@ -30,7 +30,7 @@ pub(crate) struct ResumeFunctionLegs {
     "runtime binding {} of run {run_id} carries no resume handle, so its leg starts fresh",
     .binding_id.as_str()
 )]
-pub(crate) struct RuntimeBindingNotResumable {
+pub struct RuntimeBindingNotResumable {
     /// The binding.
     pub(crate) binding_id: RuntimeBindingId,
     /// Its run.
@@ -44,7 +44,7 @@ pub(crate) struct RuntimeBindingNotResumable {
     clippy::too_many_arguments,
     reason = "each argument is one part of the resume the caller holds apart"
 )]
-pub(crate) fn compose_resume_session_params(
+pub fn compose_resume_session_params(
     session_id: SessionId,
     agent_id: AgentId,
     binding: &RuntimeBinding,

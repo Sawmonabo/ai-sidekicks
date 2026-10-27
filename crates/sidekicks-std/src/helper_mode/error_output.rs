@@ -9,7 +9,7 @@ use crate::process_exit::OUTPUT_CHUNK_BYTES;
 
 /// The last `kept_bytes` of `stream`, read to its end, decoded lossily once, starting on a whole
 /// character and trimmed of white space at either end. Fails with the read's error.
-pub(crate) async fn read_error_output_tail(
+pub async fn read_error_output_tail(
     mut stream: impl AsyncRead + Unpin,
     kept_bytes: usize,
 ) -> io::Result<String> {

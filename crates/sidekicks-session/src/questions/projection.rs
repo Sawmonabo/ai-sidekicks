@@ -43,16 +43,14 @@ const QUESTION_EVENT_TYPES: [SessionEventType; 7] = [
 
 /// The statements that keep the queued answers of every question in step with an append, run in
 /// the append's own write for each event it stores.
-pub(crate) fn question_projection_statements(
-    envelope: &UnsequencedEventEnvelope,
-) -> Vec<WriteStatement> {
+pub fn question_projection_statements(envelope: &UnsequencedEventEnvelope) -> Vec<WriteStatement> {
     queued_answer_statements(envelope.event_type(), envelope.payload())
 }
 
 /// The `questions` and `question_answer_items` rows as a rebuild replaces them. Its fold keeps no
 /// state, so the projection is its own fold.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct QuestionsProjection;
+pub struct QuestionsProjection;
 
 impl SessionProjection for QuestionsProjection {
     fn name(&self) -> &'static str {

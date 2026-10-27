@@ -77,7 +77,7 @@ const MESSAGE_TOO_LARGE: &str = "the message is over its size limit";
 /// Why a message gets an error response: its call's dispatch failed, its JSON is no JSON-RPC 2.0
 /// message, or it passed its size cap.
 #[derive(Debug)]
-pub(crate) enum CallFailure {
+pub enum CallFailure {
     /// The call reached the dispatch and produced no reply.
     Dispatch(DispatchError),
     /// The message's JSON does not parse or is no JSON-RPC 2.0 message.
@@ -94,7 +94,7 @@ pub(crate) enum CallFailure {
 /// The error response answering `failure` under `id`, the id the gateway read from the message
 /// (`null` where it could not). A daemon fault is logged here, once; a refusal of received input
 /// never is, since its sources can quote the value.
-pub(crate) fn map_json_rpc_error(failure: CallFailure, id: JsonRpcId) -> JsonRpcMessage {
+pub fn map_json_rpc_error(failure: CallFailure, id: JsonRpcId) -> JsonRpcMessage {
     JsonRpcMessage::ErrorResponse {
         id,
         error: json_rpc_error_of(failure),

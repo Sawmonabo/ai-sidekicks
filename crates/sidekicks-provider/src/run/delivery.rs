@@ -49,27 +49,27 @@ use crate::run::turn_end::ProviderTurnEnd;
 /// by the key the provider correlates its deliveries with. The first delivery of every operation
 /// is passed as its opening; a later one that finds no opening held is read as one evicted.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct DeliveryOperation<'key> {
+pub struct DeliveryOperation<'key> {
     /// The provider's key for the operation.
-    pub(crate) correlation_key: &'key str,
+    pub correlation_key: &'key str,
     /// Whether this is the operation's first delivery.
-    pub(crate) is_opening: bool,
+    pub is_opening: bool,
 }
 
 /// The runtime binding a delivery arrived on, and the provider operation it belongs to, where it
 /// has one.
 #[derive(Debug)]
-pub(crate) struct DeliveryBinding<'key> {
+pub struct DeliveryBinding<'key> {
     /// The binding.
-    pub(crate) binding_id: RuntimeBindingId,
+    pub binding_id: RuntimeBindingId,
     /// The provider operation.
-    pub(crate) operation: Option<DeliveryOperation<'key>>,
+    pub operation: Option<DeliveryOperation<'key>>,
 }
 
 /// One delivery a provider driver hands the run engine, on its binding and in that binding's
 /// delivery order, or about the session as a whole on no binding.
 #[derive(Debug)]
-pub(crate) enum InboundDelivery<'key> {
+pub enum InboundDelivery<'key> {
     /// The binding opened its next turn.
     TurnBoundary {
         /// The binding.
@@ -189,7 +189,7 @@ impl InboundDelivery<'_> {
 /// Why a delivery was absorbed: it came from before an undo's cut, its run had already ended, or
 /// it reported a pause or a turn under way that a resume had already moved past.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum LateEventAbsorbReason {
+pub enum LateEventAbsorbReason {
     /// From the execution before an undo's cut.
     BeforeCut,
     /// For a run that had already ended.
@@ -203,7 +203,7 @@ pub(crate) enum LateEventAbsorbReason {
 /// child's new run, which the caller keeps for the subagent's later deliveries; an appended row
 /// carries the id of the event written for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum InboundOutcome {
+pub enum InboundOutcome {
     /// The binding's next turn opened.
     TurnOpened,
     /// The run moved, into the state the move left it in.
@@ -257,7 +257,7 @@ impl InboundOutcome {
 /// A marker a provider reports on a live run, which changes no state; the engine reads the run's
 /// session and version when it records it. A turn's start is no marker: the engine numbers it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum RunMarker {
+pub enum RunMarker {
     /// The provider process reported its start for the run (`agent.run.providerInitialized`).
     ProviderInitialized {
         /// The run.
@@ -278,7 +278,7 @@ pub(crate) enum RunMarker {
 
 impl RunMarker {
     /// The run the marker is on.
-    pub(crate) fn run_id(&self) -> RunId {
+    pub fn run_id(&self) -> RunId {
         match self {
             Self::ProviderInitialized { run_id, .. } | Self::WorkerShuttingDown { run_id, .. } => {
                 *run_id
@@ -295,15 +295,15 @@ macro_rules! late_appendable_rows {
         /// takes the source-epoch stamp, its payload as the producer built it, without the stamp.
         /// A reasoning update is not one: it is its own delivery, since its body is required.
         #[derive(Debug)]
-        #[cfg_attr(test, derive(Clone, PartialEq))]
+        #[cfg_attr(any(test, feature = "test-support"), derive(Clone, PartialEq))]
         #[expect(dead_code, reason = "the provider's event delivery builds each row it hands over")]
-        pub(crate) enum LateAppendableRow {
+        pub enum LateAppendableRow {
             $($(#[$doc])* $variant($payload),)+
         }
 
         impl LateAppendableRow {
             /// The row's session and its event, stamped with `source`, with the pair it took.
-            pub(crate) fn into_event(
+            pub fn into_event(
                 self,
                 source: Option<EpochPosition>,
             ) -> (SessionId, SessionEvent, Option<EpochPosition>) {
@@ -364,20 +364,20 @@ macro_rules! unstamped_rows {
         /// the run: from before a cut it is absorbed, otherwise appended as it is. A settlement's
         /// run move is its own delivery.
         #[derive(Debug)]
-        pub(crate) enum UnstampedRow {
+        pub enum UnstampedRow {
             $($(#[$doc])* $variant($payload),)+
         }
 
         impl UnstampedRow {
             /// The run the row is on.
-            pub(crate) fn run_id(&self) -> RunId {
+            pub fn run_id(&self) -> RunId {
                 match self {
                     $(Self::$variant(payload) => payload.run_id,)+
                 }
             }
 
             /// The row's session and its event.
-            pub(crate) fn into_event(self) -> (SessionId, SessionEvent) {
+            pub fn into_event(self) -> (SessionId, SessionEvent) {
                 match self {
                     $(Self::$variant(payload) => {
                         (payload.session_id, SessionEvent::$variant(payload))
@@ -408,7 +408,7 @@ unstamped_rows! {
     dead_code,
     reason = "the provider's event delivery builds each row it hands over"
 )]
-pub(crate) enum SessionScopedRow {
+pub enum SessionScopedRow {
     /// `session.sideQuestion.answered`.
     SideQuestionAnswered(SessionSideQuestionAnsweredPayload),
     /// `session.advisor.changed`.
@@ -419,7 +419,7 @@ pub(crate) enum SessionScopedRow {
 
 impl SessionScopedRow {
     /// The row's session and its event.
-    pub(crate) fn into_event(self) -> (SessionId, SessionEvent) {
+    pub fn into_event(self) -> (SessionId, SessionEvent) {
         match self {
             Self::SideQuestionAnswered(payload) => (
                 payload.session_id,
@@ -440,14 +440,14 @@ impl SessionScopedRow {
 /// A row about the machine rather than a session, on no binding: an account's quota reading, which
 /// carries the account's credential generation and is filed under the machine's sentinel session.
 #[derive(Debug)]
-pub(crate) enum MachineScopedRow {
+pub enum MachineScopedRow {
     /// `usage.rateLimit.updated`.
     UsageRateLimitUpdated(UsageRateLimitUpdatedPayload),
 }
 
 impl MachineScopedRow {
     /// The sentinel session the row is filed under, and its event.
-    pub(crate) fn into_event(self) -> (SessionId, SessionEvent) {
+    pub fn into_event(self) -> (SessionId, SessionEvent) {
         match self {
             Self::UsageRateLimitUpdated(payload) => (
                 *DAEMON_SCOPE_SENTINEL_SESSION_ID,
@@ -459,7 +459,7 @@ impl MachineScopedRow {
 
 /// Stamps a payload's source pair with `source` and answers the pair it took. Epochs are run-local,
 /// so a stamp on a row that names no run fails that row's draft.
-pub(crate) fn stamp(
+pub fn stamp(
     source_epoch: &mut Option<SourceEpoch>,
     source_position: &mut Option<SourcePosition>,
     source: Option<EpochPosition>,

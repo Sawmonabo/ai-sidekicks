@@ -27,7 +27,7 @@ const CLOSE_OPERATION: &str = "closing the database read pool";
 /// How long a read holds its connection: a long one (a page of events, a whole log) leaves one
 /// connection free for short ones.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ReadLength {
+pub enum ReadLength {
     /// A read of one row or a few.
     Short,
     /// A read of a page or more.
@@ -61,7 +61,7 @@ pub enum ReadConnectionOpenError {
 
 /// Why closing the pool failed: the first connection whose close failed, beside the others'.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum DatabaseReadPoolCloseError {
+pub enum DatabaseReadPoolCloseError {
     /// SQLite refused to close connections.
     #[error(transparent)]
     Connections(#[from] CleanupFailures<rusqlite::Error>),
@@ -136,7 +136,7 @@ impl DatabaseReadPool {
     /// caller that leaves once `read` runs leaves it running, its place and connection held until
     /// it ends. Fails with `read`'s own failure, or with [`DatabaseReadError`] when the pool is
     /// closed, a connection does not open or the blocking task does not finish.
-    pub(crate) async fn read<Output, Failure>(
+    pub async fn read<Output, Failure>(
         &self,
         length: ReadLength,
         read: impl FnOnce(&Connection) -> Result<Output, Failure> + Send + 'static,
@@ -174,7 +174,7 @@ impl DatabaseReadPool {
     /// connection, idle once the reads end, is taken back and
     /// closed, and every later read fails with [`DatabaseReadError::Closed`]. A later close does
     /// nothing. Fails with SQLite's refusals of the closes, every connection closed either way.
-    pub(crate) async fn close(&self) -> Result<(), DatabaseReadPoolCloseError> {
+    pub async fn close(&self) -> Result<(), DatabaseReadPoolCloseError> {
         let _no_reads = self.reads.write().await;
         if self.connections.is_closed() {
             return Ok(());

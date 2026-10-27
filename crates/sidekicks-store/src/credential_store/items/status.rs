@@ -20,7 +20,7 @@ impl SecretItems {
     /// secrets are in the operating system's store or the file holds no item a move would carry.
     /// Calls no seal, opens no item and waits for no call; a file that cannot be read counts as
     /// holding one. Fails with the path's [`TextError`] when the file's path is no wire path.
-    pub(crate) async fn secrets_file(&self) -> Result<Option<DaemonSecretsFile>, TextError> {
+    pub async fn secrets_file(&self) -> Result<Option<DaemonSecretsFile>, TextError> {
         let moved_services: Vec<&str> = KeychainService::ALL
             .into_iter()
             .filter(|service| service.is_moved())

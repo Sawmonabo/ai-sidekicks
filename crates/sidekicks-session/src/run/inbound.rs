@@ -70,7 +70,7 @@ pub(crate) enum InboundDispatchError {
 }
 
 /// Takes each provider delivery in, attributes it, and writes, routes or absorbs it.
-pub(crate) struct RunInboundDispatch {
+pub struct RunInboundDispatch {
     engine: Arc<RunEngine>,
     epochs: Arc<Mutex<ExecutionEpochs>>,
     run_state_publisher: Arc<dyn RunStatePublisher>,
@@ -184,7 +184,7 @@ impl RunInboundDispatch {
     /// A dispatch moving runs through `engine`, attributing on `epochs`, the cursors the binding
     /// cursors keep, sending live states to `run_state_publisher` and appending rows to
     /// `event_log`.
-    pub(crate) fn new(
+    pub fn new(
         engine: Arc<RunEngine>,
         epochs: Arc<Mutex<ExecutionEpochs>>,
         run_state_publisher: Arc<dyn RunStatePublisher>,

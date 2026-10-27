@@ -52,12 +52,12 @@ use sidekicks_store::events::session::appender::{
     SessionEventLinkage,
 };
 
-#[cfg(test)]
-pub(crate) mod tests;
+#[cfg(any(test, feature = "test-support"))]
+pub mod tests;
 
 /// The statements [`QuestionsService`] prepares on a read connection: a record, its pages,
 /// whether its run has an interrupt recorded, and which held questions are still open.
-pub(crate) const QUESTION_STATEMENT_CAPACITY: usize = 4;
+pub const QUESTION_STATEMENT_CAPACITY: usize = 4;
 
 // Whether a person's or the daemon's interrupt of the run was asked for or carried out.
 static RUN_INTERRUPTED_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -88,7 +88,7 @@ pub(super) struct HeldRequest {
 
 /// Who sends a held question's answer to whoever asked it.
 #[derive(Clone)]
-pub(super) enum HeldRequestAnswerer {
+pub enum HeldRequestAnswerer {
     /// The run's driver, to its provider.
     Driver,
     /// The tool-server client, to the server whose task asked.
@@ -97,7 +97,7 @@ pub(super) enum HeldRequestAnswerer {
 
 /// Why a question was not recorded, answered or withdrawn; nothing of the failed write is kept.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum QuestionError {
+pub enum QuestionError {
     /// A refusal with its code.
     #[error(transparent)]
     Refused(#[from] DomainError),
@@ -155,7 +155,7 @@ pub(crate) enum QuestionError {
 }
 
 /// Records the questions the drivers hand, answers them and cancels the ones they withdraw.
-pub(crate) struct QuestionsService {
+pub struct QuestionsService {
     pub(super) appender: Arc<SessionEventAppender>,
     pub(super) reads: Arc<DatabaseReadPool>,
     pub(super) engine: Arc<RunEngine>,
@@ -170,7 +170,7 @@ pub(crate) struct QuestionsService {
 impl QuestionsService {
     /// A service writing through `appender`, reading through `reads`, moving runs through
     /// `engine` and reaching each run's provider through its driver in `providers`.
-    pub(crate) fn new(
+    pub fn new(
         appender: Arc<SessionEventAppender>,
         reads: Arc<DatabaseReadPool>,
         engine: Arc<RunEngine>,

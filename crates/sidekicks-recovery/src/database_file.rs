@@ -10,7 +10,7 @@ pub mod check;
 pub mod copy;
 pub mod fresh;
 pub mod last_run;
-pub(crate) mod newest_backup;
+pub mod newest_backup;
 pub mod repair;
 pub mod restore;
 pub mod sqlite_shell;
@@ -20,7 +20,7 @@ use std::path::Path;
 use std::time::Duration;
 
 /// The suffix of the write-ahead log SQLite keeps beside a database.
-pub(crate) const WRITE_AHEAD_LOG_SUFFIX: &str = "-wal";
+pub const WRITE_AHEAD_LOG_SUFFIX: &str = "-wal";
 
 /// The suffix of the shared-memory index SQLite keeps beside a database in write-ahead-log mode.
 pub(crate) const SHARED_MEMORY_SUFFIX: &str = "-shm";

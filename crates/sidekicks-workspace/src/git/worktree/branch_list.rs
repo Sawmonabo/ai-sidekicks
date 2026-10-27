@@ -65,7 +65,7 @@ static SELECT_LIVE_WORKTREES_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// Why the branch list could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum BranchListError {
+pub enum BranchListError {
     /// The mount is not attached (`repoMount.notFound`).
     #[error(transparent)]
     Refused(#[from] RepoRefusal),
@@ -117,14 +117,14 @@ struct BranchListRows {
 }
 
 /// Answers `project.branch.list` for a project's mount.
-pub(crate) struct BranchListReader {
+pub struct BranchListReader {
     git: GitRunner,
     reads: Arc<DatabaseReadPool>,
 }
 
 impl BranchListReader {
     /// A reader running git through `git` and reading its rows on `reads`.
-    pub(crate) fn new(git: GitRunner, reads: Arc<DatabaseReadPool>) -> Self {
+    pub fn new(git: GitRunner, reads: Arc<DatabaseReadPool>) -> Self {
         Self { git, reads }
     }
 
@@ -136,7 +136,7 @@ impl BranchListReader {
         not(test),
         expect(dead_code, reason = "the `project.branch.list` handler")
     )]
-    pub(crate) async fn read(
+    pub async fn read(
         &self,
         repo_mount_id: &RepoMountId,
     ) -> Result<ProjectBranchListResponse, BranchListError> {

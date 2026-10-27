@@ -24,7 +24,7 @@ use crate::scheduler::ScheduledJobOutcome;
 
 /// What a job's work is counted in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum WorkUnit {
+pub enum WorkUnit {
     /// Bytes of the store a run copied or repacked.
     StoreBytes,
     /// Bytes of write-ahead log a checkpoint moved into the store.
@@ -45,25 +45,25 @@ pub(crate) enum WorkUnit {
 
 /// One term of a budget: `figure` of processor time per `per` units of `unit`.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct BudgetTerm {
+pub struct BudgetTerm {
     /// The processor time allowed per `per` units.
-    pub(crate) figure: Duration,
+    pub figure: Duration,
     /// The units the figure covers.
-    pub(crate) per: u64,
+    pub per: u64,
     /// What the units count.
-    pub(crate) unit: WorkUnit,
+    pub unit: WorkUnit,
 }
 
 /// A job's processor budget: a run may spend the sum of its terms over the work it reports.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct JobBudget {
+pub struct JobBudget {
     terms: &'static [BudgetTerm],
 }
 
 impl JobBudget {
     /// The budget summing `terms`; a term covering no units fails the build, since every budget is
     /// a constant.
-    pub(crate) const fn new(terms: &'static [BudgetTerm]) -> Self {
+    pub const fn new(terms: &'static [BudgetTerm]) -> Self {
         let mut index = 0;
         while index < terms.len() {
             assert!(
@@ -91,20 +91,20 @@ impl JobBudget {
 
 /// What one run did, in its budget's units; a unit not reported counts none.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct JobWorkload {
+pub struct JobWorkload {
     counts: Vec<(WorkUnit, u64)>,
 }
 
 impl JobWorkload {
     /// The workload of `count` units of `unit`.
-    pub(crate) fn of(unit: WorkUnit, count: u64) -> Self {
+    pub fn of(unit: WorkUnit, count: u64) -> Self {
         Self {
             counts: vec![(unit, count)],
         }
     }
 
     /// Adds `count` units of `unit`.
-    pub(crate) fn add(&mut self, unit: WorkUnit, count: u64) {
+    pub fn add(&mut self, unit: WorkUnit, count: u64) {
         self.counts.push((unit, count));
     }
 
@@ -121,14 +121,14 @@ impl JobWorkload {
 /// the count of pieces measured; the first reading that failed is kept, so the run's line says its
 /// time could not be read.
 #[derive(Debug, Default)]
-pub(crate) struct ThreadProcessorTime {
+pub struct ThreadProcessorTime {
     spent: SpentTime,
     unread: Option<io::Error>,
 }
 
 impl ThreadProcessorTime {
     /// Runs `work` on the calling thread, adding the thread's processor time across it.
-    pub(crate) fn measure<Answer>(&mut self, work: impl FnOnce() -> Answer) -> Answer {
+    pub fn measure<Answer>(&mut self, work: impl FnOnce() -> Answer) -> Answer {
         let start = thread_cpu_time();
         let answer = work();
         self.spent.readings += 1;
@@ -145,32 +145,32 @@ impl ThreadProcessorTime {
 /// The processor time a run spent and the pieces of its work measured, each a pair of readings of
 /// its thread's clock; a clock that moves in ticks errs by up to a tick per piece.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct SpentTime {
+pub struct SpentTime {
     /// The processor time.
-    pub(crate) time: Duration,
+    pub time: Duration,
     /// The pieces measured.
-    pub(crate) readings: u64,
+    pub readings: u64,
 }
 
 /// What the writer's thread answers for the job's work it ran: the work's report, and its own
 /// processor time around the job's statements.
 #[derive(Debug)]
-pub(crate) struct Measured<Report> {
+pub struct Measured<Report> {
     /// What the work reports.
-    pub(crate) report: Report,
+    pub report: Report,
     /// The thread's processor time around the job's own statements.
-    pub(crate) processor_time: ThreadProcessorTime,
+    pub processor_time: ThreadProcessorTime,
 }
 
 /// The processor time one run spent on its own threads, which its parts add as they run.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct ProcessorMeter {
+pub struct ProcessorMeter {
     shared: Arc<Mutex<ThreadProcessorTime>>,
 }
 
 impl ProcessorMeter {
     /// Adds a thread's time to the run's.
-    pub(crate) fn add(&self, time: ThreadProcessorTime) {
+    pub fn add(&self, time: ThreadProcessorTime) {
         let mut total = lock(&self.shared);
         total.spent.time += time.spent.time;
         total.spent.readings += time.spent.readings;
@@ -181,7 +181,7 @@ impl ProcessorMeter {
 
     /// Runs `work` on the calling thread, adding the thread's time across it; for work that runs on
     /// a thread the run does not own, such as a read pool's.
-    pub(crate) fn measure<Answer>(&self, work: impl FnOnce() -> Answer) -> Answer {
+    pub fn measure<Answer>(&self, work: impl FnOnce() -> Answer) -> Answer {
         let mut time = ThreadProcessorTime::default();
         let answer = time.measure(work);
         self.add(time);
@@ -190,7 +190,7 @@ impl ProcessorMeter {
 
     /// Runs `work` on the blocking pool, adding its thread's time from entry to exit. Fails when
     /// the task ended before it finished.
-    pub(crate) async fn run_blocking<Answer: Send + 'static>(
+    pub async fn run_blocking<Answer: Send + 'static>(
         &self,
         work: impl FnOnce() -> Answer + Send + 'static,
     ) -> Result<Answer, JoinError> {
@@ -200,7 +200,7 @@ impl ProcessorMeter {
 
     /// Takes the run's time so far, leaving the meter at zero. Fails with the first reading that
     /// failed.
-    pub(crate) fn take_spent(&self) -> Result<SpentTime, io::Error> {
+    pub fn take_spent(&self) -> Result<SpentTime, io::Error> {
         let total = mem::take(&mut *lock(&self.shared));
         match total.unread {
             Some(failure) => Err(failure),
@@ -211,7 +211,7 @@ impl ProcessorMeter {
 
 /// What a metered run ends with: the work it did in its budget's units, `None` when it did none,
 /// as a run its condition skipped.
-pub(crate) type MeteredJobOutcome = Result<Option<JobWorkload>, Box<dyn Error + Send + Sync>>;
+pub type MeteredJobOutcome = Result<Option<JobWorkload>, Box<dyn Error + Send + Sync>>;
 
 /// A job's work as a metered job takes it: given the scheduler's stop and the run's meter, which
 /// its blocking work and the writer's answers add to.
@@ -223,7 +223,7 @@ pub(crate) type MeteredRun = Box<
 /// each poll of its future measured on the thread that polls it, and its time is written to the
 /// service log beside its budget, as a warning when it went over; a run over its budget is not
 /// stopped.
-pub(crate) fn metered_job(
+pub fn metered_job(
     budget: JobBudget,
     mut run: MeteredRun,
 ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static {

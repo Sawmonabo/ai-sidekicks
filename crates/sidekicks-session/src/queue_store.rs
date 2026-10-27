@@ -2,8 +2,8 @@
 //! stale read is refused whole, and the reads of a queue in its order. A row is never deleted while
 //! its session is kept; a message's words ride its payload beside its `user.message.sent` row.
 
-pub(crate) mod send_now;
-pub(crate) mod summary;
+pub mod send_now;
+pub mod summary;
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -46,29 +46,29 @@ use sidekicks_store::database::stored_column::{
 /// What a queued message carries, as its payload stores it: the words and what rides with them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct QueueItemBody {
+pub struct QueueItemBody {
     /// The words.
-    pub(crate) content: MessageContent,
+    pub content: MessageContent,
     /// The message's files in staging order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) attachments: Option<AttachmentReferenceList>,
+    pub attachments: Option<AttachmentReferenceList>,
     /// The skills the person picked for it, in the order picked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) skills: Option<Vec<PickedSkill>>,
+    pub skills: Option<Vec<PickedSkill>>,
     /// The question it answers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) answers_question_id: Option<QuestionId>,
+    pub answers_question_id: Option<QuestionId>,
     /// The output-speed level its turn alone runs at.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) output_speed_for_turn: Option<ProviderToken>,
+    pub output_speed_for_turn: Option<ProviderToken>,
     /// The repository the run it starts binds to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) workspace_id: Option<WorkspaceId>,
+    pub workspace_id: Option<WorkspaceId>,
 }
 
 impl QueueItemBody {
     /// The ids of the message's files in staging order, none when it carries none.
-    pub(crate) fn attachment_ids(&self) -> Vec<ArtifactId> {
+    pub fn attachment_ids(&self) -> Vec<ArtifactId> {
         self.attachments
             .as_ref()
             .map(|attachments| attachments.0.clone())
@@ -79,7 +79,7 @@ impl QueueItemBody {
 /// Where a queued message stands, as its row holds it: only a message never delivered carries,
 /// and always carries, the reason.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum RecordedQueueItemState {
+pub enum RecordedQueueItemState {
     /// Waiting for the agent's next step.
     Queued,
     /// Taken by the run.
@@ -97,58 +97,58 @@ pub(crate) enum RecordedQueueItemState {
 
 /// One queued message as its row holds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct QueueItemRecord {
+pub struct QueueItemRecord {
     /// The item.
-    pub(crate) id: QueueItemId,
+    pub id: QueueItemId,
     /// The session whose queue holds it.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// Where it stands.
-    pub(crate) state: RecordedQueueItemState,
+    pub state: RecordedQueueItemState,
     /// What it carries.
-    pub(crate) body: QueueItemBody,
+    pub body: QueueItemBody,
     /// The run the message goes to; absent on an orchestration-authored item.
-    pub(crate) target_run_id: Option<RunId>,
+    pub target_run_id: Option<RunId>,
     /// The child whose queue holds it; absent on the lead's queue.
-    pub(crate) child_handle: Option<ChildHandle>,
+    pub child_handle: Option<ChildHandle>,
     /// Its place in its queue's order, lowest first.
-    pub(crate) position: SafeInt<0>,
+    pub position: SafeInt<0>,
     /// The send's own key; absent on the system's own items.
-    pub(crate) client_idempotency_key: Option<ClientUuid>,
+    pub client_idempotency_key: Option<ClientUuid>,
     /// When it was queued.
-    pub(crate) created_at: WireInstant,
+    pub created_at: WireInstant,
     /// When it last changed.
-    pub(crate) updated_at: WireInstant,
+    pub updated_at: WireInstant,
     /// The id the answer of the person's `Send now` that marked it to go ahead of what its
     /// provider holds carries; absent on an item no `Send now` marked.
-    pub(crate) sent_now_id: Option<InterventionId>,
+    pub sent_now_id: Option<InterventionId>,
 }
 
 /// A message to insert. It takes the place of `replaces_queue_item_id` when it is an edit, else
 /// the place after every item its queue has held.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct NewQueueItem {
+pub struct NewQueueItem {
     /// The new item.
-    pub(crate) id: QueueItemId,
+    pub id: QueueItemId,
     /// The session whose lead queue takes it.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// What it carries.
-    pub(crate) body: QueueItemBody,
+    pub body: QueueItemBody,
     /// The run it goes to.
-    pub(crate) target_run_id: RunId,
+    pub target_run_id: RunId,
     /// The device that sent it.
-    pub(crate) device_id: Option<DeviceId>,
+    pub device_id: Option<DeviceId>,
     /// The send's own key.
-    pub(crate) client_idempotency_key: ClientUuid,
+    pub client_idempotency_key: ClientUuid,
     /// The waiting item an edit replaces.
-    pub(crate) replaces_queue_item_id: Option<QueueItemId>,
+    pub replaces_queue_item_id: Option<QueueItemId>,
     /// When it is queued.
-    pub(crate) now: WireInstant,
+    pub now: WireInstant,
 }
 
 /// Where a waiting message goes once it leaves `queued` other than by an edit: taken, by the run
 /// named, removed, or never delivered, with the reason.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum QueueItemOutcome {
+pub enum QueueItemOutcome {
     /// Taken by the run.
     Admitted {
         /// The run that took it.
@@ -165,7 +165,7 @@ pub(crate) enum QueueItemOutcome {
 
 /// The state a waiting message leaves `queued` for: an outcome, or replaced by an edit.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum QueueItemExit {
+pub enum QueueItemExit {
     /// An outcome other than an edit.
     Outcome(QueueItemOutcome),
     /// Replaced by an edit.
@@ -174,24 +174,24 @@ pub(crate) enum QueueItemExit {
 
 /// The session's current lead run and its state.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CurrentLeadRun {
+pub struct CurrentLeadRun {
     /// The run.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// Its state.
-    pub(crate) state: RunState,
+    pub state: RunState,
 }
 
 /// The columns every read of an item selects, in the order `record_of` reads them.
-pub(super) const COLUMNS: &str = "id, session_id, state, not_delivered_reason, payload, \
+pub const COLUMNS: &str = "id, session_id, state, not_delivered_reason, payload, \
     target_run_id, child_handle, position, client_idempotency_key, created_at, updated_at, \
     send_now_id, not_delivered_words";
 
 /// The columns `COLUMNS` names; a read's own column follows them.
-pub(super) const COLUMN_COUNT: usize = 13;
+pub const COLUMN_COUNT: usize = 13;
 
 /// An item's order within its queue: by place, and an edit's superseded item after its
 /// replacement.
-pub(super) const QUEUE_ORDER: &str = "ORDER BY position, created_at DESC, id";
+pub const QUEUE_ORDER: &str = "ORDER BY position, created_at DESC, id";
 
 // Changes no row when the send's key was already spent in the session, so the write that carries
 // it is refused and nothing saved is replaced. Only a person's send reaches here, so the queue is
@@ -428,7 +428,7 @@ pub(crate) static SELECT_WAITING_FOR_RUN_SQL: LazyLock<String> = LazyLock::new(|
 });
 
 /// The statement that inserts `item` as `queued`; refused when its key was already spent.
-pub(crate) fn insert_queue_item_statement(item: &NewQueueItem) -> WriteStatement {
+pub fn insert_queue_item_statement(item: &NewQueueItem) -> WriteStatement {
     let payload =
         serde_json::to_string(&item.body).expect("a body of typed members serializes to JSON");
     WriteStatement {
@@ -457,7 +457,7 @@ pub(crate) fn insert_queue_item_statement(item: &NewQueueItem) -> WriteStatement
 }
 
 /// The statement that moves a waiting item out of `queued`; refused once it has left.
-pub(crate) fn leave_queued_statement(
+pub fn leave_queued_statement(
     id: &QueueItemId,
     exit: &QueueItemExit,
     now: &WireInstant,
@@ -489,25 +489,18 @@ pub(crate) fn leave_queued_statement(
 }
 
 /// The statement that admits an item read not delivered; refused unless it reads not delivered.
-pub(crate) fn admit_undelivered_statement(id: &QueueItemId, now: &WireInstant) -> WriteStatement {
+pub fn admit_undelivered_statement(id: &QueueItemId, now: &WireInstant) -> WriteStatement {
     item_change_statement(&ADMIT_UNDELIVERED_SQL, id, now)
 }
 
 /// The statement that marks an item read not delivered superseded by its retry; refused unless it
 /// reads not delivered.
-pub(crate) fn supersede_undelivered_statement(
-    id: &QueueItemId,
-    now: &WireInstant,
-) -> WriteStatement {
+pub fn supersede_undelivered_statement(id: &QueueItemId, now: &WireInstant) -> WriteStatement {
     item_change_statement(&SUPERSEDE_UNDELIVERED_SQL, id, now)
 }
 
 /// The statement that points a waiting item at the run it now goes to; refused once it has left.
-pub(crate) fn retarget_statement(
-    id: &QueueItemId,
-    run_id: &RunId,
-    now: &WireInstant,
-) -> WriteStatement {
+pub fn retarget_statement(id: &QueueItemId, run_id: &RunId, now: &WireInstant) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(RETARGET_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
@@ -521,10 +514,7 @@ pub(crate) fn retarget_statement(
 
 /// The statements that give the waiting items `ordered` the places they hold between them, in that
 /// order; each is refused once its item has left the queue.
-pub(crate) fn placement_statements(
-    ordered: &[QueueItemRecord],
-    now: &WireInstant,
-) -> Vec<WriteStatement> {
+pub fn placement_statements(ordered: &[QueueItemRecord], now: &WireInstant) -> Vec<WriteStatement> {
     let mut positions: Vec<SafeInt<0>> = ordered.iter().map(|item| item.position).collect();
     positions.sort_unstable();
     ordered
@@ -546,7 +536,7 @@ pub(crate) fn placement_statements(
 }
 
 /// Holds only while `run_id` has not ended, so a message never goes to a run that ended first.
-pub(crate) fn run_live_statement(run_id: &RunId) -> WriteStatement {
+pub fn run_live_statement(run_id: &RunId) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(RUN_LIVE_SQL.as_str()),
         bindings: StatementBindings::Named(vec![text_binding("@run_id", run_id.text().as_str())]),
@@ -555,17 +545,17 @@ pub(crate) fn run_live_statement(run_id: &RunId) -> WriteStatement {
 }
 
 /// Holds only while the session takes messages: it is neither closed nor being purged.
-pub(crate) fn session_takes_messages_statement(session_id: &SessionId) -> WriteStatement {
+pub fn session_takes_messages_statement(session_id: &SessionId) -> WriteStatement {
     session_statement(&SESSION_TAKES_MESSAGES_SQL, session_id, 1)
 }
 
 /// Holds only while the session has no lead run that has not ended.
-pub(crate) fn no_live_lead_run_statement(session_id: &SessionId) -> WriteStatement {
+pub fn no_live_lead_run_statement(session_id: &SessionId) -> WriteStatement {
     session_statement(&LIVE_LEAD_RUNS_SQL, session_id, 0)
 }
 
 /// Holds only while `run_id` reads interrupted and is its session's current lead run.
-pub(crate) fn current_interrupted_lead_run_statement(run_id: &RunId) -> WriteStatement {
+pub fn current_interrupted_lead_run_statement(run_id: &RunId) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(CURRENT_INTERRUPTED_LEAD_RUN_SQL.as_str()),
         bindings: StatementBindings::Named(vec![text_binding("@run_id", run_id.text().as_str())]),
@@ -600,18 +590,18 @@ pub(crate) fn take_over_interrupted_statement(
 
 /// Reads queue rows on the daemon's read-only connection. A stored value that does not read as its
 /// type fails the read with `rusqlite::Error::FromSqlConversionFailure`, keeping why.
-pub(crate) struct QueueItemReader<'reader> {
+pub struct QueueItemReader<'reader> {
     reader: &'reader Connection,
 }
 
 impl<'reader> QueueItemReader<'reader> {
     /// A reader over `reader`, the daemon's read-only connection.
-    pub(crate) fn new(reader: &'reader Connection) -> Self {
+    pub fn new(reader: &'reader Connection) -> Self {
         Self { reader }
     }
 
     /// The item `id`, or `None` for one the daemon has no row for.
-    pub(crate) fn get(&self, id: &QueueItemId) -> rusqlite::Result<Option<QueueItemRecord>> {
+    pub fn get(&self, id: &QueueItemId) -> rusqlite::Result<Option<QueueItemRecord>> {
         self.reader
             .prepare_cached(&SELECT_BY_ID_SQL)?
             .query_row([id.text().as_str()], record_of)
@@ -619,7 +609,7 @@ impl<'reader> QueueItemReader<'reader> {
     }
 
     /// The item a send under `client_idempotency_key` saved in the session, or `None`.
-    pub(crate) fn get_by_idempotency_key(
+    pub fn get_by_idempotency_key(
         &self,
         session_id: &SessionId,
         client_idempotency_key: &ClientUuid,
@@ -635,7 +625,7 @@ impl<'reader> QueueItemReader<'reader> {
 
     /// A queue, the lead's or a child's, in its order: the items in `state` when it is given, else
     /// every item waiting or not delivered.
-    pub(crate) fn list(
+    pub fn list(
         &self,
         session_id: &SessionId,
         child_handle: Option<&ChildHandle>,
@@ -655,10 +645,7 @@ impl<'reader> QueueItemReader<'reader> {
     }
 
     /// The messages still waiting for `run_id`, in their queue's order.
-    pub(crate) fn list_waiting_for_run(
-        &self,
-        run_id: &RunId,
-    ) -> rusqlite::Result<Vec<QueueItemRecord>> {
+    pub fn list_waiting_for_run(&self, run_id: &RunId) -> rusqlite::Result<Vec<QueueItemRecord>> {
         self.reader
             .prepare_cached(&SELECT_WAITING_FOR_RUN_SQL)?
             .query_map([run_id.text().as_str()], record_of)?
@@ -666,10 +653,7 @@ impl<'reader> QueueItemReader<'reader> {
     }
 
     /// The session's newest lead run that has not ended, or `None` while none is live.
-    pub(crate) fn read_live_lead_run(
-        &self,
-        session_id: &SessionId,
-    ) -> rusqlite::Result<Option<RunId>> {
+    pub fn read_live_lead_run(&self, session_id: &SessionId) -> rusqlite::Result<Option<RunId>> {
         self.reader
             .prepare_cached(&LIVE_LEAD_RUN_SQL)?
             .query_row([session_id.text().as_str()], |row| {
@@ -680,7 +664,7 @@ impl<'reader> QueueItemReader<'reader> {
 
     /// The session's current lead run and its state: its newest, but one whose start failed before
     /// it ran leaves the run before it current; `None` before its first run.
-    pub(crate) fn read_current_lead_run(
+    pub fn read_current_lead_run(
         &self,
         session_id: &SessionId,
     ) -> rusqlite::Result<Option<CurrentLeadRun>> {
@@ -696,7 +680,7 @@ impl<'reader> QueueItemReader<'reader> {
     }
 
     /// The sessions with a lead message waiting for a run that ended or has not started.
-    pub(crate) fn list_sessions_with_unstarted_waiting(&self) -> rusqlite::Result<Vec<SessionId>> {
+    pub fn list_sessions_with_unstarted_waiting(&self) -> rusqlite::Result<Vec<SessionId>> {
         self.reader
             .prepare_cached(&SESSIONS_WITH_UNSTARTED_WAITING_SQL)?
             .query_map([], |row| text_column(row, 0, |text| SessionId::new(&text)))?
@@ -718,7 +702,7 @@ struct NotAChildHandle;
 /// The item a row of `COLUMNS` holds; fails with `rusqlite::Error::FromSqlConversionFailure` when a
 /// value does not read as its type. The payload is written only by `insert_queue_item_statement`,
 /// from a typed body.
-pub(super) fn record_of(row: &Row<'_>) -> rusqlite::Result<QueueItemRecord> {
+pub fn record_of(row: &Row<'_>) -> rusqlite::Result<QueueItemRecord> {
     let state: QueueItemState = text_column(row, 2, closed_word)?;
     let kind: Option<QueueItemNotDeliveredKind> = optional_text_column(row, 3, closed_word)?;
     let words = optional_text_column(row, 12, FreeFormText::new)?;

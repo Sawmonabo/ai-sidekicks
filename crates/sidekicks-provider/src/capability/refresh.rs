@@ -38,7 +38,7 @@ use sidekicks_std::mutex_lock::lock;
 pub(crate) const CAPABILITY_REFRESH_READ_TIMEOUT: Duration = Duration::from_mins(2);
 
 /// Reads every registered driver's capabilities again when asked; see the module doc.
-pub(crate) struct CapabilityRefresher {
+pub struct CapabilityRefresher {
     /// What callers ask of the pass task.
     asks: Arc<RefreshAsks>,
     /// The number of passes the task has finished, which a caller waits on.
@@ -47,7 +47,7 @@ pub(crate) struct CapabilityRefresher {
 
 /// The refresher's pass task, from [`CapabilityRefresher::start`] until
 /// [`CapabilityRefreshing::stop`]; dropping it ends the task too, unawaited.
-pub(crate) struct CapabilityRefreshing {
+pub struct CapabilityRefreshing {
     /// Ends the task, dropping a pass under way, when stopped or dropped.
     stop: DropGuard,
     /// The task that runs the passes.
@@ -95,7 +95,7 @@ impl CapabilityRefresher {
     /// A refresher over the registered drivers, declaring through `writer`, and its pass task,
     /// spawned on the current tokio runtime, so it must run inside one; no pass runs until one is
     /// asked for.
-    pub(crate) fn start(
+    pub fn start(
         providers: Arc<ProviderRegistry>,
         writer: Arc<DriverCapabilitiesWriter>,
     ) -> (Self, CapabilityRefreshing) {
@@ -125,7 +125,7 @@ impl CapabilityRefresher {
     /// reported as a diagnostic, never returned. Asked while a pass runs, it waits for the one
     /// pass after it. Returns `false` when the task, ended by its handle's stop or drop, ended
     /// before that pass finished.
-    pub(crate) async fn refresh_now(&self) -> bool {
+    pub async fn refresh_now(&self) -> bool {
         let needed = {
             let mut state = lock(&self.asks.state);
             state.requested = state.started + 1;
@@ -142,7 +142,7 @@ impl CapabilityRefreshing {
     /// Ends the pass task, dropping a pass under way, which cancels its reads, and settles once
     /// the task has ended; every caller still waiting then returns `false`. Fails only when the
     /// task itself ended abnormally.
-    pub(crate) async fn stop(self) -> Result<(), JoinError> {
+    pub async fn stop(self) -> Result<(), JoinError> {
         let Self { stop, task } = self;
         drop(stop);
         task.await

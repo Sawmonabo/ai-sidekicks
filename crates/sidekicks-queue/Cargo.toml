@@ -27,13 +27,21 @@ tracing.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true
+# The test driver registry, the mock driver and the stand-in stores the tests build on.
+sidekicks-provider = { workspace = true, features = ["test-support"] }
+# The run engine, the questions and the transcript fixtures the tests build on.
+sidekicks-session = { workspace = true, features = ["test-support"] }
+# The pause points and stalled reads the tests arm.
+sidekicks-std = { workspace = true, features = ["test-support"] }
+# The test database and the session rows the tests build on.
+sidekicks-store = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
 # The paused clock the memory gate's and the delivery's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 
 [features]
 # Helpers other crates' tests use: a provider session opened for a test.
-test-support = []
+test-support = ["sidekicks-provider/test-support"]
 
 [lints]
 workspace = true

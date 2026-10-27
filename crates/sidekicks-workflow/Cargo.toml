@@ -29,6 +29,10 @@ thiserror.workspace = true
 futures.workspace = true
 proptest.workspace = true
 rstest.workspace = true
+# The test database and the session rows the tests build on.
+sidekicks-store = { workspace = true, features = ["test-support"] }
+# The git runner and the workspace rows the tests build on.
+sidekicks-workspace = { workspace = true, features = ["test-support"] }
 tokio.workspace = true
 uuid.workspace = true
 

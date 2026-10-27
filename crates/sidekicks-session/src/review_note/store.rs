@@ -55,7 +55,7 @@ use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// The statements the store's reads prepare on a read connection: the session's notes, one note,
 /// and whether the session has a row.
-pub(crate) const REVIEW_NOTE_STORE_STATEMENT_CAPACITY: usize = 3;
+pub const REVIEW_NOTE_STORE_STATEMENT_CAPACITY: usize = 3;
 
 // The note columns every read takes, in the order `stored_note_of` reads them.
 macro_rules! select_notes {

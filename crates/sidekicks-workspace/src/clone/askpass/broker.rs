@@ -91,7 +91,7 @@ impl BrokerState {
 
 /// Why the askpass broker could not start or close.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum AskpassBrokerError {
+pub enum AskpassBrokerError {
     /// The socket the program connects to could not be opened.
     #[error("the askpass program's socket could not be opened")]
     Listen(#[source] io::Error),
@@ -158,7 +158,7 @@ impl Drop for AskpassOwner {
 
 /// Routes the askpass program's questions to their owners. [`AskpassBroker::close`] refuses
 /// everything open and removes its socket; dropping the broker stops it the same way.
-pub(crate) struct AskpassBroker {
+pub struct AskpassBroker {
     state: Arc<BrokerState>,
     listening: JoinHandle<()>,
 }
@@ -168,7 +168,7 @@ impl AskpassBroker {
     /// program at `program_path`, which git and ssh run. Runs inside a tokio runtime; fails when
     /// the socket cannot be opened, `Unsupported` where the system has no private askpass socket
     /// yet.
-    pub(crate) fn start(folder: &Path, program_path: PathBuf) -> Result<Self, AskpassBrokerError> {
+    pub fn start(folder: &Path, program_path: PathBuf) -> Result<Self, AskpassBrokerError> {
         let (listener, socket_path) =
             askpass_listener(folder).map_err(AskpassBrokerError::Listen)?;
         let state = Arc::new(BrokerState {
@@ -214,7 +214,7 @@ impl AskpassBroker {
 
     /// Refuses every open question, stops accepting and removes the socket, once every
     /// connection has closed. Fails when the listening task ended by a panic.
-    pub(crate) async fn close(mut self) -> Result<(), AskpassBrokerError> {
+    pub async fn close(mut self) -> Result<(), AskpassBrokerError> {
         self.state.owners().clear();
         self.state.shutdown.cancel();
         (&mut self.listening)

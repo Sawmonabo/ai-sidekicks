@@ -47,20 +47,20 @@ pub(crate) static ROW_ENDING_EVENT_TYPES_SQL: LazyLock<String> =
     LazyLock::new(|| sql_list_of(ROW_ENDING_EVENT_TYPES.iter().copied()));
 
 /// Whether an event of `event_type` ends its run's rows, as [`ROW_ENDING_EVENT_TYPES_SQL`] lists.
-pub(crate) fn is_row_ending_event_type(event_type: &str) -> bool {
+pub fn is_row_ending_event_type(event_type: &str) -> bool {
     ROW_ENDING_EVENT_TYPES.contains(&event_type)
 }
 
 /// Whether the event aliased `event_alias` is a stored part of a patch-bearing completion, which
 /// joins the completion's row and is no event of its own.
-pub(crate) fn stored_patch_part_sql(event_alias: &str) -> String {
+pub fn stored_patch_part_sql(event_alias: &str) -> String {
     format!("{event_alias}.patch_file_index IS NOT NULL")
 }
 
 /// Whether the event aliased `event_alias` stands as a row: it starts one, or it is a piece that
 /// continues a row whose first piece is unreadable and no readable piece of that row comes before
 /// it; a stored part of a completion never stands as a row of its own.
-pub(crate) fn row_condition_sql(event_alias: &str) -> String {
+pub fn row_condition_sql(event_alias: &str) -> String {
     format!(
         "({event_alias}.joins_sequence IS NULL OR (
       {event_alias}.patch_file_index IS NULL
@@ -206,18 +206,18 @@ static PIECE_BODY_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// One stored piece of a row's body.
 #[derive(Clone, Debug)]
-pub(crate) struct RowMember {
+pub struct RowMember {
     /// The piece's sequence.
-    pub(crate) sequence: i64,
+    pub sequence: i64,
     /// Its body's UTF-8 length, as its payload states it.
-    pub(crate) content_length: u64,
+    pub content_length: u64,
     /// Its text, when the read loaded it.
-    pub(crate) text: Option<String>,
+    pub text: Option<String>,
 }
 
 /// The rows of one session's log on a read-only connection, and the pieces their bodies join;
 /// each read fails with [`SessionLogReadError`] as the log's reads do.
-pub(crate) struct RowReads<'reads, 'reader, DamagedFrom> {
+pub struct RowReads<'reads, 'reader, DamagedFrom> {
     reads: &'reads SessionEventReads<'reader, DamagedFrom>,
     reader: &'reader Connection,
     session_id: &'reads SessionId,
@@ -228,7 +228,7 @@ where
     DamagedFrom: Fn(&SessionId) -> Option<i64>,
 {
     /// The row reads of `session_id` over `reads`, on `reader`, the connection under `reads`.
-    pub(crate) fn new(
+    pub fn new(
         reads: &'reads SessionEventReads<'reader, DamagedFrom>,
         reader: &'reader Connection,
         session_id: &'reads SessionId,
@@ -242,7 +242,7 @@ where
 
     /// Up to `limit` rows of the session after `after_position`, below `before_sequence` where
     /// given.
-    pub(crate) fn rows_after(
+    pub fn rows_after(
         &self,
         after_position: i64,
         before_sequence: Option<i64>,
@@ -260,7 +260,7 @@ where
     }
 
     /// The newest `limit` rows of the session at or below `position`, oldest first.
-    pub(crate) fn rows_at_or_before(
+    pub fn rows_at_or_before(
         &self,
         position: i64,
         limit: i64,
@@ -280,7 +280,7 @@ where
 
     /// The sequence of the row the readable event at `position` belongs to: its own when it stands
     /// as a row, else its row's; `None` when no readable event sits there.
-    pub(crate) fn row_at(&self, position: i64) -> rusqlite::Result<Option<i64>> {
+    pub fn row_at(&self, position: i64) -> rusqlite::Result<Option<i64>> {
         let session_id = self.session_id.text();
         let read_bound = self.reads.read_bound(self.session_id, None);
         let found: Option<(Option<i64>, bool)> = self
@@ -316,7 +316,7 @@ where
     /// `load_max_bytes` long. Fails on a piece whose payload states no length or whose body does
     /// not decode to it, and on a payload no JSON function reads, as [`payload_damage_of`] names
     /// it.
-    pub(crate) fn row_members(
+    pub fn row_members(
         &self,
         row_sequences: &[i64],
         head: i64,
@@ -349,11 +349,7 @@ where
 
     /// Which of `rows`, each a row's sequence and its last piece's through `head`, still take
     /// pieces: a row of a run that no turn end or rollback of its run has followed.
-    pub(crate) fn unended_rows(
-        &self,
-        rows: &[(i64, i64)],
-        head: i64,
-    ) -> rusqlite::Result<HashSet<i64>> {
+    pub fn unended_rows(&self, rows: &[(i64, i64)], head: i64) -> rusqlite::Result<HashSet<i64>> {
         if rows.is_empty() {
             return Ok(HashSet::new());
         }
@@ -374,7 +370,7 @@ where
     /// The text of the pieces at `sequences`, decoded and joined in log order; fails on a body
     /// that does not decode to the length its payload states, and on a payload no JSON function
     /// reads, as [`payload_damage_of`] names it.
-    pub(crate) fn piece_texts(&self, sequences: &[i64]) -> rusqlite::Result<String> {
+    pub fn piece_texts(&self, sequences: &[i64]) -> rusqlite::Result<String> {
         let read = || {
             let mut statement = self.reader.prepare_cached(&PIECE_TEXTS_SQL)?;
             let mut rows = statement.query(named_params! {
@@ -396,7 +392,7 @@ where
     /// The stretch covering `from..to` of the body of the piece at `sequence`, decoding only the
     /// frames it falls in; `None` when the piece has no body. Fails as [`RowReads::piece_texts`]
     /// does.
-    pub(crate) fn piece_stretch(
+    pub fn piece_stretch(
         &self,
         sequence: i64,
         from: usize,
@@ -419,7 +415,7 @@ where
 
 /// A row's body joined from its pieces: the whole body's length, and its text when every piece's
 /// text was loaded.
-pub(crate) struct JoinedBody {
+pub struct JoinedBody {
     /// The whole body's UTF-8 length.
     pub(crate) content_length: u64,
     /// The whole text, when loaded.
@@ -428,7 +424,7 @@ pub(crate) struct JoinedBody {
 
 impl JoinedBody {
     /// The payload members that describe the whole body, which a read echoes.
-    pub(crate) fn facts(&self) -> Map<String, Value> {
+    pub fn facts(&self) -> Map<String, Value> {
         Map::from_iter([(
             CONTENT_LENGTH_PAYLOAD_KEY.to_owned(),
             Value::from(self.content_length),
@@ -437,7 +433,7 @@ impl JoinedBody {
 }
 
 /// A row's body from its `members`; `None` when the row has no body.
-pub(crate) fn joined_body_of(members: Vec<RowMember>) -> Option<JoinedBody> {
+pub fn joined_body_of(members: Vec<RowMember>) -> Option<JoinedBody> {
     if members.is_empty() {
         return None;
     }
@@ -458,7 +454,7 @@ pub(crate) fn joined_body_of(members: Vec<RowMember>) -> Option<JoinedBody> {
 
 /// The body a row carries: its joined text when it is loaded and small enough to travel, else its
 /// size alone, else `absent`.
-pub(crate) fn joined_row_content_of(
+pub fn joined_row_content_of(
     payload: &Map<String, Value>,
     body: Option<&JoinedBody>,
 ) -> TranscriptRowContent {

@@ -36,27 +36,27 @@ use sidekicks_store::events::session::read::readable_event_sql;
 /// applied interventions alike; a decision taken from it is guarded again inside the write it
 /// decides, since another write may land between the read and that write.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RunRead {
+pub struct RunRead {
     /// The run's version.
-    pub(crate) version: i64,
+    pub version: i64,
     /// The session the run belongs to.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The run's current state.
-    pub(crate) state: RunState,
+    pub state: RunState,
 }
 
 /// A run and the session it belongs to, as a read across sessions names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct SessionRun {
+pub struct SessionRun {
     /// The run.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// Its session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
 }
 
 /// A row whose first column is a run's id and second its session's, as a [`SessionRun`]. Fails
 /// when either does not read as its id.
-pub(crate) fn session_run_of_row(row: &Row<'_>) -> rusqlite::Result<SessionRun> {
+pub fn session_run_of_row(row: &Row<'_>) -> rusqlite::Result<SessionRun> {
     Ok(SessionRun {
         run_id: text_column(row, 0, |text| RunId::new(&text))?,
         session_id: text_column(row, 1, |text| SessionId::new(&text))?,
@@ -65,11 +65,11 @@ pub(crate) fn session_run_of_row(row: &Row<'_>) -> rusqlite::Result<SessionRun> 
 
 /// A run not yet ended, with the parent it was reached from and how; both absent on a lead run.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LiveRun {
+pub struct LiveRun {
     /// The run.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// Its state and version.
-    pub(crate) run: RunRead,
+    pub run: RunRead,
     /// The run it was reached from; absent on a lead run.
     pub(crate) parent_run_id: Option<RunId>,
     /// How it was reached from its parent; absent on a lead run.
@@ -189,19 +189,19 @@ static SELECT_ENDED_RUNS_WITH_OPEN_TURNS_SQL: LazyLock<SessionScopedSql> = LazyL
 /// Reads runs on the daemon's read-only connection, which sees each write once it has committed.
 /// A stored value that does not read as its type fails the read with
 /// `rusqlite::Error::FromSqlConversionFailure`, keeping why.
-pub(crate) struct RunStateReader<'connection> {
+pub struct RunStateReader<'connection> {
     /// The daemon's read-only connection.
     reader: &'connection Connection,
 }
 
 impl<'connection> RunStateReader<'connection> {
     /// A reader over `reader`, the daemon's read-only connection.
-    pub(crate) fn new(reader: &'connection Connection) -> Self {
+    pub fn new(reader: &'connection Connection) -> Self {
         Self { reader }
     }
 
     /// The run's current state and version, or `None` for a run the daemon has no row for.
-    pub(crate) fn read_run(&self, run_id: &RunId) -> rusqlite::Result<Option<RunRead>> {
+    pub fn read_run(&self, run_id: &RunId) -> rusqlite::Result<Option<RunRead>> {
         self.reader
             .prepare_cached(SELECT_RUN_SQL)?
             .query_row([run_id.text().as_str()], |row| {
@@ -216,10 +216,7 @@ impl<'connection> RunStateReader<'connection> {
 
     /// Every run of `session_id`, or of every session when it is `None`, that has not ended,
     /// queued runs included.
-    pub(crate) fn list_live_runs(
-        &self,
-        session_id: Option<&SessionId>,
-    ) -> rusqlite::Result<Vec<LiveRun>> {
+    pub fn list_live_runs(&self, session_id: Option<&SessionId>) -> rusqlite::Result<Vec<LiveRun>> {
         SELECT_LIVE_RUNS_SQL.query(self.reader, session_id, |row| {
             Ok(LiveRun {
                 run_id: text_column(row, 0, |text| RunId::new(&text))?,
@@ -236,7 +233,7 @@ impl<'connection> RunStateReader<'connection> {
 
     /// Every run of `session_id`, or of every session when it is `None`, that has ended while a
     /// turn of it holds no end, as a restart finds it.
-    pub(crate) fn list_ended_runs_with_open_turns(
+    pub fn list_ended_runs_with_open_turns(
         &self,
         session_id: Option<&SessionId>,
     ) -> rusqlite::Result<Vec<SessionRun>> {
@@ -261,7 +258,7 @@ impl<'connection> RunStateReader<'connection> {
 
 /// The run's current state and version read through `pool`, or `None` for a run the daemon has
 /// no row for. Fails as the pool and the read do.
-pub(crate) async fn read_run_through<Failure>(
+pub async fn read_run_through<Failure>(
     pool: &DatabaseReadPool,
     run_id: RunId,
 ) -> Result<Option<RunRead>, Failure>
@@ -276,18 +273,18 @@ where
 
 /// The runtime binding a run runs under and the provider it names.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RunProvider {
+pub struct RunProvider {
     /// The binding.
-    pub(crate) binding_id: RuntimeBindingId,
+    pub binding_id: RuntimeBindingId,
     /// The provider the binding runs on.
-    pub(crate) provider: ProviderId,
+    pub provider: ProviderId,
 }
 
 /// The provider `run_id` runs on, read on `reader`, with the binding that names it: its own newest
 /// runtime binding, or, for a provider subagent, the nearest parent's whose provider process it
 /// runs in; `None` when none of them has a binding. Fails when SQLite refuses the read or a stored
 /// id or name does not read as its type.
-pub(crate) fn read_run_provider(
+pub fn read_run_provider(
     reader: &Connection,
     run_id: &RunId,
 ) -> rusqlite::Result<Option<RunProvider>> {
@@ -356,7 +353,7 @@ pub(crate) fn read_session_live_runs(
 }
 
 /// A stored run version as the wire carries it.
-pub(crate) fn safe_run_version(version: i64) -> SafeInt<0> {
+pub fn safe_run_version(version: i64) -> SafeInt<0> {
     u64::try_from(version)
         .ok()
         .and_then(SafeInt::new)
@@ -371,7 +368,7 @@ mod tests {
     use super::read_run_provider;
     use crate::questions::schema::schema_parts;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_driver::PROVIDER_REGISTRATIONS;
+    use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 

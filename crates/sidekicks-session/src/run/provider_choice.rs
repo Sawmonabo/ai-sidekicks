@@ -65,7 +65,7 @@ mod tests;
 
 /// The statements [`ProviderChoiceResolver`] prepares on a read connection: the run, the provider
 /// it runs on, the newest request of a choice and a settlement since it.
-pub(crate) const PROVIDER_CHOICE_STATEMENT_CAPACITY: usize = 4;
+pub const PROVIDER_CHOICE_STATEMENT_CAPACITY: usize = 4;
 
 // The settlement guard is the one companion of a settlement's move, terminal or not.
 const SETTLEMENT_GUARD_COMPANION_INDEX: usize = 0;
@@ -123,14 +123,14 @@ static SELECT_ENDED_RUNS_WITH_OPEN_CHOICES_SQL: LazyLock<SessionScopedSql> = Laz
 
 /// Who answered a choice: the device of the connection the answer arrived on.
 #[derive(Clone, Debug)]
-pub(crate) struct ProviderChoiceAnswerOrigin {
+pub struct ProviderChoiceAnswerOrigin {
     /// The answering device.
-    pub(crate) device_id: DeviceId,
+    pub device_id: DeviceId,
 }
 
 /// Why an answer to a provider's choice did not settle it; a refusal wrote nothing.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ProviderChoiceError {
+pub enum ProviderChoiceError {
     /// The run is unknown, or waits on no such choice because it was settled or never asked.
     #[error(transparent)]
     Refused(#[from] RunRefusal),
@@ -251,7 +251,7 @@ struct WaitingRun {
 
 /// Answers the choices a provider holds runs on. Answers on one run take turns, so of two answers
 /// to one choice the second meets a settled one and is refused with `agent.run.invalidTransition`.
-pub(crate) struct ProviderChoiceResolver {
+pub struct ProviderChoiceResolver {
     pool: Arc<DatabaseReadPool>,
     engine: Arc<RunEngine>,
     providers: Arc<ProviderRegistry>,
@@ -265,7 +265,7 @@ pub(crate) struct ProviderChoiceResolver {
 impl ProviderChoiceResolver {
     /// A resolver reading runs and their log through `pool`, moving them through `engine` and
     /// reaching each run's provider through its driver in `providers`.
-    pub(crate) fn new(
+    pub fn new(
         pool: Arc<DatabaseReadPool>,
         engine: Arc<RunEngine>,
         providers: Arc<ProviderRegistry>,
@@ -287,7 +287,7 @@ impl ProviderChoiceResolver {
     /// provider got with no reply back fails with [`ProviderChoiceError::Driver`] and is held, the
     /// run left waiting, for [`ProviderChoiceResolver::settle_held_answer`] or a second answer to
     /// settle.
-    pub(crate) async fn resolve_refusal_choice(
+    pub async fn resolve_refusal_choice(
         &self,
         request: &AgentRunRefusalChoiceResolveRequest,
         origin: ProviderChoiceAnswerOrigin,
@@ -360,7 +360,7 @@ impl ProviderChoiceResolver {
     /// the run to `running`, where a limit it owes is handed again on its own. Refused as
     /// [`ProviderChoiceResolver::resolve_refusal_choice`] is, nothing sent or written, and held as
     /// it holds an answer that got no reply back.
-    pub(crate) async fn resolve_usage_credits_choice(
+    pub async fn resolve_usage_credits_choice(
         &self,
         request: &AgentRunUsageCreditsChoiceResolveRequest,
         origin: ProviderChoiceAnswerOrigin,
@@ -667,7 +667,7 @@ pub(crate) fn read_open_choice_settlements(
 /// `appender`, read again once when one was settled since its read: for a request that committed
 /// after the run's end had read its open choices. A run still live is left to its own end. Fails
 /// as the reads or the write fail.
-pub(crate) async fn settle_open_choices_of_ended_run(
+pub async fn settle_open_choices_of_ended_run(
     pool: &DatabaseReadPool,
     appender: &SessionEventAppender,
     run_id: RunId,
@@ -710,7 +710,7 @@ pub(crate) async fn settle_open_choices_of_ended_run(
 /// The runs of `session_id`, or of every session when it is `None`, that have ended while a choice
 /// their provider asked is still unsettled, read on `reader`: one whose request committed after
 /// the run's end had read its open choices. Fails when the read fails or a stored id is not one.
-pub(crate) fn read_ended_runs_with_open_choices(
+pub fn read_ended_runs_with_open_choices(
     reader: &Connection,
     session_id: Option<&SessionId>,
 ) -> rusqlite::Result<Vec<SessionRun>> {

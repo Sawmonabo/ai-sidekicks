@@ -23,7 +23,7 @@ use sidekicks_workspace::run_setup_gates::{
 };
 
 /// The reference every run's posture carries; it names the daemon's one curated credential list.
-pub(crate) const CURATED_CREDENTIAL_POLICY_REF: &str = "curated-credentials";
+pub const CURATED_CREDENTIAL_POLICY_REF: &str = "curated-credentials";
 
 /// The credential variables removed from every provider process's environment and from every
 /// provider conversation's command environment, compared under the host's environment-name rule.
@@ -33,7 +33,7 @@ pub(crate) const CURATED_CREDENTIAL_ENV_VARS: &[&str] = &["GITHUB_TOKEN", "NPM_T
 /// common one for a linked worktree, is `git_folder`: at Sandboxed that folder is writable, its
 /// `hooks` and `config` aside, so a commit from a linked worktree lands; no other level names a
 /// writable root.
-pub(crate) fn compose_execution_posture(
+pub fn compose_execution_posture(
     level: PermissionLevel,
     git_folder: FilesystemPath,
 ) -> ExecutionPosture {
@@ -141,7 +141,7 @@ pub(crate) enum CredentialPolicyResolveError {
 
 /// Checks and resolves every run's posture as a run setup gate, keeps the resolved posture for the
 /// run's `agent.run.running` stamp until the run ends, and resolves the curated credential list.
-pub(crate) struct ExecutionPostureService {
+pub struct ExecutionPostureService {
     // The curated list's entries, each path expanded against the home folder.
     deny_entries: [CredentialDenyPath; 3],
     // One entry per run past its gate and not yet ended.
@@ -152,7 +152,7 @@ impl ExecutionPostureService {
     /// A service whose curated folders sit under `home`, the person's home folder, and whose
     /// curated file is `session_token_path`, the daemon's absolute session token file: whoever
     /// reads it is admitted on the daemon's socket, so no agent's command may.
-    pub(crate) fn new(home: &Path, session_token_path: PathBuf) -> Self {
+    pub fn new(home: &Path, session_token_path: PathBuf) -> Self {
         Self {
             deny_entries: [
                 CredentialDenyPath {
@@ -192,7 +192,7 @@ impl ExecutionPostureService {
     /// The complete resolved posture of a run past its gate and not yet ended, `None` for any other
     /// run; the run engine hands it to the driver and stamps it on `agent.run.running`, and a start
     /// that finds `None` ends its run `failed`.
-    pub(crate) fn resolved_posture_for(&self, run_id: &RunId) -> Option<ExecutionPosture> {
+    pub fn resolved_posture_for(&self, run_id: &RunId) -> Option<ExecutionPosture> {
         self.resolved_postures().get(run_id).cloned()
     }
 

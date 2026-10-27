@@ -16,21 +16,21 @@ use sidekicks_std::mutex_lock::lock;
 /// The waiting sessions and the wake of the one task that takes them. Holds at most one entry per
 /// session.
 #[derive(Default)]
-pub(crate) struct PendingSessions {
+pub struct PendingSessions {
     sessions: Mutex<HashSet<SessionId>>,
     wake: Notify,
 }
 
 impl PendingSessions {
     /// Adds `session_id` and wakes the taking task; a session already waiting is kept once.
-    pub(crate) fn add(&self, session_id: SessionId) {
+    pub fn add(&self, session_id: SessionId) {
         self.lock_sessions().insert(session_id);
         // A wake with no task waiting is kept, so an add made while the task works is not lost.
         self.wake.notify_one();
     }
 
     /// Every waiting session, taken at once; waits until one is added when none is.
-    pub(crate) async fn take(&self) -> HashSet<SessionId> {
+    pub async fn take(&self) -> HashSet<SessionId> {
         loop {
             let taken = mem::take(&mut *self.lock_sessions());
             if !taken.is_empty() {

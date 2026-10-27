@@ -72,7 +72,7 @@ struct StoredVersion {
 /// Reads `request`'s artifact and as much of its payload as it picks. Fails with
 /// `artifact.notFound` for an id the daemon does not hold or a version past the group's count, as
 /// the read fails, and as the payload's file read fails.
-pub(crate) async fn read_artifact(
+pub async fn read_artifact(
     reads: &DatabaseReadPool,
     payloads: &PayloadStore,
     request: ArtifactReadRequest,

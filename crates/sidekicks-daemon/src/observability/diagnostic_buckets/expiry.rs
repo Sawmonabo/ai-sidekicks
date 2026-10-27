@@ -365,13 +365,13 @@ mod tests {
     use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
     use crate::observability::diagnostic_buckets::recorders::diagnostic_bucket_folders;
     use crate::remote::shared_ports::schema::schema_parts;
-    use sidekicks_driver::PROVIDER_REGISTRATIONS;
+    use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
     use sidekicks_provider::driver::test_registry::registry_of_first_providers;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
     use sidekicks_store::database::writer::test_file::TestDatabase;
-    use sidekicks_store::events::log_service::tests::open_log;
+    use sidekicks_store::events::log_service::test_log::open_log;
 
     // Past the default bound of seven days.
     const OLD: Duration = Duration::from_hours(24 * 8);

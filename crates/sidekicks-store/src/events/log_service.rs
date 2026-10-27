@@ -64,7 +64,7 @@ const DEFAULT_EVENT_READ_LIMIT: u32 = 100;
 /// position, those rows of chosen types, and a window of rows; and the three turn attribution
 /// reads a session's event stream runs on the same connection, the rollbacks before a position,
 /// the turns between two, and a tool call's opening.
-pub(crate) const EVENT_LOG_STATEMENT_CAPACITY: usize = 7;
+pub const EVENT_LOG_STATEMENT_CAPACITY: usize = 7;
 
 /// How the append path names itself in a refusal.
 const APPEND_REFUSER: &str = "EventLogService::append";
@@ -75,7 +75,7 @@ pub(crate) type ProjectionStatements =
     dyn Fn(&UnsequencedEventEnvelope) -> Result<Vec<WriteStatement>, ProjectionError> + Send + Sync;
 
 /// Why a projection could not compose its change for an event.
-pub(crate) type ProjectionError = Box<dyn Error + Send + Sync>;
+pub type ProjectionError = Box<dyn Error + Send + Sync>;
 
 /// Refuses an append to a session that takes no event of the given type, with the refusal the
 /// caller answers.
@@ -85,7 +85,7 @@ pub(crate) type SessionWriteCheck =
 /// Why a session refuses an append, raised by its [`SessionWriteCheck`]; its `Display` is the
 /// message a person reads.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SessionAppendRefusal {
+pub enum SessionAppendRefusal {
     /// The restart's recovery is still rebuilding the session.
     #[error("{message}")]
     Rebuilding {
@@ -109,30 +109,30 @@ type LogReads<'reader> = SessionEventReads<'reader, &'reader DamagedFromSequence
 
 /// How one [`EventLogService::append`] is written.
 #[derive(Debug, Default)]
-pub(crate) struct EventLogAppendOptions {
+pub struct EventLogAppendOptions {
     /// The event's machine-authored prose, kept in `content_payload`; only a body-bearing type
     /// takes one, and a body over the bound is cut at a character boundary.
-    pub(crate) content_body: Option<String>,
+    pub content_body: Option<String>,
     /// Statements committed in the same write just before the rows. One whose row count is not
     /// the one it expects refuses the write, and nothing of it is kept.
-    pub(crate) transactional_prelude: Vec<WriteStatement>,
+    pub transactional_prelude: Vec<WriteStatement>,
     /// Events of the same session committed in the same write, in order, just before this one,
     /// each at its own sequence with its body, if any; each is checked as this one is.
-    pub(crate) preceding_events: Vec<(UnsequencedEventEnvelope, Option<String>)>,
+    pub preceding_events: Vec<(UnsequencedEventEnvelope, Option<String>)>,
 }
 
 /// An appended event once it committed: its id and the sequence the writer gave it.
 #[derive(Clone, Debug)]
-pub(crate) struct EventLogAppendReceipt {
+pub struct EventLogAppendReceipt {
     /// The event's id, as given.
-    pub(crate) id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    pub id: FreeFormText<EVENT_FIELD_MAX_LEN>,
     /// The event's sequence in its session's log.
     pub(crate) sequence: SafeInt<0>,
 }
 
 /// Why an append was not kept; none of its events is stored.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum EventAppendError {
+pub enum EventAppendError {
     /// The session takes no event of this type; the refusal is the one its check built.
     #[error(transparent)]
     SessionWriteRefused(SessionAppendRefusal),
@@ -190,7 +190,7 @@ pub(crate) enum EventAppendError {
 
 /// Why a read of the log failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum EventLogReadError {
+pub enum EventLogReadError {
     /// The cursor names no position, or one past the session's last event.
     #[error(transparent)]
     CursorUnresolvable(#[from] SessionEventCursorUnresolvable),
@@ -208,7 +208,7 @@ pub(crate) enum EventLogReadError {
 
 impl EventLogReadError {
     /// Whether the read failed because the read pool is closed, as it is at the daemon's stop.
-    pub(crate) fn is_pool_closed(&self) -> bool {
+    pub fn is_pool_closed(&self) -> bool {
         match self {
             Self::Pool(DatabaseReadError::Closed) => true,
             Self::Pool(DatabaseReadError::Open(_) | DatabaseReadError::Join(_))
@@ -221,7 +221,7 @@ impl EventLogReadError {
 
 /// Where a follow of a session's log starts.
 #[derive(Clone, Debug)]
-pub(crate) enum FollowStart {
+pub enum FollowStart {
     /// Before the session's first event.
     StartOfLog,
     /// After the session's newest readable event.
@@ -232,7 +232,7 @@ pub(crate) enum FollowStart {
 
 /// Why a follow of a session's log could not start.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum EventLogFollowError {
+pub enum EventLogFollowError {
     /// The session has no events and no damaged history, so the daemon holds no such session.
     #[error("session {0} has no events to follow")]
     SessionNotFound(SessionId),
@@ -249,29 +249,29 @@ impl From<DatabaseReadError> for EventLogFollowError {
 
 /// One page a change stream reads of a session's log: the session's head when the page's read
 /// began, then the events after the page's position.
-pub(crate) struct EventStreamPage {
+pub struct EventStreamPage {
     /// The session's newest readable sequence, read before the events, `None` when it has none.
-    pub(crate) head: Option<i64>,
+    pub head: Option<i64>,
     /// The events after the position, of the page's types, in sequence order.
-    pub(crate) events: Vec<EventEnvelope>,
+    pub events: Vec<EventEnvelope>,
 }
 
 /// What [`EventLogService::read_after_cursor`] reads.
 #[derive(Clone, Debug)]
-pub(crate) struct EventReadAfterCursorRequest {
+pub struct EventReadAfterCursorRequest {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The position to read after; `None` reads from the start of the log.
-    pub(crate) after_cursor: Option<EventCursor>,
+    pub after_cursor: Option<EventCursor>,
     /// The most events returned; 100 when `None`.
-    pub(crate) limit: Option<u32>,
+    pub limit: Option<u32>,
 }
 
 /// What [`EventLogService::read_after_cursor`] returns.
 #[derive(Clone, Debug)]
-pub(crate) struct EventReadAfterCursorResponse {
+pub struct EventReadAfterCursorResponse {
     /// The events after the cursor, in sequence order.
-    pub(crate) events: Vec<EventEnvelope>,
+    pub events: Vec<EventEnvelope>,
     /// Resumes right after the last event returned; when none was, the position read after.
     pub(crate) next_cursor: EventCursor,
     /// Whether the limit left events beyond `next_cursor`.
@@ -297,25 +297,25 @@ pub(crate) struct EventReadWindowResponse {
 }
 
 /// What the event log service is built from.
-pub(crate) struct EventLogServiceDependencies {
+pub struct EventLogServiceDependencies {
     /// The writer every append goes through.
-    pub(crate) writer: Arc<DatabaseWriter>,
+    pub writer: Arc<DatabaseWriter>,
     /// The read pool every read borrows a connection from.
-    pub(crate) pool: Arc<DatabaseReadPool>,
+    pub pool: Arc<DatabaseReadPool>,
     /// The followers the daemon's start shares with every consumer; each committed write's events
     /// are published to them.
-    pub(crate) followers: Arc<SessionEventFollowers>,
+    pub followers: Arc<SessionEventFollowers>,
     /// Statements committed in each append's write after its prelude, per event; none when absent.
-    pub(crate) projection_statements: Option<Box<ProjectionStatements>>,
+    pub projection_statements: Option<Box<ProjectionStatements>>,
     /// Refuses an append to a session that takes no event of its type; every append is taken when
     /// absent.
-    pub(crate) refuse_session_write: Option<Box<SessionWriteCheck>>,
+    pub refuse_session_write: Option<Box<SessionWriteCheck>>,
     /// Where a damaged session's reads stop; every session reads whole when absent.
-    pub(crate) read_damaged_from_sequence: Option<Arc<DamagedFromSequenceReader>>,
+    pub read_damaged_from_sequence: Option<Arc<DamagedFromSequenceReader>>,
 }
 
 /// The sole append path for `session_events` and the log's reads; see the module doc.
-pub(crate) struct EventLogService {
+pub struct EventLogService {
     writer: Arc<DatabaseWriter>,
     pool: Arc<DatabaseReadPool>,
     followers: Arc<SessionEventFollowers>,
@@ -335,7 +335,7 @@ struct ComposedWrite {
 
 impl EventLogService {
     /// The service over `dependencies`.
-    pub(crate) fn new(dependencies: EventLogServiceDependencies) -> Self {
+    pub fn new(dependencies: EventLogServiceDependencies) -> Self {
         let EventLogServiceDependencies {
             writer,
             pool,
@@ -366,7 +366,7 @@ impl EventLogService {
     /// ([`EventAppendError::Projection`]); then fails as the writer does, [`WriteError::Refused`]
     /// among it. An event is never refused for its size. Dropping the
     /// future once its write is queued neither withdraws the write nor its publication.
-    pub(crate) async fn append(
+    pub async fn append(
         &self,
         envelope: UnsequencedEventEnvelope,
         options: EventLogAppendOptions,
@@ -402,7 +402,7 @@ impl EventLogService {
     /// read first and the cursor checked against it. Fails with
     /// [`EventLogReadError::CursorUnresolvable`] for a cursor that names no position or one past
     /// the session's last event, and as the read fails.
-    pub(crate) async fn read_after_cursor(
+    pub async fn read_after_cursor(
         &self,
         request: EventReadAfterCursorRequest,
     ) -> Result<EventReadAfterCursorResponse, EventLogReadError> {
@@ -455,7 +455,7 @@ impl EventLogService {
     /// [`EventLogFollowError::SessionNotFound`] for a session with no events and no damaged
     /// history, with [`EventLogReadError::CursorUnresolvable`] for a cursor that names no position
     /// or one past the head, and as the read fails.
-    pub(crate) async fn read_follow_start(
+    pub async fn read_follow_start(
         &self,
         session_id: SessionId,
         start: FollowStart,
@@ -485,7 +485,7 @@ impl EventLogService {
     /// events after `after_position`, only of `event_types` when given, and answers what
     /// `changes_of` makes of them on the same connection, which may read more of the log. Fails
     /// with `changes_of`'s failure, and as the read fails.
-    pub(crate) async fn read_stream_page<Changes, Failure>(
+    pub async fn read_stream_page<Changes, Failure>(
         &self,
         session_id: SessionId,
         after_position: i64,
@@ -532,7 +532,7 @@ impl EventLogService {
 
     /// The change count of `session_id`'s log, which a change stream over it waits on: it grows by
     /// one per event committed once that event can be read.
-    pub(crate) fn change_count(&self, session_id: &SessionId) -> watch::Receiver<u64> {
+    pub fn change_count(&self, session_id: &SessionId) -> watch::Receiver<u64> {
         self.followers.change_count(session_id)
     }
 
@@ -739,5 +739,7 @@ pub(crate) fn compose_rows(
     Ok(rows)
 }
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_log;
 #[cfg(test)]
 pub(crate) mod tests;

@@ -45,7 +45,7 @@ use sidekicks_workspace::working_folder::{WorkingFolderReadError, read_working_f
 /// The statements the self-naming prepares on a read connection: the first completed lead run,
 /// the name and first message, the run's reply, the unnamed sessions, the session's working folder
 /// and the run's provider.
-pub(crate) const SESSION_AUTO_TITLE_STATEMENT_CAPACITY: usize = 6;
+pub const SESSION_AUTO_TITLE_STATEMENT_CAPACITY: usize = 6;
 
 /// A fallback name reads as a few words: whole words up to this many code points.
 const FALLBACK_NAME_MAX_CODE_POINTS: usize = 40;
@@ -125,7 +125,7 @@ struct PendingPasses {
 
 /// Names each unnamed session after its first completed exchange, from
 /// [`SessionAutoTitle::start`] until [`SessionAutoTitling::stop`].
-pub(crate) struct SessionAutoTitle {
+pub struct SessionAutoTitle {
     pool: Arc<DatabaseReadPool>,
     changes: Arc<SessionChanges>,
     providers: Arc<ProviderRegistry>,
@@ -138,7 +138,7 @@ pub(crate) struct SessionAutoTitle {
 
 /// The follow of every session's committed events and the naming tasks, from
 /// [`SessionAutoTitle::start`] until [`SessionAutoTitling::stop`].
-pub(crate) struct SessionAutoTitling {
+pub struct SessionAutoTitling {
     /// Hears every committed completion and rename; dropping it detaches.
     attachment: FollowerAttachment,
     auto_title: Arc<SessionAutoTitle>,
@@ -147,7 +147,7 @@ pub(crate) struct SessionAutoTitling {
 impl SessionAutoTitling {
     /// Stops hearing committed events, cancels every pass under way, which then writes nothing,
     /// and settles once every naming task has ended.
-    pub(crate) async fn stop(self) {
+    pub async fn stop(self) {
         let Self {
             attachment,
             auto_title,
@@ -162,7 +162,7 @@ impl SessionAutoTitling {
 impl SessionAutoTitle {
     /// The self-naming reading through `pool`, writing each name through `changes` and running
     /// each pass on the session's driver among `providers`.
-    pub(crate) fn new(
+    pub fn new(
         pool: Arc<DatabaseReadPool>,
         changes: Arc<SessionChanges>,
         providers: Arc<ProviderRegistry>,
@@ -180,10 +180,7 @@ impl SessionAutoTitle {
     /// Follows every committed completion and rename of `followers`, then names, one at a time,
     /// each session whose first exchange completed while none was followed. Called inside the
     /// daemon's runtime, whose handle every naming task is spawned on.
-    pub(crate) fn start(
-        self: &Arc<Self>,
-        followers: &Arc<SessionEventFollowers>,
-    ) -> SessionAutoTitling {
+    pub fn start(self: &Arc<Self>, followers: &Arc<SessionEventFollowers>) -> SessionAutoTitling {
         let runtime = Handle::current();
         let auto_title = Arc::clone(self);
         let follower_runtime = runtime.clone();

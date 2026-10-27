@@ -25,7 +25,7 @@ use sidekicks_store::events::session::appender::{
 
 /// Why a daemon turn's run was not queued; nothing was written.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum DaemonTurnQueueError {
+pub enum DaemonTurnQueueError {
     /// The session's next turn is held for another of its runs
     /// ([`RunRefusal::SessionTurnHeld`]).
     #[error(transparent)]

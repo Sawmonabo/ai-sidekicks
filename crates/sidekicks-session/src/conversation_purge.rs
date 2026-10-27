@@ -22,11 +22,11 @@ use sidekicks_store::database::connection::read_pool::{
 
 /// The statements the purge's read prepares on a read connection: the session's runs, their
 /// bindings and the conversations the session left.
-pub(crate) const CONVERSATION_PURGE_STATEMENT_CAPACITY: usize = 3;
+pub const CONVERSATION_PURGE_STATEMENT_CAPACITY: usize = 3;
 
 /// Why a session's provider conversations were not all deleted.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ConversationPurgeError {
+pub enum ConversationPurgeError {
     /// The session's conversations could not be read; nothing was deleted.
     #[error("reading the session's provider conversations failed")]
     Read(#[from] rusqlite::Error),
@@ -43,7 +43,7 @@ pub(crate) enum ConversationPurgeError {
 }
 
 /// Deletes the provider's own copy of every conversation a session ran on.
-pub(crate) struct ConversationPurge {
+pub struct ConversationPurge {
     /// Where the session's runs, bindings and left conversations are read.
     reads: Arc<DatabaseReadPool>,
     /// The drivers that delete them.
@@ -59,7 +59,7 @@ pub(crate) struct ConversationPurge {
 )]
 impl ConversationPurge {
     /// A purge reading through `reads` and deleting through the drivers `providers` registered.
-    pub(crate) fn new(reads: Arc<DatabaseReadPool>, providers: Arc<ProviderRegistry>) -> Self {
+    pub fn new(reads: Arc<DatabaseReadPool>, providers: Arc<ProviderRegistry>) -> Self {
         Self { reads, providers }
     }
 
@@ -67,7 +67,7 @@ impl ConversationPurge {
     /// provider is looked up before any driver is called, so one no driver answers refuses
     /// `provider.notFound` with nothing deleted; then every driver is asked in turn, and the
     /// failures come back together once all were tried.
-    pub(crate) async fn delete_conversations(
+    pub async fn delete_conversations(
         &self,
         session_id: SessionId,
     ) -> Result<(), ConversationPurgeError> {

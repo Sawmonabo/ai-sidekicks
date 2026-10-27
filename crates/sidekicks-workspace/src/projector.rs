@@ -75,7 +75,7 @@ pub(crate) struct WorkspaceHealthProjection {
 /// together, which answering anyway would turn into a confident, wrong verdict. No message names a
 /// path, since paths stay out of the errors callers see.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum HealthProjectionError {
+pub enum HealthProjectionError {
     /// The probe measured another path than the row's own, compared byte for byte, so a path that
     /// merely normalizes alike is refused too.
     #[error(

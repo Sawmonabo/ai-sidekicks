@@ -27,25 +27,25 @@ use crate::registry::{
 use crate::stream::feed::SendGate;
 
 /// The wire name of [`NamedSubscribe`].
-pub(crate) const SUBSCRIBE_METHOD: &str = "test.subscribe";
+pub const SUBSCRIBE_METHOD: &str = "test.subscribe";
 
 /// Params, a result or an emission whose one member holds at most four characters.
 #[derive(Debug, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct Named {
+pub struct Named {
     /// The member the rule holds.
     #[garde(length(max = 4))]
-    pub(crate) name: String,
+    pub name: String,
 }
 
 /// Params or a result with no member.
 #[derive(Debug, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Nothing {}
+pub struct Nothing {}
 
 /// The context of a call on connection `transport`, from a caller the system could not name,
 /// recorded as no mutating call.
-pub(crate) fn context(transport: u64) -> HandlerContext {
+pub fn context(transport: u64) -> HandlerContext {
     HandlerContext {
         transport_id: TransportId(transport),
         device_id: Some(DeviceId::new("device".to_owned()).expect("the id is well formed")),
@@ -57,7 +57,7 @@ pub(crate) fn context(transport: u64) -> HandlerContext {
 }
 
 /// A subscribe method taking and emitting `Named`.
-pub(crate) struct NamedSubscribe;
+pub struct NamedSubscribe;
 
 impl Method for NamedSubscribe {
     type Params = Named;
@@ -112,7 +112,7 @@ impl EncodedFeed for ChannelFeed {
 
 /// A channel feed, its sender, which reads closed once the feed is released, and its count of
 /// values taken.
-pub(crate) fn channel_feed() -> (
+pub fn channel_feed() -> (
     mpsc::UnboundedSender<Value>,
     Arc<AtomicUsize>,
     Box<dyn EncodedFeed>,
@@ -127,13 +127,13 @@ pub(crate) fn channel_feed() -> (
 }
 
 /// Subscription id `number`, in a version-7 layout so it reads as the UUID text form.
-pub(crate) fn subscription_id(number: u128) -> SubscriptionId {
+pub fn subscription_id(number: u128) -> SubscriptionId {
     let uuid = Uuid::from_u128(0x7000_8000_0000_0000_0000 | number);
     SubscriptionId::try_from(uuid).expect("the layout is a UUID's")
 }
 
 /// A call to `method` with `params`, or with none, as the gateway hands it over.
-pub(crate) fn request(method: &str, params: Option<&Value>) -> Request {
+pub fn request(method: &str, params: Option<&Value>) -> Request {
     Request {
         method: method.to_owned(),
         params: params

@@ -107,7 +107,7 @@ static SELECT_AGENT_NAMED_SQL: LazyLock<String> = LazyLock::new(|| {
 /// provider's current account, read from the log's events before `read_bound` outside its skipped
 /// ranges; `None` for a session whose readable log holds no `session.created`. Fails when SQLite
 /// refuses the read or a stored name or id does not read as its type.
-pub(crate) fn read_lead_binding(
+pub fn read_lead_binding(
     reader: &Connection,
     session_id: &SessionId,
     read_bound: i64,
@@ -148,11 +148,11 @@ pub(crate) fn is_agent_named(
 }
 
 /// The statements [`RunAgentReader`] runs: the run's agent and the session's lead.
-pub(crate) const RUN_AGENT_STATEMENT_CAPACITY: usize = 2;
+pub const RUN_AGENT_STATEMENT_CAPACITY: usize = 2;
 
 /// Why the agent of a run, or a session's lead, could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RunAgentReadError {
+pub enum RunAgentReadError {
     /// The log holds no `session.created` naming the session's lead.
     #[error("session \"{session_id}\" has no lead its log names")]
     NoLeadAgent {
@@ -182,7 +182,7 @@ pub(crate) enum RunAgentReadError {
 
 /// The session's lead agent, read through `pool`. Fails as [`RunAgentReader::read_lead_agent`]
 /// does, and as the pool does.
-pub(crate) async fn read_lead_agent_through<Failure>(
+pub async fn read_lead_agent_through<Failure>(
     pool: &DatabaseReadPool,
     session_id: SessionId,
 ) -> Result<AgentId, Failure>
@@ -197,14 +197,14 @@ where
 
 /// Reads the agent of a run, and a session's lead, from the session's log on the reader the
 /// caller passes.
-pub(crate) struct RunAgentReader<'connection> {
+pub struct RunAgentReader<'connection> {
     /// The daemon's read-only connection.
     reader: &'connection Connection,
 }
 
 impl<'connection> RunAgentReader<'connection> {
     /// A reader over `reader`, the daemon's read-only connection.
-    pub(crate) fn new(reader: &'connection Connection) -> Self {
+    pub fn new(reader: &'connection Connection) -> Self {
         Self { reader }
     }
 
@@ -228,7 +228,7 @@ impl<'connection> RunAgentReader<'connection> {
 
     /// The agent the run is for. Fails with [`RunAgentReadError::NoRunAgent`] when the log names
     /// none.
-    pub(crate) fn read_agent(
+    pub fn read_agent(
         &self,
         session_id: &SessionId,
         run_id: &RunId,

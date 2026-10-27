@@ -16,17 +16,17 @@ use sidekicks_contracts::wire::text::FreeFormText;
 /// has already checked against the tool's input schema. The host answers an unknown tool `failed`
 /// and copies `tool_call_id` onto its answer unchanged, since a tool's start and end pair on it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CallbackToolInvocation {
+pub struct CallbackToolInvocation {
     /// The tool the provider called.
-    pub(crate) tool_name: FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>,
+    pub tool_name: FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>,
     /// The call's arguments as the provider sent them.
-    pub(crate) arguments: Map<String, Value>,
+    pub arguments: Map<String, Value>,
     /// The provider's id for the call.
-    pub(crate) tool_call_id: ToolCallId,
+    pub tool_call_id: ToolCallId,
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The run whose turn made the call.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
 }
 
 /// The daemon's answer to a callback-tool call: only a completed call carries output, and only a

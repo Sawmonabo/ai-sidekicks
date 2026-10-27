@@ -15,7 +15,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 /// The state a change enters, with what that state's event carries beyond the transition itself.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum RunStateEntry {
+pub enum RunStateEntry {
     /// Into `starting`.
     Starting,
     /// Into `running`, stamped with the effective posture where it is final.
@@ -65,7 +65,7 @@ pub(crate) enum RunStateEntry {
 
 impl RunStateEntry {
     /// The state the change enters.
-    pub(crate) fn state(&self) -> RunStateChangeState {
+    pub fn state(&self) -> RunStateChangeState {
         match self {
             Self::Starting => RunStateChangeState::Starting,
             Self::Running { .. } => RunStateChangeState::Running,
@@ -85,20 +85,20 @@ impl RunStateEntry {
 /// carries, and the failure category it carries. With `expected_state`, the change is refused
 /// unless the run is in that state when it is read.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct RunStateReport {
+pub struct RunStateReport {
     /// The run.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// The state the run must be in when it is read, where the driver decided from one.
-    pub(crate) expected_state: Option<RunState>,
+    pub expected_state: Option<RunState>,
     /// Why the run failed.
-    pub(crate) failure_category: Option<RunFailureCategory>,
+    pub failure_category: Option<RunFailureCategory>,
     /// The state it enters and that state's own members.
-    pub(crate) entry: RunStateEntry,
+    pub entry: RunStateEntry,
 }
 
 impl RunStateReport {
     /// A change of `run_id` into `entry`, from whatever state it is in, with no failure category.
-    pub(crate) fn new(run_id: RunId, entry: RunStateEntry) -> Self {
+    pub fn new(run_id: RunId, entry: RunStateEntry) -> Self {
         Self {
             run_id,
             expected_state: None,

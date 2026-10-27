@@ -32,17 +32,17 @@ use sidekicks_store::events::session::read::{
 
 /// One queue: the lead's of a session, or a child's by its handle.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct QueueKey {
+pub struct QueueKey {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The child whose queue it is; absent for the lead's.
-    pub(crate) child_handle: Option<ChildHandle>,
+    pub child_handle: Option<ChildHandle>,
 }
 
 /// Where a queue's stream resumes: the session's event sequence it has read changes through, the
 /// order mark it has seen, and, while it sends the waiting items of that mark, the last one sent.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct QueueChangeCursor {
+pub struct QueueChangeCursor {
     sequence: i64,
     order_mark: u64,
     waiting_place: Option<WaitingPlace>,
@@ -52,7 +52,7 @@ impl QueueChangeCursor {
     /// The cursor a subscription catching up after the event `sequence` starts at: behind every
     /// order mark, so its first reads carry each item changed after it and then every item still
     /// waiting, however many wait. A reader resuming after a restart starts here too.
-    pub(crate) fn after(sequence: i64) -> Self {
+    pub fn after(sequence: i64) -> Self {
         Self {
             sequence,
             order_mark: BEHIND_EVERY_ORDER_MARK,
@@ -91,16 +91,16 @@ enum WaitingPage<'cursor> {
 /// One change on a queue's stream with the cursor that resumes after it, which the stream drops
 /// when it builds its frame.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct QueueChange {
+pub struct QueueChange {
     /// The change as the stream sends it.
-    pub(crate) stream_change: RunQueueStreamChange,
+    pub stream_change: RunQueueStreamChange,
     /// The cursor that resumes after it.
-    pub(crate) resume_cursor: QueueChangeCursor,
+    pub resume_cursor: QueueChangeCursor,
 }
 
 /// Why a read of a queue's changes failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum QueueChangeReadError {
+pub enum QueueChangeReadError {
     /// SQLite refused the read, or a stored value does not read as its type.
     #[error("a read of a queue's changes failed")]
     Database(#[from] rusqlite::Error),
@@ -119,7 +119,7 @@ const BEHIND_EVERY_ORDER_MARK: u64 = 0;
 /// committed change, and an order mark moved by each change no `agent.queueItem.*` event
 /// records. A queue no reader follows holds nothing, and a queue's signal is dropped once its last
 /// reader goes.
-pub(crate) struct QueueChangeSignals {
+pub struct QueueChangeSignals {
     table: Mutex<QueueSignalTable>,
 }
 
@@ -143,9 +143,15 @@ impl QueueSignalTable {
     }
 }
 
+impl Default for QueueChangeSignals {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl QueueChangeSignals {
     /// No queue's signal yet.
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             table: Mutex::new(QueueSignalTable {
                 newest_order_mark: BEHIND_EVERY_ORDER_MARK + 1,
@@ -156,7 +162,7 @@ impl QueueChangeSignals {
 
     /// The count of `queue`'s committed changes, held while the receiver lives. A reader takes it
     /// before its starting cursor, so a change between the two is not lost.
-    pub(crate) fn change_count(&self, queue: &QueueKey) -> watch::Receiver<u64> {
+    pub fn change_count(&self, queue: &QueueKey) -> watch::Receiver<u64> {
         let mut guard = self.lock();
         let table = &mut *guard;
         table.drop_unread();
@@ -284,7 +290,7 @@ static WAITING_AFTER_PLACE_SQL: LazyLock<String> = LazyLock::new(|| {
 /// newest sequence and `queue`'s current order mark, so it follows from now. The reader takes
 /// `queue`'s change count first. Fails with [`SessionLogReadError`] when the newest sequence
 /// cannot be read.
-pub(crate) fn read_current_queue_cursor(
+pub fn read_current_queue_cursor(
     reader: &Connection,
     read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,
     signals: &QueueChangeSignals,
@@ -308,7 +314,7 @@ pub(crate) fn read_current_queue_cursor(
 /// unfinished, the waiting items in the queue's order at the session's newest cursor. No event
 /// past a damaged session's last good point or in a range it skipped is read. Fails with
 /// [`QueueChangeReadError`] when SQLite refuses the read or a stored value does not read.
-pub(crate) fn read_queue_changes_after(
+pub fn read_queue_changes_after(
     reader: &Connection,
     read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,
     signals: &QueueChangeSignals,

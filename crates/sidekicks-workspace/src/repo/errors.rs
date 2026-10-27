@@ -32,7 +32,7 @@ use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
 /// Why a repository call was refused; nothing was written for any of them. Converts into the
 /// [`DomainError`] the reply carries.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RepoRefusal {
+pub enum RepoRefusal {
     /// The project record does not exist, or was forgotten (`project.notFound`).
     #[expect(dead_code, reason = "an attach naming a project")]
     #[error("project {project_id} does not exist")]

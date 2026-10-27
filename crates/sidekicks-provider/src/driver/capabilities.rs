@@ -10,7 +10,7 @@ use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_CONTRACT_VERSI
 use sidekicks_contracts::wire::text::FreeFormText;
 use strum::{IntoStaticStr, VariantArray};
 
-pub(crate) mod writer;
+pub mod writer;
 
 /// One driver capability flag. The stored list and every map over the flags follow this order.
 #[derive(
@@ -29,7 +29,7 @@ pub(crate) mod writer;
 )]
 #[serde(rename_all = "camelCase")]
 #[strum(serialize_all = "camelCase")]
-pub(crate) enum DriverCapabilityFlag {
+pub enum DriverCapabilityFlag {
     /// Resumes a provider session.
     Resume,
     /// Steers a running turn.
@@ -68,11 +68,11 @@ pub(crate) enum DriverCapabilityFlag {
 /// Each capability flag's value: every flag present, no other member.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
-pub(crate) struct DriverCapabilityFlags(BTreeMap<DriverCapabilityFlag, bool>);
+pub struct DriverCapabilityFlags(BTreeMap<DriverCapabilityFlag, bool>);
 
 impl DriverCapabilityFlags {
     /// Every flag's value, asked of `value_of` once per flag, so no flag can be left out.
-    pub(crate) fn from_fn(value_of: impl Fn(DriverCapabilityFlag) -> bool) -> Self {
+    pub fn from_fn(value_of: impl Fn(DriverCapabilityFlag) -> bool) -> Self {
         Self(
             DriverCapabilityFlag::VARIANTS
                 .iter()
@@ -104,9 +104,9 @@ impl<'de> Deserialize<'de> for DriverCapabilityFlags {
 /// A driver's capability flags and contract version.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct DriverCapabilities {
+pub struct DriverCapabilities {
     /// Each flag's value.
-    pub(crate) flags: DriverCapabilityFlags,
+    pub flags: DriverCapabilityFlags,
     /// The driver's contract version.
-    pub(crate) contract_version: FreeFormText<PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN>,
+    pub contract_version: FreeFormText<PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN>,
 }

@@ -28,7 +28,7 @@ use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
 
 /// How long one keychain call may take, its waits and an unlock prompt included.
-pub(crate) const KEYCHAIN_CALL_TIMEOUT: Duration = Duration::from_secs(30);
+pub const KEYCHAIN_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How many times shorter than a keychain call the seal service's probe and the sealed file's open
 /// check each are: one that does not answer runs out with the call's time still left to record why
@@ -37,7 +37,7 @@ pub(crate) const SEAL_CHECK_TIMEOUT_DIVISOR: u32 = 3;
 
 /// What this machine offers for the daemon's secrets, and what holds them in words for the service
 /// log; a test supplies an offer of its own.
-pub(crate) trait CredentialStoreAccess: Send + Sync {
+pub trait CredentialStoreAccess: Send + Sync {
     /// The machine's offer: the operating system's credential store on macOS and Windows,
     /// systemd's credential service on Linux.
     fn offer(&self) -> SecretsOffer;
@@ -47,7 +47,7 @@ pub(crate) trait CredentialStoreAccess: Send + Sync {
 }
 
 /// What this machine offers for the daemon's secrets.
-pub(crate) enum SecretsOffer {
+pub enum SecretsOffer {
     /// The operating system's credential store, which `StoreOpen` opens.
     OperatingSystem(StoreOpen),
     /// systemd's credential service, which seals each secret into the items file.
@@ -60,9 +60,9 @@ pub(crate) type StoreOpen =
     Arc<dyn Fn() -> Result<CredentialStore, CredentialStoreError> + Send + Sync>;
 
 /// What this machine offers for the daemon's secrets, through the platforms crate.
-pub(crate) struct SystemCredentialStore {
+pub struct SystemCredentialStore {
     /// The machine's offer, read once at the start.
-    pub(crate) offer: SecretStoreOffer,
+    pub offer: SecretStoreOffer,
 }
 
 impl CredentialStoreAccess for SystemCredentialStore {
@@ -222,29 +222,31 @@ impl OsCredentialStore {
 
 /// What a test hands the daemon: the operating system's store over one store, which the test
 /// switches between opening and not, or systemd's credential service as a test's seal.
-#[cfg(test)]
-pub(crate) struct TestStoreAccess {
+#[cfg(any(test, feature = "test-support"))]
+pub struct TestStoreAccess {
     /// What the test offers.
     offer: TestOffer,
     /// Whether the store opens.
-    pub(crate) opens: Arc<std::sync::atomic::AtomicBool>,
+    pub opens: Arc<std::sync::atomic::AtomicBool>,
 }
 
 // What a test's access offers.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 enum TestOffer {
     Store(CredentialStore),
+    #[cfg(test)]
     Seal(Arc<crate::credential_store::seal::TestSeal>),
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl TestStoreAccess {
     /// The operating system's store over `credentials`, which opens.
-    pub(crate) fn new(credentials: CredentialStore) -> Arc<Self> {
+    pub fn new(credentials: CredentialStore) -> Arc<Self> {
         Self::offering(TestOffer::Store(credentials))
     }
 
     /// systemd's credential service as `seal`.
+    #[cfg(test)]
     pub(crate) fn sealing(seal: Arc<crate::credential_store::seal::TestSeal>) -> Arc<Self> {
         Self::offering(TestOffer::Seal(seal))
     }
@@ -257,7 +259,7 @@ impl TestStoreAccess {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl CredentialStoreAccess for TestStoreAccess {
     fn offer(&self) -> SecretsOffer {
         match &self.offer {
@@ -273,6 +275,7 @@ impl CredentialStoreAccess for TestStoreAccess {
                     }
                 }))
             }
+            #[cfg(test)]
             TestOffer::Seal(seal) => SecretsOffer::SealService(Arc::clone(seal) as _),
         }
     }
@@ -280,6 +283,7 @@ impl CredentialStoreAccess for TestStoreAccess {
     fn description(&self) -> String {
         match &self.offer {
             TestOffer::Store(_) => "the test's store".to_owned(),
+            #[cfg(test)]
             TestOffer::Seal(_) => "the test's seal".to_owned(),
         }
     }

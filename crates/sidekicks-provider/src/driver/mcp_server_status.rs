@@ -14,7 +14,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 /// provider output, and its status. It carries no leg identity: the producer it goes to is bound
 /// to the leg at spawn, so a driver cannot report for another leg.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct McpServerStatusEmission {
+pub struct McpServerStatusEmission {
     /// The server's name.
     pub(crate) server_name: McpServerName,
     /// Its status.

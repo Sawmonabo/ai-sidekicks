@@ -773,10 +773,13 @@ impl QueueRunLifecycle {
     }
 }
 
-// A driver tells of a process that ended through the port, which outlives no queue.
-impl ProcessGoneListener for Weak<QueueRunLifecycle> {
+/// The run lifecycle as the drivers' port holds it: weakly, since the port outlives no queue.
+pub(crate) struct RunLifecycleListener(pub(crate) Weak<QueueRunLifecycle>);
+
+// A driver tells of a process that ended through the port.
+impl ProcessGoneListener for RunLifecycleListener {
     fn process_gone(&self, session_id: SessionId) {
-        if let Some(lifecycle) = self.upgrade() {
+        if let Some(lifecycle) = self.0.upgrade() {
             lifecycle.on_process_gone(session_id);
         }
     }

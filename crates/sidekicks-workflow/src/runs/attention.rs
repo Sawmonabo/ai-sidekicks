@@ -21,7 +21,7 @@ use sidekicks_store::database::stored_column::{
 
 /// The statements a [`WorkflowRunAttentionList`] prepares on a read connection: the person waits
 /// and the account waits.
-pub(crate) const WORKFLOW_RUN_ATTENTION_STATEMENT_CAPACITY: usize = 2;
+pub const WORKFLOW_RUN_ATTENTION_STATEMENT_CAPACITY: usize = 2;
 
 /// One line of the runs-needing-you section as the rows hold it. An account line names its
 /// account by id, with the columns it is labeled from while the account's row is stored.

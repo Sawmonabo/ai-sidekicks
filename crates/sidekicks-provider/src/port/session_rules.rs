@@ -14,7 +14,7 @@ use sidekicks_policy::ask_rule::ProviderAskRule;
 /// registered through a `PortRegistration`; until it is, a session holds none. A revoked rule is
 /// one the session made and the person revoked since, which a provider that cannot drop a rule
 /// itself must hold the next call on.
-pub(crate) trait SessionRulePort: Send + Sync {
+pub trait SessionRulePort: Send + Sync {
     /// The rules in force on `session_id`, oldest first. An error when they could not be read.
     fn read_session_rules(
         &self,

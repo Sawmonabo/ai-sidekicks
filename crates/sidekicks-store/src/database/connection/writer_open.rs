@@ -48,7 +48,7 @@ pub enum DatabaseOpenError {
 }
 
 /// The service's store's file name in its data folder.
-pub(crate) const DAEMON_DATABASE_FILE_NAME: &str = "daemon.db";
+pub const DAEMON_DATABASE_FILE_NAME: &str = "daemon.db";
 
 /// The search index's folder name in the data folder, beside the store whose rows it indexes.
 pub const SEARCH_INDEX_FOLDER_NAME: &str = "search-index";
@@ -59,7 +59,7 @@ pub const SEARCH_INDEX_FOLDER_NAME: &str = "search-index";
 /// [`DatabaseOpenError::SchemaFromAnotherBuild`] for a file whose fingerprint is not `schema`'s;
 /// the connection is closed first, with the close's own failure beside the original when that
 /// fails.
-pub(crate) fn open_database(
+pub fn open_database(
     database_path: &Path,
     schema: &DatabaseSchema,
 ) -> Result<Connection, CleanupFailures<DatabaseOpenError, rusqlite::Error>> {

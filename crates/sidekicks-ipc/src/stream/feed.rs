@@ -13,12 +13,12 @@ use crate::registry::HandlerError;
 /// A subscription that closed (canceled, or its connection gone) while a feed waited to send.
 #[derive(Debug, thiserror::Error)]
 #[error("the subscription closed")]
-pub(crate) struct SubscriptionClosed;
+pub struct SubscriptionClosed;
 
 /// The send gate: one per subscription, implemented by the gateway. A feed awaits it before each
 /// frame. It fails only after the subscription's token is canceled, so the gateway cancels the
 /// token before it closes the gate, and a closed gate never reads as a finished stream.
-pub(crate) trait SendGate: Send + Sync {
+pub trait SendGate: Send + Sync {
     /// Resolves once the subscription's lane has credit and the connection's writer has room,
     /// spending nothing, so a feed may await it more than once before one frame; fails with
     /// `SubscriptionClosed` once the subscription closed, after its token was canceled.
@@ -26,7 +26,7 @@ pub(crate) trait SendGate: Send + Sync {
 }
 
 /// A stored record a change stream reads from at its cursor; implemented by each store.
-pub(crate) trait ChangeRecord: Send + Sync {
+pub trait ChangeRecord: Send + Sync {
     /// The position a change stream resumes after.
     type Cursor: Clone + Send + Sync;
     /// One change, carrying the cursor that resumes after it.
@@ -59,15 +59,15 @@ pub(crate) trait ChangeRecord: Send + Sync {
 /// One read of a change record: its changes, and whether the read stopped short of its count
 /// because the changes it holds already fill one frame's bytes while more are stored.
 #[derive(Debug)]
-pub(crate) struct RecordPage<Change> {
+pub struct RecordPage<Change> {
     /// The changes, oldest first.
-    pub(crate) changes: Vec<Change>,
+    pub changes: Vec<Change>,
     /// Whether a frame's byte budget cut the read before more stored changes.
-    pub(crate) is_cut_by_size: bool,
+    pub is_cut_by_size: bool,
 }
 
 /// A subscription's typed emissions: what a subscribe handler answers.
-pub(crate) trait Feed: Send {
+pub trait Feed: Send {
     /// One value the stream carries.
     type Emission;
 
@@ -81,17 +81,17 @@ pub(crate) trait Feed: Send {
 
 /// A test gate open while its lane holds credit; one made `with_credit` spends none, so one permit
 /// keeps it open, and one made `spending` spends a permit on each readiness check.
-#[cfg(test)]
-pub(crate) struct CreditGate {
+#[cfg(any(test, feature = "test-support"))]
+pub struct CreditGate {
     /// The lane's credit; a closed semaphore is a closed subscription.
-    pub(crate) credit: tokio::sync::Semaphore,
+    pub credit: tokio::sync::Semaphore,
     is_spending: bool,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl CreditGate {
     /// A gate holding `permits` of credit that spends none.
-    pub(crate) fn with_credit(permits: usize) -> Self {
+    pub fn with_credit(permits: usize) -> Self {
         Self {
             credit: tokio::sync::Semaphore::new(permits),
             is_spending: false,
@@ -99,7 +99,7 @@ impl CreditGate {
     }
 
     /// A gate holding `permits` of credit that spends one on each readiness check.
-    pub(crate) fn spending(permits: usize) -> Self {
+    pub fn spending(permits: usize) -> Self {
         Self {
             credit: tokio::sync::Semaphore::new(permits),
             is_spending: true,
@@ -107,7 +107,7 @@ impl CreditGate {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl SendGate for CreditGate {
     fn ready(&self) -> BoxFuture<'_, Result<(), SubscriptionClosed>> {
         Box::pin(async move {

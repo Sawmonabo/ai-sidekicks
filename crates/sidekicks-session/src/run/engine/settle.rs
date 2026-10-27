@@ -81,7 +81,7 @@ impl RunEngine {
     /// that turn still takes the limit's end, written on its own. Returns `true`, or `false` with
     /// no change of the run written when it ended since that version, the caller then recording
     /// the verdict alone; fails as the reads and [`RunEngine::transition`] do.
-    pub(crate) async fn end_run_for_interrupt(
+    pub async fn end_run_for_interrupt(
         &self,
         run_id: RunId,
         accepted_run_version: i64,
@@ -329,7 +329,7 @@ impl RunEngine {
     /// were read refuses the write, and the run and its facts are read again once. Every write goes
     /// under `hold` where the caller holds the run's session. Fails as [`RunEngine::transition`]
     /// does, the second refusal returned.
-    pub(crate) async fn settle_run_after_restart(
+    pub async fn settle_run_after_restart(
         &self,
         run: &LiveRun,
         failure_detail: &str,
@@ -345,7 +345,7 @@ impl RunEngine {
                     Ok::<_, RunEngineError>(read_restart_facts(reader, &facts_of)?)
                 })
                 .await?;
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             self.restart_facts_pause.pass().await;
             match self
                 .settle_run_from_facts(&read, &facts, failure_detail, hold)
@@ -454,7 +454,7 @@ impl RunEngine {
     /// its own as the daemon's report held to its run's version, interrupted with the limit of a
     /// row naming it else `daemonRestart`, a run that reads live left to its own ends. Every run
     /// is tried before the failures, from the reads and the writes, return together.
-    pub(crate) async fn end_open_turns_of_ended_runs(
+    pub async fn end_open_turns_of_ended_runs(
         &self,
         run_ids: &[RunId],
     ) -> Result<(), RunEngineError> {

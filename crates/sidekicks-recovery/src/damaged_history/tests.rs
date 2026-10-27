@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use super::RecoveryActionError;
 use crate::session_write_refusal::refuse_call_naming_session;
 use crate::test_pass::PassFixture;
-use sidekicks_approval::service::tests::SETTLE_WAIT;
+use sidekicks_approval::service::test_fixture::SETTLE_WAIT;
 use sidekicks_session::run::engine::tests::stored_run_state;
 use sidekicks_session::service::{
     EventsReadAfterSequenceRequest, SESSION_SERVICE_STATEMENT_CAPACITY, SessionService,

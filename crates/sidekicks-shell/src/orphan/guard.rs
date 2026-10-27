@@ -17,7 +17,7 @@ const NONCE_RANDOM_BYTES: usize = 16;
 
 /// Why the guard could not open or record a child.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum OrphanGuardError {
+pub enum OrphanGuardError {
     /// The registry could not be read or written.
     #[error(transparent)]
     Registry(#[from] OrphanRegistryError),
@@ -34,7 +34,7 @@ pub(crate) enum OrphanGuardError {
 
 /// Records each terminal child in the orphan registry across its life; the terminal table retires
 /// it when its reap sees it end.
-pub(crate) struct OrphanGuard {
+pub struct OrphanGuard {
     registry: OrphanRegistry,
     boot_id: String,
 }
@@ -80,7 +80,7 @@ impl OrphanGuard {
 /// Sweeps what a previous run left in `data_folder`'s registry, empties it, logs what the sweep
 /// did and answers a guard over it. Fails when this boot cannot be read, the sweep's task ends
 /// early or the registry cannot be read or written.
-pub(crate) async fn open_orphan_guard(data_folder: &Path) -> Result<OrphanGuard, OrphanGuardError> {
+pub async fn open_orphan_guard(data_folder: &Path) -> Result<OrphanGuard, OrphanGuardError> {
     let boot_id = process_identity(std::process::id())
         .map_err(OrphanGuardError::Process)?
         .ok_or_else(|| {

@@ -62,7 +62,7 @@ pub(crate) const CHECK_FAILED_REFUSAL: &str = "This call could not be checked, s
 
 /// Why an ask could not be taken or an answer could not be carried back.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum PermissionAskError {
+pub enum PermissionAskError {
     /// A refusal by its code: the approval service's, or `approval.rule.notKept` once the call was
     /// answered but its provider could not keep the rule.
     #[error(transparent)]
@@ -152,28 +152,28 @@ struct HeldAsk {
 type HeldAsks = HashMap<(RunId, String), HeldAsk>;
 
 /// What the intake raises cards through and answers providers with.
-pub(crate) struct PermissionAsksDeps {
+pub struct PermissionAsksDeps {
     /// Where the run's provider is read.
-    pub(crate) reads: Arc<DatabaseReadPool>,
+    pub reads: Arc<DatabaseReadPool>,
     /// Records answers and cancels asks.
-    pub(crate) approvals: Arc<ApprovalService>,
+    pub approvals: Arc<ApprovalService>,
     /// Decides each ask.
-    pub(crate) check: Arc<PermissionCheck>,
+    pub check: Arc<PermissionCheck>,
     /// Records the rule an answer made.
-    pub(crate) rules: Arc<ApprovalRules>,
+    pub rules: Arc<ApprovalRules>,
     /// The drivers that answer their providers.
-    pub(crate) providers: Arc<ProviderRegistry>,
+    pub providers: Arc<ProviderRegistry>,
 }
 
 /// Takes each admitted provider ask and carries each card's answer back; shared by `Arc`.
-pub(crate) struct PermissionAsks {
+pub struct PermissionAsks {
     deps: PermissionAsksDeps,
     held: Mutex<HeldAsks>,
 }
 
 impl PermissionAsks {
     /// The intake over `deps`, holding no ask.
-    pub(crate) fn new(deps: PermissionAsksDeps) -> Self {
+    pub fn new(deps: PermissionAsksDeps) -> Self {
         Self {
             deps,
             held: Mutex::new(HashMap::new()),
@@ -327,7 +327,7 @@ impl PermissionAsks {
     /// not keep the rule, which is then not recorded; [`PermissionAskError::RuleWithoutAction`] for
     /// a daemon card that names no action for its rule; and as reaching the provider or recording
     /// the rule fails, the answer kept.
-    pub(crate) async fn resolve(
+    pub async fn resolve(
         &self,
         request: &ApprovalResolveRequest,
         device_id: DeviceId,

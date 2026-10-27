@@ -46,12 +46,12 @@ const DAEMON_INBOX_PURPOSE: &str = "daemon-inbox:";
 const NAME_FIRST_LETTERS: [char; 6] = ['a', 'b', 'c', 'd', 'e', 'f'];
 
 /// What Claude Code's socket folder in one POSIX place is derived from.
-pub(crate) struct PlaceInboxEnvironment<'a> {
+pub struct PlaceInboxEnvironment<'a> {
     /// The place's login-shell environment captured at the daemon's start, never the daemon's own
     /// composed one, which points Claude Code's temporary folder elsewhere.
-    pub(crate) login_shell: &'a [(String, String)],
+    pub login_shell: &'a [(String, String)],
     /// The person's user id in that place.
-    pub(crate) user_id: u32,
+    pub user_id: u32,
 }
 
 /// Each session's inbox address, and the daemon's own, in every place: a socket named
@@ -67,7 +67,7 @@ pub(crate) struct PlaceInboxEnvironment<'a> {
         reason = "the Claude Code driver hands it to the daemon's start"
     )
 )]
-pub(crate) struct ClaudeSessionInboxAddresser {
+pub struct ClaudeSessionInboxAddresser {
     /// Each listed POSIX place's socket folder, the computer's own system as `None`.
     folders: Vec<(Option<Place>, String)>,
 }
@@ -82,7 +82,7 @@ impl ClaudeSessionInboxAddresser {
             reason = "the Claude Code driver builds it from the start's places"
         )
     )]
-    pub(crate) fn new<'a>(
+    pub fn new<'a>(
         places: impl IntoIterator<Item = (Option<Place>, PlaceInboxEnvironment<'a>)>,
     ) -> Self {
         Self {

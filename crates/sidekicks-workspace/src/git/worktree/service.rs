@@ -208,29 +208,29 @@ pub(crate) enum WorktreeServiceError {
 }
 
 /// What the worktree service runs with.
-pub(crate) struct WorktreeServiceDeps {
+pub struct WorktreeServiceDeps {
     /// The daemon's git entry point; git runs only reads in the main checkout.
-    pub(crate) git: GitRunner,
+    pub git: GitRunner,
     /// The daemon's read pool.
-    pub(crate) reads: Arc<DatabaseReadPool>,
+    pub reads: Arc<DatabaseReadPool>,
     /// The writer a row write without an event goes through.
-    pub(crate) writer: Arc<DatabaseWriter>,
+    pub writer: Arc<DatabaseWriter>,
     /// The one seam every worktree event is appended through.
-    pub(crate) events: Arc<WorktreeEventEmitter>,
+    pub events: Arc<WorktreeEventEmitter>,
     /// The daemon's one occupancy reader, for the sessions standing in a tree.
-    pub(crate) occupancy: MountOccupancyReader,
+    pub occupancy: MountOccupancyReader,
     /// The daemon's worktrees folder, the only place the sweep removes a folder from.
-    pub(crate) worktrees_folder: PathBuf,
+    pub worktrees_folder: PathBuf,
 }
 
 /// Owns every `worktrees` transition and worktree-scoped git call.
-pub(crate) struct WorktreeService {
+pub struct WorktreeService {
     deps: WorktreeServiceDeps,
 }
 
 impl WorktreeService {
     /// A service over `deps`.
-    pub(crate) fn new(deps: WorktreeServiceDeps) -> Self {
+    pub fn new(deps: WorktreeServiceDeps) -> Self {
         Self { deps }
     }
 

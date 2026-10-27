@@ -13,7 +13,7 @@ use crate::database::sql_list::sql_list_of_every;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, VariantArray, IntoStaticStr)]
 #[serde(rename_all = "camelCase")]
 #[strum(serialize_all = "camelCase")]
-pub(crate) enum ProjectionCursorState {
+pub enum ProjectionCursorState {
     /// The projections reflect every event up to the cursor's sequence.
     Current,
     /// A rebuild has cleared the projections and is folding the log back in.

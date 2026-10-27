@@ -18,11 +18,11 @@ use sidekicks_provider::runtime_binding::store::{RuntimeBinding, read_binding, r
 /// The statements live-binding reads prepare on a read connection: the run's row and its
 /// bindings, and for an agent's bindings the session's live runs, each run's provider, a binding
 /// and whether the log names the agent.
-pub(crate) const LIVE_RUN_BINDINGS_STATEMENT_CAPACITY: usize = 6;
+pub const LIVE_RUN_BINDINGS_STATEMENT_CAPACITY: usize = 6;
 
 /// One run's live binding as the addressed session sees it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum RunBindingResolution {
+pub enum RunBindingResolution {
     /// No run of the addressed session answers to the id.
     UnknownRun {},
     /// The run has ended, or has no binding yet.
@@ -38,7 +38,7 @@ pub(crate) enum RunBindingResolution {
 
 /// `run_id`'s live binding, read on `reader`, answering a run of another session as an unknown
 /// one. Fails as the reads do.
-pub(crate) fn resolve_run_binding(
+pub fn resolve_run_binding(
     reader: &Connection,
     session_id: &SessionId,
     run_id: &RunId,
@@ -69,20 +69,20 @@ fn newest_binding(reader: &Connection, run_id: &RunId) -> rusqlite::Result<Optio
 /// One binding an agent's live runs run under: the provider and account it runs on, and its one
 /// live run of the agent, `None` when several are.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct AgentBinding {
+pub struct AgentBinding {
     /// The binding.
-    pub(crate) binding_id: RuntimeBindingId,
+    pub binding_id: RuntimeBindingId,
     /// The provider it runs on.
-    pub(crate) provider_name: ProviderId,
+    pub provider_name: ProviderId,
     /// The account its run was admitted against; `None` when it bound none.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    pub provider_account_id: Option<ProviderAccountId>,
     /// The one live run of the agent on the binding; `None` when several are live.
-    pub(crate) run_id: Option<RunId>,
+    pub run_id: Option<RunId>,
 }
 
 /// An agent's live bindings as the addressed session sees them.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum AgentBindingResolution {
+pub enum AgentBindingResolution {
     /// The session's log names no such agent.
     UnknownAgent {},
     /// The agent has no live run on a binding.
@@ -94,7 +94,7 @@ pub(crate) enum AgentBindingResolution {
 /// `agent_id`'s live bindings in `session_id`, read on `reader` with the log read before
 /// `read_bound`: each live run of the agent under its own binding, or a provider subagent's under
 /// its parent's, grouped by binding. Fails as the reads do.
-pub(crate) fn resolve_agent_bindings(
+pub fn resolve_agent_bindings(
     reader: &Connection,
     session_id: &SessionId,
     agent_id: &AgentId,

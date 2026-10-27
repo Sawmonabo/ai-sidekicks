@@ -20,7 +20,7 @@ const FIRST_RETRY_WAIT: Duration = Duration::from_millis(50);
 const LAST_RETRY_WAIT: Duration = Duration::from_secs(5);
 
 /// Truncates the write-ahead log, retried until it succeeds, one loop at a time.
-pub(crate) struct WriteAheadLogTruncation {
+pub struct WriteAheadLogTruncation {
     writer: Arc<DatabaseWriter>,
     // Two flags no panicking holder could leave apart from the task they describe.
     state: Arc<Mutex<TruncationState>>,
@@ -36,7 +36,7 @@ struct TruncationState {
 
 impl WriteAheadLogTruncation {
     /// The truncation of `writer`'s log.
-    pub(crate) fn new(writer: Arc<DatabaseWriter>) -> Self {
+    pub fn new(writer: Arc<DatabaseWriter>) -> Self {
         Self {
             writer,
             state: Arc::new(Mutex::new(TruncationState::default())),
@@ -48,7 +48,7 @@ impl WriteAheadLogTruncation {
     /// Truncates the log, tried again until it succeeds: after a purge, and at the daemon's start
     /// once its check of the file has ended. A request while a truncation runs has it truncate once
     /// more after. Answers whether a truncation runs, false once the stop has ended them.
-    pub(crate) fn request(&self) -> bool {
+    pub fn request(&self) -> bool {
         if self.stop.is_cancelled() {
             return false;
         }
@@ -69,17 +69,17 @@ impl WriteAheadLogTruncation {
 
     /// Ends the truncation for the daemon's stop and waits for its task; a log left untruncated is
     /// truncated by the next start's request.
-    pub(crate) async fn stop(&self) {
+    pub async fn stop(&self) {
         self.stop.cancel();
         self.tasks.close();
         self.tasks.wait().await;
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl WriteAheadLogTruncation {
     /// Waits until no truncation runs.
-    pub(crate) async fn settled(&self) {
+    pub async fn settled(&self) {
         self.tasks.close();
         self.tasks.wait().await;
         self.tasks.reopen();

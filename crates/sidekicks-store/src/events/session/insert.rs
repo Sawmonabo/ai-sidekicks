@@ -37,7 +37,7 @@ static DAEMON_START: LazyLock<Instant> = LazyLock::new(Instant::now);
 
 /// Nanoseconds since the daemon's start on the monotonic clock, the value a row's `monotonic_ns`
 /// stores.
-pub(crate) fn monotonic_ns_now() -> i64 {
+pub fn monotonic_ns_now() -> i64 {
     i64::try_from(DAEMON_START.elapsed().as_nanos())
         .expect("an i64 of nanoseconds covers 292 years of uptime")
 }
@@ -45,21 +45,21 @@ pub(crate) fn monotonic_ns_now() -> i64 {
 /// A `session_events` row as bound, before its sequence exists: the event in its stored form,
 /// shared with the commit hook that publishes it, beside what only the row holds.
 #[derive(Debug)]
-pub(crate) struct SessionEventRow {
+pub struct SessionEventRow {
     /// The event as stored, its `occurredAt` in the form `YYYY-MM-DDTHH:MM:SS.sssZ`.
-    pub(crate) envelope: Arc<UnsequencedEventEnvelope>,
+    pub envelope: Arc<UnsequencedEventEnvelope>,
     /// The payload as JSON text, serialized on the appending task.
-    pub(crate) payload: String,
+    pub payload: String,
     /// [`monotonic_ns_now`] when the event was appended.
-    pub(crate) monotonic_ns: i64,
+    pub monotonic_ns: i64,
     /// The event's body, kept out of the payload and encoded as the row is written, `None` when it
     /// carries none.
-    pub(crate) content_payload: Option<StoredBody>,
+    pub content_payload: Option<StoredBody>,
 }
 
 /// Why a row was not written.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SessionEventInsertError {
+pub enum SessionEventInsertError {
     /// SQLite refused a statement, or the stored head is not an integer.
     #[error("the session_events row write failed")]
     Database(#[from] rusqlite::Error),
@@ -144,7 +144,7 @@ static ADVANCE_PROJECTION_CURSOR_SQL: LazyLock<String> = LazyLock::new(|| {
 /// `encoder`, advances the session's projection cursor to it, and returns that sequence. Run inside
 /// the writer's transaction; refuses when the stored head is not an integer or has no next safe
 /// integer, or when zstd refuses the body.
-pub(crate) fn insert_session_event(
+pub fn insert_session_event(
     connection: &Connection,
     encoder: &mut BodyEncoder,
     row: &SessionEventRow,

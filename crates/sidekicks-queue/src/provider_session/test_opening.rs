@@ -15,7 +15,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::provider_session::{ProviderSessionOpening, ProviderSessionOpeningComposer};
-use sidekicks_driver::PROVIDER_REGISTRATIONS;
+use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlags};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::CreateSessionParams;
@@ -29,7 +29,7 @@ pub(crate) fn first_provider() -> ProviderId {
 }
 
 /// Composes every session's opening on the table's first provider, read-only over the root.
-pub(crate) fn test_opening_composer() -> ProviderSessionOpeningComposer {
+pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
     Arc::new(|session_id| {
         async move {
             let root = FilesystemPath::new("/".to_owned()).expect("the root is a path");
@@ -66,7 +66,7 @@ pub(crate) fn test_opening_composer() -> ProviderSessionOpeningComposer {
 }
 
 /// Records the first provider's capabilities in `providers`, so its contract version reads.
-pub(crate) fn record_first_provider_capabilities(providers: &ProviderRegistry) {
+pub fn record_first_provider_capabilities(providers: &ProviderRegistry) {
     providers
         .record_capabilities(
             &first_provider(),

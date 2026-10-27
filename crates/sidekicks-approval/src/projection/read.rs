@@ -17,7 +17,7 @@ use crate::store::{
 
 /// Why a session's asks could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ApprovalProjectionReadError {
+pub enum ApprovalProjectionReadError {
     /// SQLite refused the read, or a stored column does not read as its type.
     #[error("a read of the session's approval requests failed")]
     Database(#[from] rusqlite::Error),
@@ -35,7 +35,7 @@ pub(crate) enum ApprovalProjectionReadError {
 /// The session's asks, oldest first, narrowed by state or category where `request` names it, read
 /// on `connection`, a read-only connection inside a read of the daemon's read pool; the store's
 /// statement set covers the read. Fails as [`ApprovalProjectionReadError`] says.
-pub(crate) fn read_approval_projection(
+pub fn read_approval_projection(
     connection: &Connection,
     request: &ApprovalListRequest,
 ) -> Result<ApprovalListResponse, ApprovalProjectionReadError> {

@@ -43,7 +43,7 @@ use sidekicks_std::mutex_lock::lock;
 
 /// How a handshake's caller is admitted, read once per connection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CallerAdmission {
+pub enum CallerAdmission {
     /// The caller is an agent's, or nothing vouches for it: refused whatever the handshake carries.
     Refused,
     /// The caller is the desktop's signed client, admitted by its signature without the session
@@ -56,7 +56,7 @@ pub(crate) enum CallerAdmission {
 /// Answers how a handshake from this pinned process is admitted; the flag says whether the
 /// handshake carried no token, the only handshake whose caller's signature is read. A failed read
 /// answers the handshake `-32603`.
-pub(crate) type CallerAdmissionCheck = Arc<
+pub type CallerAdmissionCheck = Arc<
     dyn Fn(
             PinnedProcess,
             bool,
@@ -209,7 +209,7 @@ struct CallerReadFault(#[source] Arc<dyn Error + Send + Sync>);
 
 /// Keeps each connection's negotiation and answers `connection.initialize`. The gateway calls
 /// `cleanup_transport` as each connection closes, or the state keeps one entry per connection.
-pub(crate) struct ProtocolNegotiator {
+pub struct ProtocolNegotiator {
     /// The token this start wrote to its token file.
     session_token: String,
     /// How a handshake from a process is admitted.
@@ -221,7 +221,7 @@ pub(crate) struct ProtocolNegotiator {
 impl ProtocolNegotiator {
     /// A negotiator for this start: `session_token` is the token it wrote to its token file, and
     /// `admit_caller` answers how a handshake from a process is admitted.
-    pub(crate) fn new(session_token: String, admit_caller: CallerAdmissionCheck) -> Arc<Self> {
+    pub fn new(session_token: String, admit_caller: CallerAdmissionCheck) -> Arc<Self> {
         Arc::new(Self {
             session_token,
             admit_caller,
@@ -232,7 +232,7 @@ impl ProtocolNegotiator {
     /// Registers `connection.initialize` on `registry`; fails as any second registration of it
     /// does. The handshake is a read, so a client whose handshake was incompatible can repeat it
     /// and read the latched answer.
-    pub(crate) fn register_handshake(
+    pub fn register_handshake(
         self: &Arc<Self>,
         registry: &mut MethodRegistryBuilder,
     ) -> Result<(), RegistrationError> {
@@ -249,7 +249,7 @@ impl ProtocolNegotiator {
     /// `read_progress` reads, every time, and latches the handshake as any handshake does, so the
     /// gate lets that connection's lifecycle calls through; a repeat's token is checked as on the
     /// normal handshake.
-    pub(crate) fn register_repairing_handshake(
+    pub fn register_repairing_handshake(
         self: &Arc<Self>,
         registry: &mut MethodRegistryBuilder,
         read_progress: RepairProgressReader,
@@ -264,7 +264,7 @@ impl ProtocolNegotiator {
 
     /// The gate over `next`, refusing each call this negotiator's state refuses; `registry` is the
     /// frozen registry whose entries say which method mutates.
-    pub(crate) fn gate(
+    pub fn gate(
         self: &Arc<Self>,
         next: Arc<dyn Dispatch>,
         registry: Arc<MethodRegistry>,
@@ -278,7 +278,7 @@ impl ProtocolNegotiator {
 
     /// Drops the closed connection's state, so a caller read that ends after the close latches
     /// nothing; a no-op for a connection with none.
-    pub(crate) fn cleanup_transport(&self, transport: TransportId) {
+    pub fn cleanup_transport(&self, transport: TransportId) {
         self.connections().remove(&transport);
     }
 
@@ -490,7 +490,7 @@ impl ProtocolNegotiator {
 /// The negotiation gate: refuses every call on a refused connection, every call but
 /// `connection.initialize` before a handshake completed, and every mutating call after an
 /// incompatible one, each `-31000` with a fixed message; anything else goes to the next dispatch.
-pub(crate) struct NegotiationGate {
+pub struct NegotiationGate {
     negotiator: Arc<ProtocolNegotiator>,
     next: Arc<dyn Dispatch>,
     registry: Arc<MethodRegistry>,

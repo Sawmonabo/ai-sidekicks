@@ -19,7 +19,7 @@ use sidekicks_store::database::connection::setup::open_database_reader;
 const CHECK_STATEMENT_CAPACITY: usize = 0;
 
 /// What `quick_check` and `integrity_check` answer for a sound file, as their one row.
-pub(crate) const SOUND_ROW: &str = "ok";
+pub const SOUND_ROW: &str = "ok";
 
 /// What the check found.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -81,7 +81,7 @@ impl DatabaseFileCheck {
     }
 
     /// Ends the check if it still runs; its answer is then [`DatabaseFileCheckAnswer::Stopped`].
-    pub(crate) fn stop(&self) {
+    pub fn stop(&self) {
         self.stop.cancel();
     }
 

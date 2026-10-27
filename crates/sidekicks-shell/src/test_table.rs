@@ -26,11 +26,11 @@ pub(crate) const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
 
 /// A table whose shells start a `shell` mode that is not there, so each keeps its record as one
 /// that did not start, and the scratch folder its files live in.
-pub(crate) struct TableFixture {
+pub struct TableFixture {
     /// The table.
-    pub(crate) table: Arc<ShellTable>,
+    pub table: Arc<ShellTable>,
     /// The terminals its shells start in.
-    pub(crate) terminals: Arc<Terminals>,
+    pub terminals: Arc<Terminals>,
     _scratch: TempDir,
 }
 
@@ -58,7 +58,9 @@ fn working_folder_read(folder: PathBuf, gate: watch::Receiver<bool>) -> ReadSess
     })
 }
 
-pub(crate) async fn table_fixture(gate: watch::Receiver<bool>) -> TableFixture {
+/// A shell table over a scratch folder, whose session's working folder reads only once `gate`
+/// opens.
+pub async fn table_fixture(gate: watch::Receiver<bool>) -> TableFixture {
     let scratch = tempfile::tempdir().expect("a scratch folder");
     let working_folder = scratch.path().join("work");
     let startup_folder = scratch.path().join("startup");

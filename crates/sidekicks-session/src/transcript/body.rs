@@ -26,7 +26,7 @@ use sidekicks_store::transcript_rejoin::{RowReads, joined_body_of};
 
 /// Why a row's body could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum BodyReadError {
+pub enum BodyReadError {
     /// The session is not one this daemon holds, or a read of its log failed.
     #[error(transparent)]
     Read(#[from] TranscriptReadError),

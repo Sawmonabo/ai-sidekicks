@@ -78,28 +78,28 @@ const RECORD_FETCH_FAILED_SQL: &str =
 
 /// The repository a held fetch keeps fresh.
 #[derive(Clone, Debug)]
-pub(crate) struct FetchedRepository {
+pub struct FetchedRepository {
     /// The mount whose row keeps when its fetches last succeeded and failed.
-    pub(crate) repo_mount_id: RepoMountId,
+    pub repo_mount_id: RepoMountId,
     /// The repository's own checkout, where the fetch runs.
-    pub(crate) repository_root: PathBuf,
+    pub repository_root: PathBuf,
     /// Where the repository is: `None` on macOS and Linux.
-    pub(crate) place: Option<Place>,
+    pub place: Option<Place>,
 }
 
 /// What the background fetch runs with.
-pub(crate) struct BackgroundFetchDeps {
+pub struct BackgroundFetchDeps {
     /// The daemon's git, for the remotes listing and each fetch.
-    pub(crate) git: GitRunner,
+    pub git: GitRunner,
     /// Where each fetch's success or failure is recorded on its mount's row.
-    pub(crate) writer: Arc<DatabaseWriter>,
+    pub writer: Arc<DatabaseWriter>,
     /// Says when each repository is next due; the fetch itself runs outside its slot.
-    pub(crate) scheduler: Arc<Scheduler>,
+    pub scheduler: Arc<Scheduler>,
 }
 
 /// Fetches each held repository at once and then an interval after each fetch ends, one fetch at a
 /// time in its own lane. Made inside the daemon's runtime, where its lane runs.
-pub(crate) struct BackgroundFetch {
+pub struct BackgroundFetch {
     shared: Arc<FetchShared>,
     lane: Mutex<Option<JoinHandle<()>>>,
 }
@@ -112,18 +112,18 @@ struct FetchShared {
     due_added: Notify,
     // Canceled at the stop, which ends the fetch under way.
     stop: CancellationToken,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     counts: tokio::sync::watch::Sender<FetchCounts>,
 }
 
 /// How many fetches have begun and ended, for a test to wait on.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct FetchCounts {
+pub struct FetchCounts {
     /// Fetches begun.
-    pub(crate) begun: u64,
+    pub begun: u64,
     /// Fetches that ended and recorded.
-    pub(crate) ended: u64,
+    pub ended: u64,
 }
 
 #[derive(Default)]
@@ -145,7 +145,7 @@ struct HeldRepository {
 }
 
 /// Keeps one repository fetched until it drops; holds on one mount share their fetches.
-pub(crate) struct FetchHold {
+pub struct FetchHold {
     shared: Weak<FetchShared>,
     repo_mount_id: RepoMountId,
     id: u64,
@@ -172,13 +172,13 @@ enum FetchOutcome {
 impl BackgroundFetch {
     /// A fetch running with `deps`, fetching nothing until a hold. Called inside the daemon's
     /// runtime, where its lane is spawned.
-    pub(crate) fn new(deps: BackgroundFetchDeps) -> Self {
+    pub fn new(deps: BackgroundFetchDeps) -> Self {
         let shared = Arc::new(FetchShared {
             deps,
             state: Mutex::new(FetchState::default()),
             due_added: Notify::new(),
             stop: CancellationToken::new(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             counts: tokio::sync::watch::Sender::new(FetchCounts::default()),
         });
         let lane = tokio::spawn(Arc::clone(&shared).run_lane());
@@ -191,7 +191,7 @@ impl BackgroundFetch {
     /// Keeps `repository` fetched until the returned hold drops: at once for the first hold on its
     /// mount, then an interval after each fetch ends; the last hold's drop cancels its next fetch,
     /// and a fetch under way then finishes and records.
-    pub(crate) fn keep_fresh(&self, repository: FetchedRepository) -> FetchHold {
+    pub fn keep_fresh(&self, repository: FetchedRepository) -> FetchHold {
         let repo_mount_id = repository.repo_mount_id;
         let mut state = self.shared.lock_state();
         let id = if let Some(held) = state.held_by_mount.get_mut(&repo_mount_id) {
@@ -221,7 +221,7 @@ impl BackgroundFetch {
 
     /// Cancels every held repository's next fetch, ends the fetch under way, which records
     /// nothing, and waits for the lane to end; a later hold fetches nothing.
-    pub(crate) async fn stop(&self) {
+    pub async fn stop(&self) {
         let held = {
             let mut state = self.shared.lock_state();
             state.due.clear();
@@ -245,15 +245,15 @@ impl BackgroundFetch {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl BackgroundFetch {
     /// The fetches begun and ended so far, and each change to them.
-    pub(crate) fn counts(&self) -> tokio::sync::watch::Receiver<FetchCounts> {
+    pub fn counts(&self) -> tokio::sync::watch::Receiver<FetchCounts> {
         self.shared.counts.subscribe()
     }
 
     /// Whether any hold keeps `repo_mount_id` fetched.
-    pub(crate) fn is_held(&self, repo_mount_id: &RepoMountId) -> bool {
+    pub fn is_held(&self, repo_mount_id: &RepoMountId) -> bool {
         self.shared
             .lock_state()
             .held_by_mount
@@ -320,7 +320,7 @@ impl FetchShared {
                 FetchOutcome::Fetched => self.record(&repository, RECORD_FETCHED_SQL).await,
                 FetchOutcome::Failed => self.record(&repository, RECORD_FETCH_FAILED_SQL).await,
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             self.counts.send_modify(|counts| counts.ended += 1);
             self.schedule_next(&repository.repo_mount_id, id);
         }
@@ -380,7 +380,7 @@ impl FetchShared {
     // Fetches every remote of `repository`, one at a time, within one time bound; a failed remote's
     // fetch lets the others still run.
     async fn fetch(&self, repository: &FetchedRepository) -> FetchOutcome {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.counts.send_modify(|counts| counts.begun += 1);
         let bound = CancellationToken::new();
         let fetching = self.fetch_remotes(repository, &bound);

@@ -94,7 +94,7 @@ impl SubscriberChanges {
 
 /// One subscription's feed of the sessions list. Dropping it leaves the list; the last one to
 /// leave drops it.
-pub(crate) struct SessionListSubscriber {
+pub struct SessionListSubscriber {
     feed: Arc<SessionListFeed>,
     list: Arc<SharedList>,
     changes: Arc<SubscriberChanges>,

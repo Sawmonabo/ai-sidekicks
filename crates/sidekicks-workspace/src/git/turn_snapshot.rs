@@ -3,7 +3,7 @@
 
 pub(crate) mod capture;
 pub(crate) mod capture_steps;
-pub(crate) mod diagnostics;
+pub mod diagnostics;
 pub(crate) mod refs;
-pub(crate) mod retention;
-pub(crate) mod service;
+pub mod retention;
+pub mod service;

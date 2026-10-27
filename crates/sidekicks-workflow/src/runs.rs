@@ -2,11 +2,11 @@
 //! the runs that need someone, a cancel's statements, deleting runs and their Keep mark, and the
 //! refusals of a cursor.
 
-pub(crate) mod attention;
+pub mod attention;
 pub(crate) mod cancellation;
-pub(crate) mod deletion;
+pub mod deletion;
 pub(crate) mod invalid_cursor;
-pub(crate) mod record;
+pub mod record;
 pub(crate) mod spent_account;
-pub(crate) mod step_payload;
-pub(crate) mod store;
+pub mod step_payload;
+pub mod store;

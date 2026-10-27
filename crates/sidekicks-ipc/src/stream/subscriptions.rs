@@ -31,14 +31,14 @@ use crate::stream::feed::SendGate;
 use sidekicks_std::mutex_lock::lock;
 
 /// What a feed's failure is reported to, beside the subscription it ends.
-pub(crate) trait DispatchFailureWatch: Send + Sync {
+pub trait DispatchFailureWatch: Send + Sync {
     /// Learns of `failure`, the error a feed's read ended with.
     fn report_dispatch_failure(&self, failure: &DispatchError);
 }
 
 /// The daemon's open subscriptions, by id and by connection, shared by the cancel call, the
 /// gateway's connection close and each open subscription.
-pub(crate) struct Subscriptions {
+pub struct Subscriptions {
     table: Mutex<SubscriptionTable>,
     /// What each feed's failure is told to.
     failures: Arc<dyn DispatchFailureWatch>,
@@ -79,7 +79,7 @@ impl SubscriptionTable {
 impl Subscriptions {
     /// An empty table, shared by everything that opens, cancels or closes a subscription, telling
     /// `failures` of each feed's failure.
-    pub(crate) fn new(failures: Arc<dyn DispatchFailureWatch>) -> Arc<Self> {
+    pub fn new(failures: Arc<dyn DispatchFailureWatch>) -> Arc<Self> {
         Arc::new(Self {
             table: Mutex::default(),
             failures,
@@ -92,7 +92,7 @@ impl Subscriptions {
     /// for another's. The owner's cancel answers only once the subscription's lane closed: `true`
     /// after the lane's abort, `false` after the end frame of a stream that ended first. Fails the
     /// start when the method is already registered.
-    pub(crate) fn register_cancel(
+    pub fn register_cancel(
         self: &Arc<Self>,
         registry: &mut MethodRegistryBuilder,
     ) -> Result<(), RegistrationError> {
@@ -118,7 +118,7 @@ impl Subscriptions {
     /// Whether `transport` holds fewer than `MAX_OPEN_LANES` open subscriptions, so a subscribe
     /// call on it may run; the gateway asks before it dispatches one, and `open` checks again for
     /// a subscribe that raced it.
-    pub(crate) fn has_room(&self, transport: TransportId) -> bool {
+    pub fn has_room(&self, transport: TransportId) -> bool {
         self.lock()
             .by_transport
             .get(&transport)
@@ -129,7 +129,7 @@ impl Subscriptions {
     /// the gateway writes its acknowledgment. Refused `connection.subscription.limitReached` with
     /// `{limit}` when the connection already holds `MAX_OPEN_LANES` open subscriptions; the feed is
     /// then dropped and nothing opens.
-    pub(crate) fn open(
+    pub fn open(
         self: &Arc<Self>,
         transport: TransportId,
         method: &'static str,
@@ -169,7 +169,7 @@ impl Subscriptions {
 
     /// Ends every subscription of the closed connection `transport`, with no end frame: each is
     /// canceled, so its next frame ends it, and it leaves the table when the gateway drops it.
-    pub(crate) fn cleanup_transport(&self, transport: TransportId) {
+    pub fn cleanup_transport(&self, transport: TransportId) {
         let table = self.lock();
         let Some(ids) = table.by_transport.get(&transport) else {
             return;
@@ -221,7 +221,7 @@ impl Subscriptions {
 
 /// The refusal of a subscribe call on a connection that holds `MAX_OPEN_LANES` subscriptions,
 /// which the gateway also answers when `has_room` says no.
-pub(crate) fn subscription_limit_reached() -> DomainError {
+pub fn subscription_limit_reached() -> DomainError {
     DomainError::new(
         "the connection holds as many subscriptions as it may open",
         RefusalCode::ConnectionSubscriptionLimitReached,
@@ -230,7 +230,7 @@ pub(crate) fn subscription_limit_reached() -> DomainError {
 }
 
 /// One frame of a subscription's lane.
-pub(crate) enum SubscriptionFrame {
+pub enum SubscriptionFrame {
     /// One value, which the gateway sends as `$/subscription/notify` under the subscription's id.
     Notify(EncodedValue),
     /// The daemon's end of the stream, sent as `$/subscription/end`; nothing follows it.
@@ -240,7 +240,7 @@ pub(crate) enum SubscriptionFrame {
 /// One open subscription, which the gateway drives only once the acknowledgment's END chunk is
 /// written. Dropping it takes it out of the table, then drops its feed, then signals its lane
 /// closed to a cancel waiting on it.
-pub(crate) struct Subscription {
+pub struct Subscription {
     subscriptions: Arc<Subscriptions>,
     /// The subscribe method's wire name, which the subscription's log lines carry.
     method: &'static str,
@@ -255,7 +255,7 @@ pub(crate) struct Subscription {
 
 impl Subscription {
     /// The id the subscription's frames are routed by.
-    pub(crate) fn subscription_id(&self) -> &SubscriptionId {
+    pub fn subscription_id(&self) -> &SubscriptionId {
         &self.id
     }
 
@@ -265,7 +265,7 @@ impl Subscription {
     /// `None` once the subscription ended with nothing to send (canceled by its client, or its
     /// connection closed, which also closes its gate) and after its end frame; the gateway then
     /// drops it. A cancel ends a feed that is waiting.
-    pub(crate) async fn next_frame(&mut self, gate: &dyn SendGate) -> Option<SubscriptionFrame> {
+    pub async fn next_frame(&mut self, gate: &dyn SendGate) -> Option<SubscriptionFrame> {
         if self.has_ended {
             return None;
         }

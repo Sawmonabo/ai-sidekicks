@@ -2,8 +2,8 @@
 //! the daemon through, those two program modes, the running set each session keeps, and the checks
 //! that read whether a command waits for input.
 
-pub(crate) mod askpass;
+pub mod askpass;
 pub(crate) mod channel;
-pub(crate) mod running_set;
+pub mod running_set;
 pub(crate) mod waiting_checks;
-pub(crate) mod wrapper;
+pub mod wrapper;

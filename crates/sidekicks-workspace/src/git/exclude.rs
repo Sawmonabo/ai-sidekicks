@@ -20,7 +20,7 @@ static EXCLUDE_LIST_LOCK: LazyLock<KeyedLock<PathBuf>> = LazyLock::new(KeyedLock
 
 /// Why a pattern could not be added to a repository's exclude list.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ExcludeError {
+pub enum ExcludeError {
     /// The list could not be read.
     #[error("reading the repository's exclude list {} failed", path.display())]
     Read {
@@ -46,7 +46,7 @@ pub(crate) enum ExcludeError {
 
 /// Adds `pattern` as a line of `common_git_folder`'s exclude list unless a line already reads
 /// exactly it, one writer at a time on each list, so two writers never drop each other's line.
-pub(crate) async fn add_repository_exclude(
+pub async fn add_repository_exclude(
     common_git_folder: &Path,
     pattern: &str,
 ) -> Result<(), ExcludeError> {

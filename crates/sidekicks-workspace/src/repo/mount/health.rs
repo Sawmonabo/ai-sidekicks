@@ -65,7 +65,7 @@ use sidekicks_store::database::stored_column::{
 use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
 
 /// The statements the re-probe's reads keep prepared on each read connection.
-pub(crate) const REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY: usize = 5;
+pub const REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY: usize = 5;
 
 // What every attached-mount read selects, in the order `attached_mount_of` reads it.
 static ATTACHED_MOUNT_COLUMNS_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -178,7 +178,7 @@ pub(crate) async fn probe_repo_mount_health(
 
 /// Why the re-probe could not read the rows it works from.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum MountHealthReadError {
+pub enum MountHealthReadError {
     /// SQLite refused the read, or a stored row does not read.
     #[error("the attached repo mounts, their sessions or a session's log could not be read")]
     Database(#[from] rusqlite::Error),
@@ -189,7 +189,7 @@ pub(crate) enum MountHealthReadError {
 
 /// Why one mount's pass did not tell every session on it what it found.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum MountPassFailure {
+pub enum MountPassFailure {
     /// The mount's rows could not be read.
     #[error("repo mount {repo_mount_id}: its rows could not be read")]
     Read {
@@ -231,7 +231,7 @@ pub(crate) enum MountPassFailure {
 
 /// Why a re-probe did not finish telling every session what changed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ReprobeError {
+pub enum ReprobeError {
     /// The attached mounts could not be read, so none was probed.
     #[error("the attached repo mounts could not be read")]
     Read(#[from] MountHealthReadError),
@@ -311,7 +311,7 @@ struct MountMemory {
 /// ([`start_probe`](Self::start_probe)) and on wake ([`reprobe`](Self::reprobe)), and only the
 /// mounts holding a folder that changed
 /// ([`reprobe_mounts_containing`](Self::reprobe_mounts_containing)). See the module doc.
-pub(crate) struct RepoMountHealthReprobe {
+pub struct RepoMountHealthReprobe {
     reads: Arc<DatabaseReadPool>,
     events: Arc<WorkspaceEventEmitter>,
     resolver: RepoRootResolver,
@@ -324,7 +324,7 @@ pub(crate) struct RepoMountHealthReprobe {
 impl RepoMountHealthReprobe {
     /// The re-probe reading rows through `reads`, asking `resolver` for each root's repository and
     /// sending each change through `events`; canceling `stop` ends every pass and every send.
-    pub(crate) fn new(
+    pub fn new(
         reads: Arc<DatabaseReadPool>,
         events: Arc<WorkspaceEventEmitter>,
         resolver: RepoRootResolver,
@@ -343,7 +343,7 @@ impl RepoMountHealthReprobe {
 
     /// Probes every attached mount at the service's start; a mount whose probe runs out of time
     /// reads `unreachable`. Fails as [`reprobe`](Self::reprobe) does.
-    pub(crate) async fn start_probe(&self) -> Result<(), ReprobeError> {
+    pub async fn start_probe(&self) -> Result<(), ReprobeError> {
         let mounts = self.read_attached_mounts().await?;
         self.probe_each(
             mounts.into_iter().map(|mount| mount.id).collect(),
@@ -356,7 +356,7 @@ impl RepoMountHealthReprobe {
     /// Fails with [`ReprobeError::Read`] when the attached mounts cannot be read, and with
     /// [`ReprobeError::Passes`] once every pass has ended when any mount's pass failed, a send
     /// that did not reach a session among them.
-    pub(crate) async fn reprobe(&self) -> Result<(), ReprobeError> {
+    pub async fn reprobe(&self) -> Result<(), ReprobeError> {
         let mounts = self.read_attached_mounts().await?;
         let attached: HashSet<RepoMountId> = mounts.iter().map(|mount| mount.id).collect();
         self.lock_mounts()
@@ -371,10 +371,7 @@ impl RepoMountHealthReprobe {
     /// Re-probes only the attached mounts whose root, or a checkout a live workspace on it works
     /// in, holds `folder`, an absolute path with each link resolved, as the stored roots are.
     /// Fails as [`reprobe`](Self::reprobe) does.
-    pub(crate) async fn reprobe_mounts_containing(
-        &self,
-        folder: &Path,
-    ) -> Result<(), ReprobeError> {
+    pub async fn reprobe_mounts_containing(&self, folder: &Path) -> Result<(), ReprobeError> {
         let (mounts, checkouts) = self
             .reads
             .read(ReadLength::Short, |connection| {

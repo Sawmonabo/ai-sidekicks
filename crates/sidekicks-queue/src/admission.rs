@@ -136,7 +136,7 @@ enum Placed {
 
 /// Starts the runs sends queue and holds each one's place at the memory gate until it ends. A
 /// start's failure is written to the run and its messages, and to the service log.
-pub(crate) struct QueueAdmission {
+pub struct QueueAdmission {
     deps: QueueAdmissionDeps,
     state: Mutex<AdmissionState>,
     tasks: TaskTracker,

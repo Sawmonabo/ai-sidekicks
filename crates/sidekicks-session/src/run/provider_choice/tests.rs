@@ -31,7 +31,7 @@ use crate::driver_resolution::LiveRunDriverError;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
 use crate::run::engine::tests::{append, insert_running_run, stored_run_state, test_engine};
-use crate::run::pause::tests::unanswered;
+use crate::run::pause::test_answers::unanswered;
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::RunStateChange;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -43,7 +43,7 @@ use sidekicks_provider::driver::test_registry::{
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::tests::{TestLog, open_log};
+use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };

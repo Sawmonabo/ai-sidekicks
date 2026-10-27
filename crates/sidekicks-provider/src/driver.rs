@@ -35,33 +35,33 @@ use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
-pub(crate) mod attachments;
-pub(crate) mod callback_tool;
-pub(crate) mod capabilities;
-pub(crate) mod contract;
-pub(crate) mod daemon_stop;
+pub mod attachments;
+pub mod callback_tool;
+pub mod capabilities;
+pub mod contract;
+pub mod daemon_stop;
 pub(crate) mod delivery_dispatch;
-pub(crate) mod diagnostics;
-pub(crate) mod error_causes;
+pub mod diagnostics;
+pub mod error_causes;
 pub(crate) mod hook_pauses;
 pub(crate) mod mcp_server_status;
-pub(crate) mod message_handing;
-pub(crate) mod ports;
+pub mod message_handing;
+pub mod ports;
 pub(crate) mod question_answers;
-pub(crate) mod registry;
+pub mod registry;
 pub(crate) mod reorder_buffer;
 pub(crate) mod rewind;
-pub(crate) mod run_control;
-pub(crate) mod schema;
-pub(crate) mod session_control;
+pub mod run_control;
+pub mod schema;
+pub mod session_control;
 pub(crate) mod streamed_text;
-#[cfg(test)]
-pub(crate) mod test_registry;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_registry;
 pub(crate) mod unified_diff;
 
 // The shared session tests compose addresses with the one real addresser.
-#[cfg(test)]
-pub(crate) use crate::claude::inbox_address::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
+#[cfg(any(test, feature = "test-support"))]
+pub use crate::claude::inbox_address::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
 
 /// The fixed facts a provider's driver declares about itself, the same for every installed build,
 /// account, model and session; what depends on those comes from the driver's methods.
@@ -71,9 +71,9 @@ pub(crate) use crate::claude::inbox_address::{ClaudeSessionInboxAddresser, Place
               environment, the managed-settings checks, the memory gate and the sandboxed \
               permission level's check read each descriptor's facts"
 )]
-pub(crate) struct ProviderDescriptor {
+pub struct ProviderDescriptor {
     /// The provider's id: a lowercase letter, then up to 31 lowercase letters, digits or hyphens.
-    pub(crate) id: &'static str,
+    pub id: &'static str,
     /// The provider's name as a person reads it.
     pub(crate) name: &'static str,
     /// Each plan id the provider sends and the word a person reads it as.
@@ -90,10 +90,10 @@ pub(crate) struct ProviderDescriptor {
     /// What the provider's command sandbox needs from the computer on each operating system.
     pub(crate) command_sandbox_needs: PerSystem<CommandSandboxNeeds>,
     /// What one start of the provider costs in memory before this machine has measured it.
-    pub(crate) memory: ProviderMemoryEstimates,
+    pub memory: ProviderMemoryEstimates,
     /// The provider's own word for standard output speed, as its declared state reads it; a run
     /// that carried another level and settles on another state is told fast output is unavailable.
-    pub(crate) standard_output_speed: &'static str,
+    pub standard_output_speed: &'static str,
     /// The output-speed levels a person may request, for a provider that lists none per model;
     /// `None` where the provider lists them on each model of its catalog, so the two never both
     /// apply.
@@ -121,14 +121,14 @@ pub(crate) struct ProviderDescriptor {
     pub(crate) skill_name_max_length: Option<u64>,
     /// The forms of the provider's own command whose work would outlive the call, which no agent
     /// in a session may run, and the switch that turns them off; `None` where it has none.
-    pub(crate) background_work: Option<BackgroundWork>,
+    pub background_work: Option<BackgroundWork>,
     /// Whether the driver sets up the daemon's tool server so the provider asks before each call of
     /// the app's own tools itself; where it does not, the daemon raises the call's card.
-    pub(crate) callback_tools_asked: bool,
+    pub callback_tools_asked: bool,
     /// The folders, as components under an account home, the provider writes for its own
     /// diagnosis and never reads back for a session; `Keep diagnostic logs for` deletes their files
     /// by age in each account home the app manages.
-    pub(crate) account_home_diagnostic_folders: &'static [&'static [&'static str]],
+    pub account_home_diagnostic_folders: &'static [&'static [&'static str]],
     /// The folders, as components under an account home, the provider keeps its conversations
     /// and their files in, which hold no credential; a backup keeps them in each account home the
     /// app manages.
@@ -274,13 +274,13 @@ impl ProviderDescriptor {
 /// The forms of a provider's own command that start work outside the session that runs them:
 /// work no agent of the session holds, that `Stop` and `Interrupt` never reach and that its
 /// receipt never shows.
-pub(crate) struct BackgroundWork {
+pub struct BackgroundWork {
     /// The subcommands whose work outlives the call, whatever follows them.
     pub(crate) subcommands: &'static [&'static str],
     /// The options, alone or with `=<value>`, that send a prompt to the background.
     pub(crate) flags: &'static [&'static str],
     /// The reason an agent reads when one of these commands is refused.
-    pub(crate) refusal: &'static str,
+    pub refusal: &'static str,
     /// The variable and value that turn the provider's background work off, set on every
     /// provider's process and on the commands its conversation runs, so a nested run inherits it.
     pub(crate) off_switch: (&'static str, &'static str),
@@ -369,12 +369,12 @@ pub(crate) enum MissingSandboxPrerequisite {
 /// What one start of a provider costs in memory before this machine has measured it, each figure
 /// the top of the range measured, in bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderMemoryEstimates {
+pub struct ProviderMemoryEstimates {
     /// A new process of the provider.
-    pub(crate) process_bytes: u64,
+    pub process_bytes: u64,
     /// One more conversation on a process of the provider already running; `None` where each
     /// conversation is a process of its own.
-    pub(crate) conversation_bytes: Option<u64>,
+    pub conversation_bytes: Option<u64>,
 }
 
 /// The longest version text a provider's reply is read as a version from, in characters.
@@ -405,7 +405,7 @@ impl ReportedVersionReading {
 
 /// The one table of providers: each provider's registration, in the order the providers are listed
 /// and their drivers registered, which the daemon's start builds the registry from once.
-pub(crate) const PROVIDER_REGISTRATIONS: &[ProviderRegistration] = &[
+pub const PROVIDER_REGISTRATIONS: &[ProviderRegistration] = &[
     ProviderRegistration {
         descriptor: &crate::claude::DESCRIPTOR,
         build: crate::claude::build,
@@ -417,7 +417,7 @@ pub(crate) const PROVIDER_REGISTRATIONS: &[ProviderRegistration] = &[
 ];
 
 /// Every provider's descriptor, in the table's order.
-pub(crate) const PROVIDERS: &[&ProviderDescriptor] =
+pub const PROVIDERS: &[&ProviderDescriptor] =
     &descriptors_of::<{ PROVIDER_REGISTRATIONS.len() }>(PROVIDER_REGISTRATIONS);
 
 const _: () = assert!(
@@ -430,46 +430,46 @@ const _: () = assert!(has_unique_ids(PROVIDERS), "two providers share an id");
 /// daemon's start. Each field is a handle a driver reads, every one provider-neutral: a provider's
 /// own folders and settings stay in its driver, and what the daemon builds after the drivers is a
 /// port in `ports`.
-pub(crate) struct DriverServices {
+pub struct DriverServices {
     /// The one thread every child process is spawned from.
-    pub(crate) spawner: Spawner,
+    pub spawner: Spawner,
     /// The daemon's data folder.
-    pub(crate) data_folder: PathBuf,
+    pub data_folder: PathBuf,
     /// The person's home folder.
-    pub(crate) home_folder: PathBuf,
+    pub home_folder: PathBuf,
     /// The read pool every driver's database read goes through.
-    pub(crate) pool: Arc<DatabaseReadPool>,
+    pub pool: Arc<DatabaseReadPool>,
     /// Binds a message's attachments to their stored copies.
-    pub(crate) attachments: Arc<dyn AttachmentResolver>,
+    pub attachments: Arc<dyn AttachmentResolver>,
     /// Opens temporary worktrees of a folder's staged changes.
-    pub(crate) staged_changes: StagedChangesWorktrees,
+    pub staged_changes: StagedChangesWorktrees,
     /// Resolves each posture's curated credential list.
-    pub(crate) execution_postures: Arc<ExecutionPostureService>,
+    pub execution_postures: Arc<ExecutionPostureService>,
     /// The login shell's environment captured at the daemon's start, every provider process's base.
-    pub(crate) base_environment: Arc<[(String, String)]>,
+    pub base_environment: Arc<[(String, String)]>,
     /// The names every provider sets on its processes, which no environment row may set.
-    pub(crate) reserved_names: Arc<ReservedEnvironmentNames>,
+    pub reserved_names: Arc<ReservedEnvironmentNames>,
     /// The search a provider's command falls back to once its spawn environment's `PATH` holds
     /// none.
-    pub(crate) command_search: Arc<ProviderCommandSearch>,
+    pub command_search: Arc<ProviderCommandSearch>,
     /// The compactions waiting for their provider's evidence, keyed by each driver's binding.
-    pub(crate) pending_compactions: PendingCompactionRegistry,
+    pub pending_compactions: PendingCompactionRegistry,
     /// Which provider process runs each session, which each driver writes at spawn and exit.
-    pub(crate) processes: Arc<ProviderProcessRegistry>,
+    pub processes: Arc<ProviderProcessRegistry>,
     /// The processes serving the provider services the daemon holds a connection to, which each
     /// driver's dial holds and the daemon's caller check reads.
-    pub(crate) provider_services: Arc<ProviderServiceProcesses>,
+    pub provider_services: Arc<ProviderServiceProcesses>,
     /// Points a session's binding at the conversation a driver moved it onto.
-    pub(crate) runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
+    pub runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
     /// The daemon-wide bound on the shell-line bytes an ask's checks parse at once.
-    pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    pub shell_lines: Arc<ShellLineReadingBound>,
     /// Every provider's background work, which no agent's shell line may start.
-    pub(crate) background_work: Arc<BackgroundWorkForms>,
+    pub background_work: Arc<BackgroundWorkForms>,
     /// Whether the daemon's program runs the hook mode a provider's hook command starts, so a
     /// driver composes and trusts a hook that runs this program only while it does.
-    pub(crate) dispatches_hook_mode: bool,
+    pub dispatches_hook_mode: bool,
     /// The handles the daemon builds after the drivers, each registered by its start.
-    pub(crate) ports: Arc<DriverPorts>,
+    pub ports: Arc<DriverPorts>,
 }
 
 /// Where and as whom one session's provider process runs, and the settings the daemon keeps for the
@@ -540,11 +540,11 @@ pub(crate) trait SessionSpawnContextResolver: Send + Sync {
 
 /// One registered provider: its descriptor and the function that builds its driver from the shared
 /// services, storing its handles without I/O.
-pub(crate) struct ProviderRegistration {
+pub struct ProviderRegistration {
     /// The provider's fixed facts.
-    pub(crate) descriptor: &'static ProviderDescriptor,
+    pub descriptor: &'static ProviderDescriptor,
     /// Builds the driver.
-    pub(crate) build: fn(&DriverServices) -> Arc<dyn ProviderDriver>,
+    pub build: fn(&DriverServices) -> Arc<dyn ProviderDriver>,
 }
 
 /// Whether every id in `table` matches the provider id pattern.

@@ -32,6 +32,8 @@ sidekicks-session.workspace = true
 sidekicks-std.workspace = true
 sidekicks-store.workspace = true
 sidekicks-workspace.workspace = true
+# The folder of the artifact test store other crates' tests open.
+tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -43,13 +45,19 @@ zune-jpeg.workspace = true
 # Writes each PNG chunk's CRC in the picture size tests.
 flate2.workspace = true
 rstest.workspace = true
+# The run engine, the questions and the transcript fixtures the tests build on.
+sidekicks-session = { workspace = true, features = ["test-support"] }
+# The pause points and stalled reads the tests arm.
+sidekicks-std = { workspace = true, features = ["test-support"] }
+# The test database and the session rows the tests build on.
+sidekicks-store = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
 # The paused clock the admission's and the ingest service's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 
 [features]
 # Helpers other crates' tests use: the artifact test store and the plans service's fixtures.
-test-support = []
+test-support = ["dep:tempfile", "sidekicks-store/test-support"]
 
 [lints]
 workspace = true

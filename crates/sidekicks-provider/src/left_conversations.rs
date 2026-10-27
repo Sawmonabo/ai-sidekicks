@@ -22,22 +22,22 @@ use sidekicks_store::database::statement::{
     clippy::struct_field_names,
     reason = "each member is an id, named for what it identifies"
 )]
-pub(crate) struct LeftConversation {
+pub struct LeftConversation {
     /// The session that left it.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The account whose home holds it; `None` on the machine's default home.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    pub provider_account_id: Option<ProviderAccountId>,
     /// The provider's own id for the conversation.
-    pub(crate) conversation_id: String,
+    pub conversation_id: String,
 }
 
 /// A recorded left conversation, with the provider whose binding recorded it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LeftConversationRecord {
+pub struct LeftConversationRecord {
     /// The conversation left.
-    pub(crate) conversation: LeftConversation,
+    pub conversation: LeftConversation,
     /// The provider whose binding recorded it.
-    pub(crate) provider_name: ProviderId,
+    pub provider_name: ProviderId,
     /// When the session left it.
     pub(crate) left_at: String,
 }
@@ -89,7 +89,7 @@ pub(crate) fn compose_left_conversation_insert(
 /// purge, which deletes each one from its provider. A row keeps its provider id as written, a
 /// provider this build has no driver for included; fails on a database error, or on a stored id
 /// that is no valid provider id, which fails the whole read rather than skip a row.
-pub(crate) fn read_left_conversations(
+pub fn read_left_conversations(
     reader: &Connection,
     session_id: &SessionId,
 ) -> rusqlite::Result<Vec<LeftConversationRecord>> {

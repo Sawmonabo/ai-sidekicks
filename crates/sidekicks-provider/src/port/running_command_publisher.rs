@@ -111,7 +111,7 @@ pub(crate) trait RunningCommandPublisher: Send + Sync {
     clippy::struct_field_names,
     reason = "each member is an id, named for what it identifies"
 )]
-pub(crate) struct RunningCommandParams {
+pub struct RunningCommandParams {
     /// The session.
     pub(crate) session_id: SessionId,
     /// The binding.
@@ -123,7 +123,7 @@ pub(crate) struct RunningCommandParams {
 /// Params of the person's write to a running command: the command, the typed text and whether the
 /// command's input then ends.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct WriteCommandInputParams {
+pub struct WriteCommandInputParams {
     /// The command.
     pub(crate) command: RunningCommandParams,
     /// The typed text.

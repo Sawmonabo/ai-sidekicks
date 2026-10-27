@@ -6,7 +6,7 @@ use sidekicks_contracts::session::id::SessionId;
 
 /// The two texts of one read: every session's rows, and only those of the session `@session_id`
 /// names.
-pub(crate) struct SessionScopedSql {
+pub struct SessionScopedSql {
     every_session: String,
     one_session: String,
 }
@@ -14,7 +14,7 @@ pub(crate) struct SessionScopedSql {
 impl SessionScopedSql {
     /// The read `build` writes from the condition its rows take after its own: none, or
     /// `AND {session_column} = @session_id`.
-    pub(crate) fn new(session_column: &str, build: impl Fn(&str) -> String) -> Self {
+    pub fn new(session_column: &str, build: impl Fn(&str) -> String) -> Self {
         Self {
             every_session: build(""),
             one_session: build(&format!("AND {session_column} = @session_id")),
@@ -23,7 +23,7 @@ impl SessionScopedSql {
 
     /// Runs the read on `reader`, each row through `row_of`: `session_id`'s rows, or every
     /// session's when it is `None`. Fails as SQLite or `row_of` does.
-    pub(crate) fn query<T>(
+    pub fn query<T>(
         &self,
         reader: &Connection,
         session_id: Option<&SessionId>,

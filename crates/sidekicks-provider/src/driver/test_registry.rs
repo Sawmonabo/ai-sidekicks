@@ -58,7 +58,7 @@ const TEST_SHELL_LINE_LIMIT: usize = 1 << 20;
 struct NotServedInTest(&'static str);
 
 /// An attachment resolver and binding rebinder that serve nothing.
-pub(crate) struct NothingServed;
+pub struct NothingServed;
 
 impl RuntimeBindingRebinder for NothingServed {
     fn rebind(
@@ -84,7 +84,7 @@ impl AttachmentResolver for NothingServed {
 /// test opens, every folder under a relative one that no test makes, and a set of held provider
 /// services of its own, which a test reads through its field. Called on a tokio runtime, which
 /// the spawner thread starts on.
-pub(crate) fn test_driver_services() -> DriverServices {
+pub fn test_driver_services() -> DriverServices {
     let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
     let folder = PathBuf::from("driver-services");
     let base_environment: Arc<[(String, String)]> = Arc::from([]);
@@ -139,22 +139,20 @@ fn take_next_driver(_services: &DriverServices) -> Arc<dyn ProviderDriver> {
 
 /// A registry holding only the table's first provider, answered by `driver`. Called on a tokio
 /// runtime, which the spawner thread is started on.
-pub(crate) fn registry_of_first_provider(driver: Arc<dyn ProviderDriver>) -> ProviderRegistry {
+pub fn registry_of_first_provider(driver: Arc<dyn ProviderDriver>) -> ProviderRegistry {
     registry_of_first_providers(vec![driver])
 }
 
 /// A registry holding the table's first providers in its order, one for each of `drivers`, each
 /// answered by its driver. Called on a tokio runtime, which the spawner thread is started on.
-pub(crate) fn registry_of_first_providers(
-    drivers: Vec<Arc<dyn ProviderDriver>>,
-) -> ProviderRegistry {
+pub fn registry_of_first_providers(drivers: Vec<Arc<dyn ProviderDriver>>) -> ProviderRegistry {
     let services = test_driver_services();
     ProviderRegistry::register_from(&registrations_of_first_providers(drivers), &services)
 }
 
 /// The table's first providers in its order, one for each of `drivers`, each built as its driver;
 /// the registry is built from it next, on the same thread.
-pub(crate) fn registrations_of_first_providers(
+pub fn registrations_of_first_providers(
     drivers: Vec<Arc<dyn ProviderDriver>>,
 ) -> Vec<ProviderRegistration> {
     let table = PROVIDERS[..drivers.len()]
@@ -170,10 +168,7 @@ pub(crate) fn registrations_of_first_providers(
 
 /// Binds `run_id` in `database` to the table's first provider, as a live runtime binding does, so a
 /// test may bind several runs, and answers the binding's id.
-pub(crate) fn bind_run_to_first_provider(
-    database: &TestDatabase,
-    run_id: RunId,
-) -> RuntimeBindingId {
+pub fn bind_run_to_first_provider(database: &TestDatabase, run_id: RunId) -> RuntimeBindingId {
     let binding_id = mint_uuid_v7().to_string();
     database
         .reader()
@@ -188,23 +183,23 @@ pub(crate) fn bind_run_to_first_provider(
 }
 
 /// A minted run id.
-pub(crate) fn new_run_id() -> RunId {
+pub fn new_run_id() -> RunId {
     RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
 }
 
 /// A minted session id.
-pub(crate) fn new_session_id() -> SessionId {
+pub fn new_session_id() -> SessionId {
     SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
 }
 
 /// A minted id of a queued message.
-pub(crate) fn new_message_id() -> QueueItemId {
+pub fn new_message_id() -> QueueItemId {
     QueueItemId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is a queue item id")
 }
 
 /// What the run queue's intake was told, telling a waiter at each.
 #[derive(Default)]
-pub(crate) struct RecordedQueue {
+pub struct RecordedQueue {
     /// The messages told taken, in order.
     pub(crate) taken: Mutex<Vec<String>>,
     /// The messages told refused, each with why, in order.

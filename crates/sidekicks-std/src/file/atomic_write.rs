@@ -50,7 +50,7 @@ pub enum AtomicWriteError {
 /// before the rename removes the temporary file `<name>.<random>.tmp` and leaves the old file in
 /// place. `contents` is moved to the write and dropped there, so a buffer that wipes itself on drop
 /// leaves no copy behind.
-pub(crate) async fn write_file_atomically(
+pub async fn write_file_atomically(
     file_path: &Path,
     contents: impl AsRef<[u8]> + Send + 'static,
     mode: u32,
@@ -70,7 +70,7 @@ pub(crate) async fn write_file_atomically(
 /// Replaces `file_path` with `contents` as [`write_file_atomically`] does, unless it already holds
 /// exactly them with exactly `mode`, so a reader that has the file open never meets a rewrite it
 /// did not need. A file that cannot be read is replaced. Fails as [`write_file_atomically`] does.
-pub(crate) async fn write_file_atomically_if_changed(
+pub async fn write_file_atomically_if_changed(
     file_path: &Path,
     contents: &'static [u8],
     mode: u32,
@@ -97,11 +97,7 @@ pub(crate) async fn write_file_atomically_if_changed(
 /// Replaces `target` with `contents` as [`write_file_atomically`] does, on the calling thread: the
 /// file replaced, then its folder flushed. Fails as [`write_file_atomically`] does, never with
 /// [`AtomicWriteError::Interrupted`].
-pub(crate) fn write_and_flush(
-    target: &Path,
-    contents: &[u8],
-    mode: u32,
-) -> Result<(), AtomicWriteError> {
+pub fn write_and_flush(target: &Path, contents: &[u8], mode: u32) -> Result<(), AtomicWriteError> {
     // No sweep of leftovers runs in the folders these writes go to, the person's own among them.
     sidekicks_platforms::replace_file_atomically(target, contents, mode, LeftoverSweep::Unswept)
         .map_err(|error| AtomicWriteError::Write {

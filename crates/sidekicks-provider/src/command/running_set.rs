@@ -106,11 +106,11 @@ pub(crate) enum WrapperCommand {
 
 /// What the person writes to a command: its text, and whether its input then ends.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CommandInput {
+pub struct CommandInput {
     /// The typed text.
-    pub(crate) text: Option<String>,
+    pub text: Option<String>,
     /// Whether the input ends after the text.
-    pub(crate) is_end_of_input: bool,
+    pub is_end_of_input: bool,
 }
 
 /// Where an askpass prompt's answer goes, called once; one dropped unanswered, as a prompt closed
@@ -144,7 +144,7 @@ impl Drop for PromptAnswer {
 }
 
 /// The running commands of every session, and what their subscribers read.
-pub(crate) struct RunningCommandSets {
+pub struct RunningCommandSets {
     sessions: Arc<Mutex<HashMap<SessionId, SessionCommands>>>,
     binding_of: SessionBindingLookup,
     endings: Arc<dyn CommandEndingAppender>,
@@ -264,7 +264,7 @@ impl RunningCommandSets {
 
     /// Follows `session_id`'s running commands: the feed sends the whole set at once, then after
     /// every change, and each command's output from the start of its live tail.
-    pub(crate) fn subscribe(&self, session_id: SessionId) -> RunningCommandFeed {
+    pub fn subscribe(&self, session_id: SessionId) -> RunningCommandFeed {
         let changed = self
             .lock()
             .entry(session_id)
@@ -278,7 +278,7 @@ impl RunningCommandSets {
     /// acknowledged it, at once for a command that is not running, and for a command whose stop
     /// was already sent as that stop is answered. Fails with the provider's refusal, the row then
     /// drawn as it was.
-    pub(crate) async fn stop(
+    pub async fn stop(
         &self,
         driver: &dyn ProviderDriver,
         session_id: SessionId,
@@ -371,7 +371,7 @@ impl RunningCommandSets {
     /// the agent waits on. Refused with `agent.command.notInForeground` for any other, with
     /// `provider.capability.unsupported` where the provider cannot move it, and with the
     /// provider's refusal.
-    pub(crate) async fn move_to_background(
+    pub async fn move_to_background(
         &self,
         driver: &dyn ProviderDriver,
         session_id: SessionId,
@@ -404,7 +404,7 @@ impl RunningCommandSets {
     /// answering it empty; otherwise the session's `driver` writes it to a command that takes
     /// input. Refused with `agent.command.takesNoInput` for any other command, and with the
     /// provider's refusal.
-    pub(crate) async fn write(
+    pub async fn write(
         &self,
         driver: &dyn ProviderDriver,
         session_id: SessionId,

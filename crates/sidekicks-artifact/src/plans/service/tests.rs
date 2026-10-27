@@ -4,83 +4,24 @@
 use std::sync::Arc;
 
 use rstest::rstest;
-use serde_json::{Value, json};
+use serde_json::json;
 use sidekicks_contracts::artifacts::operations::ArtifactListEntry;
-use sidekicks_contracts::plan::{PlanHoldEndedReason, PlanId, PlanState};
+use sidekicks_contracts::plan::{PlanHoldEndedReason, PlanState};
 use sidekicks_contracts::session::id::SessionId;
 use tempfile::TempDir;
 
-use super::PlansService;
+use super::test_fixture::Fixture;
 use crate::list::list_artifacts;
 use crate::plans::store::StoredPlanHolds;
 use crate::test_store::ArtifactTestStore;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_provider::port::plan::{ProviderPlan, ProviderPlanHoldEnd};
+use sidekicks_provider::port::plan::ProviderPlanHoldEnd;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_session::directory::run_activity::session_activity_sql;
 use sidekicks_session::plan_holds::PlanHolds as _;
 use sidekicks_session::run::engine::tests::test_engine_with;
 use sidekicks_session::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_store::database::schema::session_directory::insert_session_row;
-
-const PLAN_TEXT: &str = "# Ship the importer\n\n1. Read `src/import.rs`\n2. Write the tests\n";
-
-/// The test store and the plans service over it.
-pub(crate) struct Fixture {
-    /// The artifact test store the plans are written to.
-    pub(crate) store: ArtifactTestStore,
-    /// The plans service over the store.
-    pub(crate) plans: PlansService,
-}
-
-impl Fixture {
-    /// Opens a fresh test store and the plans service over it.
-    pub(crate) async fn new() -> Self {
-        let store = ArtifactTestStore::open().await;
-        let plans = PlansService::new(
-            Arc::new(store.publisher()),
-            Arc::clone(&store.appender),
-            Arc::clone(&store.reads),
-        );
-        Self { store, plans }
-    }
-
-    /// Takes the test's plan, holding its request when `holds_request`.
-    pub(crate) async fn take(&self, holds_request: bool) -> PlanId {
-        self.plans
-            .take_plan(ProviderPlan {
-                session_id: self.store.session_id,
-                run_id: self.store.run_id,
-                text: PLAN_TEXT.to_owned(),
-                plan_file_path: None,
-                holds_request,
-            })
-            .await
-            .expect("the plan is recorded")
-    }
-
-    /// The state `plan_id`'s row holds.
-    fn state(&self, plan_id: PlanId) -> String {
-        self.store
-            .read_rows(
-                "SELECT state FROM plans WHERE id = ?1",
-                plan_id.text().as_str(),
-            )
-            .remove(0)
-    }
-
-    /// The payloads of the log's events of `event_type`, oldest first.
-    fn payloads(&self, event_type: &str) -> Vec<Value> {
-        self.store
-            .read_rows(
-                "SELECT payload FROM session_events WHERE type = ?1 ORDER BY sequence",
-                event_type,
-            )
-            .iter()
-            .map(|payload| serde_json::from_str(payload).expect("each payload is JSON"))
-            .collect()
-    }
-}
 
 // A plan is kept as a `summary` artifact naming it, and `artifact.published` and the
 // `plan.proposed` that names the artifact land in one write, the artifact first. The list shows it

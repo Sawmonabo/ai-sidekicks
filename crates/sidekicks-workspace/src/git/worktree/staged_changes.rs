@@ -28,7 +28,7 @@ const OPENING: &str = "staged worktree opening";
 
 /// Why a step of opening, closing or sweeping a staged-changes worktree failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum StagedChangesError {
+pub enum StagedChangesError {
     /// A git call failed.
     #[error("a git call on a staged-changes worktree failed")]
     Git(#[from] GitError),
@@ -57,7 +57,7 @@ pub(crate) enum StagedChangesError {
 
 /// Opens temporary worktrees of a folder's staged changes under the daemon's worktrees folder.
 #[derive(Clone)]
-pub(crate) struct StagedChangesWorktrees {
+pub struct StagedChangesWorktrees {
     folder: PathBuf,
     git: GitRunner,
 }
@@ -71,7 +71,7 @@ pub(crate) struct StagedChangesWorktrees {
 )]
 impl StagedChangesWorktrees {
     /// The worktrees under `worktrees_folder`, the daemon's own and absolute, made with `git`.
-    pub(crate) fn new(worktrees_folder: &Path, git: GitRunner) -> Self {
+    pub fn new(worktrees_folder: &Path, git: GitRunner) -> Self {
         Self {
             folder: worktrees_folder.join(STAGED_CHANGES_SEGMENT),
             git,
@@ -82,7 +82,7 @@ impl StagedChangesWorktrees {
     /// holding exactly the staged changes in its index and working files. Fails when the folder is
     /// no git working tree, its `HEAD` names no commit, or a step fails; a worktree made before
     /// the failure is removed first, and the failure carries any failure of that removal.
-    pub(crate) async fn open_staged_worktree(
+    pub async fn open_staged_worktree(
         &self,
         place: Option<&Place>,
         working_folder: &Path,
@@ -155,7 +155,7 @@ impl StagedChangesWorktrees {
     /// Removes every worktree a stopped daemon left in the staged-changes folder, each from its
     /// repository's records too, before any review opens one. Every entry is tried; the answer is
     /// every failure, empty when all went.
-    pub(crate) async fn sweep_left_worktrees(&self) -> Vec<StagedChangesError> {
+    pub async fn sweep_left_worktrees(&self) -> Vec<StagedChangesError> {
         let names = match read_folder_names(&self.folder).await {
             Ok(names) => names,
             Err(source) => {
@@ -205,7 +205,7 @@ impl StagedChangesWorktrees {
         reason = "Claude Code's staged review reads the index through it"
     )
 )]
-pub(crate) struct StagedChangesWorktree {
+pub struct StagedChangesWorktree {
     folder: PathBuf,
     repository_root: PathBuf,
     place: Option<Place>,
@@ -221,13 +221,13 @@ pub(crate) struct StagedChangesWorktree {
 )]
 impl StagedChangesWorktree {
     /// The worktree's folder, absolute.
-    pub(crate) fn folder(&self) -> &Path {
+    pub fn folder(&self) -> &Path {
         &self.folder
     }
 
     /// Removes the worktree and prunes its record from the repository. Every step runs whatever
     /// failed before it; fails with the first failure, carrying the rest.
-    pub(crate) async fn close(self) -> Result<(), CleanupFailures<StagedChangesError>> {
+    pub async fn close(self) -> Result<(), CleanupFailures<StagedChangesError>> {
         let mut failures = self.remove(true).await.into_iter();
         match failures.next() {
             Some(first) => Err(CleanupFailures::new(

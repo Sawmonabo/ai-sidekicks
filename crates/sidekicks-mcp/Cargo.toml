@@ -34,6 +34,10 @@ uuid.workspace = true
 [dev-dependencies]
 axum = { workspace = true, features = ["http1", "tokio"] }
 rstest.workspace = true
+# The test driver registry, the mock driver and the stand-in stores the tests build on.
+sidekicks-provider = { workspace = true, features = ["test-support"] }
+# The test database and the session rows the tests build on.
+sidekicks-store = { workspace = true, features = ["test-support"] }
 # The paused clock the client's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 

@@ -7,27 +7,27 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 /// A turn's end its provider's end frame reported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderTurnEnd {
+pub struct ProviderTurnEnd {
     /// The turn's number within its run, as its start was numbered.
-    pub(crate) turn_number: SafeInt<1>,
+    pub turn_number: SafeInt<1>,
     /// How it ended, with the cause the delivery knows from the frame; a limit stop's cut of the
     /// turn replaces it.
-    pub(crate) outcome: TurnOutcome,
+    pub outcome: TurnOutcome,
 }
 
 /// A turn the engine opened: its number within its run and the id of its `run.turn_started` event,
 /// which a flag about the whole turn points at.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct StartedTurn {
+pub struct StartedTurn {
     /// The turn's number within its run.
-    pub(crate) turn_number: SafeInt<1>,
+    pub turn_number: SafeInt<1>,
     /// The id of the event that started it.
-    pub(crate) event_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    pub event_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
 }
 
 /// How a turn ended, with why where the daemon knows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TurnOutcome {
+pub enum TurnOutcome {
     /// `agent.turn.completed`.
     Completed,
     /// `agent.turn.interrupted`.

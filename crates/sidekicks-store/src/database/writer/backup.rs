@@ -39,7 +39,7 @@ const BACKUP_OPERATION: &str = "copying the database";
 
 /// The lock a step met.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum BackupLock {
+pub enum BackupLock {
     /// Another connection held a lock the step needed (`SQLITE_BUSY`).
     Busy,
     /// The source connection was writing to the database (`SQLITE_LOCKED`).
@@ -48,7 +48,7 @@ pub(crate) enum BackupLock {
 
 impl BackupLock {
     /// The lock in the service's own words, for the run's failure.
-    pub(crate) fn describe(self) -> &'static str {
+    pub fn describe(self) -> &'static str {
         match self {
             Self::Busy => "another connection held the database's lock for ten minutes",
             Self::Locked => "the database's own writes held its table lock for ten minutes",
@@ -58,7 +58,7 @@ impl BackupLock {
 
 /// How one copy ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum BackupCopy {
+pub enum BackupCopy {
     /// Every page was copied: the database's page count when the copy finished, the steps it took,
     /// which a copy restarted by a write through another connection would multiply, and the
     /// thread's commit count at the step that finished it.

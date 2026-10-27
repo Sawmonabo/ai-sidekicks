@@ -16,20 +16,20 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::run_control::InterruptPendingChoice;
 
 /// A failure of the run queue's part in an interrupt, kept whole.
-pub(crate) type InterruptQueueError = Box<dyn Error + Send + Sync>;
+pub type InterruptQueueError = Box<dyn Error + Send + Sync>;
 
 /// A person's choice for the messages waiting for the run they interrupt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct InterruptChoice {
+pub struct InterruptChoice {
     /// What becomes of the waiting messages.
-    pub(crate) pending: InterruptPendingChoice,
+    pub pending: InterruptPendingChoice,
     /// The waiting message that goes first in the next turn.
-    pub(crate) deliver_first: Option<QueueItemId>,
+    pub deliver_first: Option<QueueItemId>,
 }
 
 /// Whose interrupt ends the run, with what the run queue and the run's end need of it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum InterruptCause {
+pub enum InterruptCause {
     /// A person's, with their choice for the waiting messages.
     Person(InterruptChoice),
     /// The daemon's own at a limit, which leaves the waiting messages waiting.
@@ -42,38 +42,38 @@ pub(crate) enum InterruptCause {
 }
 
 /// An interrupt that applied, as the write that ends its run takes it.
-pub(crate) struct InterruptEnd {
+pub struct InterruptEnd {
     /// The run interrupted.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// The run version the interrupt was accepted at; a run ended since keeps that end.
-    pub(crate) accepted_run_version: i64,
+    pub accepted_run_version: i64,
     /// Whose interrupt it is.
-    pub(crate) cause: InterruptCause,
+    pub cause: InterruptCause,
     /// The waiting messages the provider gave back with the interrupt, which none of it runs; a
     /// handed message not among them stays with the provider.
-    pub(crate) cancelled: Vec<QueueItemId>,
+    pub cancelled: Vec<QueueItemId>,
     /// The interrupt's row move and its event, which the run's end commits.
-    pub(crate) verdict: RunStateChangeCompanions,
+    pub verdict: RunStateChangeCompanions,
 }
 
 /// A person's `Send now` of a waiting message, on a run whose provider reads a priority message.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SendNow {
+pub struct SendNow {
     /// The run the message waits for.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// The run version the person decided against.
-    pub(crate) expected_run_version: SafeInt<0>,
+    pub expected_run_version: SafeInt<0>,
     /// The message handed first.
-    pub(crate) item_id: QueueItemId,
+    pub item_id: QueueItemId,
     /// The request's idempotency key, which the message records.
-    pub(crate) key: ClientUuid,
+    pub key: ClientUuid,
     /// The id the answer carries, which the message records with the key.
-    pub(crate) intervention_id: InterventionId,
+    pub intervention_id: InterventionId,
 }
 
 /// What a `Send now` came to.
 #[derive(Debug)]
-pub(crate) enum SendNowOutcome {
+pub enum SendNowOutcome {
     /// Marked to go ahead of what the provider holds: handed now where the run takes it, else
     /// first in the queue and handed first at the run's next hand.
     Sent {
@@ -87,7 +87,7 @@ pub(crate) enum SendNowOutcome {
 }
 
 /// The run queue as an interrupt uses it.
-pub(crate) trait InterruptQueue: Send + Sync {
+pub trait InterruptQueue: Send + Sync {
     /// Hands `send.item_id` to its run ahead of what the provider holds, with every waiting row
     /// taken back first and handed again after it, the request's key recorded on the message; a
     /// run that takes no message now keeps it first in the queue, marked, for its next hand. No

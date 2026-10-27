@@ -35,7 +35,7 @@ impl SecretItems {
     /// so a locked store raises its unlock prompt while the person is at the screen. Fails with
     /// [`KeychainRefusal`] when the operating system's store must be emptied and is locked or
     /// cannot be used; nothing is erased then.
-    pub(crate) async fn check_for_erase(&self) -> Result<(), KeychainRefusal> {
+    pub async fn check_for_erase(&self) -> Result<(), KeychainRefusal> {
         let _state = self.state.write().await;
         if let Some((os_store, sweep)) = self.operating_system_sweep().await {
             for service in KeychainService::ALL {
@@ -53,7 +53,7 @@ impl SecretItems {
     /// opening none of its items. Fails with [`KeychainRefusal`] at the first item a store that
     /// must be emptied refuses, or when the file's removal gives no answer within a call's time,
     /// before the data folder goes, so the erase can run again.
-    pub(crate) async fn erase_all(&self) -> Result<(), KeychainRefusal> {
+    pub async fn erase_all(&self) -> Result<(), KeychainRefusal> {
         let _state = self.state.write().await;
         if let Some((os_store, sweep)) = self.operating_system_sweep().await {
             for service in KeychainService::ALL {

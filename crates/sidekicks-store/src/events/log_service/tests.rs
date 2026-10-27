@@ -1,4 +1,4 @@
-//! The event log service's tests, and the test log every test of a log reader opens.
+//! The event log service's tests.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -7,76 +7,20 @@ use serde_json::json;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 
+use super::test_log::{TestLog, open_log};
 use super::{
-    EVENT_LOG_STATEMENT_CAPACITY, EventAppendError, EventLogAppendOptions, EventLogService,
-    EventLogServiceDependencies, EventReadAfterCursorRequest, UnsequencedEventEnvelope,
+    EventAppendError, EventLogAppendOptions, EventReadAfterCursorRequest, UnsequencedEventEnvelope,
 };
-use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WritesHeldError};
 use crate::events::session::append_lock::SESSION_APPEND_LOCK;
 use crate::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
-use crate::events::session::followers::SessionEventFollowers;
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// Bounds an append the test expects to answer, so one that waits on a lock fails the test.
 const APPEND_WAIT: Duration = Duration::from_secs(5);
-
-/// A test's event log: the service, the writer it appends through and the followers it publishes
-/// to.
-pub(crate) struct TestLog {
-    /// The writer every append goes through.
-    pub(crate) writer: Arc<DatabaseWriter>,
-    /// The followers each committed write is published to.
-    pub(crate) followers: Arc<SessionEventFollowers>,
-    /// The service on the test's database.
-    pub(crate) service: Arc<EventLogService>,
-}
-
-/// The event log on `database`, its writer holding its writes until `writes_held_until` answers,
-/// or committing each as it comes when that is `None`.
-pub(crate) async fn open_log(
-    database: &TestDatabase,
-    writes_held_until: Option<oneshot::Receiver<Result<(), WritesHeldError>>>,
-) -> TestLog {
-    let options = DatabaseWriterOptions {
-        writes_held_until,
-        ..DatabaseWriterOptions::default()
-    };
-    open_log_with(database, options).await
-}
-
-/// The event log on `database`, its writer opened with `options`.
-pub(crate) async fn open_log_with(
-    database: &TestDatabase,
-    options: DatabaseWriterOptions,
-) -> TestLog {
-    let writer = Arc::new(
-        DatabaseWriter::open(database.opener(), options)
-            .await
-            .expect("the writer opens its database"),
-    );
-    let followers = Arc::new(SessionEventFollowers::default());
-    let service = Arc::new(EventLogService::new(EventLogServiceDependencies {
-        writer: Arc::clone(&writer),
-        pool: Arc::new(DatabaseReadPool::new(
-            database.path(),
-            EVENT_LOG_STATEMENT_CAPACITY,
-        )),
-        followers: Arc::clone(&followers),
-        projection_statements: None,
-        refuse_session_write: None,
-        read_damaged_from_sequence: None,
-    }));
-    TestLog {
-        writer,
-        followers,
-        service,
-    }
-}
 
 /// An `agent.toolCall.invoked` event of `session_id` in the run `run_id`.
 fn tool_invoked(session_id: &SessionId, run_id: &str) -> UnsequencedEventEnvelope {

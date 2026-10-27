@@ -9,7 +9,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 
 use super::{rebuild_whole, table_rows};
 use sidekicks_artifact::plans::projection::PlansProjection;
-use sidekicks_artifact::plans::service::tests::Fixture;
+use sidekicks_artifact::plans::service::test_fixture::Fixture;
 use sidekicks_artifact::plans::store::settle_verdict_statement;
 use sidekicks_provider::port::plan::ProviderPlanHoldEnd;
 use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventLinkage};

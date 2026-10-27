@@ -58,7 +58,7 @@ use sidekicks_store::transcript_rejoin::RowReads;
 
 /// Why a transcript read failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum TranscriptReadError {
+pub enum TranscriptReadError {
     /// The session is not one this daemon holds (`session.notFound`), or no row stands at an
     /// anchor cursor (`transcript.row.notFound`).
     #[error(transparent)]
@@ -133,7 +133,7 @@ where
 /// `aroundCursor` at which no row stands. A page whose one row alone is over the page budget is
 /// returned as that row, for the reply's check to refuse. A reply's body is cut into blocks by
 /// `parse`.
-pub(crate) fn read_transcript_window<DamagedFrom>(
+pub fn read_transcript_window<DamagedFrom>(
     reader: &Connection,
     read_damaged_from_sequence: &DamagedFrom,
     request: &TranscriptReadRequest,

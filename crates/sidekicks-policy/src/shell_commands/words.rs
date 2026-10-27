@@ -57,7 +57,7 @@ impl Word {
 
 /// A byte whose positions in a line a word query looks up.
 #[derive(Clone, Copy)]
-pub(crate) enum PositionedByte {
+pub enum PositionedByte {
     /// `/`, which ends a program's folder.
     Slash,
     /// `c`, the shell option that runs a command string.
@@ -151,7 +151,7 @@ impl<'r> PieceTexts<'r> {
 }
 
 /// A word's text as the option walks read it, for a word of a reading and a plain string alike.
-pub(crate) trait WordText: Copy {
+pub trait WordText: Copy {
     /// Whether the word is exactly `text`.
     fn is(self, text: &str) -> bool;
     /// Whether the word starts with `prefix`.
@@ -182,7 +182,7 @@ impl WordText for &str {
 
 /// A word of a reading, read through its pieces; `Display` writes its text.
 #[derive(Clone, Copy)]
-pub(crate) struct ShellWord<'r> {
+pub struct ShellWord<'r> {
     texts: PieceTexts<'r>,
     pieces: &'r [Piece],
 }

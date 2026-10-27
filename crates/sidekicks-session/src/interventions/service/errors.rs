@@ -20,7 +20,7 @@ use sidekicks_store::events::session::appender::{SessionEventAppendError, Sessio
 /// Why a dispatch threw or could not run; its row moves to `failed` with a refusal's code, else
 /// its description.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum DispatchError {
+pub enum DispatchError {
     /// A refusal with a code: the run has no row.
     #[error(transparent)]
     Refused(#[from] DomainError),
@@ -88,7 +88,7 @@ impl From<RunEngineError> for DispatchError {
 /// Why the service did not answer an intervention; what each step wrote before the failure is
 /// kept.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum InterventionError {
+pub enum InterventionError {
     /// A refusal with a code: an unknown run, or a reused key with another request.
     #[error(transparent)]
     Refused(DomainError),

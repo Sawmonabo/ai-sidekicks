@@ -23,7 +23,7 @@ use sidekicks_store::database::sibling_path;
 
 /// How the last run on the database file ended, as its record tells.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum LastRunEnd {
+pub enum LastRunEnd {
     /// There is no file yet.
     NewFile,
     /// A clean stop left the file as it is.
@@ -62,7 +62,7 @@ const LAST_RUN_RECORD_MODE: u32 = 0o600;
 
 /// Reads how the last run on the file at `database_path` ended. Fails when the file system refuses
 /// a read; a record of another form reads [`LastRunEnd::Unknown`].
-pub(crate) async fn read_last_run_end(database_path: &Path) -> Result<LastRunEnd, LastRunError> {
+pub async fn read_last_run_end(database_path: &Path) -> Result<LastRunEnd, LastRunError> {
     let Some(description) = describe_database_file(database_path).await? else {
         return Ok(LastRunEnd::NewFile);
     };
@@ -84,7 +84,7 @@ pub(crate) async fn read_last_run_end(database_path: &Path) -> Result<LastRunEnd
 
 /// Records that a run on the file at `database_path` has started, replacing the last run's record.
 /// Fails when the record cannot be written.
-pub(crate) async fn record_run_start(database_path: &Path) -> Result<(), LastRunError> {
+pub async fn record_run_start(database_path: &Path) -> Result<(), LastRunError> {
     write_file_atomically(
         &sibling_path(database_path, LAST_RUN_SUFFIX),
         RUNNING_RECORD,
@@ -97,7 +97,7 @@ pub(crate) async fn record_run_start(database_path: &Path) -> Result<(), LastRun
 /// Records that the run stopped cleanly, with the facts of the file at `database_path` as it left
 /// them. Called only once every connection to the file has closed, never after the writer ended
 /// itself, whose file a start must check. Fails when a fact cannot be read or the record written.
-pub(crate) async fn record_clean_stop(database_path: &Path) -> Result<(), LastRunError> {
+pub async fn record_clean_stop(database_path: &Path) -> Result<(), LastRunError> {
     let description = describe_database_file(database_path)
         .await?
         .unwrap_or_else(|| describe(None, 0));
@@ -113,7 +113,7 @@ pub(crate) async fn record_clean_stop(database_path: &Path) -> Result<(), LastRu
 /// Removes the record, so the next start cannot vouch for the file and holds its writes until its
 /// check finds the file sound, and flushes the folder so the removal survives a power loss. Fails
 /// when the removal or the flush fails; a record already gone is removed.
-pub(crate) async fn forget_last_run(database_path: &Path) -> Result<(), LastRunError> {
+pub async fn forget_last_run(database_path: &Path) -> Result<(), LastRunError> {
     tokio::fs::remove_file(sibling_path(database_path, LAST_RUN_SUFFIX))
         .await
         .none_if_missing()

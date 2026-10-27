@@ -17,7 +17,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 /// The payload member of a tool completion that names the files its body's patches cover; a
 /// completion naming one or more stores its body in parts of each file.
-pub(crate) const OMITTED_PATCHES_PAYLOAD_KEY: &str = "omittedPatches";
+pub const OMITTED_PATCHES_PAYLOAD_KEY: &str = "omittedPatches";
 
 /// What a patch-bearing completion's own row stores: the file list's opening.
 pub(crate) const PATCH_FILES_OPENING: &str = "{\"files\":[";
@@ -39,7 +39,7 @@ const PATCH_TEXT_CLOSING: &str = "\"}";
 /// stored file's text can be cut into parts after the members before it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged, rename_all_fields = "camelCase", deny_unknown_fields)]
-pub(crate) enum WholePatchFile {
+pub enum WholePatchFile {
     /// The patch.
     Read {
         /// The file's path.
@@ -80,7 +80,7 @@ pub(crate) enum WholePatchFile {
 
 impl WholePatchFile {
     /// The file's path, its new one for a file the call moved.
-    pub(crate) fn path(&self) -> &FilesystemPath {
+    pub fn path(&self) -> &FilesystemPath {
         match self {
             Self::Read { path, .. } | Self::Unreadable { path, .. } | Self::Absent { path, .. } => {
                 path
@@ -99,7 +99,7 @@ impl WholePatchFile {
 
     /// The text a part of the file is cut from: its patch or the raw text as sent; `None` when no
     /// patch came.
-    pub(crate) fn text(&self) -> Option<&str> {
+    pub fn text(&self) -> Option<&str> {
         match self {
             Self::Read { patch, .. } => Some(patch),
             Self::Unreadable { raw_patch, .. } => Some(raw_patch),
@@ -141,14 +141,14 @@ impl WholePatchFile {
 
 /// The body a tool completion whose patches cover `files` carries before it is stored in parts:
 /// the file list `{"files": [...]}`, each file whole.
-pub(crate) fn stored_patch_files_body(files: &[WholePatchFile]) -> String {
+pub fn stored_patch_files_body(files: &[WholePatchFile]) -> String {
     serde_json::json!({ "files": files }).to_string()
 }
 
 /// What a tool completion's payload names for each of `files`, so the append stores its body in
 /// parts: the file's path, the old path of a moved one, and its text's size in bytes, zero for a
 /// file with no patch.
-pub(crate) fn omitted_patches_of(files: &[WholePatchFile]) -> Vec<TranscriptOmittedPatch> {
+pub fn omitted_patches_of(files: &[WholePatchFile]) -> Vec<TranscriptOmittedPatch> {
     files
         .iter()
         .map(|file| TranscriptOmittedPatch {
@@ -245,7 +245,7 @@ fn escaped_byte_length(character: char) -> usize {
 
 /// The file the header part `body` of file `index` of `count` names, its text empty: the whole
 /// file when it has no text. Fails when the body lacks its separators or is not a file's header.
-pub(crate) fn patch_file_of_header(
+pub fn patch_file_of_header(
     body: &str,
     index: usize,
     count: usize,
@@ -270,6 +270,6 @@ pub(crate) fn patch_file_of_header(
 }
 
 /// The text a part of a file's text stores as JSON string content. Fails when the body is not.
-pub(crate) fn text_of_part(body: &str) -> Result<String, serde_json::Error> {
+pub fn text_of_part(body: &str) -> Result<String, serde_json::Error> {
     serde_json::from_str(&format!("\"{body}\""))
 }

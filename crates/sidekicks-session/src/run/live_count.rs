@@ -40,7 +40,7 @@ static LIVE_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// The read the database writer runs after each commit to count the live runs, and a receiver of
 /// that count, which sees its current value and every change.
-pub(crate) fn count_live_runs_after_commits() -> (CommitRead, watch::Receiver<u32>) {
+pub fn count_live_runs_after_commits() -> (CommitRead, watch::Receiver<u32>) {
     let (count, receiver) = watch::channel(0);
     let read: CommitRead = Box::new(move |connection: &Connection| {
         let live_runs: u32 = connection
@@ -73,5 +73,7 @@ fn is_live(state: RunState) -> bool {
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_log;
 #[cfg(test)]
 pub(crate) mod tests;

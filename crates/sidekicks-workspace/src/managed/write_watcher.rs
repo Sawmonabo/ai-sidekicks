@@ -46,18 +46,18 @@ const RECENT_REPORTED_PATH_LIMIT: NonZeroUsize =
 
 /// One write a chat made in its managed workspace.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ManagedWorkspaceWrite {
+pub struct ManagedWorkspaceWrite {
     /// The session whose workspace was written.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The written entry's path inside the session's workspace, as the system's bytes.
-    pub(crate) relative_path: PathBuf,
+    pub relative_path: PathBuf,
     /// Whether a file was written or a folder made.
-    pub(crate) kind: ManagedWorkspaceWriteKind,
+    pub kind: ManagedWorkspaceWriteKind,
 }
 
 /// What a chat wrote: a file, or a folder it made.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ManagedWorkspaceWriteKind {
+pub enum ManagedWorkspaceWriteKind {
     /// A file's content or modified time moved.
     File,
     /// A folder was made.

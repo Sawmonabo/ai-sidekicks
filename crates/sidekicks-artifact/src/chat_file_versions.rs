@@ -105,7 +105,7 @@ pub(crate) enum ChatFileVersionError {
 }
 
 /// Records a chat's writes as versions of its paths' artifacts.
-pub(crate) struct ChatFileVersions {
+pub struct ChatFileVersions {
     appender: Arc<SessionEventAppender>,
     reads: Arc<DatabaseReadPool>,
     payloads: Arc<PayloadStore>,
@@ -121,7 +121,7 @@ impl ChatFileVersions {
     /// Versions of the writes in the chats' workspaces under `workspaces_folder`, appended through
     /// `appender`, read through `reads`, stored into `payloads` and spooled in `spool_folder`,
     /// which must be on the store's volume.
-    pub(crate) fn new(
+    pub fn new(
         appender: Arc<SessionEventAppender>,
         reads: Arc<DatabaseReadPool>,
         payloads: Arc<PayloadStore>,
@@ -143,10 +143,7 @@ impl ChatFileVersions {
 
     /// Records each write `writes` reports, one at a time, until its sender is gone; a write that
     /// could not be recorded is logged, and the next one goes on.
-    pub(crate) async fn record_reported_writes(
-        &self,
-        mut writes: mpsc::Receiver<ManagedWorkspaceWrite>,
-    ) {
+    pub async fn record_reported_writes(&self, mut writes: mpsc::Receiver<ManagedWorkspaceWrite>) {
         while let Some(write) = writes.recv().await {
             if let Err(error) = self.take_reported_write(write).await {
                 tracing::error!(

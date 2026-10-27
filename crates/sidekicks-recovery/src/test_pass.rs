@@ -30,9 +30,9 @@ use crate::session_write_refusal::refuse_session_event;
 use crate::startup::{StartupRecovery, StartupRecoveryDeps};
 use crate::status::RecoveryStatusTracker;
 use sidekicks_approval::permission_asks::{PermissionAsks, PermissionAsksDeps};
-use sidekicks_approval::permission_check::tests::test_permission_check;
+use sidekicks_approval::permission_check::test_fixture::test_permission_check;
 use sidekicks_approval::run_blocking::ApprovalRunEnd;
-use sidekicks_approval::service::tests::test_approval_service;
+use sidekicks_approval::service::test_fixture::test_approval_service;
 use sidekicks_artifact::plans::service::PlansService;
 use sidekicks_artifact::plans::store::StoredPlanHolds;
 use sidekicks_artifact::test_store::ArtifactTestStore;
@@ -50,7 +50,7 @@ use sidekicks_store::database::writer::test_file::{
     TestDatabase, session_event_row, test_run_id, test_session_id,
 };
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use sidekicks_store::events::log_service::tests::TestLog;
+use sidekicks_store::events::log_service::test_log::TestLog;
 use sidekicks_store::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
 };

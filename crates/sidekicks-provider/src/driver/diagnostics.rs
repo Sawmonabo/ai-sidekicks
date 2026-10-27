@@ -14,7 +14,7 @@ use strum::IntoStaticStr;
 /// converts to its lowerCamelCase name on the log line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
-pub(crate) enum DriverDiagnosticKind {
+pub enum DriverDiagnosticKind {
     /// A wire kind outside the pinned set, or one with no defined session event type.
     UnmappedWireKind,
     /// The reorder buffer passed its cap and flushed what it held.
@@ -210,25 +210,25 @@ impl DriverDiagnosticKind {
 /// One daemon diagnostic the person sees. `raw_wire_type` is `None` when no single frame caused
 /// it, else untrusted provider output that never reaches anything that executes.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct DriverDiagnosticRecord {
+pub struct DriverDiagnosticRecord {
     /// The provider the record is about.
-    pub(crate) provider: ProviderId,
+    pub provider: ProviderId,
     /// The account the record is about, which its counter is also counted by; `None` on the
     /// machine's default home.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    pub provider_account_id: Option<ProviderAccountId>,
     /// What happened.
-    pub(crate) kind: DriverDiagnosticKind,
+    pub kind: DriverDiagnosticKind,
     /// The wire type of the frame that caused it, when one did.
-    pub(crate) raw_wire_type: Option<String>,
+    pub raw_wire_type: Option<String>,
     /// Why the frame or call was disposed of as it was.
-    pub(crate) disposition_reason: String,
+    pub disposition_reason: String,
     /// The kind's own facts, as flat JSON values.
-    pub(crate) details: Map<String, Value>,
+    pub details: Map<String, Value>,
 }
 
 /// Writes `record` to the service log as one warning, its counter name a field of its own and its
 /// details one field of JSON text.
-pub(crate) fn emit_driver_diagnostic(record: &DriverDiagnosticRecord) {
+pub fn emit_driver_diagnostic(record: &DriverDiagnosticRecord) {
     let details = serde_json::to_string(&record.details)
         .expect("a map with string keys and JSON values always serializes");
     tracing::warn!(
@@ -298,12 +298,12 @@ impl OnceReportedDiagnostics {
     }
 }
 
-#[cfg(test)]
-pub(crate) use recorded_events::RecordedEvents;
+#[cfg(any(test, feature = "test-support"))]
+pub use recorded_events::RecordedEvents;
 
 /// Test support: records the fields of every log event a test thread raises, so a test reads a
 /// diagnostic's `counter` and other fields as the service log would carry them.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 mod recorded_events {
     use std::collections::HashMap;
     use std::fmt::Debug;
@@ -316,11 +316,11 @@ mod recorded_events {
 
     /// The fields of every log event a test thread raises, each as text.
     #[derive(Clone, Default)]
-    pub(crate) struct RecordedEvents(Arc<Mutex<Vec<HashMap<String, String>>>>);
+    pub struct RecordedEvents(Arc<Mutex<Vec<HashMap<String, String>>>>);
 
     impl RecordedEvents {
         /// Runs `test` with this recorder as the thread's subscriber.
-        pub(crate) fn record_during(&self, test: impl FnOnce()) {
+        pub fn record_during(&self, test: impl FnOnce()) {
             let _recording = self.record_until_dropped();
             test();
         }
@@ -337,12 +337,12 @@ mod recorded_events {
         }
 
         /// The message of each event recorded, in order.
-        pub(crate) fn messages(&self) -> Vec<String> {
+        pub fn messages(&self) -> Vec<String> {
             self.fields_where(|_fields| true, "message")
         }
 
         /// The value of `field` on each diagnostic recorded under `counter`, in order.
-        pub(crate) fn field_on(&self, counter: &str, field: &str) -> Vec<String> {
+        pub fn field_on(&self, counter: &str, field: &str) -> Vec<String> {
             self.fields_where(
                 |fields| {
                     fields

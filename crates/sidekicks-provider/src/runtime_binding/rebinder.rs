@@ -11,7 +11,7 @@ use crate::runtime_binding::store::{
 };
 
 /// Points a session's binding at the conversation it moved onto.
-pub(crate) trait RuntimeBindingRebinder: Send + Sync {
+pub trait RuntimeBindingRebinder: Send + Sync {
     /// Points binding `rebind.binding_id` at the conversation its session moved onto, recording
     /// each conversation the session left in the same write. Fails when nothing was recorded.
     fn rebind(

@@ -21,7 +21,7 @@ use crate::run::state_change::RunStateChangeCompanions;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::EventLogService;
-use sidekicks_store::events::log_service::tests::open_log;
+use sidekicks_store::events::log_service::test_log::open_log;
 
 // A run's log the parity test writes through a live engine before the live path or a restart ends
 // it.

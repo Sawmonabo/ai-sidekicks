@@ -10,7 +10,7 @@ use sidekicks_ipc::domain_error::DomainError;
 
 /// The refusal of a request naming a shell its session does not have; another session's shell is
 /// not told apart from none.
-pub(crate) fn terminal_not_found(terminal_id: &TerminalId) -> DomainError {
+pub fn terminal_not_found(terminal_id: &TerminalId) -> DomainError {
     DomainError::new(
         format!("this session has no shell {}", terminal_id.as_str()),
         RefusalCode::TerminalNotFound,

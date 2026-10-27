@@ -36,7 +36,7 @@ pub(crate) static WORKFLOW_SCHEMA_SQL: LazyLock<String> = LazyLock::new(workflow
 
 /// The workspaces' list, whose run execution contexts a run's deletion clears, and the workflow
 /// part.
-pub(crate) fn schema_parts() -> SchemaParts {
+pub fn schema_parts() -> SchemaParts {
     sidekicks_workspace::git::worktree::schema::schema_parts()
         .with_part(SchemaPart::new("workflow", WORKFLOW_SCHEMA_SQL.as_str()))
 }

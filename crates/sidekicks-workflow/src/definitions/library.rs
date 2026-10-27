@@ -36,7 +36,7 @@ use sidekicks_store::database::stored_column::{
 
 /// The statements a [`WorkflowLibrary`] prepares on a read connection: the name holder, the
 /// definition read, the definition list and the list cursor's check.
-pub(crate) const WORKFLOW_LIBRARY_STATEMENT_CAPACITY: usize = 4;
+pub const WORKFLOW_LIBRARY_STATEMENT_CAPACITY: usize = 4;
 
 // A definition never has the empty id, so binding it excludes no workflow.
 const NO_DEFINITION_EXCLUDED: &str = "";

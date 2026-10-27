@@ -27,18 +27,18 @@ const INSERT_LOCAL_MACHINE_SQL: &str =
 
 /// This machine as the daemon knows it, with the one user who owns it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LocalMachine {
+pub struct LocalMachine {
     /// The machine's id.
-    pub(crate) machine_id: MachineId,
+    pub machine_id: MachineId,
     /// Minted once at the first start; a hosted account signed in to later attaches to it.
-    pub(crate) owner_user_id: UserId,
+    pub owner_user_id: UserId,
     /// The machine's friendly name, read at the first start.
-    pub(crate) name: String,
+    pub name: String,
 }
 
 /// Why this machine's row could not be read or minted.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum LocalMachineError {
+pub enum LocalMachineError {
     /// SQLite refused the read.
     #[error("this machine's row could not be read")]
     Database(#[from] rusqlite::Error),
@@ -63,7 +63,7 @@ pub(crate) enum LocalMachineError {
 /// user id, reads the friendly name on `spawner`, and stores them for every later start. Fails
 /// with [`LocalMachineError`] when the read, the name or the write fails, or a stored id does not
 /// parse.
-pub(crate) async fn read_or_mint_local_machine(
+pub async fn read_or_mint_local_machine(
     reads: &DatabaseReadPool,
     writer: &DatabaseWriter,
     spawner: &Spawner,

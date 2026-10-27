@@ -13,7 +13,7 @@ static UNMASKED_PROMPT: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Whether the answer to `prompt` is typed out of sight.
-pub(crate) fn is_masked_prompt(prompt: &str) -> bool {
+pub fn is_masked_prompt(prompt: &str) -> bool {
     !UNMASKED_PROMPT.is_match(prompt)
 }
 

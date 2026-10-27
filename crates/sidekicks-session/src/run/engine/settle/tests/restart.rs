@@ -27,7 +27,7 @@ use crate::run::restart::{RestartFacts, read_restart_facts};
 use crate::run::state_change::{RunStateChangeCompanions, RunStateChangeError};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::tests::open_log;
+use sidekicks_store::events::log_service::test_log::open_log;
 
 // Killed by the owed read joining the interventions, where the failed token interrupt and its
 // requested event read as discharging the limit; by the person's pending interrupt or the

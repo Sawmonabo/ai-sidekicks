@@ -52,7 +52,7 @@ use sidekicks_session::run::engine::tests::insert_running_run;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::tests::{TestLog, open_log};
+use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 
 /// The statements the tests' read pool prepares: the delivery's reads and the recorder's.
 const READ_STATEMENT_CAPACITY: usize = 8;

@@ -25,14 +25,14 @@ const HELD_RETRY_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Another daemon holds the data folder; its `Display` is the refusal a person reads.
 #[derive(Debug, thiserror::Error)]
-pub(crate) struct HeldDataFolder {
+pub struct HeldDataFolder {
     /// The data folder.
-    pub(crate) path: PathBuf,
+    pub path: PathBuf,
     /// The holder's process id as it recorded it, when the record could be read.
-    pub(crate) process_id: Option<u32>,
+    pub process_id: Option<u32>,
     /// The lock's answer that showed the folder is held.
     #[source]
-    pub(crate) source: io::Error,
+    pub source: io::Error,
 }
 
 impl Display for HeldDataFolder {
@@ -43,7 +43,7 @@ impl Display for HeldDataFolder {
 
 /// Writes the refusal a person reads when another daemon holds the data folder, naming the
 /// holder's `process_id` when it is known.
-pub(crate) fn write_data_folder_held(
+pub fn write_data_folder_held(
     formatter: &mut fmt::Formatter<'_>,
     process_id: Option<u32>,
 ) -> fmt::Result {
@@ -58,7 +58,7 @@ pub(crate) fn write_data_folder_held(
 
 /// Why the data folder could not be held.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum DataFolderLockError {
+pub enum DataFolderLockError {
     /// Another daemon holds it.
     #[error(transparent)]
     Held(#[from] HeldDataFolder),
@@ -84,7 +84,7 @@ pub(crate) enum DataFolderLockError {
 
 /// The daemon's hold on its data folder, kept for its whole life; dropping it frees the folder.
 /// The system opens the lock file close-on-exec and not inheritable, so no child holds it.
-pub(crate) struct DataFolderLock {
+pub struct DataFolderLock {
     _file: File,
 }
 
@@ -94,7 +94,7 @@ impl DataFolderLock {
     /// holder's process id once it stays held, and with the system's error when the lock file
     /// cannot be opened or locked or the id cannot be written. Blocking, so it runs through
     /// `spawn_blocking`.
-    pub(crate) fn take(data_folder: &Path) -> Result<Self, DataFolderLockError> {
+    pub fn take(data_folder: &Path) -> Result<Self, DataFolderLockError> {
         let lock_path = data_folder.join(LOCK_FILE_NAME);
         let lock_error = |source| DataFolderLockError::Lock {
             path: lock_path.clone(),

@@ -155,29 +155,29 @@ fn read_pages(connection: &Connection) -> rusqlite::Result<DatabasePages> {
 }
 
 /// Reads the free bytes on the volume holding a folder; the daemon's is the platform's.
-pub(crate) type VolumeFreeBytesReader = fn(&Path) -> io::Result<u64>;
+pub type VolumeFreeBytesReader = fn(&Path) -> io::Result<u64>;
 
 /// What the repack job reads and runs through.
-pub(crate) struct RepackJobDeps {
+pub struct RepackJobDeps {
     /// The writer whose connection repacks.
-    pub(crate) writer: Arc<DatabaseWriter>,
+    pub writer: Arc<DatabaseWriter>,
     /// The write-ahead log's truncation, which reclaims the log the `VACUUM` wrote.
-    pub(crate) truncation: Arc<WriteAheadLogTruncation>,
+    pub truncation: Arc<WriteAheadLogTruncation>,
     /// The database file.
-    pub(crate) database_path: PathBuf,
+    pub database_path: PathBuf,
     /// Reads the free room on the volume holding the database.
-    pub(crate) read_volume_free_bytes: VolumeFreeBytesReader,
+    pub read_volume_free_bytes: VolumeFreeBytesReader,
     /// The count of live runs; one going live cancels the repack.
-    pub(crate) live_runs: watch::Receiver<u32>,
+    pub live_runs: watch::Receiver<u32>,
     /// The processor budget each repack is metered against.
-    pub(crate) budget: JobBudget,
+    pub budget: JobBudget,
 }
 
 /// The repack job a purge schedules, metered against its deps' budget: skipped with one
 /// service-log line unless the volume has free room of at least twice the file; a refused
 /// `VACUUM`, and one a run going live or the scheduler's stop interrupted, is written to the
 /// service log and tried after the next purge. Fails only when the writer has ended or closed.
-pub(crate) fn repack_job(
+pub fn repack_job(
     deps: Arc<RepackJobDeps>,
 ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static {
     metered_job(

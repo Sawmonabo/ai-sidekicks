@@ -28,22 +28,22 @@ use sidekicks_ipc::registry::{HandlerError, TransportId};
 /// that resolves once the terminal's write queue takes them; the shell table passes
 /// `Terminals::queue_write` for its shell, a terminal no longer tracked answering `Closed`. It runs
 /// under the shell's lease lock, so it never blocks.
-pub(crate) type QueueTerminalWrite =
+pub type QueueTerminalWrite =
     Box<dyn Fn(Bytes) -> BoxFuture<'static, Result<(), TerminalWriteError>> + Send + Sync>;
 
 /// What a shell's input calls out to. Each runs under the shell's lease lock or its pastes' lock,
 /// so none may block or take either.
-pub(crate) struct ShellInputHooks {
+pub struct ShellInputHooks {
     /// Hands a write to the terminal.
-    pub(crate) queue_write: QueueTerminalWrite,
+    pub queue_write: QueueTerminalWrite,
     /// Hands an answer to the program to the terminal, as `TerminalAnswers::queue` does.
-    pub(crate) queue_answer: Box<dyn Fn(Bytes) + Send + Sync>,
+    pub queue_answer: Box<dyn Fn(Bytes) + Send + Sync>,
     /// Whether the program asked for pasted text to be marked as pasted, read from the screen copy.
-    pub(crate) is_bracketed_paste_requested: Box<dyn Fn() -> bool + Send + Sync>,
+    pub is_bracketed_paste_requested: Box<dyn Fn() -> bool + Send + Sync>,
 }
 
 /// What one write puts on a shell's input.
-pub(crate) enum ShellWriteInput {
+pub enum ShellWriteInput {
     /// Typed text.
     Keys(String),
     /// One part of a paste.
@@ -52,7 +52,7 @@ pub(crate) enum ShellWriteInput {
 
 /// One shell's input: its lease, its terminal's intake and answers, its open paste, and how many
 /// writes each connection has waiting on it.
-pub(crate) struct ShellInput {
+pub struct ShellInput {
     terminal_id: TerminalId,
     lease: Arc<ShellControlLease>,
     hooks: ShellInputHooks,
@@ -68,7 +68,7 @@ pub(crate) struct ShellInput {
 impl ShellInput {
     /// The input of the shell `terminal_id`, admitted under `lease` and handed on through `hooks`,
     /// its unawaited work running on `runtime`.
-    pub(crate) fn new(
+    pub fn new(
         terminal_id: TerminalId,
         lease: Arc<ShellControlLease>,
         hooks: ShellInputHooks,
@@ -89,7 +89,7 @@ impl ShellInput {
     /// [`TERMINAL_WRITES_WAITING_LIMIT`] already wait, then hands it to the lease, which keeps the
     /// order of the calls and refuses it as `ShellControlLease::admit_write` does. A lone key goes
     /// to the terminal here too, where it may go as its signal.
-    pub(crate) fn admit_write(
+    pub fn admit_write(
         self: &Arc<Self>,
         caller: ShellLeaseCaller,
         input: ShellWriteInput,
@@ -244,7 +244,7 @@ impl Drop for WaitingWrite {
 }
 
 /// A write past its admission step, counted as waiting until it is answered.
-pub(crate) struct AdmittedShellWrite {
+pub struct AdmittedShellWrite {
     terminal_id: TerminalId,
     admission: WriteAdmission<BoxFuture<'static, Result<(), TerminalWriteError>>>,
     _waiting: WaitingWrite,
@@ -254,7 +254,7 @@ impl AdmittedShellWrite {
     /// Answers once the terminal's write queue takes the write. Fails with a refusal the write met
     /// in line, `terminal.notFound` once the shell closed, and as a fault when the system refused
     /// the write; a write to a shell whose program has exited goes nowhere and is answered.
-    pub(crate) async fn answered(self) -> Result<NullPayload, HandlerError> {
+    pub async fn answered(self) -> Result<NullPayload, HandlerError> {
         let taken = self.admission.admitted().await?;
         match taken.await {
             Ok(()) => Ok(NullPayload),

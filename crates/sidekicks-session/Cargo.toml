@@ -11,6 +11,8 @@ publish.workspace = true
 doctest = false
 
 [dependencies]
+# The wire message other crates' tests split into its attachments.
+bytes = { workspace = true, optional = true }
 diffy.workspace = true
 futures.workspace = true
 garde.workspace = true
@@ -34,6 +36,8 @@ sidekicks-store.workspace = true
 sidekicks-terminal.workspace = true
 sidekicks-workspace.workspace = true
 strum.workspace = true
+# The home folder of the questions service other crates' tests open.
+tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
@@ -43,10 +47,20 @@ tracing.workspace = true
 bytes.workspace = true
 mockall.workspace = true
 rstest.workspace = true
+# The call fixtures, the scripted caller reader and the credit gate the tests use.
+sidekicks-ipc = { workspace = true, features = ["test-support"] }
+# The stand-in programs and recorded system calls the tests use.
+sidekicks-platforms = { workspace = true, features = ["test-support"] }
+# The test driver registry, the mock driver and the stand-in stores the tests build on.
+sidekicks-provider = { workspace = true, features = ["test-support"] }
 # The documents an index holds under a row's key, for the search apply's damaged-row test.
 sidekicks-search = { workspace = true, features = ["index", "test-support"] }
+# The pause points and stalled reads the tests arm.
+sidekicks-std = { workspace = true, features = ["test-support"] }
 # The test database and session rows the session's tests build on.
 sidekicks-store = { workspace = true, features = ["test-support"] }
+# The git runner and the workspace rows the tests build on.
+sidekicks-workspace = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
 # The paused clock the live index's and the list feed's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
@@ -56,7 +70,13 @@ tracing-subscriber.workspace = true
 # Helpers other crates' tests use: the run engine built over a test database, the pause and live
 # count fixtures, the transcript's test log, the questions service's fixtures and the search
 # index's test services.
-test-support = []
+test-support = [
+  "dep:bytes",
+  "dep:tempfile",
+  "sidekicks-provider/test-support",
+  "sidekicks-std/test-support",
+  "sidekicks-store/test-support",
+]
 
 [lints]
 workspace = true

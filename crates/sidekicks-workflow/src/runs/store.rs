@@ -27,7 +27,7 @@ use sidekicks_store::database::stored_column::{
 
 /// The statements a [`WorkflowRunStore`] prepares on a read connection: the run read and the runs
 /// list.
-pub(crate) const WORKFLOW_RUN_STORE_STATEMENT_CAPACITY: usize = 2;
+pub const WORKFLOW_RUN_STORE_STATEMENT_CAPACITY: usize = 2;
 
 /// One run as `workflow.run.read` builds on it: its row, the first run of its chain, whether it
 /// recorded an execution context, and every step in execution order.

@@ -16,7 +16,7 @@ use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEve
 
 /// The task that cancels closed sessions' asks and its follower of closes, from
 /// [`ApprovalService::start`] until [`ApprovalSweep::stop`].
-pub(crate) struct ApprovalSweep {
+pub struct ApprovalSweep {
     /// Hears every committed close; dropping it detaches.
     attachment: FollowerAttachment,
     /// Ends the task after the cancels under way.
@@ -30,7 +30,7 @@ pub(crate) struct ApprovalSweep {
 impl ApprovalSweep {
     /// Stops hearing closes, settles once the cancels under way are done, then settles every wait
     /// on a raised card still open as stopped. Fails only when the task itself ended abnormally.
-    pub(crate) async fn stop(self) -> Result<(), JoinError> {
+    pub async fn stop(self) -> Result<(), JoinError> {
         let Self {
             attachment,
             stop,
@@ -49,7 +49,7 @@ impl ApprovalService {
     /// Follows `followers` to cancel the pending asks of every session that closes, and cancels
     /// those of sessions that closed with an ask still pending, both until the returned handle's
     /// stop.
-    pub(crate) fn start(self: &Arc<Self>, followers: &Arc<SessionEventFollowers>) -> ApprovalSweep {
+    pub fn start(self: &Arc<Self>, followers: &Arc<SessionEventFollowers>) -> ApprovalSweep {
         let service = Arc::clone(self);
         // Runs on the writer's pump, so it only names the session for the task.
         let attachment = followers.follow_all(move |event| {

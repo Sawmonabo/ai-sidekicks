@@ -146,7 +146,7 @@ impl StepCount {
 /// that interrupt once more.
 #[derive(Debug)]
 #[must_use = "a failed resend is logged"]
-pub(crate) struct WriteWithResend<Written> {
+pub struct WriteWithResend<Written> {
     /// What was written.
     pub(crate) written: Written,
     /// Why a limit's interrupt handed again failed, where it did.
@@ -155,7 +155,7 @@ pub(crate) struct WriteWithResend<Written> {
 
 impl<Written> WriteWithResend<Written> {
     /// What was written, the failure of the interrupts handed again logged for the next hand.
-    pub(crate) fn log_resend_failure(self, run_id: RunId) -> Written {
+    pub fn log_resend_failure(self, run_id: RunId) -> Written {
         if let Some(error) = &self.resend_failure {
             tracing::warn!(
                 run_id = %run_id,

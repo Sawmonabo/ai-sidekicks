@@ -42,6 +42,8 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_answers;
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -50,7 +52,7 @@ const VERSION_GUARD_COMPANION_INDEX: usize = 0;
 
 /// Why a pause or a resume did not finish; each refusal left the run exactly as it was.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RunPauseError {
+pub enum RunPauseError {
     /// The run is unknown, its version is not the one the caller read, or its state does not allow
     /// the move.
     #[error(transparent)]
@@ -169,11 +171,11 @@ impl From<RunPauseError> for HandlerError {
 
 /// The statements [`RunPauseControl`] prepares on a read connection: the run's row and the provider
 /// it runs on.
-pub(crate) const RUN_PAUSE_STATEMENT_CAPACITY: usize = 2;
+pub const RUN_PAUSE_STATEMENT_CAPACITY: usize = 2;
 
 /// Pauses and resumes runs. Calls on one run take turns, so a resume never reaches the driver
 /// before the pause it follows.
-pub(crate) struct RunPauseControl {
+pub struct RunPauseControl {
     pool: Arc<DatabaseReadPool>,
     engine: Arc<RunEngine>,
     providers: Arc<ProviderRegistry>,
@@ -183,7 +185,7 @@ pub(crate) struct RunPauseControl {
 impl RunPauseControl {
     /// Pause and resume reading runs through `pool`, moving them through `engine` and reaching each
     /// run's provider through its driver in `providers`.
-    pub(crate) fn new(
+    pub fn new(
         pool: Arc<DatabaseReadPool>,
         engine: Arc<RunEngine>,
         providers: Arc<ProviderRegistry>,
@@ -203,7 +205,7 @@ impl RunPauseControl {
     /// running, then with [`RunPauseError::NoDriver`]. A pause the driver refuses returns the run
     /// to `running`, and one whose answer never came leaves it `pausing`, each failing with
     /// [`RunPauseError::Driver`].
-    pub(crate) async fn pause(
+    pub async fn pause(
         &self,
         request: &AgentRunPauseRequest,
     ) -> Result<AgentRunControlResponse, RunPauseError> {
@@ -253,7 +255,7 @@ impl RunPauseControl {
     /// for the provider's own word to settle. A move refused once the driver took the resume (a
     /// process exit ended or interrupted the run meanwhile) refuses from where the run went and
     /// never gives the messages back, the provider holding them.
-    pub(crate) async fn resume(
+    pub async fn resume(
         &self,
         request: &AgentRunResumeRequest,
         continued: &dyn ContinuedMessages,
@@ -394,7 +396,7 @@ impl RunPauseControl {
     /// ends the messages not delivered and fails with [`RunPauseError::RecordUnreadable`]; one
     /// asked for with no answer back keeps them for the next settle and fails with
     /// [`RunPauseError::RecordUnanswered`]; a run unknown or no driver refuses as a resume does.
-    pub(crate) async fn settle_kept_by_record(
+    pub async fn settle_kept_by_record(
         &self,
         session_id: SessionId,
         run_id: RunId,

@@ -113,7 +113,7 @@ const RUN_STATE_SQL: &str = "SELECT state FROM runs WHERE run_id = ?";
 
 /// One page event's stored facts the stream reads beside it.
 #[derive(Clone, Debug)]
-pub(crate) struct StreamedPiece {
+pub struct StreamedPiece {
     /// The sequence of the row's first piece, on a piece that continues a row.
     joins_sequence: Option<i64>,
     /// Whether the event is a piece of a run's reply or reasoning, the only events placed in a row.
@@ -125,7 +125,7 @@ pub(crate) struct StreamedPiece {
 impl StreamedPiece {
     /// The body the change carries for `payload`'s piece: its text, or its size alone when too
     /// large to travel; `None` on an event that is not a piece.
-    pub(crate) fn content_of(&self, payload: &Map<String, Value>) -> Option<TranscriptRowContent> {
+    pub fn content_of(&self, payload: &Map<String, Value>) -> Option<TranscriptRowContent> {
         self.is_piece.then(|| {
             transcript_row_content_of(
                 Some(payload),
@@ -142,13 +142,13 @@ impl StreamedPiece {
     }
 
     /// Whether its body's text is not loaded yet.
-    pub(crate) fn lacks_text(&self) -> bool {
+    pub fn lacks_text(&self) -> bool {
         self.body.as_ref().is_some_and(|(_, text)| text.is_none())
     }
 
     /// The most bytes the block starts this piece can freeze take: one start at most per line it
     /// ends, its row's first start and the one before it, each four bytes.
-    pub(crate) fn block_starts_bytes_max(&self) -> usize {
+    pub fn block_starts_bytes_max(&self) -> usize {
         let text = self.body.as_ref().and_then(|(_, text)| text.as_deref());
         text.map_or(0, |text| {
             let line_ends = text
@@ -163,7 +163,7 @@ impl StreamedPiece {
 /// Reads the stored facts of the events at `sequences` of `session_id`, on `reader`, by sequence.
 /// Fails on a body whose payload states no length or that does not decode to it, and on a payload
 /// no JSON function reads, as [`payload_damage_of`] names it.
-pub(crate) fn read_streamed_pieces(
+pub fn read_streamed_pieces(
     reader: &Connection,
     session_id: &SessionId,
     sequences: &[i64],
@@ -200,7 +200,11 @@ pub(crate) fn read_streamed_pieces(
 
 /// Loads, on `reader`, the text of each of `pieces` of `session_id` at `sequences` whose text is
 /// not loaded yet.
-pub(crate) fn load_piece_texts(
+#[expect(
+    clippy::implicit_hasher,
+    reason = "the pieces are the stream state's own map, which takes the default hasher"
+)]
+pub fn load_piece_texts(
     reader: &Connection,
     session_id: &SessionId,
     pieces: &mut HashMap<i64, StreamedPiece>,
@@ -252,7 +256,7 @@ struct ChildTally {
 
 /// The rows and child runs one session stream is following.
 #[derive(Debug)]
-pub(crate) struct TranscriptStreamState {
+pub struct TranscriptStreamState {
     /// Open rows, by the sequence of their first piece.
     open_rows: HashMap<i64, OpenRow>,
     /// Every run the stream met, with its tally when it is a child.
@@ -263,7 +267,7 @@ pub(crate) struct TranscriptStreamState {
 
 impl TranscriptStreamState {
     /// A stream following nothing yet, which cuts a reply into blocks by `parse`.
-    pub(crate) fn new(parse: BlockParse) -> Self {
+    pub fn new(parse: BlockParse) -> Self {
         Self {
             open_rows: HashMap::new(),
             runs: HashMap::new(),
@@ -273,7 +277,7 @@ impl TranscriptStreamState {
 
     /// Whether the cut of the row `event`, with stored facts `stored`, reads its text: a reply
     /// that may be drawn as markdown and whose row is new, met partway, or open with its cut.
-    pub(crate) fn reads_text_of(&self, event: &EventEnvelope, stored: &StreamedPiece) -> bool {
+    pub fn reads_text_of(&self, event: &EventEnvelope, stored: &StreamedPiece) -> bool {
         stored.is_piece
             && prose_body_of(event.event_type.0.as_str(), &event.payload).is_some()
             && stored.joins_sequence.is_none_or(|anchor_sequence| {
@@ -287,7 +291,7 @@ impl TranscriptStreamState {
     /// its row with the block starts it froze, read on `reader` when the stream meets the row
     /// partway; `read_bound` is where the session's reads stop. A cut that fails leaves the piece
     /// its failure, and the row's later pieces no starts. Fails when SQLite refuses the seed read.
-    pub(crate) fn place_piece(
+    pub fn place_piece(
         &mut self,
         reader: &Connection,
         read_bound: i64,
@@ -388,7 +392,7 @@ impl TranscriptStreamState {
     /// through this event, read on `reader` when the stream first meets the child, and complete
     /// unless some of its events cannot be read, as of `observed_at`. Fails when SQLite refuses a
     /// read.
-    pub(crate) fn child_run_summary(
+    pub fn child_run_summary(
         &mut self,
         reader: &Connection,
         read_bound: i64,
@@ -431,7 +435,7 @@ impl TranscriptStreamState {
     /// Lets go of what `event`, filed under `run_id`, ends: the run's open rows at a turn's end or
     /// its rollback, and the run itself at its end. Answers each ended row cut into blocks with the
     /// starts its whole text left unsent, or why its last cut failed.
-    pub(crate) fn forget_ended(
+    pub fn forget_ended(
         &mut self,
         event: &EventEnvelope,
         run_id: RunId,

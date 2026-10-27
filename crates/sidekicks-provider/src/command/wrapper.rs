@@ -33,7 +33,7 @@ use sidekicks_std::standard_error::write_error_line;
 use terminal::run_in_terminal;
 
 /// The name of the link a provider runs every shell command through, which reaches this mode.
-pub(crate) const COMMAND_WRAPPER_PROGRAM_NAME: &str = "sidekicks-command-wrapper";
+pub const COMMAND_WRAPPER_PROGRAM_NAME: &str = "sidekicks-command-wrapper";
 
 /// The variable naming the provider whose shell prefix the wrapper serves, so it reads that
 /// provider's line shape.
@@ -128,7 +128,7 @@ fn read_form(arguments: &[OsString]) -> Option<WrapperForm> {
 
 /// Runs the wrapper with this process's own arguments, answering the exit code its command ended
 /// with.
-pub(crate) fn run_command_wrapper() -> ExitCode {
+pub fn run_command_wrapper() -> ExitCode {
     let process_arguments: Vec<OsString> = std::env::args_os().collect();
     run_command_wrapper_with(&process_arguments, own_arguments(&process_arguments))
 }

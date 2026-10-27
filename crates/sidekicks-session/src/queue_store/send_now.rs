@@ -20,11 +20,11 @@ use sidekicks_store::database::stored_column::text_column;
 
 /// One `Send now` a run's key recorded: the message it handed and the id its answer carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct SentNow {
+pub struct SentNow {
     /// The message handed first.
-    pub(crate) item_id: QueueItemId,
+    pub item_id: QueueItemId,
     /// The id the answer carries.
-    pub(crate) intervention_id: InterventionId,
+    pub intervention_id: InterventionId,
 }
 
 const SELECT_SENT_NOW_SQL: &str = "SELECT queue_item_id, intervention_id FROM send_now_requests
@@ -57,7 +57,7 @@ static CLEAR_SENT_NOW_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// The statement that records `key`, spent by a `Send now` on `run_id`, as `sent`, unless the key
 /// already holds a record, which it keeps.
-pub(crate) fn record_sent_now_statement(
+pub fn record_sent_now_statement(
     run_id: &RunId,
     key: &ClientUuid,
     sent: &SentNow,
@@ -78,7 +78,7 @@ pub(crate) fn record_sent_now_statement(
 
 /// The statement that marks `item_id` sent now, its answer carrying `intervention_id`; refused
 /// once the message has left `queued` or carries a mark.
-pub(crate) fn mark_sent_now_statement(
+pub fn mark_sent_now_statement(
     item_id: &QueueItemId,
     intervention_id: &InterventionId,
     now: &WireInstant,
@@ -96,7 +96,7 @@ pub(crate) fn mark_sent_now_statement(
 
 /// The statement that clears the `Send now` mark of `item_id`, so it goes in its place; refused
 /// once the message has left `queued`. The key's record stays.
-pub(crate) fn clear_sent_now_statement(item_id: &QueueItemId, now: &WireInstant) -> WriteStatement {
+pub fn clear_sent_now_statement(item_id: &QueueItemId, now: &WireInstant) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(CLEAR_SENT_NOW_SQL.as_str()),
         bindings: StatementBindings::Named(vec![
@@ -109,7 +109,7 @@ pub(crate) fn clear_sent_now_statement(item_id: &QueueItemId, now: &WireInstant)
 
 /// The `Send now` recorded under `key` on `run_id`, or `None`. Fails when SQLite refuses the read
 /// or a stored id does not read as its type.
-pub(crate) fn read_sent_now(
+pub fn read_sent_now(
     reader: &Connection,
     run_id: &RunId,
     key: &ClientUuid,

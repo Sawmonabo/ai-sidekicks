@@ -2,7 +2,7 @@
 //! the system's process table, the provider services whose processes it holds connections to, and
 //! the check that tells an agent's process from the person's own client.
 
-pub(crate) mod contract;
-pub(crate) mod descent;
-pub(crate) mod provider_services;
-pub(crate) mod system_reader;
+pub mod contract;
+pub mod descent;
+pub mod provider_services;
+pub mod system_reader;

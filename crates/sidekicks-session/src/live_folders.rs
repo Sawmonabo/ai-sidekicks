@@ -63,20 +63,20 @@ const SYNCING_EVENT_TYPES: [SessionEventType; 8] = [
 const SESSIONS_IN_STATE_SQL: &str = "SELECT id FROM sessions WHERE state = ? ORDER BY id";
 
 /// What the live session folders read, hold and run.
-pub(crate) struct LiveSessionFoldersDeps<W = RecommendedWatcher> {
+pub struct LiveSessionFoldersDeps<W = RecommendedWatcher> {
     /// The pool sessions and their working folders are read on.
-    pub(crate) reads: Arc<DatabaseReadPool>,
+    pub reads: Arc<DatabaseReadPool>,
     /// The daemon's git, for the review notes' line reads.
-    pub(crate) git: GitRunner,
+    pub git: GitRunner,
     /// The working-folder watch each live folder is held on.
-    pub(crate) watcher: Arc<WorkingFolderWatcher<W>>,
+    pub watcher: Arc<WorkingFolderWatcher<W>>,
     /// The background fetch each live project's repository is held on.
-    pub(crate) fetch: Arc<BackgroundFetch>,
+    pub fetch: Arc<BackgroundFetch>,
 }
 
 /// Holds each live session's working folder watched and its project's repository fetched; `W` is
 /// the system's file watch, which a test swaps for one it feeds.
-pub(crate) struct LiveSessionFolders<W = RecommendedWatcher> {
+pub struct LiveSessionFolders<W = RecommendedWatcher> {
     deps: LiveSessionFoldersDeps<W>,
     held_by_session: Mutex<HashMap<SessionId, HeldFolder>>,
     // The sessions whose sync is started and has not yet read, each at most once.
@@ -107,7 +107,7 @@ struct LiveFolder {
 
 /// Why the live sessions, or a session's folder, could not be read, synced or followed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum LiveFolderError {
+pub enum LiveFolderError {
     /// The session's working folder could not be read.
     #[error(transparent)]
     Read(#[from] WorkingFolderReadError),
@@ -127,7 +127,7 @@ pub(crate) enum LiveFolderError {
 
 impl<W: Watcher + Send + 'static> LiveSessionFolders<W> {
     /// Live session folders running with `deps`, holding nothing until [`start`](Self::start).
-    pub(crate) fn new(deps: LiveSessionFoldersDeps<W>) -> Self {
+    pub fn new(deps: LiveSessionFoldersDeps<W>) -> Self {
         Self {
             deps,
             held_by_session: Mutex::new(HashMap::new()),
@@ -144,7 +144,7 @@ impl<W: Watcher + Send + 'static> LiveSessionFolders<W> {
     /// Follows every session's committed events on `followers`, then syncs every session live
     /// now. Called inside the daemon's runtime, where each sync runs. Fails when the live sessions
     /// cannot be read.
-    pub(crate) async fn start(
+    pub async fn start(
         self: &Arc<Self>,
         followers: &Arc<SessionEventFollowers>,
     ) -> Result<(), LiveFolderError> {
@@ -173,7 +173,7 @@ impl<W: Watcher + Send + 'static> LiveSessionFolders<W> {
     }
 
     /// Stops following the log, waits for the syncs under way, then lets every hold go.
-    pub(crate) async fn stop(&self) {
+    pub async fn stop(&self) {
         self.stopping.cancel();
         let attachment = lock(&self.attachment).take();
         drop(attachment);

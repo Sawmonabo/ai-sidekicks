@@ -19,7 +19,7 @@ use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::database::writer::DatabaseWriter;
 
 /// The statements the service's reads run: the tags in use.
-pub(crate) const SESSION_TAG_SERVICE_STATEMENT_CAPACITY: usize = 1;
+pub const SESSION_TAG_SERVICE_STATEMENT_CAPACITY: usize = 1;
 
 // A tag the session already holds under another casing keeps the casing it was first written in.
 const ADD_TAG_SQL: &str = "INSERT INTO session_tags (session_id, tag, tag_folded)
@@ -40,7 +40,7 @@ pub(crate) struct NotATag;
 
 /// Why a tag change or the tags in use failed; a refused change keeps nothing.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SessionTagError {
+pub enum SessionTagError {
     /// The session is not one this daemon holds (`session.notFound`), or the write was not kept.
     #[error(transparent)]
     Write(#[from] SessionWriteError),
@@ -68,21 +68,21 @@ impl From<SessionTagError> for HandlerError {
 
 /// Adds, removes and lists session tags, reading through the daemon's read pool and writing
 /// through its writer.
-pub(crate) struct SessionTagService {
+pub struct SessionTagService {
     pool: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
 }
 
 impl SessionTagService {
     /// The service reading through `pool` and writing through `writer`.
-    pub(crate) fn new(pool: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
+    pub fn new(pool: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
         Self { pool, writer }
     }
 
     /// Tags the session; a tag it already holds, ignoring case, stays as it is. Fails with
     /// [`SessionTagError::Write`]: `session.notFound` for an unknown session, or the write not
     /// kept.
-    pub(crate) async fn add(&self, request: &SessionTagRequest) -> Result<(), SessionTagError> {
+    pub async fn add(&self, request: &SessionTagRequest) -> Result<(), SessionTagError> {
         let session_text = request.session_id.text();
         let tag_folded = fold_name(request.tag.as_str());
         write_while_session_exists(
@@ -105,7 +105,7 @@ impl SessionTagService {
 
     /// Removes the tag from the session, matched ignoring case; a tag it does not hold is already
     /// gone. Fails as [`SessionTagService::add`] does.
-    pub(crate) async fn remove(&self, request: &SessionTagRequest) -> Result<(), SessionTagError> {
+    pub async fn remove(&self, request: &SessionTagRequest) -> Result<(), SessionTagError> {
         let session_text = request.session_id.text();
         let tag_folded = fold_name(request.tag.as_str());
         write_while_session_exists(
@@ -128,7 +128,7 @@ impl SessionTagService {
     /// The tags in use across every session, for `Add tag` to suggest. Fails with
     /// [`SessionTagError::Database`] for a stored tag that is not a tag or a refused read, and with
     /// [`SessionTagError::Pool`] when the read does not reach a connection.
-    pub(crate) async fn list(&self) -> Result<SessionTagListResponse, SessionTagError> {
+    pub async fn list(&self) -> Result<SessionTagListResponse, SessionTagError> {
         self.pool
             .read(ReadLength::Long, |connection| {
                 let tags = connection

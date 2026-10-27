@@ -29,7 +29,7 @@ impl RunEngine {
     /// Hands the engine the run queue whose hold of a person's interrupt a run's end or a turn's
     /// end lets go once it settles that interrupt, once, while the daemon wires its services and
     /// before any run can end. Fails with the handle when one was handed already.
-    pub(crate) fn set_interrupt_queue(
+    pub fn set_interrupt_queue(
         &self,
         queue: Weak<dyn InterruptQueue>,
     ) -> Result<(), SetOnceError<Weak<dyn InterruptQueue>>> {
@@ -250,7 +250,7 @@ impl RunEngine {
     /// Settles, after a restart, every ended run of `session_id` that a daemon gone down between
     /// its end and the settle left holding an intervention with no outcome, as its end would have.
     /// Every run is tried before the failures return together.
-    pub(crate) async fn settle_unresolved_of_ended_runs(
+    pub async fn settle_unresolved_of_ended_runs(
         &self,
         session_id: SessionId,
     ) -> Result<(), RunEngineError> {

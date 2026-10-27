@@ -32,14 +32,14 @@ use crate::port::tool_server_route::ToolServerRoute;
 use crate::port::usage_sink::UsageSink;
 
 /// The run queue's intake of a message the provider took into a run's turn.
-pub(crate) trait MessageTakenListener: Send + Sync {
+pub trait MessageTakenListener: Send + Sync {
     /// The provider took the message `message_id`, which the queue handed it, into `run_id`'s turn
     /// on `session_id`.
     fn message_taken(&self, session_id: SessionId, message_id: &str, run_id: RunId);
 }
 
 /// The run queue's intake of a message the provider refused after the queue handed it.
-pub(crate) trait MessageRefusedListener: Send + Sync {
+pub trait MessageRefusedListener: Send + Sync {
     /// The provider refused the message `message_id`, which the queue handed it on `session_id`,
     /// for `reason`.
     fn message_refused(
@@ -52,7 +52,7 @@ pub(crate) trait MessageRefusedListener: Send + Sync {
 
 /// The run queue's intake of a message the provider was handed and let go unsent, so it waits
 /// again.
-pub(crate) trait MessageGivenBackListener: Send + Sync {
+pub trait MessageGivenBackListener: Send + Sync {
     /// The provider let go unsent the message `message_id`, which the queue handed it on
     /// `session_id`.
     fn message_given_back(&self, session_id: SessionId, message_id: &str);
@@ -60,7 +60,7 @@ pub(crate) trait MessageGivenBackListener: Send + Sync {
 
 /// The run queue's intake of a session's provider process that ended, on its own or for a move to
 /// a new build, so a message it kept for a turn of its own went with it.
-pub(crate) trait ProcessGoneListener: Send + Sync {
+pub trait ProcessGoneListener: Send + Sync {
     /// `session_id`'s provider process has ended.
     fn process_gone(&self, session_id: SessionId);
 }
@@ -79,72 +79,78 @@ pub(crate) trait SessionRelaunchListener: Send + Sync {
 
 /// One place the daemon runs sessions in, as its start found it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SessionPlace {
+pub struct SessionPlace {
     /// The place; `None` is the computer's own system.
-    pub(crate) place: Option<Place>,
+    pub place: Option<Place>,
     /// The place's login-shell environment captured at the daemon's start.
-    pub(crate) login_shell: Vec<(String, String)>,
+    pub login_shell: Vec<(String, String)>,
     /// The person's user id in that place, read on macOS, Linux and a WSL distribution; `None` on
     /// native Windows, whose inbox is a pipe that needs none.
-    pub(crate) user_id: Option<u32>,
+    pub user_id: Option<u32>,
 }
 
 /// The ports every driver reads, one registration per handle the daemon builds after the drivers,
 /// each registered once by the daemon's start; a driver that finds one absent refuses or waits as
 /// its own call says.
-pub(crate) struct DriverPorts {
+pub struct DriverPorts {
     /// Where each session's provider process runs, resolved at every spawn, and the accounts a
     /// provider runs on.
     pub(crate) spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
     /// The run engine.
-    pub(crate) run_engine: Arc<PortRegistration<Arc<dyn RunHost>>>,
+    pub run_engine: Arc<PortRegistration<Arc<dyn RunHost>>>,
     /// The run engine's dispatch of what a provider delivers.
-    pub(crate) inbound_dispatch: Arc<PortRegistration<Arc<dyn InboundDispatch>>>,
+    pub inbound_dispatch: Arc<PortRegistration<Arc<dyn InboundDispatch>>>,
     /// The run queue's opening of the binding a turn the daemon starts on a session runs on.
-    pub(crate) daemon_turn_bindings: Arc<PortRegistration<Arc<dyn DaemonTurnBindingResolver>>>,
+    pub daemon_turn_bindings: Arc<PortRegistration<Arc<dyn DaemonTurnBindingResolver>>>,
     /// The daemon's reads of the repository a working folder belongs to.
     pub(crate) repositories: Arc<PortRegistration<Arc<dyn RepositoryReader>>>,
     /// The run queue's intake of a taken message.
-    pub(crate) message_taken: Arc<PortRegistration<Arc<dyn MessageTakenListener>>>,
+    pub message_taken: Arc<PortRegistration<Arc<dyn MessageTakenListener>>>,
     /// The run queue's intake of a handed message the provider refused.
-    pub(crate) message_refused: Arc<PortRegistration<Arc<dyn MessageRefusedListener>>>,
+    pub message_refused: Arc<PortRegistration<Arc<dyn MessageRefusedListener>>>,
     /// The run queue's intake of a handed message the provider let go unsent.
-    pub(crate) message_given_back: Arc<PortRegistration<Arc<dyn MessageGivenBackListener>>>,
+    pub message_given_back: Arc<PortRegistration<Arc<dyn MessageGivenBackListener>>>,
     /// The session directory's intake of a relaunch.
     pub(crate) session_relaunched: Arc<PortRegistration<Arc<dyn SessionRelaunchListener>>>,
     /// The run queue's intake of an ended process.
-    pub(crate) process_gone: Arc<PortRegistration<Arc<dyn ProcessGoneListener>>>,
+    pub process_gone: Arc<PortRegistration<Arc<dyn ProcessGoneListener>>>,
     /// The usage record.
     pub(crate) usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
     /// The approval pipeline's intake of permission asks.
-    pub(crate) permission_asks: Arc<PortRegistration<Arc<dyn PermissionAskPort>>>,
+    pub permission_asks: Arc<PortRegistration<Arc<dyn PermissionAskPort>>>,
     /// The questions card's intake.
-    pub(crate) questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
+    pub questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
     /// The plan record's intake.
-    pub(crate) plans: Arc<PortRegistration<Arc<dyn PlanPort>>>,
+    pub plans: Arc<PortRegistration<Arc<dyn PlanPort>>>,
     /// The approval pipeline's intake of reviewer blocks, and its release of held presses.
-    pub(crate) reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
+    pub reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
     /// The record of the advisor Claude Code resolved for a session no one picked one for.
-    pub(crate) session_advisors: Arc<PortRegistration<Arc<dyn SessionAdvisorStore>>>,
+    pub session_advisors: Arc<PortRegistration<Arc<dyn SessionAdvisorStore>>>,
     /// The rules in force on each session.
-    pub(crate) session_rules: Arc<PortRegistration<Arc<dyn SessionRulePort>>>,
+    pub session_rules: Arc<PortRegistration<Arc<dyn SessionRulePort>>>,
     /// The places the daemon runs sessions in, which each session's inbox address is composed for.
-    pub(crate) session_places: Arc<PortRegistration<Arc<[SessionPlace]>>>,
+    pub session_places: Arc<PortRegistration<Arc<[SessionPlace]>>>,
     /// The daemon's tool servers, reached in process.
     pub(crate) in_process_tool_servers: Arc<PortRegistration<Arc<dyn InProcessToolServers>>>,
     /// The daemon's tool servers, reached at an address.
     pub(crate) tool_server_route: Arc<PortRegistration<Arc<dyn ToolServerRoute>>>,
     /// The one callback-tool dispatcher, which each spawn's callback tools are bound through.
-    pub(crate) callback_tool_host: Arc<PortRegistration<Arc<CallbackToolHost>>>,
+    pub callback_tool_host: Arc<PortRegistration<Arc<CallbackToolHost>>>,
     /// The pause and continue of runs.
-    pub(crate) run_pauses: Arc<PortRegistration<Arc<dyn RunPauses>>>,
+    pub run_pauses: Arc<PortRegistration<Arc<dyn RunPauses>>>,
     /// The messages waiting for paused runs, as the run queue holds them.
-    pub(crate) continued_messages: Arc<PortRegistration<Arc<dyn ContinuedMessages>>>,
+    pub continued_messages: Arc<PortRegistration<Arc<dyn ContinuedMessages>>>,
+}
+
+impl Default for DriverPorts {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DriverPorts {
     /// Every port unregistered, for the daemon's start to register.
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             spawn_contexts: Arc::new(PortRegistration::new("spawn contexts")),
             run_engine: Arc::new(PortRegistration::new("run engine")),

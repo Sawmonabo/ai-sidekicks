@@ -54,7 +54,7 @@ pub(crate) const SPOOL_FILE_MODE: u32 = 0o600;
 
 /// Where a publish came from: a client's request, made by the device the gateway stamped on it, or
 /// the daemon's own code, which crossed no boundary.
-pub(crate) enum PublishOrigin {
+pub enum PublishOrigin {
     /// A client's request from `device_id`.
     Request {
         /// The device the gateway stamped on the request.
@@ -88,7 +88,7 @@ struct PayloadScan {
 }
 
 /// Publishes artifacts from whole payloads, a client's or the daemon's own.
-pub(crate) struct ArtifactPublishService {
+pub struct ArtifactPublishService {
     appender: Arc<SessionEventAppender>,
     reads: Arc<DatabaseReadPool>,
     payloads: Arc<PayloadStore>,
@@ -101,7 +101,7 @@ pub(crate) struct ArtifactPublishService {
 impl ArtifactPublishService {
     /// A service appending through `appender`, reading through `reads`, storing into `payloads`
     /// and spooling in `admission`'s folder, which must be on the store's volume.
-    pub(crate) fn new(
+    pub fn new(
         appender: Arc<SessionEventAppender>,
         reads: Arc<DatabaseReadPool>,
         payloads: Arc<PayloadStore>,
@@ -124,7 +124,7 @@ impl ArtifactPublishService {
     /// run that is not the session's, with `artifact.filePublishRefused` for a client's file, with
     /// `artifact.idempotencyConflict` for a client's key reused with another run, type or payload,
     /// and with the admission's refusals for a client's publish; a refusal keeps nothing.
-    pub(crate) async fn publish(
+    pub async fn publish(
         &self,
         request: ArtifactPublishRequest,
         origin: PublishOrigin,

@@ -21,7 +21,7 @@ use crate::table::{ShellTable, TableShared};
 use sidekicks_ipc::registry::HandlerError;
 
 /// Holds a deleted session's opens refused until it drops.
-pub(crate) struct SessionShellsClosed {
+pub struct SessionShellsClosed {
     table: Weak<TableShared>,
     session_id: SessionId,
 }
@@ -71,7 +71,7 @@ impl ShellTable {
     /// `session.notFound` until the answered hold drops. Answers once every shell's program has
     /// exited; fails with the first program that will not end, the session's opens no longer
     /// refused.
-    pub(crate) async fn close_session_shells(
+    pub async fn close_session_shells(
         &self,
         session_id: &SessionId,
     ) -> Result<SessionShellsClosed, HandlerError> {

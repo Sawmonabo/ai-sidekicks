@@ -33,7 +33,7 @@ pub(crate) enum CloneOutcome {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, VariantArray, IntoStaticStr)]
 #[serde(rename_all = "camelCase")]
 #[strum(serialize_all = "camelCase")]
-pub(crate) enum MountOrigin {
+pub enum MountOrigin {
     /// A project's folder.
     Attached,
     /// A chat's managed workspace.

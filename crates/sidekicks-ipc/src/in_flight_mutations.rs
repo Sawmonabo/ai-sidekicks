@@ -19,11 +19,11 @@ use sidekicks_std::mutex_lock::lock;
 /// A recorded mutating call's place: ids rise in the order the gate records calls, so a call
 /// recorded earlier has a smaller id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct RecordedCallId(u64);
+pub struct RecordedCallId(u64);
 
 /// The gate that records every mutating call as it is dispatched, before the gateway reads the
 /// connection's next call, and hands the call its id in its `HandlerContext`.
-pub(crate) struct InFlightMutations {
+pub struct InFlightMutations {
     /// The dispatch the calls go on to.
     next: Arc<dyn Dispatch>,
     /// The frozen registry, whose entries say which method mutates.
@@ -59,7 +59,7 @@ impl Drop for RecordedCall {
 impl InFlightMutations {
     /// The gate over `next`; `registry` is the frozen registry whose entries say which method
     /// mutates.
-    pub(crate) fn new(next: Arc<dyn Dispatch>, registry: Arc<MethodRegistry>) -> Self {
+    pub fn new(next: Arc<dyn Dispatch>, registry: Arc<MethodRegistry>) -> Self {
         Self {
             next,
             registry,
@@ -71,7 +71,7 @@ impl InFlightMutations {
     /// failed; `caller` is the waiting call's own `recorded_call`, and `None` (a wait outside a
     /// recorded call) waits for every call running now. A call recorded later never extends the
     /// wait, so a busy daemon still answers its flush and two flushes never wait on each other.
-    pub(crate) async fn wait_for_pending(&self, caller: Option<RecordedCallId>) {
+    pub async fn wait_for_pending(&self, caller: Option<RecordedCallId>) {
         for completion in self.running_calls(caller) {
             completion.cancelled().await;
         }
@@ -79,7 +79,7 @@ impl InFlightMutations {
 
     /// As `wait_for_pending`, giving up after `bound`; answers how many of those calls were still
     /// running then, `0` when every one finished in time.
-    pub(crate) async fn wait_for_pending_within(
+    pub async fn wait_for_pending_within(
         &self,
         caller: Option<RecordedCallId>,
         bound: Duration,

@@ -25,7 +25,7 @@ use sidekicks_store::events::session::appender::SessionEventAppendError;
 /// What an artifact call fails with: one of this module's refusals or another classified one, or
 /// a fault inside the daemon.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ArtifactError {
+pub enum ArtifactError {
     /// A refusal with its code.
     #[error(transparent)]
     Refused(#[from] DomainError),
@@ -72,8 +72,8 @@ impl ArtifactError {
     }
 
     /// The refusal this failure is, or none for a fault.
-    #[cfg(test)]
-    pub(crate) fn refusal(&self) -> Option<&DomainError> {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn refusal(&self) -> Option<&DomainError> {
         let Self::Refused(refusal) = self else {
             return None;
         };

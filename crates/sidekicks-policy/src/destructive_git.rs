@@ -13,12 +13,12 @@ use crate::shell_commands::{ShellCommand, ShellLineReader, ShellLineReading, Wor
 /// The subcommand a git command runs, and whether its options change what git itself runs. The
 /// subcommand's `Display` writes its text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct GitSubcommandReading<W> {
+pub struct GitSubcommandReading<W> {
     /// The first word past git's own options, `None` when every word is one of them.
-    pub(crate) subcommand: Option<W>,
+    pub subcommand: Option<W>,
     /// Whether an option before the subcommand sets configuration or the folder git's own programs
     /// come from (`-c`, `--config-env`, `--exec-path`), which can make any subcommand run anything.
-    pub(crate) changes_what_runs: bool,
+    pub changes_what_runs: bool,
 }
 
 // The options before git's subcommand that take the next word as their value.
@@ -58,10 +58,7 @@ const BRANCH_DELETE_LETTERS: &[char] = &['d', 'D'];
 /// `eval` strings its shells run included, each reread on `reader`. A command that hands a shell a
 /// string is judged by that string alone; a string the reader leaves unread holds no command, so
 /// it reads as no destructive git.
-pub(crate) fn runs_destructive_git(
-    reader: &mut ShellLineReader,
-    reading: &ShellLineReading,
-) -> bool {
+pub fn runs_destructive_git(reader: &mut ShellLineReader, reading: &ShellLineReading) -> bool {
     // The strings still to judge, so a nesting depth costs a list entry and never a stack frame.
     let mut rereads = Vec::new();
     if holds_destructive_git(reader, reading, &mut rereads) {
@@ -76,7 +73,7 @@ pub(crate) fn runs_destructive_git(
 }
 
 /// The subcommand of a git command with `argument_words`, the first word past git's own options.
-pub(crate) fn read_git_subcommand<W: WordText>(
+pub fn read_git_subcommand<W: WordText>(
     argument_words: impl IntoIterator<Item = W>,
 ) -> GitSubcommandReading<W> {
     take_git_subcommand(&mut argument_words.into_iter())
@@ -86,7 +83,7 @@ pub(crate) fn read_git_subcommand<W: WordText>(
 /// push or a branch delete through: a command allow on `git` alone, `git push` or `git branch`.
 /// Such a rule is the daemon's alone, which answers each ask it covers and sends a destructive one
 /// to the card.
-pub(crate) fn covers_destructive_git(rule: &ProviderAskRule) -> bool {
+pub fn covers_destructive_git(rule: &ProviderAskRule) -> bool {
     if rule.action != ProviderAskActionKind::Command || rule.sense != RememberedRuleSense::Allow {
         return false;
     }

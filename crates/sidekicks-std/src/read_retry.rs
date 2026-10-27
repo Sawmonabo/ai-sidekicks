@@ -10,7 +10,7 @@ const READ_RETRY_DELAY: Duration = Duration::from_millis(100);
 
 /// Whether a filesystem read's failure is one another moment can clear: a busy or locked entry, an
 /// interrupted call, or a process or system out of open files.
-pub(crate) fn is_retryable_read_failure(error: &io::Error) -> bool {
+pub fn is_retryable_read_failure(error: &io::Error) -> bool {
     matches!(
         error.kind(),
         io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
@@ -20,7 +20,7 @@ pub(crate) fn is_retryable_read_failure(error: &io::Error) -> bool {
 
 /// Runs `read`, and once more after [`READ_RETRY_DELAY`] when it fails in a way `is_retryable`
 /// accepts; any other failure, and the retry's own, is returned as it came.
-pub(crate) async fn read_with_one_retry<Output, Failure, Read>(
+pub async fn read_with_one_retry<Output, Failure, Read>(
     mut read: impl FnMut() -> Read,
     is_retryable: impl Fn(&Failure) -> bool,
 ) -> Result<Output, Failure>

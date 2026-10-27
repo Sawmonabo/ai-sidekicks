@@ -42,7 +42,7 @@ const FRAME_HEADER_MAX_BYTES: usize = 18;
 /// is or compressed by its length. Only the append path makes one, so every stored body went
 /// through the encoding its payload names.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct StoredBody {
+pub struct StoredBody {
     text: String,
 }
 
@@ -65,16 +65,22 @@ impl StoredBody {
 
 /// The writer thread's encoder: one zstd compressor and one output buffer, both reused for every
 /// body the thread stores.
-pub(crate) struct BodyEncoder {
+pub struct BodyEncoder {
     compressor: Compressor<'static>,
     frame: Vec<u8>,
     stream: Vec<u8>,
 }
 
+impl Default for BodyEncoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BodyEncoder {
     /// An encoder at level 3 whose frames carry their checksum. Panics only when zstd cannot make
     /// its context, which only a failed allocation does.
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let mut compressor =
             Compressor::new(COMPRESSION_LEVEL).expect("zstd makes a context at level 3");
         compressor
@@ -115,7 +121,7 @@ impl BodyEncoder {
 /// Why a stored body does not read back as the text its payload describes: the row is damaged,
 /// unless zstd ran out of memory decoding it.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum BodyDecodeError {
+pub enum BodyDecodeError {
     /// The body decodes to another length than its payload states.
     #[error("the stored body decodes to {decoded} bytes where its payload states {stated}")]
     Length {
@@ -176,11 +182,11 @@ pub(crate) fn decode_body(
 
 /// A stretch of a stored body's text, decoded alone.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct DecodedStretch {
+pub struct DecodedStretch {
     /// Where the stretch starts in the body, a character boundary at or before the asked start.
-    pub(crate) start: usize,
+    pub start: usize,
     /// Its text, through the asked end or the body's end.
-    pub(crate) text: String,
+    pub text: String,
 }
 
 /// The stretch of a stored body that covers `from..to`, decoding only the frames it falls in: a
@@ -346,7 +352,7 @@ fn frame_text_bytes(stored: &[u8]) -> Result<u64, BodyDecodeError> {
 
 /// Why a stored body could not be read a frame at a time.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum BodyStreamError {
+pub enum BodyStreamError {
     /// The body does not read back as the text its payload describes; the row is damaged.
     #[error(transparent)]
     Damaged(BodyDecodeError),
@@ -375,7 +381,7 @@ impl From<BodyDecodeError> for BodyStreamError {
 
 /// The read failure a body zstd had no memory to decode is, as SQLite names running out of
 /// memory, so a caller reads it as a failed read and never as a damaged row.
-pub(crate) fn out_of_memory_read_failure() -> rusqlite::Error {
+pub fn out_of_memory_read_failure() -> rusqlite::Error {
     rusqlite::Error::SqliteFailure(
         rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_NOMEM),
         Some(BodyStreamError::OutOfMemory.to_string()),
@@ -385,13 +391,13 @@ pub(crate) fn out_of_memory_read_failure() -> rusqlite::Error {
 /// Where a stored body sits before it is read: its row and what its payload states, read back by
 /// [`StoredBodyPlace::read`] from the columns [`stored_body_place_sql`] selects.
 #[derive(Clone, Debug)]
-pub(crate) struct StoredBodyPlace {
+pub struct StoredBodyPlace {
     /// The `session_events` row whose `content_payload` holds it.
     pub(crate) rowid: i64,
     /// The encoding its payload names.
     pub(crate) encoding: Option<ContentEncoding>,
     /// The length its payload states.
-    pub(crate) content_length: Option<u64>,
+    pub content_length: Option<u64>,
 }
 
 /// The columns a reader selects to find the body of the row aliased `alias` without loading it:
@@ -407,7 +413,7 @@ pub(crate) fn stored_body_place_sql(alias: &str) -> String {
 impl StoredBodyPlace {
     /// Reads the three columns from `index` on, `None` when the rowid is NULL, as an outer join
     /// leaves it. Fails as [`StoredBodyColumns::read`] does.
-    pub(crate) fn read(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<Self>> {
+    pub fn read(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<Self>> {
         let Some(rowid) = row.get::<_, Option<i64>>(index)? else {
             return Ok(None);
         };
@@ -436,7 +442,7 @@ impl StoredBodyPlace {
     /// answering what it broke with, before the rest is read or the length checked. Fails as
     /// [`StoredBodyPlace::decode`] does, after handing over the frames before a damaged one, and
     /// with [`BodyStreamError::Write`] when `each` fails.
-    pub(crate) fn stream<Stop>(
+    pub fn stream<Stop>(
         &self,
         connection: &Connection,
         mut each: impl FnMut(&str) -> io::Result<ControlFlow<Stop>>,
@@ -458,7 +464,7 @@ impl StoredBodyPlace {
     /// stopping once `each` breaks, for a reader of the row's columns from `index`: a damaged body
     /// fails with rusqlite's conversion error on that column, keeping why, and a refused read with
     /// SQLite's own error.
-    pub(crate) fn stream_column<Stop>(
+    pub fn stream_column<Stop>(
         &self,
         connection: &Connection,
         index: usize,
@@ -551,7 +557,7 @@ fn read_whole(blob: &Blob<'_>) -> rusqlite::Result<Vec<u8>> {
 
 /// The columns a reader selects to decode the body of the row aliased `alias`: the stored bytes,
 /// the encoding and the length its payload states, read back by [`StoredBodyColumns::read`].
-pub(crate) fn stored_body_columns_sql(alias: &str) -> String {
+pub fn stored_body_columns_sql(alias: &str) -> String {
     format!(
         "{alias}.content_payload, {}, {}",
         stored_body_encoding_sql(alias),
@@ -560,21 +566,21 @@ pub(crate) fn stored_body_columns_sql(alias: &str) -> String {
 }
 
 /// The encoding the payload of the row aliased `alias` names for its body.
-pub(crate) fn stored_body_encoding_sql(alias: &str) -> String {
+pub fn stored_body_encoding_sql(alias: &str) -> String {
     format!("json_extract({alias}.payload, '$.{CONTENT_ENCODING_PAYLOAD_KEY}')")
 }
 
 /// The decoded length of the body of the row aliased `alias`, as its payload states it; a reader
 /// sizes a body by it, never by its stored bytes.
-pub(crate) fn stored_body_length_sql(alias: &str) -> String {
+pub fn stored_body_length_sql(alias: &str) -> String {
     format!("json_extract({alias}.payload, '$.{CONTENT_LENGTH_PAYLOAD_KEY}')")
 }
 
 /// The stored bytes, encoding and length at `index` and the two columns after it, as
 /// [`stored_body_columns_sql`] selects them.
-pub(crate) struct StoredBodyColumns {
+pub struct StoredBodyColumns {
     /// The stored bytes, `None` for a row with no body.
-    pub(crate) stored: Option<Vec<u8>>,
+    pub stored: Option<Vec<u8>>,
     /// The encoding its payload names.
     pub(crate) encoding: Option<ContentEncoding>,
     /// The length its payload states.
@@ -585,7 +591,7 @@ impl StoredBodyColumns {
     /// Reads the three columns from `index` on. Fails with rusqlite's conversion error on an
     /// encoding no build writes, a length that is negative or not an integer, or either of another
     /// type.
-    pub(crate) fn read(row: &Row<'_>, index: usize) -> rusqlite::Result<Self> {
+    pub fn read(row: &Row<'_>, index: usize) -> rusqlite::Result<Self> {
         Ok(Self {
             stored: row.get(index)?,
             encoding: stated_encoding_column(row, index + 1)?,
@@ -595,14 +601,14 @@ impl StoredBodyColumns {
 
     /// The length its payload states, which every stored body carries; fails with rusqlite's
     /// conversion error, keeping [`BodyDecodeError::NoLength`], when it states none.
-    pub(crate) fn stated_length(&self, index: usize) -> rusqlite::Result<u64> {
+    pub fn stated_length(&self, index: usize) -> rusqlite::Result<u64> {
         self.content_length
             .ok_or_else(|| decode_failure(index, BodyDecodeError::NoLength))
     }
 
     /// The body's text, `None` for a row with no body. Fails with rusqlite's conversion error,
     /// keeping the [`BodyDecodeError`], when it does not decode.
-    pub(crate) fn decode(self, index: usize) -> rusqlite::Result<Option<String>> {
+    pub fn decode(self, index: usize) -> rusqlite::Result<Option<String>> {
         self.stored
             .map(|stored| {
                 decode_body(stored, self.encoding, self.content_length)
@@ -613,7 +619,7 @@ impl StoredBodyColumns {
 
     /// The stretch of the body covering `from..to`, `None` for a row with no body; fails as
     /// [`StoredBodyColumns::decode`] does.
-    pub(crate) fn decode_stretch(
+    pub fn decode_stretch(
         self,
         index: usize,
         from: usize,

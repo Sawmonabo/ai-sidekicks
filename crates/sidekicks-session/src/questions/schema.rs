@@ -30,7 +30,7 @@ pub(crate) enum QuestionState {
 }
 
 /// The runs' list and the question tables' own part.
-pub(crate) fn schema_parts() -> SchemaParts {
+pub fn schema_parts() -> SchemaParts {
     crate::run::schema::schema_parts()
         .with_part(SchemaPart::new("questions", question_schema_sql()))
 }

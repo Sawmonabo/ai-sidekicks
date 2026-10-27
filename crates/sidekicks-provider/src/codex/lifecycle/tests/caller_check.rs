@@ -14,7 +14,7 @@ use super::{driver_on_codex_folder, listen_on_codex_folder};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::descent::CallerCheck;
-use sidekicks_ipc::caller_process::descent::tests::ScriptedReader;
+use sidekicks_ipc::caller_process::descent::test_reader::ScriptedReader;
 use sidekicks_ipc::protocol_negotiation::CallerAdmission;
 
 // A service already listening on the person's Codex folder, joined through the driver's registry,

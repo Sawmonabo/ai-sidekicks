@@ -39,7 +39,7 @@ const RECORD_FILE_MODE: u32 = 0o600;
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-pub(crate) enum SecretsPlace {
+pub enum SecretsPlace {
     /// The operating system's credential store.
     OperatingSystem,
     /// The items file on Linux, each item sealed by systemd's credential service.
@@ -58,7 +58,7 @@ pub(crate) enum SecretsPlace {
 /// The record in the data folder: the place, and during a move its destination.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct PlaceRecord {
+pub struct PlaceRecord {
     /// Where the secrets are, or during a move where they come from.
     pub(crate) place: SecretsPlace,
     /// Where a move under way takes them.
@@ -68,7 +68,7 @@ pub(crate) struct PlaceRecord {
 
 impl PlaceRecord {
     /// The record of secrets kept in `place`, with no move under way.
-    pub(crate) fn settled(place: SecretsPlace) -> Self {
+    pub fn settled(place: SecretsPlace) -> Self {
         Self {
             place,
             moving_to: None,
@@ -83,7 +83,7 @@ impl PlaceRecord {
 }
 
 /// The record's path in `data_folder`.
-pub(crate) fn record_path(data_folder: &Path) -> PathBuf {
+pub fn record_path(data_folder: &Path) -> PathBuf {
     data_folder.join(RECORD_FILE_NAME)
 }
 
@@ -103,7 +103,7 @@ pub(crate) async fn read_record(path: &Path) -> Result<Option<PlaceRecord>, Keyc
 
 /// Replaces the record at `path` with `record` at once. Fails with [`KeychainRefusal`] when the
 /// file system refuses.
-pub(crate) async fn write_record(path: &Path, record: &PlaceRecord) -> Result<(), KeychainRefusal> {
+pub async fn write_record(path: &Path, record: &PlaceRecord) -> Result<(), KeychainRefusal> {
     let text = serde_json::to_vec(record).map_err(|failure| record_failure(path, failure))?;
     write_file_atomically(path, text, RECORD_FILE_MODE)
         .await

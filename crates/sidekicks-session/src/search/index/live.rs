@@ -113,7 +113,7 @@ pub type LiveIndexCloseError = CleanupFailures<LiveIndexError>;
 
 /// Why a search on the live index was not answered.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum LiveIndexSearchError<Failure> {
+pub enum LiveIndexSearchError<Failure> {
     /// The live index has closed, or a close came while the search waited for the open.
     #[error("the search index has closed; the search did not run")]
     Closed,
@@ -223,7 +223,7 @@ impl LiveIndex {
 
     /// Settles once the index has opened, the open has failed, or a close came first; the
     /// provider start waits on it.
-    pub(crate) async fn when_open_settled(&self) {
+    pub async fn when_open_settled(&self) {
         let mut state = self.shared.state.subscribe();
         state
             .wait_for(|state| !matches!(state, LiveIndexState::Opening))
@@ -278,7 +278,7 @@ impl LiveIndex {
         dead_code,
         reason = "the daemon's transcript.search handler, registered at its start"
     )]
-    pub(crate) async fn search_transcript(
+    pub async fn search_transcript(
         &self,
         request: TranscriptSearchRequest,
         damaged_from_sequence: Option<i64>,

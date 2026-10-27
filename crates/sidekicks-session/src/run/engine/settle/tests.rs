@@ -24,7 +24,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::statement::DATABASE_NOW_SQL;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::tests::open_log;
+use sidekicks_store::events::log_service::test_log::open_log;
 
 // The test's interrupt rows: the daemon's own at the token limit and at the step limit, and a
 // person's.
