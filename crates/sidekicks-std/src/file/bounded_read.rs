@@ -4,13 +4,12 @@
 //! hold the runtime's stop until it returns, so a read past the ceiling is abandoned on its thread
 //! and the caller answered at once.
 //!
-//! - The ceiling is wall-clock time, measured on the blocking pool in slices of
-//!   [`READ_WAIT_SLICE`]: a paused test clock, which jumps whenever the runtime idles, would fire
-//!   a tokio timer while the read's thread is still answering, and a slice holds the runtime's
-//!   stop at most that long.
-//! - The reads in flight, abandoned ones included, are capped at the runtime's default
-//!   blocking-thread limit, so hung reads cannot start threads without end; a read waiting for
-//!   room counts its wait against its ceiling.
+//! - The ceiling is wall-clock time, kept by the process's one deadlines thread
+//!   ([`deadline_after`]): a paused test clock, which jumps whenever the runtime idles, would fire
+//!   a tokio timer while the read's thread is still answering. Nothing of the read waits on
+//!   tokio's blocking pool.
+//! - The reads in flight, abandoned ones included, are capped, so hung reads cannot start threads
+//!   without end; a read waiting for room counts its wait against its ceiling.
 //! - A path whose read was abandoned is kept until that read returns, and a read of it or of a path
 //!   beneath it answers `TimedOut` at once with no thread, so one dead mount read again and again
 //!   holds one thread, never the whole cap.
@@ -18,23 +17,18 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, sync_channel};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use tokio::sync::{Semaphore, SemaphorePermit, oneshot};
+use tokio::sync::{Semaphore, oneshot};
 
 use crate::mutex_lock::lock;
+use crate::wall_clock_deadline::deadline_after;
 
 /// How long a bounded read may take before its caller is answered without it.
 pub(crate) const FILE_READ_CEILING: Duration = Duration::from_secs(10);
 
-/// How long one wait on the blocking pool for a read's answer, or for room to read, lasts before
-/// the ceiling is checked again.
-const READ_WAIT_SLICE: Duration = Duration::from_millis(200);
-
-/// The most reads in flight at once, abandoned ones included: tokio's default blocking-thread
-/// limit, the bound the reads had on its pool.
+/// The most reads in flight at once, abandoned ones included, which bounds the reader threads.
 const READS_IN_FLIGHT_MAX: usize = 512;
 
 static READS_IN_FLIGHT: Semaphore = Semaphore::const_new(READS_IN_FLIGHT_MAX);
@@ -42,20 +36,39 @@ static READS_IN_FLIGHT: Semaphore = Semaphore::const_new(READS_IN_FLIGHT_MAX);
 // Each path whose read was abandoned and has not returned, once per such read.
 static ABANDONED_PATHS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
-// What became of one read, its last two flags changed only while `ABANDONED_PATHS` is held, so a
-// read that returns as its caller gives up on it either is abandoned and removes its path, or is
-// not abandoned.
+// What became of one read, its two flags changed only while `ABANDONED_PATHS` is held, so a read
+// that returns as its caller gives up on it either is abandoned and removes its path, or is not
+// abandoned.
 #[derive(Default)]
 struct ReadFate {
     has_returned: AtomicBool,
     is_abandoned: AtomicBool,
 }
 
+// The end of a read on its thread, marked when this drops, a panicking read included: the read
+// counts as returned, and an abandoned read's path is released.
+struct ReadReturn {
+    path: PathBuf,
+    fate: Arc<ReadFate>,
+}
+
+impl Drop for ReadReturn {
+    fn drop(&mut self) {
+        let mut abandoned = lock_abandoned_paths();
+        self.fate.has_returned.store(true, Ordering::Relaxed);
+        if self.fate.is_abandoned.load(Ordering::Relaxed)
+            && let Some(index) = abandoned.iter().position(|held| *held == self.path)
+        {
+            abandoned.swap_remove(index);
+        }
+    }
+}
+
 /// Runs `read` of `path` on a thread of its own and returns its answer, or fails with `TimedOut`
 /// once `FILE_READ_CEILING` of wall-clock time passes without one, the read left to finish on its
 /// thread; a read of a path at or beneath one whose read is still abandoned fails with `TimedOut`
-/// at once. Fails with the read's own error, the thread's start failure, or `Other` when the read
-/// panics.
+/// at once. Fails with the read's own error, the start failure of its thread or of the deadlines'
+/// thread, or `Other` when the read panics.
 pub async fn read_within_ceiling<Output: Send + 'static>(
     path: &Path,
     read: impl FnOnce(&Path) -> io::Result<Output> + Send + 'static,
@@ -69,99 +82,47 @@ pub async fn read_within_ceiling<Output: Send + 'static>(
             "an earlier read of this place in the file system has not answered yet",
         ));
     }
-    let ceiling = read_ceiling(path);
-    let started_at = Instant::now();
+    // Held to the end, so the deadline stays set while either wait below runs.
+    let (_deadline, mut deadline_passed) = deadline_after(read_ceiling(path))?;
     // A read still waiting for room never started, so no thread holds its path.
-    let Some(room) = wait_for_room(started_at, ceiling).await? else {
-        return Err(timed_out());
+    let room = tokio::select! {
+        room = READS_IN_FLIGHT.acquire() => room.expect("the read cap is never closed"),
+        _ = &mut deadline_passed => return Err(timed_out()),
     };
     let fate = Arc::new(ReadFate::default());
-    let (answer, mut answer_received) = sync_channel(1);
+    let (answer, answer_received) = oneshot::channel();
     {
-        let path = path.to_path_buf();
-        let fate = Arc::clone(&fate);
+        let read_return = ReadReturn {
+            path: path.to_path_buf(),
+            fate: Arc::clone(&fate),
+        };
         std::thread::Builder::new()
             .name("bounded file read".to_owned())
             .spawn(move || {
                 // Held until the read returns, so an abandoned read still counts against the cap.
                 let _room = room;
                 #[cfg(any(test, feature = "test-support"))]
-                stalled_reads::wait_while_stalled(&path);
-                let read_answer = read(&path);
-                let mut abandoned = lock_abandoned_paths();
-                fate.has_returned.store(true, Ordering::Relaxed);
-                if fate.is_abandoned.load(Ordering::Relaxed)
-                    && let Some(index) = abandoned.iter().position(|held| *held == path)
-                {
-                    abandoned.swap_remove(index);
-                }
+                stalled_reads::wait_while_stalled(&read_return.path);
+                let read_answer = read(&read_return.path);
+                drop(read_return);
                 // A caller that stopped waiting no longer listens; its answer is dropped.
                 drop(answer.send(read_answer));
             })?;
     }
-    loop {
-        let (receiver, slice) = wait_one_slice(answer_received).await?;
-        answer_received = receiver;
-        match slice {
-            Ok(read_answer) => return read_answer,
-            Err(RecvTimeoutError::Disconnected) => {
-                return Err(io::Error::other(
-                    "the bounded read's thread ended unanswered",
-                ));
+    tokio::select! {
+        biased;
+        read_answer = answer_received => read_answer.map_err(|_unanswered| {
+            io::Error::other("the bounded read's thread ended unanswered")
+        })?,
+        _ = deadline_passed => {
+            let mut abandoned = lock_abandoned_paths();
+            if !fate.has_returned.load(Ordering::Relaxed) {
+                fate.is_abandoned.store(true, Ordering::Relaxed);
+                abandoned.push(path.to_path_buf());
             }
-            Err(RecvTimeoutError::Timeout) if started_at.elapsed() < ceiling => {}
-            Err(RecvTimeoutError::Timeout) => {
-                let mut abandoned = lock_abandoned_paths();
-                if !fate.has_returned.load(Ordering::Relaxed) {
-                    fate.is_abandoned.store(true, Ordering::Relaxed);
-                    abandoned.push(path.to_path_buf());
-                }
-                return Err(timed_out());
-            }
+            Err(timed_out())
         }
     }
-}
-
-// Room for one more read in flight, waited for on the blocking pool slice by slice; `None` once
-// `ceiling` has passed since `started_at` with no room. Fails when a slice's task fails.
-async fn wait_for_room(
-    started_at: Instant,
-    ceiling: Duration,
-) -> io::Result<Option<SemaphorePermit<'static>>> {
-    if let Ok(room) = READS_IN_FLIGHT.try_acquire() {
-        return Ok(Some(room));
-    }
-    let acquire = READS_IN_FLIGHT.acquire();
-    tokio::pin!(acquire);
-    loop {
-        tokio::select! {
-            room = &mut acquire => {
-                return Ok(Some(room.expect("the read cap is never closed")));
-            }
-            slept = tokio::task::spawn_blocking(|| std::thread::sleep(READ_WAIT_SLICE)) => {
-                slept.map_err(io::Error::other)?;
-                if started_at.elapsed() >= ceiling {
-                    return Ok(None);
-                }
-            }
-        }
-    }
-}
-
-// One wait of `READ_WAIT_SLICE` on the blocking pool for the read's answer, handing the receiver
-// back with what the wait got. Fails when the slice's task fails.
-async fn wait_one_slice<Output: Send + 'static>(
-    receiver: Receiver<io::Result<Output>>,
-) -> io::Result<(
-    Receiver<io::Result<Output>>,
-    Result<io::Result<Output>, RecvTimeoutError>,
-)> {
-    tokio::task::spawn_blocking(move || {
-        let slice = receiver.recv_timeout(READ_WAIT_SLICE);
-        (receiver, slice)
-    })
-    .await
-    .map_err(io::Error::other)
 }
 
 // The answer to a read past its ceiling.
@@ -312,7 +273,9 @@ mod tests {
 
     use tokio::time::Instant;
 
-    use super::{read_within_ceiling, stall_reads_of, stalled_reads::STALLED_READ_CEILING};
+    use super::{
+        FILE_READ_CEILING, read_within_ceiling, stall_reads_of, stalled_reads::STALLED_READ_CEILING,
+    };
 
     async fn list(path: &Path) -> io::Result<()> {
         read_within_ceiling(path, |path| fs::read_dir(path).map(drop)).await
@@ -348,19 +311,20 @@ mod tests {
         }
     }
 
-    // Catches the ceiling read off the test clock: a paused clock jumps while the runtime idles,
-    // and must not abandon a read still answering on its thread.
+    // Catches the ceiling read off the test clock: a paused clock driven past the ceiling while a
+    // read still answers on its thread must not abandon it.
     #[tokio::test(start_paused = true)]
     async fn a_read_still_answering_on_its_thread_answers_under_a_paused_clock() {
         let scratch = tempfile::tempdir().expect("a scratch folder");
         let file = scratch.path().join("file");
         fs::write(&file, "read").expect("the file is written");
-        let read = read_within_ceiling(&file, |path| {
-            std::thread::sleep(Duration::from_millis(20));
-            fs::read_to_string(path)
-        })
-        .await
-        .expect("the read answers within its ceiling");
-        assert_eq!(read, "read");
+        let (read, ()) = tokio::join!(
+            read_within_ceiling(&file, |path| {
+                std::thread::sleep(Duration::from_millis(300));
+                fs::read_to_string(path)
+            }),
+            tokio::time::advance(FILE_READ_CEILING * 2),
+        );
+        assert_eq!(read.expect("the read answers within its ceiling"), "read");
     }
 }

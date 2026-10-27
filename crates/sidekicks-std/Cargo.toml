@@ -36,13 +36,12 @@ yaml-edit.workspace = true
 [dev-dependencies]
 rstest.workspace = true
 tempfile.workspace = true
-# The paused clock the scheduler's tests drive.
+# The paused clock the scheduler's and the bounded read's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 
 [features]
-# Helpers other crates' tests use: the pause point a test holds a task at, the bounded read's stall
-# and its run without a ceiling, the keyed lock's count of queued holders and the scheduler's names
-# of waiting jobs.
+# Helpers other crates' tests use: the pause point a test holds a task at, the bounded read's stall,
+# the keyed lock's count of queued holders and the scheduler's names of waiting jobs.
 test-support = []
 
 [lints]
