@@ -71,7 +71,7 @@ use sidekicks_store::machine::local::LocalMachine;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::backup::generations::{BackupGeneration, backups_to_prune};
-use crate::daemon::machine::settings::file::{MachineSettingsFile, MachineSettingsFileError};
+use crate::daemon::machine_settings::file::{MachineSettingsFile, MachineSettingsFileError};
 use crate::daemon::release_version::this_build_release_version;
 
 /// The lock file in the backups folder a run holds while it writes there.

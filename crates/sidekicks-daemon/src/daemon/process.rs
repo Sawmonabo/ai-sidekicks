@@ -79,7 +79,7 @@ use crate::daemon::crash::monitor::{
     CrashMonitorError, crash_monitor_socket_path, remove_dead_monitor_sockets,
 };
 use crate::daemon::login_shell_environment::capture_provider_base_environment;
-use crate::daemon::machine::settings::file::{MachineSettingsFile, machine_settings_file_path};
+use crate::daemon::machine_settings::file::{MachineSettingsFile, machine_settings_file_path};
 use crate::daemon::process::crash_monitor::CrashMonitor;
 use crate::daemon::process::damage_gate::DispatchDamageWatch;
 use crate::daemon::process::database::{

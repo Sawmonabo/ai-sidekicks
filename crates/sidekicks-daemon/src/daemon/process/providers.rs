@@ -60,7 +60,7 @@ use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio::task::JoinError;
 use tokio_util::task::AbortOnDropHandle;
 
-use crate::daemon::machine::settings::file::MachineSettingsFile;
+use crate::daemon::machine_settings::file::MachineSettingsFile;
 use crate::program::dispatches_hook_mode;
 
 /// What the providers' build takes from the steps before it.
@@ -587,7 +587,7 @@ mod tests {
     use super::{
         ProviderStart, Providers, build_providers, hydrate_capabilities, register_providers,
     };
-    use crate::daemon::machine::settings::file::MachineSettingsFile;
+    use crate::daemon::machine_settings::file::MachineSettingsFile;
     use crate::remote::shared_ports::schema::schema_parts;
 
     /// The statements the tests' read pool caches.

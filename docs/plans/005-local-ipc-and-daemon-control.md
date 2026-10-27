@@ -302,7 +302,7 @@ Each Rust module below is the source; the TypeScript under `packages/contracts/s
 - `crates/sidekicks-daemon/src/bootstrap/secure_defaults.rs` — `SecureDefaults` configuration and enforcement layer (the partial substrate)
 - `crates/sidekicks-store/src/credential_store.rs` — `SecretKeychain` trait, tested over the test-only in-memory store (NEW — Phase R2 T-005r-2-1; the production `SecretKeychain` ships at Plan-019 per CP-005-5)
 - `crates/sidekicks-daemon/src/daemon/process.rs` (Phase R1 T-005r-1-5 registers the `daemon.*` handlers into the registry before the gateway listens)
-- The service's own control-surface handlers — flush, retention, configuration, the machine's settings file, backups, crash reports — beside the lifecycle handlers in `crates/sidekicks-daemon/src/daemon/`, the machine settings file's in `daemon/machine/settings/methods.rs`, all NEW — Phase R1 T-005r-1-8..11, T-005r-1-13, T-005r-1-14.
+- The service's own control-surface handlers — flush, retention, configuration, the machine's settings file, backups, crash reports — beside the lifecycle handlers in `crates/sidekicks-daemon/src/daemon/`, the machine settings file's in `daemon/machine_settings/methods.rs`, all NEW — Phase R1 T-005r-1-8..11, T-005r-1-13, T-005r-1-14.
 - The daemon's end of its channel to each WSL server, HTTP/2 over the standard input and output of the `wsl.exe` that runs it (`h2`), and the `wsl` mode of the daemon's program, the channel's other end (NEW — Phase R4 T-005r-4-1, T-005r-4-3).
 
 ### Daemon client + CLI (`crates/sidekicks-client`, `crates/sidekicks-cli`)

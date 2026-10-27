@@ -18,7 +18,7 @@ use tokio_util::task::AbortOnDropHandle;
 
 use crate::daemon::backup::run::Backups;
 use crate::daemon::crash::reports::{CrashReportDeps, crash_report_job};
-use crate::daemon::machine::settings::file::MachineSettingsFile;
+use crate::daemon::machine_settings::file::MachineSettingsFile;
 use crate::daemon::release_version::this_build_release_version;
 use crate::observability::diagnostic_buckets::expiry::{
     DIAGNOSTIC_LOG_EXPIRY_INTERVAL, DiagnosticExpiryDeps, diagnostic_expiry_job,

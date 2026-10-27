@@ -13,7 +13,7 @@ pub(crate) mod data_methods;
 pub(crate) mod keep_awake;
 pub(crate) mod lifecycle_methods;
 pub(crate) mod login_shell_environment;
-pub(crate) mod machine;
+pub(crate) mod machine_settings;
 pub(crate) mod own_root;
 pub(crate) mod panic_hook;
 pub(crate) mod process;

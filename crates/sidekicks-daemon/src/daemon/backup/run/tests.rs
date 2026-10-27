@@ -27,7 +27,7 @@ use super::{
     BACKUP_STATEMENT_CAPACITY, BackupDeps, BackupManifestFacts, BackupTrigger, Backups,
     MirrorRootsReader,
 };
-use crate::daemon::machine::settings::file::{MachineSettingsFile, machine_settings_file_path};
+use crate::daemon::machine_settings::file::{MachineSettingsFile, machine_settings_file_path};
 use crate::remote::shared_ports::schema::schema_parts;
 
 /// The service's backups over the test's `database` and `log`, under the home folder

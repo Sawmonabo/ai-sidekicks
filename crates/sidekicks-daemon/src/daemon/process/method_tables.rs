@@ -36,7 +36,7 @@ use crate::daemon::config_methods::{ConfigMethodsDeps, register_config_methods};
 use crate::daemon::crash::methods::register_crash_methods;
 use crate::daemon::data_methods::{DataMethodsDeps, register_data_methods};
 use crate::daemon::lifecycle_methods::{LifecycleMethodsDeps, register_lifecycle_methods};
-use crate::daemon::machine::settings::methods::{
+use crate::daemon::machine_settings::methods::{
     MachineSettingsMethodsDeps, register_machine_settings_methods,
 };
 use crate::daemon::process::damage_gate::{DamageReportGate, DispatchDamageWatch};

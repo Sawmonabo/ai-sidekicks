@@ -56,7 +56,7 @@ use crate::daemon::crash::monitor::{
     CRASH_DUMPS_FOLDER_NAME, DUMP_EXTENSION, PANIC_RECORD_SUFFIX, PanicRecord,
     is_partial_dump_name, panic_record_path, partial_dump_name,
 };
-use crate::daemon::machine::settings::file::MachineSettingsFile;
+use crate::daemon::machine_settings::file::MachineSettingsFile;
 use crate::daemon::panic_hook::{PANIC_RECORD_FILE_EXTENSION, PANIC_RECORD_FILE_PREFIX};
 use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
 
