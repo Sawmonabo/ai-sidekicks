@@ -55,7 +55,7 @@ This is a greenfield product with no released version and no external users. Tha
     - an operating-system program code or a test runs, or a runtime's built-in module code or a test imports, which no package installs (`scutil`, `xdpyinfo`, `cloudflare:workers`): one `ignoreBinaries` entry for a program or one `ignoreDependencies` entry for a module, with a comment naming what runs or imports it and why the system or runtime supplies it;
     - the contracts generator's folder, `packages/contracts/src/generated/`, whose files export every wire type the Rust contracts declare whether or not any TypeScript imports it: one `ignoreIssues` glob, `src/generated/**`, in the `packages/contracts` workspace, clearing only `exports` and `types`; no hand-written file sits in that folder.
 
-    In `crates/` the same exemptions take Rust's forms: an item a document claims carries `#[expect(dead_code, reason = "<the consumer, in plain words>")]`, and a file or dependency kept for an unbuilt consumer takes one entry in its crate's `[package.metadata.cargo-shear]` with a plain-word comment.
+    In `crates/` the same exemptions take Rust's forms: an item a document claims that no other crate can reach carries `#[expect(dead_code, reason = "<the consumer, in plain words>")]`, while a `pub` item another crate can reach carries none ([`crates/AGENTS.md`](crates/AGENTS.md#unused-code-and-spelling)), and a file or dependency kept for an unbuilt consumer takes one entry in its crate's `[package.metadata.cargo-shear]` with a plain-word comment.
 
     A screen's tests for an unbuilt wire are deleted in the change that builds the wire. Nothing is wired to quiet the report, and nothing the design requires is deleted to quiet it.
 

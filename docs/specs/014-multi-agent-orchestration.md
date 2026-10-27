@@ -194,7 +194,7 @@ Each is named `session_<action>` with snake_case fields, like every tool the dae
 
 ## Session Tool Texts
 
-Every word a model reads from the session tools (§Sessions Talking To Each Other). The rules, the tool descriptions with their fields, results and errors, and the shared errors are written once and live in the daemon's shared agent-tools folder; how a message is handed to each provider, the hook refusals, each provider's wait wording and the turn a Codex reminder starts live in that provider's own driver folder. The texts are plain constants, tuned once real sessions show how each model uses them, and no test checks their wording.
+Every word a model reads from the session tools (§Sessions Talking To Each Other). The rules, the tool descriptions with their fields, results and errors, and the shared errors are written once and live in the agent crate's tool contracts; how a message is handed to each provider, the hook refusals, each provider's wait wording and the turn a Codex reminder starts live in that provider's own driver folder. The texts are plain constants, tuned once real sessions show how each model uses them, and no test checks their wording.
 
 Each field's description states its limits in words, because Codex shows the model no ranges or patterns. Each tool has a short summary line before its body; on Claude Code the summary is what tool search matches, and with the tool loaded at start the model sees both.
 
