@@ -7,10 +7,11 @@ use std::future::Future;
 use std::io;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bytes::Bytes;
+use sidekicks_std::mutex_lock::lock;
 use tokio::runtime::Handle;
 use tokio::time::Instant;
 
@@ -62,19 +63,13 @@ impl ConsoleInputWatch {
         if self.is_reading.swap(true, Ordering::SeqCst) {
             return;
         }
-        *self
-            .last_reading_began
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
+        *lock(&self.last_reading_began) = Some(Instant::now());
         let watch = Arc::clone(self);
         let reading = (self.read)();
         self.runtime.spawn(async move {
             match reading.await {
                 Ok(count) => {
-                    let mut last_count = watch
-                        .last_count
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner);
+                    let mut last_count = lock(&watch.last_count);
                     // A program that reads promptly leaves nothing waiting, which is no stall.
                     let is_stalled =
                         count > 0 && last_count.is_some_and(|previous| count >= previous);
@@ -96,10 +91,7 @@ impl ConsoleInputWatch {
     /// Asks for a reading as a stalled console's answer is dropped, unless the last one began
     /// less than [`STALLED_READING_INTERVAL`] before.
     fn ask_for_stalled_reading(self: &Arc<Self>) {
-        let last_reading_began = *self
-            .last_reading_began
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        let last_reading_began = *lock(&self.last_reading_began);
         if last_reading_began.is_none_or(|began| began.elapsed() >= STALLED_READING_INTERVAL) {
             self.ask_for_reading();
         }

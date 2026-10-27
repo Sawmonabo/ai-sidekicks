@@ -1,4 +1,4 @@
-//! The daemon's one read retry: a read that fails in a way another moment can clear is tried once
+//! The program's one read retry: a read that fails in a way another moment can clear is tried once
 //! more after a fixed 100 ms, git's own lock-retry window, before anything is answered. A second
 //! failure, or any other, reaches the caller with the system's own reason.
 

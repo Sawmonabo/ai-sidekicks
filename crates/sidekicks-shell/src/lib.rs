@@ -1,7 +1,8 @@
 //! The terminal service: one session's shells, their table and records, how each starts, their
 //! list, refusals, pastes, the screen copy's answers and output stream, the shell's own marks, the
 //! sizes and writes on their way to the terminal, the control lease, output flow, the input a shell
-//! is looked up by, and the orphans a crash leaves.
+//! is looked up by, and the orphans a crash leaves. It sits over provider and workspace, beside mcp
+//! and below session.
 
 pub mod console;
 pub mod control_lease;

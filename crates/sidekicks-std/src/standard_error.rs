@@ -1,5 +1,5 @@
-//! The daemon's standard error, where a line goes when nothing else is left to tell: before the
-//! service log starts, after it failed, or in a helper mode, which has none.
+//! The program's standard error, where a line goes when nothing else is left to tell: before the
+//! program's log starts, after it failed, or in a helper mode, which has none.
 
 use std::io::{self, Write as _};
 

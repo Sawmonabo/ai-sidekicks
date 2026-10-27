@@ -1,6 +1,7 @@
 //! Primitives with no daemon concept, any program could use: keyed locks and waits, settling and
 //! retrying, bounded waits and reads, a UTF-8 stream, a text cut, random hex, error descriptions,
-//! the crash-safe file writes, the helper-mode child and the scheduler with its busy gate.
+//! the crash-safe file writes, the helper-mode child and the scheduler with its busy gate. It sits
+//! at the bottom of the daemon's crates, below store, and the CLI and the client may link it too.
 
 pub mod bounded_wait;
 pub mod cleanup_failures;

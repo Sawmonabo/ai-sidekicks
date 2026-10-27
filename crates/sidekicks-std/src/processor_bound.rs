@@ -9,7 +9,7 @@ use futures::{StreamExt, stream};
 
 use crate::settle_all::{SettleFailures, settle_all};
 
-/// How many processors the daemon may use at once, or 1 when the system cannot say.
+/// How many processors the program may use at once, or 1 when the system cannot say.
 pub fn processor_count() -> usize {
     available_parallelism().map_or(1, NonZero::get)
 }

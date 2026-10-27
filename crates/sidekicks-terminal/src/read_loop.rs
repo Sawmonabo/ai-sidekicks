@@ -9,10 +9,11 @@ mod run;
 use std::error::Error;
 use std::io;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use sidekicks_platforms::{DOES_PAUSED_READ_HOLD_INPUT, TerminalInputRefusal, TerminalWaker};
+use sidekicks_std::mutex_lock::lock;
 use tokio::runtime::Handle;
 use tokio::sync::{Semaphore, mpsc, watch};
 use tracing::Instrument;
@@ -193,12 +194,7 @@ pub(crate) fn release_off_runtime(name: &str, release: Release) {
 
 /// Runs the release the slot holds, once.
 fn run_release(slot: &Mutex<Option<Release>>) {
-    if let Some(release) = lock_ignoring_poison(slot).take() {
+    if let Some(release) = lock(slot).take() {
         release();
     }
-}
-
-/// Locks a slot that holds no invariant a panic could break.
-fn lock_ignoring_poison<T>(slot: &Mutex<T>) -> MutexGuard<'_, T> {
-    slot.lock().unwrap_or_else(PoisonError::into_inner)
 }

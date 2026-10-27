@@ -1,6 +1,6 @@
 //! The database: its schema, SQLite connections, the one writer and its batches, statements,
-//! checkpoints, reads scoped to every session or one, reading stored columns as typed values, and
-//! the paths of the files SQLite keeps beside the database file.
+//! checkpoints, reads scoped to every session or one, reading stored columns as typed values, the
+//! paths of the files SQLite keeps beside the database file, and the record of damage to the file.
 
 pub(crate) mod checkpoint;
 pub mod connection;

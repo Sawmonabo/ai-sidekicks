@@ -1,4 +1,4 @@
-//! The daemon's one schedule of waits between the tries of a step that failed for a passing cause,
+//! The program's one schedule of waits between the tries of a step that failed for a passing cause,
 //! such as a reader holding the database busy; each wait doubles the one before.
 
 use std::time::Duration;

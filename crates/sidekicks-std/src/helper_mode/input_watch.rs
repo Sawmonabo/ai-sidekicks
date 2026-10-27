@@ -1,5 +1,5 @@
 //! A helper mode's own side: its work runs on one thread while another reads standard input, which
-//! carries nothing, and the mode ends as soon as either finishes, since the daemon closes that
+//! carries nothing, and the mode ends as soon as either finishes, since the caller closes that
 //! input when it stops waiting for the work.
 
 use std::error::Error;
@@ -50,8 +50,8 @@ where
     }
 }
 
-// Writes `failure` and its causes to standard error, whose tail the daemon keeps, and answers the
-// failed exit; when the write fails, the exit code alone tells the daemon.
+// Writes `failure` and its causes to standard error, whose tail the caller keeps, and answers the
+// failed exit; when the write fails, the exit code alone tells the caller.
 fn exit_with_failure(failure: &(dyn Error + 'static)) -> ExitCode {
     write_error_line(&describe_error(failure));
     ExitCode::FAILURE

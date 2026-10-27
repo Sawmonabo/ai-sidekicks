@@ -1,7 +1,7 @@
 //! Where the daemon keeps its data: the database and its one writer, the session event log and its
 //! projections, the record of damage to the database file, the credential store, the data folder
 //! and its hold, the machine's own record, the backup mirror, and the codecs that read a transcript
-//! row back whole.
+//! row back whole. It sits above std and below every other daemon crate.
 
 pub mod backup_mirror;
 pub mod credential_store;

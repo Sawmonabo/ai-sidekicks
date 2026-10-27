@@ -2,8 +2,8 @@
 //! reports, in units the job declares, and a run is measured on its own threads only, never the
 //! whole process: each poll of its async work, each blocking closure and read from entry to exit,
 //! and the time of the caller's thread that runs the job's own statements, which comes back in that
-//! thread's answer. A run over its budget is written to the service log as a warning, one within it
-//! as a line of its own.
+//! thread's answer. A run over its budget is written to the program's log as a warning, one within
+//! it as a line of its own.
 
 use std::error::Error;
 use std::fmt::Debug;
@@ -204,7 +204,7 @@ pub(crate) type MeteredRun<Unit> = Box<
 
 /// The job the scheduler runs for `run` under `budget`: each run is metered on its own threads,
 /// each poll of its future measured on the thread that polls it, and its time is written to the
-/// service log beside its budget, as a warning when it went over; a run over its budget is not
+/// program's log beside its budget, as a warning when it went over; a run over its budget is not
 /// stopped.
 pub fn metered_job<Unit: Copy + Eq + Debug + Send + Sync + 'static>(
     budget: JobBudget<Unit>,

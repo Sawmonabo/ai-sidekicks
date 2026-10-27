@@ -1,6 +1,7 @@
 //! Workspaces: projects, repositories and their clones, git and its worktrees, the managed write
 //! watch, the one file watch every owner shares, a session's working folder and the gates a run
-//! passes before its provider starts.
+//! passes before its provider starts. It sits over store and ipc and below provider, shell and
+//! session.
 
 pub mod askpass_prompt;
 pub mod clone;

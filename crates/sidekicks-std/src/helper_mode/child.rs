@@ -1,5 +1,5 @@
-//! The daemon's side of a helper mode's child: started on the spawner's thread, armed to end with
-//! the daemon and ended if its handle drops, its standard input held for its life so that closing
+//! The caller's side of a helper mode's child: started on the spawner's thread, armed to end with
+//! the caller and ended if its handle drops, its standard input held for its life so that closing
 //! it stops the mode, and its error output's tail kept for its failure.
 
 use std::io;
@@ -35,9 +35,9 @@ pub enum HelperModeChildError {
     Wait(io::Error),
 }
 
-/// Starts `command`, a run of the daemon's own program, on `spawner`'s thread, armed to end with
-/// the daemon and killed if the returned handle drops. Fails with the spawn's error, or with the
-/// spawner's when its thread has ended.
+/// Starts `command`, the calling program, started again in a helper mode, on `spawner`'s thread,
+/// armed to end with the caller and killed if the returned handle drops. Fails with the spawn's
+/// error, or with the spawner's when its thread has ended.
 pub async fn start_helper_mode_child(spawner: &Spawner, mut command: Command) -> io::Result<Child> {
     command.kill_on_drop(true);
     prepare_child_command(&mut command, std::process::id());
@@ -47,7 +47,7 @@ pub async fn start_helper_mode_child(spawner: &Spawner, mut command: Command) ->
         .and_then(|spawned| spawned)
 }
 
-/// Runs `command`, the daemon's own program in a mode that ends with its standard input, to its
+/// Runs `command`, the calling program in a helper mode that ends with its standard input, to its
 /// end: started as [`start_helper_mode_child`] starts it, its output discarded, its standard input
 /// held until it exits or `stop` fires, when the input is closed and its exit waited for. Keeps
 /// the last `error_output_kept_bytes` of its error output. Fails when it cannot start, or when the

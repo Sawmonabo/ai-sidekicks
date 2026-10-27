@@ -9,6 +9,8 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use crate::machine::schema::MACHINE_SCHEMA_SQL;
+
 mod daemon_configuration;
 mod event_log;
 mod provider_accounts;
@@ -105,10 +107,7 @@ pub fn schema_parts() -> SchemaParts {
             "session_directory",
             session_directory::session_directory_schema_sql(),
         ))
-        .with_part(SchemaPart::new(
-            "machine",
-            crate::machine::schema::MACHINE_SCHEMA_SQL,
-        ))
+        .with_part(SchemaPart::new("machine", MACHINE_SCHEMA_SQL))
         .with_part(SchemaPart::new(
             "daemon_configuration",
             daemon_configuration::daemon_configuration_schema_sql(),

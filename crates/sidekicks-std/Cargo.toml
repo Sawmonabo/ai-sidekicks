@@ -3,7 +3,7 @@ name = "sidekicks-std"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Primitives with no daemon concept: locks, waits, settling, retries, file writes and the scheduler."
+description = "Primitives that name no daemon, session, run or provider concept and could have lived in std, so the CLI and the client may link them: locks, waits, settling, retries, file writes and the scheduler."
 license.workspace = true
 publish.workspace = true
 
@@ -40,8 +40,9 @@ tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
 [features]
-# Helpers other crates' tests use: the pause point a test holds a task at, and the bounded read's
-# stall.
+# Helpers other crates' tests use: the pause point a test holds a task at, the bounded read's stall
+# and its run without a ceiling, the keyed lock's count of queued holders and the scheduler's names
+# of waiting jobs.
 test-support = []
 
 [lints]

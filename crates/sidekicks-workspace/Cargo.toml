@@ -54,9 +54,9 @@ tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
 [features]
-# Helpers other crates' tests use: the workspace and worktree rows other tables build on, and the
-# git runner a test scripts.
-test-support = ["sidekicks-platforms/test-support"]
+# Helpers other crates' tests use: the workspace and worktree rows other tables build on, the git
+# runner a test scripts, the link it writes through git, and the background fetch's counts.
+test-support = []
 
 [lints]
 workspace = true

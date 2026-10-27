@@ -1,4 +1,4 @@
-//! The service's one scheduler: every background job runs from one task, one at a time, in the
+//! The program's one scheduler: every background job runs from one task, one at a time, in the
 //! order it falls due.
 //!
 //! - A job set a delay away runs at a deadline on tokio's monotonic clock, the one its timer sleeps
@@ -44,7 +44,7 @@ mod condition;
 // Wakes a receiver may fall behind before it reads a lag; wakes are rare.
 const WAKE_SIGNAL_CAPACITY: usize = 16;
 
-/// What one run of a job ends with; a failure is written to the service log.
+/// What one run of a job ends with; a failure is written to the program's log.
 pub type ScheduledJobOutcome = Result<(), Box<dyn Error + Send + Sync>>;
 
 // A job's work, given the token the scheduler's stop cancels, which a long job checks between its
@@ -62,13 +62,13 @@ pub enum ScheduleError {
     /// The scheduler has stopped.
     #[error("the scheduler has stopped, so the job \"{job}\" cannot be scheduled")]
     Stopped {
-        /// The job's name, as the service log names it.
+        /// The job's name, as the program's log names it.
         job: &'static str,
     },
     /// The operating system refused to arm the wall-clock timer for the job's instant.
     #[error("the wall-clock timer could not be armed for the job \"{job}\"")]
     TimerNotArmed {
-        /// The job's name, as the service log names it.
+        /// The job's name, as the program's log names it.
         job: &'static str,
         /// The system's refusal.
         #[source]
@@ -86,7 +86,7 @@ pub struct ScheduledJobHandle {
     refusal: Option<oneshot::Receiver<ScheduleError>>,
 }
 
-/// The daemon's one scheduler and its wake signal: jobs run one at a time in the order they fall
+/// The program's one scheduler and its wake signal: jobs run one at a time in the order they fall
 /// due, and a job scheduled after `Scheduler::stop` is refused.
 pub struct Scheduler {
     shared: Arc<SchedulerShared>,
@@ -196,7 +196,7 @@ impl Scheduler {
             .collect()
     }
 
-    /// Schedules one run of `run`, named `name` in the service log, `delay` from now on the
+    /// Schedules one run of `run`, named `name` in the program's log, `delay` from now on the
     /// monotonic clock, to run once `condition` allows; a zero delay runs it at once. Refused once
     /// the scheduler has stopped.
     pub fn schedule<Run>(

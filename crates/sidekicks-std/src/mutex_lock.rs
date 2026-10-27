@@ -1,4 +1,4 @@
-//! The daemon's one lock of a `std` mutex, for state no holder leaves half-changed when it panics.
+//! The program's one lock of a `std` mutex, for state no holder leaves half-changed when it panics.
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 

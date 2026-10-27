@@ -1,5 +1,6 @@
 //! What each payload the domain crates append gives its envelope: the session it names and who
-//! acted.
+//! acted. This is the one place the wire's session payloads get their append rules: the payload
+//! types are the contracts' and the trait is the log's, so the orphan rule puts the impls here.
 
 use sidekicks_contracts::approval::events::{
     ApprovalCanceledPayload, ApprovalDenialOverriddenPayload, ApprovalRequestedPayload,
@@ -90,7 +91,8 @@ impl AppendedPayload for UserMessageSentPayload {
     }
 }
 
-// Each payload names its session, and the daemon is the actor of every one.
+// Each payload names its session and no actor: the daemon records every one, and the device that
+// answered rides the resolution's own payload.
 macro_rules! daemon_recorded_payloads {
     ($($payload:ty),+ $(,)?) => {$(
         impl AppendedPayload for $payload {

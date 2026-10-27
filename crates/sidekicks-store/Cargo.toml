@@ -48,7 +48,9 @@ tokio = { workspace = true, features = ["test-util"] }
 
 [features]
 # Helpers other crates' tests use: a database file with a crate's schema list and the session rows
-# other tables build on, and the event log's test rows.
+# other tables build on, the event log's test rows and its test log, the test credential store and
+# the keychain refusal's cause, and the write-ahead log truncation's settle; platforms' feature
+# gives the unusable-store error the test credential store refuses to open with.
 test-support = ["dep:tempfile", "sidekicks-platforms/test-support"]
 
 [lints]
