@@ -333,8 +333,8 @@ async fn a_git_a_signal_ended_names_the_signal() {
     assert!(
         matches!(
             &failure,
-            GitError::Exited { code: None, signal_number: Some(9), signal_name: Some(name), .. }
-                if name == "SIGKILL"
+            GitError::Exited { code: None, signal: Some(signal), .. }
+                if signal.number == 9 && signal.name.as_deref() == Some("SIGKILL")
         ),
         "the failure names the signal: {failure:?}"
     );

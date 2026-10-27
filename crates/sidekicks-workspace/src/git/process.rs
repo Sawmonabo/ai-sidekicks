@@ -111,14 +111,12 @@ pub enum GitError {
     #[error("git's input, output or exit could not be read")]
     Read(#[source] io::Error),
     /// git exited with a failure, or a signal ended it.
-    #[error("{}", describe_exit(*code, *signal_number, signal_name.as_deref()))]
+    #[error("{}", describe_exit(*code, signal.as_deref()))]
     Exited {
         /// Its exit code; `None` when a signal ended it.
         code: Option<i32>,
-        /// The number of the signal that ended it, where the system reports one.
-        signal_number: Option<i32>,
-        /// That signal's name (`SIGKILL`), where the system reports one.
-        signal_name: Option<String>,
+        /// The signal that ended it, where the system reports one; boxed so the error stays small.
+        signal: Option<Box<GitSignal>>,
         /// What it printed on its standard output.
         stdout: Vec<u8>,
         /// What it printed on its standard error, read as UTF-8 with any other byte replaced.
@@ -133,17 +131,30 @@ pub enum GitError {
     NotStartable,
 }
 
+/// The signal that ended a git process, as the system reports it.
+#[derive(Debug)]
+pub struct GitSignal {
+    /// The signal's number.
+    pub number: i32,
+    /// Its name (`SIGKILL`), where the system reports one.
+    pub name: Option<String>,
+}
+
 // How a failed git ended, as its error reads: its code, else the signal that ended it.
-fn describe_exit(
-    code: Option<i32>,
-    signal_number: Option<i32>,
-    signal_name: Option<&str>,
-) -> String {
-    match (code, signal_number, signal_name) {
-        (Some(code), _, _) => format!("git exited with {code}"),
-        (None, Some(number), Some(name)) => format!("git ended by signal {number} ({name})"),
-        (None, Some(number), None) => format!("git ended by signal {number}"),
-        (None, None, _) => "git exited with no code".to_owned(),
+fn describe_exit(code: Option<i32>, signal: Option<&GitSignal>) -> String {
+    match (code, signal) {
+        (Some(code), _) => format!("git exited with {code}"),
+        (
+            None,
+            Some(GitSignal {
+                number,
+                name: Some(name),
+            }),
+        ) => {
+            format!("git ended by signal {number} ({name})")
+        }
+        (None, Some(GitSignal { number, name: None })) => format!("git ended by signal {number}"),
+        (None, None) => "git exited with no code".to_owned(),
     }
 }
 
@@ -552,8 +563,12 @@ impl GitRunner {
                 let exit = read_child_exit(&output.status, None);
                 return Err(GitError::Exited {
                     code: output.status.code(),
-                    signal_number: exit.signal_number,
-                    signal_name: exit.signal_name,
+                    signal: exit.signal_number.map(|number| {
+                        Box::new(GitSignal {
+                            number,
+                            name: exit.signal_name,
+                        })
+                    }),
                     stdout: output.stdout,
                     stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
                 });
