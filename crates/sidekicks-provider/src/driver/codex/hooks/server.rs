@@ -133,8 +133,8 @@ impl CodexHookDispatch {
     }
 
     /// Answers one call of `event`'s hook: `call` is the tool call Codex made for the hook row.
-    /// `token` is the call's own, cancelled when Codex ended the call or its connection went; a
-    /// cancelled call gets `None`, so an answer that arrives after it is dropped. An input that
+    /// `token` is the call's own, canceled when Codex ended the call or its connection went; a
+    /// canceled call gets `None`, so an answer that arrives after it is dropped. An input that
     /// cannot be read, or an answerer's failure, denies a pre-tool call and passes a post-tool one.
     pub(crate) async fn answer(
         &self,
@@ -527,7 +527,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn an_answer_after_the_call_was_cancelled_is_dropped() {
+    async fn an_answer_after_the_call_was_canceled_is_dropped() {
         let dispatch = Arc::new(CodexHookDispatch::new(vec![Arc::new(LateAnswerer)]));
         let token = CancellationToken::new();
         let call = tokio::spawn({

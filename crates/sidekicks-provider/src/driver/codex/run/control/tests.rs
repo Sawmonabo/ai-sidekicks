@@ -73,7 +73,7 @@ fn echo(message_id: QueueItemId) -> Value {
     })
 }
 
-// Kills: `cancelled` left empty; `cancelled` read at the interrupt's answer rather than after the
+// Kills: `canceled` left empty; `canceled` read at the interrupt's answer rather than after the
 // turn's end, which names the echo that came between the interrupt's send and its answer; a steer
 // registered on its reply rather than before its send, which leaves the echo that came first
 // untaken; and the interrupt marking nothing before it goes, which writes the steer that came
@@ -107,8 +107,8 @@ async fn an_interrupt_cancels_only_the_steers_codex_dropped_unechoed() {
                 .expect("the service waits for the late steer");
             refused
         };
-        let (cancelled, late_steer) = tokio::join!(interrupt, late_steer);
-        (steered, cancelled, late_steer)
+        let (canceled, late_steer) = tokio::join!(interrupt, late_steer);
+        (steered, canceled, late_steer)
     };
     let service_side = async {
         for (message_id, is_echoed_first) in [
@@ -141,7 +141,7 @@ async fn an_interrupt_cancels_only_the_steers_codex_dropped_unechoed() {
         script.answer(&listed, &json!({"data": []}));
         script.send(&turn_completed(TEST_THREAD, "turn-1", "interrupted"));
     };
-    let ((steered, cancelled, late_steer), ()) = tokio::time::timeout(
+    let ((steered, canceled, late_steer), ()) = tokio::time::timeout(
         DEADLOCK_BOUND,
         Box::pin(async { tokio::join!(task.drive(control_side), service_side) }),
     )
@@ -155,9 +155,9 @@ async fn an_interrupt_cancels_only_the_steers_codex_dropped_unechoed() {
         "a steer after the interrupt waits for the next turn: {late_steer:?}"
     );
     assert_eq!(
-        cancelled.expect("the interrupt applies"),
+        canceled.expect("the interrupt applies"),
         vec![dropped],
-        "only the steer Codex dropped unechoed is cancelled"
+        "only the steer Codex dropped unechoed is canceled"
     );
     assert_eq!(
         *lock(&session.queue.taken),

@@ -344,7 +344,7 @@ impl ClaudeInterventions {
         let mut prompts = lock(&self.writer.start.prompts);
         receipt
             .cancelled
-            .map(|cancelled| cancelled.0)
+            .map(|canceled| canceled.0)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|uuid| {

@@ -6,7 +6,7 @@
 //! has no such field, and a minted key would defeat the queue's dedupe on retry. `turn/steer`
 //! answers `{ turnId }`, so `applied` needs the targeted turn back; `turn/interrupt` answers an
 //! empty object, so the absence of an error is its evidence, and the interrupt answers the steers
-//! Codex dropped as `cancelled`. No shape check is made: the wire is additive, and a new member
+//! Codex dropped as `canceled`. No shape check is made: the wire is additive, and a new member
 //! must not degrade every interrupt.
 
 use std::sync::Arc;

@@ -108,7 +108,7 @@ pub(super) async fn accept_copy(listener: &Listener) -> CopySocket {
     socket
 }
 
-/// Serves the copy's connection as Codex up to its turn's start: the connection's start and a fork
+// Serves the copy's connection as Codex up to its turn's start: the connection's start and a fork
 // of the stored conversation under `profile`; answers the connection and the fork's params.
 async fn open_copy(listener: &Listener, profile: &str) -> (CopySocket, Map<String, Value>) {
     let mut socket = accept_copy(listener).await;
@@ -139,8 +139,8 @@ async fn open_copy(listener: &Listener, profile: &str) -> (CopySocket, Map<Strin
 }
 
 /// Serves the copy's connection as Codex: its start, a fork of the stored conversation under
-// `profile`, one turn and its answer; answers the fork's params once the daemon let the
-// connection go.
+/// `profile`, one turn and its answer; answers the fork's params once the daemon let the
+/// connection go.
 pub(super) async fn serve_copy(listener: Listener, profile: String) -> Map<String, Value> {
     let (mut socket, fork) = open_copy(&listener, &profile).await;
     send_on_socket(

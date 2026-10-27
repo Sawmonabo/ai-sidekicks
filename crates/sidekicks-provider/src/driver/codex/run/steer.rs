@@ -205,7 +205,7 @@ fn read_steer_failure(run_id: RunId, error: CodexError) -> DriverError {
 }
 
 /// Takes back a steer Codex did not take, on the session's task: it is no longer waited for on
-/// its turn, so no interrupt lists it as cancelled.
+/// its turn, so no interrupt lists it as canceled.
 pub(crate) fn withdraw_codex_steer(
     record: &mut CodexSessionRecord,
     turn_id: &str,

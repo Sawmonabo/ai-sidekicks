@@ -758,9 +758,6 @@ async fn prepare_adoption(
     Ok((result, binding_id))
 }
 
-/// Refuses a create whose larger window the service's catalog does not offer `model` at that
-/// figure now, so a picker row read before the catalog changed starts no conversation. A failed
-/// catalog read, or an unreadable row for the model, fails as itself.
 // What a resume composes its conversation's settings from.
 fn compose_resume_settings_request(params: &ResumeSessionParams) -> CodexSettingsRequest<'_> {
     CodexSettingsRequest {
@@ -774,6 +771,9 @@ fn compose_resume_settings_request(params: &ResumeSessionParams) -> CodexSetting
     }
 }
 
+/// Refuses a create whose larger window the service's catalog does not offer `model` at that
+/// figure now, so a picker row read before the catalog changed starts no conversation. A failed
+/// catalog read, or an unreadable row for the model, fails as itself.
 async fn confirm_larger_window(
     service: &CodexService,
     model: &str,

@@ -1,7 +1,7 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build
-//! takes, the table's first providers answered by stand-in drivers, and a run bound to the first
-//! one; the run, session and message ids the drivers' tests mint, and the run queue's intake as a
-//! driver tells it.
+//! takes, the table's first providers answered by stand-in drivers, a run bound to the first one,
+//! and the session inbox addresser the table's own drivers answer; the run, session and message
+//! ids the drivers' tests mint, and the run queue's intake as a driver tells it.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -38,7 +38,6 @@ use crate::background_work::BackgroundWorkForms;
 use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
-use crate::driver::claude::inbox_address::ClaudeSessionInboxAddresser;
 use crate::driver::contract::ProviderDriver;
 use crate::driver::ports::DriverPorts;
 #[cfg(test)]
@@ -46,7 +45,7 @@ use crate::driver::ports::{
     MessageGivenBackListener, MessageRefusedListener, MessageTakenListener,
 };
 use crate::driver::registry::ProviderRegistry;
-use crate::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+use crate::driver::{DriverServices, PROVIDER_REGISTRATIONS, PROVIDERS, ProviderRegistration};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
@@ -191,10 +190,15 @@ pub fn bind_run_to_first_provider(database: &TestDatabase, run_id: RunId) -> Run
     RuntimeBindingId::new(binding_id).expect("a minted UUID is a binding id")
 }
 
-/// The session inbox addresser the first provider that messages other sessions answers with,
-/// listing no place, so each POSIX inbox sits in that provider's default folder.
+/// The session inbox addresser of the first provider in the table whose sessions answer an inbox,
+/// its driver built on [`test_driver_services`], which registers no session place, so each POSIX
+/// inbox sits in that provider's default folder. Called on a tokio runtime, which the spawner
+/// thread starts on.
 pub fn session_inbox_addresser() -> Arc<dyn SessionInboxAddresser> {
-    Arc::new(ClaudeSessionInboxAddresser::new([]))
+    ProviderRegistry::register_from(PROVIDER_REGISTRATIONS, &test_driver_services())
+        .drivers()
+        .find_map(|(_, driver)| driver.session_inbox_addresser())
+        .expect("a provider in the table answers a session inbox")
 }
 
 /// A minted run id.
