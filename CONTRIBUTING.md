@@ -8,7 +8,7 @@ Install rustup, which installs the toolchain `rust-toolchain.toml` pins, and a C
 
 ## Commits
 
-Conventional Commits: `type(scope): subject`. Types: `feat fix build chore ci docs perf refactor revert test`. The subject starts lowercase and the header is at most 72 characters. Scopes are package and crate nouns (`contracts`, `client-sdk`, `search`, `search-ranking`, `compression`, `markdown-parser`, `daemon`, `control-plane`, `desktop`, `cli`, `terminal`, `platforms`, `std`, `store`, `ipc`, `workspace`, `policy`, `workflow`, `provider`, `mcp`, `shell`, `agent`, `session`, `approval`, `queue`, `artifact`, `browser`, `recovery`) or `repo`, `deps`, `ci`, `format`, `release`; the hook warns on anything else and does not block. Footers: `Refs: Plan-NNN` when the change belongs to a plan; `Co-Authored-By:` for AI-authored commits.
+Conventional Commits: `type(scope): subject`. Types: `feat fix build chore ci docs perf refactor revert test`. The subject starts lowercase and the header is at most 72 characters. Scopes are package and crate nouns (`contracts`, `client-sdk`, `search`, `search-ranking`, `compression`, `markdown-parser`, `daemon`, `control-plane`, `desktop`, `cli`, `terminal`, `platforms`, `std`, `store`, `ipc`, `workspace`, `policy`, `workflow`, `provider`, `mcp`, `shell`, `agent`, `session`, `approval`, `queue`, `artifact`, `browser`, `recovery`) or `repo`, `crates` (a change across several of the Rust crates), `deps`, `ci`, `format`, `release`; the hook warns on anything else and does not block. Footers: `Refs: Plan-NNN` when the change belongs to a plan; `Co-Authored-By:` for AI-authored commits.
 
 ## Branch names
 

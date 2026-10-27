@@ -41,6 +41,7 @@ export default {
         "recovery",
         // Cross-cutting nouns
         "repo",
+        "crates",
         "deps",
         "ci",
         "format",
