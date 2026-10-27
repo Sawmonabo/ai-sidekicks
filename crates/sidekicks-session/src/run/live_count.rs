@@ -76,4 +76,4 @@ fn is_live(state: RunState) -> bool {
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_log;
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;

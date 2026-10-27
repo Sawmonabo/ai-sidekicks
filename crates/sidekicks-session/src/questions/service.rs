@@ -54,6 +54,8 @@ use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_fixture;
+#[cfg(test)]
+mod tests;
 
 /// The statements [`QuestionsService`] prepares on a read connection: a record, its pages,
 /// whether its run has an interrupt recorded, and which held questions are still open.
@@ -88,7 +90,7 @@ pub(super) struct HeldRequest {
 
 /// Who sends a held question's answer to whoever asked it.
 #[derive(Clone)]
-pub enum HeldRequestAnswerer {
+pub(super) enum HeldRequestAnswerer {
     /// The run's driver, to its provider.
     Driver,
     /// The tool-server client, to the server whose task asked.

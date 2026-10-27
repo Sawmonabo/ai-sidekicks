@@ -1,6 +1,6 @@
 //! The queued answers of a question its agent does not wait for.
 
-use super::{Fixture, write_queued_answers};
+use crate::questions::service::test_fixture::{Fixture, write_queued_answers};
 
 // A question its agent does not wait for stays open while a send naming it is queued, stays open
 // when that item is withdrawn, and is answered when the agent takes a queued answer; of two

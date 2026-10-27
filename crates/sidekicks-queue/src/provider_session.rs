@@ -67,18 +67,17 @@ pub const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 5;
 /// stands now.
 pub struct ProviderSessionOpening {
     /// The provider the lead runs on.
-    pub(crate) provider: ProviderId,
+    pub provider: ProviderId,
     /// The git folder of the session's repository, which the posture of each level is built on.
-    pub(crate) git_folder: FilesystemPath,
+    pub git_folder: FilesystemPath,
     /// The create's data legs, its posture the one of the level the session stands at; its
     /// function legs are left out and bound to the binding once it is minted.
-    pub(crate) create_params: CreateSessionParams,
+    pub create_params: CreateSessionParams,
     /// The build the session's process spawns, which its binding records: the version it reports
     /// and the executable it resolved to, from one reading.
-    pub(crate) spawned_version: SpawnedVersionBindingCarriers,
+    pub spawned_version: SpawnedVersionBindingCarriers,
     /// The callbacks a process of the leg a binding id names is handed, bound to that leg.
-    pub(crate) function_legs_for:
-        Arc<dyn Fn(&RuntimeBindingId) -> ResumeFunctionLegs + Send + Sync>,
+    pub function_legs_for: Arc<dyn Fn(&RuntimeBindingId) -> ResumeFunctionLegs + Send + Sync>,
 }
 
 /// Composes a session's opening from its lead. Fails when the session has no lead or no
@@ -340,10 +339,11 @@ impl ProviderSessions {
 
     /// Opens the session's provider session for `run_id`, its first admitted run, when this process
     /// has not opened it: resumed from the session's newest conversation where it has one, else
-    /// created, with the binding `run_id` runs on. Fails with [`ProviderSessionError::Closed`] or [`ProviderSessionError::BeingDeleted`] for
-    /// a closed session, with nothing spawned, with [`ProviderSessionError::ResumeRefused`] for a
-    /// resume the provider refused, and as the composition, the driver or a binding's write fails,
-    /// with no binding left for a create that failed.
+    /// created, with the binding `run_id` runs on. Fails with [`ProviderSessionError::Closed`] or
+    /// [`ProviderSessionError::BeingDeleted`] for a closed session, with nothing spawned, with
+    /// [`ProviderSessionError::ResumeRefused`] for a resume the provider refused, and as the
+    /// composition, the driver or a binding's write fails, with no binding left for a create that
+    /// failed.
     pub(crate) async fn open(
         &self,
         session_id: SessionId,

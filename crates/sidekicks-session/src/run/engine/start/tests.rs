@@ -12,9 +12,8 @@ use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id
 use sidekicks_store::events::log_service::test_fixture::open_log;
 
 use crate::questions::schema::schema_parts;
-use crate::run::engine::test_fixture::{
-    DRIVER_HOLD, SETTLE_WAIT, held_driver, test_engine, turn_start,
-};
+use crate::run::engine::test_fixture::test_engine;
+use crate::run::engine::tests::{DRIVER_HOLD, SETTLE_WAIT, held_driver, turn_start};
 use crate::run::start_request::RunStartRequest;
 use crate::run::state_change::RunStateChange;
 

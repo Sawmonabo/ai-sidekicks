@@ -15,6 +15,8 @@ mod settle;
 mod start;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_fixture;
+#[cfg(test)]
+pub(crate) mod tests;
 pub(crate) mod turns;
 mod unresolved_interventions;
 

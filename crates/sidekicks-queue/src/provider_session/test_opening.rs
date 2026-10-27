@@ -1,5 +1,6 @@
-//! The opening the queue's tests open a session's provider session with: the table's first
-//! provider at a read-only posture over the root, its driver's contract version recorded.
+//! The opening tests open a session's provider session with: the table's first provider at a
+//! read-only posture over the root; the queue's own tests also record that provider's contract
+//! version.
 
 use std::sync::Arc;
 

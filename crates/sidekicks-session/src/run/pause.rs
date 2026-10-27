@@ -43,7 +43,7 @@ use crate::run::refusals::{RunRefusal, require_expected_version};
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeError};
 
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;
 
 // The version guard is the one companion of a pause's or a resume's move.
 const VERSION_GUARD_COMPANION_INDEX: usize = 0;

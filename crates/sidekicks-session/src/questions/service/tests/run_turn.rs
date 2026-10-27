@@ -13,8 +13,9 @@ use sidekicks_provider::port::question::{
     take_question_in_turn,
 };
 
-use super::{Fixture, HandedAnswers, RecordingTaskAnswer, choice_page, failed};
+use super::RecordingTaskAnswer;
 use crate::questions::service::HeldRequestAnswerer;
+use crate::questions::service::test_fixture::{Fixture, HandedAnswers, choice_page, failed};
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 /// A tool server's answerer that records what it is sent into `sent`.

@@ -9,8 +9,8 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::port::question::ProviderQuestionWithdrawal;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 
-use super::{Fixture, choice_page, failed};
 use crate::questions::service::HeldRequestAnswerer;
+use crate::questions::service::test_fixture::{Fixture, choice_page, failed};
 use crate::run::engine::test_fixture::stored_run_state;
 use crate::run::read::{LiveRun, RunRead};
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};

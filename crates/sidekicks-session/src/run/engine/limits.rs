@@ -59,7 +59,7 @@ static SELECT_TOKEN_LIMIT_REACHED_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// A limit the daemon stops a run at by itself, with what its reached event records.
 #[derive(Clone, Copy)]
-pub(crate) enum LimitStop {
+pub(super) enum LimitStop {
     /// The open turn took the steps its bound allows.
     Step {
         /// The bound reached.

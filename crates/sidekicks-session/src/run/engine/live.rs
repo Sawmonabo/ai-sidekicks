@@ -358,7 +358,7 @@ mod tests {
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use super::LiveRuns;
-    use crate::run::engine::test_fixture::turn;
+    use crate::run::engine::tests::turn;
 
     // Killed by the withdrawal matching cuts by their limit, which removes the later token cut
     // with the earlier one, by one that takes the turn's newest cut off whoever made it, and by
