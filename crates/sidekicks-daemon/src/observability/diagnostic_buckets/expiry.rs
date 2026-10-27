@@ -383,9 +383,9 @@ mod tests {
         ConfigurationStore, DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
     };
     use crate::daemon::crash::monitor::CRASH_DUMPS_FOLDER_NAME;
+    use crate::daemon::schema::schema_parts;
     use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
     use crate::observability::diagnostic_buckets::recorders::diagnostic_bucket_folders;
-    use crate::remote::shared_ports::schema::schema_parts;
 
     // Past the default bound of seven days.
     const OLD: Duration = Duration::from_hours(24 * 8);

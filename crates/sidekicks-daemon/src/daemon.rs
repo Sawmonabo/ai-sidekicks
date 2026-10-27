@@ -22,6 +22,7 @@ pub(crate) mod release_version;
 pub(crate) mod repairing_socket;
 pub(crate) mod retention_methods;
 pub(crate) mod run_folder;
+pub mod schema;
 pub(crate) mod service_log;
 pub(crate) mod service_status;
 pub(crate) mod start;

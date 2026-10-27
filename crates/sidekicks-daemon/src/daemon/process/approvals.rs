@@ -264,7 +264,7 @@ mod tests {
     use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 
     use super::revoke_at_session_provider;
-    use crate::remote::shared_ports::schema::schema_parts;
+    use crate::daemon::schema::schema_parts;
 
     // Killed by mapping the read's refusal to an internal failure, which the person would read as
     // a fault instead of the session being gone.

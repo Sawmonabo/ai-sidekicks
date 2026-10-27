@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use rstest::rstest;
 use rusqlite::Connection;
 use rusqlite::config::DbConfig;
-use sidekicks_daemon::remote::shared_ports::schema::schema_parts;
+use sidekicks_daemon::daemon::schema::schema_parts;
 use sidekicks_platforms::physical_memory;
 use sidekicks_recovery::database_file::aside_copy::{
     AsideCopyError, DatabaseFilesAside, copy_database_files_aside,

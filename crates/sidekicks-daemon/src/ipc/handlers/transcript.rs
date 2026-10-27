@@ -141,7 +141,7 @@ mod tests {
     use sidekicks_store::events::log_service::test_log::open_log;
 
     use super::read_body;
-    use crate::remote::shared_ports::schema::schema_parts;
+    use crate::daemon::schema::schema_parts;
 
     #[tokio::test]
     async fn a_row_the_session_lacks_is_refused_where_a_row_with_no_body_reads_absent() {

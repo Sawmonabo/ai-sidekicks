@@ -59,7 +59,7 @@ use super::{
     SessionServiceStart, SessionServices, build_session_services, start_session_attachments,
 };
 use crate::daemon::process::repo_services::{RepoServiceStart, RepoServices, build_repo_services};
-use crate::remote::shared_ports::schema::schema_parts;
+use crate::daemon::schema::schema_parts;
 
 // The statements the tests' read pool prepares, every reader's together.
 const READ_STATEMENT_CAPACITY: usize = 64;

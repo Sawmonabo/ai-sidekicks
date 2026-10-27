@@ -102,7 +102,7 @@ mod tests {
     use crate::daemon::configuration::{
         ConfigurationStore, DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
     };
-    use crate::remote::shared_ports::schema::schema_parts;
+    use crate::daemon::schema::schema_parts;
 
     // The port and step bound as the row holds them.
     fn stored_settings(database: &TestDatabase) -> (i64, Option<i64>) {

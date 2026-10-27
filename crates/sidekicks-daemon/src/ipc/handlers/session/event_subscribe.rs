@@ -329,7 +329,7 @@ mod tests {
     use sidekicks_store::events::log_service::test_log::open_log;
 
     use super::*;
-    use crate::remote::shared_ports::schema::schema_parts;
+    use crate::daemon::schema::schema_parts;
 
     /// Long enough for a frame that is coming to come, many windows over.
     const QUIET: Duration = Duration::from_millis(250);

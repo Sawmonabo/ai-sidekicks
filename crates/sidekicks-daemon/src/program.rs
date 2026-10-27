@@ -27,8 +27,8 @@ use sidekicks_workspace::clone::askpass::program::{GIT_ASKPASS_PROGRAM_NAME, run
 use crate::daemon::crash::monitor::{CRASH_MONITOR_MODE, run_crash_monitor};
 use crate::daemon::login_shell_environment::printing::{ENVIRONMENT_MODE, run_environment_mode};
 use crate::daemon::release_version::this_build_release_version;
+use crate::daemon::schema::schema_parts;
 use crate::daemon::start::run_service;
-use crate::remote::shared_ports;
 
 /// SQLite's own shell, run with C arguments, its first the program's name; it answers the shell's
 /// exit code. `main` supplies it, since the shell is a C function only `main` may call.
@@ -66,7 +66,7 @@ pub fn run_daemon_program(run_sqlite_shell: SqliteShell) -> ExitCode {
         [first, second, ..] if [*first, *second] == DATABASE_COPY_MODE => run_database_copy(),
         [first, second, ..] if [*first, *second] == DATABASE_RESTORE_MODE => run_database_restore(
             &arguments[2..],
-            &shared_ports::schema::schema_parts().into_schema(),
+            &schema_parts().into_schema(),
             &this_build_release_version(),
         ),
         [first, second, ..] if [*first, *second] == DATABASE_SHELL_MODE => {

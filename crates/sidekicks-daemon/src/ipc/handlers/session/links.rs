@@ -126,7 +126,7 @@ mod tests {
     use sidekicks_store::events::log_service::test_log::open_log;
 
     use super::register_session_links;
-    use crate::remote::shared_ports::schema::schema_parts;
+    use crate::daemon::schema::schema_parts;
 
     /// Long enough for a re-score round to store and raise, many times over.
     const ROUND_WAIT: Duration = Duration::from_secs(10);

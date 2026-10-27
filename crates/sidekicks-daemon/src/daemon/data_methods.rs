@@ -214,7 +214,7 @@ mod tests {
     }
 
     async fn data_verbs() -> DataVerbs {
-        let database = TestDatabase::new(crate::remote::shared_ports::schema::schema_parts());
+        let database = TestDatabase::new(crate::daemon::schema::schema_parts());
         database.opener()().expect("the test creates its database");
         let data_folder = tempfile::tempdir().expect("the data folder is made");
         let data = data_folder.path().to_path_buf();

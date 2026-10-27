@@ -3,11 +3,11 @@
 
 pub(crate) mod bootstrap;
 pub(crate) mod control_plane_credential;
-pub(crate) mod daemon;
+pub mod daemon;
 pub(crate) mod data_acts;
 pub(crate) mod highlight;
 pub(crate) mod ipc;
 pub(crate) mod observability;
 pub(crate) mod orchestration;
 pub mod program;
-pub mod remote;
+pub(crate) mod remote;

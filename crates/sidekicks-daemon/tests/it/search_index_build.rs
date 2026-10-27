@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use sidekicks_daemon::remote::shared_ports::schema::schema_parts;
+use sidekicks_daemon::daemon::schema::schema_parts;
 use sidekicks_platforms::{PinnedProcess, pin_child_process};
 use sidekicks_session::search::index::live::test_services::TestDaemonServices;
 use sidekicks_session::search::index::live::{LiveIndex, LiveIndexOptions};

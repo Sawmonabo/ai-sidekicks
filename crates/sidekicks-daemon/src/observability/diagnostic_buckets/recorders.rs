@@ -203,8 +203,8 @@ mod tests {
     use crate::daemon::configuration::{
         ConfigurationChange, ConfigurationStore, DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
     };
+    use crate::daemon::schema::schema_parts;
     use crate::observability::diagnostic_buckets::recorders::DIAGNOSTICS_FOLDER_NAME;
-    use crate::remote::shared_ports::schema::schema_parts;
 
     // Each line of every day file in `folder`, parsed, oldest file first.
     fn recorded_lines(folder: &Path) -> Vec<Value> {

@@ -28,7 +28,7 @@ use super::{
     MirrorRootsReader,
 };
 use crate::daemon::machine_settings::file::{MachineSettingsFile, machine_settings_file_path};
-use crate::remote::shared_ports::schema::schema_parts;
+use crate::daemon::schema::schema_parts;
 
 /// The service's backups over the test's `database` and `log`, under the home folder
 /// `home_folder`, the mirror keeping what `read_mirror_roots` lists.

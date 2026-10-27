@@ -588,7 +588,7 @@ mod tests {
         ProviderStart, Providers, build_providers, hydrate_capabilities, register_providers,
     };
     use crate::daemon::machine_settings::file::MachineSettingsFile;
-    use crate::remote::shared_ports::schema::schema_parts;
+    use crate::daemon::schema::schema_parts;
 
     /// The statements the tests' read pool caches.
     const READ_STATEMENT_CAPACITY: usize = 16;

@@ -149,7 +149,7 @@ async fn wait_until_finished(exports: &DataExports, job_id: DataExportJobId) -> 
 // column read or the account's home copied, and by a second export let start.
 #[tokio::test]
 async fn an_export_holds_every_part_decoded_and_no_credential() {
-    let log = TranscriptTestLog::new(crate::remote::shared_ports::schema::schema_parts());
+    let log = TranscriptTestLog::new(crate::daemon::schema::schema_parts());
     let long_body = "\u{e9}".repeat(1_500);
     log.session_log.reply("m1", Some(0), &long_body);
     let homes = tempfile::tempdir().expect("the homes folder is made");
@@ -294,7 +294,7 @@ async fn export_session_lines(log: &TranscriptTestLog) -> Vec<String> {
 // and by the first piece's length taken for the whole.
 #[tokio::test]
 async fn a_reply_too_long_for_a_page_is_written_as_its_whole_line() {
-    let log = TranscriptTestLog::new(crate::remote::shared_ports::schema::schema_parts());
+    let log = TranscriptTestLog::new(crate::daemon::schema::schema_parts());
     insert_session_row(
         &log.session_log.writer,
         log.session_log.session_id.text().as_str(),
@@ -345,7 +345,7 @@ async fn an_export_of_long_replies_stays_within_64_mib() {
         Err(error) if error.kind() == ErrorKind::Unsupported => return,
         Err(error) => panic!("the footprint read failed: {error}"),
     };
-    let log = TranscriptTestLog::new(crate::remote::shared_ports::schema::schema_parts());
+    let log = TranscriptTestLog::new(crate::daemon::schema::schema_parts());
     insert_session_row(
         &log.session_log.writer,
         log.session_log.session_id.text().as_str(),
@@ -429,7 +429,7 @@ async fn an_export_that_panics_frees_its_slot_and_fails() {
 // refused as an existing folder. Killed by a failure that leaves the folder behind.
 #[tokio::test]
 async fn a_failed_export_leaves_no_folder_and_the_same_folder_starts_again() {
-    let log = TranscriptTestLog::new(crate::remote::shared_ports::schema::schema_parts());
+    let log = TranscriptTestLog::new(crate::daemon::schema::schema_parts());
     insert_session_row(
         &log.session_log.writer,
         log.session_log.session_id.text().as_str(),

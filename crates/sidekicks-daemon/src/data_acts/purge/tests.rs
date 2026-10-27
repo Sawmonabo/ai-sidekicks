@@ -66,7 +66,7 @@ use tokio::time::timeout;
 
 use super::rows::{PurgeCaller, SESSION_PURGE_STATEMENT_CAPACITY};
 use super::{SessionPurge, SessionPurgeDeps, SessionPurgeError, SessionPurgeOutcome};
-use crate::remote::shared_ports::schema::schema_parts;
+use crate::daemon::schema::schema_parts;
 
 const WAIT: Duration = Duration::from_secs(10);
 

@@ -126,8 +126,8 @@ mod tests {
     use sidekicks_store::events::log_service::test_log::open_log;
 
     use super::register_session_read;
+    use crate::daemon::schema::schema_parts;
     use crate::ipc::handlers::session::draft_update::register_session_draft_update;
-    use crate::remote::shared_ports::schema::schema_parts;
 
     /// A session with no files staged.
     struct NoStagedAttachments;

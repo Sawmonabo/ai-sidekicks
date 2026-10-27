@@ -35,7 +35,7 @@ use crate::remote::shared_ports::store::{
 pub(crate) mod listening;
 pub(crate) mod loopback;
 pub(crate) mod methods;
-pub mod schema;
+pub(crate) mod schema;
 pub(crate) mod store;
 
 /// Why a port could not be shared.
@@ -374,7 +374,7 @@ mod tests {
     use super::methods::port_not_shared;
     use super::store::SHARED_PORTS_STATEMENT_CAPACITY;
     use super::{SharedPortAddError, SharedPorts, added_after};
-    use crate::remote::shared_ports::schema::schema_parts;
+    use crate::daemon::schema::schema_parts;
 
     const WAIT: Duration = Duration::from_secs(10);
 

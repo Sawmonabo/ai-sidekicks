@@ -43,7 +43,7 @@ use super::{
     DRIVER_METHODS_STATEMENT_CAPACITY, DriverMethodSources, list_models, list_modes,
     list_provider_commands,
 };
-use crate::remote::shared_ports::schema::schema_parts;
+use crate::daemon::schema::schema_parts;
 
 /// The instant the tests' events carry.
 const AT: &str = "2026-10-19T12:00:00.000Z";
