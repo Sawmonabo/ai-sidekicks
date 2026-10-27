@@ -19,7 +19,7 @@ use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id
 use sidekicks_store::events::log_service::test_log::open_log;
 
 use crate::questions::schema::schema_parts;
-use crate::run::engine::tests::{
+use crate::run::engine::test_fixture::{
     STEP_BOUND, append, provider_end, run_version, stored_events, stored_run_state, test_engine,
     token_limit, turn, turn_started_at,
 };

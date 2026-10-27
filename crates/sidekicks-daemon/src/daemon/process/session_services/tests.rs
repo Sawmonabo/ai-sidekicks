@@ -33,7 +33,7 @@ use sidekicks_queue::memory_gate::{MemoryGate, MemoryGateFigures};
 use sidekicks_queue::provider_session::test_opening::test_opening_composer;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::plan_holds::PlanHolds;
-use sidekicks_session::run::engine::tests::insert_running_run;
+use sidekicks_session::run::engine::test_fixture::insert_running_run;
 use sidekicks_session::run::epochs::ExecutionEpochs;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;

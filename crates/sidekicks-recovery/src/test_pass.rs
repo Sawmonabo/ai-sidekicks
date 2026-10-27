@@ -28,7 +28,7 @@ use sidekicks_platforms::{Spawner, harness_test_name, pass_through_start};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::test_driver_services;
 use sidekicks_session::run::engine::RunEngine;
-use sidekicks_session::run::engine::tests::{insert_running_run, test_engine_with};
+use sidekicks_session::run::engine::test_fixture::{insert_running_run, test_engine_with};
 use sidekicks_session::run::live_count::count_live_runs_after_commits;
 use sidekicks_session::service::SessionService;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -495,7 +495,8 @@ impl PassFixture {
     /// Appends `event`, a session event's `type` and `payload` as JSON, through the engine.
     pub(crate) async fn append(&self, session_id: SessionId, event: Value) {
         let event: SessionEvent = serde_json::from_value(event).expect("the test's event reads");
-        sidekicks_session::run::engine::tests::append(&self.engine, session_id, &event).await;
+        sidekicks_session::run::engine::test_fixture::append(&self.engine, session_id, &event)
+            .await;
     }
 }
 

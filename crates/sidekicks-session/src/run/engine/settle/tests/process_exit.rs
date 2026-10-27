@@ -11,7 +11,7 @@ use super::{
     interrupt_state, limit_record, record_interrupt, step_limit_reached, token_limit_reached,
 };
 use crate::questions::schema::schema_parts;
-use crate::run::engine::tests::{
+use crate::run::engine::test_fixture::{
     append, events, hand_limit_interrupter, insert_running_run, step_stop, stored_events,
     stored_run_state, test_engine, turn_started_at,
 };

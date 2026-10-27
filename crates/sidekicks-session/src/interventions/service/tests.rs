@@ -56,7 +56,7 @@ use crate::questions::schema::schema_parts;
 use crate::queue_store::send_now::{SentNow, mark_sent_now_statement, record_sent_now_statement};
 use crate::queue_store::{NewQueueItem, QueueItemBody, insert_queue_item_statement};
 use crate::run::engine::RunEngine;
-use crate::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
+use crate::run::engine::test_fixture::{insert_running_run, stored_run_state, test_engine};
 use crate::run::pause::test_answers::unanswered;
 use crate::run::state_change::RunStateChange;
 

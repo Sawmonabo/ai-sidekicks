@@ -26,7 +26,7 @@ use sidekicks_session::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChan
 use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
-use sidekicks_session::run::engine::tests::insert_running_run;
+use sidekicks_session::run::engine::test_fixture::insert_running_run;
 use sidekicks_session::run::epochs::ExecutionEpochs;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;

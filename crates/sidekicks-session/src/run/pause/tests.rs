@@ -37,7 +37,7 @@ use super::test_answers::unanswered;
 use super::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl, RunPauseError};
 use crate::driver_resolution::LiveRunDriverError;
 use crate::questions::schema::schema_parts;
-use crate::run::engine::tests::{SETTLE_WAIT, insert_running_run, test_engine};
+use crate::run::engine::test_fixture::{SETTLE_WAIT, insert_running_run, test_engine};
 use crate::run::engine::{InterruptRoute, RunEngine};
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::RunStateChange;

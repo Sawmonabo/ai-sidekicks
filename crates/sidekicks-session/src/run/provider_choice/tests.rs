@@ -44,7 +44,7 @@ use super::{
 use crate::driver_resolution::LiveRunDriverError;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
-use crate::run::engine::tests::{append, insert_running_run, stored_run_state, test_engine};
+use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
 use crate::run::pause::test_answers::unanswered;
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::RunStateChange;

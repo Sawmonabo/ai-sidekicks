@@ -11,7 +11,7 @@ use sidekicks_provider::run::state_entry::RunStateEntry;
 
 use super::{Fixture, choice_page, failed};
 use crate::questions::service::HeldRequestAnswerer;
-use crate::run::engine::tests::stored_run_state;
+use crate::run::engine::test_fixture::stored_run_state;
 use crate::run::read::{LiveRun, RunRead};
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 

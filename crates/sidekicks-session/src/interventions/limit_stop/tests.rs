@@ -45,7 +45,7 @@ use tokio::sync::oneshot;
 use super::AcceptedLimitInterrupt;
 use crate::interventions::service::InterventionTarget;
 use crate::interventions::service::tests::{Harness, applied, harness};
-use crate::run::engine::tests::{SETTLE_WAIT, held_cut_limit, hold_cut, stored_run_state};
+use crate::run::engine::test_fixture::{SETTLE_WAIT, held_cut_limit, hold_cut, stored_run_state};
 use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::run::pause::test_answers::unanswered;
 use crate::run::pause::{RunPauseControl, RunPauseError};

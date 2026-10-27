@@ -14,7 +14,7 @@ mod running_wait;
 mod settle;
 mod start;
 #[cfg(any(test, feature = "test-support"))]
-pub mod tests;
+pub mod test_fixture;
 pub(crate) mod turns;
 mod unresolved_interventions;
 

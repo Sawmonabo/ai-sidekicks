@@ -13,7 +13,7 @@ use sidekicks_provider::port::plan::ProviderPlanHoldEnd;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_session::directory::run_activity::session_activity_sql;
 use sidekicks_session::plan_holds::PlanHolds as _;
-use sidekicks_session::run::engine::tests::test_engine_with;
+use sidekicks_session::run::engine::test_fixture::test_engine_with;
 use sidekicks_session::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use tempfile::TempDir;

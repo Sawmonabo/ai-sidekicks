@@ -34,7 +34,7 @@ use tempfile::TempDir;
 
 use super::{InboundDispatchError, RunInboundDispatch};
 use crate::questions::schema::schema_parts;
-use crate::run::engine::tests::{
+use crate::run::engine::test_fixture::{
     DRIVER_HOLD, SETTLE_WAIT, append, continue_request, held_driver, insert_running_run,
     stored_run_state, test_engine, turn_completed_at, turn_started_at,
 };

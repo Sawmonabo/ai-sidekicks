@@ -12,7 +12,7 @@ use sidekicks_provider::driver::contract::MockProviderDriver;
 
 use super::{applied, device, harness, harness_reading_priority, interrupt, retry, send_now};
 use crate::interventions::service::errors::InterventionError;
-use crate::run::engine::tests::stored_run_state;
+use crate::run::engine::test_fixture::stored_run_state;
 
 // A reused key answers what the first request saved without a second dispatch or a hold of the
 // queue, and refuses a request that asks for something else, also with no hold. Killed by

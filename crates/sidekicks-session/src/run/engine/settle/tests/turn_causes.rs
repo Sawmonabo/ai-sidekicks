@@ -15,7 +15,7 @@ use sidekicks_store::events::log_service::test_log::open_log;
 use super::{limit_record, record_interrupt, running_at};
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
-use crate::run::engine::tests::{
+use crate::run::engine::test_fixture::{
     SETTLE_WAIT, TestLimitInterrupter, append, continue_request, events, hand_limit_interrupter,
     insert_running_run, provider_end, started_turn, step_stop, stored_events, stored_run_state,
     test_engine, token_limit, turn, turn_started_at,

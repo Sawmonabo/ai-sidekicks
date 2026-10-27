@@ -12,7 +12,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::port::plan::ProviderPlan;
-use sidekicks_session::run::engine::tests::{insert_running_run, stored_run_state};
+use sidekicks_session::run::engine::test_fixture::{insert_running_run, stored_run_state};
 use sidekicks_store::database::writer::test_file::test_run_id;
 use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 use tokio_util::sync::CancellationToken;

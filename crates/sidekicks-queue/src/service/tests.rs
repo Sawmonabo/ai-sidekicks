@@ -47,7 +47,9 @@ use sidekicks_session::queue_store::{
     insert_queue_item_statement,
 };
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
-use sidekicks_session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
+use sidekicks_session::run::engine::test_fixture::{
+    insert_running_run, stored_run_state, test_engine,
+};
 use sidekicks_session::run::epochs::ExecutionEpochs;
 use sidekicks_session::run::pause::RunPauseControl;
 use sidekicks_std::keyed_lock::KeyedLock;

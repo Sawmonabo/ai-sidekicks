@@ -53,7 +53,7 @@ use crate::run::engine::{RunEngine, RunEngineError};
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 #[cfg(any(test, feature = "test-support"))]
-pub mod tests;
+pub mod test_fixture;
 
 /// The statements [`QuestionsService`] prepares on a read connection: a record, its pages,
 /// whether its run has an interrupt recorded, and which held questions are still open.

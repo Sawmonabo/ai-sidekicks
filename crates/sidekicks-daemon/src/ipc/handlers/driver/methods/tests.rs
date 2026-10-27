@@ -34,7 +34,7 @@ use sidekicks_provider::driver::contract::{
 };
 use sidekicks_provider::driver::error_causes::ExecutableUnresolvable;
 use sidekicks_provider::driver::test_registry::registry_of_first_providers;
-use sidekicks_session::run::engine::tests::insert_running_run;
+use sidekicks_session::run::engine::test_fixture::insert_running_run;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};

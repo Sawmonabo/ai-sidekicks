@@ -20,7 +20,7 @@ use super::{
 };
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngineError;
-use crate::run::engine::tests::{
+use crate::run::engine::test_fixture::{
     append, continue_request, events, hand_limit_interrupter, insert_running_run, started_turn,
     stored_events, stored_run_state, test_engine, token_limit, turn_completed_at, turn_started_at,
 };

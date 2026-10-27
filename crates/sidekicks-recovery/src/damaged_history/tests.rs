@@ -9,7 +9,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::recovery::SessionRecoveryRefusedReason;
-use sidekicks_session::run::engine::tests::stored_run_state;
+use sidekicks_session::run::engine::test_fixture::stored_run_state;
 use sidekicks_session::service::{
     EventsReadAfterSequenceRequest, SESSION_SERVICE_STATEMENT_CAPACITY, SessionService,
 };

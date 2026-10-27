@@ -295,7 +295,7 @@ mod tests {
 
     use super::{RUN_BINDING_CURSORS_STATEMENT_CAPACITY, RunBindingCursors};
     use crate::questions::schema::schema_parts;
-    use crate::run::engine::tests::insert_running_run;
+    use crate::run::engine::test_fixture::insert_running_run;
     use crate::run::epochs::ExecutionEpochs;
 
     struct Harness {

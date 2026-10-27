@@ -58,8 +58,8 @@ use crate::questions::schema::schema_parts;
 #[cfg(test)]
 use crate::run::engine::RunEngine;
 #[cfg(test)]
-use crate::run::engine::tests::stored_run_state;
-use crate::run::engine::tests::{insert_running_run, test_engine};
+use crate::run::engine::test_fixture::stored_run_state;
+use crate::run::engine::test_fixture::{insert_running_run, test_engine};
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 /// The secret the tests answer with, which no stored row may hold.

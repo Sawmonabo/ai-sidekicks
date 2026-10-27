@@ -24,7 +24,7 @@ use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemOutcome, QueueItemRecord,
 };
-use sidekicks_session::run::engine::tests::insert_running_run;
+use sidekicks_session::run::engine::test_fixture::insert_running_run;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};

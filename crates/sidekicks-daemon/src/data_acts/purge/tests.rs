@@ -31,7 +31,7 @@ use sidekicks_session::conversation_purge::{
 };
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::related::ranking::SessionRelatedRanking;
-use sidekicks_session::run::engine::tests::insert_running_run;
+use sidekicks_session::run::engine::test_fixture::insert_running_run;
 use sidekicks_session::run::live_count::test_log::counted_log;
 use sidekicks_session::service::SessionService;
 use sidekicks_shell::test_table::{TableFixture, table_fixture};

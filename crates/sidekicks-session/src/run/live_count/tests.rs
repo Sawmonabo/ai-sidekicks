@@ -17,7 +17,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use super::test_log::counted_log;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
-use crate::run::engine::tests::insert_running_run;
+use crate::run::engine::test_fixture::insert_running_run;
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeWriter};
 
 // Commits run `run_id` of a fresh session in `state` through `writer`, as a run state change's
