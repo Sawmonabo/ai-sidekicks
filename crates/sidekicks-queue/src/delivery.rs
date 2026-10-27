@@ -165,10 +165,6 @@ pub struct QueueDelivery {
 
 impl QueueDelivery {
     /// A delivery over `deps`, holding nothing.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start, which builds the run queue")
-    )]
     pub(crate) fn new(deps: QueueDeliveryDeps) -> Self {
         Self {
             shared: Arc::new(DeliveryShared {
@@ -182,10 +178,6 @@ impl QueueDelivery {
     /// Takes `item`, just sent, into the live run `run_id`: kept for the next turn while the run
     /// waits on input with no credits choice held, else handed as [`QueueDelivery::hand_waiting`]
     /// does. Called under `hold`; fails as that does.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start, which builds the run queue")
-    )]
     pub(crate) async fn accept_send(
         &self,
         hold: &KeyHold<'_, SessionId>,
@@ -537,10 +529,6 @@ impl QueueDelivery {
     }
 
     /// Records whether the provider holds a credits choice on `run_id`, which a message settles.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start, which builds the run queue")
-    )]
     pub(crate) fn note_credits_choice(&self, run_id: RunId, is_held: bool) {
         let mut state = self.lock_state();
         if is_held {

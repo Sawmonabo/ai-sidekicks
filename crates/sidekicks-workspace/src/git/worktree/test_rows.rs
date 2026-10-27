@@ -5,14 +5,18 @@
 use rusqlite::{Connection, named_params};
 use sidekicks_contracts::worktree::lifecycle::WorktreeState;
 
+#[cfg(test)]
 use crate::git::worktree::schema::WORKTREE_SCHEMA_SQL;
-use crate::test_rows::{PARENT_ROWS_AT, create_workspace_tables, insert_workspace_rows};
+#[cfg(test)]
+use crate::test_rows::create_workspace_tables;
+use crate::test_rows::{PARENT_ROWS_AT, insert_workspace_rows};
 
 /// The live worktree the parent branch context names.
 pub(crate) const PARENT_WORKTREE_ID: &str = "parent-worktree";
 
 /// Creates the workspace and worktree tables the rows sit in. Fails as SQLite does.
-pub fn create_worktree_tables(connection: &Connection) -> rusqlite::Result<()> {
+#[cfg(test)]
+pub(crate) fn create_worktree_tables(connection: &Connection) -> rusqlite::Result<()> {
     create_workspace_tables(connection)?;
     connection.execute_batch(&WORKTREE_SCHEMA_SQL)
 }

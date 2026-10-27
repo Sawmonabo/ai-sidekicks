@@ -62,13 +62,6 @@ pub struct StagedChangesWorktrees {
     git: GitRunner,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Claude Code's staged review reads the index through it"
-    )
-)]
 impl StagedChangesWorktrees {
     /// The worktrees under `worktrees_folder`, the daemon's own and absolute, made with `git`.
     pub fn new(worktrees_folder: &Path, git: GitRunner) -> Self {
@@ -198,13 +191,6 @@ impl StagedChangesWorktrees {
 }
 
 /// A temporary worktree holding only a folder's staged changes, removed by [`Self::close`].
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Claude Code's staged review reads the index through it"
-    )
-)]
 pub struct StagedChangesWorktree {
     folder: PathBuf,
     repository_root: PathBuf,
@@ -212,13 +198,6 @@ pub struct StagedChangesWorktree {
     git: GitRunner,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Claude Code's staged review reads the index through it"
-    )
-)]
 impl StagedChangesWorktree {
     /// The worktree's folder, absolute.
     pub fn folder(&self) -> &Path {

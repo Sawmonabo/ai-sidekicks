@@ -296,7 +296,6 @@ macro_rules! late_appendable_rows {
         /// A reasoning update is not one: it is its own delivery, since its body is required.
         #[derive(Debug)]
         #[cfg_attr(any(test, feature = "test-support"), derive(Clone, PartialEq))]
-        #[expect(dead_code, reason = "the provider's event delivery builds each row it hands over")]
         pub enum LateAppendableRow {
             $($(#[$doc])* $variant($payload),)+
         }
@@ -404,10 +403,6 @@ unstamped_rows! {
 /// A row about the session as a whole, on no binding: a side question's answer, which never
 /// enters the conversation, and a change of the session's own advisor or output style.
 #[derive(Debug)]
-#[expect(
-    dead_code,
-    reason = "the provider's event delivery builds each row it hands over"
-)]
 pub enum SessionScopedRow {
     /// `session.sideQuestion.answered`.
     SideQuestionAnswered(SessionSideQuestionAnsweredPayload),

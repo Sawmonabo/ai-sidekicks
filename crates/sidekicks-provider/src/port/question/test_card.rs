@@ -174,12 +174,14 @@ impl QuestionCard {
 
     /// Holds back each later record write, the question not yet on the card, until
     /// [`Self::land_records`], as a write queued behind another.
-    pub fn hold_records(&self) {
+    #[cfg(test)]
+    pub(crate) fn hold_records(&self) {
         *self.record_gate.lock().expect("never poisoned") = Some(Arc::new(Semaphore::new(0)));
     }
 
     /// Lets every record write held back land.
-    pub fn land_records(&self) {
+    #[cfg(test)]
+    pub(crate) fn land_records(&self) {
         if let Some(gate) = self.record_gate.lock().expect("never poisoned").take() {
             gate.close();
         }
@@ -187,18 +189,21 @@ impl QuestionCard {
 
     /// Records each later question waiting for its run, as one asked while its run waits on
     /// something else, and fails the write that would open it.
-    pub fn fail_waiting_opens(&self) {
+    #[cfg(test)]
+    pub(crate) fn fail_waiting_opens(&self) {
         self.is_waiting_open_failing.store(true, Ordering::SeqCst);
     }
 
     /// Fails each later record write before it reaches the card, as a write the store refused.
-    pub fn fail_records(&self) {
+    #[cfg(test)]
+    pub(crate) fn fail_records(&self) {
         self.is_record_failing.store(true, Ordering::SeqCst);
     }
 
     /// Waits until `count` record writes wait at the gate of [`Self::hold_records`]; fails the
     /// test past 60 s.
-    pub async fn wait_until_records_held(&self, count: usize) {
+    #[cfg(test)]
+    pub(crate) async fn wait_until_records_held(&self, count: usize) {
         self.wait_until(
             |card| *card.held_records.lock().expect("never poisoned") >= count,
             "the record writes wait at the gate",
@@ -208,7 +213,8 @@ impl QuestionCard {
 
     /// Waits until the card took `count` withdrawals, of questions it held or not; fails the test
     /// past 60 s.
-    pub async fn wait_until_withdrawals(&self, count: usize) {
+    #[cfg(test)]
+    pub(crate) async fn wait_until_withdrawals(&self, count: usize) {
         self.wait_until(
             |card| card.withdrawals().len() >= count,
             "the card takes the withdrawals",
@@ -217,7 +223,8 @@ impl QuestionCard {
     }
 
     /// The request id of every withdrawal the card took, in order.
-    pub fn withdrawals(&self) -> Vec<String> {
+    #[cfg(test)]
+    pub(crate) fn withdrawals(&self) -> Vec<String> {
         self.withdrawals.lock().expect("never poisoned").clone()
     }
 

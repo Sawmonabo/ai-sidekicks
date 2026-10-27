@@ -178,10 +178,6 @@ impl CodexSessionControls {
     /// Starts Codex's own review of `params.target` in the session's conversation as the
     /// session's own run and records its start; the review's end is recorded when Codex leaves
     /// review mode. Fails as the run's start fails.
-    #[expect(
-        dead_code,
-        reason = "the `session.codeReview.start` handler starts a review through the driver"
-    )]
     pub(crate) async fn start_review(
         &self,
         params: StartReviewParams,

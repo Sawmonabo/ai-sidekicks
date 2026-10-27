@@ -415,25 +415,11 @@ impl ClaudeRunRoutes {
     }
 
     /// Binds a run apart from its session's process to how it is stopped, until its turn ends.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the staged review binds its run so; the driver's start_review reaches it"
-        )
-    )]
     pub(crate) fn bind_apart_run(&self, run_id: RunId, stop: ClaudeApartRunStop) {
         self.lock().apart_stops.insert(run_id, stop);
     }
 
     /// Drops an apart run's route once its turn ended.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the staged review drops its run so; the driver's start_review reaches it"
-        )
-    )]
     pub(crate) fn forget_apart_run(&self, run_id: RunId) {
         self.lock().apart_stops.remove(&run_id);
     }

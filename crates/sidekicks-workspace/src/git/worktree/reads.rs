@@ -335,7 +335,6 @@ fn unquote_git_text(value: &[u8]) -> Option<Cow<'_, [u8]>> {
 /// Reads every local branch of the repository at `repository_root` with its upstream distance,
 /// newest commit and holding tree. Fails as [`GitRunner::run`] does, with `PathText` for a holding
 /// tree this system cannot name and `Read` for a record git printed that does not parse.
-#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_branch_figures(
     git: &GitRunner,
     place: Option<&Place>,
@@ -475,7 +474,6 @@ pub(crate) async fn has_branch(
 /// Names the default branch of the repository at `repository_root`: the branch a remote's HEAD
 /// names, the clone's own remote first; `None` when no remote names one. Fails as
 /// [`GitRunner::run`] does.
-#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_remote_default_branch(
     git: &GitRunner,
     place: Option<&Place>,

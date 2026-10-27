@@ -12,13 +12,6 @@ use sidekicks_contracts::session::id::SessionId;
 
 /// A file tool's call opened on one path, before it writes. A call that moves a file opens on the
 /// path it moves the file to.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the providers' drivers' file tools, which report each write"
-    )
-)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileToolWriteOpened {
     /// The session whose agent called the tool.
@@ -30,10 +23,6 @@ pub struct FileToolWriteOpened {
 }
 
 /// What a file tool's call left at its path.
-#[expect(
-    dead_code,
-    reason = "the providers' drivers' file tools, which report each write"
-)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FileToolWriteOutcome {
     /// The file's whole bytes after the call, as its result gives them.
@@ -43,13 +32,6 @@ pub enum FileToolWriteOutcome {
 }
 
 /// A file tool's call settled, by the id it opened under.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the providers' drivers' file tools, which report each write"
-    )
-)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileToolWriteSettled {
     /// The session whose agent called the tool.
@@ -65,13 +47,6 @@ pub struct FileToolWriteSettled {
 /// A chat's versions' intake of its agent's file tool writes, registered through a
 /// `PortRegistration`. Until it is registered, a chat's versions come from its workspace's watch
 /// alone.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the providers' drivers' file tools, which report each write"
-    )
-)]
 pub trait FileToolWritePort: Send + Sync {
     /// Holds the watch's reports of `opened`'s path until the call settles. An error when the call
     /// could not be held.

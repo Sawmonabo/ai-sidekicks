@@ -58,13 +58,6 @@ pub(crate) enum ClaudeSettingsSource {
 
 /// The level and mode a new session starts at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the session create starts a session at this level and mode"
-    )
-)]
 pub(crate) struct ClaudeStartingLevel {
     /// The level.
     pub(crate) level: PermissionLevel,
@@ -253,13 +246,6 @@ pub(crate) async fn move_claude_permission_level(
 /// precedence: the managed settings, then the project's local and shared files, then the person's
 /// own; `can_run` answers whether the session's provider, account and model run a level. Fails
 /// with every settings file that could not be read, since it may have set the mode.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the session create reads its starting level through it"
-    )
-)]
 pub(crate) async fn read_claude_starting_level(
     sources: &ClaudeStartingLevelSources<'_>,
     can_run: impl Fn(PermissionLevel) -> bool,

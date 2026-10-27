@@ -53,14 +53,6 @@ pub(crate) enum ClaudeDaemonTurnOpening {
         attachment_blocks: Vec<ClaudeUserContentBlock>,
     },
     /// A turn run apart from the session's process.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start registers the Claude driver, whose staged review starts \
-                      its own turn with it"
-        )
-    )]
     Apart {
         /// Starts the turn once its run is bound.
         start: Arc<dyn Fn(ClaudeBoundRun) + Send + Sync>,

@@ -17,6 +17,7 @@ use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::background_work::BackgroundWorkForms;
 use sidekicks_provider::driver::PROVIDERS;
+#[cfg(test)]
 use sidekicks_provider::driver::session_control::RevokeRuleParams;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_std::mutex_lock::lock;
@@ -27,20 +28,23 @@ use sidekicks_store::machine::local::LocalMachine;
 use sidekicks_store::machine::registry::{MACHINE_REGISTRY_STATEMENT_CAPACITY, MachineRegistry};
 
 /// The bound the tests read shell lines under.
-pub const LINE_LIMIT: usize = 4096;
+pub(crate) const LINE_LIMIT: usize = 4096;
 
 /// The rules and the permission check over one test database, and what a test reads them by.
 pub struct TestPermissionCheck {
     /// The rules in force.
     pub rules: Arc<ApprovalRules>,
     /// The bound every line is read under.
-    pub shell_lines: Arc<ShellLineReadingBound>,
+    #[cfg(test)]
+    pub(crate) shell_lines: Arc<ShellLineReadingBound>,
     /// The check.
     pub check: Arc<PermissionCheck>,
     /// Each live run's posture, none until a test sets one.
-    pub postures: Arc<ExecutionPostureService>,
+    #[cfg(test)]
+    pub(crate) postures: Arc<ExecutionPostureService>,
     /// Every rule the rules handed a provider to take out of force, oldest first.
-    pub provider_rule_calls: Arc<Mutex<Vec<RevokeRuleParams>>>,
+    #[cfg(test)]
+    pub(crate) provider_rule_calls: Arc<Mutex<Vec<RevokeRuleParams>>>,
 }
 
 /// The rules and the check over the database at `path`, recording through `events` and `writer`,
@@ -103,9 +107,12 @@ pub fn test_permission_check(
     }));
     TestPermissionCheck {
         rules,
+        #[cfg(test)]
         shell_lines,
         check,
+        #[cfg(test)]
         postures,
+        #[cfg(test)]
         provider_rule_calls,
     }
 }

@@ -183,14 +183,6 @@ impl ClaudeSessionSlots {
 
     /// Claims the live slot of `predecessor` for a rewind, which keeps its process writing the
     /// transcript until the fork is up. `false` when the slot no longer holds it live.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start registers the Claude driver, whose rewind claims the \
-                      slot through it"
-        )
-    )]
     pub(crate) fn claim_rewind(
         &self,
         predecessor: &Arc<LiveClaudeSession>,

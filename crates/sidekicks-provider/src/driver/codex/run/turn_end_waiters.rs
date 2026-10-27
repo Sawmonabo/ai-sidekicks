@@ -28,10 +28,6 @@ pub(crate) enum CodexTurnWait {
     /// No turn the daemon is stopping still ending, and none Codex started running with no run.
     StoppedTurns,
     /// A turn to run, start or open its run.
-    #[expect(
-        dead_code,
-        reason = "the `session.goal.update` handler waits through the driver for a turn in flight"
-    )]
     TurnInFlight,
     /// No turn to run, start, still end or open its run, so the session is idle.
     Idle,

@@ -107,13 +107,6 @@ pub(crate) enum TurnSnapshotCaptureOutcome {
 
 /// What one prune of a run's snapshot refs did.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "a run's deletion and a session's purge read what the prune of its refs did"
-    )
-)]
 pub enum TurnSnapshotPruneOutcome {
     /// Every snapshot ref of the run was deleted, in one transaction; none when it had none.
     Pruned {

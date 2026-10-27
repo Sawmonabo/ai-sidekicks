@@ -148,13 +148,6 @@ pub struct ExecutionEpochs {
 
 impl ExecutionEpochs {
     /// No cursors yet; each binding remembers up to `max_associations_per_binding` operations.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the one set of epoch cursors"
-        )
-    )]
     pub fn new(max_associations_per_binding: NonZeroUsize) -> Self {
         Self {
             max_associations_per_binding,

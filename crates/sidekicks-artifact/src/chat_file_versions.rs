@@ -178,13 +178,6 @@ impl ChatFileVersions {
     }
 
     // Holds the watch's reports of the call's path until the call settles.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code and Codex drivers' file tools, which report each write"
-        )
-    )]
     fn open_call(&self, opened: FileToolWriteOpened) {
         let Some(key) = self.workspace_path_of(opened.session_id, &opened.path) else {
             return;
@@ -201,13 +194,6 @@ impl ChatFileVersions {
 
     // Records the call's outcome and every settled call ahead of the path's first open one, in the
     // order they opened, then a report that waited once none is open.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code and Codex drivers' file tools, which report each write"
-        )
-    )]
     async fn settle_call(&self, settled: FileToolWriteSettled) -> Result<(), ChatFileVersionError> {
         let Some(key) = self.workspace_path_of(settled.session_id, &settled.path) else {
             return Ok(());

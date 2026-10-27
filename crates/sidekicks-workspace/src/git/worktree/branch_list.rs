@@ -132,10 +132,6 @@ impl BranchListReader {
     /// [`BranchListError::Refused`] (`repoMount.notFound`) for a mount that is not attached,
     /// [`BranchListError::NoDefaultBranch`] when the repository names no default, and with a
     /// read's failure.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the `project.branch.list` handler")
-    )]
     pub async fn read(
         &self,
         repo_mount_id: &RepoMountId,

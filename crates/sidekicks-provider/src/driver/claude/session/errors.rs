@@ -60,14 +60,6 @@ pub(crate) enum ClaudeSessionUnavailableReason {
     /// Claude Code cannot run the session at that permission level.
     PermissionLevelUnavailable,
     /// The installed Claude Code lists no code-review skill for the session.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start registers the Claude driver, whose review command \
-                      refuses with it"
-        )
-    )]
     ReviewSkillAbsent,
     /// Claude Code's model id names its window, so a session takes no larger-window figure.
     LargerWindowFigureUnsupported,
@@ -172,14 +164,6 @@ pub(crate) enum ClaudeSessionError {
     InputUnwritable(#[source] io::Error),
     /// The account's sign-in is gone or refused.
     #[error("{detail}")]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start registers the Claude driver, whose sign-in probe reports \
-                      a refused sign-in with it"
-        )
-    )]
     AuthenticationRequired {
         /// What the provider reported, never a credential.
         detail: String,

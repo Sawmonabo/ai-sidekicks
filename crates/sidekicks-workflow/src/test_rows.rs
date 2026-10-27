@@ -10,6 +10,7 @@ use sidekicks_contracts::workflow::run::status::{
 };
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 
+#[cfg(test)]
 use crate::schema::WORKFLOW_SCHEMA_SQL;
 
 /// The session every test run lives in.
@@ -25,7 +26,8 @@ const STEP_STARTED_AT: &str = "2026-10-02T00:00:01.000Z";
 const EMPTY_PAYLOAD_REF: &str = r#"{"kind":"inline","items":[]}"#;
 
 /// A connection on a fresh in-memory database holding the workflow tables, with foreign keys on.
-pub fn workflow_tables() -> Connection {
+#[cfg(test)]
+pub(crate) fn workflow_tables() -> Connection {
     let connection = Connection::open_in_memory().expect("an in-memory database opens");
     connection
         .execute_batch(&WORKFLOW_SCHEMA_SQL)

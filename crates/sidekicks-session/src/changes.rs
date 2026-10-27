@@ -244,13 +244,6 @@ impl SessionChanges {
     /// session, once each provider that ran the session was told the session's name as it then
     /// reads, a failed telling logged. Fails with [`SessionChangeError::Name`] for a name holding
     /// a NUL, else as `rename` does but never refused for the session's state.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the naming pass after a session's first exchange names it through it"
-        )
-    )]
     pub(crate) async fn name_unnamed(
         &self,
         session_id: SessionId,
@@ -372,13 +365,6 @@ impl SessionChanges {
     /// `provider.notFound` before any leg is ended, so it never reads closed while that provider
     /// may still run it. Fails with [`SessionChangeError::Driver`] when a driver did not end its
     /// leg.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session close handler answers a person's close through it"
-        )
-    )]
     pub async fn close(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         let _hold = self.lock.acquire(session_id).await;
         let facts = self.read_facts(session_id).await?;

@@ -185,14 +185,6 @@ pub(crate) struct ClaudeSpawnSources {
     /// The one thread every child is spawned from, which also checks the command sandbox.
     pub(crate) spawner: Spawner,
     /// Points the session's binding at the conversation it moved onto.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start registers the Claude driver, whose fork points the \
-                      session's binding at its new conversation through it"
-        )
-    )]
     pub(crate) runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
     /// The read pool, for the session's stored settings.
     pub(crate) pool: Arc<DatabaseReadPool>,

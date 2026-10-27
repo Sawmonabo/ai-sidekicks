@@ -287,10 +287,6 @@ pub trait ProviderDriver: Send + Sync {
     /// The largest picture the provider takes, as the bytes of its base64 text, which the staging
     /// of a message's files checks each picture against: a fixed fact of the driver, like
     /// [`message_handing`](Self::message_handing); `None` where the provider sets no limit.
-    #[expect(
-        dead_code,
-        reason = "the staging of a message's files refuses a picture past the provider's limit"
-    )]
     fn picture_base64_size_limit(&self) -> Option<u64> {
         None
     }
@@ -474,10 +470,6 @@ pub trait ProviderDriver: Send + Sync {
     /// The rows the driver declares on its provider's settings, each with its live value in every
     /// place, as `provider.list` serves them, `app_values` being the values the app stored for
     /// them; read again after each change.
-    #[expect(
-        dead_code,
-        reason = "the provider.list handler reads each provider's Settings rows"
-    )]
     fn read_rows(
         &self,
         app_values: ProviderRowValues,

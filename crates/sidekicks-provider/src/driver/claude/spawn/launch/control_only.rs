@@ -191,13 +191,6 @@ struct AccountSources {
 /// Brings a process up on the person's own home with nothing kept and answers how the
 /// `initialize` reply's account says it is signed in. Fails with `AuthenticationRequired` when it
 /// names no sign-in source, and as the start or `initialize` does.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's provider sign-in check probes Claude Code through it"
-    )
-)]
 pub(crate) async fn probe_claude_sign_in(
     launcher: &ClaudeProcessLauncher,
     executable: &ResolvedProviderExecutable,

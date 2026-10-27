@@ -10,14 +10,6 @@ use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
 
 /// How a spawn's conversation starts: a new one, a resume of one, one kept nowhere (a throwaway
 /// copy of a conversation or a new one), or a fork at one message.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver the daemon's start registers composes each command line \
-                  through it"
-    )
-)]
 pub(crate) enum ClaudeConversationStart {
     /// A new conversation under the id the daemon chose.
     New {

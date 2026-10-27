@@ -30,7 +30,8 @@ pub struct TableFixture {
     /// The table.
     pub table: Arc<ShellTable>,
     /// The terminals its shells start in.
-    pub terminals: Arc<Terminals>,
+    #[cfg(test)]
+    pub(crate) terminals: Arc<Terminals>,
     _scratch: TempDir,
 }
 
@@ -115,6 +116,7 @@ pub async fn table_fixture(gate: watch::Receiver<bool>) -> TableFixture {
     });
     TableFixture {
         table: Arc::new(table),
+        #[cfg(test)]
         terminals,
         _scratch: scratch,
     }

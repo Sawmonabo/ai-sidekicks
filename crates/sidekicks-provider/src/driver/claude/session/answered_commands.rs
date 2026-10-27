@@ -180,10 +180,6 @@ pub(crate) fn unreadable_claude_command_choices(detail: &str) -> ClaudeCommandCh
 /// The command typed `text` is when the daemon answers it itself, or `None` for text that goes to
 /// Claude Code as typed. Only text that starts with the command reads as one, as Claude Code reads
 /// it.
-#[expect(
-    dead_code,
-    reason = "message admission reads each typed message through it before writing it"
-)]
 pub(crate) fn read_claude_answered_command(text: &str) -> Option<ClaudeAnsweredCommand> {
     let typed = text.strip_prefix('/')?;
     let mut words = typed
@@ -211,10 +207,6 @@ pub(crate) fn read_claude_answered_command(text: &str) -> Option<ClaudeAnsweredC
 /// What `/output-style <argument>` does on a session offering `styles` with `current` in force: a
 /// style named in any case applies by its own name; anything else, nothing or a word asking to
 /// show included, is the listing laid out as Claude Code's own with the descriptions it printed.
-#[expect(
-    dead_code,
-    reason = "message admission answers a typed /output-style through it"
-)]
 pub(crate) fn answer_claude_output_style(
     argument: &str,
     styles: &[String],
@@ -264,10 +256,6 @@ pub(crate) fn answer_claude_output_style(
 /// offers none here, its own line as sent. `current` is the session's own value, shown where the
 /// build does not report what attaches; `display_name_of` names a model as Claude Code's own lines
 /// name it.
-#[expect(
-    dead_code,
-    reason = "message admission answers a typed /advisor through it"
-)]
 pub(crate) fn answer_claude_advisor(
     argument: &str,
     current: Option<&str>,

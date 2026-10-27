@@ -3,10 +3,12 @@
 //! for the spool and the stored payloads.
 
 use std::borrow::Cow;
+#[cfg(test)]
 use std::path::Path;
 use std::sync::Arc;
 
 use rusqlite::{Connection, named_params};
+#[cfg(test)]
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
@@ -18,6 +20,7 @@ use crate::admission::UploadAdmission;
 use crate::payload_store::{ContentHash, PayloadStore};
 use crate::plans::schema::schema_parts;
 use crate::publish::ArtifactPublishService;
+#[cfg(test)]
 use crate::refusals::ArtifactError;
 use crate::schema::ARTIFACT_STATEMENT_CAPACITY;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -114,12 +117,14 @@ impl ArtifactTestStore {
     }
 
     /// The folder the admission spools into.
-    pub fn spool_folder(&self) -> &Path {
+    #[cfg(test)]
+    pub(crate) fn spool_folder(&self) -> &Path {
         self.admission.spool_folder()
     }
 
     /// How many rows `table` holds, read on a connection of the test's own.
-    pub fn count_rows(&self, table: &str) -> i64 {
+    #[cfg(test)]
+    pub(crate) fn count_rows(&self, table: &str) -> i64 {
         self.database
             .reader()
             .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
@@ -129,7 +134,8 @@ impl ArtifactTestStore {
     }
 
     /// How many events of `event_type` the log holds, read on a connection of the test's own.
-    pub fn count_events(&self, event_type: &str) -> i64 {
+    #[cfg(test)]
+    pub(crate) fn count_events(&self, event_type: &str) -> i64 {
         self.database
             .reader()
             .query_row(
@@ -142,6 +148,7 @@ impl ArtifactTestStore {
 
     /// The one text column `sql` reads for each row it matches with `parameter` as `?1`, read on a
     /// connection of the test's own.
+    #[cfg(test)]
     pub(crate) fn read_rows(&self, sql: &str, parameter: &str) -> Vec<String> {
         let reader = self.database.reader();
         let mut statement = reader.prepare(sql).expect("the test's read prepares");
@@ -153,8 +160,8 @@ impl ArtifactTestStore {
     }
 
     /// How many files sit in the spool folder; none when it was never made.
-    #[expect(clippy::panic, reason = "a test helper fails the test that called it")]
-    pub fn spooled_file_count(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn spooled_file_count(&self) -> usize {
         match std::fs::read_dir(self.spool_folder()) {
             Ok(entries) => entries.count(),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
@@ -180,7 +187,8 @@ fn seed_owner(connection: &Connection, session_id: &str, run_id: &str) {
 }
 
 /// The refusal code `failure` carries, or `None` for a fault that is no refusal.
-pub fn refusal_code_of(failure: &ArtifactError) -> Option<RefusalCode> {
+#[cfg(test)]
+pub(crate) fn refusal_code_of(failure: &ArtifactError) -> Option<RefusalCode> {
     failure.refusal().map(|refusal| refusal.code)
 }
 

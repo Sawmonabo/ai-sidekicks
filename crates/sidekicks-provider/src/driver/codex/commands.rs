@@ -156,11 +156,6 @@ impl CodexProviderCommandCache {
 
     /// Follows a session's live list: `listener` gets the current list now and each new one after
     /// Codex's skills or a tool server's prompts change, until the subscription drops.
-    #[expect(
-        dead_code,
-        reason = "the `session.providerCommand.subscribe` handler follows a session's list \
-                  through the driver"
-    )]
     pub(crate) fn subscribe(
         self: &Arc<Self>,
         session_id: SessionId,

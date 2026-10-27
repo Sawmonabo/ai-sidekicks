@@ -64,7 +64,6 @@ pub(crate) type ProcessPeakRead = Arc<dyn Fn(u32) -> io::Result<Option<u64>> + S
 
 /// The machine's figures the gate weighs by, each in bytes.
 #[derive(Clone, Copy, Debug)]
-#[expect(clippy::struct_field_names, reason = "each figure names its unit")]
 pub struct MemoryGateFigures {
     /// The machine's physical memory, which sets the headroom.
     pub physical_memory_bytes: u64,

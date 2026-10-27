@@ -50,13 +50,6 @@ pub struct ConversationPurge {
     providers: Arc<ProviderRegistry>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "a session's purge deletes its provider conversations through it"
-    )
-)]
 impl ConversationPurge {
     /// A purge reading through `reads` and deleting through the drivers `providers` registered.
     pub fn new(reads: Arc<DatabaseReadPool>, providers: Arc<ProviderRegistry>) -> Self {

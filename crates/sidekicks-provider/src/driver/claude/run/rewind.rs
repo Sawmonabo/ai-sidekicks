@@ -67,13 +67,6 @@ impl ClaudeConversationCuts {
     /// refused cut is `Degraded` with Claude Code's reason; fails as the settle or the request
     /// fails. An applied cut lets go the held `Allow once` presses of every binding the process
     /// served, through `reviewer_denials` once the approvals are registered.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the undo handler reaches it through the driver's rewind_conversation"
-        )
-    )]
     pub(crate) async fn rewind(
         &self,
         live: &LiveClaudeSession,

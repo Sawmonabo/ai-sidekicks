@@ -38,14 +38,6 @@ pub enum StoredRunStateChange {
     Failed(AgentRunFailedPayload),
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start, which builds the run queue's lifecycle and hands committed \
-                  changes to the run binding cursors"
-    )
-)]
 impl StoredRunStateChange {
     /// The run that changed state.
     pub fn run_id(&self) -> &RunId {

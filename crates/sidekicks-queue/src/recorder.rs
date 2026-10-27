@@ -71,10 +71,6 @@ const _: () = assert!(DEVICE_ID_MAX_LEN <= EVENT_FIELD_MAX_LEN);
 
 /// Where one person's send goes: a run it starts, the live run it goes into, the interrupted run it
 /// continues, or the place of the waiting item it edits, which goes into that item's run.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start, which builds the run queue")
-)]
 pub(crate) enum SendRoute {
     /// A run the send starts, queued in the same write.
     NewRun {
@@ -94,10 +90,6 @@ pub(crate) enum SendRoute {
 
 /// One person's send as it is recorded: the new row, its device, where it goes and, for a retry,
 /// the not-delivered message it sends again, which then reads superseded.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start, which builds the run queue")
-)]
 pub(crate) struct RecordedSend {
     /// The row to insert.
     pub(crate) item: NewQueueItem,
@@ -177,10 +169,6 @@ impl QueueRecordError {
 }
 
 /// What the recorder writes, reads and signals through.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start, which builds the run queue")
-)]
 pub(crate) struct QueueRecorderDeps {
     /// The event log every queue event is appended to.
     pub(crate) event_log: Arc<EventLogService>,
@@ -213,10 +201,6 @@ pub(crate) enum RetargetRun {
 
 impl QueueRecorder {
     /// A recorder over `deps`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start, which builds the run queue")
-    )]
     pub(crate) fn new(deps: QueueRecorderDeps) -> Self {
         let QueueRecorderDeps {
             event_log,
@@ -235,10 +219,6 @@ impl QueueRecorder {
     /// Records `send` in one write and returns its row as read back. Fails with
     /// [`RecordSendError::Refused`] naming the guard that refused it, writing nothing, and
     /// otherwise as [`QueueRecordError`] says; only a failed read back follows the commit.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start, which builds the run queue")
-    )]
     pub(crate) async fn record_send(
         &self,
         send: RecordedSend,

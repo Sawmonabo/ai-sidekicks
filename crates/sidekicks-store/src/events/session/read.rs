@@ -448,10 +448,6 @@ where
 
     /// A page of the session's rows after `after_position`, of every type and run, each paired
     /// with its body as [`Self::read_run_page_hydrated`] pairs it.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the data export writes every session's rows")
-    )]
     pub fn read_page_hydrated(
         &self,
         session_id: &SessionId,

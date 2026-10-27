@@ -12,11 +12,14 @@ use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+#[cfg(test)]
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::provider_session::{ProviderSessionOpening, ProviderSessionOpeningComposer};
 use sidekicks_provider::driver::PROVIDERS;
+#[cfg(test)]
 use sidekicks_provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlags};
+#[cfg(test)]
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::CreateSessionParams;
 use sidekicks_provider::run::posture::compose_execution_posture;
@@ -66,7 +69,8 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
 }
 
 /// Records the first provider's capabilities in `providers`, so its contract version reads.
-pub fn record_first_provider_capabilities(providers: &ProviderRegistry) {
+#[cfg(test)]
+pub(crate) fn record_first_provider_capabilities(providers: &ProviderRegistry) {
     providers
         .record_capabilities(
             &first_provider(),

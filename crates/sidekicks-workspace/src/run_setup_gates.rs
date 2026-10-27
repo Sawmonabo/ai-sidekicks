@@ -19,10 +19,6 @@ use sidekicks_store::events::session::append_lock::SessionAppendHold;
 /// The run a setup gate checks. Its workspace is the session's own live one: the one the send
 /// that started it named, else the session's newest.
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "the workspace and queue setup gates, which read the run's session, item and workspace"
-)]
 pub struct RunSetupContext {
     /// The run.
     pub run_id: RunId,
@@ -38,10 +34,6 @@ pub struct RunSetupContext {
 
 /// How a run ended, handed to every terminal hook as the cause of what it releases.
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "the terminal hooks that release what a run's setup gates took in its session"
-)]
 pub struct RunTerminalContext {
     /// The run.
     pub run_id: RunId,

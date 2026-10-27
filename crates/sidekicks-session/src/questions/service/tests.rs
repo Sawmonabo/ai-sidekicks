@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use futures::FutureExt as _;
 use serde_json::{Value, json};
 use sidekicks_contracts::event::session::SessionEvent;
+#[cfg(test)]
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::question::{
     QuestionAnswer, QuestionAskedState, QuestionId, QuestionPrompt, QuestionResolveRequest,
@@ -32,16 +33,21 @@ use tempfile::TempDir;
 use super::{HeldRequestAnswerer, QUESTION_STATEMENT_CAPACITY, QuestionError, QuestionsService};
 use crate::questions::projection::question_projection_statements;
 use crate::questions::schema::schema_parts;
+#[cfg(test)]
 use crate::run::engine::RunEngine;
-use crate::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
+#[cfg(test)]
+use crate::run::engine::tests::stored_run_state;
+use crate::run::engine::tests::{insert_running_run, test_engine};
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderRequestAnswer};
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
+#[cfg(test)]
+use sidekicks_provider::port::question::ToolServerQuestionAnswer;
 use sidekicks_provider::port::question::{
-    ProviderQuestion, ProviderQuestionWithdrawal, ToolServerQuestionAnswer, WaitingQuestionOpening,
+    ProviderQuestion, ProviderQuestionWithdrawal, WaitingQuestionOpening,
 };
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -57,14 +63,17 @@ use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// The secret the tests answer with, which no stored row may hold.
-pub const SECRET: &str = "the-secret-value-41";
+#[cfg(test)]
+pub(crate) const SECRET: &str = "the-secret-value-41";
 
 /// Each answer the stand-in driver was handed: its request id and its answers.
 type HandedAnswers = Arc<Mutex<Vec<(String, Vec<QuestionAnswer>)>>>;
 
 /// A stand-in tool-server task that records each answer it is sent.
-pub struct RecordingTaskAnswer(HandedAnswers);
+#[cfg(test)]
+pub(crate) struct RecordingTaskAnswer(HandedAnswers);
 
+#[cfg(test)]
 impl ToolServerQuestionAnswer for RecordingTaskAnswer {
     fn answer(
         &self,
@@ -87,11 +96,13 @@ pub struct Fixture {
     pub writer: Arc<DatabaseWriter>,
     appender: SessionEventAppender,
     /// The run engine the questions service settles runs through.
-    pub engine: Arc<RunEngine>,
+    #[cfg(test)]
+    pub(crate) engine: Arc<RunEngine>,
     questions: QuestionsService,
     /// The session the run and its questions belong to.
     pub session_id: SessionId,
     run_id: RunId,
+    #[cfg(test)]
     handed: HandedAnswers,
     _home: TempDir,
 }
@@ -105,7 +116,7 @@ impl Fixture {
     /// The fixture whose stand-in driver, when `is_run_ended_on_answer`, fails the run as it takes
     /// an answer, as a provider that exits at that moment does.
     #[expect(clippy::panic, reason = "a test helper fails the test that called it")]
-    pub async fn with_driver(is_run_ended_on_answer: bool) -> Self {
+    pub(crate) async fn with_driver(is_run_ended_on_answer: bool) -> Self {
         let database = TestDatabase::new(schema_parts());
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
@@ -176,10 +187,12 @@ impl Fixture {
             database,
             writer,
             appender,
+            #[cfg(test)]
             engine,
             questions,
             session_id,
             run_id,
+            #[cfg(test)]
             handed,
             _home: home,
         }
@@ -187,7 +200,12 @@ impl Fixture {
 
     /// Asks `pages` under `request_id`, held by the run when `is_agent_waiting`, its answer sent
     /// on through the driver.
-    pub async fn ask(&self, request_id: &str, pages: Value, is_agent_waiting: bool) -> QuestionId {
+    pub(crate) async fn ask(
+        &self,
+        request_id: &str,
+        pages: Value,
+        is_agent_waiting: bool,
+    ) -> QuestionId {
         self.ask_answered_by(
             request_id,
             pages,
@@ -198,7 +216,7 @@ impl Fixture {
     }
 
     /// Asks as [`Self::ask`] does, its answer sent on by `answered_by`.
-    pub async fn ask_answered_by(
+    pub(crate) async fn ask_answered_by(
         &self,
         request_id: &str,
         pages: Value,
@@ -216,7 +234,7 @@ impl Fixture {
 
     /// The run's question asking `pages` under `request_id`, held by the run when
     /// `is_agent_waiting`.
-    pub fn question(
+    pub(crate) fn question(
         &self,
         request_id: &str,
         pages: Value,
@@ -233,7 +251,7 @@ impl Fixture {
     }
 
     /// Answers `question_id` with `answers` from a device.
-    pub async fn answer(
+    pub(crate) async fn answer(
         &self,
         question_id: QuestionId,
         answers: Value,
@@ -254,7 +272,7 @@ impl Fixture {
     }
 
     /// Appends `event`, given as its type and payload, as the queue would.
-    pub async fn append(&self, event_type: &str, payload: Value) {
+    pub(crate) async fn append(&self, event_type: &str, payload: Value) {
         let event: SessionEvent =
             serde_json::from_value(json!({ "type": event_type, "payload": payload }))
                 .expect("the test writes a valid event");
@@ -269,7 +287,8 @@ impl Fixture {
     }
 
     /// The payloads of the log's events of `event_type`, oldest first.
-    pub fn payloads(&self, event_type: &str) -> Vec<Value> {
+    #[cfg(test)]
+    pub(crate) fn payloads(&self, event_type: &str) -> Vec<Value> {
         let reader = self.database.reader();
         let mut statement = reader
             .prepare("SELECT payload FROM session_events WHERE type = ?1 ORDER BY sequence")
@@ -285,7 +304,7 @@ impl Fixture {
     }
 
     /// The state `question_id`'s row holds.
-    pub fn state(&self, question_id: QuestionId) -> String {
+    pub(crate) fn state(&self, question_id: QuestionId) -> String {
         self.database
             .reader()
             .query_row(
@@ -297,18 +316,20 @@ impl Fixture {
     }
 
     /// The stored state of the fixture's run.
-    pub fn run_state(&self) -> String {
+    #[cfg(test)]
+    pub(crate) fn run_state(&self) -> String {
         stored_run_state(&self.database, &self.run_id).0
     }
 
     /// How many answers the stand-in driver was handed.
-    pub fn handed_count(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn handed_count(&self) -> usize {
         self.handed.lock().expect("never poisoned").len()
     }
 }
 
 /// A question page offering two choices, of which one is picked.
-pub fn choice_page() -> Value {
+pub(crate) fn choice_page() -> Value {
     json!({
         "text": "Which one?",
         "options": [{ "label": "Alpha" }, { "label": "Beta" }],
@@ -318,19 +339,21 @@ pub fn choice_page() -> Value {
 }
 
 /// `choice_page` as a tool server's form field, which must be answered.
-pub fn form_field_page() -> Value {
+#[cfg(test)]
+pub(crate) fn form_field_page() -> Value {
     let mut page = choice_page();
     page["required"] = json!(true);
     page
 }
 
 /// A question page asking for a secret.
-pub fn secret_page() -> Value {
+#[cfg(test)]
+pub(crate) fn secret_page() -> Value {
     json!({ "text": "The token?", "options": [], "severalAnswers": false, "secret": true })
 }
 
 /// A run's failed end, as any end but an interrupt.
-pub fn failed() -> RunStateEntry {
+pub(crate) fn failed() -> RunStateEntry {
     RunStateEntry::Failed {
         intended_close: None,
         failure_cause: None,
@@ -341,8 +364,8 @@ pub fn failed() -> RunStateEntry {
 
 /// The refusal code and detail `failure` carries; panics when the answer failed rather than being
 /// refused.
-#[expect(clippy::panic, reason = "a test helper fails the test that called it")]
-pub fn refusal_of(failure: QuestionError) -> (RefusalCode, Value) {
+#[cfg(test)]
+pub(crate) fn refusal_of(failure: QuestionError) -> (RefusalCode, Value) {
     let QuestionError::Refused(refusal) = failure else {
         panic!("the answer is refused, not failed: {failure}");
     };
@@ -354,19 +377,26 @@ pub fn refusal_of(failure: QuestionError) -> (RefusalCode, Value) {
 
 /// The questions [`write_queued_answers`] settled, and the unwaited question's state after its
 /// first queued answer was sent and after that send was withdrawn.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the questions service's tests read what the queued answers settled"
+    )
+)]
 pub struct QueuedAnswers {
     /// The question no run waits on, which the queued answers answer.
-    pub unwaited: QuestionId,
+    pub(crate) unwaited: QuestionId,
     /// The question whose queued answer was withdrawn.
-    pub withdrawn: QuestionId,
+    pub(crate) withdrawn: QuestionId,
     /// The question recorded waiting for its run and then withdrawn by its provider.
-    pub withdrawn_waiting: QuestionId,
+    pub(crate) withdrawn_waiting: QuestionId,
     /// The question recorded waiting for its run and then answered.
-    pub opened: QuestionId,
+    pub(crate) opened: QuestionId,
     /// The unwaited question's state after its first queued answer was sent.
-    pub after_send: String,
+    pub(crate) after_send: String,
     /// The unwaited question's state after that send was withdrawn.
-    pub after_withdrawal: String,
+    pub(crate) after_withdrawal: String,
 }
 
 /// Writes, through `fixture`'s service and log, a held question answered, one withdrawn, one

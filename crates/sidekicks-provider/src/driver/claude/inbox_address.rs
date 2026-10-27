@@ -30,13 +30,6 @@ const PRIVATE_TEMPORARY_SOCKET_FOLDER: &str = "/private/tmp/cc-socks";
 const WINDOWS_PIPE_PREFIX: &str = r"\\.\pipe\cc-msg-";
 
 /// What a session inbox's name is derived from, before the session id.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "session.read composes each session's addresses with it"
-    )
-)]
 const SESSION_INBOX_PURPOSE: &str = "session-inbox:";
 
 /// What the daemon's own inbox name is derived from, before the place.
@@ -60,13 +53,6 @@ pub struct PlaceInboxEnvironment<'a> {
 /// sender pattern, starts with a letter so it never equals or reads as a process id, carries no
 /// `<pid>-` prefix Claude Code's own cleanup removes, and is fixed-length, so every address fits
 /// the socket address field.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude Code driver hands it to the daemon's start"
-    )
-)]
 pub struct ClaudeSessionInboxAddresser {
     /// Each listed POSIX place's socket folder, the computer's own system as `None`.
     folders: Vec<(Option<Place>, String)>,
@@ -75,13 +61,6 @@ pub struct ClaudeSessionInboxAddresser {
 impl ClaudeSessionInboxAddresser {
     /// The addresser for `places`, each POSIX place with its environment; a native Windows place
     /// needs none, since its inbox is a pipe.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code driver builds it from the start's places"
-        )
-    )]
     pub fn new<'a>(
         places: impl IntoIterator<Item = (Option<Place>, PlaceInboxEnvironment<'a>)>,
     ) -> Self {

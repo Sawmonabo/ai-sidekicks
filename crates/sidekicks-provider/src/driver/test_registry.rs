@@ -7,7 +7,9 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -15,11 +17,13 @@ use rusqlite::params;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+#[cfg(test)]
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::Spawner;
 use tokio::runtime::Handle;
+#[cfg(test)]
 use tokio::sync::Notify;
 
 use crate::background_work::BackgroundWorkForms;
@@ -27,8 +31,10 @@ use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
 use crate::driver::contract::ProviderDriver;
+use crate::driver::ports::DriverPorts;
+#[cfg(test)]
 use crate::driver::ports::{
-    DriverPorts, MessageGivenBackListener, MessageRefusedListener, MessageTakenListener,
+    MessageGivenBackListener, MessageRefusedListener, MessageTakenListener,
 };
 use crate::driver::registry::ProviderRegistry;
 use crate::driver::{DriverServices, PROVIDERS, ProviderRegistration};
@@ -39,6 +45,7 @@ use crate::runtime_binding::store::RuntimeBindingRebind;
 use crate::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+#[cfg(test)]
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
@@ -188,18 +195,21 @@ pub fn new_run_id() -> RunId {
 }
 
 /// A minted session id.
-pub fn new_session_id() -> SessionId {
+#[cfg(test)]
+pub(crate) fn new_session_id() -> SessionId {
     SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
 }
 
 /// A minted id of a queued message.
-pub fn new_message_id() -> QueueItemId {
+#[cfg(test)]
+pub(crate) fn new_message_id() -> QueueItemId {
     QueueItemId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is a queue item id")
 }
 
 /// What the run queue's intake was told, telling a waiter at each.
+#[cfg(test)]
 #[derive(Default)]
-pub struct RecordedQueue {
+pub(crate) struct RecordedQueue {
     /// The messages told taken, in order.
     pub(crate) taken: Mutex<Vec<String>>,
     /// The messages told refused, each with why, in order.
@@ -210,6 +220,7 @@ pub struct RecordedQueue {
     pub(crate) changed: Notify,
 }
 
+#[cfg(test)]
 impl MessageTakenListener for RecordedQueue {
     fn message_taken(&self, _session_id: SessionId, message_id: &str, _run_id: RunId) {
         lock(&self.taken).push(message_id.to_owned());
@@ -217,6 +228,7 @@ impl MessageTakenListener for RecordedQueue {
     }
 }
 
+#[cfg(test)]
 impl MessageRefusedListener for RecordedQueue {
     fn message_refused(
         &self,
@@ -229,6 +241,7 @@ impl MessageRefusedListener for RecordedQueue {
     }
 }
 
+#[cfg(test)]
 impl MessageGivenBackListener for RecordedQueue {
     fn message_given_back(&self, _session_id: SessionId, message_id: &str) {
         lock(&self.given_back).push(message_id.to_owned());

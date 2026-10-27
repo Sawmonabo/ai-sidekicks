@@ -1,43 +1,75 @@
 //! What the engine's tests share: an engine over a test database with a stand-in interventions
 //! service, the runs and events they seed, and reads of what a run stored.
 
+#[cfg(test)]
 use std::error::Error;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
+use std::sync::Arc;
+#[cfg(test)]
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+#[cfg(test)]
+use std::sync::{Mutex, OnceLock, Weak};
+#[cfg(test)]
 use std::time::Duration;
 
+#[cfg(test)]
 use futures::FutureExt as _;
+#[cfg(test)]
 use futures::future::BoxFuture;
-use rusqlite::{Connection, params};
+#[cfg(test)]
+use rusqlite::Connection;
+use rusqlite::params;
+#[cfg(test)]
 use serde_json::{Value, json};
 use sidekicks_contracts::event::session::SessionEvent;
+#[cfg(test)]
 use sidekicks_contracts::free_form_string::FilesystemPath;
+#[cfg(test)]
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
+#[cfg(test)]
 use sidekicks_contracts::run::events::{AgentTurnCompletedPayload, AgentTurnStartedPayload};
 use sidekicks_contracts::run::id::RunId;
+#[cfg(test)]
 use sidekicks_contracts::run::intervention::{LimitInterruptRecord, RunLimit};
+#[cfg(test)]
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
+#[cfg(test)]
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
+#[cfg(test)]
 use sidekicks_contracts::wire::integer::SafeInt;
+#[cfg(test)]
 use tokio::sync::oneshot;
 
 use crate::plan_holds::{NoPlanHolds, PlanHolds};
+#[cfg(test)]
 use crate::run::engine::limits::LimitStop;
+#[cfg(test)]
 use crate::run::engine::turns::StepCount;
 use crate::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
+#[cfg(test)]
 use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
+#[cfg(test)]
 use crate::run::start_request::{RunContinueRequest, RunTurnStart};
+#[cfg(test)]
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::test_driver_services;
-use sidekicks_provider::run::posture::{ExecutionPostureService, compose_execution_posture};
+use sidekicks_provider::run::posture::ExecutionPostureService;
+#[cfg(test)]
+use sidekicks_provider::run::posture::compose_execution_posture;
+#[cfg(test)]
 use sidekicks_provider::run::start_request::DriverStep;
+#[cfg(test)]
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
+#[cfg(test)]
 use sidekicks_std::mutex_lock::lock;
+#[cfg(test)]
 use sidekicks_std::pause_point::PausePoint;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+#[cfg(test)]
 use sidekicks_store::database::statement::DATABASE_NOW_SQL;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::EventLogService;
@@ -46,11 +78,13 @@ use sidekicks_workspace::run_setup_gates::RunSetupGate;
 
 /// Bounds a start or a continue, the call made while its driver is held and a hand on a task of
 /// its own, so a call that waits on nothing, or a hand that never comes, fails the test.
-pub const SETTLE_WAIT: Duration = Duration::from_secs(10);
+#[cfg(test)]
+pub(crate) const SETTLE_WAIT: Duration = Duration::from_secs(10);
 
 /// How long a held driver stays held once the call under test is in flight, long enough for a
 /// call that does not wait to read the run and act on what it reads.
-pub const DRIVER_HOLD: Duration = Duration::from_millis(200);
+#[cfg(test)]
+pub(crate) const DRIVER_HOLD: Duration = Duration::from_millis(200);
 
 /// An engine on `database`, appending through `event_log`, with no registered driver, no
 /// interventions service, no plan holds and its posture files under `home`; a test makes the
@@ -100,7 +134,8 @@ pub fn test_engine_with(
 /// leaving the run's end to the test; a hand the test holds waits for the test's answer instead.
 /// Once a test hands it the database, every interrupt it accepts, or refuses with its row pending,
 /// records its row `accepted` with the turn it names.
-pub struct TestLimitInterrupter {
+#[cfg(test)]
+pub(crate) struct TestLimitInterrupter {
     refusals_left: AtomicUsize,
     is_refused_row_pending: AtomicBool,
     row_database: OnceLock<PathBuf>,
@@ -113,14 +148,17 @@ pub struct TestLimitInterrupter {
     pub(super) cut_turns: Mutex<Vec<Option<SafeInt<1>>>>,
 }
 
+#[cfg(test)]
 impl TestLimitInterrupter {
     /// Has every later refusal leave its row pending.
-    pub fn refuse_with_row_pending(&self) {
+    #[cfg(test)]
+    pub(crate) fn refuse_with_row_pending(&self) {
         self.is_refused_row_pending.store(true, Ordering::SeqCst);
     }
 
     /// Records each later row in `database`, whose interventions table the test made.
-    pub fn record_rows_in(&self, database: &TestDatabase) {
+    #[cfg(test)]
+    pub(crate) fn record_rows_in(&self, database: &TestDatabase) {
         assert!(
             self.row_database.set(database.path()).is_ok(),
             "the stand-in records its rows in one database"
@@ -128,7 +166,8 @@ impl TestLimitInterrupter {
     }
 
     /// Records the interrupt of `run_id` at `limit`, naming `cut_turn`, as an accepted row.
-    pub fn record_row(&self, run_id: RunId, limit: RunLimit, cut_turn: Option<SafeInt<1>>) {
+    #[cfg(test)]
+    pub(crate) fn record_row(&self, run_id: RunId, limit: RunLimit, cut_turn: Option<SafeInt<1>>) {
         let Some(path) = self.row_database.get() else {
             return;
         };
@@ -153,6 +192,7 @@ impl TestLimitInterrupter {
     }
 }
 
+#[cfg(test)]
 impl LimitInterrupter for TestLimitInterrupter {
     fn interrupt_for_limit(
         &self,
@@ -194,7 +234,11 @@ impl LimitInterrupter for TestLimitInterrupter {
 
 /// Hands `engine` a stand-in interventions service that refuses its first `refusals` interrupts;
 /// the engine holds it only while the caller keeps the returned handle.
-pub fn hand_limit_interrupter(engine: &RunEngine, refusals: usize) -> Arc<TestLimitInterrupter> {
+#[cfg(test)]
+pub(crate) fn hand_limit_interrupter(
+    engine: &RunEngine,
+    refusals: usize,
+) -> Arc<TestLimitInterrupter> {
     let interrupter = Arc::new(TestLimitInterrupter {
         refusals_left: AtomicUsize::new(refusals),
         is_refused_row_pending: AtomicBool::new(false),
@@ -237,11 +281,13 @@ pub async fn append(engine: &RunEngine, session_id: SessionId, event: &SessionEv
 }
 
 /// The step bound the tests' turns reach.
-pub const STEP_BOUND: SafeInt<1> = SafeInt::new(40).expect("40 is a step bound");
+#[cfg(test)]
+pub(crate) const STEP_BOUND: SafeInt<1> = SafeInt::new(40).expect("40 is a step bound");
 
 /// Arms the step count of turn `turn_number` on `run_id` at `bound`, as the turn's start does on a
 /// run whose provider does not bound its steps.
-pub fn arm_step_count(engine: &RunEngine, run_id: RunId, turn_number: u64, bound: u64) {
+#[cfg(test)]
+pub(crate) fn arm_step_count(engine: &RunEngine, run_id: RunId, turn_number: u64, bound: u64) {
     lock(&engine.live).step_counts.insert(
         run_id,
         StepCount::new(
@@ -252,12 +298,14 @@ pub fn arm_step_count(engine: &RunEngine, run_id: RunId, turn_number: u64, bound
 }
 
 /// A test's turn number.
+#[cfg(test)]
 pub(super) fn turn(number: u64) -> SafeInt<1> {
     SafeInt::new(number).expect("the test's turn numbers count from 1")
 }
 
 /// The step stop of turn `turn_number` at its bound.
-pub fn step_stop(turn_number: u64) -> LimitStop {
+#[cfg(test)]
+pub(crate) fn step_stop(turn_number: u64) -> LimitStop {
     LimitStop::Step {
         count: STEP_BOUND,
         turn_number: turn(turn_number),
@@ -265,7 +313,8 @@ pub fn step_stop(turn_number: u64) -> LimitStop {
 }
 
 /// The provider's end of turn `turn_number`, interrupted with no cause of its own.
-pub fn provider_end(turn_number: u64) -> ProviderTurnEnd {
+#[cfg(test)]
+pub(crate) fn provider_end(turn_number: u64) -> ProviderTurnEnd {
     ProviderTurnEnd {
         turn_number: turn(turn_number),
         outcome: TurnOutcome::Interrupted(None),
@@ -273,12 +322,14 @@ pub fn provider_end(turn_number: u64) -> ProviderTurnEnd {
 }
 
 /// A test's run version.
+#[cfg(test)]
 pub(super) fn run_version(version: u64) -> SafeInt<0> {
     SafeInt::new(version).expect("the test's run versions are safe integers")
 }
 
 /// The start of turn `turn_number` of `run_id` at run version `version`.
-pub fn turn_started_at(
+#[cfg(test)]
+pub(crate) fn turn_started_at(
     session_id: SessionId,
     run_id: RunId,
     turn_number: u64,
@@ -295,7 +346,8 @@ pub fn turn_started_at(
 }
 
 /// The completion of turn `turn_number` of `run_id` at run version `version`.
-pub fn turn_completed_at(
+#[cfg(test)]
+pub(crate) fn turn_completed_at(
     session_id: SessionId,
     run_id: RunId,
     turn_number: u64,
@@ -310,7 +362,8 @@ pub fn turn_completed_at(
 }
 
 /// The run's stored events in order: each type, with the payload's `cause` and `origin`.
-pub fn stored_events(
+#[cfg(test)]
+pub(crate) fn stored_events(
     database: &TestDatabase,
     run_id: &RunId,
 ) -> Vec<(String, Option<String>, Option<String>)> {
@@ -330,7 +383,8 @@ pub fn stored_events(
 }
 
 /// `expected` in the form [`stored_events`] reads.
-pub fn events(
+#[cfg(test)]
+pub(crate) fn events(
     expected: &[(&str, Option<&str>, Option<&str>)],
 ) -> Vec<(String, Option<String>, Option<String>)> {
     expected
@@ -346,13 +400,15 @@ pub fn events(
 }
 
 /// A test's token limit.
-pub fn token_limit() -> TokensPerRun {
+#[cfg(test)]
+pub(crate) fn token_limit() -> TokensPerRun {
     TokensPerRun(SafeInt::new(500_000).expect("the test's limit is a safe integer"))
 }
 
 /// Cuts turn `turn_number` of `run_id` at `limit` as a stop does before it hands the interrupt,
 /// and answers the cut as the hand carries it.
-pub fn hold_cut(
+#[cfg(test)]
+pub(crate) fn hold_cut(
     engine: &RunEngine,
     run_id: RunId,
     turn_number: SafeInt<1>,
@@ -371,7 +427,8 @@ pub fn hold_cut(
 }
 
 /// The limit turn `turn_number` of `run_id` ends with by the cuts the engine holds of it, if any.
-pub fn held_cut_limit(
+#[cfg(test)]
+pub(crate) fn held_cut_limit(
     engine: &RunEngine,
     run_id: RunId,
     turn_number: SafeInt<1>,
@@ -393,6 +450,7 @@ pub fn stored_run_state(database: &TestDatabase, run_id: &RunId) -> (String, i64
 
 /// A turn start of `run_id`, read-only at the root, whose driver starts the turn as `start_driver`
 /// does and whose turn interrupt succeeds at once.
+#[cfg(test)]
 pub(super) fn turn_start(
     run_id: RunId,
     start_driver: impl Fn(ExecutionPosture) -> DriverStep + Send + Sync + 'static,
@@ -411,7 +469,8 @@ pub(super) fn turn_start(
 
 /// A continue of the interrupted `run_id` from an admitted message, its turn started as
 /// [`turn_start`] starts it.
-pub fn continue_request(
+#[cfg(test)]
+pub(crate) fn continue_request(
     run_id: RunId,
     start_driver: impl Fn(ExecutionPosture) -> DriverStep + Send + Sync + 'static,
 ) -> RunContinueRequest {
@@ -432,13 +491,15 @@ pub fn continue_request(
 }
 
 /// A driver start that starts the turn at once.
-pub fn started_turn(_resolved_posture: ExecutionPosture) -> DriverStep {
+#[cfg(test)]
+pub(crate) fn started_turn(_resolved_posture: ExecutionPosture) -> DriverStep {
     async { Ok(()) }.boxed()
 }
 
 /// A driver start that is held once it begins: the start, which reports on the receiver that it
 /// began and then waits until the sender releases it. It starts one turn.
-pub fn held_driver() -> (
+#[cfg(test)]
+pub(crate) fn held_driver() -> (
     impl Fn(ExecutionPosture) -> DriverStep + Send + Sync + 'static,
     oneshot::Receiver<()>,
     oneshot::Sender<()>,

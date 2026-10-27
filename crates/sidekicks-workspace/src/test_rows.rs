@@ -5,13 +5,15 @@ use rusqlite::Connection;
 use sidekicks_contracts::project::ProjectState;
 use sidekicks_contracts::repo::mount::ExecutionMode;
 
+#[cfg(test)]
 use crate::schema::WORKSPACE_SCHEMA_SQL;
 
 /// When every parent row was made.
 pub const PARENT_ROWS_AT: &str = "2026-10-14T09:30:00.000Z";
 
 /// Creates the workspace tables the rows sit in. Fails as SQLite does.
-pub fn create_workspace_tables(connection: &Connection) -> rusqlite::Result<()> {
+#[cfg(test)]
+pub(crate) fn create_workspace_tables(connection: &Connection) -> rusqlite::Result<()> {
     connection.execute_batch(&WORKSPACE_SCHEMA_SQL)
 }
 

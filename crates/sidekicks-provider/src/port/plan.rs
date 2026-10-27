@@ -25,13 +25,6 @@ pub struct ProviderPlan {
 }
 
 /// A held plan request the provider let go before any verdict.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the providers' drivers, which hand a finished plan over"
-    )
-)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProviderPlanHoldEnd {
     /// The session.
@@ -44,10 +37,6 @@ pub struct ProviderPlanHoldEnd {
 
 /// The plan record's intake, registered through a `PortRegistration`. Until it is registered, a
 /// plan stays with the provider: no record is written and no verdict can answer it.
-#[expect(
-    dead_code,
-    reason = "the providers' drivers, which hand a finished plan over"
-)]
 pub trait PlanPort: Send + Sync {
     /// Records `plan` and answers the id the driver keeps its held request under. An error when it
     /// could not be recorded.

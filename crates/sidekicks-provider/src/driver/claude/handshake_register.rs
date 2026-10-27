@@ -173,10 +173,6 @@ impl ClaudeHandshakeRegister {
     /// `initialize` reply or a later `system/init`, or `None` where neither reported one. A
     /// declaration the contract's bounds refuse reads as absent; `cooldown` is carried as
     /// declared.
-    #[expect(
-        dead_code,
-        reason = "the agent list reads a live session's declared output speed through it"
-    )]
     pub(crate) fn observed_output_speed_for(
         &self,
         session_id: SessionId,

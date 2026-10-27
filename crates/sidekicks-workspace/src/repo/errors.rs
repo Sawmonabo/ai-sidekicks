@@ -34,7 +34,6 @@ use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
 #[derive(Debug, thiserror::Error)]
 pub enum RepoRefusal {
     /// The project record does not exist, or was forgotten (`project.notFound`).
-    #[expect(dead_code, reason = "an attach naming a project")]
     #[error("project {project_id} does not exist")]
     ProjectNotFound {
         /// The project asked for.
@@ -112,7 +111,6 @@ pub enum RepoRefusal {
         "repo mount {} still holds the repository attached there",
         .repo_mount_id
     )]
-    #[expect(dead_code, reason = "the repository mount reattach")]
     ReattachRefused {
         /// The mount asked for; named in the message, not in the detail.
         repo_mount_id: RepoMountId,
@@ -123,7 +121,6 @@ pub enum RepoRefusal {
         .running_agent_id,
         .running_session_id
     )]
-    #[expect(dead_code, reason = "the repository mount reattach")]
     ReattachConflict {
         /// The session the agent runs in.
         running_session_id: SessionId,
@@ -132,7 +129,6 @@ pub enum RepoRefusal {
     },
     /// The folder's WSL distribution runs on WSL 1, where no session runs
     /// (`repoMount.distributionNeedsWsl2`); it names the distribution, never the path.
-    #[expect(dead_code, reason = "an attach in a WSL place")]
     #[error("{} runs on WSL 1", .distro.as_str())]
     DistributionNeedsWsl2 {
         /// The distribution.
@@ -151,14 +147,12 @@ pub enum RepoRefusal {
     TopLevelNotOffered,
     /// A clone refused before git starts and before anything is written (`project.clone.refused`):
     /// the destination holds something, or the address leaves no folder name, with git's line.
-    #[expect(dead_code, reason = "the clone method's handler")]
     #[error("{}", clone_refused_message(.details))]
     CloneRefused {
         /// Why, with git's own line where there is one.
         details: ProjectCloneRefusedDetails,
     },
     /// The clone service is not running, so no clone verb can run (`project.clone.unavailable`).
-    #[expect(dead_code, reason = "the clone method's handler")]
     #[error("{message}")]
     CloneUnavailable {
         /// The failed start's own text, or empty when the service was never started.

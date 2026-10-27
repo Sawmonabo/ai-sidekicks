@@ -14,10 +14,6 @@ pub enum JobCondition {
     /// Whenever it falls due.
     Always,
     /// Only while the busy count is zero.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the repack `Delete old data` schedules")
-    )]
     WhileIdle,
     /// While the busy count is zero, or once the wall clock reaches this instant, however busy.
     WhileIdleUntil(SystemTime),

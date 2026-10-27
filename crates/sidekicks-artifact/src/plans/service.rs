@@ -145,13 +145,6 @@ impl PlansService {
     /// Reopens the plan `hold_end` names, recording `plan.hold.ended` with its reason, when it
     /// still waits on the request its driver held; a plan that holds none, or that is settled,
     /// is left as it is. Fails as the write fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude Code and Codex drivers, which hand a finished plan over"
-        )
-    )]
     pub async fn end_plan_hold(&self, hold_end: ProviderPlanHoldEnd) -> Result<(), PlanError> {
         self.end_hold(
             HeldPlan {
@@ -166,13 +159,6 @@ impl PlansService {
     /// Reopens every plan of `session_id` still waiting on a held request, `runEnded`, since no
     /// held request outlives the daemon; a plan that holds none stays waiting. Every plan is tried
     /// before the failures return together.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which sweeps the holds a restart lost"
-        )
-    )]
     pub async fn end_holds_lost_at_restart(&self, session_id: SessionId) -> Result<(), PlanError> {
         let held = self
             .reads

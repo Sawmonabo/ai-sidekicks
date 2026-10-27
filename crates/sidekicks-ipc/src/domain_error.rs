@@ -47,14 +47,6 @@ impl DomainError {
 
     /// The caller's own refusal `code` for a keychain that could not be used, with the details
     /// `details` builds from its cause, the keychain refusal's text and its failure underneath.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the workflow secret handlers, the steps that resolve a secret and the erase \
-                      answer a refused keychain with it"
-        )
-    )]
     pub fn keychain_refused<Details: Serialize>(
         refusal: KeychainRefusal,
         code: RefusalCode,

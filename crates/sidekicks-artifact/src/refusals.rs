@@ -72,8 +72,8 @@ impl ArtifactError {
     }
 
     /// The refusal this failure is, or none for a fault.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn refusal(&self) -> Option<&DomainError> {
+    #[cfg(test)]
+    pub(crate) fn refusal(&self) -> Option<&DomainError> {
         let Self::Refused(refusal) = self else {
             return None;
         };

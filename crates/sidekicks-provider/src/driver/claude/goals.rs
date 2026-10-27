@@ -56,13 +56,6 @@ impl ClaudeGoalCommands {
     /// sent no answer within the request deadline, or its handshake lists no `goal` command, in
     /// which case nothing is sent. Fails as the run's start fails, `SessionTurnInFlight` while
     /// another run holds the session's turn.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session goal handler reaches it through the driver's set_session_goal"
-        )
-    )]
     pub(crate) async fn send(
         &self,
         live: &LiveClaudeSession,

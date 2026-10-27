@@ -100,15 +100,6 @@ pub(crate) fn live_worktree_state_predicate(table: &str) -> String {
 }
 
 /// [`live_worktree_state_predicate`] for a query that reads the table by its own name.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "worktree creation, the worktree lifecycle, the branch list, worktree claims, \
-                  the removed-worktrees store and the workspace's reattach, folder-usage and \
-                  trust envelope reads"
-    )
-)]
 pub(crate) static LIVE_WORKTREE_STATE_PREDICATE: LazyLock<String> =
     LazyLock::new(|| live_worktree_state_predicate("worktrees"));
 

@@ -21,10 +21,6 @@ use crate::driver::session_control::{
 const CODEX_ACCOUNT_READ_METHOD: &str = "account/read";
 
 /// How long the sign-in probe waits: it reads the home's local sign-in and gates admission.
-#[expect(
-    dead_code,
-    reason = "the account sign-in probe's handler bounds the driver's sign-in read with it"
-)]
 pub(crate) const CODEX_AUTH_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How long a failed resume's sign-in read waits; short, so it never delays the failure.
@@ -53,10 +49,6 @@ struct AccountKind {
 
 /// Asks `connection` for its sign-in, without a refresh, waiting at most `timeout`. Fails as the
 /// request does.
-#[expect(
-    dead_code,
-    reason = "the account sign-in probe's handler reads the sign-in through the driver"
-)]
 pub(crate) async fn read_codex_auth_status(
     connection: &CodexAppServerConnection,
     timeout: Duration,

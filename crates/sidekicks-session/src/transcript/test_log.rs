@@ -1,13 +1,18 @@
 //! A session's log for the transcript's tests: the store's session test log with its runs stored
 //! beside its events, the run and turn events the transcript reads, and the rows it damages.
 
-use rusqlite::{ToSql, params};
+#[cfg(test)]
+use rusqlite::ToSql;
+use rusqlite::params;
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::attachment::write;
 
 use crate::transcript::block_cut::{ChildStartsParse, MARKDOWN_PARSE};
+#[cfg(test)]
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_store::database::schema::SchemaParts;
 use sidekicks_store::events::test_log::SessionTestLog;
@@ -63,7 +68,8 @@ impl TranscriptTestLog {
     }
 
     /// A new child run of `parent_run_id` in `state`, stored with its `agent.run.queued` row.
-    pub fn child_run(&self, parent_run_id: RunId, state: &str) -> RunId {
+    #[cfg(test)]
+    pub(crate) fn child_run(&self, parent_run_id: RunId, state: &str) -> RunId {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         self.store_run(run_id, Some(parent_run_id), state);
         self.session_log.write(
@@ -85,7 +91,8 @@ impl TranscriptTestLog {
     }
 
     /// Writes an intervention on `target_run_id` in `state`, one of its seven event types.
-    pub fn intervention(&self, target_run_id: RunId, state: &str) -> (i64, String) {
+    #[cfg(test)]
+    pub(crate) fn intervention(&self, target_run_id: RunId, state: &str) -> (i64, String) {
         let mut payload = json!({
             "sessionId": self.session_log.session_id,
             "interventionId": mint_uuid_v7().to_string(),
@@ -104,7 +111,8 @@ impl TranscriptTestLog {
     }
 
     /// Marks the events from `from` through `to` skipped, as a damaged session's repair does.
-    pub fn skip(&self, from: i64, to: i64) {
+    #[cfg(test)]
+    pub(crate) fn skip(&self, from: i64, to: i64) {
         self.session_log.write(
             json!({
                 "type": "session.damagedEvents.skipped",
@@ -119,7 +127,8 @@ impl TranscriptTestLog {
     }
 
     /// Writes the end of turn `turn_number` of `run_id`.
-    pub fn turn_end(&self, run_id: RunId, turn_number: u64) -> (i64, String) {
+    #[cfg(test)]
+    pub(crate) fn turn_end(&self, run_id: RunId, turn_number: u64) -> (i64, String) {
         self.session_log.write(
             json!({
                 "type": "agent.turn.completed",
@@ -135,7 +144,8 @@ impl TranscriptTestLog {
     }
 
     /// Damages the row at `sequence` as `damage` says, its payload still valid JSON.
-    pub fn damage_row(&self, sequence: i64, damage: RowDamage) {
+    #[cfg(test)]
+    pub(crate) fn damage_row(&self, sequence: i64, damage: RowDamage) {
         match damage {
             RowDamage::Encoding => self.set_payload_value(sequence, "$.contentEncoding", "zstdx"),
             RowDamage::EncodingByte => self.flip_encoding_high_bit(sequence),
@@ -146,7 +156,8 @@ impl TranscriptTestLog {
     }
 
     /// Sets the payload value at the JSON `path` of the row at `sequence` to `value`.
-    pub fn set_payload_value(&self, sequence: i64, path: &str, value: impl ToSql) {
+    #[cfg(test)]
+    pub(crate) fn set_payload_value(&self, sequence: i64, path: &str, value: impl ToSql) {
         self.session_log
             .writer
             .execute(
@@ -158,7 +169,8 @@ impl TranscriptTestLog {
 
     /// Flips the high bit of the `z` in the `"zstd"` the payload of the row at `sequence` names, so
     /// that text is no longer UTF-8; fails the test when the payload names no `zstd` encoding.
-    pub fn flip_encoding_high_bit(&self, sequence: i64) {
+    #[cfg(test)]
+    pub(crate) fn flip_encoding_high_bit(&self, sequence: i64) {
         self.session_log
             .writer
             .execute(
@@ -185,8 +197,9 @@ impl TranscriptTestLog {
 }
 
 /// How a test damages a log row after it was written, its payload still valid JSON.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug)]
-pub enum RowDamage {
+pub(crate) enum RowDamage {
     /// Its payload names an encoding no build writes.
     Encoding,
     /// Its payload's `zstd` encoding has one bit flipped, so that text is not UTF-8.
