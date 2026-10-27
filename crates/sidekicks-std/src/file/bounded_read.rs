@@ -144,11 +144,25 @@ fn read_ceiling(_path: &Path) -> Option<Duration> {
     Some(FILE_READ_CEILING)
 }
 
-// A test's held read gives up in moments rather than after the whole ceiling; any other read in a
-// test runs with no timer, so a paused clock's advance never abandons a read that is answering.
+// A test's held read gives up in moments rather than after the whole ceiling; once a test has
+// armed `run_without_read_ceiling`, any other read runs with no timer.
 #[cfg(any(test, feature = "test-support"))]
 fn read_ceiling(path: &Path) -> Option<Duration> {
-    stalled_reads::is_stalled(path).then_some(stalled_reads::STALLED_READ_CEILING)
+    if stalled_reads::is_stalled(path) {
+        return Some(stalled_reads::STALLED_READ_CEILING);
+    }
+    (!RUNS_WITHOUT_READ_CEILING.load(Ordering::Relaxed)).then_some(FILE_READ_CEILING)
+}
+
+// Whether a test armed this process's bounded reads to run with no ceiling.
+#[cfg(any(test, feature = "test-support"))]
+static RUNS_WITHOUT_READ_CEILING: AtomicBool = AtomicBool::new(false);
+
+/// Runs every later bounded read of this process with no ceiling, but a held one: for a test
+/// whose fixture pauses the clock, whose advance would abandon a read that is answering.
+#[cfg(any(test, feature = "test-support"))]
+pub fn run_without_read_ceiling() {
+    RUNS_WITHOUT_READ_CEILING.store(true, Ordering::Relaxed);
 }
 
 #[cfg(any(test, feature = "test-support"))]
