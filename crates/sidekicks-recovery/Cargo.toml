@@ -40,13 +40,13 @@ rstest.workspace = true
 sidekicks-approval = { workspace = true, features = ["test-support"] }
 # The artifact test store and the plans fixtures the tests open.
 sidekicks-artifact = { workspace = true, features = ["test-support"] }
-# The call fixtures, the scripted caller reader and the credit gate the tests use.
+# The call fixtures the tests use.
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
-# The stand-in programs and recorded system calls the tests use.
+# The test programs and the harness's test names the tests run.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
-# The test driver registry, the mock driver and the stand-in stores the tests build on.
+# The test driver services the tests build on.
 sidekicks-provider = { workspace = true, features = ["test-support"] }
-# The run engine, the questions and the transcript fixtures the tests build on.
+# The run engine and the questions fixtures the tests build on.
 sidekicks-session = { workspace = true, features = ["test-support"] }
 # The test database and the session rows the tests build on.
 sidekicks-store = { workspace = true, features = ["test-support"] }

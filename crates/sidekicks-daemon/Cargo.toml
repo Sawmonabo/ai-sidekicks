@@ -168,32 +168,33 @@ zip.workspace = true
 alacritty_terminal.workspace = true
 proptest.workspace = true
 rstest.workspace = true
-# The artifact test store and the plans fixtures the tests open.
+# The artifact test store the tests open.
 sidekicks-artifact = { workspace = true, features = ["test-support"] }
-# The call fixtures, the scripted caller reader and the credit gate the tests use.
+# The call fixtures and the credit gate the tests use.
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
-# A file whose removal the system refuses, for the clone's failed-removal test.
+# The in-memory credential store, this process's pin and footprint, and the harness's test names
+# the tests use.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
-# The test driver registry, the mock driver and the stand-in stores the tests build on.
+# The test driver registry, the mock driver and the runtime binding's test store the tests build
+# on.
 sidekicks-provider = { workspace = true, features = ["test-support"] }
 # The provider session opening the tests compose.
 sidekicks-queue = { workspace = true, features = ["test-support"] }
-# The run engine, the questions and the transcript fixtures the tests build on.
+# The run rows, the live count's log, the transcript test log and the search index's test services
+# the tests build on.
 sidekicks-session = { workspace = true, features = ["test-support"] }
 # The shell table the tests open.
 sidekicks-shell = { workspace = true, features = ["test-support"] }
-# The pause points and stalled reads the tests arm.
+# The pause points the tests arm.
 sidekicks-std = { workspace = true, features = ["test-support"] }
 # The test database and the session rows the tests build on.
 sidekicks-store = { workspace = true, features = ["test-support"] }
-# The screen copy drawn without a shell, for the screen listener's answer tests.
-sidekicks-terminal = { workspace = true, features = ["test-support"] }
 # The workflow rows the tests build on.
 sidekicks-workflow = { workspace = true, features = ["test-support"] }
-# The git runner and the workspace rows the tests build on.
+# The git runner the tests script.
 sidekicks-workspace = { workspace = true, features = ["test-support"] }
 standardwebhooks.workspace = true
-# The paused clock the clone progress gate's and the stream batcher's tests drive.
+# The paused clock the local gateway's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 x-wing.workspace = true
 

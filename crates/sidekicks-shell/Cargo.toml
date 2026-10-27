@@ -35,9 +35,9 @@ vte = { workspace = true, features = ["ansi"] }
 
 [dev-dependencies]
 rstest.workspace = true
-# The call fixtures, the scripted caller reader and the credit gate the tests use.
+# The credit gate the output stream's tests read through.
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
-# The stand-in programs and recorded system calls the tests use.
+# The shell start stand-in and the recording programs the tests run.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
 # The screen copy drawn without a shell, for the screen listener's answer tests.
 sidekicks-terminal = { workspace = true, features = ["test-support"] }

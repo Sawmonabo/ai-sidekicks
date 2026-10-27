@@ -33,13 +33,14 @@ uuid.workspace = true
 [dev-dependencies]
 rstest.workspace = true
 rusqlite.workspace = true
-# The stand-in programs and recorded system calls the tests use.
+# This process's pin, which the caller process tests read.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
 # The paused clock the stream batcher's and the in-flight record's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 
 [features]
-# Helpers other crates' tests use: the socket's call fixtures and the caller process's descent.
+# Helpers other crates' tests use: the socket's call fixtures, the caller process's scripted reader
+# and the feed's credit gate.
 test-support = []
 
 [lints]

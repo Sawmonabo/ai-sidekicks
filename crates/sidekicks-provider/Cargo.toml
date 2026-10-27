@@ -64,13 +64,13 @@ interprocess.workspace = true
 mockall.workspace = true
 proptest.workspace = true
 rstest.workspace = true
-# The call fixtures, the scripted caller reader and the credit gate the tests use.
+# The scripted caller reader and the credit gate the tests use.
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
-# The stand-in programs and recorded system calls the tests use.
+# The stand-in programs, the harness's test names and the socket folders the tests use.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
-# The test database and the session rows the tests build on.
+# The test database and the session test log the tests build on.
 sidekicks-store = { workspace = true, features = ["test-support"] }
-# The paused clock the drivers' and the command channel's tests drive.
+# The paused clock the drivers' and the command waits' tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
 
@@ -85,7 +85,7 @@ zstd.workspace = true
 
 [features]
 # Helpers other crates' tests use: the drivers' test registry and provider, the driver's mock, the
-# runtime binding's test store and the question port's test card.
+# diagnostics recorder, the runtime binding's test store and the question port's test card.
 test-support = ["dep:mockall", "dep:tracing-subscriber", "sidekicks-store/test-support"]
 
 [lints]

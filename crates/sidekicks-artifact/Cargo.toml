@@ -45,9 +45,9 @@ zune-jpeg.workspace = true
 # Writes each PNG chunk's CRC in the picture size tests.
 flate2.workspace = true
 rstest.workspace = true
-# The run engine, the questions and the transcript fixtures the tests build on.
+# The run engine the tests build on.
 sidekicks-session = { workspace = true, features = ["test-support"] }
-# The pause points and stalled reads the tests arm.
+# The pause points the tests arm.
 sidekicks-std = { workspace = true, features = ["test-support"] }
 # The test database and the session rows the tests build on.
 sidekicks-store = { workspace = true, features = ["test-support"] }
