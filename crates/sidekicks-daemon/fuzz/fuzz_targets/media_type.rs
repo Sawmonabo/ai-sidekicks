@@ -5,7 +5,7 @@
 #![cfg_attr(fuzzing, no_main)]
 
 #[cfg(fuzzing)]
-#[path = "../../src/artifacts/detection.rs"]
+#[path = "../../../sidekicks-artifact/src/detection.rs"]
 mod detection;
 
 #[cfg(fuzzing)]

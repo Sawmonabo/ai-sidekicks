@@ -1,0 +1,55 @@
+[package]
+name = "sidekicks-artifact"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Artifacts and plans: publishing, ingesting and storing what a run produces, and each plan's record."
+license.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+base16ct.workspace = true
+bytes.workspace = true
+file-format.workspace = true
+futures.workspace = true
+gif.workspace = true
+image.workspace = true
+image-webp.workspace = true
+jiff.workspace = true
+png.workspace = true
+rusqlite.workspace = true
+satteri-pulldown-cmark.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sidekicks-contracts.workspace = true
+sidekicks-ipc.workspace = true
+sidekicks-platforms.workspace = true
+sidekicks-provider.workspace = true
+sidekicks-session.workspace = true
+sidekicks-std.workspace = true
+sidekicks-store.workspace = true
+sidekicks-workspace.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+unicode-normalization.workspace = true
+unicode-properties.workspace = true
+zune-jpeg.workspace = true
+
+[dev-dependencies]
+# Writes each PNG chunk's CRC in the picture size tests.
+flate2.workspace = true
+rstest.workspace = true
+tempfile.workspace = true
+# The paused clock the admission's and the ingest service's tests drive.
+tokio = { workspace = true, features = ["test-util"] }
+
+[features]
+# Helpers other crates' tests use: the artifact test store and the plans service's fixtures.
+test-support = []
+
+[lints]
+workspace = true

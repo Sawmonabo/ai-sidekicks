@@ -23,8 +23,8 @@ name = "media_type"
 path = "fuzz_targets/media_type.rs"
 test = false
 
-# The target builds the daemon's own detection module, so it takes the daemon's `file-format`; the
-# whole daemon does not build under sancov in 6 GB.
+# The target builds the artifact crate's detection module, so it takes that crate's `file-format`;
+# the whole daemon does not build under sancov in 6 GB.
 [dependencies]
 file-format.workspace = true
 

@@ -24,6 +24,7 @@ publish = false
 [workspace.dependencies]
 # The workspace's own crates.
 sidekicks-approval = { path = "crates/sidekicks-approval" }
+sidekicks-artifact = { path = "crates/sidekicks-artifact" }
 sidekicks-client = { path = "crates/sidekicks-client" }
 sidekicks-contracts = { path = "crates/sidekicks-contracts" }
 sidekicks-ipc = { path = "crates/sidekicks-ipc" }
