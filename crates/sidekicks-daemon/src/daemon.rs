@@ -1,6 +1,6 @@
 //! The daemon's own lifecycle: start and stop, the start as its own responsible process, the data
-//! folder's hold, its status and process tree, its service log and its one scheduler, the machine
-//! it runs on and keeps awake, and the methods that report on it.
+//! folder's hold, the whole schema it opens, its status and process tree, its service log and its
+//! one scheduler, the machine it runs on and keeps awake, and the methods that report on it.
 
 pub(crate) mod already_running_error;
 pub(crate) mod app_diagnostic_methods;

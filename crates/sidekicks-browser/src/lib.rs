@@ -1,10 +1,8 @@
 //! The one browser runtime the agents' browser tools and the preview screen share: the
-//! debug-protocol transport, the headless browser, snapshots, the screencast, saves, choosers,
-//! site data and the browser tool set, with the preview's serving pieces, the page store, the
-//! relay to main and dev-server discovery. It sits above session, approval, queue and artifact and
-//! below recovery and the program, which keeps the `preview.*` handlers and hands it the gateway's
-//! outbound call, the machine settings watch, the tool set's registration and the listening-ports
-//! read as ports or values.
+//! debug-protocol transport, the headless browser, snapshots, the screencast, saves, choosers, site
+//! data and the browser tool set, with the preview's serving pieces, the page store, the relay to
+//! main and dev-server discovery. It sits over no other daemon crate and no daemon crate takes it
+//! yet.
 
 pub mod cdp;
 pub mod choosers;

@@ -2,9 +2,8 @@
 //! and log, their groups, tags, drafts, staged files, review notes, inbox addresses and directory;
 //! the run engine and a session's runs; the transcript; questions, interventions and attention; the
 //! queue's store; the driver a run or session resolves to; the live sessions' folders and worktree
-//! names; and deleting the provider conversations a session ran on. It sits above std, store, ipc,
-//! workspace, provider and mcp, which it takes, and below approval, queue, artifact, recovery and
-//! the program, which take it.
+//! names; and deleting the provider conversations a session ran on. It sits over std, store, ipc,
+//! workspace, provider and mcp and is taken by approval, queue, artifact, recovery and the program.
 
 pub mod addresses;
 pub(crate) mod attention;

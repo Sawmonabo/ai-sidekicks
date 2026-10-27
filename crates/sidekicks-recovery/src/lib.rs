@@ -1,7 +1,7 @@
 //! Recovery: the start's checks, the settling of runs a stop left live, damaged history, the gate
 //! that holds writes to state the daemon cannot yet trust, projection rebuilds, the recovery status
 //! and the database file's repair. It sits over std, store, ipc, provider, session, approval and
-//! artifact, and below the program alone; its tests also take workspace and workflow.
+//! artifact and is taken by the program.
 
 pub mod damaged_history;
 pub mod database_file;

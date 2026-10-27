@@ -1,8 +1,9 @@
 //! Providers: the driver interface and the table of providers, a driver's reports and requests to
 //! the run engine and the ports it reaches the daemon through, a run's execution posture,
 //! background work, the code every provider shares, and each provider's own driver. It sits over
-//! std, store, ipc, workspace and policy, and below agent, mcp, shell and session, which reach it
-//! through the driver interface and the run ports.
+//! std, store, ipc, workspace and policy and is taken by mcp, shell, session, approval, queue,
+//! artifact, recovery and the program, which reach it through the driver interface and the run
+//! ports.
 
 pub mod account_homes;
 pub mod background_work;

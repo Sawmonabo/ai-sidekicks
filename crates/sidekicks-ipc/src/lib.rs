@@ -1,7 +1,8 @@
 //! The local socket's server side without its handlers: the method registry and its dispatch,
 //! protocol negotiation, the record of mutating calls in flight, the caller's process,
 //! subscriptions' streams, the domain error and the refusals each method sends, and the redaction
-//! of what leaves the daemon. It sits over store and below workspace, policy and workflow.
+//! of what leaves the daemon. It sits over std and store and is taken by workspace, workflow,
+//! provider, shell, session, approval, queue, artifact, recovery and the program.
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod call_fixtures;

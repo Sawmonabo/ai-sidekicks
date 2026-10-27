@@ -1,6 +1,6 @@
 //! The run queue: sending, ordering, admitting, delivering and recording runs per session, and the
-//! memory gate that holds a start while the processes' peak use leaves no room. It sits above std,
-//! store, ipc, provider and session, which it takes, and below the program, which takes it.
+//! memory gate that holds a start while the processes' peak use leaves no room. It sits over std,
+//! store, ipc, provider and session and is taken by the program.
 
 pub mod admission;
 pub mod changes;
