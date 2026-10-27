@@ -1,8 +1,9 @@
 //! The check a branch-name pattern passes before it is saved, for the machine's `Branch names` and
 //! a project's own pattern alike: git's own branch-name rule over the name the pattern fills in,
 //! then whether that name clashes with a branch in each repository the pattern applies to.
-//! `check-ref-format --branch` needs no repository; the filled name always holds the title, so it
-//! is never the bare `@{-N}` that git would expand to an earlier branch.
+//! The rule is read as `check-ref-format` over the ref the branch would be, which opens no
+//! repository, so the daemon's own folder never decides; `--branch` would read that folder's
+//! repository and fail in a broken one with the code of a refused name.
 
 use std::error::Error;
 use std::path::PathBuf;
@@ -45,8 +46,11 @@ const SAMPLE_PATTERN_VALUES: BranchNamePatternValues<'static> = BranchNamePatter
     session: "0123abcd",
 };
 
-// Git's exit code for a fatal failure: a name its rule refuses, a folder that is gone or holds no
-// repository, and a ref transaction it could not prepare.
+// Git's exit code for a ref name its format rule refuses.
+const GIT_FORMAT_REFUSED_EXIT_CODE: i32 = 1;
+
+// Git's exit code for a fatal failure: a folder that is gone or holds no repository, and a ref
+// transaction it could not prepare.
 const GIT_REFUSED_EXIT_CODE: i32 = 128;
 
 // The prefixes git writes before a failed transaction's own words.
@@ -147,7 +151,8 @@ async fn find_branch_pattern_refusal<'a>(
     Ok(None)
 }
 
-// Whether git's own rule takes `branch_name` as a branch's name.
+// Whether git's own rule takes `branch_name` as a branch's name: the format check over the ref
+// the branch would be, which opens no repository.
 async fn is_branch_name(git: &GitRunner, branch_name: &str) -> Result<bool, GitError> {
     // A leading `-` would reach git as an option rather than a name.
     if branch_name.starts_with('-') {
@@ -156,12 +161,15 @@ async fn is_branch_name(git: &GitRunner, branch_name: &str) -> Result<bool, GitE
     match git
         .run(
             None,
-            GitCall::read(["check-ref-format", "--branch", branch_name]),
+            GitCall::read([
+                "check-ref-format".to_owned(),
+                format!("refs/heads/{branch_name}"),
+            ]),
         )
         .await
     {
         Ok(_) => Ok(true),
-        Err(refusal) if refusal.exit_code() == Some(GIT_REFUSED_EXIT_CODE) => Ok(false),
+        Err(refusal) if refusal.exit_code() == Some(GIT_FORMAT_REFUSED_EXIT_CODE) => Ok(false),
         Err(failure) => Err(failure),
     }
 }
@@ -413,6 +421,22 @@ mod tests {
                 .expect("the line is not empty"),
                 project_id: project.id,
             }
+        );
+    }
+
+    // Fails when a name git's rule refuses is read as a git failure rather than the pattern's
+    // refusal.
+    #[tokio::test]
+    async fn a_name_gits_rule_refuses_is_not_a_branch_name() {
+        let git = test_git_runner();
+
+        let refusal = find_machine_branch_pattern_refusal(&git, &pattern("feature/{title}."), &[])
+            .await
+            .expect("git runs");
+
+        assert_eq!(
+            refusal,
+            Some(ProjectBranchPatternRefusedDetails::NotABranchName {})
         );
     }
 
