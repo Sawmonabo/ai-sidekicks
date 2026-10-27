@@ -27,6 +27,7 @@ ignored = [
   "instant-acme",
   "tokio-rustls",
   # The DPoP proofs on the program's control-plane calls.
+  "jwt-simple",
   "p256",
   # The email digest of what needs the person's attention.
   "lettre",
@@ -64,6 +65,7 @@ hyper-util.workspace = true
 instant-acme.workspace = true
 interprocess.workspace = true
 jiff.workspace = true
+jwt-simple.workspace = true
 lettre.workspace = true
 # Its version is the one `rusqlite` bundles, whose SQLite the vendored shell is checked against.
 libsqlite3-sys.workspace = true

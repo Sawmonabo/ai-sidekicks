@@ -390,7 +390,8 @@ name = "sidekicks-crates"
 
 [workspace.metadata.cargo-shear]
 ignored = [
-  # Session's spawn and the daemon's handlers will name the saved agents and their tool server.
+  # Session's spawn, the shell crate's tools and the daemon's handlers will name the saved agents
+  # and their tool server.
   "sidekicks-agent",
   # The daemon's preview handlers and its registration of the browser tools will name the browser
   # runtime.

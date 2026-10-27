@@ -8515,6 +8515,7 @@ dependencies = [
  "instant-acme",
  "interprocess",
  "jiff",
+ "jwt-simple",
  "lettre",
  "libsqlite3-sys",
  "llrt_buffer",
