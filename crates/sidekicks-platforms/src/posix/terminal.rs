@@ -71,6 +71,12 @@ pub const DOES_PAUSED_READ_HOLD_INPUT: bool = false;
 /// reads: no on macOS and Linux, which have no console.
 pub const DOES_CONSOLE_COUNT_WAITING_INPUT: bool = false;
 
+/// Whether a background process that ignores its hangup keeps a terminal open past its session
+/// leader's exit: on Linux, which sends the terminal no hangup then; not on macOS, which revokes
+/// the terminal at its leader's exit.
+#[cfg(any(test, feature = "test-support"))]
+pub const DOES_TERMINAL_OUTLIVE_ITS_LEADER: bool = cfg!(target_os = "linux");
+
 /// Ends the process group `pid` leads with `SIGKILL`, on a blocking thread; no stop takes this
 /// route on macOS or Linux, and a job an interactive shell moved into a group of its own is
 /// outside it. Fails with `InvalidInput` for a pid of 0 or past `i32::MAX`, and with the system's

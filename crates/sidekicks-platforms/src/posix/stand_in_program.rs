@@ -38,7 +38,7 @@ fn push_answer(script: &mut String, answer: &StandInAnswer) -> io::Result<()> {
     if let Some(record) = &answer.argument_record {
         writeln!(
             script,
-            "printf '%s\\n' \"$@\" >> {}",
+            "for argument in \"$@\"; do printf '%s\\n' \"$argument\"; done >> {}",
             quote_single(script_path_text(record)?)
         )
         .expect("a String takes every write");

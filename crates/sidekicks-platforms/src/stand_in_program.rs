@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use crate::posix::stand_in_program::write_stand_in_script;
 #[cfg(windows)]
-use crate::windows::stand_in_program::{read_batch_argument, write_stand_in_script};
+use crate::windows::stand_in_program::{read_recorded_argument, write_stand_in_script};
 
 /// What a stand-in program does for one call: prints `standard_output` byte for byte, and exits
 /// with `exit_code`, first appending each argument to `argument_record` where one is set.
@@ -30,9 +30,10 @@ pub struct StandInProgram {
 }
 
 /// Writes `program` in `folder` as a script the system's program search finds for `name`, and
-/// answers its path: `name` itself, executable, on macOS and Linux, and `name.cmd` on Windows,
-/// where `.cmd` is in the search's default extensions. Panics on a first argument that is not a
-/// plain word; fails as the files fail to write, or on a path that is not UTF-8.
+/// answers its path, which [`program_start`](crate::program_start) starts: `name` itself,
+/// executable, on macOS and Linux, and on Windows an npm-shaped shim `name.cmd` over a Node script.
+/// Panics on a first argument that is not a plain word; fails as the files fail to write, on a
+/// path that is not UTF-8, and on Windows where this process finds no Node.
 pub fn write_stand_in_program(
     folder: &Path,
     name: &str,
@@ -56,7 +57,10 @@ pub fn read_recorded_arguments(record: &Path) -> io::Result<Vec<String>> {
     #[cfg(unix)]
     let arguments = recorded.lines().map(str::to_owned).collect();
     #[cfg(windows)]
-    let arguments = recorded.lines().map(read_batch_argument).collect();
+    let arguments = recorded
+        .lines()
+        .map(read_recorded_argument)
+        .collect::<io::Result<_>>()?;
     Ok(arguments)
 }
 
@@ -72,14 +76,17 @@ pub(crate) fn script_path_text(path: &Path) -> io::Result<&str> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::process::Command;
 
     use super::{StandInAnswer, StandInProgram, read_recorded_arguments, write_stand_in_program};
+    use crate::program_start;
 
-    // Killed by a line end after the output (`printf '%s\n'`, or `echo` for `type`), by a quote,
-    // percent or caret in the output read as script text, by another exit code, by recording the
-    // arguments of a call its first argument answered, and by an argument recorded other than as
-    // passed.
+    // Started as the daemon starts a program, through `program_start`. Killed by a line end after
+    // the output (`printf '%s\n'`, or `console.log`), by a quote, percent or caret in the output
+    // read as script text, by another exit code, by recording the arguments of a call its first
+    // argument answered, by an argument recorded other than as passed, and by an empty line
+    // recorded for a call with no arguments (`printf '%s\n' "$@"`).
     #[test]
     fn a_stand_in_program_prints_its_exact_answer_exits_with_its_code_and_records_its_arguments() {
         let folder = tempfile::tempdir().expect("a scratch folder is made");
@@ -105,11 +112,17 @@ mod tests {
             },
         )
         .expect("the stand-in is written");
+        let start = program_start(&program, |_| Some(PathBuf::from("node")))
+            .expect("the stand-in starts with no shell");
+        let run = |arguments: &[&str]| {
+            Command::new(&start.program)
+                .args(&start.leading_arguments)
+                .args(arguments)
+                .output()
+                .expect("the stand-in runs")
+        };
 
-        let listed = Command::new(&program)
-            .args(["list", "--json"])
-            .output()
-            .expect("the stand-in runs");
+        let listed = run(&["list", "--json"]);
         assert_eq!(String::from_utf8_lossy(&listed.stdout), listing);
         assert_eq!(listed.status.code(), Some(3));
         assert!(
@@ -125,12 +138,10 @@ mod tests {
             r"C:\a folder\",
             "%PATH% ^&",
         ];
-        let other = Command::new(&program)
-            .args(arguments)
-            .output()
-            .expect("the stand-in runs");
+        let other = run(&arguments);
         assert!(other.stdout.is_empty(), "the other answer prints nothing");
         assert_eq!(other.status.code(), Some(1));
+        run(&[]);
         assert_eq!(
             read_recorded_arguments(&record).expect("the record reads"),
             arguments

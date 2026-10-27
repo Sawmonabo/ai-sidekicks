@@ -113,7 +113,7 @@ fn translate_command(
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use sidekicks_platforms::shell_folder_start;
+    use sidekicks_platforms::{POSIX_SHELL, shell_folder_start};
     use sidekicks_terminal::{CommandLine, ShellCommand, SpawnRequest};
 
     use super::{SpawnCwdStrategy, translate_spawn_cwd};
@@ -136,7 +136,7 @@ mod tests {
     fn request(program: &str, arguments: &[String], environment: &[(&str, &str)]) -> SpawnRequest {
         SpawnRequest {
             shell: command(program, arguments, environment),
-            fallback: command("/bin/sh", &[], environment),
+            fallback: command(POSIX_SHELL, &[], environment),
             working_directory: PathBuf::from(WORKTREE),
             rows: 24,
             columns: 80,

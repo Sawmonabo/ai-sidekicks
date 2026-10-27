@@ -314,10 +314,14 @@ pub use posix::run_folder::{
 #[cfg(unix)]
 pub use posix::shell_folder_start::shell_folder_start;
 #[cfg(all(unix, any(test, feature = "test-support")))]
-pub use posix::shell_start::{DOES_PARENT_DEATH_FOLLOW_STARTING_THREAD, run_shell_start_stand_in};
+pub use posix::shell_start::{
+    DOES_PARENT_DEATH_FOLLOW_STARTING_THREAD, DOES_POSIX_SHELL_LACK_BUILTIN,
+    run_shell_start_stand_in,
+};
 #[cfg(unix)]
 pub use posix::shell_start::{
-    LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
+    LOGIN_SHELL_ARGUMENTS, POSIX_SHELL, arm_parent_death, default_shell, prepare_shell_start,
+    start_program,
 };
 #[cfg(unix)]
 pub use posix::terminal::inner::start_inner_terminal;
@@ -330,6 +334,8 @@ pub use posix::socket::connection::{
 };
 #[cfg(unix)]
 pub use posix::socket::link::{read_socket_link, remove_socket_link, replace_socket_link};
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::socket::listener::CAN_BIND_A_SOCKET_LISTENER;
 #[cfg(unix)]
 pub use posix::socket::listener::bind_socket_listener;
 #[cfg(all(unix, any(test, feature = "test-support")))]
@@ -340,6 +346,8 @@ pub use posix::socket::path::{check_socket_path, read_socket_path_entry};
 pub use posix::stop_request::StopRequest;
 #[cfg(unix)]
 pub use posix::system_locale::{system_hour_cycle, system_locale};
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::terminal::DOES_TERMINAL_OUTLIVE_ITS_LEADER;
 #[cfg(unix)]
 pub use posix::terminal::{
     DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
@@ -359,6 +367,8 @@ pub use posix::thread_cpu_time::thread_cpu_time;
 pub use posix::uptime::uptime_line;
 #[cfg(unix)]
 pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
+#[cfg(any(test, feature = "test-support"))]
+pub use process_containment::CAN_TAKE_IN_ORPHANS;
 pub use process_containment::{
     ShellContainment, contain_daemon_descendants, end_leftover_shell_containments,
     stable_working_folder, take_in_orphans,
@@ -504,11 +514,13 @@ pub use windows::shell_folder_start::SHELL_FOLDER_PROBES;
 pub use windows::shell_folder_start::shell_folder_start;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::shell_start::{
-    DOES_PARENT_DEATH_FOLLOW_STARTING_THREAD, run_shell_start_stand_in,
+    DOES_PARENT_DEATH_FOLLOW_STARTING_THREAD, DOES_POSIX_SHELL_LACK_BUILTIN,
+    run_shell_start_stand_in,
 };
 #[cfg(target_os = "windows")]
 pub use windows::shell_start::{
-    LOGIN_SHELL_ARGUMENTS, arm_parent_death, default_shell, prepare_shell_start, start_program,
+    LOGIN_SHELL_ARGUMENTS, POSIX_SHELL, arm_parent_death, default_shell, prepare_shell_start,
+    start_program,
 };
 #[cfg(target_os = "windows")]
 pub use windows::shell_start_confirmation::{ShellLaunchWriter, ShellStartConfirmation};
@@ -516,6 +528,8 @@ pub use windows::shell_start_confirmation::{ShellLaunchWriter, ShellStartConfirm
 pub use windows::socket::connection::connect_socket;
 #[cfg(target_os = "windows")]
 pub use windows::socket::link::{read_socket_link, remove_socket_link, replace_socket_link};
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::socket::listener::CAN_BIND_A_SOCKET_LISTENER;
 #[cfg(target_os = "windows")]
 pub use windows::socket::listener::bind_socket_listener;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
@@ -528,6 +542,8 @@ pub use windows::socket::unix_domain::{UnixDomainStream, connect_unix_domain_soc
 pub use windows::stop_request::StopRequest;
 #[cfg(target_os = "windows")]
 pub use windows::system_locale::{system_hour_cycle, system_locale};
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::terminal::DOES_TERMINAL_OUTLIVE_ITS_LEADER;
 #[cfg(target_os = "windows")]
 pub use windows::terminal::start_inner_terminal;
 #[cfg(target_os = "windows")]

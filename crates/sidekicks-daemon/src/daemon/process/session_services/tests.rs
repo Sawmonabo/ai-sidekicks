@@ -54,6 +54,7 @@ use crate::provider::runtime_binding::test_store::{binding_input, spawned_build}
 use crate::queue::provider_session::test_opening::test_opening_composer;
 use crate::remote::shared_ports::schema::schema_parts;
 use crate::session::directory::list_feed::SessionListFeed;
+use crate::session::plan_holds::PlanHolds;
 use crate::session::run::engine::tests::insert_running_run;
 use crate::session::run::epochs::ExecutionEpochs;
 use crate::workspace::managed::service::{ManagedWorkspaceService, managed_workspaces_folder};
@@ -101,11 +102,12 @@ async fn fixture() -> Fixture {
         None,
         tokio::sync::watch::channel(0).1,
     ));
+    let plan_holds: Arc<dyn PlanHolds> = Arc::new(StoredPlanHolds);
     let list_feed = Arc::new(SessionListFeed::new(
         Arc::clone(&reads),
         &log.followers,
         Arc::clone(&scheduler),
-        &StoredPlanHolds,
+        &*plan_holds,
     ));
     let machine = LocalMachine {
         machine_id: MachineId::new(mint_uuid_v7().to_string()).expect("a machine id"),
@@ -188,6 +190,7 @@ async fn fixture() -> Fixture {
         working_folders: Arc::clone(&folder_watch),
         git,
         list_feed,
+        plan_holds,
         payloads,
         publisher,
         spool_folder,

@@ -3,7 +3,6 @@
 //! scripts, a service of the daemon's own kind published as up and holding a connection on a
 //! `ScriptedService`, its frames and asks routed as a dialed one's are.
 
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -14,7 +13,9 @@ use futures::{SinkExt as _, StreamExt as _};
 use interprocess::local_socket::tokio::Listener;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::ProcessExit;
-use sidekicks_platforms::{ProgramStart, Spawner, bind_socket_listener};
+use sidekicks_platforms::{
+    CAN_BIND_A_SOCKET_LISTENER, ProgramStart, Spawner, bind_socket_listener,
+};
 use tempfile::TempDir;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::WebSocketStream;
@@ -339,13 +340,11 @@ pub(crate) fn drop_service_connection(service: &Arc<CodexService>) {
         .dropped("the test dropped the connection");
 }
 
-/// A listener at `socket`, or `None` where the system binds no local socket for a test.
+/// A listener at `socket`, or `None` where the system binds no local socket listener. Panics
+/// where a bind the system offers fails.
 pub(crate) fn bind_test_listener(socket: &Path) -> Option<Listener> {
-    match bind_socket_listener(socket) {
-        Ok(listener) => Some(listener),
-        Err(error) if error.kind() == io::ErrorKind::Unsupported => None,
-        Err(error) => panic!("the test's socket does not listen: {error}"),
-    }
+    CAN_BIND_A_SOCKET_LISTENER
+        .then(|| bind_socket_listener(socket).expect("the test's socket listens"))
 }
 
 /// The next request the daemon sent on `socket`, its notifications skipped.

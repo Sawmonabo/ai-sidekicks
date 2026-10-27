@@ -150,8 +150,8 @@ pub(crate) async fn bind_socket(
 mod tests {
     use interprocess::local_socket::traits::tokio::Listener as _;
     use sidekicks_platforms::{
-        DaemonRunFolder, SocketPathEntry, askpass_socket_path, bind_socket_listener,
-        create_private_folder, read_socket_path_entry,
+        CAN_BIND_A_SOCKET_LISTENER, DaemonRunFolder, SocketPathEntry, askpass_socket_path,
+        bind_socket_listener, create_private_folder, read_socket_path_entry,
     };
 
     use super::{RunFolderError, prepare_run_folder};
@@ -193,6 +193,9 @@ mod tests {
     // daemon's askpass socket then stays, and every later start fails as already running.
     #[tokio::test]
     async fn a_crashed_daemon_s_askpass_socket_is_removed() {
+        if !CAN_BIND_A_SOCKET_LISTENER {
+            return;
+        }
         let scratch = tempfile::tempdir().expect("a scratch folder");
         let folder_path = scratch.path().join("run");
         create_private_folder(&folder_path).expect("the run folder is made");

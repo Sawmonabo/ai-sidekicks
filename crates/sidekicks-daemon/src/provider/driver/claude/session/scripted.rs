@@ -138,6 +138,7 @@ pub(crate) fn scripted_live_session(
             ultracode: None,
         }),
         spawned_version: spawned_build(SCRIPTED_BUILD_VERSION, "/scripted/claude"),
+        resumed_binding_id: None,
         process_identity: ProviderProcessIdentity {
             process_id: 1,
             spawn_sequence: 0,

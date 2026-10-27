@@ -71,13 +71,13 @@ async fn a_turns_frames_stay_its_runs_after_the_reader_released_its_hold() {
     session.frame(&result(&json!({})));
     settle().await;
 
-    let calls = session.engine.calls();
+    assert_eq!(session.engine.first_daemon_turn_run(), None);
     assert!(
-        !calls
-            .iter()
-            .any(|call| matches!(call, EngineCall::StartDaemonTurn(_)))
+        session
+            .engine
+            .calls()
+            .contains(&EngineCall::CountStep(run_id))
     );
-    assert!(calls.contains(&EngineCall::CountStep(run_id)));
     assert_eq!(
         session.engine.moves_of_run(run_id),
         [RunStateEntry::Completed {

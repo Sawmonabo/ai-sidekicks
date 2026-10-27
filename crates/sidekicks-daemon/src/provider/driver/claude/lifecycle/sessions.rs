@@ -51,11 +51,12 @@ impl ClaudeDriver {
         &self,
         params: ResumeSessionParams,
     ) -> Result<DriverResumeResult, DriverError> {
-        Ok(self.parts()?.establishment.resume(params).await)
+        Ok(self.parts()?.establishment.resume(params).await.result)
     }
 
     /// The person's restart of a session whose process stayed down: its crash window and any
-    /// restart still waiting are dropped, it resumes, and the person is told it runs again.
+    /// restart still waiting are dropped, it resumes, and the person is told it runs again unless
+    /// the process a relaunch brought up answered it.
     pub(crate) async fn restart_session(
         &self,
         params: ResumeSessionParams,
@@ -63,11 +64,11 @@ impl ClaudeDriver {
         let parts = self.parts()?;
         let session_id = params.session_id;
         parts.restarts.clear_crash_window(session_id);
-        let result = parts.establishment.resume(params).await;
-        if matches!(result, DriverResumeResult::Resumed { .. }) {
+        let answer = parts.establishment.resume(params).await;
+        if answer.has_started_process {
             parts.restarts.report_restarted(session_id, true).await;
         }
-        Ok(result)
+        Ok(answer.result)
     }
 
     /// Moves the session onto a fork of its conversation; see the establishment's fork.

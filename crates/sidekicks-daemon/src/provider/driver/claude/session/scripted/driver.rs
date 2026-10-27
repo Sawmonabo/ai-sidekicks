@@ -18,6 +18,7 @@ use sidekicks_contracts::provider::account::record::{CredentialGeneration, Provi
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tempfile::TempDir;
@@ -58,11 +59,12 @@ use crate::provider::runtime_binding::store::{RuntimeBinding, RuntimeBindingSpaw
 const POOL_STATEMENT_CAPACITY: usize = 16;
 
 // Every session runs in one folder, and every account on the folders given, else on the person's
-// own home, with the advisor the session store recorded as its own.
+// own home, with the advisor the session store recorded as its own and the step bound set last.
 struct FolderContexts {
     work: PathBuf,
     account_folders: Option<ProviderAccountFolders>,
     advisors: Arc<RecordedAdvisors>,
+    step_bound: Arc<Mutex<Option<SafeInt<1>>>>,
 }
 
 impl SessionSpawnContextResolver for FolderContexts {
@@ -74,6 +76,7 @@ impl SessionSpawnContextResolver for FolderContexts {
         let working_directory = self.work.clone();
         let account_folders = provider_account_id.and(self.account_folders.clone());
         let advisor_model = lock(&self.advisors.advisors).get(&session_id).cloned();
+        let step_bound = *lock(&self.step_bound);
         async move {
             Ok(SessionSpawnContext {
                 working_directory,
@@ -81,7 +84,7 @@ impl SessionSpawnContextResolver for FolderContexts {
                 every_project_rows: Vec::new(),
                 project_rows: Vec::new(),
                 account_folders,
-                step_bound: None,
+                step_bound,
                 advisor_model,
             })
         }
@@ -188,6 +191,8 @@ pub(crate) struct ScriptedDriver {
     pub(crate) relaunches: Arc<RecordedRelaunches>,
     /// The advisors its spawn contexts answer, which a test registers as the session store.
     pub(crate) advisors: Arc<RecordedAdvisors>,
+    /// The step bound its spawn contexts answer for every session; `None` until a test sets one.
+    pub(crate) step_bound: Arc<Mutex<Option<SafeInt<1>>>>,
     /// The shared services it was built over.
     pub(crate) services: DriverServices,
     /// The person's home.
@@ -237,12 +242,14 @@ impl ScriptedDriver {
         };
         let ports = &base.ports;
         let advisors = Arc::new(RecordedAdvisors::default());
+        let step_bound = Arc::new(Mutex::new(None));
         ports
             .spawn_contexts
             .register(Arc::new(FolderContexts {
                 work: work.clone(),
                 account_folders,
                 advisors: Arc::clone(&advisors),
+                step_bound: Arc::clone(&step_bound),
             }))
             .expect("the spawn contexts register once");
         let recording = Arc::new(RecordingPorts::default());
@@ -285,6 +292,7 @@ impl ScriptedDriver {
             attachments,
             relaunches,
             advisors,
+            step_bound,
             services: base,
             home,
             work,

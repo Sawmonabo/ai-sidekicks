@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use rstest::rstest;
 use sidekicks_contracts::machine::settings::ProviderRowValue;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, ProviderValueText};
 use sidekicks_contracts::wire::record::Record;
 
@@ -107,21 +108,34 @@ enum RelaunchResume {
     OtherConversation,
     // The relaunched conversation at another level.
     OtherLevel,
+    // The relaunched conversation on another account.
+    OtherAccount,
 }
 
 // Killed by a resume refused while a restart's relaunch holds the slot establishing, by one
-// answering the relaunched process for another conversation, and by one answering it at another
-// level than asked, which would leave the session on the relaunch's level.
+// answering the relaunched process for another conversation, by one answering it at another level
+// or on another account than asked (dropping the account from the comparison), which would leave
+// the session on the relaunch's, and by an answer on a binding other than the relaunch's own.
 #[rstest]
 #[case::same(RelaunchResume::Same)]
 #[case::other_conversation(RelaunchResume::OtherConversation)]
 #[case::other_level(RelaunchResume::OtherLevel)]
+#[case::other_account(RelaunchResume::OtherAccount)]
 #[tokio::test(start_paused = true)]
 async fn a_resume_during_a_relaunch_answers_the_relaunched_session_only_as_asked(
     #[case] ask: RelaunchResume,
 ) {
     let fixture = ScriptedDriver::new();
-    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let session_id = new_session_id();
+    let created = create_params(session_id);
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    fixture
+        .driver
+        .create_session(created.clone())
+        .await
+        .expect("the session opens");
     let first = fixture.next_start().await;
     let relaunched = Arc::new(ScriptedChannel::default());
     fixture.starts.script_session(Arc::clone(&relaunched));
@@ -138,15 +152,26 @@ async fn a_resume_during_a_relaunch_answers_the_relaunched_session_only_as_asked
         .starts
         .script_session(Arc::new(ScriptedChannel::default()));
     let params = ResumeSessionParams {
+        agent_id: created.agent_id,
         resume_handle: match ask {
             RelaunchResume::OtherConversation => "another conversation".to_owned(),
-            RelaunchResume::Same | RelaunchResume::OtherLevel => relaunched_conversation.clone(),
+            RelaunchResume::Same | RelaunchResume::OtherLevel | RelaunchResume::OtherAccount => {
+                relaunched_conversation.clone()
+            }
         },
         execution_posture: match ask {
             RelaunchResume::OtherLevel => None,
-            RelaunchResume::Same | RelaunchResume::OtherConversation => {
-                create_params(session_id).execution_posture
+            RelaunchResume::Same
+            | RelaunchResume::OtherConversation
+            | RelaunchResume::OtherAccount => created.execution_posture.clone(),
+        },
+        provider_account_id: match ask {
+            RelaunchResume::OtherAccount => {
+                Some(ProviderAccountId::new("other".to_owned()).expect("an account id"))
             }
+            RelaunchResume::Same
+            | RelaunchResume::OtherConversation
+            | RelaunchResume::OtherLevel => None,
         },
         ..resume_params(session_id)
     };
@@ -167,12 +192,28 @@ async fn a_resume_during_a_relaunch_answers_the_relaunched_session_only_as_asked
             assert!(started.is_empty());
             assert!(!is_relaunch_closed);
         }
-        RelaunchResume::Same | RelaunchResume::OtherLevel => {
-            let DriverResumeResult::Resumed { resume_handle, .. } = &resumed else {
+        RelaunchResume::Same | RelaunchResume::OtherLevel | RelaunchResume::OtherAccount => {
+            let DriverResumeResult::Resumed {
+                resume_handle,
+                binding_id,
+                ..
+            } = &resumed
+            else {
                 unreachable!("the resume answers the relaunched conversation: {resumed:?}")
             };
             assert_eq!(resume_handle.as_str(), relaunched_conversation);
-            let is_brought_up_again = matches!(ask, RelaunchResume::OtherLevel);
+            let is_brought_up_again = matches!(
+                ask,
+                RelaunchResume::OtherLevel | RelaunchResume::OtherAccount
+            );
+            let live = fixture
+                .driver
+                .composed_parts()
+                .expect("composed")
+                .slots()
+                .live_session(session_id)
+                .expect("the session runs");
+            assert_eq!(live.resumed_binding_id.as_ref(), Some(binding_id));
             assert_eq!(is_relaunch_closed, is_brought_up_again);
             assert_eq!(started.len(), usize::from(is_brought_up_again));
             assert!(started.iter().all(|start| matches!(

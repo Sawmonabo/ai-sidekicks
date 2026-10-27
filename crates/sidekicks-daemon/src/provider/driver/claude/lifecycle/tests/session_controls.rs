@@ -1,5 +1,5 @@
 //! The session controls that run beside a session's own turns, reached through the driver: a side
-//! question, the staged review and a run started through the driver interface.
+//! question, the staged review, a run started through the driver interface and a fork.
 
 use std::sync::Arc;
 
@@ -11,8 +11,10 @@ use sidekicks_contracts::session::controls::methods::{
 };
 use sidekicks_contracts::wire::BoolLiteral;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::{resume_params, start_params};
+use crate::mutex_lock::lock;
 use crate::policy::execution_posture_service::compose_execution_posture;
 use crate::provider::driver::claude::lifecycle::ClaudeDriver;
 use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel;
@@ -21,7 +23,7 @@ use crate::provider::driver::claude::session::scripted::driver::{
 };
 use crate::provider::driver::claude::session::scripted::starts::ScriptedOneTurnRecord;
 use crate::provider::driver::claude::session::scripted::{
-    SCRIPTED_PROVIDER_SESSION_ID, hand_scripted_frame, settle,
+    SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, settle,
 };
 use crate::provider::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::provider::driver::claude::session::transport::declarations::{
@@ -32,7 +34,8 @@ use crate::provider::driver::claude::spawn::launch::one_turn::ClaudeOneTurnReply
 use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::driver::run_control::InterruptRunRequest;
 use crate::provider::driver::session_control::{
-    AskSideQuestionParams, CloseSessionParams, CreateSessionParams, StartReviewParams,
+    AskSideQuestionParams, CloseSessionParams, CreateSessionParams, MoveSessionToForkParams,
+    StartReviewParams,
 };
 use crate::provider::driver::test_registry::{new_run_id, new_session_id};
 use crate::provider::port::run_host::test_host::EngineCall;
@@ -94,7 +97,10 @@ async fn a_stop_ends_the_staged_review_apart_from_the_session_process() {
         })
         .await
         .expect("the review starts");
-    let run_id = daemon_turn_run(&fixture).expect("the review's run was started");
+    let run_id = fixture
+        .engine
+        .first_daemon_turn_run()
+        .expect("the review's run was started");
     fixture
         .driver
         .interrupt_run(InterruptRunRequest {
@@ -214,23 +220,6 @@ fn answered(fixture: &ScriptedDriver) -> usize {
         .iter()
         .filter(|delivery| delivery.kind == "sessionEvent")
         .count()
-}
-
-// The run of the first turn the daemon or Claude Code started on a session itself.
-fn daemon_turn_run(fixture: &ScriptedDriver) -> Option<RunId> {
-    fixture
-        .engine
-        .calls()
-        .into_iter()
-        .find_map(|call| match call {
-            EngineCall::StartDaemonTurn(run_id) => Some(run_id),
-            EngineCall::Deliver(_)
-            | EngineCall::StartTurn(_)
-            | EngineCall::CountStep(_)
-            | EngineCall::RecordTurnEnd(..)
-            | EngineCall::EndTurnOnProcessExit(_)
-            | EngineCall::EndTurnOnClose(_) => None,
-        })
 }
 
 // The run ends the driver reported for `run_id`, in order.
@@ -449,9 +438,70 @@ async fn a_turn_claude_code_started_while_the_close_drained_ends_as_intended() {
         .expect("the session closes");
     settle().await;
 
-    let self_started = daemon_turn_run(&fixture).expect("the self-started turn's run opened");
+    let self_started = fixture
+        .engine
+        .first_daemon_turn_run()
+        .expect("the self-started turn's run opened");
     assert_eq!(
         fixture.engine.turn_ends(),
         [EngineCall::EndTurnOnClose(self_started)]
     );
+}
+
+// Killed by bringing the fork up on the step bound its predecessor started with rather than the
+// one the session holds at the fork: a limit changed after the predecessor started would never
+// reach the conversation that replaces it.
+#[tokio::test(start_paused = true)]
+async fn a_fork_starts_on_the_step_bound_the_session_holds_at_its_bring_up() {
+    let fixture = ScriptedDriver::new();
+    *lock(&fixture.step_bound) = SafeInt::new(3);
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let conversation = fixture
+        .driver
+        .composed_parts()
+        .expect("composed")
+        .slots()
+        .live_session(session_id)
+        .expect("the session is live")
+        .provider_session_id
+        .clone();
+    // Two turns, so a fork after the first has a later turn to discard.
+    let project_folder = fixture.home.join(".claude/projects/work");
+    std::fs::create_dir_all(&project_folder).expect("the project folder is made");
+    std::fs::write(
+        project_folder.join(format!("{conversation}.jsonl")),
+        concat!(
+            r#"{"type":"user","uuid":"u1","message":{"content":"first"}}"#,
+            "\n",
+            r#"{"type":"assistant","uuid":"a1","message":{"content":"one"}}"#,
+            "\n",
+            r#"{"type":"user","uuid":"u2","message":{"content":"second"}}"#,
+            "\n",
+            r#"{"type":"assistant","uuid":"a2","message":{"content":"two"}}"#,
+            "\n",
+        ),
+    )
+    .expect("the conversation is written");
+    *lock(&fixture.step_bound) = SafeInt::new(7);
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+
+    fixture
+        .driver
+        .move_session_to_fork(MoveSessionToForkParams {
+            session_id,
+            position: SafeInt::new(1).expect("1 is a position"),
+            binding_id: binding_id("lead"),
+        })
+        .await
+        .expect("the fork is answered");
+
+    let bounds: Vec<_> = fixture
+        .starts
+        .take_started()
+        .iter()
+        .map(|start| start.step_bound)
+        .collect();
+    assert_eq!(bounds, [Some(3), Some(7)]);
 }

@@ -5,7 +5,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use sidekicks_platforms::{ParentProcess, ResponsibleProcess, short_socket_folder, this_process};
+use sidekicks_platforms::{
+    CAN_BIND_A_SOCKET_LISTENER, ParentProcess, ResponsibleProcess, short_socket_folder,
+    this_process,
+};
 
 use super::{driver_on_codex_folder, listen_on_codex_folder};
 use crate::ipc::caller_process::contract::CallerProcessReader;
@@ -21,6 +24,9 @@ use crate::provider::driver::daemon_stop::DaemonStopIntent;
 // service held and answer that the caller needs the session token.
 #[tokio::test]
 async fn the_caller_check_refuses_the_process_serving_a_codex_service_the_driver_dialed() {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
     let folder = short_socket_folder().expect("a scratch folder is made");
     let (driver, services) = driver_on_codex_folder(folder.path());
     driver.is_terminal_reach_on.store(true, Ordering::Release);

@@ -6,6 +6,10 @@ use std::path::Path;
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
 
+/// Whether [`bind_socket_listener`] binds a listener: yes on macOS and Linux.
+#[cfg(any(test, feature = "test-support"))]
+pub const CAN_BIND_A_SOCKET_LISTENER: bool = true;
+
 /// Binds a listener at `socket_path`, which the caller checked with
 /// [`check_socket_path`](crate::check_socket_path). The file is removed when the listener drops.
 /// Runs inside a tokio runtime. Fails with `AddrInUse` when a socket file is already there,

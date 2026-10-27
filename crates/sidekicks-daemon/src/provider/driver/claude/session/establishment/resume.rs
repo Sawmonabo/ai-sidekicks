@@ -12,7 +12,11 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 
-use super::{ClaudeEstablishmentError, ClaudeSessionEstablishment, ClaudeSpawnRequest};
+use super::context::{CLAUDE_ADVISOR_ROW_ID, CLAUDE_OUTPUT_STYLE_ROW_ID, read_claude_row_choice};
+use super::{
+    ClaudeEstablishmentError, ClaudeResumeAnswer, ClaudeSessionEstablishment, ClaudeSessionStart,
+    ClaudeSpawnRequest,
+};
 use crate::mutex_lock::lock;
 use crate::provider::driver::claude::output_speed::resolve_claude_output_speed;
 use crate::provider::driver::claude::run::start::claude_session_unavailable;
@@ -26,18 +30,23 @@ use crate::provider::driver::claude::session::state::{
 };
 use crate::provider::driver::claude::session::ultracode::requested_claude_ultracode;
 use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
+use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::contract::{SpawnedVersionBindingCarriers, bound_failure_detail};
 use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
 
 impl ClaudeSessionEstablishment {
     /// Resumes the conversation `params` names in a fresh process, or answers the process a
-    /// bring-up it waited out left running that conversation at the settings `params` asks for;
-    /// every failure answers the `Failed` arm, nothing left running.
-    pub(crate) async fn resume(&self, params: ResumeSessionParams) -> DriverResumeResult {
+    /// bring-up it waited out left running that conversation at the settings `params` asks for,
+    /// on the binding that bring-up answered; every failure answers the `Failed` arm, nothing left
+    /// running.
+    pub(crate) async fn resume(&self, params: ResumeSessionParams) -> ClaudeResumeAnswer {
         match self.try_resume(params).await {
-            Ok(result) => result,
-            Err(error) => resume_failure(error.recovery_condition(), &error),
+            Ok(answer) => answer,
+            Err(error) => ClaudeResumeAnswer {
+                result: resume_failure(error.recovery_condition(), &error),
+                has_started_process: false,
+            },
         }
     }
 
@@ -45,7 +54,7 @@ impl ClaudeSessionEstablishment {
     async fn try_resume(
         &self,
         params: ResumeSessionParams,
-    ) -> Result<DriverResumeResult, ClaudeEstablishmentError> {
+    ) -> Result<ClaudeResumeAnswer, ClaudeEstablishmentError> {
         let session_id = params.session_id;
         if params.larger_window.is_some() {
             return Err(claude_session_unavailable(
@@ -68,12 +77,16 @@ impl ClaudeSessionEstablishment {
                     .into());
                 }
                 ClaudeResumeSlot::CameUp(live) if runs_as_asked(&live, &params) => {
-                    return answer_came_up(&live).await;
+                    return Ok(ClaudeResumeAnswer {
+                        result: answer_came_up(&live).await?,
+                        has_started_process: false,
+                    });
                 }
                 ClaudeResumeSlot::CameUp(live) => self.end_came_up(&live).await,
             }
         };
         let resume_handle = params.resume_handle.clone();
+        let binding_id = mint_binding_id();
         let request = ClaudeSpawnRequest {
             session_id,
             agent_id: params.agent_id,
@@ -88,23 +101,26 @@ impl ClaudeSessionEstablishment {
             ultracode: requested_claude_ultracode(&params.options),
             row_values: params.row_values,
         };
-        let start = self
-            .compose_start(
-                claim,
-                request,
-                resume_handle.clone(),
-                ClaudeConversationStart::Resume {
-                    resume_handle: resume_handle.clone(),
-                },
-                (
-                    params.mode,
-                    params.output_speed.map(FreeFormText::into_string),
-                ),
-                ClaudeUsageEstablishment::Resume {
-                    prior_emitted_thread_id: resume_handle.clone(),
-                },
-            )
-            .await?;
+        let start = ClaudeSessionStart {
+            resumed_binding_id: Some(binding_id.clone()),
+            ..self
+                .compose_start(
+                    claim,
+                    request,
+                    resume_handle.clone(),
+                    ClaudeConversationStart::Resume {
+                        resume_handle: resume_handle.clone(),
+                    },
+                    (
+                        params.mode,
+                        params.output_speed.map(FreeFormText::into_string),
+                    ),
+                    ClaudeUsageEstablishment::Resume {
+                        prior_emitted_thread_id: resume_handle.clone(),
+                    },
+                )
+                .await?
+        };
         // Where the conversation stood when it was resumed, read before the process adds to it.
         let session_position =
             match read_turn_count(&start.legs.spawn_environment, &resume_handle).await {
@@ -118,7 +134,10 @@ impl ClaudeSessionEstablishment {
                 }
             };
         let started = self.bring_up(start).await?;
-        Ok(resumed(session_position, resume_handle, started))
+        Ok(ClaudeResumeAnswer {
+            result: resumed(binding_id, session_position, resume_handle, started),
+            has_started_process: true,
+        })
     }
 
     // Ends a process the resume found on other settings than it asks for, the way a relaunch ends
@@ -134,11 +153,23 @@ impl ClaudeSessionEstablishment {
     }
 }
 
-// Whether `live` runs at the model, level, mode, output speed and Ultracode value `params` asks
-// for; the output speed compared as the level it resolves to, which is the one a process takes.
+// Whether `live` runs with everything `params` would start a process with: the lead, account, tool
+// servers, callback tools, helper policy, output schema, model, level, mode, output speed,
+// Ultracode value and the rows it sets. The output speed is compared as the level it resolves to,
+// which is the one a process takes; an unset row asks for nothing; the callback tools are compared
+// as the ones offered, none and an empty list alike. The status sink is the caller's per binding
+// and changes nothing a process starts with.
 fn runs_as_asked(live: &LiveClaudeSession, params: &ResumeSessionParams) -> bool {
+    let legs = &live.spawn_bound_legs;
     let settings = lock(&live.settings);
-    settings.running_model == params.model.as_str()
+    live.agent_id == params.agent_id
+        && live.admitted_provider_account_id == params.provider_account_id
+        && legs.tool_servers.as_slice() == params.tool_servers.as_deref().unwrap_or_default()
+        && legs.callback_tools.as_deref().unwrap_or_default()
+            == params.callback_tools.as_deref().unwrap_or_default()
+        && legs.subagent_policy == params.subagent_policy
+        && legs.output_schema == params.output_schema
+        && settings.running_model == params.model.as_str()
         && settings.execution_posture == params.execution_posture
         && settings.session_mode == params.mode
         && settings.applied_output_speed.as_deref()
@@ -147,9 +178,14 @@ fn runs_as_asked(live: &LiveClaudeSession, params: &ResumeSessionParams) -> bool
                 .as_ref()
                 .map(|level| resolve_claude_output_speed(level.as_str()))
         && settings.ultracode_requested == requested_claude_ultracode(&params.options)
+        && read_claude_row_choice(&params.row_values, CLAUDE_OUTPUT_STYLE_ROW_ID)
+            .is_none_or(|style| style == settings.output_style)
+        && read_claude_row_choice(&params.row_values, CLAUDE_ADVISOR_ROW_ID)
+            .is_none_or(|advisor| ClaudeSessionAdvisor::of(advisor.as_deref()) == settings.advisor)
 }
 
-// The `Resumed` arm for a process a waited bring-up left running the conversation asked for.
+// The `Resumed` arm for a process a waited bring-up left running the conversation asked for, on
+// the binding its resume answered; a create's process has none, so it is answered on a new one.
 async fn answer_came_up(
     live: &LiveClaudeSession,
 ) -> Result<DriverResumeResult, ClaudeEstablishmentError> {
@@ -162,21 +198,28 @@ async fn answer_came_up(
                 source,
             })?;
     Ok(resumed(
+        live.resumed_binding_id
+            .clone()
+            .unwrap_or_else(mint_binding_id),
         session_position,
         resume_handle,
         live.spawned_version.clone(),
     ))
 }
 
-// The `Resumed` arm for a process running conversation `resume_handle`, on a binding minted for it.
+fn mint_binding_id() -> RuntimeBindingId {
+    RuntimeBindingId::new(mint_uuid_v7().to_string()).expect("a minted UUID is a binding id")
+}
+
+// The `Resumed` arm for a process running conversation `resume_handle`, on `binding_id`.
 fn resumed(
+    binding_id: RuntimeBindingId,
     session_position: SafeInt<0>,
     resume_handle: String,
     spawned_version: SpawnedVersionBindingCarriers,
 ) -> DriverResumeResult {
     DriverResumeResult::Resumed {
-        binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
-            .expect("a minted UUID is a binding id"),
+        binding_id,
         session_position,
         resume_handle: NonEmptyText::new(resume_handle)
             .expect("a resumed conversation's id is never empty"),

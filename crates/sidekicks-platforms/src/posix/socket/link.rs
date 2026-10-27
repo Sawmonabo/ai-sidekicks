@@ -63,12 +63,13 @@ mod tests {
     use std::os::unix::net::{UnixListener, UnixStream};
 
     use super::{read_socket_link, remove_socket_link, replace_socket_link};
+    use crate::short_socket_folder;
 
     // Fails when the move points the link anywhere but the new socket, leaves a temporary link
     // behind, or when the removal takes a socket that is not a link.
     #[test]
     fn a_moved_socket_link_reaches_the_new_socket_and_only_a_link_is_removed() {
-        let scratch = tempfile::tempdir_in("/tmp").expect("a scratch folder");
+        let scratch = short_socket_folder().expect("a scratch folder");
         let first = scratch.path().join("first");
         let second = scratch.path().join("second");
         let _first_listener = UnixListener::bind(&first).expect("the first socket binds");

@@ -140,6 +140,19 @@ impl RecordingRunEngine {
             .collect()
     }
 
+    /// The run of the first turn the daemon or the provider started on a session itself, if any.
+    pub(crate) fn first_daemon_turn_run(&self) -> Option<RunId> {
+        self.calls().into_iter().find_map(|call| match call {
+            EngineCall::StartDaemonTurn(run_id) => Some(run_id),
+            EngineCall::Deliver(_)
+            | EngineCall::StartTurn(_)
+            | EngineCall::CountStep(_)
+            | EngineCall::RecordTurnEnd(..)
+            | EngineCall::EndTurnOnProcessExit(_)
+            | EngineCall::EndTurnOnClose(_) => None,
+        })
+    }
+
     /// The turns ended through the engine as their process exited or their session closed, in
     /// order.
     pub(crate) fn turn_ends(&self) -> Vec<EngineCall> {

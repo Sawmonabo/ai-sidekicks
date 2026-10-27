@@ -60,6 +60,14 @@ pub fn default_shell() -> PathBuf {
 #[cfg(any(test, feature = "test-support"))]
 pub const DOES_PARENT_DEATH_FOLLOW_STARTING_THREAD: bool = cfg!(target_os = "linux");
 
+/// The POSIX shell every Unix has, which runs a line no other shell is named for: `/bin/sh`.
+pub const POSIX_SHELL: &str = "/bin/sh";
+
+/// Whether [`POSIX_SHELL`] knows no `builtin`: on Linux, whose `/bin/sh` is dash on the
+/// distributions the tests run on; not on macOS, whose `/bin/sh` is bash.
+#[cfg(any(test, feature = "test-support"))]
+pub const DOES_POSIX_SHELL_LACK_BUILTIN: bool = cfg!(target_os = "linux");
+
 /// Arms the process to end with the daemon `daemon_pid` and checks the daemon is still its parent;
 /// on Linux also clears the huge-page switch the daemon set for itself. Async-signal-safe and
 /// allocation-free, so a `Command`'s `pre_exec` calls it. Fails with `ESRCH` when the daemon is no

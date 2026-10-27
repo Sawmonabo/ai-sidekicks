@@ -235,6 +235,8 @@ impl EveryoneDenial {
 
 #[cfg(any(test, feature = "test-support"))]
 impl Drop for EveryoneDenial {
+    // `/remove:d *S-1-1-0` removes every deny-everyone entry, so an entry made both unreadable and
+    // unwritable loses both at the first drop.
     fn drop(&mut self) {
         run_icacls(&self.path, &["/remove:d", "*S-1-1-0"]).expect("the deny entry is removed");
     }

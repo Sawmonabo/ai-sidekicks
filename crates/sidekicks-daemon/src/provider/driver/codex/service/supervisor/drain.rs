@@ -202,10 +202,12 @@ fn retire_drained_service(
 #[cfg(test)]
 mod tests {
     use std::path::Path;
-    use std::process::{Child, Command, Stdio};
+    use std::process::{Child, Stdio};
     use std::sync::Arc;
 
-    use sidekicks_platforms::{CAN_SIGNAL_A_STOP, pin_child_process};
+    use sidekicks_platforms::{
+        CAN_SIGNAL_A_STOP, POSIX_SHELL, pin_child_process, shell_line_command,
+    };
 
     use super::LastingServiceDrains;
     use crate::provider::driver::codex::service::process::{
@@ -220,8 +222,8 @@ mod tests {
     fn start_recorded_shell(
         folder: &Path,
     ) -> (Child, Arc<LockedServiceRecord>, LastingCodexService) {
-        let child = Command::new("/bin/sh")
-            .args(["-c", "trap '' HUP; read never"])
+        let child = shell_line_command(Path::new(POSIX_SHELL), "trap '' HUP; read never")
+            .into_std()
             .stdin(Stdio::piped())
             .spawn()
             .expect("the shell starts");

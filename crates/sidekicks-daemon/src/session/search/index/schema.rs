@@ -12,7 +12,7 @@ use crate::session::search::index::outbox::OutboxOperation;
 use crate::session::search::index::rows::INDEXED_EVENT_TYPES_SQL;
 use crate::session::search::rowid_floors::rowid_floor_trigger_sql;
 
-/// The schema list mcp's parts end, then the search index's own part, whose triggers follow the
+/// mcp's schema list, then the search index's own part, whose triggers follow the
 /// session directory's tables they watch.
 pub(crate) fn schema_parts() -> SchemaParts {
     crate::mcp::schema::schema_parts()

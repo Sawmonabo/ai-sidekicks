@@ -34,7 +34,6 @@ use crate::highlight::colorer::{CodeHighlighter, CodeHighlighterOptions};
 use crate::interventions::service::{InterventionService, InterventionServiceDeps};
 use crate::ipc::handlers::run::safety_holds::RunSafetyHolds;
 use crate::plans::service::PlansService;
-use crate::plans::store::StoredPlanHolds;
 use crate::policy::authorizer::Authorizer;
 use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
@@ -54,6 +53,7 @@ use crate::session::changes::SessionChanges;
 use crate::session::directory::list_feed::SessionListFeed;
 use crate::session::draft_store::SessionDraftStore;
 use crate::session::links::service::SessionLinkService;
+use crate::session::plan_holds::PlanHolds;
 use crate::session::related::ranking::{RelatedRescoring, SessionRelatedRanking};
 use crate::session::run::binding_cursors::RunBindingCursors;
 use crate::session::run::engine::{RunEngine, RunEngineDeps};
@@ -110,6 +110,8 @@ pub(crate) struct SessionServiceStart {
     pub(crate) git: GitRunner,
     /// The session list's feed.
     pub(crate) list_feed: Arc<SessionListFeed>,
+    /// The plan store's holds, the same the list feed was built over, which ending a run reads.
+    pub(crate) plan_holds: Arc<dyn PlanHolds>,
     /// The artifact store's payloads, which a chat's versions are stored into.
     pub(crate) payloads: Arc<PayloadStore>,
     /// The artifact store's publisher, which a plan's record is stored through.
@@ -231,6 +233,7 @@ pub(crate) fn build_session_services(
         working_folders,
         git,
         list_feed,
+        plan_holds,
         payloads,
         publisher,
         spool_folder,
@@ -275,7 +278,7 @@ pub(crate) fn build_session_services(
                 event_log: Arc::clone(&event_log),
                 execution_postures,
                 providers: Arc::clone(&providers),
-                plan_holds: Arc::new(StoredPlanHolds),
+                plan_holds,
             },
             engine.clone(),
         );

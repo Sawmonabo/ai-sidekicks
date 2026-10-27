@@ -4,7 +4,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::json;
 use sidekicks_platforms::{
-    CAN_LINK_A_SOCKET, bind_socket_listener, read_socket_link, replace_socket_link,
+    CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, bind_socket_listener, read_socket_link,
+    replace_socket_link, short_socket_folder,
 };
 
 use super::stand_in::{
@@ -26,11 +27,10 @@ use crate::provider::driver::daemon_stop::DaemonStopIntent;
 // service.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_home_socket_follows_the_service_that_holds_it() {
-    if !CAN_LINK_A_SOCKET {
+    if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    // The home's socket path must fit the system's bound on socket paths.
-    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    let folder = short_socket_folder().expect("a scratch folder is made");
     let mut services = stand_in_services(folder.path(), |program| Arc::new(program));
     let startup_timeout = services.dependencies.startup_timeout;
     let home_socket = home_socket_path(&services.home.codex_home);
@@ -83,10 +83,10 @@ async fn the_home_socket_follows_the_service_that_holds_it() {
 // which leaves the home's sessions on a service that never came up.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_second_service_that_fails_to_start_leaves_the_first_the_home_s() {
-    if !CAN_LINK_A_SOCKET {
+    if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    let folder = short_socket_folder().expect("a scratch folder is made");
     let services = stand_in_services(folder.path(), |program| {
         Arc::new(FirstResolveOnly {
             program,
@@ -118,10 +118,10 @@ async fn a_second_service_that_fails_to_start_leaves_the_first_the_home_s() {
 // link names by then, here a listener the test points it at, rather than the service's own process.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_redial_reaches_the_service_s_own_socket_whatever_the_link_names() {
-    if !CAN_LINK_A_SOCKET {
+    if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    let folder = short_socket_folder().expect("a scratch folder is made");
     let services = stand_in_services(folder.path(), |program| Arc::new(program));
     let startup_timeout = services.dependencies.startup_timeout;
     let home_socket = home_socket_path(&services.home.codex_home);
@@ -164,10 +164,10 @@ async fn a_redial_reaches_the_service_s_own_socket_whatever_the_link_names() {
 // own stop, rather than joining it through the folder's socket with no process of its own.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_crash_restart_of_the_home_s_service_never_takes_another_service_s_process() {
-    if !CAN_LINK_A_SOCKET {
+    if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    let folder = short_socket_folder().expect("a scratch folder is made");
     let mut services = stand_in_services(folder.path(), |program| Arc::new(program));
     let startup_timeout = services.dependencies.startup_timeout;
     let daemon = this_daemon(&services);
@@ -218,10 +218,10 @@ async fn a_crash_restart_of_the_home_s_service_never_takes_another_service_s_pro
 // when the switch-off lets go of the folder's service only after its wait.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_planned_restart_during_the_switch_off_leaves_the_socket_link_and_fails() {
-    if !CAN_LINK_A_SOCKET {
+    if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    let folder = short_socket_folder().expect("a scratch folder is made");
     let services = stand_in_services(folder.path(), |program| Arc::new(program));
     let home_socket = home_socket_path(&services.home.codex_home);
     std::fs::create_dir_all(home_socket.parent().expect("the link has a folder"))

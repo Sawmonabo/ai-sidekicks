@@ -27,9 +27,9 @@ pub(crate) fn this_test_program(name: &str) -> std::process::Command {
     command
 }
 
-/// The `shell` mode's stand-in a terminal test opens shells through: this test program, run with
-/// only its test `stand_in_test`, whose body calls `run_shell_start_stand_in`, which reads the
-/// launch the terminal sends and starts its shell.
+/// A stand-in for one of the daemon's own modes: this test program, run with only its test
+/// `stand_in_test`, whose body does what the mode does, such as `run_shell_start_stand_in` for the
+/// `shell` mode a terminal test opens shells through.
 pub fn pass_through_start(stand_in_test: &str) -> TestProgram {
     TestProgram {
         program: std::env::current_exe()

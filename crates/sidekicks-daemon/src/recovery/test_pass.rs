@@ -146,7 +146,7 @@ pub(crate) struct PassFixture {
     pub(crate) status: Arc<RecoveryStatusTracker>,
     /// The writer's count of live runs.
     pub(crate) live_runs: watch::Receiver<u32>,
-    /// The data folder the store's files are copied aside into, holding the copier.
+    /// The data folder the store's files are copied aside into.
     pub(crate) data_folder: TempDir,
     /// The purges damaged history asked for.
     pub(crate) purges: Arc<RecordedPurges>,

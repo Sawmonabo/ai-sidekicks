@@ -20,7 +20,6 @@ use crate::provider::driver::codex::session::test_session::{
 };
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::test_registry::new_run_id;
-use crate::provider::port::run_host::test_host::EngineCall;
 
 /// How long a test waits before it counts a hold on the session's task as a deadlock.
 const DEADLOCK_BOUND: Duration = Duration::from_secs(10);
@@ -112,11 +111,7 @@ async fn a_turn_codex_starts_while_a_run_starts_is_that_runs_in_either_order() {
             "no run of the session's own opened (frame first: {is_frame_first})"
         );
         assert!(
-            !session
-                .engine
-                .calls()
-                .iter()
-                .any(|call| matches!(call, EngineCall::StartDaemonTurn(_))),
+            session.engine.first_daemon_turn_run().is_none(),
             "the run engine started no run of the session's own (frame first: {is_frame_first})"
         );
 

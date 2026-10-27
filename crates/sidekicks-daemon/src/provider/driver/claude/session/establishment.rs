@@ -22,6 +22,7 @@ use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::session::controls::events::SessionNoticePostedPayload;
 use sidekicks_contracts::session::controls::methods::SessionMode;
@@ -89,7 +90,8 @@ use crate::provider::driver::diagnostics::DriverDiagnosticKind;
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::ports::DriverPorts;
 use crate::provider::driver::session_control::{
-    CreateSessionParams, ProviderSessionHandle, SessionToolServer, SubagentPolicy,
+    CreateSessionParams, DriverResumeResult, ProviderSessionHandle, SessionToolServer,
+    SubagentPolicy,
 };
 use crate::provider::port::registration::PortRegistrationError;
 use crate::provider::process_registry::ProviderProcessRegistry;
@@ -188,10 +190,13 @@ pub(crate) struct ClaudeSpawnSources {
     /// The one thread every child is spawned from, which also checks the command sandbox.
     pub(crate) spawner: Spawner,
     /// Points the session's binding at the conversation it moved onto.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start registers the Claude driver, whose fork points the session's \
-                  binding at its new conversation through it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start registers the Claude driver, whose fork points the \
+                      session's binding at its new conversation through it"
+        )
     )]
     pub(crate) runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
     /// The read pool, for the session's stored settings.
@@ -289,6 +294,17 @@ struct ClaudeSessionStart {
     model_check: ClaudeModelCheck,
     ultracode: Option<bool>,
     step_bound: Option<SafeInt<1>>,
+    // The binding a resume answers once the process is up; `None` for a create or a fork.
+    resumed_binding_id: Option<RuntimeBindingId>,
+}
+
+/// A resume's result, and whether the resume brought the process it answers up itself.
+pub(crate) struct ClaudeResumeAnswer {
+    /// The result the driver answers.
+    pub(crate) result: DriverResumeResult,
+    /// Whether the resume started a process: `false` when it failed or answered one a transition
+    /// it waited out left running, as a restart's relaunch does.
+    pub(crate) has_started_process: bool,
 }
 
 /// What a resume or create asks a spawn to start with, beside its legs.
@@ -451,6 +467,7 @@ impl ClaudeSessionEstablishment {
             model_check: ClaudeModelCheck::Checked,
             ultracode: request.ultracode,
             step_bound,
+            resumed_binding_id: None,
         })
     }
 
@@ -489,6 +506,7 @@ impl ClaudeSessionEstablishment {
             model_check,
             ultracode,
             step_bound,
+            resumed_binding_id,
         } = start;
         let session_id = legs.session_id;
         let sources = &self.sources;
@@ -626,6 +644,7 @@ impl ClaudeSessionEstablishment {
             task_ended: SetOnce::new(),
             served_bindings: Mutex::default(),
             spawned_version: started.spawned_version.clone(),
+            resumed_binding_id,
             spawn_bound_legs: legs,
         });
         if let Err(error) = before_install(&live).await {

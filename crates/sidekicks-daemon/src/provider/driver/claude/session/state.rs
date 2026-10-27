@@ -169,10 +169,13 @@ pub(crate) struct LiveClaudeSession {
     /// What the process's `initialize` reply declared.
     pub(crate) initialize: ClaudeInitializeDeclaration,
     /// The style descriptions and advisors Claude Code offers, kept across a rewind.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start registers the Claude driver, whose `/output-style` and \
-                  `/advisor` answers and rewind read it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start registers the Claude driver, whose `/output-style` and \
+                      `/advisor` answers and rewind read it"
+        )
     )]
     pub(crate) command_choices: ClaudeHeldCommandChoices,
     /// The account the process was admitted against, captured when it came up, since the
@@ -182,6 +185,9 @@ pub(crate) struct LiveClaudeSession {
     pub(crate) settings: Mutex<ClaudeLiveSettings>,
     /// The build that runs the process, which a resume that found it already up answers.
     pub(crate) spawned_version: SpawnedVersionBindingCarriers,
+    /// The binding the resume that brought the process up answered, which a resume that finds it
+    /// already up answers again; `None` for a create's or a fork's, whose binding the daemon holds.
+    pub(crate) resumed_binding_id: Option<RuntimeBindingId>,
     /// The process's identity in the daemon's spawn count, removed from the process registry at
     /// its exit.
     pub(crate) process_identity: ProviderProcessIdentity,

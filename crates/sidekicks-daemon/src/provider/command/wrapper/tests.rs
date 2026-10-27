@@ -7,8 +7,9 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
 use sidekicks_platforms::{
-    LeftoverSweep, TerminalSignal, create_file_atomically, harness_test_name, name_program,
-    pin_running_process, read_child_exit, send_signal, wait_for_exit,
+    CAN_TAKE_IN_ORPHANS, DOES_POSIX_SHELL_LACK_BUILTIN, DOES_TERMINAL_OUTLIVE_ITS_LEADER,
+    LeftoverSweep, POSIX_SHELL, TerminalSignal, create_file_atomically, harness_test_name,
+    name_program, pin_running_process, read_child_exit, send_signal, wait_for_exit,
 };
 
 use super::{COMMAND_PROVIDER_VARIABLE, run_command_wrapper_with};
@@ -116,12 +117,12 @@ fn prefixing_provider() -> &'static str {
 }
 
 /// This binary started as a wrapper over the one `line` that provider hands it, its line's shell
-/// named `/bin/sh`.
+/// named the POSIX shell.
 fn line_wrapper(line: &str) -> Command {
     let mut command = wrapper(&[line], None);
     command
         .env(COMMAND_PROVIDER_VARIABLE, prefixing_provider())
-        .env("SHELL", "/bin/sh");
+        .env("SHELL", POSIX_SHELL);
     command
 }
 
@@ -332,7 +333,7 @@ async fn a_terminal_command_takes_ctrl_c_the_interrupt_and_a_stop_past_an_ignore
             "process-1",
             "--tty",
             "--",
-            "/bin/sh",
+            POSIX_SHELL,
             "-c",
             command,
         ]
@@ -389,7 +390,7 @@ async fn a_relayed_command_takes_one_interrupt_and_a_stop_ends_its_whole_group()
             "--process",
             "process-1",
             "--",
-            "/bin/sh",
+            POSIX_SHELL,
             "-c",
             "trap 'echo interrupted' INT; sleep 30 & echo \"background $!\"; echo ready; \
              while :; do wait; done",
@@ -452,9 +453,9 @@ async fn a_stopped_command_still_takes_the_daemon_s_stop() {
     for is_tty in [false, true] {
         let mut own = vec!["--conversation", "conversation", "--process", "process-1"];
         if is_tty {
-            own.extend(["--tty", "--", "/bin/sh", "-c", TICKING_COMMAND]);
+            own.extend(["--tty", "--", POSIX_SHELL, "-c", TICKING_COMMAND]);
         } else {
-            own.extend(["--", "/bin/sh", "-c", SELF_STOPPING_COMMAND]);
+            own.extend(["--", POSIX_SHELL, "-c", SELF_STOPPING_COMMAND]);
         }
         let mut command = wrapper(&own, is_tty.then_some(stand_in.as_path()));
         with_channel(&mut command, &channel);
@@ -486,9 +487,9 @@ fn a_passed_on_hangup_ends_a_stopped_command() {
     for is_tty in [false, true] {
         let mut own = vec!["--conversation", "conversation", "--process", "process-1"];
         if is_tty {
-            own.extend(["--tty", "--", "/bin/sh", "-c", TICKING_COMMAND]);
+            own.extend(["--tty", "--", POSIX_SHELL, "-c", TICKING_COMMAND]);
         } else {
-            own.extend(["--", "/bin/sh", "-c", SELF_STOPPING_COMMAND]);
+            own.extend(["--", POSIX_SHELL, "-c", SELF_STOPPING_COMMAND]);
         }
         let mut child = wrapper(&own, is_tty.then_some(stand_in.as_path()))
             .spawn()
@@ -531,7 +532,7 @@ fn a_terminal_command_s_last_output_all_reaches_a_slow_provider_terminal() {
             "process-1",
             "--tty",
             "--",
-            "/bin/sh",
+            POSIX_SHELL,
             "-c",
             &format!("head -c {OUTPUT_BYTES} /dev/zero | tr '\\0' z"),
         ],
@@ -560,11 +561,13 @@ fn a_terminal_command_s_last_output_all_reaches_a_slow_provider_terminal() {
 // process that ignores its hangup holds the terminal open, so the wrapper waits out the drain's
 // cap: Linux sends no hangup to a terminal at its leader's exit, where macOS revokes it. Mutation:
 // drop the wake at the command's exit. The harness inside writes nothing to the terminal, so no
-// late output of its own can keep the copier reading past the exit. Run on Linux, in the container
-// leg.
-#[cfg(target_os = "linux")]
+// late output of its own can keep the copier reading past the exit.
 #[test]
 fn a_terminal_command_s_exit_wakes_the_output_copier_past_a_background_holder() {
+    // A terminal its leader's exit revokes ends the holder's hold itself.
+    if !DOES_TERMINAL_OUTLIVE_ITS_LEADER {
+        return;
+    }
     let folder = tempfile::tempdir().expect("a folder");
     let stand_in = write_stand_in(folder.path(), true);
     // A shell without job control gives a background command `/dev/null` for its input, so the
@@ -577,7 +580,7 @@ fn a_terminal_command_s_exit_wakes_the_output_copier_past_a_background_holder() 
             "process-1",
             "--tty",
             "--",
-            "/bin/sh",
+            POSIX_SHELL,
             "-c",
             "(trap '' HUP; exec sleep 5) </dev/tty & echo \"done $!\" >/dev/tty",
         ],
@@ -628,10 +631,12 @@ fn a_channel_the_wrapper_cannot_join_says_its_command_runs_uncovered() {
 
 // Fails when a line that is no agent's command starts as the orphans' subreaper, which its
 // program then stays across the exec. Mutation: call `take_in_orphans` before the form is read.
-// Run on Linux, in the container leg.
-#[cfg(target_os = "linux")]
 #[test]
 fn a_hook_line_starts_with_no_subreaper_set() {
+    // A system with no child subreaper has none to leave set.
+    if !CAN_TAKE_IN_ORPHANS {
+        return;
+    }
     let reader = "python3 -c 'import ctypes; libc = ctypes.CDLL(None); value = ctypes.c_int(); \
                   libc.prctl(37, ctypes.byref(value)); print(value.value)'";
     let (is_success, output, errors) = run_to_end(line_wrapper(reader));
@@ -640,11 +645,13 @@ fn a_hook_line_starts_with_no_subreaper_set() {
 }
 
 // Fails when an agent's line runs under `/bin/sh` where the provider named bash, which on Linux is
-// dash and knows no `builtin`. Mutation: run every line with `FALLBACK_SHELL`. Run on Linux, in
-// the container leg.
-#[cfg(target_os = "linux")]
+// dash and knows no `builtin`. Mutation: run every line with `POSIX_SHELL`.
 #[test]
 fn an_agent_line_runs_with_the_shell_the_provider_named() {
+    // A `/bin/sh` that knows `builtin` runs the line as bash would.
+    if !DOES_POSIX_SHELL_LACK_BUILTIN {
+        return;
+    }
     let folder = tempfile::tempdir().expect("a folder");
     let line = format!(
         "{{ \\builtin test -n \"${{X-}}\" && \\builtin export Y=\"$X\"; }} && {}",

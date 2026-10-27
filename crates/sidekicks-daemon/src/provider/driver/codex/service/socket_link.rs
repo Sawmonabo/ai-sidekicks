@@ -99,11 +99,11 @@ pub(crate) fn clear_socket_link_of(
     remove_socket_link(home_link)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use sidekicks_platforms::{
-        ProcessRecord, bind_socket_listener, pin_running_process, read_socket_link,
-        replace_socket_link,
+        CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, ProcessRecord, bind_socket_listener,
+        pin_running_process, read_socket_link, replace_socket_link, short_socket_folder,
     };
 
     use super::restore_socket_link;
@@ -114,8 +114,10 @@ mod tests {
     // whose listener is gone is left.
     #[tokio::test]
     async fn the_link_moves_only_off_an_ended_service_or_a_socket_no_one_listens_on() {
-        // The socket paths must fit the system's bound on socket paths.
-        let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder");
+        if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
+            return;
+        }
+        let folder = short_socket_folder().expect("a scratch folder");
         let home_link = folder.path().join("home.sock");
         let held_socket = folder.path().join("held.sock");
         let real_socket = folder.path().join("real.sock");

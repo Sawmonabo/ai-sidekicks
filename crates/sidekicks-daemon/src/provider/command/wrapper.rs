@@ -1,6 +1,6 @@
 //! The `sidekicks-command-wrapper` mode a provider runs every shell command through. A line that is
-//! no agent's command (a hook, a status line, a tool server's start) is run at once as
-//! `/bin/sh -c <line>` and nothing else. An agent's command is told to the daemon over the
+//! no agent's command (a hook, a status line, a tool server's start) is run at once by the POSIX
+//! shell, `sh -c <line>`, and nothing else. An agent's command is told to the daemon over the
 //! conversation's channel, started in a process group of its own (an agent's line by the shell the
 //! provider wrote it for), its stop signals passed on to that group and its end told and taken as
 //! the wrapper's own; one the provider starts with a terminal runs in a terminal the wrapper opens,
@@ -18,8 +18,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use sidekicks_platforms::{
-    TerminalSignal, end_as_child_ended, end_by_stop_signal, exec_command, name_program,
-    pass_on_stop_signals, read_child_exit, read_descriptor_path, run_foreground_job,
+    POSIX_SHELL, TerminalSignal, end_as_child_ended, end_by_stop_signal, exec_command,
+    name_program, pass_on_stop_signals, read_child_exit, read_descriptor_path, run_foreground_job,
     signal_command_group, start_in_own_group, stop_signal_number, take_in_orphans, wait_for_exit,
 };
 
@@ -41,10 +41,6 @@ pub(crate) const COMMAND_PROVIDER_VARIABLE: &str = "SIDEKICKS_COMMAND_PROVIDER";
 
 /// How long the wrapper waits for the daemon's `go` before it runs the command uncovered.
 const GO_WAIT: Duration = Duration::from_secs(10);
-
-/// The shell a line runs with where no other is named: a hook's, and an agent's line whose
-/// provider named no usable shell.
-const FALLBACK_SHELL: &str = "/bin/sh";
 
 /// The variables the wrapper and its terminal add, which the command never sees: the party's
 /// secret descriptor, and the two `alacritty_terminal` sets on the program it starts.
@@ -162,7 +158,7 @@ pub(crate) fn run_command_wrapper_with(
                 });
             match agent_command {
                 None => exec_failed(&exec_command(&mut shell_line(
-                    Path::new(FALLBACK_SHELL),
+                    Path::new(POSIX_SHELL),
                     &line,
                 ))),
                 Some((shell_variable, command)) => {
@@ -187,7 +183,7 @@ pub(crate) fn run_command_wrapper_with(
 }
 
 /// The shell `variable` names by its absolute path, which the provider wrote an agent's line for;
-/// `/bin/sh`, said on standard error, where it names none.
+/// the POSIX shell, said on standard error, where it names none.
 fn named_shell(variable: &str) -> PathBuf {
     match std::env::var_os(variable).map(PathBuf::from) {
         Some(shell) if shell.is_absolute() && shell.is_file() => shell,
@@ -195,10 +191,10 @@ fn named_shell(variable: &str) -> PathBuf {
             let named =
                 named.map_or_else(|| "nothing".to_owned(), |named| named.display().to_string());
             write_error_line(&format!(
-                "sidekicks-command-wrapper runs the command with {FALLBACK_SHELL}, \
+                "sidekicks-command-wrapper runs the command with {POSIX_SHELL}, \
                  since {variable} names {named}, no shell's absolute path"
             ));
-            PathBuf::from(FALLBACK_SHELL)
+            PathBuf::from(POSIX_SHELL)
         }
     }
 }

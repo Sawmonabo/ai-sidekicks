@@ -8,7 +8,7 @@ use sidekicks_contracts::place::{Place, WindowsPlace};
 use sidekicks_contracts::provider::declaration::{
     ProviderDeclarationId, ProviderRow, ProviderSettingControl, ProviderValue,
 };
-use sidekicks_platforms::short_socket_folder;
+use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, short_socket_folder};
 
 use super::super::CodexDriver;
 use super::{driver_on_codex_folder, listen_on_codex_folder};
@@ -75,6 +75,9 @@ async fn a_failed_switch_on_reads_off_and_leaves_the_folder_s_service_off() {
 // running service and start another in its place.
 #[tokio::test]
 async fn a_repeated_switch_on_starts_nothing_more() {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
     let folder = short_socket_folder().expect("a scratch folder is made");
     let (driver, _services) = driver_on_codex_folder(folder.path());
     listen_on_codex_folder(folder.path());

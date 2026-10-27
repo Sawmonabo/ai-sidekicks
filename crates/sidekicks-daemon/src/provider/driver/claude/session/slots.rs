@@ -480,7 +480,7 @@ mod tests {
     use std::pin::pin;
     use std::sync::{Arc, Mutex};
 
-    use super::{ClaudeCloseStart, ClaudeSessionSlots};
+    use super::{ClaudeCloseStart, ClaudeResumeSlot, ClaudeSessionSlots};
     use crate::provider::driver::claude::session::errors::{
         ClaudeSessionError, ClaudeSessionSlotState,
     };
@@ -543,6 +543,30 @@ mod tests {
         assert!(Arc::ptr_eq(close.session(), &live));
         close.finish();
         assert!(slots.claim_create(session_id).is_ok());
+    }
+
+    // Killed by a resume that refuses once its first wait settles into another transition: here a
+    // bring-up settles into a close it waits out too, then claims the empty slot.
+    #[tokio::test]
+    async fn a_resume_waits_out_each_transition_in_turn_and_claims_the_emptied_slot() {
+        let slots = ClaudeSessionSlots::new(Arc::new(|_predecessor| {}));
+        let session_id = new_session_id();
+        let live = live(session_id);
+        let bring_up = slots.claim_create(session_id).expect("the slot is free");
+
+        let mut resuming = pin!(slots.claim_resume(session_id));
+        assert!(futures::poll!(resuming.as_mut()).is_pending());
+        assert!(bring_up.install(Arc::clone(&live)).is_ok());
+        let ClaudeCloseStart::Closing(close) = slots.begin_close(session_id) else {
+            unreachable!("the installed process is the close's")
+        };
+        assert!(futures::poll!(resuming.as_mut()).is_pending());
+        close.finish();
+
+        let Ok(ClaudeResumeSlot::Claimed(claim)) = resuming.await else {
+            unreachable!("the emptied slot is the resume's")
+        };
+        assert!(claim.install(live).is_ok());
     }
 
     // Killed by restoring a rewind's predecessor live after it exited while the fork held its

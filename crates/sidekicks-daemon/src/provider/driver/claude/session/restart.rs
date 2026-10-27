@@ -309,7 +309,8 @@ impl ClaudeSessionRestarts {
     }
 
     /// Records that the session's process runs again, and tells the person when it was their own
-    /// restart that brought it back, which ends a crash loop's banner.
+    /// restart that brought it back, which ends a crash loop's banner. A resume a relaunch's
+    /// process answered reports nothing, since the relaunch reported it.
     pub(crate) async fn report_restarted(&self, session_id: SessionId, is_persons: bool) {
         emit_driver_diagnostic(&DriverDiagnosticRecord {
             provider: DESCRIPTOR.provider_id(),
@@ -425,7 +426,7 @@ impl ClaudeSessionRestarts {
             };
         };
         match self.establishment.upgrade() {
-            Some(establishment) => establishment.resume(params).await,
+            Some(establishment) => establishment.resume(params).await.result,
             None => DriverResumeResult::Failed {
                 recovery_condition: RecoveryCondition::RecoveryNeeded,
                 provider_failure_detail: bound_failure_detail(
