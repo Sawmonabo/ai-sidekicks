@@ -8306,6 +8306,7 @@ version = "0.0.0"
 dependencies = [
  "base16ct 1.0.0",
  "bytes",
+ "fast_image_resize",
  "file-format",
  "flate2",
  "futures",
@@ -8313,6 +8314,7 @@ dependencies = [
  "image",
  "image-webp",
  "jiff",
+ "pdfium-render",
  "png",
  "rstest",
  "rusqlite",
@@ -8333,12 +8335,17 @@ dependencies = [
  "tracing",
  "unicode-normalization",
  "unicode-properties",
+ "webp",
  "zune-jpeg",
 ]
 
 [[package]]
 name = "sidekicks-browser"
 version = "0.0.0"
+dependencies = [
+ "chromiumoxide_cdp",
+ "psl",
+]
 
 [[package]]
 name = "sidekicks-cli"
@@ -8486,18 +8493,11 @@ dependencies = [
  "blake3",
  "bytes",
  "cc",
- "chromiumoxide_cdp",
  "crash-handler",
- "croner",
- "csv",
- "dugong",
  "ed25519-dalek",
- "fast_image_resize",
  "ferriki-textmate",
  "ferroni",
- "flate2",
  "flexi_logger",
- "form_urlencoded",
  "futures",
  "getrandom 0.4.3",
  "h2",
@@ -8507,8 +8507,6 @@ dependencies = [
  "instant-acme",
  "interprocess",
  "jiff",
- "jsonata-core",
- "jwt-simple",
  "lettre",
  "libsqlite3-sys",
  "llrt_buffer",
@@ -8519,13 +8517,9 @@ dependencies = [
  "minidump-processor",
  "minidump-unwind",
  "minidumper",
- "opentelemetry-proto",
  "p256 0.14.0",
  "pasetors",
- "pdfium-render",
- "percent-encoding",
  "proptest",
- "psl",
  "quick_cache",
  "regex",
  "reqwest",
@@ -8535,7 +8529,6 @@ dependencies = [
  "rustls-platform-verifier",
  "secrecy",
  "serde",
- "serde-saphyr",
  "serde_json",
  "sha2 0.11.1",
  "sha3 0.12.0",
@@ -8559,23 +8552,18 @@ dependencies = [
  "standardwebhooks",
  "strum 0.28.0",
  "sysinfo",
- "tar",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-rustls",
  "tokio-util",
- "toml_edit",
  "tracing",
  "tracing-subscriber",
  "url",
  "uuid",
  "walkdir",
  "web-push-native",
- "webp",
  "x-wing",
- "yaml-edit",
- "zip",
 ]
 
 [[package]]
@@ -8591,9 +8579,11 @@ name = "sidekicks-ipc"
 version = "0.0.0"
 dependencies = [
  "bytes",
+ "form_urlencoded",
  "futures",
  "garde",
  "interprocess",
+ "percent-encoding",
  "regex",
  "rstest",
  "rusqlite",
@@ -8619,6 +8609,8 @@ dependencies = [
  "axum",
  "bytes",
  "futures",
+ "jwt-simple",
+ "p256 0.14.0",
  "process-wrap",
  "reqwest",
  "rmcp",
@@ -8736,6 +8728,7 @@ dependencies = [
  "memchr",
  "mockall",
  "notify",
+ "opentelemetry-proto",
  "process-wrap",
  "proptest",
  "regex",
@@ -8763,6 +8756,7 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "toml",
+ "toml_edit",
  "tracing",
  "tracing-subscriber",
  "typify",
@@ -8920,6 +8914,7 @@ dependencies = [
  "getrandom 0.4.3",
  "reflink-copy",
  "rstest",
+ "serde-saphyr",
  "sidekicks-contracts",
  "sidekicks-platforms",
  "tempfile",
@@ -8928,6 +8923,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "unicode-segmentation",
+ "yaml-edit",
 ]
 
 [[package]]
@@ -8985,10 +8981,16 @@ name = "sidekicks-workflow"
 version = "0.0.0"
 dependencies = [
  "blake3",
+ "croner",
+ "csv",
+ "dugong",
+ "flate2",
  "futures",
  "garde",
  "jiff",
+ "jsonata-core",
  "proptest",
+ "rquickjs",
  "rstest",
  "rusqlite",
  "schemars 1.2.3",
@@ -8999,9 +9001,11 @@ dependencies = [
  "sidekicks-ipc",
  "sidekicks-store",
  "sidekicks-workspace",
+ "tar",
  "thiserror 2.0.21",
  "tokio",
  "uuid",
+ "zip",
 ]
 
 [[package]]

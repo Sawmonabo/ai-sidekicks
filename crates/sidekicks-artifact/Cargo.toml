@@ -7,18 +7,28 @@ description = "Artifacts and plans: publishing, ingesting and storing what a run
 license.workspace = true
 publish.workspace = true
 
+[package.metadata.cargo-shear]
+ignored = [
+  # An attachment's picture, its first page and its covered copy.
+  "fast_image_resize",
+  "pdfium-render",
+  "webp",
+]
+
 [lib]
 doctest = false
 
 [dependencies]
 base16ct.workspace = true
 bytes.workspace = true
+fast_image_resize.workspace = true
 file-format.workspace = true
 futures.workspace = true
 gif.workspace = true
 image.workspace = true
 image-webp.workspace = true
 jiff.workspace = true
+pdfium-render.workspace = true
 png.workspace = true
 rusqlite.workspace = true
 satteri-pulldown-cmark.workspace = true
@@ -39,6 +49,7 @@ tokio.workspace = true
 tracing.workspace = true
 unicode-normalization.workspace = true
 unicode-properties.workspace = true
+webp.workspace = true
 zune-jpeg.workspace = true
 
 [dev-dependencies]

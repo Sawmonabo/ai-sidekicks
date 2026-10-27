@@ -11,21 +11,8 @@ publish.workspace = true
 ignored = [
   # The linking digits of a device link.
   "hkdf",
-  # The browser tools and Preview's pages over DevTools.
-  "chromiumoxide_cdp",
-  "psl",
-  # A workflow schedule's next run in its time zone.
-  "croner",
-  # The workflow step that parses CSV.
-  "csv",
-  # Laying out a workflow an agent wrote with no layout of its own.
-  "dugong",
   # The machine's identity key and the statements it signs.
   "ed25519-dalek",
-  # An attachment's picture, its first page and its covered copy.
-  "fast_image_resize",
-  "pdfium-render",
-  "webp",
   # The channel to each WSL 2 distribution's WSL server, the daemon the client and the WSL server
   # the server.
   "h2",
@@ -39,10 +26,7 @@ ignored = [
   "hyper-util",
   "instant-acme",
   "tokio-rustls",
-  # A workflow's expressions.
-  "jsonata-core",
-  # The MCP sign-in's keys, thumbprints and proofs.
-  "jwt-simple",
+  # The DPoP proofs on the program's control-plane calls.
   "p256",
   # The email digest of what needs the person's attention.
   "lettre",
@@ -52,45 +36,22 @@ ignored = [
   # The passkey statement checks.
   "llrt_buffer",
   "llrt_crypto",
-  # The token prices read from what the providers report.
-  "opentelemetry-proto",
+  "rquickjs",
   # The passkey relying party's and the relay channel's tokens.
   "pasetors",
-  # The redaction set built from each secret of a run.
-  "form_urlencoded",
-  "percent-encoding",
-  # The JavaScript engine of a workflow's quick code step, its file-watch trigger's path patterns
-  # and the passkey statement checks.
-  "rquickjs",
   # The relay channel: its Noise sessions and the relay's certificate check.
   "rustls-platform-verifier",
   "snow",
-  # YAML front matter, skills and the workflow step that parses YAML, read and edited in place.
-  "serde-saphyr",
-  "yaml-edit",
-  # Fetching and unpacking the tools a workflow code step runs on.
-  "flate2",
-  "tar",
-  "zip",
-  # Editing the providers' and tool servers' TOML settings in place.
-  "toml_edit",
 ]
 
 [dependencies]
 blake3.workspace = true
 bytes.workspace = true
-chromiumoxide_cdp.workspace = true
 crash-handler.workspace = true
-croner.workspace = true
-csv.workspace = true
-dugong.workspace = true
 ed25519-dalek.workspace = true
-fast_image_resize.workspace = true
 ferriki-textmate.workspace = true
 ferroni.workspace = true
-flate2.workspace = true
 flexi_logger.workspace = true
-form_urlencoded.workspace = true
 futures.workspace = true
 getrandom.workspace = true
 h2.workspace = true
@@ -100,8 +61,6 @@ hyper-util.workspace = true
 instant-acme.workspace = true
 interprocess.workspace = true
 jiff.workspace = true
-jsonata-core.workspace = true
-jwt-simple.workspace = true
 lettre.workspace = true
 # Its version is the one `rusqlite` bundles, whose SQLite the vendored shell is checked against.
 libsqlite3-sys.workspace = true
@@ -113,12 +72,8 @@ minidump.workspace = true
 minidump-processor.workspace = true
 minidump-unwind.workspace = true
 minidumper.workspace = true
-opentelemetry-proto.workspace = true
 p256.workspace = true
 pasetors.workspace = true
-pdfium-render.workspace = true
-percent-encoding.workspace = true
-psl.workspace = true
 quick_cache.workspace = true
 regex.workspace = true
 reqwest.workspace = true
@@ -128,7 +83,6 @@ rustls-platform-verifier.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true
-serde-saphyr.workspace = true
 sha2.workspace = true
 sidekicks-approval.workspace = true
 sidekicks-artifact.workspace = true
@@ -149,22 +103,17 @@ sidekicks-workspace.workspace = true
 snow.workspace = true
 strum.workspace = true
 sysinfo.workspace = true
-tar.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
 tokio-util.workspace = true
-toml_edit.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
 uuid.workspace = true
 walkdir.workspace = true
 web-push-native.workspace = true
-webp.workspace = true
-yaml-edit.workspace = true
-zip.workspace = true
 
 [dev-dependencies]
 alacritty_terminal.workspace = true

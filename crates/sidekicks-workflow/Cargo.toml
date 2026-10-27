@@ -7,13 +7,38 @@ description = "Workflows: their definitions and versions, runs, secrets and the 
 license.workspace = true
 publish.workspace = true
 
+[package.metadata.cargo-shear]
+ignored = [
+  # A workflow schedule's next run in its time zone.
+  "croner",
+  # The workflow step that parses CSV.
+  "csv",
+  # Laying out a workflow an agent wrote with no layout of its own.
+  "dugong",
+  # A workflow's expressions.
+  "jsonata-core",
+  # The JavaScript engine of a workflow's quick code step and its file-watch trigger's path
+  # patterns.
+  "rquickjs",
+  # Fetching and unpacking the tools a workflow code step runs on.
+  "flate2",
+  "tar",
+  "zip",
+]
+
 [lib]
 doctest = false
 
 [dependencies]
 blake3.workspace = true
+croner.workspace = true
+csv.workspace = true
+dugong.workspace = true
+flate2.workspace = true
 garde.workspace = true
 jiff.workspace = true
+jsonata-core.workspace = true
+rquickjs.workspace = true
 rusqlite.workspace = true
 schemars.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
@@ -23,7 +48,9 @@ sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
 sidekicks-store.workspace = true
 sidekicks-workspace.workspace = true
+tar.workspace = true
 thiserror.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 futures.workspace = true

@@ -8,6 +8,11 @@ license.workspace = true
 publish.workspace = true
 
 [package.metadata.cargo-shear]
+ignored = [
+  # The browser tools and the preview's pages over DevTools.
+  "chromiumoxide_cdp",
+  "psl",
+]
 ignored-paths = [
   # Each module's doc names what it will hold, for the browser tools and the preview.
   "src/cdp.rs",
@@ -26,6 +31,10 @@ ignored-paths = [
   "src/snapshot.rs",
   "src/tools.rs",
 ]
+
+[dependencies]
+chromiumoxide_cdp.workspace = true
+psl.workspace = true
 
 [lints]
 workspace = true
