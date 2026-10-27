@@ -11,4 +11,3 @@ pub(crate) mod run_lifecycle;
 pub(crate) mod send;
 pub(crate) mod service;
 pub(crate) mod session_lock;
-pub(crate) mod store;

@@ -1,8 +1,8 @@
 //! A session's runs: their ids, reads, `runs` rows, state transitions and their writes, the count
-//! of live runs, each run's live binding and the session's stored leg, refusals, the gates a start
-//! passes, the run engine and the seam its limit stops go through, which execution each provider
-//! delivery belongs to, the daemon's own turns, pause and resume, the provider's choices, and how a
-//! restart settles a live run.
+//! of live runs, each run's live binding and the session's stored leg, refusals, the run engine and
+//! the seam its limit stops go through, which execution each provider delivery belongs to, the
+//! daemon's own turns, pause and resume, the provider's choices, and how a restart settles a live
+//! run.
 
 pub(crate) mod agent;
 pub(crate) mod binding_cursors;
@@ -20,6 +20,7 @@ pub(crate) mod provider_choice;
 pub(crate) mod read;
 pub(crate) mod refusals;
 pub(crate) mod restart;
+pub(crate) mod schema;
 pub(crate) mod start_request;
 pub(crate) mod state_change;
 pub(crate) mod stored_leg;

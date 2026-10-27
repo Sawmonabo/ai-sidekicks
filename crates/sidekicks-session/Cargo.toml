@@ -1,0 +1,62 @@
+[package]
+name = "sidekicks-session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Sessions, the run engine, the transcript, questions, interventions, the queue store and the session directory."
+license.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+diffy.workspace = true
+futures.workspace = true
+garde.workspace = true
+ignore.workspace = true
+jiff.workspace = true
+lru.workspace = true
+notify.workspace = true
+regex.workspace = true
+rusqlite.workspace = true
+satteri-pulldown-cmark.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sidekicks-contracts.workspace = true
+sidekicks-ipc.workspace = true
+sidekicks-mcp.workspace = true
+sidekicks-platforms.workspace = true
+sidekicks-provider.workspace = true
+sidekicks-search = { workspace = true, features = ["index"] }
+sidekicks-std.workspace = true
+sidekicks-store.workspace = true
+sidekicks-terminal.workspace = true
+sidekicks-workspace.workspace = true
+strum.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+bytes.workspace = true
+mockall.workspace = true
+rstest.workspace = true
+# The documents an index holds under a row's key, for the search apply's damaged-row test.
+sidekicks-search = { workspace = true, features = ["index", "test-support"] }
+# The test database and session rows the session's tests build on.
+sidekicks-store = { workspace = true, features = ["test-support"] }
+tempfile.workspace = true
+# The paused clock the live index's and the list feed's tests drive.
+tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber.workspace = true
+
+[features]
+# Helpers other crates' tests use: the run engine built over a test database, the pause and live
+# count fixtures, the transcript's test log, the questions service's fixtures and the search
+# index's test services.
+test-support = []
+
+[lints]
+workspace = true

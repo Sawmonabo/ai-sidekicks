@@ -166,6 +166,7 @@ sidekicks-platforms.workspace = true
 sidekicks-policy.workspace = true
 sidekicks-provider.workspace = true
 sidekicks-search = { workspace = true, features = ["index"] }
+sidekicks-session.workspace = true
 sidekicks-shell.workspace = true
 sidekicks-std.workspace = true
 sidekicks-store.workspace = true
