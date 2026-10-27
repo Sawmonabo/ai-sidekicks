@@ -11,7 +11,6 @@ pub(crate) mod data_acts;
 pub mod highlight;
 pub mod interventions;
 pub mod ipc;
-pub mod mcp;
 pub mod observability;
 pub mod orchestration;
 pub mod plans;

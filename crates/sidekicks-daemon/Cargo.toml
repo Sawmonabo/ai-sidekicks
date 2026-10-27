@@ -161,6 +161,7 @@ sha2.workspace = true
 shlex.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
+sidekicks-mcp.workspace = true
 sidekicks-platforms.workspace = true
 sidekicks-policy.workspace = true
 sidekicks-provider.workspace = true

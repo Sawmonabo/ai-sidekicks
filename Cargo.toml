@@ -26,6 +26,7 @@ publish = false
 sidekicks-client = { path = "crates/sidekicks-client" }
 sidekicks-contracts = { path = "crates/sidekicks-contracts" }
 sidekicks-ipc = { path = "crates/sidekicks-ipc" }
+sidekicks-mcp = { path = "crates/sidekicks-mcp" }
 sidekicks-platforms = { path = "crates/sidekicks-platforms" }
 sidekicks-policy = { path = "crates/sidekicks-policy" }
 sidekicks-provider = { path = "crates/sidekicks-provider" }
