@@ -25,6 +25,7 @@ publish = false
 # The workspace's own crates.
 sidekicks-client = { path = "crates/sidekicks-client" }
 sidekicks-contracts = { path = "crates/sidekicks-contracts" }
+sidekicks-ipc = { path = "crates/sidekicks-ipc" }
 sidekicks-platforms = { path = "crates/sidekicks-platforms" }
 sidekicks-search = { path = "crates/sidekicks-search" }
 sidekicks-std = { path = "crates/sidekicks-std" }

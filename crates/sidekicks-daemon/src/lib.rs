@@ -26,7 +26,6 @@ pub mod pty;
 pub mod questions;
 pub mod queue;
 pub mod recovery;
-pub(crate) mod redaction;
 pub mod remote;
 pub mod session;
 pub mod transcript;

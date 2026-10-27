@@ -11,7 +11,6 @@ pub mod directory;
 pub(crate) mod draft_store;
 pub(crate) mod groups;
 pub(crate) mod links;
-pub(crate) mod not_found;
 pub(crate) mod permission_level;
 pub(crate) mod plan_holds;
 pub(crate) mod projector;
