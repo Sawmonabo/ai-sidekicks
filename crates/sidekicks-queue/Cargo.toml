@@ -30,7 +30,7 @@ rstest.workspace = true
 # The test driver registry, the mock driver, the runtime binding's test store and the unanswered
 # driver error the tests build on.
 sidekicks-provider = { workspace = true, features = ["test-support"] }
-# The run engine the tests build on.
+# The run engine and a run's stored state the tests build on.
 sidekicks-session = { workspace = true, features = ["test-support"] }
 # The pause points the tests arm.
 sidekicks-std = { workspace = true, features = ["test-support"] }

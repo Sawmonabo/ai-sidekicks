@@ -32,9 +32,9 @@ const AGENT_NOTE_EXTENSION: &str = "md";
 /// to the person. `command_refusal` is what `refuse_background_work` read from a command action's
 /// line on the ask's reader. `agent_memory_folder` is the one all-projects agent-memory folder; a
 /// file is in it when its path, every link resolved, lies beneath that folder's, so a configuration
-/// home's link to the folder counts and a link out of it does not, and a change is allowed only when
-/// every file it touches is such a note. Fails when a path cannot be resolved for a reason other
-/// than its absence.
+/// home's link to the folder counts and a link out of it does not, and a change is allowed only
+/// when every file it touches is such a note. Fails when a path cannot be resolved for a reason
+/// other than its absence.
 pub(crate) async fn answer_provider_ask(
     action: &ProviderAskAction,
     command_refusal: Option<&'static str>,
@@ -105,7 +105,10 @@ mod tests {
     // also touches a file that is no note, or by refusing a note reached through a configuration
     // home's link to the folder.
     #[rstest]
-    #[case::through_the_homes_link(&["config/agent-memory/notes.md"], Some(ProviderAskAnswer::Allow))]
+    #[case::through_the_homes_link(
+        &["config/agent-memory/notes.md"],
+        Some(ProviderAskAnswer::Allow)
+    )]
     #[case::in_the_folder(&["memory/notes.md"], Some(ProviderAskAnswer::Allow))]
     #[case::a_dot_dot_part(&["memory/../memory/notes.md"], None)]
     #[case::a_link_out_of_the_folder(&["memory/escape/notes.md"], None)]
