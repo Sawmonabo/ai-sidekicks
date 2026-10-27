@@ -1,0 +1,46 @@
+[package]
+name = "sidekicks-recovery"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Repair of what the daemon keeps after a stop: the start's checks, damaged history and the database file's repair."
+license.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+futures.workspace = true
+garde.workspace = true
+getrandom.workspace = true
+jiff.workspace = true
+memchr.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sidekicks-approval.workspace = true
+sidekicks-artifact.workspace = true
+sidekicks-contracts.workspace = true
+sidekicks-ipc.workspace = true
+sidekicks-platforms.workspace = true
+sidekicks-provider.workspace = true
+sidekicks-session.workspace = true
+sidekicks-std.workspace = true
+sidekicks-store.workspace = true
+sysinfo.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
+sidekicks-workflow.workspace = true
+sidekicks-workspace.workspace = true
+tempfile.workspace = true
+# The paused clock the recovery stall watch's tests drive.
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

@@ -9,5 +9,4 @@ pub mod ipc;
 pub mod observability;
 pub mod orchestration;
 pub mod program;
-pub mod recovery;
 pub mod remote;
