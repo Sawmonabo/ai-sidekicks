@@ -8271,6 +8271,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "sidekicks-agent"
+version = "0.0.0"
+
+[[package]]
 name = "sidekicks-approval"
 version = "0.0.0"
 dependencies = [
@@ -8331,6 +8335,10 @@ dependencies = [
  "unicode-properties",
  "zune-jpeg",
 ]
+
+[[package]]
+name = "sidekicks-browser"
+version = "0.0.0"
 
 [[package]]
 name = "sidekicks-cli"

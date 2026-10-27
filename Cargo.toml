@@ -23,8 +23,10 @@ publish = false
 # Every outside version once; members write `name.workspace = true` and add only features.
 [workspace.dependencies]
 # The workspace's own crates.
+sidekicks-agent = { path = "crates/sidekicks-agent" }
 sidekicks-approval = { path = "crates/sidekicks-approval" }
 sidekicks-artifact = { path = "crates/sidekicks-artifact" }
+sidekicks-browser = { path = "crates/sidekicks-browser" }
 sidekicks-client = { path = "crates/sidekicks-client" }
 sidekicks-contracts = { path = "crates/sidekicks-contracts" }
 sidekicks-ipc = { path = "crates/sidekicks-ipc" }
