@@ -138,7 +138,7 @@ fn lock_abandoned_paths() -> MutexGuard<'static, Vec<PathBuf>> {
 #[cfg(not(any(test, feature = "test-support")))]
 #[expect(
     clippy::unnecessary_wraps,
-    reason = "a test's read of a path it does not hold runs with no ceiling"
+    reason = "a read in a test that armed `run_without_read_ceiling` runs with no ceiling"
 )]
 fn read_ceiling(_path: &Path) -> Option<Duration> {
     Some(FILE_READ_CEILING)

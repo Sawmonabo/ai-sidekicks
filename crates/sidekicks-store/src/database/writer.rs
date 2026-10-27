@@ -259,7 +259,7 @@ pub struct DatabaseWriter {
 
 impl DatabaseWriter {
     /// Starts the writer's thread, which runs `open` and then holds its connection, and returns
-    /// once it has. Fails with the open's error, the thread already joined. A cancelled open
+    /// once it has. Fails with the open's error, the thread already joined. A canceled open
     /// joins its thread on the blocking pool while the runtime runs; at the runtime's shutdown the
     /// thread ends on its own.
     pub async fn open<OpenError>(

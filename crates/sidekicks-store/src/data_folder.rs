@@ -1,4 +1,5 @@
-//! Where the service keeps its data: one folder under the person's home.
+//! Where the service keeps its data: one folder under the person's home, and the hold one daemon
+//! keeps on it.
 
 use std::path::{Path, PathBuf};
 
