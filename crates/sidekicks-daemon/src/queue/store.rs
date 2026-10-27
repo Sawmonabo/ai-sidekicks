@@ -33,6 +33,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::sql_list::sql_list_of;
 use crate::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
@@ -599,6 +600,21 @@ pub(crate) fn take_over_interrupted_statement(
         ]),
         expected_row_count: None,
     }
+}
+
+/// The session's state as it reads through `pool` now, or `None` for a session the daemon has no
+/// row for. Fails as [`QueueItemReader::read_session_state`] does, and as the pool does.
+pub(crate) async fn read_session_state_through<Failure>(
+    pool: &DatabaseReadPool,
+    session_id: SessionId,
+) -> Result<Option<SessionState>, Failure>
+where
+    Failure: From<DatabaseReadError> + From<rusqlite::Error> + Send + 'static,
+{
+    pool.read(ReadLength::Short, move |reader| -> Result<_, Failure> {
+        Ok(QueueItemReader::new(reader).read_session_state(&session_id)?)
+    })
+    .await
 }
 
 /// Reads queue rows on the daemon's read-only connection. A stored value that does not read as its

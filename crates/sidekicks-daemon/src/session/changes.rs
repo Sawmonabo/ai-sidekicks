@@ -627,14 +627,19 @@ pub(crate) fn refuse_unchangeable_session(
     state: SessionState,
 ) -> Result<(), DomainError> {
     match state {
-        SessionState::Closed => Err(DomainError::new(
-            "The session is closed and cannot be changed.",
-            RefusalCode::SessionAlreadyClosed,
-        )
-        .with_detail(json!({ "sessionId": session_id }))),
+        SessionState::Closed => Err(session_already_closed(session_id)),
         SessionState::PurgeRequested => Err(change_refused(session_id, state)),
         SessionState::Provisioning | SessionState::Active | SessionState::Archived => Ok(()),
     }
+}
+
+/// The `session.alreadyClosed` refusal of a change to a closed session, naming it.
+pub(crate) fn session_already_closed(session_id: &SessionId) -> DomainError {
+    DomainError::new(
+        "The session is closed and cannot be changed.",
+        RefusalCode::SessionAlreadyClosed,
+    )
+    .with_detail(json!({ "sessionId": session_id }))
 }
 
 /// Refuses, with `session.changeRefused`, a session still `provisioning`: only an active or

@@ -33,6 +33,7 @@ use crate::queue::refusals::{
 use crate::queue::run_lifecycle::QueueRunLifecycle;
 use crate::queue::store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
+    read_session_state_through,
 };
 use crate::session::changes::refuse_unchangeable_session;
 use crate::session::not_found::session_not_found;
@@ -325,13 +326,7 @@ impl QueueSends {
 
     // The refusal of a session that no longer takes messages, by the state it reads now.
     async fn refuse_closed_session(&self, session_id: SessionId) -> QueueError {
-        let state = self
-            .deps
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, QueueError>(QueueItemReader::new(reader).read_session_state(&session_id)?)
-            })
-            .await;
+        let state = read_session_state_through::<QueueError>(&self.deps.pool, session_id).await;
         match state {
             Ok(Some(state)) => match refuse_unchangeable_session(&session_id, state) {
                 Err(refusal) => refusal.into(),

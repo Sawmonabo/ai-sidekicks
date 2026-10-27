@@ -20,6 +20,7 @@ use crate::daemon::process::damage_gate::{DamageReportGate, DispatchDamageWatch}
 use crate::daemon::process::jobs::IdleMemoryCollect;
 use crate::daemon::retention_methods::{RetentionMethodsDeps, register_retention_methods};
 use crate::daemon::status_methods::{StatusMethodsDeps, register_status_methods};
+use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::events::log_service::EventLogService;
 use crate::git::worktree::branch_list::BranchListReader;
 use crate::git::worktree::watch::WorkingFolderWatcher;
@@ -94,6 +95,8 @@ pub(crate) struct MethodTableServices {
     pub(crate) providers: Arc<ProviderRegistry>,
     /// Reads where a session's restart lands.
     pub(crate) restart_targets: RestartTargetReader,
+    /// The read pool a session's restart reads the session's state through.
+    pub(crate) restart_state_pool: Arc<DatabaseReadPool>,
     /// The session-wide transition lock a session's restart runs under.
     pub(crate) session_transition_lock: Arc<KeyedLock<SessionId>>,
     /// The event log, which the session and run-state subscriptions read.
@@ -179,6 +182,7 @@ pub(crate) fn register_method_tables(
         builder,
         services.providers,
         services.restart_targets,
+        services.restart_state_pool,
         services.session_transition_lock,
     )?;
     register_session_recovery_methods(builder, services.damaged_history)?;

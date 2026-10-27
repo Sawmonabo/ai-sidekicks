@@ -61,6 +61,7 @@ use crate::queue::session_lock::{QueueSessionLock, UnreleasedInterrupts};
 use crate::queue::store::summary::summary_of;
 use crate::queue::store::{
     QueueItemBody, QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
+    read_session_state_through,
 };
 use crate::session::changes::refuse_unchangeable_session;
 use crate::session::run::engine::RunEngine;
@@ -281,12 +282,7 @@ impl RunQueue {
         if let Some(saved) = self.read_saved(session_id, &key).await? {
             return Ok(created_response_of(saved));
         }
-        let state = self
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, QueueError>(QueueItemReader::new(reader).read_session_state(&session_id)?)
-            })
-            .await?;
+        let state = read_session_state_through::<QueueError>(&self.pool, session_id).await?;
         if let Some(state) = state {
             refuse_unchangeable_session(&session_id, state)?;
         }

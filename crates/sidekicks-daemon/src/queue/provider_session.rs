@@ -5,7 +5,7 @@
 //! run bindings and its level moves take the session's transition lock, so a process never opens
 //! at a level a move is about to replace, two moves never store one level while the process runs
 //! at the other, and no process opens between a close's end of the provider leg and its
-//! `session.closed` write.
+//! `session.closed` write, nor after it: an opening under the lock refuses a closed session.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -23,6 +23,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
@@ -44,6 +45,7 @@ use crate::provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch,
     RuntimeBindingSpawnConfig, RuntimeBindingStore, RuntimeBindingStoreError,
 };
+use crate::queue::store::read_session_state_through;
 use crate::session::console_state::read_session_mode;
 use crate::session::permission_level::{
     permission_level_change_statement, read_session_permission_level,
@@ -56,9 +58,9 @@ pub(crate) mod test_opening;
 #[cfg(test)]
 mod tests;
 
-/// The statements the provider sessions' reads prepare: a session's runs, their bindings, its
-/// mode and its level.
-pub(crate) const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 4;
+/// The statements the provider sessions' reads prepare: a session's state, its runs, their
+/// bindings, its mode and its level.
+pub(crate) const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 5;
 
 /// What a session's provider session opens with, composed from the session's lead as its log
 /// stands now.
@@ -152,6 +154,12 @@ pub(crate) enum ProviderSessionError {
     /// The session's newest binding holds no conversation to resume.
     #[error(transparent)]
     NotResumable(#[from] RuntimeBindingNotResumable),
+    /// The session closed, so no process opens for it.
+    #[error("session {session_id} is closed")]
+    Closed {
+        /// The session.
+        session_id: SessionId,
+    },
     /// The driver's create failed, and the binding recorded for it could not be removed.
     #[error("the provider session of session {session_id} was not created ({create}), and its \
              binding {} could not be removed", .binding_id.as_str())]
@@ -321,16 +329,23 @@ impl ProviderSessions {
 
     /// Opens the session's provider session for `run_id`, its first admitted run, when this process
     /// has not opened it: resumed from the session's newest conversation where it has one, else
-    /// created, with the binding `run_id` runs on. Fails with
-    /// [`ProviderSessionError::ResumeRefused`] for a resume the provider refused, and as the
-    /// composition, the driver or a binding's write fails, with no binding left for a create that
-    /// failed.
+    /// created, with the binding `run_id` runs on. Fails with [`ProviderSessionError::Closed`] for
+    /// a closed session, with nothing spawned, with [`ProviderSessionError::ResumeRefused`] for a
+    /// resume the provider refused, and as the composition, the driver or a binding's write fails,
+    /// with no binding left for a create that failed.
     pub(crate) async fn open(
         &self,
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), ProviderSessionError> {
         let hold = self.deps.transition_lock.acquire(session_id).await;
+        // Read under the lock, so a close that ran first has written `session.closed`, and before
+        // the opened entry, which that event's listener drops only later.
+        let state =
+            read_session_state_through::<ProviderSessionError>(&self.deps.pool, session_id).await?;
+        if state == Some(SessionState::Closed) {
+            return Err(ProviderSessionError::Closed { session_id });
+        }
         if self.lock_opened().contains_key(&session_id) {
             return Ok(());
         }

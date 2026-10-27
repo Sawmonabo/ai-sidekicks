@@ -1,7 +1,7 @@
 //! A session's provider session resumed from a conversation an earlier daemon left.
 
 use std::num::NonZeroUsize;
-use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
@@ -17,7 +17,7 @@ use tokio::sync::Notify;
 use tokio::time::timeout;
 
 use super::test_opening::{record_first_provider_capabilities, test_opening_composer};
-use super::{ProviderSessions, ProviderSessionsDeps};
+use super::{ProviderSessionError, ProviderSessions, ProviderSessionsDeps};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
@@ -26,6 +26,7 @@ use crate::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
     SessionAppendRefusal,
 };
+use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::events::session::followers::SessionEventFollowers;
 use crate::provider::driver::contract::MockProviderDriver;
 use crate::provider::driver::session_control::DriverResumeResult;
@@ -36,6 +37,7 @@ use crate::provider::runtime_binding::store::{
 use crate::provider::runtime_binding::test_store::{binding_input, spawned_build};
 use crate::questions::schema::schema_parts;
 use crate::session::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
+use crate::session::directory::row::{DirectoryEvent, directory_statements_for};
 use crate::session::run::binding_cursors::RunBindingCursors;
 use crate::session::run::engine::tests::insert_running_run;
 use crate::session::run::epochs::ExecutionEpochs;
@@ -49,18 +51,15 @@ const WAIT: Duration = Duration::from_secs(5);
 /// How long a resume that would land inside a close is given to land there.
 const CLOSE_HELD: Duration = Duration::from_millis(500);
 
-/// The session's `session.closed` events.
-const CLOSED_EVENTS_SQL: &str =
-    "SELECT count(*) FROM session_events WHERE session_id = ?1 AND type = ?2";
-
-/// What runs inside the fixture's driver resume, handed the database's path and the session.
-type ResumeHook = Box<dyn Fn(&Path, SessionId) + Send + Sync>;
+/// What runs inside the fixture's driver resume.
+type ResumeHook = Box<dyn Fn() + Send + Sync>;
 
 /// What runs as the close's `session.closed` is appended, before its write is queued.
 type ClosedAppendHook = Box<dyn Fn() + Send + Sync>;
 
 // A session an earlier daemon ran on its binding, its provider sessions and its changes sharing
-// the transition lock, over a driver that resumes the conversation and closes at once.
+// the transition lock, over a driver that resumes the conversation and closes at once; each event
+// changes the session's directory row, so a close leaves the session reading closed.
 struct Opening {
     database: TestDatabase,
     session_id: SessionId,
@@ -99,7 +98,9 @@ impl Opening {
                 EVENT_LOG_STATEMENT_CAPACITY,
             )),
             followers: Arc::new(SessionEventFollowers::default()),
-            projection_statements: None,
+            projection_statements: Some(Box::new(|envelope: &UnsequencedEventEnvelope| {
+                Ok(directory_statements_for(&DirectoryEvent::from(envelope))?)
+            })),
             refuse_session_write: Some(Box::new(
                 move |_session_id: &SessionId, event_type: &str| {
                     if event_type == SessionEventType::SessionClosed.as_str() {
@@ -135,11 +136,10 @@ impl Opening {
         let relaunched_id =
             RuntimeBindingId::new(mint_uuid_v7().to_string()).expect("a UUID is a binding id");
         let minted = relaunched_id.clone();
-        let database_path = database.path();
         let mut driver = MockProviderDriver::new();
         driver.expect_resume_session().returning(move |params| {
             assert_eq!(params.resume_handle, "conversation-1");
-            on_resume(&database_path, session_id);
+            on_resume();
             let binding_id = minted.clone();
             async move {
                 Ok(DriverResumeResult::Resumed {
@@ -193,7 +193,7 @@ impl Opening {
 // inside the open (the test times out), or by the relaunch left unrecorded.
 #[tokio::test]
 async fn open_resumes_a_conversation_and_binds_the_run_under_its_own_hold() {
-    let opening = Opening::new(Box::new(|_path, _session_id| {}), Box::new(|| {})).await;
+    let opening = Opening::new(Box::new(|| {}), Box::new(|| {})).await;
 
     timeout(
         WAIT,
@@ -229,34 +229,24 @@ async fn open_resumes_a_conversation_and_binds_the_run_under_its_own_hold() {
     );
 }
 
-// An open asked for while a close ends the session resumes only once the close's `session.closed`
-// is written, so no process comes up between the close's end of the provider leg and its event.
-// Killed by the close letting the session's transition lock go before it writes the event, or by
-// the opening taking a lock of its own: the resume then lands while the event's write is held.
+// A run admitted before a close, whose open waits out the close, is refused once the close's
+// `session.closed` is written, and no process comes up for the closed session. Killed by the open
+// no longer reading the session's state (the conversation resumes after the close), and by the
+// close letting the session's transition lock go before it writes the event, or the opening taking
+// a lock of its own (the resume lands while the event's write is held).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_open_during_a_close_resumes_only_once_the_closed_event_is_written() {
+async fn an_open_waiting_out_a_close_is_refused_and_starts_no_process() {
+    let resumes = Arc::new(AtomicUsize::new(0));
     let resumed = Arc::new(Notify::new());
-    let closed_at_resume: Arc<Mutex<Option<i64>>> = Arc::default();
     let closing = Arc::new(Notify::new());
     let (release_close, close_released) = mpsc::channel::<()>();
     let close_released = Mutex::new(close_released);
     let opening = Opening::new(
         Box::new({
+            let resumes = Arc::clone(&resumes);
             let resumed = Arc::clone(&resumed);
-            let closed_at_resume = Arc::clone(&closed_at_resume);
-            move |path: &Path, session_id: SessionId| {
-                let closed: i64 = rusqlite::Connection::open(path)
-                    .expect("the test opens its database")
-                    .query_row(
-                        CLOSED_EVENTS_SQL,
-                        [
-                            session_id.text().as_str(),
-                            SessionEventType::SessionClosed.as_str(),
-                        ],
-                        |row| row.get(0),
-                    )
-                    .expect("the closed events count");
-                *closed_at_resume.lock().expect("the record's lock holds") = Some(closed);
+            move || {
+                resumes.fetch_add(1, Ordering::SeqCst);
                 resumed.notify_one();
             }
         }),
@@ -301,14 +291,20 @@ async fn an_open_during_a_close_resumes_only_once_the_closed_event_is_written() 
         .expect("the close ends")
         .expect("the close's task ends whole")
         .expect("the session closes");
-    timeout(WAIT, open)
+    let opened = timeout(WAIT, open)
         .await
         .expect("the open ends")
-        .expect("the open's task ends whole")
-        .expect("the conversation resumes");
+        .expect("the open's task ends whole");
+    assert!(
+        matches!(
+            opened,
+            Err(ProviderSessionError::Closed { session_id: refused }) if refused == session_id
+        ),
+        "the open is refused for the closed session: {opened:?}"
+    );
     assert_eq!(
-        *closed_at_resume.lock().expect("the record's lock holds"),
-        Some(1),
-        "the resume lands after the closed event"
+        resumes.load(Ordering::SeqCst),
+        0,
+        "no process comes up for the closed session"
     );
 }
