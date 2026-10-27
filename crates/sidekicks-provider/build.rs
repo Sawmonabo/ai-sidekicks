@@ -65,11 +65,11 @@ const CODEX_SENT_TYPES: [&str; 30] = [
 const CODEX_HAND_WRITTEN_TYPES: [(&str, &str); 2] = [
     (
         "TurnStartParams",
-        "crate::codex::thread::settings::CodexTurnStartParams",
+        "crate::driver::codex::thread::settings::CodexTurnStartParams",
     ),
     (
         "ThreadSettingsUpdateParams",
-        "crate::codex::thread::settings::CodexThreadSettingsUpdateParams",
+        "crate::driver::codex::thread::settings::CodexThreadSettingsUpdateParams",
     ),
 ];
 
@@ -78,7 +78,7 @@ const CODEX_HAND_WRITTEN_TYPES: [(&str, &str); 2] = [
 /// previous page named.
 const CODEX_ITEMS_CURSOR: (&str, &str) = (
     "ThreadItemsListCursor",
-    "crate::codex::session::history::CodexItemsCursor",
+    "crate::driver::codex::session::history::CodexItemsCursor",
 );
 
 /// The member of the generated thread params that carries absent, `null` and a value as three
@@ -86,7 +86,7 @@ const CODEX_ITEMS_CURSOR: (&str, &str) = (
 const CODEX_SERVICE_TIER_CHANGE: (&str, &str, &str) = (
     "serviceTier",
     "ServiceTierChange",
-    "crate::codex::thread::settings::CodexServiceTierChange",
+    "crate::driver::codex::thread::settings::CodexServiceTierChange",
 );
 
 /// The generated file, in the build's output folder.

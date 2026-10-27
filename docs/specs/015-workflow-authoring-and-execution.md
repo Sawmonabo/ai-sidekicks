@@ -475,7 +475,7 @@ type HumanStepConfig = {
 
 ### Provider drivers (SA-15)
 
-- Every provider's driver, Claude Code's and Codex's among them, is built inside the daemon, under `crates/sidekicks-provider/src/`, and a workflow reaches MCP tools through the daemon's one MCP client, so there is no adapter package and no adapter contract. No `src/adapters/` folder inside core (C-6).
+- Every provider's driver, Claude Code's and Codex's among them, is built inside the daemon, under `crates/sidekicks-provider/src/driver/`, and a workflow reaches MCP tools through the daemon's one MCP client, so there is no adapter package and no adapter contract. No `src/adapters/` folder inside core (C-6).
 
 ### Secrets — by reference only (C-15)
 

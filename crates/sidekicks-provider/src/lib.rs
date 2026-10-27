@@ -6,8 +6,6 @@ pub mod account_homes;
 pub mod background_work;
 pub mod callback_tools;
 pub mod capability;
-mod claude;
-mod codex;
 pub mod command;
 pub mod command_search;
 pub mod compaction_wait;

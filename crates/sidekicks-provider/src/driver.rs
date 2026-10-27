@@ -1,6 +1,6 @@
 //! The driver every provider implements, the table of providers, their registry and the shared turn
-//! machinery. A provider's code stays in its own folder at the crate root; this file is the one
-//! other place that names one, in its table entry.
+//! machinery. A provider's code stays in its own folder below; this file is the one other place
+//! that names one, in its table entry.
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -38,6 +38,8 @@ use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 pub mod attachments;
 pub mod callback_tool;
 pub mod capabilities;
+mod claude;
+mod codex;
 pub mod contract;
 pub mod daemon_stop;
 pub(crate) mod delivery_dispatch;
@@ -61,7 +63,9 @@ pub(crate) mod unified_diff;
 
 // The shared session tests compose addresses with the one real addresser.
 #[cfg(any(test, feature = "test-support"))]
-pub use crate::claude::inbox_address::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
+pub use crate::driver::claude::inbox_address::{
+    ClaudeSessionInboxAddresser, PlaceInboxEnvironment,
+};
 
 /// The fixed facts a provider's driver declares about itself, the same for every installed build,
 /// account, model and session; what depends on those comes from the driver's methods.
@@ -407,12 +411,12 @@ impl ReportedVersionReading {
 /// and their drivers registered, which the daemon's start builds the registry from once.
 pub const PROVIDER_REGISTRATIONS: &[ProviderRegistration] = &[
     ProviderRegistration {
-        descriptor: &crate::claude::DESCRIPTOR,
-        build: crate::claude::build,
+        descriptor: &crate::driver::claude::DESCRIPTOR,
+        build: crate::driver::claude::build,
     },
     ProviderRegistration {
-        descriptor: &crate::codex::DESCRIPTOR,
-        build: crate::codex::build,
+        descriptor: &crate::driver::codex::DESCRIPTOR,
+        build: crate::driver::codex::build,
     },
 ];
 
