@@ -44,6 +44,9 @@ ignored = [
   "snow",
 ]
 
+[lib]
+doctest = false
+
 [dependencies]
 blake3.workspace = true
 bytes.workspace = true
